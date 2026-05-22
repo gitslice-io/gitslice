@@ -19,19 +19,20 @@ a scalable native storage and metadata system.
 
 Companion documents:
 
-- [storage.md](storage.md): storage, object model, refs, hashing, and replication
-- [core_api.md](core_api.md): gRPC services, proto messages, and gateway behavior
-- [cli_design.md](cli_design.md): native `gs` CLI, workspace behavior, and jj-inspired UX
-- [git_compatibility.md](git_compatibility.md): Git gateway, projected refs, synthetic commits, and push behavior
-- [indexing.md](indexing.md): derived indexes, events, freshness, and rebuilds
-- [execution_plan.md](execution_plan.md): implementation phases and workflow validation
+- [00_product.md](00_product.md): product overview, users, workflows, and scope
+- [02_storage.md](02_storage.md): storage, object model, refs, hashing, and replication
+- [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
+- [04_cli_design.md](04_cli_design.md): native `gs` CLI, workspace behavior, and jj-inspired UX
+- [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projected refs, synthetic commits, and push behavior
+- [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
+- [07_execution_plan.md](07_execution_plan.md): implementation phases and workflow validation
 
 Gitslice is designed to support:
 
 - Account namespaces for users and organizations
 - Repository-like slices with their own visibility and access rules
 - A single global commit graph across all slices
-- Single-slice changesets with explicit linked changesets for larger work
+- Single-slice changesets as the only submission unit
 - Sparse, virtualized workspaces
 - Changesets as the review and submission unit
 - Git clone, fetch, and push compatibility
@@ -173,11 +174,10 @@ Examples:
 
 The global namespace allows:
 
-- Linked cross-slice workflows
 - Unified history
 - Global indexing
 - Global code search
-- Cross-slice refactoring workflows through linked changesets
+- Cross-slice visibility without cross-slice submission
 - Consistent absolute paths for humans, agents, APIs, and Git projections
 
 ### 3.1 Account Identity
@@ -222,12 +222,12 @@ rule.
 A slice owned by an account may include paths from that same account.
 
 Cross-account changes are not represented as a single changeset. They require
-separate linked changesets, one per affected slice or account workflow. A slice
-must not silently mount another account's paths.
+separate independent changesets, one per affected slice or account workflow. A
+slice must not silently mount another account's paths.
 
 Future explicit cross-account collaboration can be added, but it must be modeled
-as an authorized linked-changeset workflow, not as a special namespace or a
-single cross-account changeset.
+as explicit authorization and import/export behavior, not as a special namespace
+or a single cross-account changeset.
 
 ---
 
@@ -363,14 +363,34 @@ do not grant read access by themselves; they add submit requirements for matchin
 paths. If no explicit folder policy file matches a changed path, the default
 policy is the slice's normal writer/submit authorization.
 
-Folder policy files are versioned source-tree metadata. Changing one should go
+Folder policy files are versioned source-tree metadata. Changing one goes
 through the normal changeset, review, and submit flow for the folder that owns
-the file. The metadata service indexes these files into policy rules, but the
+the file, but policy changes have stricter authorization than ordinary source
+edits. The metadata service indexes these files into policy rules, but the
 canonical source of truth remains the file at its global path.
 
-When a policy file changes, validation uses the previous accepted policy for
-that folder plus any ancestor policy files. This prevents a change from weakening
-its own approval or check requirements in the same submit.
+Policy files must not authorize their own weakening. A policy-file change is
+validated against:
+
+- the previous accepted policy at the same folder
+- every matching ancestor policy file
+- account-level policy administration rules
+
+Weakening changes require approval from the parent policy owner or an account
+admin, even if the new policy text would remove that requirement. Weakening
+includes removing required approvals or checks, broadening write permissions,
+making private paths publicable, allowing manual edits where they were
+forbidden, or reducing lock requirements.
+
+When a policy file changes, the previous accepted policy remains the validation
+authority for that submit. If the same changeset also changes ordinary files
+under the affected folder, those file edits must satisfy the stricter union of
+the old policy, ancestor policies, and the new policy. The new policy becomes
+effective only for later changesets after the policy change lands and is indexed.
+Follow-up code changes must not use a just-landed weakening to bypass review of
+already-prepared code. When a policy weakening and dependent code rollout are
+coordinated outside Gitslice, the code changes should still require explicit
+policy-owner approval under the previous policy.
 
 ### 4.5 Overlapping Slices
 
@@ -650,9 +670,10 @@ changed paths
   -> required checks
 ```
 
-Cross-slice changesets are not allowed. Work that logically spans slices should
-be represented as separate linked changesets, each scoped to its own authoring
-slice.
+Cross-slice changesets are not allowed. Work that logically spans slices must be
+split into separate independent changesets, each scoped to its own authoring
+slice. Gitslice does not provide a linked-changeset object or atomic
+coordination layer in the initial design.
 
 Cross-account changesets are not allowed in the initial design.
 
@@ -736,7 +757,7 @@ The workspace can contain multiple slices, but each file path still has one
 canonical absolute global path.
 
 The detailed native CLI and local workspace behavior is defined in
-[cli_design.md](cli_design.md).
+[04_cli_design.md](04_cli_design.md).
 
 ---
 
@@ -746,7 +767,8 @@ A changeset is the collaboration and submission object.
 
 A changeset represents a proposed change to the global source graph through one
 authoring slice. It cannot directly span multiple slices or accounts. Work that
-must move together across slices is modeled as separate linked changesets.
+must move together across slices is split into independent changesets and
+coordinated outside the changeset model.
 
 ### 7.1 Changeset Structure
 
@@ -863,8 +885,8 @@ The user-facing object remains the changeset.
 
 A changeset does not coordinate file edits across independent slices. The
 atomicity boundary is the metadata transaction for a single target ref update.
-Work that spans slices or accounts should be split into linked changesets that
-submit independently under each slice's policy.
+Work that spans slices or accounts should be split into independent changesets
+that submit under each slice's policy.
 
 ### 7.5 No Direct User Commits
 
@@ -892,7 +914,7 @@ mutable named pointers to commits and move only through conditional atomic
 updates.
 
 Detailed storage, object, path hashing, ref, and replication design lives in
-[storage.md](storage.md).
+[02_storage.md](02_storage.md).
 
 The architectural summary is:
 
@@ -911,7 +933,7 @@ Git compatibility is implemented as a projection layer. Each slice can be expose
 as a Git repository, but Git is not the native storage model.
 
 The detailed Git gateway design lives in
-[git_compatibility.md](git_compatibility.md).
+[05_git_compatibility.md](05_git_compatibility.md).
 
 The architectural summary is:
 
@@ -930,7 +952,7 @@ The architectural summary is:
 Native APIs are gRPC-first. HTTP endpoints should be exposed through
 grpc-gateway bindings where needed.
 
-The detailed gRPC service and message definitions live in [core_api.md](core_api.md).
+The detailed gRPC service and message definitions live in [03_core_api.md](03_core_api.md).
 
 The architectural summary is:
 
@@ -1226,16 +1248,19 @@ For a changeset assigned to one queue:
 3. Load latest queue definition from the target ref.
 4. Recompute changed paths, covering slices, and queue selection.
 5. Refresh approvals, roles, locks, and checks.
-6. Rebase or reapply onto latest target ref.
-7. Run required checks.
-8. Create final commit or commits.
-9. Atomically update target ref with CAS.
-10. Emit indexing events for every affected covering slice.
+6. Run required checks.
+7. Hand off to the target-ref landing sequencer.
+8. Rebase or reapply onto the latest target ref inside the sequencer lease.
+9. Revalidate freshness, policy, queues, checks, and conflicts.
+10. Create final commit or commits.
+11. Atomically update target ref with CAS.
+12. Emit indexing events for every affected covering slice.
 ```
 
-If CAS fails because another queue moved the same target ref first, the worker
-reloads the new head, reapplies the patch, and retries while preserving the
-changeset's queue position.
+If CAS fails despite the sequencer lease, the worker treats it as a stale
+sequencer/admin-intervention conflict, reloads the new head, and returns the
+changeset to a retryable queue state. It should not spin in an unbounded CAS
+retry loop.
 
 ### 12.3 Multi-Queue Submit
 
@@ -1245,7 +1270,7 @@ when multiple queue rules match within the authoring account.
 Multi-queue submit coordinates policy and ordering across the affected queues.
 It is not a cross-slice or cross-account submit protocol. For the initial design,
 a single submit still updates only one `target_ref`; work that needs independent
-slice or account workflows should be split into linked changesets.
+slice or account workflows should be split into independent changesets.
 
 Multi-queue submit uses deterministic queue leases.
 
@@ -1255,10 +1280,12 @@ Multi-queue submit uses deterministic queue leases.
 3. Wait until the changeset is runnable in every required queue.
 4. Acquire leases in sorted order.
 5. Revalidate queue definitions and covering slices.
-6. Reapply patch to latest target ref.
-7. Run union of required checks.
-8. Commit and CAS-update target ref.
-9. Release all leases.
+6. Run union of required checks.
+7. Hand off to the target-ref landing sequencer.
+8. Reapply patch to latest target ref inside the sequencer lease.
+9. Revalidate freshness, policy, queues, checks, and conflicts.
+10. Commit and CAS-update target ref.
+11. Release all leases.
 ```
 
 Sorted lease acquisition prevents deadlocks.
@@ -1279,6 +1306,11 @@ Queue files are versioned. When a queue file changes:
 
 Queue config changes should not mutate already-submitted history. They affect
 future validation and future submit attempts.
+
+Queue files are policy-bearing metadata. Changes that remove required checks,
+remove approvals, broaden matching rules, or retarget a queue must be validated
+against the previous accepted queue definition and account-level queue
+administration rules. A queue file must not authorize its own weakening.
 
 ### 12.5 Queue Conflicts
 
@@ -1304,15 +1336,40 @@ Resolution options:
 5. Abandon the changeset.
 ```
 
-### 12.6 Why Queues Still Need CAS
+### 12.6 Target-Ref Landing Sequencer
+
+Account queues remove the global queue bottleneck, but independent queues can
+still target the same accepted ref. Correctness requires one final
+linearization point per `target_ref`.
+
+The Submit Queue Service owns a fair target-ref landing sequencer for each
+target ref. Queue workers may evaluate eligibility, approvals, and checks in
+parallel, but final landing for a target ref happens through the sequencer.
+
+Sequencer responsibilities:
+
+- choose among ready queue items fairly across required queues
+- acquire a short lease for the target ref
+- reload the latest target-ref head
+- rebase or reapply the patchset
+- recompute changed paths, covering slices, policy files, and queue selection
+- verify that approvals, locks, checks, and queue eligibility are still fresh
+- publish the commit and move the ref with CAS
+
+The sequencer is not a global submit queue. It only serializes the final commit
+publication step for one target ref. Queues still define policy, ordering, and
+eligibility before handoff.
+
+### 12.7 Why Queues Still Need CAS
 
 Account queues remove the global queue bottleneck, but they do not remove the
 need for atomic ref updates.
 
 Two independent queues can land disjoint changes against the same target ref at
-roughly the same time. CAS ensures only one wins the exact head it validated
-against. The losing submitter rebases onto the new head and reruns any required
-validation before trying again.
+roughly the same time if a sequencer lease expires, an admin operation moves the
+ref, or a worker observes stale state. CAS ensures only one writer wins the exact
+head it validated against. The losing submitter returns to a retryable queue
+state and must rerun freshness validation before trying again.
 
 This gives the system both:
 
@@ -1352,7 +1409,7 @@ Indexes are derived data and should be incremental, event-driven, and
 rebuildable from source-of-truth objects.
 
 The detailed index catalog, event pipeline, freshness model, and rebuild rules
-live in [indexing.md](indexing.md).
+live in [06_indexing.md](06_indexing.md).
 
 ---
 
@@ -1429,7 +1486,7 @@ folder policy metadata indexes, and projections.
 Provides backend helpers for workspace metadata, sparse hydration, diff
 validation, and optional workspace operation records. The CLI remains
 responsible for local workspace files, local cache, and local undo behavior. See
-[cli_design.md](cli_design.md).
+[04_cli_design.md](04_cli_design.md).
 
 ### 16.5 Git Gateway
 
@@ -1452,14 +1509,14 @@ validation before CAS ref updates.
 ### 16.9 Index Service
 
 Maintains search, symbol, path history, slice coverage, build, and projection
-indexes. See [indexing.md](indexing.md).
+indexes. See [06_indexing.md](06_indexing.md).
 
 ---
 
 ## 17. Replication Architecture
 
 Replication requirements are part of the storage design. See
-[storage.md](storage.md#8-replication-architecture).
+[02_storage.md](02_storage.md#8-replication-architecture).
 
 ---
 
@@ -1492,7 +1549,7 @@ These invariants must not be violated.
 ## 19. Execution Plan
 
 Implementation phases and workflow validation have moved to
-[execution_plan.md](execution_plan.md).
+[07_execution_plan.md](07_execution_plan.md).
 
 ---
 
@@ -1523,7 +1580,7 @@ Gitslice should become a source graph platform with:
 - global-scale history and indexing
 - sparse workspaces for humans and agents
 - changeset-centered collaboration
-- single-slice changeset submission with linked changesets for larger workflows
+- single-slice changeset submission
 - native cloud storage and metadata architecture
 
 The architecture should stay simple at the conceptual boundary:

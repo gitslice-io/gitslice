@@ -1,11 +1,13 @@
 # Gitslice Execution Plan
 
 This document tracks implementation phases and workflow validation for Gitslice.
-The architecture is in [gitslice_architecture_design.md](gitslice_architecture_design.md),
-the storage design is in [storage.md](storage.md), and the gRPC API boundary is
-in [core_api.md](core_api.md). CLI behavior is in [cli_design.md](cli_design.md).
-Git compatibility is in [git_compatibility.md](git_compatibility.md). Indexing
-details are in [indexing.md](indexing.md).
+Product context is in [00_product.md](00_product.md), architecture is in
+[01_gitslice_architecture_design.md](01_gitslice_architecture_design.md), the
+storage design is in [02_storage.md](02_storage.md), and the gRPC API boundary is
+in [03_core_api.md](03_core_api.md). CLI behavior is in
+[04_cli_design.md](04_cli_design.md). Git compatibility is in
+[05_git_compatibility.md](05_git_compatibility.md). Indexing details are in
+[06_indexing.md](06_indexing.md).
 
 ## 1. MVP Phases
 
@@ -17,6 +19,7 @@ details are in [indexing.md](indexing.md).
 - Global commit graph
 - Atomic refs
 - Staged blob upload protocol
+- Reachability roots for GC
 
 Exit criteria:
 
@@ -24,6 +27,8 @@ Exit criteria:
 - Trees and commits are immutable and content-addressed where required.
 - Refs can be updated only through CAS.
 - Canonical path validation is shared by storage and API layers.
+- Storage can enumerate accepted refs, patchsets, staged blob leases, and cache
+  leases as GC roots.
 
 ### Phase 2: Slice Definitions And Projection
 
@@ -35,6 +40,7 @@ Exit criteria:
 - Slice-level visibility and roles
 - Overlapping slice coverage
 - Folder-level overlap policy union
+- Policy-file change governance
 - Deterministic projection by latest definition
 
 Exit criteria:
@@ -42,6 +48,7 @@ Exit criteria:
 - A slice can project a deterministic tree from the global commit graph.
 - Slice definition changes create new auditable definition versions.
 - Overlapping slices resolve covering slices and matching policy files.
+- Policy-file weakening cannot authorize itself or dependent code changes.
 - Projection cache keys include slice id, slice definition hash, and global commit.
 
 ### Phase 3: Workspace And Native CLI
@@ -74,6 +81,7 @@ Exit criteria:
 - Queue selection
 - Queue leases
 - Multi-queue submit coordination
+- Per-target-ref landing sequencer
 - Atomic ref update
 
 Exit criteria:
@@ -81,6 +89,7 @@ Exit criteria:
 - A changeset is scoped to one authoring slice.
 - Each update creates an immutable patchset.
 - Submit recomputes coverage, policy files, queue selection, and approvals.
+- Submit finalization is serialized per target ref after queue eligibility.
 - Submit publishes through CAS or fails without moving the target ref.
 
 ### Phase 5: Git Read Compatibility
@@ -90,12 +99,15 @@ Exit criteria:
 - Synthetic Git history
 - Fetch
 - Partial clone support
+- Packfile/projection cache
+- Native large-blob projection rules
 
 Exit criteria:
 
 - A slice can be cloned from its Git URL.
 - Projected Git commits are stable for the same projection inputs.
 - Fetch and partial clone operate through projected refs and trees.
+- Cached projection artifacts are keyed by all Git-visible projection inputs.
 
 ### Phase 6: Git Push Into Changesets
 
@@ -119,12 +131,15 @@ Exit criteria:
 - Build/test integration
 - Regional reads
 - Projection cache
+- Distributed GC
 - Advanced replication
 
 Exit criteria:
 
 - Indexes can be rebuilt from committed source-of-truth objects.
 - CI requirements can be selected from matching folder policy files and queues.
+- GC can delete unreachable staged blobs and projection artifacts only after
+  reachability recheck and grace periods.
 - Regional read replicas can serve reads while preserving linearizable ref writes.
 
 ## 2. Example Native Workflow
@@ -169,11 +184,13 @@ Server behavior:
 4. Refresh overlap and queue policy requirements.
 5. Acquire required queue leases.
 6. Check slice roles and approvals.
-7. Rebase onto latest target ref.
-8. Run required checks.
-9. Create commit or commits.
-10. Update ref with CAS.
-11. Emit indexing events.
+7. Run required checks.
+8. Hand off to the target-ref landing sequencer.
+9. Rebase onto latest target ref.
+10. Revalidate policy, queues, checks, and conflicts.
+11. Create commit or commits.
+12. Update ref with CAS.
+13. Emit indexing events.
 ```
 
 ## 3. Example Git Workflow

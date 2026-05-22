@@ -5,10 +5,11 @@ capabilities it depends on.
 
 Related documents:
 
-- [gitslice_architecture_design.md](gitslice_architecture_design.md): top-level architecture
-- [core_api.md](core_api.md): gRPC APIs used by the CLI
-- [git_compatibility.md](git_compatibility.md): Git gateway and optional Git/Jujutsu interop
-- [execution_plan.md](execution_plan.md): rollout phases
+- [00_product.md](00_product.md): product overview and primary workflows
+- [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): top-level architecture
+- [03_core_api.md](03_core_api.md): gRPC APIs used by the CLI
+- [05_git_compatibility.md](05_git_compatibility.md): Git gateway and optional Git/Jujutsu interop
+- [07_execution_plan.md](07_execution_plan.md): rollout phases
 
 ## 1. Positioning
 
@@ -176,6 +177,26 @@ On most mutating `gs` commands:
 
 This is inspired by Jujutsu's automatic working-copy snapshots, but the Gitslice
 unit is a draft patchset, not a local commit.
+
+Correctness must not depend on a file watcher. The CLI may keep a local changed
+path index for speed, but every mutating command must be able to reconcile that
+index against the filesystem and server state before creating or updating a
+patchset.
+
+Watcher-backed status flow:
+
+```text
+filesystem events
+  -> local changed path index
+  -> bounded reconciliation scan on gs status / gs cs update
+  -> WorkspaceService.ValidateWorkspaceDiff
+  -> draft patchset snapshot
+```
+
+If a watcher misses an event, `gs status` may be slower because it falls back to
+a scan, but it must not report a clean workspace incorrectly. File watchers are
+a performance feature; server-side patchset validation, folder policy checks,
+and queue validation remain authoritative.
 
 The CLI should still make submit explicit:
 

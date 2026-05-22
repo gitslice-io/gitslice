@@ -1,10 +1,12 @@
 # Gitslice Core API
 
 This document defines the native gRPC API boundary for Gitslice core services.
-The top-level architecture is in [gitslice_architecture_design.md](gitslice_architecture_design.md),
-storage details are in [storage.md](storage.md), CLI behavior is in
-[cli_design.md](cli_design.md), and Git compatibility behavior is in
-[git_compatibility.md](git_compatibility.md).
+Product context is in [00_product.md](00_product.md), the top-level
+architecture is in
+[01_gitslice_architecture_design.md](01_gitslice_architecture_design.md),
+storage details are in [02_storage.md](02_storage.md), CLI behavior is in
+[04_cli_design.md](04_cli_design.md), and Git compatibility behavior is in
+[05_git_compatibility.md](05_git_compatibility.md).
 
 ## 1. API Principles
 
@@ -525,7 +527,7 @@ HTTP and JSON APIs can be exposed through grpc-gateway for browser and SDK
 clients. The gRPC API remains the source contract.
 
 The Git gateway is separate. Its detailed behavior is defined in
-[git_compatibility.md](git_compatibility.md). At the API boundary it should:
+[05_git_compatibility.md](05_git_compatibility.md). At the API boundary it should:
 
 ```text
 Git URL
