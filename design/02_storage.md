@@ -1,9 +1,10 @@
 # Gitslice Storage Design
 
-This document defines the native storage model for Gitslice. The top-level
-architecture is in [gitslice_architecture_design.md](gitslice_architecture_design.md),
-the gRPC API surface is in [core_api.md](core_api.md), and derived indexes are
-covered in [indexing.md](indexing.md).
+This document defines the native storage model for Gitslice. Product context is
+in [00_product.md](00_product.md), the top-level architecture is in
+[01_gitslice_architecture_design.md](01_gitslice_architecture_design.md), the
+gRPC API surface is in [03_core_api.md](03_core_api.md), and derived indexes are
+covered in [06_indexing.md](06_indexing.md).
 
 ## 1. Storage Goals
 
@@ -45,10 +46,9 @@ There is one global commit graph. All slices project views from that same graph.
 
 This gives the system:
 
-- Linked cross-slice workflows on one source graph
 - Unified history
 - Consistent global indexing
-- Cross-slice refactoring workflows through linked changesets
+- Cross-slice visibility without cross-slice submission
 - Deterministic slice projection
 
 ## 3. Ref Model
@@ -84,7 +84,8 @@ refs/global/main
 
 This must not imply one global submit queue. Many account queues can target the
 same ref. They serialize only work assigned to those queues, and the final ref
-update is still protected by CAS.
+update is serialized by the target-ref landing sequencer and still protected by
+CAS.
 
 Future branch support can add target refs such as:
 
@@ -168,8 +169,10 @@ capabilities, not on a specific vendor.
 Search and derived indexes:
 
 ```text
-OpenSearch, Elasticsearch, Zoekt, custom trigram index, or purpose-built index
-workers
+metadata database tables for operational indexes
+Zoekt shards for code text search
+object storage for immutable index artifacts and shard snapshots
+purpose-built workers for projection, policy, queue, build, and test indexes
 ```
 
 Hot metadata cache:
@@ -184,7 +187,7 @@ distributed cache where needed
 The storage layer exposes an internal capability interface to higher-level
 services such as the changeset service, Git gateway, submit queue service, and
 index workers. It is not the public product API; public clients use the gRPC API
-defined in [core_api.md](core_api.md).
+defined in [03_core_api.md](03_core_api.md).
 
 The interface should be narrow and source-of-truth oriented. A proto-shaped
 contract:
@@ -221,6 +224,12 @@ service StorageService {
 
   // Atomic commit publication and ref movement.
   rpc PublishCommit(PublishCommitRequest) returns (PublishCommitResponse);
+
+  // Reachability and lifecycle maintenance. Restricted to storage maintenance
+  // workers; normal product services should not call these directly.
+  rpc ListReachabilityRoots(ListReachabilityRootsRequest) returns (ListReachabilityRootsResponse);
+  rpc ListObjectReferences(ListObjectReferencesRequest) returns (ListObjectReferencesResponse);
+  rpc DeleteUnreferencedObjects(DeleteUnreferencedObjectsRequest) returns (DeleteUnreferencedObjectsResponse);
 
   // Low-level repair/admin primitives. Normal services should prefer
   // purpose-built operations above.
@@ -450,6 +459,76 @@ message PublishCommitResponse {
   Ref new_ref = 2;
 }
 
+message ReachabilityRoot {
+  ReachabilityRootKind kind = 1;
+  string id = 2;
+  string ref_name = 3;
+  string commit_id = 4;
+  string changeset_id = 5;
+  string patchset_id = 6;
+  string cache_key = 7;
+  google.protobuf.Timestamp expires_at = 8;
+}
+
+enum ReachabilityRootKind {
+  REACHABILITY_ROOT_KIND_UNSPECIFIED = 0;
+  REACHABILITY_ROOT_KIND_ACCEPTED_REF = 1;
+  REACHABILITY_ROOT_KIND_CHANGESET_PATCHSET = 2;
+  REACHABILITY_ROOT_KIND_DRAFT_WORKSPACE = 3;
+  REACHABILITY_ROOT_KIND_STAGED_BLOB_LEASE = 4;
+  REACHABILITY_ROOT_KIND_GIT_PROJECTION_CACHE = 5;
+  REACHABILITY_ROOT_KIND_INDEX_REPAIR_CHECKPOINT = 6;
+}
+
+message ListReachabilityRootsRequest {
+  string cursor = 1;
+  int32 page_size = 2;
+  google.protobuf.Timestamp not_after = 3;
+}
+
+message ListReachabilityRootsResponse {
+  repeated ReachabilityRoot roots = 1;
+  string next_cursor = 2;
+}
+
+message ObjectReference {
+  string object_id = 1;
+  ObjectKind kind = 2;
+  repeated string referenced_object_ids = 3;
+}
+
+enum ObjectKind {
+  OBJECT_KIND_UNSPECIFIED = 0;
+  OBJECT_KIND_COMMIT = 1;
+  OBJECT_KIND_TREE = 2;
+  OBJECT_KIND_BLOB = 3;
+  OBJECT_KIND_GIT_PROJECTION = 4;
+  OBJECT_KIND_INDEX_CHECKPOINT = 5;
+}
+
+message ListObjectReferencesRequest {
+  repeated string object_ids = 1;
+  string cursor = 2;
+  int32 page_size = 3;
+}
+
+message ListObjectReferencesResponse {
+  repeated ObjectReference references = 1;
+  string next_cursor = 2;
+}
+
+message DeleteUnreferencedObjectsRequest {
+  repeated string candidate_object_ids = 1;
+  string gc_generation_id = 2;
+  google.protobuf.Timestamp older_than = 3;
+  bool dry_run = 4;
+}
+
+message DeleteUnreferencedObjectsResponse {
+  repeated string deleted_object_ids = 1;
+  repeated string retained_object_ids = 2;
+}
+
 message MetadataKey {
   string space = 1;
   bytes key = 2;
@@ -555,6 +634,45 @@ The metadata transaction must never point at a blob that has not been verified.
 
 Blob upload can happen before submit. Commit publication happens only through
 the metadata transaction and atomic ref update.
+
+### 5.1 Distributed Garbage Collection
+
+Garbage collection is a correctness feature, not only a cost-control feature.
+The storage system must eventually remove abandoned staged blobs, obsolete
+projection artifacts, and unreachable metadata without deleting anything that
+can still be observed by a ref, changeset, cache lease, or repair workflow.
+
+Reachability roots:
+
+- accepted refs such as `refs/global/main`
+- changeset patchset refs and open review state
+- draft workspace snapshots with active leases
+- staged blob leases that have not expired
+- submit-queue items that are finalizing
+- Git projection and packfile cache entries with active leases
+- index repair checkpoints and replication watermarks
+
+GC should run as a multi-phase mark, quarantine, and sweep workflow:
+
+```text
+1. Select a GC generation and stable metadata read watermark.
+2. Enumerate reachability roots at or before that watermark.
+3. Traverse commits, trees, blobs, patchsets, and registered cache artifacts.
+4. Mark reachable object ids for the generation.
+5. Quarantine unmarked candidates older than the grace period.
+6. Recheck candidates against fresh roots before deletion.
+7. Delete object-store bytes only after metadata references are gone or expired.
+8. Emit audited deletion events.
+```
+
+The grace period must exceed expected replica lag, indexing lag, and client
+upload retry windows. Staged blobs can use a shorter TTL, but available blobs
+and metadata objects require reachability-based deletion. Projection caches and
+derived indexes must register either a reachability root or an expiration time;
+unregistered caches are disposable and must not be required for correctness.
+
+Deletes must be idempotent. A failed or interrupted GC generation can be retried
+without changing committed refs or visible changeset state.
 
 ## 6. Object Model
 

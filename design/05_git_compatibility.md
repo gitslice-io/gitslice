@@ -6,11 +6,12 @@ source of truth.
 
 Related documents:
 
-- [gitslice_architecture_design.md](gitslice_architecture_design.md): top-level architecture
-- [storage.md](storage.md): commits, refs, trees, blobs, and projection inputs
-- [core_api.md](core_api.md): gRPC APIs used by the Git gateway
-- [cli_design.md](cli_design.md): native CLI and optional Jujutsu interop
-- [execution_plan.md](execution_plan.md): rollout phases and Git workflow validation
+- [00_product.md](00_product.md): product overview and Git-facing workflows
+- [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): top-level architecture
+- [02_storage.md](02_storage.md): commits, refs, trees, blobs, and projection inputs
+- [03_core_api.md](03_core_api.md): gRPC APIs used by the Git gateway
+- [04_cli_design.md](04_cli_design.md): native CLI and optional Jujutsu interop
+- [07_execution_plan.md](07_execution_plan.md): rollout phases and Git workflow validation
 
 ## 1. Core Principle
 
@@ -109,6 +110,31 @@ Slices already define the visible working set, so clients should not need Git
 sparse checkout to avoid cloning unrelated repository content. Partial clone can
 still be useful to avoid downloading large blob contents inside a slice until
 needed.
+
+### 4.1 Projection Cache And Packfiles
+
+Synthetic Git objects and packfiles should be cached. This is required for
+operational correctness under load: clone and fetch must not depend on
+recomputing large projected histories from scratch for every client.
+
+Projection cache keys must include every input that changes Git-visible output:
+
+- slice id
+- slice definition hash
+- native target ref and commit id
+- projection algorithm version
+- Git protocol capabilities requested by the client
+- large-blob/LFS projection mode
+
+Cache entries are derived artifacts. They must never decide authorization,
+policy, or submit correctness. Every request still authenticates the caller and
+checks slice visibility before serving cached bytes.
+
+Packfile generation should use stable checkpoints. A large clone can stream from
+a cached base pack for `(slice, definition, commit)`, while fetch computes only
+the incremental pack relative to the client's advertised commits. Cache entries
+must register reachability leases or expiration timestamps so storage GC can
+delete obsolete synthetic Git objects and packfiles safely.
 
 ## 5. Projected Git Refs
 
@@ -274,6 +300,29 @@ The Git layer should support common ecosystem expectations:
 CI should run against projected Git commits but report status back to the native
 changeset and patchset objects.
 
+### 11.1 Large Blob And LFS Compatibility
+
+Native Gitslice storage already stores blobs by content hash and can avoid
+eager blob transfer through partial clone. Git LFS compatibility is still useful
+for Git clients and tooling that expect LFS semantics, but it should be an
+explicit projection mode controlled by path or folder policy, not an invisible
+rewrite of arbitrary large files.
+
+Correctness rules:
+
+- Git-visible content must be stable for the same projection inputs.
+- LFS pointer projection must be deterministic and included in the projection
+  cache key.
+- Uploading an LFS object through the Git gateway must create or verify the
+  corresponding native blob before a patchset can reference it.
+- A Git push that edits an LFS pointer is interpreted according to the folder's
+  large-file policy and must not bypass normal blob verification.
+- Folder policy can require path locks or owner approval for large binary paths.
+
+The MVP can rely on native blob storage plus partial clone for large files. LFS
+protocol compatibility can be added when Git ecosystem compatibility requires
+it, without changing the native storage model.
+
 ## 12. Jujutsu Interop
 
 Jujutsu can interoperate through the Git-compatible slice projection. It should
@@ -282,7 +331,7 @@ changesets by `gs`, but jj must not bypass Gitslice folder policies, queues, or
 submit validation.
 
 The native CLI behavior and interop shape are defined in
-[cli_design.md](cli_design.md#13-optional-jujutsu-interop).
+[04_cli_design.md](04_cli_design.md#13-optional-jujutsu-interop).
 
 ## 13. Non-Goals
 
