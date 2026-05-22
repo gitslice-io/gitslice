@@ -4,8 +4,8 @@ Gitslice is a source graph platform for teams that need one coherent codebase
 without forcing every workflow through one physical Git repository.
 
 The product should feel familiar to Git users, but it should make large-scale
-work easier by treating slices, virtual workspaces, changesets, policy, and
-submit queues as first-class product concepts.
+work easier by treating slices, virtual workspaces, changesets, and submit
+validation as first-class product concepts.
 
 The MVP should be a CLI-first product. The first complete user experience should
 be `gs`: authentication, workspace setup, slice hydration, local edit capture,
@@ -54,8 +54,7 @@ Gitslice product behavior should follow these principles:
 - Changesets are the review and submission unit.
 - A changeset has exactly one authoring slice.
 - Cross-slice changesets are not supported.
-- Account queue rules are source-controlled but cannot authorize their own
-  weakening.
+- Submit requirements are explicit slice settings and are enforced server-side.
 - Workspaces hydrate only what the user or agent needs.
 - Caches and watchers improve performance, but server validation decides
   correctness.
@@ -138,13 +137,13 @@ authenticated subject
   -> account memberships
   -> slice visibility
   -> slice roles
-  -> queue requirements
+  -> submit requirements
 ```
 
 Core account roles:
 
 - owner: manages account settings, billing, admins, and destructive operations
-- admin: manages slices, teams, service accounts, queues, and policy overrides
+- admin: manages slices, teams, service accounts, and policy overrides
 - member: can see account-visible resources
 - guest: limited access to explicitly shared slices
 
@@ -155,8 +154,8 @@ Slice roles:
 - writer: can create changesets from the slice
 - reader: can read the slice
 
-Queue files can add submit requirements, but they do not grant read access by
-themselves.
+Submit settings can add required approvals and checks, but they do not grant
+read access by themselves.
 
 ### 4.4 Authorization Rules
 
@@ -177,14 +176,17 @@ Write authorization:
 - a user must have writer access on the authoring slice
 - every changed path must be included by the authoring slice
 - the user must have read access to every changed path
-- submit must pass the required account queue rules
+- submit must pass slice submit requirements, required checks, and any active
+  path locks
 
 Admin authorization:
 
 - account admins can manage account-level settings, teams, service accounts,
-  and queue policy according to account rules
-- slice owners/admins can manage slice definitions and role assignments
-- queue weakening requires previous queue rules plus account admin approval
+  and override policy according to account rules
+- slice owners/admins can manage slice definitions, submit settings, and role
+  assignments
+- weakening submit settings requires the same administrative review flow as
+  other protected slice-definition changes
 
 ### 4.5 Git Authentication
 
@@ -198,8 +200,7 @@ Supported MVP options:
 - service-account tokens for CI checkout
 
 SSH keys can be added later, but they should map to the same subject and session
-model. Git authentication must not bypass changesets, queues, or submit
-validation.
+model. Git authentication must not bypass changesets or submit validation.
 
 ### 4.6 Agent And Service Account Auth
 
@@ -233,14 +234,14 @@ Workspace
 
 Changeset
 : The unit of review and submission. It contains immutable patchsets, review
-  state, authorization requirements, queue requirements, and submit status.
+  state, authorization requirements, submit requirements, and submit status.
 
 Patchset
 : An immutable version of a changeset's proposed file edits.
 
-Submit queue
-: Source-controlled account policy that determines when a changeset can land.
-  Queues define eligibility; target-ref sequencers serialize final ref updates.
+Submit settings
+: Slice-level settings that define required approvals and checks for changes
+  authored from that slice. Target-ref sequencers serialize final ref updates.
 
 Git projection
 : A Git-compatible repository view generated from a slice. It supports clone,
@@ -257,7 +258,7 @@ CLI-first means:
 - a user can create or select a workspace from the CLI
 - slice discovery and hydration work from the CLI
 - local edits become changesets from the CLI
-- submit status, authorization failures, queue state, and conflicts are visible
+- submit status, authorization failures, check state, and conflicts are visible
   from the CLI
 - path lookup is available from the CLI
 - Git compatibility exists for clone/fetch/push workflows, but `gs` remains the
@@ -272,11 +273,11 @@ gs slice add acme/payment
 gs status
 gs cs create
 gs cs submit
-gs queue status
+gs cs status
 ```
 
 Web and IDE surfaces should be treated as later clients of the same account,
-auth, changeset, queue, and storage APIs.
+auth, changeset, submit, and storage APIs.
 
 ## 7. Primary Workflows
 
@@ -293,7 +294,7 @@ gs cs submit
 
 The user works in a sparse workspace. The CLI snapshots local edits into a
 changeset patchset, uploads missing blobs, and submits through server-side
-queue and conflict validation.
+submit and conflict validation.
 
 ### 7.2 Git Compatibility Workflow
 
@@ -308,16 +309,20 @@ The Git gateway converts the pushed Git diff into a native changeset and
 patchset. Direct writes to protected accepted refs are rejected or translated
 into changeset workflows.
 
-### 7.3 Queue Policy Workflow
+### 7.3 Submit Settings Workflow
 
-```text
-/{account}/.gitslice/queues/{queue}.yaml
+```yaml
+submit:
+  required_approvals:
+    - team: payment-owners
+  required_checks:
+    - payment-ci
 ```
 
-Teams express submit requirements as account-level queue files. Queue changes
-are reviewed through changesets or equivalent admin flow. Weakening a queue
-requires approval under the previous queue rules and relevant account
-administration rules.
+Teams express submit requirements as part of slice definitions. Submit-setting
+changes are reviewed through changesets or an equivalent administrative flow.
+Weakening submit requirements requires the same protected slice-administration
+path as changing included paths, roles, or visibility.
 
 ### 7.4 Submit Workflow
 
@@ -325,15 +330,15 @@ administration rules.
 changeset
   -> resolve changed paths
   -> resolve covering slices
-  -> resolve required queues
+  -> resolve submit requirements
   -> run checks
   -> target-ref landing sequencer
   -> CAS ref update
 ```
 
 The product should prefer clear blocked states over implicit best-effort submit.
-If queues, checks, indexes, or ref freshness are stale, submit should
-block or retry rather than land under uncertain requirements.
+If submit requirements, checks, indexes, or ref freshness are stale, submit
+should block or retry rather than land under uncertain requirements.
 
 ## 8. Product Scope
 
@@ -345,11 +350,13 @@ MVP scope:
 - slice creation and projection
 - sparse native workspaces
 - native `gs` changeset flow
-- versioned account queues
+- slice-level submit settings
 - per-target-ref landing sequencer
 - Git clone/fetch from slice URLs
 - Git push into changesets
-- derived indexes for path coverage, queue selection, and history
+- PostgreSQL metadata storage and Cloudflare R2 object storage
+- derived indexes for path coverage and history
+- per-path conflict detection and safe batched target-ref updates
 - correctness-first storage lifecycle and GC
 
 Later scope:
@@ -371,18 +378,19 @@ The product should not:
 - use `/users` or `/orgs` path prefixes
 - support per-directory policy files
 - include code search in the MVP
+- add a separate submit scheduling abstraction in the MVP
 - make Git sparse checkout a core workflow
 - make Git object ids the native object ids
-- allow queue files to weaken themselves
 - make client-side file watchers authoritative for correctness
 - require users to understand internal storage objects for normal workflows
 
 ## 10. Document Map
 
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): architecture and system model
-- [02_storage.md](02_storage.md): storage, object model, refs, hashing, GC, and replication
+- [02_storage.md](02_storage.md): storage stack, Postgres schema, R2 layout, refs, hashing, GC, and replication
 - [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
 - [04_cli_design.md](04_cli_design.md): native `gs` CLI and workspace behavior
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projections, and push behavior
 - [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
-- [07_execution_plan.md](07_execution_plan.md): implementation phases and workflow validation
+- [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
+- [08_execution_plan.md](08_execution_plan.md): implementation phases and workflow validation

@@ -9,7 +9,8 @@ Related documents:
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): top-level architecture
 - [03_core_api.md](03_core_api.md): gRPC APIs used by the CLI
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway and optional Git/Jujutsu interop
-- [07_execution_plan.md](07_execution_plan.md): rollout phases
+- [07_conflict_resolution.md](07_conflict_resolution.md): path-level conflicts and batched submit
+- [08_execution_plan.md](08_execution_plan.md): rollout phases
 
 ## 1. Positioning
 
@@ -21,7 +22,6 @@ Gitslice has first-class concepts that those tools do not own:
 - account-rooted global paths
 - slices
 - changesets and patchsets
-- account queues
 - server-side submit validation
 - Git projection as a compatibility layer
 
@@ -59,7 +59,6 @@ gs status
 gs diff
 gs file ...
 gs cs ...
-gs queue ...
 gs op ...
 gs log ...
 gs config ...
@@ -153,7 +152,7 @@ gs diff --to <patchset>
 - detect changed files
 - resolve authoring slice candidates
 - show whether changes are inside one slice or ambiguous
-- show required queues and checks when available
+- show required approvals and checks when available
 - show current draft changeset and patchset state
 
 `gs diff` should show the diff between local overlay changes and the current
@@ -194,7 +193,7 @@ filesystem events
 
 If a watcher misses an event, `gs status` may be slower because it falls back to
 a scan, but it must not report a clean workspace incorrectly. File watchers are
-a performance feature; server-side patchset validation and queue validation
+a performance feature; server-side patchset validation and submit validation
 remain authoritative.
 
 The CLI should still make submit explicit:
@@ -246,24 +245,23 @@ Submit flow:
 2. Confirm current patchset is uploaded.
 3. SubmitChangeset.
 4. If submit succeeds, update local base commit and clear overlay state.
-5. If submit fails, show queue, check, authorization, or conflict reason.
+5. If submit fails, show submit requirement, check, authorization, or conflict
+   reason.
 ```
 
-## 9. Queue Commands
+## 9. Submit Status Commands
 
 ```bash
-gs queue status
-gs queue status <changeset>
-gs queue explain <changeset>
+gs cs status
+gs cs status <changeset>
+gs cs explain <changeset>
 ```
 
-Queue commands should use `QueueService` to show:
+Submit status commands should use `ChangesetService` to show:
 
-- required queues
-- queue positions
-- runnable state
 - required checks
-- queue refresh requirements
+- required approvals
+- submit requirement refresh state
 - CAS/rebase retry state
 
 ## 10. Operation Log And Undo
@@ -306,6 +304,10 @@ gs diff --conflicts
 The CLI should avoid Git's interrupted-operation model. A rebase or submit can
 produce a patchset with conflict metadata. The user can inspect and resolve it,
 then run `gs cs update`.
+
+When the server reports a stale path base, the CLI should show the path and the
+expected/current fingerprints when available. The detailed conflict model is in
+[07_conflict_resolution.md](07_conflict_resolution.md).
 
 ## 12. Query And Formatting
 
@@ -351,11 +353,10 @@ jj local commits
   -> Git-compatible projected slice repository
   -> gs converts selected jj/Git commits to file edits
   -> Gitslice changeset and patchset
-  -> normal queue and submit validation
+  -> normal submit validation
 ```
 
-The interop layer must not bypass Gitslice changesets, queues, or submit
-validation.
+The interop layer must not bypass Gitslice changesets or submit validation.
 
 ## 14. Backend Requirements
 
@@ -370,8 +371,6 @@ The CLI needs these backend capabilities:
 - `ChangesetService.UpdateChangeset`
 - `ChangesetService.SubmitChangeset`
 - `ChangesetService.AbandonChangeset`
-- `QueueService.ResolveRequiredQueues`
-- `QueueService.GetQueueItem`
 - `WorkspaceService.GetWorkspaceState`
 - `WorkspaceService.HydratePaths`
 - `WorkspaceService.ValidateWorkspaceDiff`
@@ -389,7 +388,7 @@ The initial CLI should not:
 - expose a Git-style staging area
 - allow cross-slice changesets
 - make Git sparse checkout a core workflow
-- bypass server-side queue or submit validation
+- bypass server-side submit validation
 
 ## 16. External References
 

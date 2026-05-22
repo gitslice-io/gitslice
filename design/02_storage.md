@@ -4,7 +4,8 @@ This document defines the native storage model for Gitslice. Product context is
 in [00_product.md](00_product.md), the top-level architecture is in
 [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md), the
 gRPC API surface is in [03_core_api.md](03_core_api.md), and derived indexes are
-covered in [06_indexing.md](06_indexing.md).
+covered in [06_indexing.md](06_indexing.md). Conflict resolution and batched
+submit are covered in [07_conflict_resolution.md](07_conflict_resolution.md).
 
 ## 1. Storage Goals
 
@@ -74,7 +75,7 @@ current accepted state.
 
 ### 3.1 Target Refs
 
-A target ref is the ref a queue updates when a changeset lands.
+A target ref is the ref the submit service updates when a changeset lands.
 
 The initial system may use one accepted global tree ref:
 
@@ -82,10 +83,8 @@ The initial system may use one accepted global tree ref:
 refs/global/main
 ```
 
-This must not imply one global submit queue. Many account queues can target the
-same ref. They serialize only work assigned to those queues, and the final ref
-update is serialized by the target-ref landing sequencer and still protected by
-CAS.
+This must not imply one global submission lock. Final ref updates are serialized
+by the target-ref landing sequencer and still protected by CAS.
 
 Future branch support can add target refs such as:
 
@@ -135,22 +134,22 @@ The update succeeds only if:
 current_commit == expected_old_commit
 ```
 
-Otherwise the changeset must be rebased and retried through its required queue
-or queues.
+Otherwise the changeset must be rebased and retried through submit validation.
 
 ## 4. Storage Architecture
 
-Blob content:
+The MVP storage stack is intentionally concrete:
 
 ```text
-S3-compatible object storage, GCS, R2, or equivalent
+Metadata and operational indexes: PostgreSQL
+Blob/object storage: Cloudflare R2
 ```
 
-Metadata:
-
-```text
-transactional database or ordered key-value store
-```
+PostgreSQL is the source of truth for refs, commits, trees, slice definitions,
+changesets, path predicates, operational indexes, outbox events, leases, and GC
+state. Cloudflare R2 stores immutable blob bytes and large derived artifacts.
+R2 listing is never authoritative; Postgres records decide which objects exist,
+which objects are live, and which objects may be deleted.
 
 The metadata store must support:
 
@@ -162,30 +161,454 @@ compare-and-swap ref updates
 consistent reads for submit validation
 ```
 
-Implementation choices can evolve from a transactional SQL database to an
-ordered distributed KV store as scale requires. The architecture depends on
-capabilities, not on a specific vendor.
+For the MVP, these capabilities come from PostgreSQL transactions, row locks,
+unique constraints, partial indexes, and transaction-scoped advisory locks where
+they simplify sequencer leases.
 
 Derived indexes:
 
 ```text
-metadata database tables for operational indexes
-object storage for immutable index artifacts and shard snapshots
-purpose-built workers for projection, queue, build, and test indexes
+PostgreSQL tables for operational indexes
+Cloudflare R2 for immutable index artifacts and shard snapshots
+purpose-built workers for projection, build, and test indexes
 ```
 
 Hot metadata cache:
 
 ```text
 process-local cache
-distributed cache where needed
+distributed cache later if measured load requires it
 ```
 
-### 4.1 High-Level Storage Interface
+### 4.1 PostgreSQL Logical Schema
+
+The schema below is logical, not a complete migration file. Implementation may
+split large JSON fields into normalized tables as query patterns harden, but the
+source-of-truth ownership should remain the same.
+
+Identity and account tables:
+
+```text
+accounts(
+  id primary key,
+  slug unique not null,
+  kind,
+  created_at,
+  updated_at
+)
+
+subjects(
+  id primary key,
+  kind,
+  external_provider,
+  external_subject,
+  display_name,
+  created_at
+)
+
+account_memberships(
+  account_id references accounts(id),
+  subject_id references subjects(id),
+  role,
+  created_at,
+  primary key(account_id, subject_id, role)
+)
+
+sessions(
+  id primary key,
+  subject_id references subjects(id),
+  refresh_token_hash unique,
+  scopes[],
+  expires_at,
+  revoked_at
+)
+```
+
+Refs, commits, trees, and blobs:
+
+```text
+refs(
+  name primary key,
+  commit_id not null,
+  version bigint not null,
+  updated_at,
+  updated_by
+)
+
+commits(
+  id primary key,
+  root_tree_id not null,
+  author_subject_id,
+  message,
+  created_at,
+  metadata jsonb
+)
+
+commit_parents(
+  commit_id references commits(id),
+  parent_commit_id references commits(id),
+  position int,
+  primary key(commit_id, position)
+)
+
+commit_changed_paths(
+  target_ref,
+  commit_id references commits(id),
+  path,
+  change_kind,
+  primary key(target_ref, commit_id, path)
+)
+
+trees(
+  id primary key,
+  tree_hash unique not null,
+  entry_count,
+  created_at
+)
+
+tree_entries(
+  tree_id references trees(id),
+  name,
+  kind,
+  mode,
+  child_tree_id,
+  blob_id,
+  symlink_target,
+  size,
+  content_hash,
+  entry_fingerprint,
+  primary key(tree_id, name)
+)
+
+blobs(
+  id primary key,
+  content_hash unique not null,
+  size,
+  compression,
+  state,
+  r2_bucket,
+  r2_key,
+  created_at,
+  verified_at,
+  expires_at
+)
+```
+
+Slice and submit metadata:
+
+```text
+slices(
+  id primary key,
+  account_id references accounts(id),
+  slug,
+  current_definition_id,
+  created_at,
+  updated_at,
+  unique(account_id, slug)
+)
+
+slice_definitions(
+  id primary key,
+  slice_id references slices(id),
+  version bigint,
+  definition_hash unique not null,
+  default_branch,
+  visibility,
+  roles jsonb,
+  submit_settings jsonb,
+  created_by,
+  created_at,
+  unique(slice_id, version)
+)
+
+slice_included_paths(
+  slice_definition_id references slice_definitions(id),
+  account_id references accounts(id),
+  path_prefix,
+  prefix_end,
+  primary key(slice_definition_id, path_prefix)
+)
+
+path_locks(
+  id primary key,
+  account_id references accounts(id),
+  path_prefix,
+  prefix_end,
+  owner_subject_id,
+  reason,
+  state,
+  created_at,
+  expires_at
+)
+```
+
+Changeset and patchset metadata:
+
+```text
+changesets(
+  id primary key,
+  authoring_slice_id references slices(id),
+  author_subject_id references subjects(id),
+  target_ref,
+  base_commit_id,
+  current_patchset_id,
+  status,
+  title,
+  description,
+  created_at,
+  updated_at
+)
+
+patchsets(
+  id primary key,
+  changeset_id references changesets(id),
+  number bigint,
+  base_commit_id,
+  author_subject_id references subjects(id),
+  submit_requirements jsonb,
+  source_slice_definition_hash,
+  source_path_lock_set_hash,
+  created_at,
+  unique(changeset_id, number)
+)
+
+file_edits(
+  patchset_id references patchsets(id),
+  position int,
+  op,
+  path,
+  old_path,
+  staged_blob_id references blobs(id),
+  content_hash,
+  mode,
+  primary key(patchset_id, position)
+)
+
+patchset_path_bases(
+  patchset_id references patchsets(id),
+  path,
+  base_commit_id,
+  check_kind,
+  exists boolean,
+  entry_kind,
+  mode,
+  blob_id,
+  content_hash,
+  tree_id,
+  symlink_target,
+  entry_fingerprint,
+  primary key(patchset_id, path, check_kind)
+)
+
+patchset_path_sets(
+  patchset_id references patchsets(id),
+  target_ref,
+  access_kind,        -- read or write
+  path,
+  recursive boolean,
+  primary key(patchset_id, access_kind, path)
+)
+
+path_coverage_snapshots(
+  patchset_id references patchsets(id),
+  path,
+  covering_slice_ids[],
+  slice_definition_hashes[],
+  primary key(patchset_id, path)
+)
+
+approvals(
+  id primary key,
+  changeset_id references changesets(id),
+  patchset_id references patchsets(id),
+  approver_subject_id references subjects(id),
+  requirement_key,
+  state,
+  created_at
+)
+
+check_runs(
+  id primary key,
+  changeset_id references changesets(id),
+  patchset_id references patchsets(id),
+  check_name,
+  state,
+  external_url,
+  started_at,
+  completed_at
+)
+```
+
+Operational tables:
+
+```text
+target_ref_leases(
+  target_ref primary key,
+  holder_id,
+  lease_token unique,
+  expires_at,
+  updated_at
+)
+
+index_outbox(
+  event_id primary key,
+  event_type,
+  target_ref,
+  commit_id,
+  payload jsonb,
+  idempotency_key unique,
+  created_at,
+  processed_at
+)
+
+index_worker_checkpoints(
+  worker_name,
+  shard_key,
+  last_event_id,
+  source_commit_id,
+  indexer_version,
+  updated_at,
+  primary key(worker_name, shard_key)
+)
+
+reachability_roots(
+  kind,
+  id,
+  ref_name,
+  commit_id,
+  changeset_id,
+  patchset_id,
+  cache_key,
+  expires_at,
+  primary key(kind, id)
+)
+```
+
+### 4.2 PostgreSQL Indexes And Constraints
+
+Required constraints:
+
+```text
+accounts.slug unique
+subjects(external_provider, external_subject) unique where external_provider is not null
+refs.name primary key
+commits.id primary key
+trees.tree_hash unique
+tree_entries(tree_id, name) primary key
+blobs.content_hash unique
+slices(account_id, slug) unique
+slice_definitions(slice_id, version) unique
+slice_definitions.definition_hash unique
+patchsets(changeset_id, number) unique
+index_outbox.idempotency_key unique
+```
+
+Critical lookup indexes:
+
+```text
+commit_parents(parent_commit_id)
+commit_changed_paths(target_ref, path, commit_id)
+commit_changed_paths(path, commit_id)
+tree_entries(blob_id)
+blobs(state, expires_at)
+blobs(content_hash)
+slice_included_paths(account_id, path_prefix, prefix_end)
+path_locks(account_id, state, path_prefix, prefix_end)
+changesets(authoring_slice_id, status, updated_at)
+changesets(target_ref, status, updated_at)
+patchsets(changeset_id, number desc)
+file_edits(path)
+patchset_path_bases(path)
+patchset_path_sets(target_ref, access_kind, path)
+approvals(changeset_id, patchset_id, state)
+check_runs(changeset_id, patchset_id, check_name, state)
+target_ref_leases(expires_at)
+index_outbox(processed_at, created_at)
+reachability_roots(expires_at)
+```
+
+Prefix lookup should use canonical account-rooted path bounds. For each prefix,
+store:
+
+```text
+path_prefix = /acme/payment
+prefix_end  = lexical upper bound for descendants of /acme/payment
+```
+
+The bounds must be segment-aware so `/acme/pay` does not cover
+`/acme/payment`. A simple implementation is to normalize directory prefixes
+with a trailing `/` for descendant checks while separately handling exact file
+paths.
+
+Then covering and overlap queries use btree range predicates:
+
+```sql
+-- Prefixes that cover a path.
+where account_id = $1
+  and path_prefix <= $path
+  and prefix_end > $path
+
+-- Prefixes affected by a changed directory.
+where account_id = $1
+  and path_prefix >= $changed_prefix
+  and path_prefix < $changed_prefix_end
+```
+
+Submit batching indexes:
+
+```text
+changesets(target_ref, status, updated_at)
+patchset_path_sets(target_ref, access_kind, path, recursive)
+patchset_path_bases(path, check_kind, entry_fingerprint)
+patchsets(source_slice_definition_hash, source_path_lock_set_hash)
+```
+
+These indexes are accelerators only. The submit service must re-read the latest
+target-ref head and revalidate path predicates, submit requirements, approvals,
+checks, and CAS preconditions before publishing.
+
+Ref CAS is implemented with a conditional update:
+
+```sql
+update refs
+set commit_id = $new_commit_id,
+    version = version + 1,
+    updated_at = now(),
+    updated_by = $actor
+where name = $target_ref
+  and commit_id = $expected_old_commit_id;
+```
+
+The update succeeds only when exactly one row is updated.
+
+### 4.3 Cloudflare R2 Object Layout
+
+R2 object keys should be deterministic and content-addressed where possible:
+
+```text
+blobs/sha256/{aa}/{bb}/{content_hash}
+staging/{upload_id}/{part_number}
+git-projections/{slice_id}/{definition_hash}/{commit_id}/{artifact}
+index-artifacts/{index_name}/{indexer_version}/{source_commit_id}/{artifact}
+gc-quarantine/{generation_id}/{object_id}
+```
+
+Rules:
+
+- Blob keys are immutable after verification.
+- Blob content is verified by hash before the corresponding Postgres `blobs`
+  row becomes `available`.
+- R2 lifecycle rules may clean abandoned staging keys, but Postgres GC remains
+  authoritative for available blob deletion.
+- Projection and index artifacts are disposable caches unless they have an
+  active `reachability_roots` row.
+- R2 object listing is useful for repair, not for source-of-truth reads.
+
+### 4.4 High-Level Storage Interface
 
 The storage layer exposes an internal capability interface to higher-level
-services such as the changeset service, Git gateway, submit queue service, and
-index workers. It is not the public product API; public clients use the gRPC API
+services such as the changeset service, Git gateway, submit service, and index
+workers. It is not the public product API; public clients use the gRPC API
 defined in [03_core_api.md](03_core_api.md).
 
 The interface should be narrow and source-of-truth oriented. A proto-shaped
@@ -223,6 +646,7 @@ service StorageService {
 
   // Atomic commit publication and ref movement.
   rpc PublishCommit(PublishCommitRequest) returns (PublishCommitResponse);
+  rpc PublishCommitBatch(PublishCommitBatchRequest) returns (PublishCommitBatchResponse);
 
   // Reachability and lifecycle maintenance. Restricted to storage maintenance
   // workers; normal product services should not call these directly.
@@ -458,6 +882,33 @@ message PublishCommitResponse {
   Ref new_ref = 2;
 }
 
+message CommitPublication {
+  repeated string extra_parent_commit_ids = 1;
+  string root_tree_id = 2;
+  repeated string changed_paths = 3;
+  string author = 4;
+  string message = 5;
+  map<string, string> metadata = 6;
+  repeated string required_blob_ids = 7;
+}
+
+message PublishedCommit {
+  int32 index = 1;
+  string commit_id = 2;
+}
+
+message PublishCommitBatchRequest {
+  string expected_ref_name = 1;
+  string expected_old_commit_id = 2;
+  repeated CommitPublication commits = 3;
+  repeated OutboxEvent outbox_events = 4;
+}
+
+message PublishCommitBatchResponse {
+  repeated PublishedCommit commits = 1;
+  Ref new_ref = 2;
+}
+
 message ReachabilityRoot {
   ReachabilityRootKind kind = 1;
   string id = 2;
@@ -587,8 +1038,9 @@ failures should map to a retryable `ABORTED` status, missing source objects to
 `NOT_FOUND`, invariant failures to `INTERNAL`, and temporary backend failures to
 `UNAVAILABLE`.
 
-`PublishCommit` is the only normal operation that creates a commit and moves a
-target ref. It runs as one metadata transaction:
+`PublishCommit` and `PublishCommitBatch` are the only normal operations that
+create commits and move a target ref. `PublishCommit` runs as one metadata
+transaction:
 
 ```text
 1. Verify every required blob is available.
@@ -599,9 +1051,25 @@ target ref. It runs as one metadata transaction:
 6. Write outbox events for indexers.
 ```
 
+`PublishCommitBatch` publishes a deterministic commit chain and moves the
+target ref once:
+
+```text
+1. Verify every required blob for every commit is available.
+2. Verify expected ref still points at expected_old_commit_id.
+3. Write commit metadata in request order:
+   expected_old_commit_id -> C1 -> C2 -> ... -> Cn
+4. Move the ref from expected_old_commit_id to Cn with CAS.
+5. Write outbox events for every included changeset and changed path.
+```
+
+The batch operation is still a single metadata transaction. Either every commit
+in the chain is published and the target ref moves, or none of them are
+published through that ref.
+
 If the ref CAS fails, the operation returns a retryable conflict and publishes
-no commit. Higher-level services must rebase or reapply through the required
-queue or queues.
+no commit. Higher-level services must rebase or reapply through the submit
+flow.
 
 The transaction interface is intentionally lower level than `PublishCommit`.
 Most services should use specific storage operations rather than constructing
@@ -647,7 +1115,7 @@ Reachability roots:
 - changeset patchset refs and open review state
 - draft workspace snapshots with active leases
 - staged blob leases that have not expired
-- submit-queue items that are finalizing
+- submit operations that are finalizing
 - Git projection and packfile cache entries with active leases
 - index repair checkpoints and replication watermarks
 
@@ -854,7 +1322,10 @@ Path-based indexes still need to update affected path records after a rename.
 
 ## 8. Replication Architecture
 
-Use regional read replicas and controlled write coordination.
+The MVP can start with one primary PostgreSQL region and Cloudflare R2 as the
+managed object store.
+
+Later, use regional read replicas and controlled write coordination.
 
 ```text
 US primary
@@ -864,14 +1335,15 @@ Asia replica
 
 Reads should be served locally when possible.
 
-Writes should be coordinated through the region that owns the target ref and the
-required account queue leases.
+Writes should be coordinated through the region that owns the target ref.
 
 Blob replication can be lazy and demand-driven.
 
-Metadata replication must preserve commit/ref consistency.
+Metadata replication must preserve commit/ref consistency. PostgreSQL read
+replicas must not serve reads that are advertised as fresh for submit
+validation unless their replay position is proven current for the target ref.
 
-Ref updates must remain linearizable for queue target refs.
+Ref updates must remain linearizable for target refs.
 
 ## 9. Storage Invariants
 
@@ -883,5 +1355,5 @@ These invariants must not be violated:
 3. A commit points to exactly one root tree.
 4. A ref update is atomic and conditional.
 5. Metadata must never reference an unverified blob.
-6. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and queue definitions.
+6. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
 ```

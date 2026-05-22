@@ -1,8 +1,8 @@
 # Gitslice Git Compatibility Design
 
 This document explains how Gitslice exposes Git-compatible repositories while
-keeping the native source graph, changesets, queues, and storage model as the
-source of truth.
+keeping the native source graph, changesets, submit validation, and storage
+model as the source of truth.
 
 Related documents:
 
@@ -11,7 +11,8 @@ Related documents:
 - [02_storage.md](02_storage.md): commits, refs, trees, blobs, and projection inputs
 - [03_core_api.md](03_core_api.md): gRPC APIs used by the Git gateway
 - [04_cli_design.md](04_cli_design.md): native CLI and optional Jujutsu interop
-- [07_execution_plan.md](07_execution_plan.md): rollout phases and Git workflow validation
+- [07_conflict_resolution.md](07_conflict_resolution.md): path-level conflicts and batched submit
+- [08_execution_plan.md](08_execution_plan.md): rollout phases and Git workflow validation
 
 ## 1. Core Principle
 
@@ -24,7 +25,7 @@ Git compatibility at the boundary.
 
 Gitslice should not be implemented internally as a traditional Git server. Git
 clients see ordinary Git repositories, but the native system stores global
-commits, trees, refs, slices, changesets, and queues.
+commits, trees, refs, slices, changesets, and submit metadata.
 
 The Git gateway translates between Git protocol operations and native APIs.
 
@@ -223,7 +224,7 @@ identity/
 ```
 
 There are no custom mount aliases. This keeps diffs, authorization, review,
-queue resolution, and workspace behavior aligned with the native model.
+submit validation, and workspace behavior aligned with the native model.
 
 ## 8. Push Into Changesets
 
@@ -253,7 +254,7 @@ Git push
 ```
 
 Direct push to a protected branch should either be rejected or translated into a
-changeset that follows the same queue and submit validation as native writes.
+changeset that follows the same submit validation as native writes.
 
 ## 9. Changeset Refs
 
@@ -279,7 +280,8 @@ Validation includes:
 - authoring slice containment
 - read and write authorization
 - covering slice resolution
-- queue selection
+- path base predicate recording
+- submit requirement resolution
 - required approvals
 - required checks
 - conflict detection against latest target ref
@@ -304,7 +306,7 @@ changeset and patchset objects.
 Native Gitslice storage already stores blobs by content hash and can avoid
 eager blob transfer through partial clone. Git LFS compatibility is still useful
 for Git clients and tooling that expect LFS semantics, but it should be an
-explicit projection mode controlled by account queue rules or path locks, not an
+explicit projection mode controlled by submit settings or path locks, not an
 invisible rewrite of arbitrary large files.
 
 Correctness rules:
@@ -314,10 +316,10 @@ Correctness rules:
   cache key.
 - Uploading an LFS object through the Git gateway must create or verify the
   corresponding native blob before a patchset can reference it.
-- A Git push that edits an LFS pointer is interpreted according to account queue
-  rules and path locks, and must not bypass normal blob verification.
-- Account queue rules or path locks can require owner approval for large binary
-  paths.
+- A Git push that edits an LFS pointer is interpreted according to submit
+  settings and path locks, and must not bypass normal blob verification.
+- Slice submit settings or path locks can require owner approval for large
+  binary paths.
 
 The MVP can rely on native blob storage plus partial clone for large files. LFS
 protocol compatibility can be added when Git ecosystem compatibility requires
@@ -327,7 +329,7 @@ it, without changing the native storage model.
 
 Jujutsu can interoperate through the Git-compatible slice projection. It should
 remain optional: selected local jj/Git commits can be converted into Gitslice
-changesets by `gs`, but jj must not bypass Gitslice queues or submit validation.
+changesets by `gs`, but jj must not bypass Gitslice submit validation.
 
 The native CLI behavior and interop shape are defined in
 [04_cli_design.md](04_cli_design.md#13-optional-jujutsu-interop).
@@ -338,6 +340,6 @@ The Git compatibility layer should not:
 
 - define the native storage model
 - make every slice an independent Git repository internally
-- allow Git pushes to bypass changeset, queue, or submit validation
+- allow Git pushes to bypass changeset or submit validation
 - expose paths outside the authorized slice projection
 - use Git object ids as native commit, tree, or blob ids
