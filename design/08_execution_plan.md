@@ -7,12 +7,15 @@ storage design is in [02_storage.md](02_storage.md), and the gRPC API boundary i
 in [03_core_api.md](03_core_api.md). CLI behavior is in
 [04_cli_design.md](04_cli_design.md). Git compatibility is in
 [05_git_compatibility.md](05_git_compatibility.md). Indexing details are in
-[06_indexing.md](06_indexing.md).
+[06_indexing.md](06_indexing.md). Conflict resolution and batched submit are in
+[07_conflict_resolution.md](07_conflict_resolution.md).
 
 ## 1. MVP Phases
 
 ### Phase 1: Native Object Model
 
+- PostgreSQL schema and migrations for source-of-truth metadata
+- Cloudflare R2 bucket layout and credentials
 - Content-addressed blob store
 - Immutable tree metadata
 - Canonical path rules
@@ -23,6 +26,10 @@ in [03_core_api.md](03_core_api.md). CLI behavior is in
 
 Exit criteria:
 
+- PostgreSQL tables, constraints, and critical indexes exist for refs, commits,
+  trees, blobs, and outbox events.
+- R2 blob keys are content-addressed and uploads are verified by hash before
+  metadata can reference them.
 - Blobs can be uploaded, verified, and referenced by metadata.
 - Trees and commits are immutable and content-addressed where required.
 - Refs can be updated only through CAS.
@@ -66,26 +73,29 @@ Exit criteria:
 - Local operations can be inspected through `gs op log`.
 - `gs cs create` and `gs cs update` produce server patchsets from local snapshots.
 
-### Phase 4: Changesets And Versioned Queues
+### Phase 4: Changesets And Direct Submit
 
 - Changeset creation
 - Patchsets
 - Review state
 - Conflict detection
+- Per-path base predicates
+- Patchset read/write sets
 - Covering-slice refresh
-- Versioned queue definition files
-- Queue selection
-- Queue leases
-- Multi-queue submit coordination
+- Submit requirement resolution
+- Required approvals and checks
 - Per-target-ref landing sequencer
+- Batched submit for compatible read/write sets
 - Atomic ref update
 
 Exit criteria:
 
 - A changeset is scoped to one authoring slice.
 - Each update creates an immutable patchset.
-- Submit recomputes coverage, queue selection, and approvals.
-- Submit finalization is serialized per target ref after queue eligibility.
+- Patchsets record path base predicates, read sets, and write sets.
+- Submit recomputes coverage, submit requirements, and approvals.
+- Submit finalization is serialized per target ref after validation.
+- Multiple compatible changesets can publish as one commit chain and one ref CAS.
 - Submit publishes through CAS or fails without moving the target ref.
 
 ### Phase 5: Git Read Compatibility
@@ -123,7 +133,8 @@ Exit criteria:
 
 - Changed path index
 - Slice coverage index
-- Queue selection index
+- Submit requirement provenance index
+- Patchset read/write set index
 - Build/test integration
 - Regional reads
 - Projection cache
@@ -133,7 +144,9 @@ Exit criteria:
 Exit criteria:
 
 - Indexes can be rebuilt from committed source-of-truth objects.
-- CI requirements can be selected from queues and build/test indexes.
+- CI requirements can be selected from slice submit settings and build/test indexes.
+- Batched submit candidate selection can use indexes, but final submit
+  revalidates path predicates from source-of-truth state.
 - GC can delete unreachable staged blobs and projection artifacts only after
   reachability recheck and grace periods.
 - Regional read replicas can serve reads while preserving linearizable ref writes.
@@ -176,15 +189,15 @@ Server behavior:
 ```text
 1. Resolve changed absolute paths.
 2. Resolve covering slices.
-3. Select required account queues.
-4. Refresh overlap and queue requirements.
-5. Acquire required queue leases.
+3. Record path base predicates, read set, and write set.
+4. Resolve submit requirements from the authoring slice definition and path locks.
+5. Refresh overlap and submit requirements.
 6. Check slice roles and approvals.
 7. Run required checks.
 8. Hand off to the target-ref landing sequencer.
-9. Rebase onto latest target ref.
-10. Revalidate queues, checks, and conflicts.
-11. Create commit or commits.
+9. Revalidate path predicates, submit requirements, checks, and conflicts.
+10. Rebase or apply onto latest target ref.
+11. Create commit or batched commit chain.
 12. Update ref with CAS.
 13. Emit indexing events.
 ```
@@ -207,7 +220,7 @@ Server behavior:
 2. Authenticate and authorize user.
 3. Convert Git diff to global absolute paths.
 4. Resolve covering slices.
-5. Select required account queues.
+5. Resolve submit requirements.
 6. Create changeset.
 7. Create patchset.
 8. Run validation.

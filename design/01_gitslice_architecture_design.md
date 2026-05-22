@@ -15,17 +15,20 @@ Git compatibility at the boundary.
 
 Gitslice should not be implemented internally as a traditional Git server. Git
 clients should see ordinary Git repositories, but the source of truth should be
-a scalable native storage and metadata system.
+a scalable native storage and metadata system. For the MVP, that storage stack
+is PostgreSQL for metadata and operational indexes, plus Cloudflare R2 for
+immutable blob bytes and large derived artifacts.
 
 Companion documents:
 
 - [00_product.md](00_product.md): product overview, users, workflows, and scope
-- [02_storage.md](02_storage.md): storage, object model, refs, hashing, and replication
+- [02_storage.md](02_storage.md): storage stack, Postgres schema, R2 layout, refs, hashing, and replication
 - [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
 - [04_cli_design.md](04_cli_design.md): native `gs` CLI, workspace behavior, and jj-inspired UX
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projected refs, synthetic commits, and push behavior
 - [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
-- [07_execution_plan.md](07_execution_plan.md): implementation phases and workflow validation
+- [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
+- [08_execution_plan.md](08_execution_plan.md): implementation phases and workflow validation
 
 Gitslice is designed to support:
 
@@ -52,11 +55,11 @@ flowchart LR
 
   Core --> Auth[Account and Auth Service]
   Core --> Changesets[Changeset Service]
-  Core --> Queue[Submit Queue Service]
+  Core --> Submit[Submit Service]
   Core --> Workspace[Workspace Service]
 
   Changesets --> Storage[Native Storage]
-  Queue --> Storage
+  Submit --> Storage
   Workspace --> Storage
   Gateway --> Storage
 
@@ -71,8 +74,9 @@ flowchart LR
 ```
 
 The CLI and Git gateway are product entry points. The native source graph,
-storage, policy, queues, and indexes remain server-side product infrastructure.
-Git compatibility is important, but it is not the internal storage model.
+storage, submit validation, and indexes remain server-side product
+infrastructure. Git compatibility is important, but it is not the internal
+storage model.
 
 ---
 
@@ -158,7 +162,7 @@ workspace diff
   -> patchset
   -> changeset
   -> review and validation
-  -> account-defined submit queue or queues
+  -> direct submit validation
   -> global commit or commits
   -> atomic ref update
 ```
@@ -176,7 +180,7 @@ Users interact mostly with:
 - changesets
 - patchsets
 - reviews
-- account-defined submit queues
+- submit requirements
 
 ### 2.6 Git Is A Compatibility Layer
 
@@ -368,22 +372,23 @@ This keeps the MVP authorization model small:
 
 - slice visibility controls who can read a projection
 - slice roles control who can create changesets from that slice
-- account queue definitions control submit ordering, required checks, and
-  required approvals
+- slice submit settings control required checks and required approvals
 - optional path locks cover rare high-risk paths such as large binaries or
   release manifests
 
-Submit requirements are centralized in account queue definitions under:
+Submit requirements are part of the slice definition:
 
-```text
-/{account}/.gitslice/queues/{queue}.yaml
+```yaml
+submit:
+  required_approvals:
+    - team: payment-owners
+  required_checks:
+    - payment-ci
 ```
 
-Queue files are still versioned source-tree metadata, but there is one account
-queue policy surface instead of scattered path-local metadata. Queue changes
-that remove required checks, remove approvals, broaden matching rules, or
-retarget a queue must be validated against the previous accepted queue
-definition and account-level queue administration rules.
+Slice-definition changes that remove required checks or approvals must be
+validated through the same protected administrative or reviewed changeset flow
+as included-path, visibility, or role changes.
 
 ### 4.5 Overlapping Slices
 
@@ -430,23 +435,23 @@ path.
 
 There is no single authoritative governing slice for an overlapping path. The
 write authority for a path starts with the authoring slice and is constrained by
-account queue rules for the changed paths.
+that slice's submit settings, required checks, and any active path locks.
 
 The slice through which a user starts work is the authoring slice. It is useful
-for UI, defaults, and Git URL resolution, but it does not weaken queue or review
-requirements selected for the changed paths.
+for UI, defaults, and Git URL resolution, but it does not weaken submit or
+review requirements for the changed paths.
 
 ### 4.7 Overlap Authorization Rule
 
 When a single-slice changeset touches paths that are also covered by overlapping
-slices, the server recomputes the covering slices and required account queues.
+slices, the server recomputes covering slices and submit requirements.
 
 ```text
 changed paths
   -> authoring slice containment
   -> covering slices
-  -> queue selection from account queue definitions
-  -> required approvals, checks, locks, and queue ordering
+  -> submit requirements from the authoring slice definition
+  -> required approvals, checks, and locks
 ```
 
 The safe default is:
@@ -454,14 +459,9 @@ The safe default is:
 ```text
 The authoring slice must include every changed path.
 Every changed path must be readable by the author.
-All selected account queues must agree on a target ref.
-Queue files may add checks and approvals.
-Queue files must not weaken themselves.
+The authoring slice submit settings provide required approvals and checks.
+Path locks may add owner approval for rare high-risk paths.
 ```
-
-If selected queue definitions disagree, the changeset is blocked until an
-account admin updates queue configuration, retargets the changeset if allowed,
-or applies an audited override.
 
 Example:
 
@@ -473,9 +473,9 @@ covering slices:
   acme/backend
   acme/payment
 
-required queues:
-  /acme/.gitslice/queues/backend.yaml
-  /acme/.gitslice/queues/payments.yaml
+submit requirements:
+  payment-ci
+  payment-owner approval
 ```
 
 ### 4.8 Slice Definition Overlap Changes
@@ -488,18 +488,18 @@ Definition changes that affect overlap must:
 - require slice admin permission
 - be audited as a new slice definition version
 - recompute coverage for affected paths
-- recompute queue selection for affected open changesets
+- refresh validation for affected open changesets
 - revalidate open changesets touching affected paths
 - invalidate affected projection caches
 
 If a slice definition change adds a new covering slice to an open changeset,
-the changeset must recompute queue selection. Any newly required approvals and
-checks must be collected before submission.
+the changeset must refresh affected-slice notifications. Submit requirements
+change only when the authoring slice submit settings or active path locks
+change.
 
 If a slice definition change removes a covering slice, that slice is removed
 from future affected-slice notifications, but the historical review log is
-preserved. Submit requirements change only when selected queue definitions or
-slice coverage change.
+preserved.
 
 ### 4.9 Slice History Projection
 
@@ -621,7 +621,7 @@ admin:
 writer:
   create changesets
   push to changeset refs
-  submit when queue rules allow
+  submit when server-side validation passes
 
 reader:
   clone/fetch/read slice contents
@@ -647,13 +647,14 @@ included in that authoring slice. A changeset cannot directly span multiple
 slices or accounts.
 
 For each changed global path, the server resolves all covering slices. This is
-still necessary because slices can overlap. Overlap can affect queue selection
-and review routing, but it does not make the changeset a cross-slice changeset.
+still necessary because slices can overlap. Overlap can affect review routing
+and conflict detection, but it does not make the changeset a cross-slice
+changeset.
 
 ```text
 changed paths
   -> covering slices
-  -> required queues
+  -> submit requirements
   -> required slice roles
   -> required approvals
   -> required checks
@@ -671,7 +672,8 @@ Default write authorization:
 - A user may create a changeset from a slice where they have writer access.
 - The user must have read access to every path they modify.
 - Other covering slices do not add writer-role requirements by default.
-- Submission requires every selected queue rule to be satisfied.
+- Submission requires all submit requirements, checks, and path locks to be
+  satisfied.
 
 ### 5.5 Overlap Read Visibility
 
@@ -775,8 +777,7 @@ Changeset:
   affected_paths[]
   covering_slices_by_path[]
   expected_slice_definition_hashes[]
-  required_queues[]
-  expected_queue_definition_hashes[]
+  submit_requirements
   status
   review_state
   test_state
@@ -813,10 +814,13 @@ Patchset:
   author
   changed_paths[]
   file_edits[]
+  path_base_predicates[]
+  read_set[]
+  write_set[]
   resulting_tree_preview
   covering_slices_by_path[]
   expected_slice_definition_hashes[]
-  required_queues_snapshot
+  submit_requirements_snapshot
 ```
 
 Patchsets store changes using canonical global paths. They do not depend on a
@@ -832,16 +836,15 @@ lands. Older patchsets remain available for review history, auditability, and
 comparison.
 
 Approvals and checks should record which patchset they evaluated. When a new
-patchset changes affected paths, covering slices, queue selection, or file
+patchset changes affected paths, covering slices, submit requirements, or file
 content, the server may invalidate or refresh approvals and checks according to
-queue policy.
+submit settings.
 
 ### 7.3 Changeset Lifecycle
 
 ```text
 Draft
   -> Review
-  -> Queued
   -> Submitting
   -> Submitted
 ```
@@ -853,6 +856,7 @@ Abandoned
 Failed
 MergeConflict
 NeedsRebase
+NeedsRequirementRefresh
 ```
 
 ### 7.4 Changeset To Commit Mapping
@@ -928,7 +932,7 @@ The architectural summary is:
 - Git commits are synthetic and stable for the same projection inputs
 - protected pushes create or update changesets instead of directly moving
   accepted refs
-- Git-originated writes must satisfy the same slice, queue, and validation rules
+- Git-originated writes must satisfy the same slice and validation rules
   as native writes
 
 ---
@@ -955,20 +959,31 @@ The architectural summary is:
 
 Gitslice should use optimistic concurrency control by default.
 
-Every changeset is based on a specific global commit.
+Every changeset has a review base commit, and every patchset records per-path
+base predicates for conflict detection. Exact entry fingerprints are one
+predicate type; existence and directory-presence checks are also valid
+predicate types.
 
 ```text
 Changeset:
   base_commit = G100
+
+Patchset path base:
+  /acme/payment/api/handler.go
+  base_commit = G100
+  check = exact_entry
+  content_hash = h123
+  mode = 100644
 ```
 
 Before submission, the server validates:
 
 ```text
 Can the patch apply cleanly to current head?
+Do read-set path predicates still match current head?
 Do affected paths still have the expected covering slices?
 Does the author still have the required slice roles?
-Do all selected queue rules pass?
+Do submit requirements pass?
 Do required checks pass on the latest head?
 ```
 
@@ -992,10 +1007,11 @@ Slice coverage conflict:
 The covering slice set or included path set changed while the changeset was open.
 ```
 
-Queue policy conflict:
+Submit requirement refresh:
 
 ```text
-Selected queue definitions impose incompatible requirements.
+The authoring slice submit settings or active path locks changed while the
+changeset was open.
 ```
 
 Semantic conflict:
@@ -1004,11 +1020,15 @@ Semantic conflict:
 Two changes touch different files but break behavior together.
 ```
 
-Semantic conflicts are handled by tests and the required queue or queues.
+Semantic conflicts are handled by tests and required checks.
+
+Detailed conflict classes, path predicates, read sets, write sets, and batched
+submit behavior are defined in
+[07_conflict_resolution.md](07_conflict_resolution.md).
 
 ### 11.2 Overlap Conflict Resolution Process
 
-Overlapping slices are resolved by recomputing coverage and queue selection at
+Overlapping slices are resolved by recomputing coverage and submit requirements at
 every important transition.
 
 Process:
@@ -1018,17 +1038,19 @@ Process:
 2. Normalize changed paths to canonical absolute paths.
 3. Verify every changed path is included in the authoring slice.
 4. Resolve covering slices for each changed path using latest slice definitions.
-5. Resolve required queues from account queue definitions.
-6. Store covering_slices_by_path, slice definition hashes, required queues, and
-   queue definition hashes on the patchset.
-7. Compute required approvals, locks, checks, and ordering from selected queues.
-8. Notify reviewers for every affected covering slice and required queue owner.
-9. Collect approvals required by selected queues.
-10. Before submit, recompute coverage and queue selection against latest definitions.
-11. If coverage or queues changed, refresh requirements before continuing.
-12. Reapply patch to latest target ref.
-13. Run required checks.
-14. Publish commit and update target ref with CAS.
+5. Resolve submit requirements from the authoring slice definition and path locks.
+6. Store covering_slices_by_path, slice definition hashes, path base
+   predicates, read/write sets, and submit requirements on the patchset.
+7. Compute required approvals, locks, and checks.
+8. Notify reviewers for every affected covering slice and required approval.
+9. Collect approvals required by submit settings and path locks.
+10. Before submit, recompute coverage and submit requirements against latest definitions.
+11. Verify read-set predicates against the latest target-ref head.
+12. If coverage, submit requirements, or path predicates fail, refresh or
+    rebase before continuing.
+13. Reapply patch to latest target ref.
+14. Run required checks.
+15. Publish commit and update target ref with CAS.
 ```
 
 Coverage refresh outcomes:
@@ -1038,16 +1060,16 @@ unchanged:
   keep current requirements and continue
 
 covering slice added:
-  update affected-slice notifications and recompute queue selection
+  update affected-slice notifications
 
 covering slice removed:
   remove future affected-slice notifications but preserve historical review log
 
-queue definition changed:
-  recompute requirements; stale approvals may need renewal if queue rules require it
+authoring slice submit settings changed:
+  recompute requirements; stale approvals may need renewal
 
 included path moved:
-  mark NeedsRebase or NeedsQueueRefresh depending on whether the patch still applies
+  mark NeedsRebase or NeedsRequirementRefresh depending on whether the patch still applies
 ```
 
 The changeset should show coverage explicitly.
@@ -1059,9 +1081,6 @@ Example:
   covering slices:
     acme/backend
     acme/payment
-  required queues:
-    /acme/.gitslice/queues/backend.yaml
-    /acme/.gitslice/queues/payments.yaml
   required:
     backend-ci
     payment-owner approval
@@ -1072,11 +1091,11 @@ Example:
 Two changesets from different authoring slices can edit the same overlapping
 path.
 
-They do not merge independently per slice. Queue selection resolves every
-covering slice, then places both changesets into the required account queues. If
-they share any required queue, that queue serializes them.
+They do not merge independently per slice. The server resolves every covering
+slice for review routing and conflict detection. Final submission is serialized
+by the target-ref landing sequencer. If the first changeset lands, the second
+changeset must reapply to the new head.
 
-If the first changeset lands, the second changeset must reapply to the new head.
 If the patch no longer applies cleanly, it becomes `NeedsRebase` or
 `MergeConflict`.
 
@@ -1087,280 +1106,162 @@ Approvals are recorded against both:
 ```text
 slice_id
 slice_definition_hash
-queue_id
-queue_definition_hash
+patchset_id
 ```
 
-An approval remains valid only while the relevant slice definition and queue
-definition remain valid for the affected paths, unless the queue definition
-explicitly allows stale approvals.
+An approval remains valid only while the relevant patchset and slice definition
+remain valid for the affected paths, unless submit settings explicitly allow
+stale approvals.
 
 If a new covering slice appears, that slice has not approved the change yet.
 
 If a covering slice disappears, its approval is retained in the audit log but is
 not required for the next submit attempt.
 
-### 11.5 Incompatible Queue Policy Resolution
+### 11.5 Submit Requirement Refresh
 
-Most queue requirements compose by union. Some queue requirements can conflict.
-
-When selected queue definitions conflict, the changeset cannot submit
-automatically.
+Submit requirements are intentionally simple in the MVP: required approvals and
+required checks compose by union with active path locks. If requirements change
+while a changeset is open, the changeset cannot submit until it refreshes and
+records the new requirement snapshot.
 
 Resolution options:
 
 ```text
-1. Update one or more queue files.
-2. Split the changeset so conflicting paths are reviewed separately.
+1. Refresh the changeset and collect newly required approvals/checks.
+2. Split the changeset so high-risk paths are reviewed separately.
 3. Apply an explicit admin override if the account allows overrides.
 4. Abandon the changeset.
 ```
 
-Admin overrides must be audited and should name the conflicting queue rules they
+Admin overrides must be audited and should name the submit requirements they
 override.
 
 ---
 
-## 12. Versioned Submit Queues
+## 12. Direct Submit Validation
 
-Gitslice does not have one global submit queue.
+The MVP does not include a separate submit scheduling abstraction. A changeset
+submits directly after the server proves that the current patchset satisfies
+authorization, review, required checks, active path locks, and target-ref
+freshness.
 
-Each account owns versioned queue definitions under its namespace. Queue
-definitions decide how changes touching that account's slices are ordered,
-validated, and submitted.
-
-Queue file convention:
-
-```text
-/{account}/.gitslice/queues/{queue}.yaml
-```
-
-Example:
+Submit requirements come from the authoring slice definition:
 
 ```yaml
-version: 1
-name: main
-target_ref: refs/global/main
-
-scope:
-  paths:
-    - /acme/**
-  slices:
-    - acme/*
-
-ordering: fifo
-
 submit:
-  required_roles:
-    - writer
   required_approvals:
     - team: acme-maintainers
   required_checks:
     - acme-ci
-
-concurrency:
-  max_active: 1
-  allow_disjoint_paths: false
-
-overrides:
-  admin_override: true
 ```
 
-Queue files are ordinary versioned source graph files. Updating a queue file is a
-control-plane change and should itself go through a changeset. The effective
-queue configuration for submission is resolved from the latest accepted target
-ref at the time the changeset is validated.
+Those settings are versioned with the slice definition. Changing them is a
+control-plane change and should go through a changeset or equivalent reviewed
+administrative flow. Weakening required approvals or checks must be audited and
+must not rely on the weakened settings to approve itself.
 
-If an account has no queue file yet, the system provides a bootstrap default
-queue:
+### 12.1 Submit Requirement Resolution
 
-```text
-/{account}/.gitslice/queues/default.yaml
-```
-
-The bootstrap queue exists as system behavior until the account commits an
-explicit queue file.
-
-### 12.1 Queue Selection
-
-Queue selection happens after changed paths and covering slices are resolved.
+Requirement resolution happens after changed paths and covering slices are
+resolved.
 
 ```text
 changed paths
   -> authoring slice containment
   -> covering slices
-  -> authoring account
-  -> queue rules from that account's .gitslice/queues/*.yaml
-  -> required queues
+  -> authoring slice submit settings
+  -> active path locks that intersect changed paths
+  -> required approvals and checks
 ```
 
-If more than one queue matches, the changeset must satisfy all of them.
+The current MVP rule is intentionally direct: the authoring slice defines submit
+requirements for the whole changeset. Other covering slices affect visibility,
+review routing, projection invalidation, and conflict detection, but they do not
+add submit requirements by default.
 
-For the initial design, all required queues for one changeset must agree on the
-same `target_ref`. If they do not, the changeset is a queue conflict and cannot
-submit until it is split, retargeted, or the queue files are changed.
-
-Examples:
-
-```text
-/acme/services/payment/handler.go
-  covering slices:
-    acme/backend
-    acme/payment
-  required queues:
-    /acme/.gitslice/queues/backend.yaml
-    /acme/.gitslice/queues/payments.yaml
-```
-
-Queue selection records:
+Submit requirement records:
 
 ```text
-queue_id
-queue_definition_hash
-target_ref
-matched_paths
-matched_slices
+authoring_slice_id
+slice_definition_hash
+path_lock_set_hash
+path_base_predicates
+read_set
+write_set
+matched_path_locks
 required_checks
 required_approvals
 ```
 
-### 12.2 Single-Queue Submit
+### 12.2 Submit Flow
 
-For a changeset assigned to one queue:
+For a changeset:
 
 ```text
-1. Wait until the changeset is runnable in that queue.
-2. Lease the queue item.
-3. Load latest queue definition from the target ref.
-4. Recompute changed paths, covering slices, and queue selection.
-5. Refresh approvals, roles, locks, and checks.
-6. Run required checks.
-7. Hand off to the target-ref landing sequencer.
-8. Rebase or reapply onto the latest target ref inside the sequencer lease.
-9. Revalidate freshness, queues, checks, and conflicts.
-10. Create final commit or commits.
-11. Atomically update target ref with CAS.
-12. Emit indexing events for every affected covering slice.
+1. Load the current patchset.
+2. Recompute changed paths and covering slices.
+3. Recompute read/write sets and path base predicates.
+4. Recompute submit requirements from the authoring slice and active path locks.
+5. Verify authoring slice containment and read/write authorization.
+6. Verify required approvals are fresh for the current patchset.
+7. Run or verify required checks.
+8. Hand off to the target-ref landing sequencer.
+9. Rebase or reapply onto the latest target ref inside the sequencer lease.
+10. Revalidate path predicates, submit requirements, checks, and conflicts.
+11. Create final commit or commits.
+12. Atomically update target ref with CAS.
+13. Emit indexing events for every affected covering slice.
 ```
 
 If CAS fails despite the sequencer lease, the worker treats it as a stale
 sequencer/admin-intervention conflict, reloads the new head, and returns the
-changeset to a retryable queue state. It should not spin in an unbounded CAS
+changeset to a retryable submit state. It should not spin in an unbounded CAS
 retry loop.
 
-### 12.3 Multi-Queue Submit
+### 12.3 Target-Ref Landing Sequencer
 
-A changeset can require multiple queues when it touches overlapping slices or
-when multiple queue rules match within the authoring account.
+Correctness requires one final linearization point per `target_ref`.
 
-Multi-queue submit coordinates policy and ordering across the affected queues.
-It is not a cross-slice or cross-account submit protocol. For the initial design,
-a single submit still updates only one `target_ref`; work that needs independent
-slice or account workflows should be split into independent changesets.
-
-Multi-queue submit uses deterministic queue leases.
-
-```text
-1. Compute required queue set.
-2. Sort queue ids lexicographically.
-3. Wait until the changeset is runnable in every required queue.
-4. Acquire leases in sorted order.
-5. Revalidate queue definitions and covering slices.
-6. Run union of required checks.
-7. Hand off to the target-ref landing sequencer.
-8. Reapply patch to latest target ref inside the sequencer lease.
-9. Revalidate freshness, queues, checks, and conflicts.
-10. Commit and CAS-update target ref.
-11. Release all leases.
-```
-
-Sorted lease acquisition prevents deadlocks.
-
-For the MVP, a changeset assigned to multiple queues should be runnable only
-when it is at the head of every required queue. This is conservative but easy to
-reason about. Later, queues can allow disjoint-path concurrency when their queue
-files opt in.
-
-### 12.4 Queue Definition Changes
-
-Queue files are versioned. When a queue file changes:
-
-- new changesets use the new queue definition
-- open changesets recompute queue selection before submit
-- approvals tied to the old queue definition may need renewal
-- queued items whose required queue set changed move to `NeedsQueueRefresh`
-
-Queue config changes should not mutate already-submitted history. They affect
-future validation and future submit attempts.
-
-Queue files are policy-bearing metadata. Changes that remove required checks,
-remove approvals, broaden matching rules, or retarget a queue must be validated
-against the previous accepted queue definition and account-level queue
-administration rules. A queue file must not authorize its own weakening.
-
-### 12.5 Queue Conflicts
-
-Queue conflicts happen when queue definitions disagree.
-
-Examples:
-
-```text
-queue A requires check acme-ci
-queue B forbids external CI for the same path
-
-queue A targets refs/global/main
-queue B targets refs/accounts/acme/release
-```
-
-Resolution options:
-
-```text
-1. Update one or more queue files.
-2. Split the changeset.
-3. Retarget the changeset if policy allows.
-4. Apply an audited admin override.
-5. Abandon the changeset.
-```
-
-### 12.6 Target-Ref Landing Sequencer
-
-Account queues remove the global queue bottleneck, but independent queues can
-still target the same accepted ref. Correctness requires one final
-linearization point per `target_ref`.
-
-The Submit Queue Service owns a fair target-ref landing sequencer for each
-target ref. Queue workers may evaluate eligibility, approvals, and checks in
-parallel, but final landing for a target ref happens through the sequencer.
+The Submit Service owns a target-ref landing sequencer for each target ref.
+Validation and checks may run concurrently, but final landing for a target ref
+happens through the sequencer.
 
 Sequencer responsibilities:
 
-- choose among ready queue items fairly across required queues
 - acquire a short lease for the target ref
 - reload the latest target-ref head
 - rebase or reapply the patchset
-- recompute changed paths, covering slices, and queue selection
-- verify that approvals, locks, checks, and queue eligibility are still fresh
+- recompute changed paths, read/write sets, covering slices, and submit requirements
+- verify that approvals, locks, and checks are still fresh
 - publish the commit and move the ref with CAS
 
-The sequencer is not a global submit queue. It only serializes the final commit
-publication step for one target ref. Queues still define policy, ordering, and
-eligibility before handoff.
+The sequencer is not a product-level scheduling abstraction. It only serializes
+the final commit publication step for one target ref.
 
-### 12.7 Why Queues Still Need CAS
+The submit service may batch multiple ready changesets for the same target ref
+when their write sets are disjoint, their read/write sets are mutually
+compatible, and every read-set predicate is satisfied by the current head. A
+batch publishes a deterministic commit chain and moves the target ref once.
+Batching is a throughput optimization; every included changeset still keeps its
+own patchset, approval state, commit id, and audit trail.
 
-Account queues remove the global queue bottleneck, but they do not remove the
-need for atomic ref updates.
+### 12.4 Why Submit Still Needs CAS
 
-Two independent queues can land disjoint changes against the same target ref at
-roughly the same time if a sequencer lease expires, an admin operation moves the
-ref, or a worker observes stale state. CAS ensures only one writer wins the exact
-head it validated against. The losing submitter returns to a retryable queue
-state and must rerun freshness validation before trying again.
+The target-ref sequencer reduces races, but it does not remove the need for
+atomic ref updates.
+
+Two submit workers can observe stale state if a sequencer lease expires, an
+admin operation moves the ref, or a worker is retried after a partial failure.
+CAS ensures only one writer wins the exact head it validated against. The losing
+submitter returns to a retryable state and must rerun freshness validation
+before trying again.
 
 This gives the system both:
 
-- account-defined queue policy
+- simple MVP submit validation
 - global commit/ref correctness
+- a path to scale hot target refs through safe batching
 
 ---
 
@@ -1447,7 +1348,7 @@ Workspace Service
 Git Gateway
 GS API Gateway
 Changeset Service
-Submit Queue Service
+Submit Service
 Index Service
 Build/CI Service
 Auth Service
@@ -1456,11 +1357,15 @@ Replication Service
 
 ### 16.1 Object Store
 
-Stores file contents and large binary objects.
+Cloudflare R2 stores file contents, large binary objects, staged uploads, and
+large derived artifacts such as Git projection packs. R2 is not the source of
+truth for object liveness; Postgres blob and reachability metadata is.
 
 ### 16.2 Metadata Service
 
-Stores trees, commits, refs, slice definitions, changesets, and object metadata.
+PostgreSQL stores trees, commits, refs, slice definitions, changesets, object
+metadata, path predicates, leases, operational indexes, and the transactional
+outbox.
 
 ### 16.3 Slice Service
 
@@ -1486,16 +1391,17 @@ Implements the native GS protocol used by the CLI, web app, SDKs, and agents.
 
 Manages changesets, patchsets, review state, and workflow state.
 
-### 16.8 Submit Queue Service
+### 16.8 Submit Service
 
-Evaluates versioned account queue definitions, manages queue membership and
-leases, coordinates submissions that require multiple queues, and performs final
-validation before CAS ref updates.
+Evaluates submit requirements, verifies approvals and checks, coordinates the
+target-ref landing sequencer, and performs final validation before CAS ref
+updates.
 
 ### 16.9 Index Service
 
-Maintains changed-path, path history, slice coverage, queue selection, build,
-test, and projection indexes. See [06_indexing.md](06_indexing.md).
+Maintains changed-path, path history, slice coverage, submit requirement
+provenance, build, test, and projection indexes. See
+[06_indexing.md](06_indexing.md).
 
 ---
 
@@ -1516,18 +1422,19 @@ These invariants must not be violated.
 3. A commit points to exactly one root tree.
 4. A ref update is atomic and conditional.
 5. A single target-ref submit either publishes all final commits and moves that target ref, or publishes none.
-6. Queue definitions are versioned files under account namespaces.
-7. A changeset must submit through every queue selected by its affected paths and covering slices.
-8. Multi-queue submit must acquire queue leases in deterministic order.
-9. A slice projection is deterministic for a given slice id, slice definition hash, and global commit.
-10. Default slice history uses the latest accepted slice definition.
-11. Slice visibility and roles govern access to all paths included by the slice.
-12. A global path may be covered by multiple slices.
-13. Writes to overlapping paths must satisfy every selected queue rule at submit time.
-14. Effective read exposure for a path is the broadest visibility of any covering slice.
-15. Git synthetic commit IDs are stable for the same projection inputs.
-16. Metadata must never reference an unverified blob.
-17. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and queue definitions.
+6. Submit settings are versioned with slice definitions.
+7. A patchset records path base predicates, read sets, and write sets used for submit freshness checks.
+8. Batched submit may move a target ref once for multiple changesets only when their read/write sets are compatible and their read-set predicates are fresh.
+9. A changeset must satisfy the submit requirements of its authoring slice and any active path locks.
+10. A slice projection is deterministic for a given slice id, slice definition hash, and global commit.
+11. Default slice history uses the latest accepted slice definition.
+12. Slice visibility and roles govern access to all paths included by the slice.
+13. A global path may be covered by multiple slices.
+14. Writes to overlapping paths must satisfy current submit validation at submit time.
+15. Effective read exposure for a path is the broadest visibility of any covering slice.
+16. Git synthetic commit IDs are stable for the same projection inputs.
+17. Metadata must never reference an unverified blob.
+18. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
 ```
 
 ---
@@ -1535,7 +1442,7 @@ These invariants must not be violated.
 ## 19. Execution Plan
 
 Implementation phases and workflow validation have moved to
-[07_execution_plan.md](07_execution_plan.md).
+[08_execution_plan.md](08_execution_plan.md).
 
 ---
 
@@ -1551,6 +1458,7 @@ The initial design should not include:
 - path-level ACLs as the primary access model
 - per-directory policy files
 - code search in the MVP
+- a separate submit scheduling abstraction in the MVP
 - Git-native storage internals
 - distributed atomic commits across slices or target refs
 

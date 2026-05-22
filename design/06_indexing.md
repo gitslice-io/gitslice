@@ -4,14 +4,15 @@ This document defines Gitslice derived indexes, indexing events, freshness
 semantics, and rebuild rules. Product context is in [00_product.md](00_product.md),
 the top-level architecture is in
 [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md), storage
-is in [02_storage.md](02_storage.md), and rollout phases are in
-[07_execution_plan.md](07_execution_plan.md).
+is in [02_storage.md](02_storage.md), conflict resolution and batched submit are
+in [07_conflict_resolution.md](07_conflict_resolution.md), and rollout phases
+are in [08_execution_plan.md](08_execution_plan.md).
 
 ## 1. Indexing Goals
 
-Indexes are derived data. They should make reads, review, authorization, queue
-selection, build selection, and projection fast, but they must not become the
-source of truth.
+Indexes are derived data. They should make reads, review, authorization, submit
+requirement resolution, build selection, and projection fast, but they must not
+become the source of truth.
 
 The source of truth remains:
 
@@ -21,7 +22,7 @@ Commits
 Trees
 Blobs
 Slice definitions
-Queue definition files
+Path lock records
 ```
 
 If an index is missing or stale, the system should be able to rebuild it from
@@ -36,13 +37,13 @@ Gitslice should keep the MVP index stack small.
 MVP systems:
 
 ```text
-metadata database
+PostgreSQL
   operational indexes
   freshness/provenance records
   transactional outbox
   worker checkpoints
 
-object storage
+Cloudflare R2
   large immutable index artifacts
   build/test graph snapshots
   projection cache artifacts
@@ -54,20 +55,20 @@ index workers
   publish large artifacts
 ```
 
-The metadata database is the same transactional system used for refs, commits,
-changesets, queue state, and slice metadata. For the first implementation this
-can be PostgreSQL. The design should not depend on PostgreSQL-only behavior, but
-using SQL tables for the MVP keeps correctness-critical indexes easy to inspect,
-repair, and transactionally update. If scale requires it, these tables can move
-to an ordered distributed KV store with the same key shapes.
+PostgreSQL is the same transactional system used for refs, commits, changesets,
+submit state, and slice metadata. Using SQL tables for the MVP keeps
+correctness-critical indexes easy to inspect, repair, and transactionally
+update. If scale requires a different backing store later, it should preserve
+the same logical key shapes and freshness guarantees.
 
 ### 2.1 System Responsibilities
 
 Metadata database indexes:
 
 - slice coverage
-- queue selection
+- submit requirement provenance
 - changed paths
+- patchset read/write sets
 - path history
 - projection cache registry
 - index freshness and provenance
@@ -121,12 +122,14 @@ slice_prefix_index(
   updated_at
 )
 
-queue_rule_prefix_index(
+submit_requirement_index(
   account,
-  queue_id,
-  queue_definition_hash,
-  matched_prefix,
+  slice_id,
+  slice_definition_hash,
+  path_lock_set_hash,
   target_ref,
+  required_approvals[],
+  required_checks[],
   source_commit_id
 )
 
@@ -136,6 +139,19 @@ changed_path_index(
   path,
   blob_hash,
   change_kind
+)
+
+patchset_path_base_index(
+  target_ref,
+  changeset_id,
+  patchset_id,
+  path,
+  recursive,
+  access_kind,
+  check_kind,
+  base_commit_id,
+  entry_fingerprint,
+  indexed_at
 )
 
 path_history_index(
@@ -163,20 +179,23 @@ Path-prefix indexes should support:
 find prefixes covering a path
 find prefixes covered by a changed directory
 find slices whose included paths overlap changed paths
-find queues that match changed paths
+lookup submit settings for an authoring slice
 ```
 
 The exact physical representation can be SQL btree/range tables for the MVP and
 an ordered KV prefix trie later. The logical API should remain prefix lookup and
-overlap lookup, not ad hoc string matching in application code.
+overlap lookup, not ad hoc string matching in application code. The concrete
+PostgreSQL tables and database indexes are defined in
+[02_storage.md](02_storage.md#42-postgresql-indexes-and-constraints).
 
 ## 3. Required Indexes
 
 Initial required indexes:
 
 - slice coverage
-- queue selection
+- submit requirement provenance
 - changed paths
+- patchset read/write sets
 - path history
 - slice projection
 - build graph
@@ -193,30 +212,48 @@ covering_slices(path, definition_epoch) -> []slice_id
 ```
 
 This index accelerates authorization, review routing, projection invalidation,
-and queue selection. It is derived from slice definitions.
+and affected-slice calculation. It is derived from slice definitions.
 
-### 3.2 Queue Selection
+### 3.2 Submit Requirement Provenance
 
-Maps changed paths, covering slices, and authoring account to queue rules from:
+Maps authoring slices to the submit settings in their latest accepted slice
+definition:
 
 ```text
-/{account}/.gitslice/queues/*.yaml
+submit_requirements(slice_id, slice_definition_hash)
+  -> required approvals
+  -> required checks
+  -> path locks that intersect changed paths
 ```
 
-Queue selection must be recomputed before submit against the latest target ref.
-The index is an accelerator, not an authority.
+Submit requirement resolution must be recomputed before submit against the
+latest accepted slice definition and active path locks. The index is an
+accelerator and provenance record, not an authority.
 
 ### 3.3 Changed Paths
 
-Changed-path indexes support review summaries, queue routing, CI selection, and
-incremental index updates.
+Changed-path indexes support review summaries, CI selection, projection
+invalidation, and incremental index updates.
 
-### 3.4 Path History
+### 3.4 Patchset Read/Write Sets
+
+Maps open patchsets to their read-set predicates and write-set paths. This
+index accelerates batched submit candidate discovery for a hot target ref.
+
+```text
+ready_patchsets(target_ref, compatible_read_write_set, fresh_requirements)
+  -> []patchset_id
+```
+
+The index is only an accelerator. Submit must revalidate path predicates against
+the current target-ref head before publishing.
+
+### 3.5 Path History
 
 Maps paths to commits that touched those paths. Rename handling can start as
 path-based and later add richer rename detection.
 
-### 3.5 Slice Projection
+### 3.6 Slice Projection
 
 Projection indexes cache deterministic slice projections:
 
@@ -228,7 +265,7 @@ Projection indexes cache deterministic slice projections:
 Projection caches can be invalidated or lazily rebuilt when slice definitions or
 commits change.
 
-### 3.6 Build And Test Graphs
+### 3.7 Build And Test Graphs
 
 Build and test indexes support affected target calculation and required check
 selection.
@@ -266,18 +303,18 @@ CommitCreated(new_commit, changed_paths)
   -> append changed_path_index rows
   -> append path_history_index rows
   -> identify affected slices by prefix overlap
-  -> identify affected queues by prefix overlap
+  -> mark open patchsets with stale read-set predicates
   -> invalidate affected projection cache entries
   -> invalidate affected build/test graph entries
 ```
 
-Queue definition edit:
+Patchset update:
 
 ```text
-QueueDefinitionChanged(queue_file_path)
-  -> parse queue rules
-  -> update queue_rule_prefix_index
-  -> mark affected queued changesets NeedsQueueRefresh
+PatchsetUpdated(patchset_id)
+  -> recompute path base predicates
+  -> update patchset_path_base_index
+  -> update ready-for-batch candidate indexes
 ```
 
 Slice definition edit:
@@ -285,7 +322,9 @@ Slice definition edit:
 ```text
 SliceDefinitionChanged(slice_id)
   -> update slice_prefix_index
+  -> update submit_requirement_index
   -> invalidate projection cache entries for that slice
+  -> mark affected open changesets NeedsRequirementRefresh
   -> publish new slice definition epoch
 ```
 
@@ -304,8 +343,8 @@ CommitCreated
 RefUpdated
 FileChanged
 DirectoryChanged
+PatchsetUpdated
 SliceDefinitionChanged
-QueueDefinitionChanged
 SliceProjectionInvalidated
 BuildGraphInvalidated
 TestGraphInvalidated
@@ -321,7 +360,7 @@ parent_commit_ids[]
 target_ref
 changed_paths[]
 affected_slice_ids[]
-queue_ids[]
+affected_patchset_ids[]
 created_at
 ```
 
@@ -337,8 +376,8 @@ stale_but_usable
 unavailable
 ```
 
-Fresh means the index is known to include the relevant commit, slice definition,
-and queue definition versions.
+Fresh means the index is known to include the relevant commit and slice
+definition versions.
 
 Stale-but-usable means results may omit the latest changes, but they are still
 safe to display for non-authoritative UX such as review summaries or history
@@ -360,12 +399,15 @@ target_ref
 base_commit
 current_patchset
 slice_definition_hashes
-queue_definition_hashes
+path_base_predicates
+read_set
+write_set
+path_lock_set_hash
 ```
 
 If a relevant index is stale, submit should recompute directly or return a
 refresh-required state. It should not accept based on stale coverage or
-queue-selection data.
+submit-requirement data.
 
 ## 8. Rebuild Rules
 
@@ -378,7 +420,7 @@ commits
 trees
 blobs
 slice definitions
-queue definition files
+path lock records
 ```
 
 Rebuilds may run per index, per account, per slice, per path prefix, or globally.
@@ -388,7 +430,9 @@ Indexes should store provenance:
 ```text
 source_commit_id
 slice_definition_hash
-queue_definition_hash
+path_lock_set_hash
+check_kind
+entry_fingerprint
 indexer_version
 indexed_at
 ```
@@ -412,4 +456,4 @@ Repair workflows should be able to:
 - resume event processing from a known checkpoint
 
 The system should prefer blocking submit over accepting with stale coverage or
-queue-selection data.
+submit-requirement data.

@@ -6,7 +6,8 @@ architecture is in
 [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md),
 storage details are in [02_storage.md](02_storage.md), CLI behavior is in
 [04_cli_design.md](04_cli_design.md), and Git compatibility behavior is in
-[05_git_compatibility.md](05_git_compatibility.md).
+[05_git_compatibility.md](05_git_compatibility.md). Conflict resolution and
+batched submit are in [07_conflict_resolution.md](07_conflict_resolution.md).
 
 ## 1. API Principles
 
@@ -69,11 +70,6 @@ service ChangesetService {
   rpc UpdateChangeset(UpdateChangesetRequest) returns (Patchset);
   rpc SubmitChangeset(SubmitChangesetRequest) returns (SubmitChangesetResponse);
   rpc AbandonChangeset(AbandonChangesetRequest) returns (AbandonChangesetResponse);
-}
-
-service QueueService {
-  rpc ResolveRequiredQueues(ResolveRequiredQueuesRequest) returns (ResolveRequiredQueuesResponse);
-  rpc GetQueueItem(GetQueueItemRequest) returns (QueueItem);
 }
 
 service WorkspaceService {
@@ -220,6 +216,7 @@ message SliceDefinition {
   Visibility visibility = 8;
   repeated string included_paths = 9;
   Roles roles = 10;
+  SubmitSettings submit = 11;
 }
 
 enum Visibility {
@@ -234,6 +231,12 @@ message Roles {
   repeated string admins = 2;
   repeated string writers = 3;
   repeated string readers = 4;
+}
+
+message SubmitSettings {
+  repeated string required_approvals = 1;
+  repeated string required_checks = 2;
+  bool allow_admin_override = 3;
 }
 
 message ResolveSliceRequest {
@@ -312,7 +315,10 @@ message ValidateWorkspaceDiffRequest {
 message ValidateWorkspaceDiffResponse {
   repeated string affected_paths = 1;
   repeated PathCoverage coverage = 2;
-  repeated RequiredQueue required_queues = 3;
+  SubmitRequirements submit_requirements = 3;
+  repeated PathBase path_bases = 4;
+  repeated PathSetEntry read_set = 5;
+  repeated PathSetEntry write_set = 6;
 }
 
 message WorkspaceOperation {
@@ -345,20 +351,20 @@ message Changeset {
   int64 current_patchset_number = 7;
   ChangesetStatus status = 8;
   repeated string affected_paths = 9;
-  repeated RequiredQueue required_queues = 10;
+  SubmitRequirements submit_requirements = 10;
 }
 
 enum ChangesetStatus {
   CHANGESET_STATUS_UNSPECIFIED = 0;
   CHANGESET_STATUS_DRAFT = 1;
   CHANGESET_STATUS_REVIEW = 2;
-  CHANGESET_STATUS_QUEUED = 3;
-  CHANGESET_STATUS_SUBMITTING = 4;
-  CHANGESET_STATUS_SUBMITTED = 5;
-  CHANGESET_STATUS_ABANDONED = 6;
-  CHANGESET_STATUS_FAILED = 7;
-  CHANGESET_STATUS_NEEDS_REBASE = 8;
-  CHANGESET_STATUS_MERGE_CONFLICT = 9;
+  CHANGESET_STATUS_SUBMITTING = 3;
+  CHANGESET_STATUS_SUBMITTED = 4;
+  CHANGESET_STATUS_ABANDONED = 5;
+  CHANGESET_STATUS_FAILED = 6;
+  CHANGESET_STATUS_NEEDS_REBASE = 7;
+  CHANGESET_STATUS_MERGE_CONFLICT = 8;
+  CHANGESET_STATUS_NEEDS_REQUIREMENT_REFRESH = 9;
 }
 
 message Patchset {
@@ -371,6 +377,10 @@ message Patchset {
   repeated string changed_paths = 7;
   repeated FileEdit file_edits = 8;
   repeated PathCoverage coverage = 9;
+  SubmitRequirements submit_requirements = 10;
+  repeated PathBase path_bases = 11;
+  repeated PathSetEntry read_set = 12;
+  repeated PathSetEntry write_set = 13;
 }
 
 message FileEdit {
@@ -395,10 +405,38 @@ message PathCoverage {
   repeated string covering_slice_ids = 2;
 }
 
-message RequiredQueue {
-  string queue_id = 1;
-  string queue_definition_hash = 2;
-  string target_ref = 3;
+message PathBase {
+  string path = 1;
+  string base_commit_id = 2;
+  bool exists = 3;
+  EntryKind entry_kind = 4;
+  uint32 mode = 5;
+  string blob_id = 6;
+  string content_hash = 7;
+  string tree_id = 8;
+  string symlink_target = 9;
+  string entry_fingerprint = 10;
+  PathBaseCheck check = 11;
+}
+
+enum PathBaseCheck {
+  PATH_BASE_CHECK_UNSPECIFIED = 0;
+  PATH_BASE_CHECK_EXACT_ENTRY = 1;
+  PATH_BASE_CHECK_MUST_BE_MISSING = 2;
+  PATH_BASE_CHECK_MUST_EXIST_DIRECTORY = 3;
+}
+
+message PathSetEntry {
+  string path = 1;
+  bool recursive = 2;
+}
+
+message SubmitRequirements {
+  repeated string required_approvals = 1;
+  repeated string required_checks = 2;
+  repeated string path_lock_ids = 3;
+  string source_slice_definition_hash = 4;
+  string source_path_lock_set_hash = 5;
 }
 
 message CreateChangesetRequest {
@@ -438,34 +476,13 @@ message AbandonChangesetRequest {
 
 message AbandonChangesetResponse {}
 
-message ResolveRequiredQueuesRequest {
-  SliceRef authoring_slice = 1;
-  string target_ref = 2;
-  repeated string changed_paths = 3;
-}
-
-message ResolveRequiredQueuesResponse {
-  repeated RequiredQueue queues = 1;
-}
-
-message GetQueueItemRequest {
-  string queue_id = 1;
-  string changeset_id = 2;
-}
-
-message QueueItem {
-  string queue_id = 1;
-  string changeset_id = 2;
-  int64 position = 3;
-  bool runnable = 4;
-}
 ```
 
 ## 3. Internal Commit API
 
 Normal users should not create commits directly. Commit creation is an internal
-service boundary used by submit workers after validation, queue leasing, checks,
-and CAS preconditions have passed.
+service boundary used by submit workers after validation, required checks, and
+CAS preconditions have passed.
 
 ```proto
 syntax = "proto3";
@@ -474,6 +491,7 @@ package gitslice.internal.v1;
 
 service InternalCommitService {
   rpc CreateCommitFromPatchset(CreateCommitFromPatchsetRequest) returns (CreateCommitFromPatchsetResponse);
+  rpc CreateCommitBatchFromPatchsets(CreateCommitBatchFromPatchsetsRequest) returns (CreateCommitBatchFromPatchsetsResponse);
 }
 
 message CreateCommitFromPatchsetRequest {
@@ -489,10 +507,37 @@ message CreateCommitFromPatchsetResponse {
   string commit_id = 1;
   string new_ref_commit_id = 2;
 }
+
+message PatchsetCommitInput {
+  string changeset_id = 1;
+  string patchset_id = 2;
+  string author = 3;
+  string message = 4;
+}
+
+message CreateCommitBatchFromPatchsetsRequest {
+  string target_ref = 1;
+  string expected_old_commit_id = 2;
+  repeated PatchsetCommitInput commits = 3;
+}
+
+message PublishedPatchsetCommit {
+  string changeset_id = 1;
+  string patchset_id = 2;
+  string commit_id = 3;
+}
+
+message CreateCommitBatchFromPatchsetsResponse {
+  repeated PublishedPatchsetCommit commits = 1;
+  string new_ref_commit_id = 2;
+}
 ```
 
 This API must not bypass validation for normal users. It should be reachable
-only from trusted submit workers and administrative repair workflows.
+only from trusted submit workers and administrative repair workflows. Batch
+creation is valid only after the submit service has proven that candidate
+read/write sets are compatible and read-set predicates are fresh for the
+target-ref head being updated.
 
 ## 4. Error Model
 
@@ -501,7 +546,7 @@ Core APIs should use canonical gRPC status codes:
 - `INVALID_ARGUMENT` for malformed paths, invalid refs, or invalid request shape
 - `NOT_FOUND` for missing slices, commits, refs, blobs, or changesets
 - `PERMISSION_DENIED` for authorization failures
-- `FAILED_PRECONDITION` for queue, coverage, or stale patchset failures
+- `FAILED_PRECONDITION` for submit requirement, coverage, or stale patchset failures
 - `ABORTED` for CAS failures and retryable submit races
 - `RESOURCE_EXHAUSTED` for page-size, blob-size, or quota limits
 - `INTERNAL` for invariant violations
@@ -510,8 +555,8 @@ Structured error details should include machine-readable reasons such as:
 
 ```text
 PATH_OUTSIDE_AUTHORING_SLICE
-POLICY_REQUIREMENTS_CHANGED
-QUEUE_SELECTION_CHANGED
+PATH_BASE_STALE
+SUBMIT_REQUIREMENTS_CHANGED
 REF_CAS_FAILED
 PATCHSET_STALE
 MISSING_BLOB
@@ -533,4 +578,4 @@ Git URL
 ```
 
 Direct pushes to protected refs should either be rejected or translated into
-changesets that follow the same queue and submit validation as native writes.
+changesets that follow the same submit validation as native writes.
