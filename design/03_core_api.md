@@ -312,8 +312,7 @@ message ValidateWorkspaceDiffRequest {
 message ValidateWorkspaceDiffResponse {
   repeated string affected_paths = 1;
   repeated PathCoverage coverage = 2;
-  repeated string required_policy_files = 3;
-  repeated RequiredQueue required_queues = 4;
+  repeated RequiredQueue required_queues = 3;
 }
 
 message WorkspaceOperation {
@@ -372,7 +371,6 @@ message Patchset {
   repeated string changed_paths = 7;
   repeated FileEdit file_edits = 8;
   repeated PathCoverage coverage = 9;
-  repeated string required_policy_files = 10;
 }
 
 message FileEdit {
@@ -395,8 +393,6 @@ enum FileEditOp {
 message PathCoverage {
   string path = 1;
   repeated string covering_slice_ids = 2;
-  repeated string policy_file_paths = 3;
-  repeated string policy_file_hashes = 4;
 }
 
 message RequiredQueue {
@@ -505,7 +501,7 @@ Core APIs should use canonical gRPC status codes:
 - `INVALID_ARGUMENT` for malformed paths, invalid refs, or invalid request shape
 - `NOT_FOUND` for missing slices, commits, refs, blobs, or changesets
 - `PERMISSION_DENIED` for authorization failures
-- `FAILED_PRECONDITION` for policy, queue, coverage, or stale patchset failures
+- `FAILED_PRECONDITION` for queue, coverage, or stale patchset failures
 - `ABORTED` for CAS failures and retryable submit races
 - `RESOURCE_EXHAUSTED` for page-size, blob-size, or quota limits
 - `INTERNAL` for invariant violations
@@ -537,4 +533,4 @@ Git URL
 ```
 
 Direct pushes to protected refs should either be rejected or translated into
-changesets according to the matching folder policy files for the pushed paths.
+changesets that follow the same queue and submit validation as native writes.

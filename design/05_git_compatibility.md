@@ -24,7 +24,7 @@ Git compatibility at the boundary.
 
 Gitslice should not be implemented internally as a traditional Git server. Git
 clients see ordinary Git repositories, but the native system stores global
-commits, trees, refs, slices, changesets, queues, and policy metadata.
+commits, trees, refs, slices, changesets, and queues.
 
 The Git gateway translates between Git protocol operations and native APIs.
 
@@ -223,7 +223,7 @@ identity/
 ```
 
 There are no custom mount aliases. This keeps diffs, authorization, review,
-policy resolution, and workspace behavior aligned with the native model.
+queue resolution, and workspace behavior aligned with the native model.
 
 ## 8. Push Into Changesets
 
@@ -253,7 +253,7 @@ Git push
 ```
 
 Direct push to a protected branch should either be rejected or translated into a
-changeset according to the matching folder policy files for the pushed paths.
+changeset that follows the same queue and submit validation as native writes.
 
 ## 9. Changeset Refs
 
@@ -279,7 +279,6 @@ Validation includes:
 - authoring slice containment
 - read and write authorization
 - covering slice resolution
-- matching folder policy files
 - queue selection
 - required approvals
 - required checks
@@ -305,8 +304,8 @@ changeset and patchset objects.
 Native Gitslice storage already stores blobs by content hash and can avoid
 eager blob transfer through partial clone. Git LFS compatibility is still useful
 for Git clients and tooling that expect LFS semantics, but it should be an
-explicit projection mode controlled by path or folder policy, not an invisible
-rewrite of arbitrary large files.
+explicit projection mode controlled by account queue rules or path locks, not an
+invisible rewrite of arbitrary large files.
 
 Correctness rules:
 
@@ -315,9 +314,10 @@ Correctness rules:
   cache key.
 - Uploading an LFS object through the Git gateway must create or verify the
   corresponding native blob before a patchset can reference it.
-- A Git push that edits an LFS pointer is interpreted according to the folder's
-  large-file policy and must not bypass normal blob verification.
-- Folder policy can require path locks or owner approval for large binary paths.
+- A Git push that edits an LFS pointer is interpreted according to account queue
+  rules and path locks, and must not bypass normal blob verification.
+- Account queue rules or path locks can require owner approval for large binary
+  paths.
 
 The MVP can rely on native blob storage plus partial clone for large files. LFS
 protocol compatibility can be added when Git ecosystem compatibility requires
@@ -327,8 +327,7 @@ it, without changing the native storage model.
 
 Jujutsu can interoperate through the Git-compatible slice projection. It should
 remain optional: selected local jj/Git commits can be converted into Gitslice
-changesets by `gs`, but jj must not bypass Gitslice folder policies, queues, or
-submit validation.
+changesets by `gs`, but jj must not bypass Gitslice queues or submit validation.
 
 The native CLI behavior and interop shape are defined in
 [04_cli_design.md](04_cli_design.md#13-optional-jujutsu-interop).
@@ -339,6 +338,6 @@ The Git compatibility layer should not:
 
 - define the native storage model
 - make every slice an independent Git repository internally
-- allow Git pushes to bypass changeset, queue, or folder policy validation
+- allow Git pushes to bypass changeset, queue, or submit validation
 - expose paths outside the authorized slice projection
 - use Git object ids as native commit, tree, or blob ids

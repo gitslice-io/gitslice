@@ -36,19 +36,15 @@ Exit criteria:
 - Slice identity
 - Slice definitions as versioned metadata
 - Absolute included paths
-- Folder policy metadata files
 - Slice-level visibility and roles
 - Overlapping slice coverage
-- Folder-level overlap policy union
-- Policy-file change governance
 - Deterministic projection by latest definition
 
 Exit criteria:
 
 - A slice can project a deterministic tree from the global commit graph.
 - Slice definition changes create new auditable definition versions.
-- Overlapping slices resolve covering slices and matching policy files.
-- Policy-file weakening cannot authorize itself or dependent code changes.
+- Overlapping slices resolve covering slices for changed paths.
 - Projection cache keys include slice id, slice definition hash, and global commit.
 
 ### Phase 3: Workspace And Native CLI
@@ -76,7 +72,7 @@ Exit criteria:
 - Patchsets
 - Review state
 - Conflict detection
-- Covering-slice and folder policy file refresh
+- Covering-slice refresh
 - Versioned queue definition files
 - Queue selection
 - Queue leases
@@ -88,7 +84,7 @@ Exit criteria:
 
 - A changeset is scoped to one authoring slice.
 - Each update creates an immutable patchset.
-- Submit recomputes coverage, policy files, queue selection, and approvals.
+- Submit recomputes coverage, queue selection, and approvals.
 - Submit finalization is serialized per target ref after queue eligibility.
 - Submit publishes through CAS or fails without moving the target ref.
 
@@ -126,8 +122,8 @@ Exit criteria:
 ### Phase 7: Indexing, CI, And Scale
 
 - Changed path index
-- Code search
 - Slice coverage index
+- Queue selection index
 - Build/test integration
 - Regional reads
 - Projection cache
@@ -137,7 +133,7 @@ Exit criteria:
 Exit criteria:
 
 - Indexes can be rebuilt from committed source-of-truth objects.
-- CI requirements can be selected from matching folder policy files and queues.
+- CI requirements can be selected from queues and build/test indexes.
 - GC can delete unreachable staged blobs and projection artifacts only after
   reachability recheck and grace periods.
 - Regional read replicas can serve reads while preserving linearizable ref writes.
@@ -181,13 +177,13 @@ Server behavior:
 1. Resolve changed absolute paths.
 2. Resolve covering slices.
 3. Select required account queues.
-4. Refresh overlap and queue policy requirements.
+4. Refresh overlap and queue requirements.
 5. Acquire required queue leases.
 6. Check slice roles and approvals.
 7. Run required checks.
 8. Hand off to the target-ref landing sequencer.
 9. Rebase onto latest target ref.
-10. Revalidate policy, queues, checks, and conflicts.
+10. Revalidate queues, checks, and conflicts.
 11. Create commit or commits.
 12. Update ref with CAS.
 13. Emit indexing events.

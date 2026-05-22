@@ -7,6 +7,12 @@ The product should feel familiar to Git users, but it should make large-scale
 work easier by treating slices, virtual workspaces, changesets, policy, and
 submit queues as first-class product concepts.
 
+The MVP should be a CLI-first product. The first complete user experience should
+be `gs`: authentication, workspace setup, slice hydration, local edit capture,
+changeset creation, and submit from the command line. Web UI, IDE
+plugins, and richer dashboards can build on the same backend later, but they
+should not be required for the initial product to be usable.
+
 ## 1. Product Thesis
 
 Modern codebases are often split across many repositories for reasons that are
@@ -14,7 +20,7 @@ operational rather than conceptual:
 
 - Git repositories get too large.
 - Teams need different visibility and write policies.
-- CI and submit rules differ by folder or team.
+- CI and submit rules differ by code area or team.
 - Developers and agents need only a small working set.
 - Cross-repository refactors are hard to review and land safely.
 
@@ -43,18 +49,175 @@ Secondary users:
 Gitslice product behavior should follow these principles:
 
 - Native source graph first; Git compatibility at the boundary.
+- The MVP is CLI-first; `gs` should be the first complete product surface.
 - Slices are product views, not storage shards.
 - Changesets are the review and submission unit.
 - A changeset has exactly one authoring slice.
 - Cross-slice changesets are not supported.
-- Folder policy and queue rules are source-controlled but cannot authorize their
-  own weakening.
+- Account queue rules are source-controlled but cannot authorize their own
+  weakening.
 - Workspaces hydrate only what the user or agent needs.
 - Caches and watchers improve performance, but server validation decides
   correctness.
 - Git users should be productive without learning the native internals.
 
-## 4. Core Product Objects
+## 4. Account And Auth Model
+
+Accounts are both namespace owners and collaboration containers. Every
+source-path root belongs to exactly one account:
+
+```text
+/{account}/...
+```
+
+An account can represent:
+
+- a user account, such as `/nicholas`
+- an organization account, such as `/acme`
+- a service-owned account, if the product later needs managed system code
+
+Account kind is metadata. It is not encoded in the path. Gitslice should not use
+`/users` or `/orgs` prefixes. Because paths are rooted directly under account
+slugs, the account service must maintain a globally unique slug registry.
+
+### 4.1 Identity Types
+
+Gitslice should support these identities:
+
+- human users
+- organization groups or teams
+- service accounts for CI and automation
+- agent identities for AI coding agents
+- short-lived sessions created by the CLI or Git gateway
+
+Every authenticated request has:
+
+```text
+subject_id
+subject_type
+session_id
+account_memberships[]
+scopes[]
+issued_at
+expires_at
+```
+
+The subject may be a human, service account, or agent. Authorization should not
+depend on a display name or email address.
+
+### 4.2 CLI Authentication
+
+The MVP authentication flow should be optimized for the CLI:
+
+```text
+gs auth login
+  -> browser or device-code login
+  -> exchange identity-provider session for Gitslice refresh token
+  -> store refresh token in the OS credential store where available
+  -> mint short-lived access tokens for API calls
+```
+
+The CLI should expose:
+
+```bash
+gs auth login
+gs auth status
+gs auth logout
+gs auth token
+```
+
+Access tokens should be short-lived. Refresh tokens should be revocable per
+device/session. The CLI should never store long-lived tokens in workspace files.
+
+### 4.3 Account Memberships And Roles
+
+Users can belong to multiple accounts. A request against a slice resolves:
+
+```text
+authenticated subject
+  -> account memberships
+  -> slice visibility
+  -> slice roles
+  -> queue requirements
+```
+
+Core account roles:
+
+- owner: manages account settings, billing, admins, and destructive operations
+- admin: manages slices, teams, service accounts, queues, and policy overrides
+- member: can see account-visible resources
+- guest: limited access to explicitly shared slices
+
+Slice roles:
+
+- owner: manages slice definition, visibility, and roles
+- admin: manages slice settings and reviewers
+- writer: can create changesets from the slice
+- reader: can read the slice
+
+Queue files can add submit requirements, but they do not grant read access by
+themselves.
+
+### 4.4 Authorization Rules
+
+Authentication answers who the caller is. Authorization answers what that caller
+can do.
+
+Read authorization:
+
+- public slices can be read without authentication, subject to publicability
+  policy
+- account-visible slices can be read by account members
+- private slices require explicit slice reader access
+- overlapping slices can expose the same path to different audiences; access is
+  evaluated through the slice being read
+
+Write authorization:
+
+- a user must have writer access on the authoring slice
+- every changed path must be included by the authoring slice
+- the user must have read access to every changed path
+- submit must pass the required account queue rules
+
+Admin authorization:
+
+- account admins can manage account-level settings, teams, service accounts,
+  and queue policy according to account rules
+- slice owners/admins can manage slice definitions and role assignments
+- queue weakening requires previous queue rules plus account admin approval
+
+### 4.5 Git Authentication
+
+Git clone/fetch/push should authenticate through the Git gateway, then map the
+caller to the same account, slice, and policy model used by the CLI.
+
+Supported MVP options:
+
+- HTTPS Git credentials backed by Gitslice access tokens
+- generated Git credentials from `gs auth login`
+- service-account tokens for CI checkout
+
+SSH keys can be added later, but they should map to the same subject and session
+model. Git authentication must not bypass changesets, queues, or submit
+validation.
+
+### 4.6 Agent And Service Account Auth
+
+Agents and CI should use explicit service or agent identities rather than
+borrowing a human user's long-lived token.
+
+Agent/service credentials should be:
+
+- scoped to accounts, slices, and operations
+- revocable without deleting the owning user or account
+- auditable in changeset, patchset, and submit logs
+- optionally bound to an external workload identity provider
+
+For the MVP, agent identities can use service-account tokens with clear audit
+metadata. Later, agents can get richer delegation rules such as "act on behalf
+of user X for slice Y until time Z."
+
+## 5. Core Product Objects
 
 Account
 : A globally unique user or organization namespace. Paths are rooted directly
@@ -70,15 +233,10 @@ Workspace
 
 Changeset
 : The unit of review and submission. It contains immutable patchsets, review
-  state, policy requirements, queue requirements, and submit status.
+  state, authorization requirements, queue requirements, and submit status.
 
 Patchset
 : An immutable version of a changeset's proposed file edits.
-
-Folder policy
-: Source-controlled metadata at `{folder}/.gitslice/policy.yaml` that adds
-  approvals, checks, publicability, locks, or large-file requirements for paths
-  below that folder.
 
 Submit queue
 : Source-controlled account policy that determines when a changeset can land.
@@ -89,9 +247,40 @@ Git projection
   fetch, CI checkout, and push-to-changeset workflows without making Git storage
   the source of truth.
 
-## 5. Primary Workflows
+## 6. MVP Product Shape
 
-### 5.1 Native CLI Workflow
+The MVP should be usable end-to-end from the CLI before any web UI is required.
+
+CLI-first means:
+
+- onboarding starts with `gs auth login`
+- a user can create or select a workspace from the CLI
+- slice discovery and hydration work from the CLI
+- local edits become changesets from the CLI
+- submit status, authorization failures, queue state, and conflicts are visible
+  from the CLI
+- path lookup is available from the CLI
+- Git compatibility exists for clone/fetch/push workflows, but `gs` remains the
+  primary product surface
+
+Minimum CLI journey:
+
+```text
+gs auth login
+gs workspace init
+gs slice add acme/payment
+gs status
+gs cs create
+gs cs submit
+gs queue status
+```
+
+Web and IDE surfaces should be treated as later clients of the same account,
+auth, changeset, queue, and storage APIs.
+
+## 7. Primary Workflows
+
+### 7.1 Native CLI Workflow
 
 ```text
 gs workspace init
@@ -104,9 +293,9 @@ gs cs submit
 
 The user works in a sparse workspace. The CLI snapshots local edits into a
 changeset patchset, uploads missing blobs, and submits through server-side
-policy, queue, and conflict validation.
+queue and conflict validation.
 
-### 5.2 Git Compatibility Workflow
+### 7.2 Git Compatibility Workflow
 
 ```text
 git clone https://gitslice.io/git/acme/payment.git
@@ -119,23 +308,23 @@ The Git gateway converts the pushed Git diff into a native changeset and
 patchset. Direct writes to protected accepted refs are rejected or translated
 into changeset workflows.
 
-### 5.3 Policy Workflow
+### 7.3 Queue Policy Workflow
 
 ```text
-/acme/payment/.gitslice/policy.yaml
+/{account}/.gitslice/queues/{queue}.yaml
 ```
 
-Teams express folder-level requirements as versioned files. Policy changes are
-reviewed through changesets, but weakening a policy requires approval under the
-previous policy and relevant parent or account administration rules.
+Teams express submit requirements as account-level queue files. Queue changes
+are reviewed through changesets or equivalent admin flow. Weakening a queue
+requires approval under the previous queue rules and relevant account
+administration rules.
 
-### 5.4 Submit Workflow
+### 7.4 Submit Workflow
 
 ```text
 changeset
   -> resolve changed paths
   -> resolve covering slices
-  -> resolve folder policies
   -> resolve required queues
   -> run checks
   -> target-ref landing sequencer
@@ -143,23 +332,24 @@ changeset
 ```
 
 The product should prefer clear blocked states over implicit best-effort submit.
-If policy, queues, checks, indexes, or ref freshness are stale, submit should
+If queues, checks, indexes, or ref freshness are stale, submit should
 block or retry rather than land under uncertain requirements.
 
-## 6. Product Scope
+## 8. Product Scope
 
 MVP scope:
 
 - account-rooted global paths
+- CLI-first onboarding and daily workflow
+- account, membership, session, and token management for CLI/API/Git access
 - slice creation and projection
 - sparse native workspaces
 - native `gs` changeset flow
-- folder policy files
 - versioned account queues
 - per-target-ref landing sequencer
 - Git clone/fetch from slice URLs
 - Git push into changesets
-- derived indexes for path coverage, policy, queue selection, and search
+- derived indexes for path coverage, queue selection, and history
 - correctness-first storage lifecycle and GC
 
 Later scope:
@@ -172,20 +362,22 @@ Later scope:
 - hosted review UI
 - organization analytics and policy dashboards
 
-## 7. Product Non-Goals
+## 9. Product Non-Goals
 
 The product should not:
 
 - expose cross-slice changesets
 - provide atomic multi-slice submission
 - use `/users` or `/orgs` path prefixes
+- support per-directory policy files
+- include code search in the MVP
 - make Git sparse checkout a core workflow
 - make Git object ids the native object ids
-- allow policy or queue files to weaken themselves
+- allow queue files to weaken themselves
 - make client-side file watchers authoritative for correctness
 - require users to understand internal storage objects for normal workflows
 
-## 8. Document Map
+## 10. Document Map
 
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): architecture and system model
 - [02_storage.md](02_storage.md): storage, object model, refs, hashing, GC, and replication
