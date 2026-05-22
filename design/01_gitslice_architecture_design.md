@@ -39,6 +39,41 @@ Gitslice is designed to support:
 - Agent-native code workflows
 - Large file trees, large histories, and incremental indexing
 
+### 1.1 System Context Diagram
+
+```mermaid
+flowchart LR
+  User[User or Agent] --> CLI[gs CLI]
+  User --> Git[Git Client]
+
+  CLI --> Core[Core gRPC API]
+  Git --> Gateway[Git Gateway]
+  Gateway --> Core
+
+  Core --> Auth[Account and Auth Service]
+  Core --> Changesets[Changeset Service]
+  Core --> Queue[Submit Queue Service]
+  Core --> Workspace[Workspace Service]
+
+  Changesets --> Storage[Native Storage]
+  Queue --> Storage
+  Workspace --> Storage
+  Gateway --> Storage
+
+  Storage --> Graph[Global Source Graph]
+  Storage --> Objects[Blob/Object Store]
+  Storage --> Outbox[Transactional Outbox]
+
+  Outbox --> Indexers[Index Workers]
+  Indexers --> MetadataIndexes[Metadata Indexes]
+
+  Core --> MetadataIndexes
+```
+
+The CLI and Git gateway are product entry points. The native source graph,
+storage, policy, queues, and indexes remain server-side product infrastructure.
+Git compatibility is important, but it is not the internal storage model.
+
 ---
 
 ## 2. Design Principles
@@ -176,7 +211,6 @@ The global namespace allows:
 
 - Unified history
 - Global indexing
-- Global code search
 - Cross-slice visibility without cross-slice submission
 - Consistent absolute paths for humans, agents, APIs, and Git projections
 
@@ -325,72 +359,31 @@ There are no mount aliases.
 The slice checkout and Git projection preserve the absolute path structure
 inside the local repository root.
 
-### 4.4 Folder Policy Metadata Files
+### 4.4 No Per-Directory Policy Files
 
-Write policy is stored at folder scope using reserved metadata files in the
-global tree.
+The initial design does not support per-directory policy files such as
+`{folder}/.gitslice/policy.yaml`.
 
-Policy file convention:
+This keeps the MVP authorization model small:
+
+- slice visibility controls who can read a projection
+- slice roles control who can create changesets from that slice
+- account queue definitions control submit ordering, required checks, and
+  required approvals
+- optional path locks cover rare high-risk paths such as large binaries or
+  release manifests
+
+Submit requirements are centralized in account queue definitions under:
 
 ```text
-{folder}/.gitslice/policy.yaml
+/{account}/.gitslice/queues/{queue}.yaml
 ```
 
-Examples:
-
-```yaml
-# /acme/payment/.gitslice/policy.yaml
-version: 1
-required_approvals:
-  - team: payment-owners
-required_checks:
-  - payment-ci
-publicable: false
-
-# /acme/payment/generated/.gitslice/policy.yaml
-version: 1
-required_checks:
-  - generated-code-check
-manual_edits: forbidden
-```
-
-The policy applies to the folder containing the `.gitslice/policy.yaml` file and
-inherits downward. More specific folder policy files may add requirements, but
-they should not silently remove requirements from broader folder policy files.
-
-Slice roles remain the coarse membership and visibility model. Folder policies
-do not grant read access by themselves; they add submit requirements for matching
-paths. If no explicit folder policy file matches a changed path, the default
-policy is the slice's normal writer/submit authorization.
-
-Folder policy files are versioned source-tree metadata. Changing one goes
-through the normal changeset, review, and submit flow for the folder that owns
-the file, but policy changes have stricter authorization than ordinary source
-edits. The metadata service indexes these files into policy rules, but the
-canonical source of truth remains the file at its global path.
-
-Policy files must not authorize their own weakening. A policy-file change is
-validated against:
-
-- the previous accepted policy at the same folder
-- every matching ancestor policy file
-- account-level policy administration rules
-
-Weakening changes require approval from the parent policy owner or an account
-admin, even if the new policy text would remove that requirement. Weakening
-includes removing required approvals or checks, broadening write permissions,
-making private paths publicable, allowing manual edits where they were
-forbidden, or reducing lock requirements.
-
-When a policy file changes, the previous accepted policy remains the validation
-authority for that submit. If the same changeset also changes ordinary files
-under the affected folder, those file edits must satisfy the stricter union of
-the old policy, ancestor policies, and the new policy. The new policy becomes
-effective only for later changesets after the policy change lands and is indexed.
-Follow-up code changes must not use a just-landed weakening to bypass review of
-already-prepared code. When a policy weakening and dependent code rollout are
-coordinated outside Gitslice, the code changes should still require explicit
-policy-owner approval under the previous policy.
+Queue files are still versioned source-tree metadata, but there is one account
+queue policy surface instead of scattered path-local metadata. Queue changes
+that remove required checks, remove approvals, broaden matching rules, or
+retarget a queue must be validated against the previous accepted queue
+definition and account-level queue administration rules.
 
 ### 4.5 Overlapping Slices
 
@@ -436,56 +429,53 @@ For renames and moves, coverage is resolved for both the old path and the new
 path.
 
 There is no single authoritative governing slice for an overlapping path. The
-write policy for a path is the combined policy of all matching ancestor folder
-policy files.
+write authority for a path starts with the authoring slice and is constrained by
+account queue rules for the changed paths.
 
 The slice through which a user starts work is the authoring slice. It is useful
-for UI, defaults, and Git URL resolution, but it does not weaken the policy of
-other covering slices.
+for UI, defaults, and Git URL resolution, but it does not weaken queue or review
+requirements selected for the changed paths.
 
-### 4.7 Overlap Policy Rule
+### 4.7 Overlap Authorization Rule
 
 When a single-slice changeset touches paths that are also covered by overlapping
-slices, the server computes the union of matching folder policy metadata files.
+slices, the server recomputes the covering slices and required account queues.
 
 ```text
 changed paths
   -> authoring slice containment
   -> covering slices
-  -> matching .gitslice/policy.yaml files for each path
-  -> union of required roles, approvals, checks, locks, and path rules
+  -> queue selection from account queue definitions
+  -> required approvals, checks, locks, and queue ordering
 ```
 
 The safe default is:
 
 ```text
-Any matching folder policy file may add requirements.
-No matching folder policy file may remove another matching policy's requirements.
+The authoring slice must include every changed path.
+Every changed path must be readable by the author.
+All selected account queues must agree on a target ref.
+Queue files may add checks and approvals.
+Queue files must not weaken themselves.
 ```
 
-If two matching folder policy files define incompatible requirements, the
-changeset is blocked until an authorized policy owner or account admin resolves
-the policy conflict.
+If selected queue definitions disagree, the changeset is blocked until an
+account admin updates queue configuration, retargets the changeset if allowed,
+or applies an audited override.
 
-Examples of compatible policy union:
-
-```text
-/acme/services/.gitslice/policy.yaml requires backend-ci
-/acme/services/payment/.gitslice/policy.yaml requires payment-owner approval
-
-effective requirement:
-  payment-owner approval
-  backend-ci
-```
-
-Examples of policy conflict:
+Example:
 
 ```text
-/acme/services/.gitslice/policy.yaml requires generated file X to be regenerated by tool A
-/acme/services/payment/.gitslice/policy.yaml forbids generated file X from being changed manually
+change:
+  /acme/services/payment/handler.go
 
-resolution:
-  blocked until a shared policy or admin override is recorded
+covering slices:
+  acme/backend
+  acme/payment
+
+required queues:
+  /acme/.gitslice/queues/backend.yaml
+  /acme/.gitslice/queues/payments.yaml
 ```
 
 ### 4.8 Slice Definition Overlap Changes
@@ -498,18 +488,18 @@ Definition changes that affect overlap must:
 - require slice admin permission
 - be audited as a new slice definition version
 - recompute coverage for affected paths
-- recompute matching folder policy files for affected paths
+- recompute queue selection for affected open changesets
 - revalidate open changesets touching affected paths
 - invalidate affected projection caches
 
 If a slice definition change adds a new covering slice to an open changeset,
-the changeset must recompute matching folder policy files. Any newly required
-approvals and checks must be collected before submission.
+the changeset must recompute queue selection. Any newly required approvals and
+checks must be collected before submission.
 
 If a slice definition change removes a covering slice, that slice is removed
 from future affected-slice notifications, but the historical review log is
-preserved. Folder policy requirements change only when the matching policy files
-change.
+preserved. Submit requirements change only when selected queue definitions or
+slice coverage change.
 
 ### 4.9 Slice History Projection
 
@@ -631,7 +621,7 @@ admin:
 writer:
   create changesets
   push to changeset refs
-  submit when policy allows
+  submit when queue rules allow
 
 reader:
   clone/fetch/read slice contents
@@ -647,9 +637,8 @@ Validation rules:
 - A slice may include only paths under its owning account root: `/{account}/...`.
 - Included paths may overlap other slices in the same account.
 - Cross-account included paths are not allowed in the initial design.
-- Folder policy metadata files must live under the account namespace they govern.
-- Public visibility cannot expose folders that account policy or matching folder
-  policy file marks as non-publicable.
+- Public visibility cannot expose paths that account policy marks as
+  non-publicable.
 
 ### 5.4 Changeset Authorization
 
@@ -658,13 +647,13 @@ included in that authoring slice. A changeset cannot directly span multiple
 slices or accounts.
 
 For each changed global path, the server resolves all covering slices. This is
-still necessary because slices can overlap. Overlap can add policy requirements,
-but it does not make the changeset a cross-slice changeset.
+still necessary because slices can overlap. Overlap can affect queue selection
+and review routing, but it does not make the changeset a cross-slice changeset.
 
 ```text
 changed paths
   -> covering slices
-  -> matching folder policy files
+  -> required queues
   -> required slice roles
   -> required approvals
   -> required checks
@@ -682,7 +671,7 @@ Default write authorization:
 - A user may create a changeset from a slice where they have writer access.
 - The user must have read access to every path they modify.
 - Other covering slices do not add writer-role requirements by default.
-- Submission requires every matching folder policy file to be satisfied.
+- Submission requires every selected queue rule to be satisfied.
 
 ### 5.5 Overlap Read Visibility
 
@@ -785,11 +774,9 @@ Changeset:
   current_patchset
   affected_paths[]
   covering_slices_by_path[]
-  folder_policy_files_by_path[]
   expected_slice_definition_hashes[]
   required_queues[]
   expected_queue_definition_hashes[]
-  required_policy_files[]
   status
   review_state
   test_state
@@ -828,9 +815,8 @@ Patchset:
   file_edits[]
   resulting_tree_preview
   covering_slices_by_path[]
-  folder_policy_files_by_path[]
   expected_slice_definition_hashes[]
-  required_policy_files_snapshot
+  required_queues_snapshot
 ```
 
 Patchsets store changes using canonical global paths. They do not depend on a
@@ -846,9 +832,9 @@ lands. Older patchsets remain available for review history, auditability, and
 comparison.
 
 Approvals and checks should record which patchset they evaluated. When a new
-patchset changes affected paths, covering slices, matching folder policy files,
-or file content, the server may invalidate or refresh approvals and checks
-according to folder policy files and queue policy.
+patchset changes affected paths, covering slices, queue selection, or file
+content, the server may invalidate or refresh approvals and checks according to
+queue policy.
 
 ### 7.3 Changeset Lifecycle
 
@@ -942,8 +928,8 @@ The architectural summary is:
 - Git commits are synthetic and stable for the same projection inputs
 - protected pushes create or update changesets instead of directly moving
   accepted refs
-- Git-originated writes must satisfy the same slice, folder policy, queue, and
-  validation rules as native writes
+- Git-originated writes must satisfy the same slice, queue, and validation rules
+  as native writes
 
 ---
 
@@ -982,7 +968,7 @@ Before submission, the server validates:
 Can the patch apply cleanly to current head?
 Do affected paths still have the expected covering slices?
 Does the author still have the required slice roles?
-Do all matching folder policy files pass?
+Do all selected queue rules pass?
 Do required checks pass on the latest head?
 ```
 
@@ -1006,10 +992,10 @@ Slice coverage conflict:
 The covering slice set or included path set changed while the changeset was open.
 ```
 
-Overlap policy conflict:
+Queue policy conflict:
 
 ```text
-Two matching folder policy files impose incompatible requirements on the same path.
+Selected queue definitions impose incompatible requirements.
 ```
 
 Semantic conflict:
@@ -1022,8 +1008,8 @@ Semantic conflicts are handled by tests and the required queue or queues.
 
 ### 11.2 Overlap Conflict Resolution Process
 
-Overlapping slices are resolved by recomputing coverage and applying the union of
-all matching folder policy files at every important transition.
+Overlapping slices are resolved by recomputing coverage and queue selection at
+every important transition.
 
 Process:
 
@@ -1032,15 +1018,14 @@ Process:
 2. Normalize changed paths to canonical absolute paths.
 3. Verify every changed path is included in the authoring slice.
 4. Resolve covering slices for each changed path using latest slice definitions.
-5. Resolve matching folder policy files for each changed path.
-6. Store covering_slices_by_path, matching policy file paths, policy file hashes,
-   and slice definition hashes on the patchset.
-7. Compute required approvals, roles, locks, checks, and path rules from all
-   matching folder policy files.
-8. Notify reviewers for every affected covering slice or policy owner.
-9. Collect approvals per matching folder policy file.
-10. Before submit, recompute coverage and policy files against latest definitions.
-11. If coverage or policies changed, refresh requirements before continuing.
+5. Resolve required queues from account queue definitions.
+6. Store covering_slices_by_path, slice definition hashes, required queues, and
+   queue definition hashes on the patchset.
+7. Compute required approvals, locks, checks, and ordering from selected queues.
+8. Notify reviewers for every affected covering slice and required queue owner.
+9. Collect approvals required by selected queues.
+10. Before submit, recompute coverage and queue selection against latest definitions.
+11. If coverage or queues changed, refresh requirements before continuing.
 12. Reapply patch to latest target ref.
 13. Run required checks.
 14. Publish commit and update target ref with CAS.
@@ -1053,16 +1038,16 @@ unchanged:
   keep current requirements and continue
 
 covering slice added:
-  update affected-slice notifications and recompute matching policy files
+  update affected-slice notifications and recompute queue selection
 
 covering slice removed:
   remove future affected-slice notifications but preserve historical review log
 
-folder policy file changed:
-  recompute requirements; stale approvals may need renewal if policy file requires it
+queue definition changed:
+  recompute requirements; stale approvals may need renewal if queue rules require it
 
 included path moved:
-  mark NeedsRebase or NeedsPolicyRefresh depending on whether the patch still applies
+  mark NeedsRebase or NeedsQueueRefresh depending on whether the patch still applies
 ```
 
 The changeset should show coverage explicitly.
@@ -1074,9 +1059,9 @@ Example:
   covering slices:
     acme/backend
     acme/payment
-  matching policy files:
-    /acme/services/.gitslice/policy.yaml
-    /acme/services/payment/.gitslice/policy.yaml
+  required queues:
+    /acme/.gitslice/queues/backend.yaml
+    /acme/.gitslice/queues/payments.yaml
   required:
     backend-ci
     payment-owner approval
@@ -1102,12 +1087,12 @@ Approvals are recorded against both:
 ```text
 slice_id
 slice_definition_hash
-policy_file_path
-policy_file_hash
+queue_id
+queue_definition_hash
 ```
 
-An approval remains valid only while the relevant slice definition and matching
-folder policy file remain valid for the affected paths, unless the policy file
+An approval remains valid only while the relevant slice definition and queue
+definition remain valid for the affected paths, unless the queue definition
 explicitly allows stale approvals.
 
 If a new covering slice appears, that slice has not approved the change yet.
@@ -1115,22 +1100,23 @@ If a new covering slice appears, that slice has not approved the change yet.
 If a covering slice disappears, its approval is retained in the audit log but is
 not required for the next submit attempt.
 
-### 11.5 Incompatible Policy Resolution
+### 11.5 Incompatible Queue Policy Resolution
 
-Most policies compose by union. Some policies can conflict.
+Most queue requirements compose by union. Some queue requirements can conflict.
 
-When policies conflict, the changeset cannot submit automatically.
+When selected queue definitions conflict, the changeset cannot submit
+automatically.
 
 Resolution options:
 
 ```text
-1. Update one or more folder policy files.
+1. Update one or more queue files.
 2. Split the changeset so conflicting paths are reviewed separately.
 3. Apply an explicit admin override if the account allows overrides.
 4. Abandon the changeset.
 ```
 
-Admin overrides must be audited and should name the conflicting policies they
+Admin overrides must be audited and should name the conflicting queue rules they
 override.
 
 ---
@@ -1251,7 +1237,7 @@ For a changeset assigned to one queue:
 6. Run required checks.
 7. Hand off to the target-ref landing sequencer.
 8. Rebase or reapply onto the latest target ref inside the sequencer lease.
-9. Revalidate freshness, policy, queues, checks, and conflicts.
+9. Revalidate freshness, queues, checks, and conflicts.
 10. Create final commit or commits.
 11. Atomically update target ref with CAS.
 12. Emit indexing events for every affected covering slice.
@@ -1283,7 +1269,7 @@ Multi-queue submit uses deterministic queue leases.
 6. Run union of required checks.
 7. Hand off to the target-ref landing sequencer.
 8. Reapply patch to latest target ref inside the sequencer lease.
-9. Revalidate freshness, policy, queues, checks, and conflicts.
+9. Revalidate freshness, queues, checks, and conflicts.
 10. Commit and CAS-update target ref.
 11. Release all leases.
 ```
@@ -1352,7 +1338,7 @@ Sequencer responsibilities:
 - acquire a short lease for the target ref
 - reload the latest target-ref head
 - rebase or reapply the patchset
-- recompute changed paths, covering slices, policy files, and queue selection
+- recompute changed paths, covering slices, and queue selection
 - verify that approvals, locks, checks, and queue eligibility are still fresh
 - publish the commit and move the ref with CAS
 
@@ -1479,7 +1465,7 @@ Stores trees, commits, refs, slice definitions, changesets, and object metadata.
 ### 16.3 Slice Service
 
 Manages slice definitions, slice resolution, visibility, roles, included paths,
-folder policy metadata indexes, and projections.
+coverage indexes, and projections.
 
 ### 16.4 Workspace Service
 
@@ -1508,8 +1494,8 @@ validation before CAS ref updates.
 
 ### 16.9 Index Service
 
-Maintains search, symbol, path history, slice coverage, build, and projection
-indexes. See [06_indexing.md](06_indexing.md).
+Maintains changed-path, path history, slice coverage, queue selection, build,
+test, and projection indexes. See [06_indexing.md](06_indexing.md).
 
 ---
 
@@ -1537,11 +1523,11 @@ These invariants must not be violated.
 10. Default slice history uses the latest accepted slice definition.
 11. Slice visibility and roles govern access to all paths included by the slice.
 12. A global path may be covered by multiple slices.
-13. Writes to overlapping paths must satisfy every matching folder policy file at submit time.
+13. Writes to overlapping paths must satisfy every selected queue rule at submit time.
 14. Effective read exposure for a path is the broadest visibility of any covering slice.
 15. Git synthetic commit IDs are stable for the same projection inputs.
 16. Metadata must never reference an unverified blob.
-17. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, folder policy files, and queue definitions.
+17. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and queue definitions.
 ```
 
 ---
@@ -1563,6 +1549,8 @@ The initial design should not include:
 - single-owner path model
 - object-store participation in metadata transactions
 - path-level ACLs as the primary access model
+- per-directory policy files
+- code search in the MVP
 - Git-native storage internals
 - distributed atomic commits across slices or target refs
 

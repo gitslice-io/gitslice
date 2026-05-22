@@ -20,7 +20,6 @@ Gitslice has first-class concepts that those tools do not own:
 
 - account-rooted global paths
 - slices
-- folder policy files
 - changesets and patchsets
 - account queues
 - server-side submit validation
@@ -154,7 +153,7 @@ gs diff --to <patchset>
 - detect changed files
 - resolve authoring slice candidates
 - show whether changes are inside one slice or ambiguous
-- show matching folder policy files when available
+- show required queues and checks when available
 - show current draft changeset and patchset state
 
 `gs diff` should show the diff between local overlay changes and the current
@@ -195,8 +194,8 @@ filesystem events
 
 If a watcher misses an event, `gs status` may be slower because it falls back to
 a scan, but it must not report a clean workspace incorrectly. File watchers are
-a performance feature; server-side patchset validation, folder policy checks,
-and queue validation remain authoritative.
+a performance feature; server-side patchset validation and queue validation
+remain authoritative.
 
 The CLI should still make submit explicit:
 
@@ -247,7 +246,7 @@ Submit flow:
 2. Confirm current patchset is uploaded.
 3. SubmitChangeset.
 4. If submit succeeds, update local base commit and clear overlay state.
-5. If submit fails, show policy, queue, check, or conflict reason.
+5. If submit fails, show queue, check, authorization, or conflict reason.
 ```
 
 ## 9. Queue Commands
@@ -264,7 +263,7 @@ Queue commands should use `QueueService` to show:
 - queue positions
 - runnable state
 - required checks
-- policy refresh requirements
+- queue refresh requirements
 - CAS/rebase retry state
 
 ## 10. Operation Log And Undo
@@ -352,11 +351,11 @@ jj local commits
   -> Git-compatible projected slice repository
   -> gs converts selected jj/Git commits to file edits
   -> Gitslice changeset and patchset
-  -> normal policy, queue, and submit validation
+  -> normal queue and submit validation
 ```
 
-The interop layer must not bypass Gitslice changesets, queues, folder policy
-files, or submit validation.
+The interop layer must not bypass Gitslice changesets, queues, or submit
+validation.
 
 ## 14. Backend Requirements
 
@@ -390,7 +389,7 @@ The initial CLI should not:
 - expose a Git-style staging area
 - allow cross-slice changesets
 - make Git sparse checkout a core workflow
-- bypass server-side folder policy, queue, or submit validation
+- bypass server-side queue or submit validation
 
 ## 16. External References
 

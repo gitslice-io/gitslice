@@ -166,13 +166,12 @@ Implementation choices can evolve from a transactional SQL database to an
 ordered distributed KV store as scale requires. The architecture depends on
 capabilities, not on a specific vendor.
 
-Search and derived indexes:
+Derived indexes:
 
 ```text
 metadata database tables for operational indexes
-Zoekt shards for code text search
 object storage for immutable index artifacts and shard snapshots
-purpose-built workers for projection, policy, queue, build, and test indexes
+purpose-built workers for projection, queue, build, and test indexes
 ```
 
 Hot metadata cache:
@@ -884,5 +883,5 @@ These invariants must not be violated:
 3. A commit points to exactly one root tree.
 4. A ref update is atomic and conditional.
 5. Metadata must never reference an unverified blob.
-6. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, folder policy files, and queue definitions.
+6. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and queue definitions.
 ```
