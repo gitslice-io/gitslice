@@ -16,8 +16,9 @@ Git compatibility at the boundary.
 Gitslice should not be implemented internally as a traditional Git server. Git
 clients should see ordinary Git repositories, but the source of truth should be
 a scalable native storage and metadata system. For the MVP, that storage stack
-is PostgreSQL for metadata and operational indexes, plus filesystem-based object
-storage for immutable blob bytes and large derived artifacts.
+is PostgreSQL for metadata and operational indexes, plus prototype
+filesystem-based object storage for immutable blob bytes and large derived
+artifacts.
 
 Companion documents:
 
@@ -1359,9 +1360,11 @@ Replication Service
 
 ### 16.1 Object Store
 
-The filesystem object store stores file contents, large binary objects, staged
-uploads, and large derived artifacts such as Git projection packs. It is not the
-source of truth for object liveness; Postgres blob and reachability metadata is.
+The prototype filesystem object store stores file contents, large binary
+objects, staged uploads, and large derived artifacts such as Git projection
+packs. It is not the source of truth for object liveness; Postgres blob and
+reachability metadata is. This storage mode is for local prototype and test
+environments, not horizontally scaled production deployment.
 
 ### 16.2 Metadata Service
 

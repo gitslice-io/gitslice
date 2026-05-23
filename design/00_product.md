@@ -353,7 +353,7 @@ MVP scope:
 - per-target-ref landing sequencer
 - Git clone/fetch from slice URLs
 - Git push into changesets
-- PostgreSQL metadata storage and filesystem-based object storage
+- PostgreSQL metadata storage and prototype filesystem-based object storage
 - derived indexes for path coverage and history
 - per-path conflict detection and safe batched target-ref updates
 - correctness-first storage lifecycle and GC

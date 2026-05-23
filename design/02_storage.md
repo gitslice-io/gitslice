@@ -168,15 +168,15 @@ The MVP storage stack is intentionally concrete:
 
 ```text
 Metadata and operational indexes: PostgreSQL
-Blob/object storage: filesystem object store
+Blob/object storage: prototype filesystem object store
 ```
 
 PostgreSQL is the source of truth for refs, commits, trees, slice definitions,
 changesets, path predicates, operational indexes, outbox events, leases, and GC
-state. The filesystem object store stores immutable blob bytes and large derived
-artifacts for the MVP. Directory listing is never authoritative; Postgres
-records decide which objects exist, which objects are live, and which objects
-may be deleted.
+state. The prototype filesystem object store stores immutable blob bytes and
+large derived artifacts for the local MVP. Directory listing is never
+authoritative; Postgres records decide which objects exist, which objects are
+live, and which objects may be deleted.
 
 The metadata store must support:
 
@@ -196,7 +196,7 @@ Derived indexes:
 
 ```text
 PostgreSQL tables for operational indexes
-filesystem object store for immutable index artifacts and shard snapshots
+prototype filesystem object store for immutable index artifacts and shard snapshots
 purpose-built workers for projection, build, and test indexes
 ```
 
@@ -617,10 +617,10 @@ where name = $target_ref
 
 The update succeeds only when exactly one row is updated.
 
-### 4.3 Filesystem Object Layout
+### 4.3 Prototype Filesystem Object Layout
 
-Filesystem object paths should be deterministic and content-addressed where
-possible:
+Prototype filesystem object paths should be deterministic and content-addressed
+where possible:
 
 ```text
 blobs/sha256/{aa}/{bb}/{content_hash}
@@ -1411,8 +1411,10 @@ Path-based indexes still need to update affected path records after a rename.
 
 ## 8. Replication Architecture
 
-The MVP can start with one primary PostgreSQL instance and a filesystem object
-store rooted on local or attached storage.
+The local prototype can start with one primary PostgreSQL instance and a
+filesystem object store rooted on local or attached storage. A production MVP
+deployment should replace the filesystem store with a durable object-store
+adapter before horizontal scaling or multi-host writes.
 
 Later, use regional read replicas and controlled write coordination.
 

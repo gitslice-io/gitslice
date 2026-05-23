@@ -19,7 +19,7 @@ The concrete implementation choices are:
 - one server binary for the fake account service and all core gRPC services
 - one CLI binary, `gs`, that only talks to the server through gRPC
 - PostgreSQL as source-of-truth metadata storage
-- filesystem-based object storage as the concrete MVP object store
+- filesystem-based object storage for the local prototype
 - functional and load tests that start the server locally and run the CLI against
   the gRPC API
 
@@ -51,6 +51,11 @@ Internal submit/storage helpers
 top-level `server` package, and let that package wire the fake account service,
 core gRPC services, PostgreSQL, filesystem object store, health checks, metrics,
 and shutdown behavior.
+
+The `server` package is wiring-only. It must not contain product business logic,
+authorization rules, submit rules, path normalization, object hashing, or
+storage semantics. Those belong in `service`, `internal/submit`,
+`internal/paths`, `internal/objectid`, `internal/postgres`, and related packages.
 
 `gs` is the native CLI and supports the MVP journey:
 
@@ -91,9 +96,10 @@ GITSLICE_DEV_ACCOUNT_FIXTURE
 ```
 
 The server should fail fast if the database URL or object-store root is missing.
-The filesystem object store is used for local development, functional tests,
-load tests, and the first MVP deployment. A cloud object-store adapter can be
-added later behind the same storage interface.
+The filesystem object store is prototype-only. It is used for local development,
+functional tests, load tests, and early validation. A durable object-store
+adapter is required before production-style deployment, horizontal scaling, or
+multi-host writes.
 
 The server should expose:
 
@@ -256,7 +262,8 @@ Important package rules:
 - `paths` owns canonical path parsing and validation.
 - `objectid` owns blob, tree, and commit id hashing.
 - `server` owns process startup, config loading, gRPC listener setup,
-  interceptors, health, metrics, and dependency wiring.
+  interceptors, health, metrics, dependency wiring, and graceful shutdown only.
+  It must stay free of product business logic.
 - `service` owns all public gRPC service implementations, including the fake
   account service used by the MVP.
 - `postgres` owns SQL transactions and migrations.
@@ -266,7 +273,7 @@ Important package rules:
 - `changesets` owns patchset creation, path-base predicates, and submit status.
 - `cli` owns local filesystem and `.gs` workspace behavior.
 
-## 7. Storage In The MVP
+## 7. Storage In The Prototype MVP
 
 PostgreSQL is the metadata source of truth for the MVP. Functional and load
 tests should use a real PostgreSQL instance, not an in-memory substitute. The
@@ -283,10 +290,16 @@ type Store interface {
 }
 ```
 
-The MVP adapter is filesystem-based. It should use deterministic,
+The prototype adapter is filesystem-based. It should use deterministic,
 content-addressed paths under `GITSLICE_OBJECT_STORE_ROOT` and should be safe to
 delete as a unit for test cleanup. Functional, load, restart, and persistence
-tests must use this filesystem adapter.
+tests must use this filesystem adapter so the local prototype exercises real
+byte persistence without external infrastructure.
+
+The filesystem adapter is not a production object-store design. It assumes a
+single server process or equivalent single-writer discipline over the object
+root. A durable object-store adapter should replace it before production-style
+deployment.
 
 The server must still verify raw blob bytes against their content hash before
 marking a blob available, even when the backing object store is local.

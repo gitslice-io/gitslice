@@ -23,13 +23,15 @@ implementation details and test harness requirements are in
 - fake account service with fixture-backed users, accounts, memberships, and
   development tokens
 - PostgreSQL migration runner for dev/test
-- filesystem object-store adapter for the MVP
+- prototype filesystem object-store adapter
 - Go test harness that can start PostgreSQL, start `gitslice-server`, run `gs`,
   and clean up temp workspaces
 
 Exit criteria:
 
 - `gitslice-server` starts locally and exposes gRPC health.
+- `cmd/gitslice-server` delegates process wiring to the top-level `server`
+  package; product behavior lives outside `server`.
 - `gs auth login --dev-user alice` can obtain and store a token from the fake
   account service.
 - Functional tests can start a local server on a random port and run the CLI
@@ -42,7 +44,7 @@ Exit criteria:
 ### Phase 1: Native Object Model
 
 - PostgreSQL schema and migrations for source-of-truth metadata
-- filesystem object-store layout rooted at `GITSLICE_OBJECT_STORE_ROOT`
+- prototype filesystem object-store layout rooted at `GITSLICE_OBJECT_STORE_ROOT`
 - Content-addressed blob store
 - Immutable tree metadata
 - Canonical path rules
@@ -66,6 +68,8 @@ Exit criteria:
 - Unit tests cover blob, tree, and commit id determinism.
 - Functional tests verify upload, restart, path lookup, and ref CAS through the
   local server.
+- The plan records that filesystem object storage is prototype-only and must be
+  replaced by a durable object-store adapter before production-style deployment.
 
 ### Phase 2: Slice Definitions And Projection
 
