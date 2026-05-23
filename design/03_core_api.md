@@ -21,19 +21,28 @@ The core API should:
 - keep direct commit creation behind trusted internal service boundaries
 - stream large file and blob payloads
 - use canonical global paths at the API boundary
-- return stable ids for commits, trees, blobs, patchsets, and changesets
+- return content-addressed native ids for commits, trees, and blobs
 - support CLI workspace hydration, diff validation, and optional operation
   recording without making local workspace state server-authoritative
 
 Git compatibility remains a gateway concern. Git clients talk to the Git
 gateway, and the gateway translates clone/fetch/push operations into these core
-APIs.
+APIs. Git object ids are compatibility artifacts; native `commit_id`, `tree_id`,
+and `blob_id` values are Gitslice content-addressed ids defined by the storage
+layer.
 
 ## 2. Public Core Proto
 
 The following proto shape is the starting contract. Some request and response
 messages will grow as implementation details become concrete, but the service
 boundaries should remain stable.
+
+The concrete MVP proto used by the Go prototype lives at
+[`../proto/core/v1/core.proto`](../proto/core/v1/core.proto). That file is the
+implementation source of truth for generated Go stubs. The prototype currently
+keeps file/blob transfer unary and uses string timestamps to keep the first
+end-to-end CLI/server path small; the design target remains streaming payloads
+and typed protobuf timestamps once larger-file behavior is implemented.
 
 ```proto
 syntax = "proto3";
@@ -96,8 +105,10 @@ message Ref {
 }
 
 message Commit {
+  // Native commit_id, not a Git object id.
   string id = 1;
   repeated string parent_ids = 2;
+  // Native tree_id for the root tree of this commit.
   string root_tree_id = 3;
   string author = 4;
   string message = 5;
@@ -117,7 +128,9 @@ message TreeEntry {
   string name = 2;
   EntryKind kind = 3;
   uint32 mode = 4;
+  // Native tree_id for directory entries.
   string tree_id = 5;
+  // Native blob_id for file entries.
   string blob_id = 6;
   string symlink_target = 7;
   int64 size = 8;
@@ -194,6 +207,7 @@ message UploadBlobRequest {
 }
 
 message UploadBlobResponse {
+  // Native blob_id, derived from the uploaded raw bytes.
   string blob_id = 1;
   string content_hash = 2;
   int64 size = 3;
@@ -272,7 +286,7 @@ message WorkspaceRef {
 
 message WorkspaceState {
   WorkspaceRef ref = 1;
-  repeated SliceBinding slices = 2;
+  SliceBinding slice = 2;
   repeated string hydrated_paths = 3;
   string base_commit_id = 4;
   string current_changeset_id = 5;
@@ -309,12 +323,10 @@ message HydratePathsResponse {
 
 message ValidateWorkspaceDiffRequest {
   WorkspaceRef workspace = 1;
-  // Singular authoring slice for the proposed changeset. The server rejects
-  // file_edits outside this slice; clients must split local edits before
-  // creating multiple changesets.
-  SliceRef authoring_slice = 2;
-  string base_commit_id = 3;
-  repeated FileEdit file_edits = 4;
+  // The workspace's bound slice is the authoring slice for the proposed
+  // changeset. The server rejects file_edits outside that slice.
+  string base_commit_id = 2;
+  repeated FileEdit file_edits = 3;
 }
 
 message ValidateWorkspaceDiffResponse {

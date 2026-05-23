@@ -16,19 +16,21 @@ Git compatibility at the boundary.
 Gitslice should not be implemented internally as a traditional Git server. Git
 clients should see ordinary Git repositories, but the source of truth should be
 a scalable native storage and metadata system. For the MVP, that storage stack
-is PostgreSQL for metadata and operational indexes, plus Cloudflare R2 for
-immutable blob bytes and large derived artifacts.
+is PostgreSQL for metadata and operational indexes, plus prototype
+filesystem-based object storage for immutable blob bytes and large derived
+artifacts.
 
 Companion documents:
 
 - [00_product.md](00_product.md): product overview, users, workflows, and scope
-- [02_storage.md](02_storage.md): storage stack, Postgres schema, R2 layout, refs, hashing, and replication
+- [02_storage.md](02_storage.md): storage stack, Postgres schema, filesystem object layout, refs, hashing, and replication
 - [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
-- [04_cli_design.md](04_cli_design.md): native `gs` CLI, workspace behavior, and jj-inspired UX
+- [04_cli_design.md](04_cli_design.md): native `gs` CLI and workspace behavior
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projected refs, synthetic commits, and push behavior
 - [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
 - [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
-- [08_execution_plan.md](08_execution_plan.md): implementation phases and workflow validation
+- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
+- [09_execution_plan.md](09_execution_plan.md): implementation phases and workflow validation
 
 Gitslice is designed to support:
 
@@ -706,7 +708,8 @@ other affected slices.
 
 ## 6. Workspace Model
 
-A workspace is a local hydrated development environment over one or more slices.
+A workspace is a local hydrated development environment bound to exactly one
+slice.
 
 Workspaces are sparse and virtualized. Users should not need to clone the entire
 global namespace.
@@ -714,20 +717,13 @@ global namespace.
 Example:
 
 ```bash
-gs workspace init
-gs slice add nicholas/identity
-gs slice add acme/payment
+gs workspace init acme/payment
 ```
 
 Example workspace layout:
 
 ```text
 workspace/
-  nicholas/
-    services/
-      identity/
-    libs/
-      auth/
   acme/
     payment/
   .gs/
@@ -737,7 +733,7 @@ The client maintains:
 
 ```text
 workspace config
-slice bindings
+slice binding
 metadata cache
 hydrated file cache
 overlay changes
@@ -748,8 +744,9 @@ draft patchset snapshots
 
 Files are hydrated on demand.
 
-The workspace can contain multiple slices, but each file path still has one
-canonical absolute global path.
+The workspace has one bound slice, and every hydrated file path maps to one
+canonical absolute global path. To work in another slice, the user creates a
+separate workspace rooted in another directory.
 
 The detailed native CLI and local workspace behavior is defined in
 [04_cli_design.md](04_cli_design.md).
@@ -1363,9 +1360,11 @@ Replication Service
 
 ### 16.1 Object Store
 
-Cloudflare R2 stores file contents, large binary objects, staged uploads, and
-large derived artifacts such as Git projection packs. R2 is not the source of
-truth for object liveness; Postgres blob and reachability metadata is.
+The prototype filesystem object store stores file contents, large binary
+objects, staged uploads, and large derived artifacts such as Git projection
+packs. It is not the source of truth for object liveness; Postgres blob and
+reachability metadata is. This storage mode is for local prototype and test
+environments, not horizontally scaled production deployment.
 
 ### 16.2 Metadata Service
 
@@ -1425,31 +1424,35 @@ These invariants must not be violated.
 ```text
 1. A committed tree is immutable.
 2. A committed blob is immutable and content-addressed.
-3. A commit points to exactly one root tree.
-4. A ref update is atomic and conditional.
-5. A single target-ref submit either publishes all final commits and moves that target ref, or publishes none.
-6. Submit settings are versioned with slice definitions.
-7. A patchset records path base predicates, read sets, and write sets used for submit freshness checks.
-8. Batched submit may move a target ref once for multiple changesets only when their read/write sets are compatible and their read-set predicates are fresh.
-9. A changeset must satisfy the submit requirements of its authoring slice and any active path locks.
-10. A slice projection is deterministic for a given slice id, slice definition hash, and global commit.
-11. Default slice history uses the latest accepted slice definition.
-12. Slice visibility and roles govern access to all paths included by the slice.
-13. A global path may be covered by multiple slices.
-14. Each changeset has exactly one authoring slice; multi-slice changesets are rejected.
-15. Writes to overlapping paths must satisfy current submit validation at submit time.
-16. Effective read exposure for a path is the broadest visibility of any covering slice.
-17. Git synthetic commit IDs are stable for the same projection inputs.
-18. Metadata must never reference an unverified blob.
-19. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
+3. A committed tree id is the hash of canonical tree entries.
+4. A commit id is the hash of the canonical commit object.
+5. A commit points to exactly one root tree, and root_tree_id is that tree's id.
+6. Native commit, tree, and blob ids are not Git object ids.
+7. A ref update is atomic and conditional.
+8. A single target-ref submit either publishes all final commits and moves that target ref, or publishes none.
+9. Submit settings are versioned with slice definitions.
+10. A patchset records path base predicates, read sets, and write sets used for submit freshness checks.
+11. Batched submit may move a target ref once for multiple changesets only when their read/write sets are compatible and their read-set predicates are fresh.
+12. A changeset must satisfy the submit requirements of its authoring slice and any active path locks.
+13. A slice projection is deterministic for a given slice id, slice definition hash, and global commit.
+14. Default slice history uses the latest accepted slice definition.
+15. Slice visibility and roles govern access to all paths included by the slice.
+16. A global path may be covered by multiple slices.
+17. Each changeset has exactly one authoring slice; multi-slice changesets are rejected.
+18. Writes to overlapping paths must satisfy current submit validation at submit time.
+19. Effective read exposure for a path is the broadest visibility of any covering slice.
+20. Git synthetic commit IDs are stable for the same projection inputs.
+21. Metadata must never reference an unverified blob.
+22. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
 ```
 
 ---
 
 ## 19. Execution Plan
 
-Implementation phases and workflow validation have moved to
-[08_execution_plan.md](08_execution_plan.md).
+MVP implementation details are in
+[08_mvp_implementation.md](08_mvp_implementation.md). Implementation phases and
+workflow validation are in [09_execution_plan.md](09_execution_plan.md).
 
 ---
 
@@ -1468,6 +1471,7 @@ The initial design should not include:
 - a separate submit scheduling abstraction in the MVP
 - Git-native storage internals
 - cross-slice changesets
+- multi-slice workspaces
 - distributed atomic commits across slices or target refs
 
 These can be revisited only if a concrete product requirement justifies the

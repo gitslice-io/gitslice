@@ -5,8 +5,9 @@ semantics, and rebuild rules. Product context is in [00_product.md](00_product.m
 the top-level architecture is in
 [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md), storage
 is in [02_storage.md](02_storage.md), conflict resolution and batched submit are
-in [07_conflict_resolution.md](07_conflict_resolution.md), and rollout phases
-are in [08_execution_plan.md](08_execution_plan.md).
+in [07_conflict_resolution.md](07_conflict_resolution.md), MVP implementation
+details are in [08_mvp_implementation.md](08_mvp_implementation.md), and rollout
+phases are in [09_execution_plan.md](09_execution_plan.md).
 
 ## 1. Indexing Goals
 
@@ -43,7 +44,7 @@ PostgreSQL
   transactional outbox
   worker checkpoints
 
-Cloudflare R2
+Filesystem object store
   large immutable index artifacts
   build/test graph snapshots
   projection cache artifacts

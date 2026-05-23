@@ -229,8 +229,8 @@ Slice
   visibility, roles, included paths, and Git URL identity.
 
 Workspace
-: A local working area that can contain one or more slices and hydrates files on
-  demand.
+: A local working area bound to exactly one slice. It hydrates files for that
+  slice on demand.
 
 Changeset
 : The unit of review and submission. It contains immutable patchsets, review
@@ -268,8 +268,7 @@ Minimum CLI journey:
 
 ```text
 gs auth login
-gs workspace init
-gs slice add acme/payment
+gs workspace init acme/payment
 gs status
 gs cs create
 gs cs submit
@@ -284,17 +283,17 @@ auth, changeset, submit, and storage APIs.
 ### 7.1 Native CLI Workflow
 
 ```text
-gs workspace init
-gs slice add acme/payment
+gs workspace init acme/payment
 edit files
 gs status
 gs cs create
 gs cs submit
 ```
 
-The user works in a sparse workspace. The CLI snapshots local edits into a
-changeset patchset, uploads missing blobs, and submits through server-side
-submit and conflict validation.
+The user works in a sparse workspace bound to one slice. The CLI snapshots local
+edits into a changeset patchset for that slice, uploads missing blobs, and
+submits through server-side submit and conflict validation. To work on another
+slice, the user creates a separate workspace.
 
 ### 7.2 Git Compatibility Workflow
 
@@ -354,7 +353,7 @@ MVP scope:
 - per-target-ref landing sequencer
 - Git clone/fetch from slice URLs
 - Git push into changesets
-- PostgreSQL metadata storage and Cloudflare R2 object storage
+- PostgreSQL metadata storage and prototype filesystem-based object storage
 - derived indexes for path coverage and history
 - per-path conflict detection and safe batched target-ref updates
 - correctness-first storage lifecycle and GC
@@ -377,6 +376,7 @@ The product should not:
 - expose cross-slice changesets
 - auto-link multiple changesets into one product-level submission
 - provide atomic multi-slice submission
+- bind multiple slices into one workspace
 - use `/users` or `/orgs` path prefixes
 - support per-directory policy files
 - include code search in the MVP
@@ -389,10 +389,11 @@ The product should not:
 ## 10. Document Map
 
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): architecture and system model
-- [02_storage.md](02_storage.md): storage stack, Postgres schema, R2 layout, refs, hashing, GC, and replication
+- [02_storage.md](02_storage.md): storage stack, Postgres schema, filesystem object layout, refs, hashing, GC, and replication
 - [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
 - [04_cli_design.md](04_cli_design.md): native `gs` CLI and workspace behavior
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projections, and push behavior
 - [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
 - [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
-- [08_execution_plan.md](08_execution_plan.md): implementation phases and workflow validation
+- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
+- [09_execution_plan.md](09_execution_plan.md): implementation phases and workflow validation

@@ -10,9 +10,10 @@ Related documents:
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): top-level architecture
 - [02_storage.md](02_storage.md): commits, refs, trees, blobs, and projection inputs
 - [03_core_api.md](03_core_api.md): gRPC APIs used by the Git gateway
-- [04_cli_design.md](04_cli_design.md): native CLI and optional Jujutsu interop
+- [04_cli_design.md](04_cli_design.md): native CLI behavior
 - [07_conflict_resolution.md](07_conflict_resolution.md): path-level conflicts and batched submit
-- [08_execution_plan.md](08_execution_plan.md): rollout phases and Git workflow validation
+- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
+- [09_execution_plan.md](09_execution_plan.md): rollout phases and Git workflow validation
 
 ## 1. Core Principle
 
@@ -312,21 +313,12 @@ changeset and patchset objects.
 ### 11.1 Large Blob Handling
 
 Git LFS support is a confirmed non-goal. Native Gitslice storage stores blobs
-by content hash in Cloudflare R2 with authoritative blob metadata in
-PostgreSQL. The Git gateway projects those native blobs as ordinary Git blob
+by content hash in the filesystem object store with authoritative blob metadata
+in PostgreSQL. The Git gateway projects those native blobs as ordinary Git blob
 objects for clone/fetch/push. This avoids unnecessary architecture complexity
 such as pointer rewriting and binary blob redirection.
 
-## 12. Jujutsu Interop
-
-Jujutsu can interoperate through the Git-compatible slice projection. It should
-remain optional: selected local jj/Git commits can be converted into Gitslice
-changesets by `gs`, but jj must not bypass Gitslice submit validation.
-
-The native CLI behavior and interop shape are defined in
-[04_cli_design.md](04_cli_design.md#13-optional-jujutsu-interop).
-
-## 13. Non-Goals
+## 12. Non-Goals
 
 The Git compatibility layer should not:
 
@@ -336,3 +328,4 @@ The Git compatibility layer should not:
 - create cross-slice changesets from one Git push
 - expose paths outside the authorized slice projection
 - use Git object ids as native commit, tree, or blob ids
+- provide external VCS-specific interop behavior in the MVP
