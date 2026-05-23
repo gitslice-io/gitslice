@@ -229,8 +229,8 @@ Slice
   visibility, roles, included paths, and Git URL identity.
 
 Workspace
-: A local working area that can contain one or more slices and hydrates files on
-  demand.
+: A local working area bound to exactly one slice. It hydrates files for that
+  slice on demand.
 
 Changeset
 : The unit of review and submission. It contains immutable patchsets, review
@@ -268,8 +268,7 @@ Minimum CLI journey:
 
 ```text
 gs auth login
-gs workspace init
-gs slice add acme/payment
+gs workspace init acme/payment
 gs status
 gs cs create
 gs cs submit
@@ -284,17 +283,17 @@ auth, changeset, submit, and storage APIs.
 ### 7.1 Native CLI Workflow
 
 ```text
-gs workspace init
-gs slice add acme/payment
+gs workspace init acme/payment
 edit files
 gs status
 gs cs create
 gs cs submit
 ```
 
-The user works in a sparse workspace. The CLI snapshots local edits into a
-changeset patchset, uploads missing blobs, and submits through server-side
-submit and conflict validation.
+The user works in a sparse workspace bound to one slice. The CLI snapshots local
+edits into a changeset patchset for that slice, uploads missing blobs, and
+submits through server-side submit and conflict validation. To work on another
+slice, the user creates a separate workspace.
 
 ### 7.2 Git Compatibility Workflow
 
@@ -377,6 +376,7 @@ The product should not:
 - expose cross-slice changesets
 - auto-link multiple changesets into one product-level submission
 - provide atomic multi-slice submission
+- bind multiple slices into one workspace
 - use `/users` or `/orgs` path prefixes
 - support per-directory policy files
 - include code search in the MVP
