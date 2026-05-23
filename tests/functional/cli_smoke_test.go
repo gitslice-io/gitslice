@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -145,8 +147,39 @@ func TestRestartPreservesSubmittedState(t *testing.T) {
 	}
 }
 
+func TestGitCloneProjection(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	token := readToken(t, home)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "git_layer.go", "package payment\nconst GitLayer = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "git projection")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	cloneDir := filepath.Join(t.TempDir(), "payment")
+	gitURL := "http://" + ts.gitAddr + "/git/acme/payment.git"
+	runGit(t, "", "-c", "http.extraHeader=Authorization: Bearer "+token, "clone", gitURL, cloneDir)
+	projected, err := os.ReadFile(filepath.Join(cloneDir, "acme", "payment", "git_layer.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(projected) != "package payment\nconst GitLayer = true\n" {
+		t.Fatalf("unexpected projected file contents:\n%s", string(projected))
+	}
+	_, stderr, err := runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/new")
+	if err == nil {
+		t.Fatal("expected git push to be rejected")
+	}
+	if !strings.Contains(stderr, "403") && !strings.Contains(stderr, "not supported") {
+		t.Fatalf("expected push rejection, got stderr:\n%s", stderr)
+	}
+}
+
 type testServer struct {
 	addr        string
+	gitAddr     string
 	ctx         context.Context
 	cancel      context.CancelFunc
 	errCh       chan error
@@ -165,6 +198,7 @@ func startTestServer(t *testing.T) *testServer {
 	createSchema(t, databaseURL, schema)
 	ts := &testServer{
 		addr:        freeAddr(t),
+		gitAddr:     freeAddr(t),
 		databaseURL: databaseURL,
 		schema:      schema,
 		objectRoot:  t.TempDir(),
@@ -184,6 +218,8 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 	go func() {
 		ts.errCh <- server.Run(ts.ctx, server.Config{
 			GRPCAddr:        ts.addr,
+			GitHTTPAddr:     ts.gitAddr,
+			GitCacheRoot:    filepath.Join(ts.objectRoot, "git-cache"),
 			DatabaseURL:     databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
 			ObjectStoreRoot: ts.objectRoot,
 			RunMigrations:   migrate,
@@ -242,6 +278,49 @@ func writeWorkspaceFile(t *testing.T, workspace, rel, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func readToken(t *testing.T, home string) string {
+	t.Helper()
+	var cfg struct {
+		Token string `json:"token"`
+	}
+	if err := readJSONFile(filepath.Join(home, ".gitslice", "config.json"), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token == "" {
+		t.Fatal("empty token in CLI config")
+	}
+	return cfg.Token
+}
+
+func readJSONFile(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
+}
+
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	stdout, stderr, err := runGitResult(dir, args...)
+	if err != nil {
+		t.Fatalf("git %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout, stderr)
+	}
+	return stdout
+}
+
+func runGitResult(dir string, args ...string) (string, string, error) {
+	cmd := exec.Command("git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
 }
 
 func createSchema(t *testing.T, databaseURL, schema string) {

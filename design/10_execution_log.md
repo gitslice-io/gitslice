@@ -151,3 +151,57 @@ go build ./cmd/...
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```
+
+## 2026-05-22: Git Read Compatibility Layer
+
+Request:
+
+- add the Git layer
+
+Implemented:
+
+- added `internal/gitcompat` with:
+  - a projector that reads native refs, commits, slice definitions, commit file
+    snapshots, and filesystem object-store blobs
+  - a per-slice projection cache rooted at `GITSLICE_GIT_CACHE_ROOT`
+  - a synthetic bare Git repository per slice at `{cache_root}/{account}/{slice}.git`
+  - stable projection metadata in `gitslice_projection.json`
+  - a smart HTTP handler that authenticates bearer/basic tokens, projects the
+    latest native ref, and delegates Git wire protocol handling to
+    `git http-backend`
+- added optional Git HTTP runtime wiring to the single server binary:
+  - `GITSLICE_GIT_HTTP_ADDR`
+  - `GITSLICE_GIT_CACHE_ROOT`
+  - `--git-http-addr`
+  - `--git-cache-root`
+- implemented read compatibility for `git clone` and `git fetch`
+- explicitly reject Git pushes in this first layer. Git-originated changesets
+  still need a dedicated push-to-changeset translator.
+- added functional coverage that:
+  - logs in through the fake account service
+  - submits a file through the native CLI
+  - clones `http://{git_addr}/git/acme/payment.git`
+  - verifies the projected checkout contains `acme/payment/...`
+  - verifies `git push` is rejected
+
+Important decisions and learnings:
+
+- The Git layer is a boundary adapter. It projects from Postgres plus filesystem
+  object storage; it does not introduce Git as the native storage model.
+- The first projection implementation exposes the latest accepted native ref as
+  `refs/heads/main`. It does not yet synthesize full historical Git ancestry.
+- Paths inside the Git checkout preserve canonical account-rooted layout without
+  the leading slash, matching the design.
+- The smart HTTP implementation uses the system `git` binary for repository
+  creation, commit projection, and `git http-backend`. This is acceptable for
+  the MVP layer and keeps protocol details delegated to Git.
+
+Verification:
+
+```bash
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run TestGitCloneProjection -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
+```

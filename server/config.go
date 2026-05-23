@@ -7,6 +7,8 @@ import (
 
 type Config struct {
 	GRPCAddr        string
+	GitHTTPAddr     string
+	GitCacheRoot    string
 	DatabaseURL     string
 	ObjectStoreRoot string
 	RunMigrations   bool
@@ -15,6 +17,8 @@ type Config struct {
 func ConfigFromEnv() Config {
 	return Config{
 		GRPCAddr:        valueOrDefault(os.Getenv("GITSLICE_GRPC_ADDR"), "127.0.0.1:50051"),
+		GitHTTPAddr:     os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
+		GitCacheRoot:    os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
 		DatabaseURL:     os.Getenv("GITSLICE_DATABASE_URL"),
 		ObjectStoreRoot: os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),
 		RunMigrations:   os.Getenv("GITSLICE_RUN_MIGRATIONS") != "0",

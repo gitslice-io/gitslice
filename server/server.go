@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/gitslice-io/gitslice/internal/authctx"
+	"github.com/gitslice-io/gitslice/internal/gitcompat"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
@@ -44,18 +47,50 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	grpcServer := NewGRPCServer(store, service.New(store, objectStore))
+	var httpServer *http.Server
+	var httpLis net.Listener
+	if cfg.GitHTTPAddr != "" {
+		if cfg.GitCacheRoot == "" {
+			cfg.GitCacheRoot = filepath.Join(cfg.ObjectStoreRoot, "git-cache")
+		}
+		projector, err := gitcompat.NewProjector(store, objectStore, cfg.GitCacheRoot)
+		if err != nil {
+			return err
+		}
+		httpLis, err = net.Listen("tcp", cfg.GitHTTPAddr)
+		if err != nil {
+			return err
+		}
+		httpServer = &http.Server{Handler: gitcompat.NewHandler(store, projector)}
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("gitslice server listening", "grpc_addr", lis.Addr().String())
 		errCh <- grpcServer.Serve(lis)
 	}()
+	if httpServer != nil {
+		go func() {
+			slog.Info("gitslice git http listening", "git_http_addr", httpLis.Addr().String())
+			errCh <- httpServer.Serve(httpLis)
+		}()
+	}
 	select {
 	case <-ctx.Done():
 		grpcServer.GracefulStop()
+		if httpServer != nil {
+			_ = httpServer.Shutdown(context.Background())
+		}
 		return ctx.Err()
 	case err := <-errCh:
 		if errors.Is(err, grpc.ErrServerStopped) {
 			return nil
+		}
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		grpcServer.GracefulStop()
+		if httpServer != nil {
+			_ = httpServer.Shutdown(context.Background())
 		}
 		return err
 	}
