@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -51,6 +53,39 @@ func TestMinimalCLIJourney(t *testing.T) {
 	if !strings.Contains(status, "status: clean") {
 		t.Fatalf("expected clean status after submit, got:\n%s", status)
 	}
+}
+
+func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
+	ts := startTestServer(t)
+	login := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/Login", "", map[string]string{
+		"devUser": "alice",
+	})
+	token, _ := login["token"].(string)
+	if token == "" {
+		t.Fatalf("expected login token in response: %#v", login)
+	}
+	if subjectID, _ := login["subjectId"].(string); subjectID == "" {
+		t.Fatalf("expected subject id in response: %#v", login)
+	}
+
+	response := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", token, map[string]any{
+		"account": "acme",
+	})
+	slices, ok := response["slices"].([]any)
+	if !ok || len(slices) == 0 {
+		t.Fatalf("expected slices in response: %#v", response)
+	}
+	for _, raw := range slices {
+		slice, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		ref, _ := slice["ref"].(map[string]any)
+		if ref["account"] == "acme" && ref["slice"] == "payment" {
+			return
+		}
+	}
+	t.Fatalf("expected acme/payment slice in response: %#v", response)
 }
 
 func TestChangesetUpdateAndDelete(t *testing.T) {
@@ -346,6 +381,7 @@ func TestGitCloneProjection(t *testing.T) {
 
 type testServer struct {
 	addr        string
+	httpAddr    string
 	gitAddr     string
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -365,6 +401,7 @@ func startTestServer(t *testing.T) *testServer {
 	createSchema(t, databaseURL, schema)
 	ts := &testServer{
 		addr:        freeAddr(t),
+		httpAddr:    freeAddr(t),
 		gitAddr:     freeAddr(t),
 		databaseURL: databaseURL,
 		schema:      schema,
@@ -385,6 +422,7 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 	go func() {
 		ts.errCh <- server.Run(ts.ctx, server.Config{
 			GRPCAddr:        ts.addr,
+			HTTPAddr:        ts.httpAddr,
 			GitHTTPAddr:     ts.gitAddr,
 			GitCacheRoot:    filepath.Join(ts.objectRoot, "git-cache"),
 			DatabaseURL:     databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
@@ -393,6 +431,7 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 		})
 	}()
 	waitForHealth(t, ts.addr)
+	waitForHTTPGateway(t, ts.httpAddr)
 }
 
 func (ts *testServer) stop(t *testing.T) {
@@ -540,6 +579,39 @@ func runGitResult(dir string, args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
+func httpGatewayPost(t *testing.T, addr, path, token string, body any) map[string]any {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+path, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode >= 300 {
+		t.Fatalf("gateway %s returned %s:\n%s", path, resp.Status, string(data))
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode gateway response: %v\n%s", err, string(data))
+	}
+	return out
+}
+
 func createSchema(t *testing.T, databaseURL, schema string) {
 	t.Helper()
 	db, err := sql.Open("pgx", databaseURL)
@@ -611,4 +683,22 @@ func waitForHealth(t *testing.T, addr string) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal(fmt.Errorf("server health check did not pass: %w", lastErr))
+}
+
+func waitForHTTPGateway(t *testing.T, addr string) {
+	t.Helper()
+	client := http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(10 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := client.Get("http://" + addr + "/")
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			return
+		}
+		lastErr = err
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal(fmt.Errorf("server HTTP gateway did not start: %w", lastErr))
 }

@@ -58,8 +58,21 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	grpcServer := NewGRPCServer(store, service.New(store, objectStore))
-	var httpServer *http.Server
-	var httpLis net.Listener
+	var gatewayServer *http.Server
+	var gatewayLis net.Listener
+	if cfg.HTTPAddr != "" {
+		gatewayHandler, err := NewHTTPGateway(ctx, gatewayGRPCEndpoint(lis.Addr()))
+		if err != nil {
+			return err
+		}
+		gatewayLis, err = net.Listen("tcp", cfg.HTTPAddr)
+		if err != nil {
+			return err
+		}
+		gatewayServer = &http.Server{Handler: withCORS(gatewayHandler, cfg.HTTPAllowedOrigin)}
+	}
+	var gitHTTPServer *http.Server
+	var gitHTTPLis net.Listener
 	if cfg.GitHTTPAddr != "" {
 		if cfg.GitCacheRoot == "" {
 			cfg.GitCacheRoot = filepath.Join(cfg.ObjectStoreRoot, "git-cache")
@@ -68,28 +81,37 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		httpLis, err = net.Listen("tcp", cfg.GitHTTPAddr)
+		gitHTTPLis, err = net.Listen("tcp", cfg.GitHTTPAddr)
 		if err != nil {
 			return err
 		}
-		httpServer = &http.Server{Handler: gitcompat.NewHandler(store, projector)}
+		gitHTTPServer = &http.Server{Handler: gitcompat.NewHandler(store, projector)}
 	}
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 3)
 	go func() {
 		slog.Info("gitslice server listening", "grpc_addr", lis.Addr().String())
 		errCh <- grpcServer.Serve(lis)
 	}()
-	if httpServer != nil {
+	if gatewayServer != nil {
 		go func() {
-			slog.Info("gitslice git http listening", "git_http_addr", httpLis.Addr().String())
-			errCh <- httpServer.Serve(httpLis)
+			slog.Info("gitslice http gateway listening", "http_addr", gatewayLis.Addr().String())
+			errCh <- gatewayServer.Serve(gatewayLis)
+		}()
+	}
+	if gitHTTPServer != nil {
+		go func() {
+			slog.Info("gitslice git http listening", "git_http_addr", gitHTTPLis.Addr().String())
+			errCh <- gitHTTPServer.Serve(gitHTTPLis)
 		}()
 	}
 	select {
 	case <-ctx.Done():
 		grpcServer.GracefulStop()
-		if httpServer != nil {
-			_ = httpServer.Shutdown(context.Background())
+		if gatewayServer != nil {
+			_ = gatewayServer.Shutdown(context.Background())
+		}
+		if gitHTTPServer != nil {
+			_ = gitHTTPServer.Shutdown(context.Background())
 		}
 		return ctx.Err()
 	case err := <-errCh:
@@ -100,8 +122,11 @@ func Run(ctx context.Context, cfg Config) error {
 			return nil
 		}
 		grpcServer.GracefulStop()
-		if httpServer != nil {
-			_ = httpServer.Shutdown(context.Background())
+		if gatewayServer != nil {
+			_ = gatewayServer.Shutdown(context.Background())
+		}
+		if gitHTTPServer != nil {
+			_ = gitHTTPServer.Shutdown(context.Background())
 		}
 		return err
 	}

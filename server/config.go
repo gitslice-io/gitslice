@@ -9,6 +9,8 @@ import (
 
 type Config struct {
 	GRPCAddr              string
+	HTTPAddr              string
+	HTTPAllowedOrigin     string
 	GitHTTPAddr           string
 	GitCacheRoot          string
 	DatabaseURL           string
@@ -22,6 +24,8 @@ type Config struct {
 func ConfigFromEnv() Config {
 	return Config{
 		GRPCAddr:              valueOrDefault(os.Getenv("GITSLICE_GRPC_ADDR"), "127.0.0.1:50051"),
+		HTTPAddr:              os.Getenv("GITSLICE_HTTP_ADDR"),
+		HTTPAllowedOrigin:     os.Getenv("GITSLICE_HTTP_ALLOWED_ORIGIN"),
 		GitHTTPAddr:           os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
 		GitCacheRoot:          os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
 		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),
