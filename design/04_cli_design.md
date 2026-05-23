@@ -39,15 +39,15 @@ The CLI should expose those ideas through Gitslice objects.
 ## 2. Core UX Rules
 
 1. The user works in a sparse Gitslice workspace, not a full global checkout.
-2. The workspace can contain multiple slices.
-3. A changeset is scoped to exactly one authoring slice.
-4. If local edits are not fully contained by one authoring slice, the CLI must
-   stop and ask the user to split the work.
-5. If a command cannot infer the authoring slice, it must ask for `--slice`.
-6. The CLI does not expose direct user-facing commit creation.
-7. The CLI does not expose a Git-style staging area.
-8. Local workspace actions are recorded in a local operation log.
-9. Submitted work is authoritative only after server validation and ref CAS.
+2. Each workspace is bound to exactly one slice.
+3. The bound workspace slice is the authoring slice for changesets created from
+   that workspace.
+4. If local edits are not fully contained by the bound slice, the CLI must stop
+   and ask the user to move that work to another workspace.
+5. The CLI does not expose direct user-facing commit creation.
+6. The CLI does not expose a Git-style staging area.
+7. Local workspace actions are recorded in a local operation log.
+8. Submitted work is authoritative only after server validation and ref CAS.
 
 ## 3. Command Groups
 
@@ -83,7 +83,7 @@ model can represent the operation cleanly.
 ## 4. Workspace Commands
 
 ```bash
-gs workspace init
+gs workspace init <account>/<slice>
 gs workspace status
 gs workspace sync
 gs workspace hydrate <path>
@@ -91,12 +91,12 @@ gs workspace dehydrate <path>
 gs workspace root
 ```
 
-`gs workspace init` creates local workspace metadata:
+`gs workspace init <account>/<slice>` creates local workspace metadata:
 
 ```text
 .gs/
   config.yaml
-  slices.yaml
+  slice.yaml
   cache/
   overlay/
   op_log/
@@ -105,7 +105,7 @@ gs workspace root
 
 The workspace stores:
 
-- slice bindings
+- one slice binding
 - hydrated file cache
 - local overlay changes
 - draft patchset snapshots
@@ -113,37 +113,35 @@ The workspace stores:
 - server metadata cache
 
 Files are hydrated on demand. The CLI should preserve canonical account-rooted
-paths inside the workspace.
+paths inside the workspace. Creating another workspace is the supported way to
+work on another slice.
 
 ## 5. Slice Commands
 
 ```bash
-gs slice add <account>/<slice>
-gs slice remove <account>/<slice>
 gs slice list
 gs slice info <account>/<slice>
 gs slice paths <account>/<slice>
 ```
 
-Adding a slice:
+`gs workspace init <account>/<slice>` binds the workspace to one slice:
 
 ```text
 1. ResolveSlice through the core API.
 2. Check read authorization.
-3. Add slice binding to .gs/slices.yaml.
+3. Write the binding to .gs/slice.yaml.
 4. Hydrate only requested or default paths.
 5. Record local operation log entry.
 ```
 
-Removing a slice should not delete unsubmitted local edits unless the user
-explicitly confirms or moves them into another still-bound slice.
+The MVP does not support adding a second slice to an existing workspace. If the
+user needs `acme/payment` and `acme/frontend`, they create two workspaces.
 
 ## 6. Status And Diff
 
 ```bash
 gs status
 gs diff
-gs diff --slice acme/payment
 gs diff --from <patchset>
 gs diff --to <patchset>
 ```
@@ -152,13 +150,13 @@ gs diff --to <patchset>
 
 - snapshot local filesystem metadata
 - detect changed files
-- resolve authoring slice candidates
-- show whether changes are inside exactly one authoring slice or need splitting
+- use the bound slice as the authoring slice
+- show whether changes are inside the bound slice
 - show required approvals and checks when available
 - show current draft changeset and patchset state
 
 `gs diff` should show the diff between local overlay changes and the current
-base commit for the authoring slice.
+base commit for the bound slice.
 
 ## 7. Working Copy Snapshot Model
 
@@ -169,7 +167,7 @@ On most mutating `gs` commands:
 ```text
 1. Scan changed workspace paths.
 2. Normalize to canonical global paths.
-3. Verify all changed paths are contained by one authoring slice.
+3. Verify all changed paths are contained by the bound slice.
 4. Stage changed blob content through BlobService.
 5. Create or refresh a local draft patchset snapshot.
 6. Record a local operation log entry.
@@ -209,7 +207,7 @@ gs cs submit
 ## 8. Changeset Commands
 
 ```bash
-gs cs create --slice <account>/<slice>
+gs cs create
 gs cs update
 gs cs status
 gs cs show <id>
@@ -221,9 +219,9 @@ gs cs list
 Create flow:
 
 ```text
-1. Resolve authoring slice.
+1. Load the workspace's bound slice.
 2. Snapshot local changes into file edits.
-3. Reject the command if any file edit is outside the authoring slice.
+3. Reject the command if any file edit is outside the bound slice.
 4. Upload missing blobs.
 5. CreateChangeset.
 6. UpdateChangeset to create patchset 1.
@@ -235,7 +233,8 @@ Update flow:
 
 ```text
 1. Snapshot local changes.
-2. Verify every file edit is still inside the changeset's authoring slice.
+2. Verify every file edit is still inside the workspace's bound slice and the
+   changeset's authoring slice.
 3. Upload missing blobs.
 4. UpdateChangeset with expected current patchset id.
 5. Store returned patchset id.
@@ -280,7 +279,7 @@ gs op restore <op>
 The operation log is local workspace metadata. It records CLI operations that
 change workspace state:
 
-- slice add/remove
+- workspace init and slice binding creation
 - hydration/dehydration
 - snapshot creation
 - changeset create/update
@@ -360,7 +359,8 @@ jj local commits
   -> normal submit validation
 ```
 
-The interop layer must not bypass Gitslice changesets or submit validation.
+The interop layer must not bypass Gitslice changesets or submit validation. The
+selected jj/Git commits must fit the workspace's single bound slice.
 
 ## 14. Backend Requirements
 
@@ -392,6 +392,7 @@ The initial CLI should not:
 - expose a Git-style staging area
 - allow cross-slice changesets
 - auto-link multiple changesets into one submission
+- bind multiple slices into one workspace
 - make Git sparse checkout a core workflow
 - bypass server-side submit validation
 

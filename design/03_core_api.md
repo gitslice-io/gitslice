@@ -272,7 +272,7 @@ message WorkspaceRef {
 
 message WorkspaceState {
   WorkspaceRef ref = 1;
-  repeated SliceBinding slices = 2;
+  SliceBinding slice = 2;
   repeated string hydrated_paths = 3;
   string base_commit_id = 4;
   string current_changeset_id = 5;
@@ -309,12 +309,10 @@ message HydratePathsResponse {
 
 message ValidateWorkspaceDiffRequest {
   WorkspaceRef workspace = 1;
-  // Singular authoring slice for the proposed changeset. The server rejects
-  // file_edits outside this slice; clients must split local edits before
-  // creating multiple changesets.
-  SliceRef authoring_slice = 2;
-  string base_commit_id = 3;
-  repeated FileEdit file_edits = 4;
+  // The workspace's bound slice is the authoring slice for the proposed
+  // changeset. The server rejects file_edits outside that slice.
+  string base_commit_id = 2;
+  repeated FileEdit file_edits = 3;
 }
 
 message ValidateWorkspaceDiffResponse {

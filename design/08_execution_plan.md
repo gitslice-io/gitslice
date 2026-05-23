@@ -58,7 +58,7 @@ Exit criteria:
 
 - Sparse workspace metadata
 - On-demand hydration
-- Slice add/remove in workspace
+- One slice binding per workspace
 - Local status/diff
 - Local operation log and undo
 - Draft patchset snapshots
@@ -66,7 +66,7 @@ Exit criteria:
 
 Exit criteria:
 
-- A user can initialize a workspace and add one or more slices.
+- A user can initialize a workspace bound to exactly one slice.
 - File hydration preserves canonical account-rooted paths.
 - Local edits can be converted into canonical global path diffs.
 - Changeset creation rejects local diffs that are not contained by one
@@ -158,8 +158,7 @@ Exit criteria:
 ### 2.1 Create Workspace
 
 ```bash
-gs workspace init
-gs slice add nicholas/identity
+gs workspace init nicholas/identity
 ```
 
 ### 2.2 Edit Code
@@ -242,6 +241,7 @@ The initial implementation should not include:
 - path-level ACLs as the primary access model
 - Git-native storage internals
 - cross-slice changesets
+- multi-slice workspaces
 - distributed atomic commits across slices or target refs
 
 These can be revisited only if a concrete product requirement justifies the

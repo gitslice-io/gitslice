@@ -706,7 +706,8 @@ other affected slices.
 
 ## 6. Workspace Model
 
-A workspace is a local hydrated development environment over one or more slices.
+A workspace is a local hydrated development environment bound to exactly one
+slice.
 
 Workspaces are sparse and virtualized. Users should not need to clone the entire
 global namespace.
@@ -714,20 +715,13 @@ global namespace.
 Example:
 
 ```bash
-gs workspace init
-gs slice add nicholas/identity
-gs slice add acme/payment
+gs workspace init acme/payment
 ```
 
 Example workspace layout:
 
 ```text
 workspace/
-  nicholas/
-    services/
-      identity/
-    libs/
-      auth/
   acme/
     payment/
   .gs/
@@ -737,7 +731,7 @@ The client maintains:
 
 ```text
 workspace config
-slice bindings
+slice binding
 metadata cache
 hydrated file cache
 overlay changes
@@ -748,8 +742,9 @@ draft patchset snapshots
 
 Files are hydrated on demand.
 
-The workspace can contain multiple slices, but each file path still has one
-canonical absolute global path.
+The workspace has one bound slice, and every hydrated file path maps to one
+canonical absolute global path. To work in another slice, the user creates a
+separate workspace rooted in another directory.
 
 The detailed native CLI and local workspace behavior is defined in
 [04_cli_design.md](04_cli_design.md).
@@ -1468,6 +1463,7 @@ The initial design should not include:
 - a separate submit scheduling abstraction in the MVP
 - Git-native storage internals
 - cross-slice changesets
+- multi-slice workspaces
 - distributed atomic commits across slices or target refs
 
 These can be revisited only if a concrete product requirement justifies the
