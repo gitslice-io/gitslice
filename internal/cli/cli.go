@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -18,6 +17,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -69,76 +69,258 @@ type workingFile struct {
 	AbsPath string
 }
 
+type commandOptions struct {
+	Format         string
+	Quiet          bool
+	NonInteractive bool
+	NoColor        bool
+	Verbose        bool
+	Debug          bool
+	Trace          bool
+}
+
+func (o commandOptions) jsonOutput() bool {
+	return o.Format == "json"
+}
+
+type commandError struct {
+	Code      string
+	Message   string
+	Hint      string
+	Retriable bool
+	Cause     error
+}
+
+func (e commandError) Error() string {
+	if e.Hint == "" {
+		return e.Message
+	}
+	return e.Message + "\nhint: " + e.Hint
+}
+
+func (e commandError) Unwrap() error {
+	return e.Cause
+}
+
+type errorResponse struct {
+	Error errorBody `json:"error"`
+}
+
+type errorBody struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Hint      string `json:"hint,omitempty"`
+	Retriable bool   `json:"retriable"`
+}
+
+type statusOutput struct {
+	Workspace        string   `json:"workspace"`
+	ChangedPathCount int      `json:"changed_path_count"`
+	ChangedPaths     []string `json:"changed_paths"`
+	ChangesetID      string   `json:"changeset_id,omitempty"`
+	PatchsetID       string   `json:"patchset_id,omitempty"`
+}
+
+type changesetOutput struct {
+	ChangesetID string `json:"changeset_id"`
+	PatchsetID  string `json:"patchset_id,omitempty"`
+	Status      string `json:"status,omitempty"`
+}
+
 func Main(args []string, stdout, stderr io.Writer) int {
 	r := Runner{Stdout: stdout, Stderr: stderr}
 	if err := r.Run(context.Background(), args); err != nil {
-		fmt.Fprintln(stderr, err)
+		if wantsJSON(args) {
+			if writeErr := writeJSON(stderr, classifyError(err)); writeErr != nil {
+				fmt.Fprintln(stderr, err)
+			}
+		} else {
+			fmt.Fprintln(stderr, err)
+		}
 		return 1
 	}
 	return 0
 }
 
 func (r Runner) Run(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return r.usage()
-	}
-	switch args[0] {
-	case "auth":
-		return r.runAuth(ctx, args[1:])
-	case "workspace":
-		return r.runWorkspace(ctx, args[1:])
-	case "status":
-		return r.runStatus(ctx, args[1:])
-	case "cs":
-		return r.runChangeset(ctx, args[1:])
-	case "slice":
-		return fmt.Errorf("multi-slice workspace commands are not supported; use gs workspace init <account>/<slice>")
-	default:
-		return r.usage()
-	}
+	root := r.rootCommand()
+	root.SetArgs(args)
+	root.SetOut(r.Stdout)
+	root.SetErr(r.Stderr)
+	return root.ExecuteContext(ctx)
 }
 
-func (r Runner) usage() error {
-	return fmt.Errorf("usage: gs auth login | gs workspace init <account>/<slice> | gs status | gs cs create|submit|status")
+func (r Runner) rootCommand() *cobra.Command {
+	opts := &commandOptions{Format: "text"}
+	jsonFlag := false
+
+	root := &cobra.Command{
+		Use:           "gs",
+		Short:         "Gitslice native CLI",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = cmd.Help()
+			return userError("missing_command", "missing command", "Run gs --help to list available commands.")
+		},
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if jsonFlag {
+				opts.Format = "json"
+			}
+			if opts.Format != "text" && opts.Format != "json" {
+				return userError("invalid_format", "invalid output format "+opts.Format, "Use --format text, --format json, or --json.")
+			}
+			return nil
+		},
+	}
+	root.PersistentFlags().StringVar(&opts.Format, "format", "text", "output format: text or json")
+	root.PersistentFlags().BoolVar(&jsonFlag, "json", false, "emit JSON output")
+	root.PersistentFlags().BoolVar(&opts.Quiet, "quiet", false, "suppress non-essential text output")
+	root.PersistentFlags().BoolVar(&opts.NonInteractive, "non-interactive", false, "fail instead of prompting for input")
+	root.PersistentFlags().BoolVar(&opts.NoColor, "no-color", false, "disable colorized output")
+	root.PersistentFlags().BoolVar(&opts.Verbose, "verbose", false, "emit additional diagnostic output")
+	root.PersistentFlags().BoolVar(&opts.Debug, "debug", false, "emit debug diagnostics")
+	root.PersistentFlags().BoolVar(&opts.Trace, "trace", false, "emit trace diagnostics")
+
+	authCmd := &cobra.Command{
+		Use:   "auth",
+		Short: "Authenticate with a Gitslice server",
+		RunE:  requireSubcommand("auth"),
+	}
+	loginServer := defaultServerAddr()
+	loginDevUser := "alice"
+	loginCmd := &cobra.Command{
+		Use:   "login",
+		Short: "Log in through the development account service",
+		Args:  noArgs("gs auth login [--server addr] [--dev-user alice]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAuthLogin(cmd.Context(), *opts, loginServer, loginDevUser)
+		},
+	}
+	loginCmd.Flags().StringVar(&loginServer, "server", loginServer, "server gRPC address")
+	loginCmd.Flags().StringVar(&loginDevUser, "dev-user", loginDevUser, "development user")
+	authCmd.AddCommand(loginCmd)
+
+	workspaceCmd := &cobra.Command{
+		Use:   "workspace",
+		Short: "Manage the current single-slice workspace",
+		RunE:  requireSubcommand("workspace"),
+	}
+	workspaceInitCmd := &cobra.Command{
+		Use:   "init <account>/<slice>",
+		Short: "Bind the current directory to a slice",
+		Args:  exactArgs(1, "gs workspace init <account>/<slice>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
+		},
+	}
+	workspaceCmd.AddCommand(workspaceInitCmd)
+
+	statusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show workspace changes against the local base snapshot",
+		Args:  noArgs("gs status [--format text|json] [--json]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStatus(cmd.Context(), *opts)
+		},
+	}
+
+	csCmd := &cobra.Command{
+		Use:     "cs",
+		Aliases: []string{"changeset"},
+		Short:   "Manage changesets",
+		RunE:    requireSubcommand("cs"),
+	}
+	createTitle := "CLI changeset"
+	csCreateCmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a changeset from workspace edits",
+		Args:  noArgs("gs cs create [--title title]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetCreate(cmd.Context(), *opts, createTitle)
+		},
+	}
+	csCreateCmd.Flags().StringVar(&createTitle, "title", createTitle, "changeset title")
+	csUpdateCmd := &cobra.Command{
+		Use:   "update",
+		Short: "Create a new patchset for the current changeset",
+		Args:  noArgs("gs cs update"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetUpdate(cmd.Context(), *opts)
+		},
+	}
+	csSubmitCmd := &cobra.Command{
+		Use:   "submit",
+		Short: "Submit the current changeset",
+		Args:  noArgs("gs cs submit"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetSubmit(cmd.Context(), *opts)
+		},
+	}
+	csStatusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show the current changeset status",
+		Args:  noArgs("gs cs status [--format text|json] [--json]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetStatus(cmd.Context(), *opts)
+		},
+	}
+	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd)
+
+	schemaCmd := &cobra.Command{
+		Use:   "schema",
+		Short: "Print the machine-readable CLI schema",
+		Args:  noArgs("gs schema"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSchema()
+		},
+	}
+
+	sliceCmd := &cobra.Command{
+		Use:   "slice",
+		Short: "Slice commands are not available in the MVP CLI",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return userError("unsupported_command", "multi-slice workspace commands are not supported", "Use gs workspace init <account>/<slice>.")
+		},
+	}
+
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, schemaCmd, sliceCmd)
+	return root
 }
 
-func (r Runner) runAuth(ctx context.Context, args []string) error {
-	if len(args) == 0 || args[0] != "login" {
-		return fmt.Errorf("usage: gs auth login [--server addr] [--dev-user alice]")
-	}
-	fs := flag.NewFlagSet("auth login", flag.ContinueOnError)
-	fs.SetOutput(r.Stderr)
-	serverAddr := fs.String("server", defaultServerAddr(), "server gRPC address")
-	devUser := fs.String("dev-user", "alice", "development user")
-	if err := fs.Parse(args[1:]); err != nil {
-		return err
-	}
-	conn, err := dial(ctx, *serverAddr)
+func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAddr, devUser string) error {
+	conn, err := dial(ctx, serverAddr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	res, err := corev1.NewFakeAccountServiceClient(conn).Login(ctx, &corev1.LoginRequest{DevUser: *devUser})
+	res, err := corev1.NewFakeAccountServiceClient(conn).Login(ctx, &corev1.LoginRequest{DevUser: devUser})
 	if err != nil {
 		return err
 	}
-	cfg := UserConfig{ServerAddr: *serverAddr, Token: res.Token, SubjectID: res.SubjectId}
+	cfg := UserConfig{ServerAddr: serverAddr, Token: res.Token, SubjectID: res.SubjectId}
 	if err := r.writeUserConfig(cfg); err != nil {
 		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, map[string]any{
+			"server_addr": serverAddr,
+			"subject_id":  res.SubjectId,
+		})
+	}
+	if opts.Quiet {
+		return nil
 	}
 	fmt.Fprintf(r.Stdout, "logged in as %s\n", res.SubjectId)
 	return nil
 }
 
-func (r Runner) runWorkspace(ctx context.Context, args []string) error {
-	if len(args) == 0 || args[0] != "init" || len(args) < 2 {
-		return fmt.Errorf("usage: gs workspace init <account>/<slice>")
-	}
+func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, sliceRef string) error {
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
 	}
-	ref, err := parseSliceRef(args[1])
+	ref, err := parseSliceRef(sliceRef)
 	if err != nil {
 		return err
 	}
@@ -173,12 +355,21 @@ func (r Runner) runWorkspace(ctx context.Context, args []string) error {
 	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: refRecord.CommitId, Files: map[string]BaseSnapshotFile{}}); err != nil {
 		return err
 	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, map[string]any{
+			"workspace":      ref.Account + "/" + ref.Slice,
+			"slice_id":       slice.Id,
+			"base_commit_id": refRecord.CommitId,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
 	fmt.Fprintf(r.Stdout, "initialized workspace for %s/%s\n", ref.Account, ref.Slice)
 	return nil
 }
 
-func (r Runner) runStatus(ctx context.Context, args []string) error {
-	format := parseFormat(args)
+func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -200,52 +391,38 @@ func (r Runner) runStatus(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if format == "json" {
-		return writeJSON(r.Stdout, map[string]any{
-			"workspace":          ws.Account + "/" + ws.Slice,
-			"changed_path_count": len(validation.AffectedPaths),
-			"changed_paths":      validation.AffectedPaths,
-			"changeset_id":       state.CurrentChangesetID,
-			"patchset_id":        state.CurrentPatchsetID,
-		})
+	output := statusOutput{
+		Workspace:        ws.Account + "/" + ws.Slice,
+		ChangedPathCount: len(validation.AffectedPaths),
+		ChangedPaths:     validation.AffectedPaths,
+		ChangesetID:      state.CurrentChangesetID,
+		PatchsetID:       state.CurrentPatchsetID,
 	}
-	fmt.Fprintf(r.Stdout, "workspace: %s/%s\n", ws.Account, ws.Slice)
-	if len(validation.AffectedPaths) == 0 {
+	if opts.jsonOutput() {
+		if output.ChangedPaths == nil {
+			output.ChangedPaths = []string{}
+		}
+		return writeJSON(r.Stdout, output)
+	}
+	if opts.Quiet {
+		if output.ChangedPathCount == 0 {
+			return nil
+		}
+		return userError("workspace_dirty", "workspace has local changes", "Run gs status without --quiet to list changed paths.")
+	}
+	fmt.Fprintf(r.Stdout, "workspace: %s\n", output.Workspace)
+	if output.ChangedPathCount == 0 {
 		fmt.Fprintln(r.Stdout, "status: clean")
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "status: %d changed path(s)\n", len(validation.AffectedPaths))
-	for _, p := range validation.AffectedPaths {
+	fmt.Fprintf(r.Stdout, "status: %d changed path(s)\n", output.ChangedPathCount)
+	for _, p := range output.ChangedPaths {
 		fmt.Fprintf(r.Stdout, "  %s\n", p)
 	}
 	return nil
 }
 
-func (r Runner) runChangeset(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: gs cs create|submit|status")
-	}
-	switch args[0] {
-	case "create":
-		return r.runChangesetCreate(ctx, args[1:])
-	case "update":
-		return r.runChangesetUpdate(ctx, args[1:])
-	case "submit":
-		return r.runChangesetSubmit(ctx, args[1:])
-	case "status":
-		return r.runChangesetStatus(ctx, args[1:])
-	default:
-		return fmt.Errorf("usage: gs cs create|submit|status")
-	}
-}
-
-func (r Runner) runChangesetCreate(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("cs create", flag.ContinueOnError)
-	fs.SetOutput(r.Stderr)
-	title := fs.String("title", "CLI changeset", "changeset title")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
+func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, title string) error {
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -265,7 +442,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, args []string) error {
 		AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
 		TargetRef:      postgres.DefaultTargetRef,
 		BaseCommitId:   state.BaseCommitID,
-		Title:          *title,
+		Title:          title,
 	})
 	if err != nil {
 		return err
@@ -283,18 +460,26 @@ func (r Runner) runChangesetCreate(ctx context.Context, args []string) error {
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, changesetOutput{
+			ChangesetID: cs.Id,
+			PatchsetID:  patchset.Id,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
 	fmt.Fprintf(r.Stdout, "created changeset %s patchset %s\n", cs.Id, patchset.Id)
 	return nil
 }
 
-func (r Runner) runChangesetUpdate(ctx context.Context, args []string) error {
-	_ = args
+func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) error {
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
 	}
 	if state.CurrentChangesetID == "" {
-		return fmt.Errorf("no current changeset in workspace")
+		return userError("no_current_changeset", "no current changeset in workspace", "Run gs cs create first.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -318,32 +503,50 @@ func (r Runner) runChangesetUpdate(ctx context.Context, args []string) error {
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, changesetOutput{
+			ChangesetID: state.CurrentChangesetID,
+			PatchsetID:  patchset.Id,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
 	fmt.Fprintf(r.Stdout, "updated changeset %s patchset %s\n", state.CurrentChangesetID, patchset.Id)
 	return nil
 }
 
-func (r Runner) runChangesetSubmit(ctx context.Context, args []string) error {
-	_ = args
+func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions) error {
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
 	}
 	if state.CurrentChangesetID == "" {
-		return fmt.Errorf("no current changeset in workspace")
+		return userError("no_current_changeset", "no current changeset in workspace", "Run gs cs create first.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	res, err := corev1.NewChangesetServiceClient(conn).SubmitChangeset(authContext(ctx, cfg), &corev1.SubmitChangesetRequest{
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	res, err := changesetClient.SubmitChangeset(authContext(ctx, cfg), &corev1.SubmitChangesetRequest{
 		ChangesetId:               state.CurrentChangesetID,
 		ExpectedCurrentPatchsetId: state.CurrentPatchsetID,
 	})
 	if err != nil {
 		return err
 	}
-	state.BaseCommitID = res.NewRefCommitId
+	commitID := res.CommitId
+	refCommitID := res.NewRefCommitId
+	if refCommitID == "" || res.Status == "pending_publish" {
+		var err error
+		commitID, refCommitID, err = r.waitForChangesetPublished(ctx, conn, cfg, state.CurrentChangesetID)
+		if err != nil {
+			return err
+		}
+	}
+	state.BaseCommitID = refCommitID
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
@@ -351,21 +554,61 @@ func (r Runner) runChangesetSubmit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: res.NewRefCommitId, Files: snapshotFiles(current)}); err != nil {
+	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: refCommitID, Files: snapshotFiles(current)}); err != nil {
 		return err
 	}
-	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", res.CommitId, res.TargetRef)
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, map[string]any{
+			"commit_id":         commitID,
+			"target_ref":        res.TargetRef,
+			"new_ref_commit_id": refCommitID,
+			"status":            "submitted",
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", commitID, res.TargetRef)
 	return nil
 }
 
-func (r Runner) runChangesetStatus(ctx context.Context, args []string) error {
-	format := parseFormat(args)
+func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changesetID string) (string, string, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	repoClient := corev1.NewRepositoryServiceClient(conn)
+	for {
+		cs, err := changesetClient.GetChangeset(authContext(waitCtx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
+		if err != nil {
+			return "", "", err
+		}
+		if cs.Status == "submitted" && cs.CommitId != "" {
+			ref, err := repoClient.GetRef(authContext(waitCtx, cfg), &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+			if err != nil {
+				return "", "", err
+			}
+			return cs.CommitId, ref.CommitId, nil
+		}
+		if cs.Status != "pending_publish" && cs.Status != "draft" {
+			return "", "", userError("publish_failed", "changeset publish failed with status "+cs.Status, "Run gs cs status for details.")
+		}
+		select {
+		case <-waitCtx.Done():
+			return "", "", userError("publish_timeout", "changeset accepted but not published before timeout", "Run gs cs status to check publish progress.")
+		case <-ticker.C:
+		}
+	}
+}
+
+func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions) error {
 	cfg, _, state, err := r.loadLocalState()
 	if err != nil {
 		return err
 	}
 	if state.CurrentChangesetID == "" {
-		return fmt.Errorf("no current changeset in workspace")
+		return userError("no_current_changeset", "no current changeset in workspace", "Run gs cs create first.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -376,8 +619,19 @@ func (r Runner) runChangesetStatus(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if format == "json" {
-		return writeJSON(r.Stdout, cs)
+	output := changesetOutput{
+		ChangesetID: cs.Id,
+		PatchsetID:  cs.CurrentPatchsetId,
+		Status:      cs.Status,
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, output)
+	}
+	if opts.Quiet {
+		if cs.Status == "submitted" {
+			return nil
+		}
+		return userError("changeset_not_submitted", "changeset is not submitted", "Run gs cs status without --quiet for details.")
 	}
 	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\npatchset: %s\n", cs.Id, cs.Status, cs.CurrentPatchsetId)
 	return nil
@@ -512,12 +766,12 @@ func (r Runner) readUserConfig() (UserConfig, error) {
 	var cfg UserConfig
 	if err := readJSONFile(r.userConfigPath(), &cfg); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return cfg, fmt.Errorf("not logged in; run gs auth login")
+			return cfg, userError("not_logged_in", "not logged in", "Run gs auth login.")
 		}
 		return cfg, err
 	}
 	if cfg.ServerAddr == "" || cfg.Token == "" {
-		return cfg, fmt.Errorf("invalid user config; run gs auth login again")
+		return cfg, userError("invalid_user_config", "invalid user config", "Run gs auth login again.")
 	}
 	return cfg, nil
 }
@@ -533,7 +787,7 @@ func (r Runner) readWorkspaceConfig() (WorkspaceConfig, error) {
 	var cfg WorkspaceConfig
 	if err := readJSONFile(filepath.Join(r.cwd(), ".gs", "slice.json"), &cfg); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return cfg, fmt.Errorf("not in a gitslice workspace; run gs workspace init <account>/<slice>")
+			return cfg, userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <account>/<slice>.")
 		}
 		return cfg, err
 	}
@@ -608,10 +862,89 @@ func (r Runner) cwd() string {
 	return dir
 }
 
+func (r Runner) runSchema() error {
+	return writeJSON(r.Stdout, map[string]any{
+		"schema_version": "v1",
+		"global_flags": []map[string]any{
+			{"name": "--format", "values": []string{"text", "json"}, "default": "text", "description": "output format"},
+			{"name": "--json", "description": "alias for --format json"},
+			{"name": "--quiet", "description": "suppress non-essential text output"},
+			{"name": "--non-interactive", "description": "fail instead of prompting for input"},
+			{"name": "--no-color", "description": "disable colorized output"},
+			{"name": "--verbose", "description": "emit additional diagnostics"},
+			{"name": "--debug", "description": "emit debug diagnostics"},
+			{"name": "--trace", "description": "emit trace diagnostics"},
+		},
+		"commands": []map[string]any{
+			{
+				"use":            "gs auth login",
+				"summary":        "log in through the development account service",
+				"flags":          []string{"--server", "--dev-user"},
+				"writes_stdout":  true,
+				"machine_output": []string{"server_addr", "subject_id"},
+			},
+			{
+				"use":            "gs workspace init <account>/<slice>",
+				"summary":        "bind the current directory to one slice",
+				"args":           []string{"account/slice"},
+				"writes_stdout":  true,
+				"machine_output": []string{"workspace", "slice_id", "base_commit_id"},
+			},
+			{
+				"use":            "gs status",
+				"summary":        "show workspace changes against the local base snapshot",
+				"writes_stdout":  true,
+				"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "changeset_id", "patchset_id"},
+			},
+			{
+				"use":            "gs cs create",
+				"summary":        "create a changeset and first patchset from workspace edits",
+				"flags":          []string{"--title"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id"},
+			},
+			{
+				"use":            "gs cs update",
+				"summary":        "create a new patchset for the current changeset",
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id"},
+			},
+			{
+				"use":            "gs cs submit",
+				"summary":        "submit the current changeset through server-side validation",
+				"writes_stdout":  true,
+				"machine_output": []string{"commit_id", "target_ref", "new_ref_commit_id"},
+			},
+			{
+				"use":            "gs cs status",
+				"summary":        "show the current changeset status",
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "status"},
+			},
+			{
+				"use":           "gs schema",
+				"summary":       "print this machine-readable CLI schema",
+				"writes_stdout": true,
+			},
+		},
+		"error_output": map[string]any{
+			"stream": "stderr",
+			"shape": map[string]any{
+				"error": map[string]string{
+					"code":      "stable snake_case error code",
+					"message":   "human-readable message",
+					"hint":      "optional next action",
+					"retriable": "boolean",
+				},
+			},
+		},
+	})
+}
+
 func parseSliceRef(value string) (*corev1.SliceRef, error) {
 	parts := strings.Split(value, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return nil, fmt.Errorf("slice must be account/slice")
+		return nil, userError("invalid_slice_ref", "slice must be account/slice", "Pass a slice reference such as acme/payment.")
 	}
 	return &corev1.SliceRef{Account: parts[0], Slice: parts[1]}, nil
 }
@@ -643,13 +976,82 @@ func defaultServerAddr() string {
 	return "127.0.0.1:50051"
 }
 
-func parseFormat(args []string) string {
-	for i := 0; i < len(args)-1; i++ {
-		if args[i] == "--format" {
-			return args[i+1]
+func requireSubcommand(name string) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		_ = cmd.Help()
+		return userError("missing_subcommand", "missing "+name+" subcommand", "Run gs "+name+" --help to list available subcommands.")
+	}
+}
+
+func noArgs(usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return nil
+		}
+		return userError("unexpected_args", "unexpected arguments: "+strings.Join(args, " "), "Usage: "+usage)
+	}
+}
+
+func exactArgs(want int, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) == want {
+			return nil
+		}
+		return userError("invalid_args", fmt.Sprintf("expected %d argument(s), got %d", want, len(args)), "Usage: "+usage)
+	}
+}
+
+func userError(code, message, hint string) error {
+	return commandError{Code: code, Message: message, Hint: hint}
+}
+
+func wantsJSON(args []string) bool {
+	for i, arg := range args {
+		if arg == "--json" {
+			return true
+		}
+		if arg == "--format=json" {
+			return true
+		}
+		if arg == "--format" && i+1 < len(args) && args[i+1] == "json" {
+			return true
 		}
 	}
-	return "text"
+	return false
+}
+
+func classifyError(err error) errorResponse {
+	body := errorBody{
+		Code:      "command_failed",
+		Message:   err.Error(),
+		Retriable: false,
+	}
+	var cmdErr commandError
+	if errors.As(err, &cmdErr) {
+		body.Code = cmdErr.Code
+		body.Message = cmdErr.Message
+		body.Hint = cmdErr.Hint
+		body.Retriable = cmdErr.Retriable
+		return errorResponse{Error: body}
+	}
+
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "not logged in"):
+		body.Code = "not_logged_in"
+		body.Hint = "Run gs auth login."
+	case strings.Contains(msg, "not in a gitslice workspace"):
+		body.Code = "not_in_workspace"
+		body.Hint = "Run gs workspace init <account>/<slice>."
+	case strings.Contains(msg, "outside slice"):
+		body.Code = "outside_slice"
+	case strings.Contains(msg, "FailedPrecondition"), strings.Contains(strings.ToLower(msg), "conflict"):
+		body.Code = "conflict"
+	case strings.Contains(msg, "Unavailable"), strings.Contains(msg, "DeadlineExceeded"), strings.Contains(msg, "connection refused"):
+		body.Code = "server_unavailable"
+		body.Retriable = true
+	}
+	return errorResponse{Error: body}
 }
 
 func snapshotFiles(current map[string]workingFile) map[string]BaseSnapshotFile {
@@ -702,5 +1104,6 @@ func writeJSONFile(path string, v any, mode fs.FileMode) error {
 func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
 }

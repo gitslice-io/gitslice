@@ -19,6 +19,7 @@ The current MVP prototype is Go-based and uses:
 - `service/`: public gRPC service implementations and fake account service.
 - `internal/postgres`: PostgreSQL metadata store, SQL migrations, and seed data.
 - `internal/objectstore/filesystem`: prototype-only filesystem object store.
+- `internal/treestore`: immutable tree-node storage on top of the object store.
 - `internal/gitcompat`: Git read compatibility layer and projection cache.
 - `tests/functional`: real server plus CLI tests.
 - `tests/load`: opt-in load and contention tests behind the `load` build tag.
@@ -43,6 +44,8 @@ The design source of truth is under `design/`, especially:
 - Keep workspaces bound to exactly one slice.
 - Do not introduce cross-slice changesets.
 - Use PostgreSQL as metadata source of truth.
+- Store commit tree payloads in object storage; PostgreSQL commit rows should
+  store the root tree hash, not per-commit file snapshots.
 - Treat filesystem object storage as prototype-only.
 - Keep `server/` wiring-only: config, listeners, dependency construction,
   interceptors, health, and shutdown.
@@ -61,12 +64,12 @@ The design source of truth is under `design/`, especially:
   files alone, including `.antigravitycli/`.
 - Use `apply_patch` for manual edits.
 - Run `gofmt` on edited Go files.
-- Prefer generated protobuf stubs from `proto/core/v1/core.proto`; do not
+- Prefer generated protobuf stubs from `proto/core/v1/*.proto`; do not
   reintroduce hand-written gRPC bindings.
 - If changing generated protobuf output, regenerate with:
 
 ```bash
-protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false proto/core/v1/core.proto
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false proto/core/v1/*.proto
 ```
 
 ## Logging Rule

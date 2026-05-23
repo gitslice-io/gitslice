@@ -14,6 +14,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/service"
 	"google.golang.org/grpc"
@@ -28,19 +29,29 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	if cfg.PublishBatchSize <= 0 {
+		cfg.PublishBatchSize = 128
+	}
+	if cfg.PublishInterval <= 0 {
+		cfg.PublishInterval = defaultPublishInterval
+	}
 	store, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
+	objectStore, err := filesystem.New(cfg.ObjectStoreRoot)
+	if err != nil {
+		return err
+	}
+	store.SetTreeStore(treestore.New(objectStore))
 	if cfg.RunMigrations {
 		if err := store.Migrate(ctx); err != nil {
 			return err
 		}
 	}
-	objectStore, err := filesystem.New(cfg.ObjectStoreRoot)
-	if err != nil {
-		return err
+	if !cfg.DisableAsyncPublisher {
+		go runPublisher(ctx, store, cfg.PublishBatchSize, cfg.PublishInterval)
 	}
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -96,14 +107,14 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func NewGRPCServer(store *postgres.Store, services *service.Services) *grpc.Server {
+func NewGRPCServer(store *postgres.Store, handlers *service.Handlers) *grpc.Server {
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(authInterceptor(store)))
-	corev1.RegisterFakeAccountServiceServer(grpcServer, services)
-	corev1.RegisterRepositoryServiceServer(grpcServer, services)
-	corev1.RegisterBlobServiceServer(grpcServer, services)
-	corev1.RegisterSliceServiceServer(grpcServer, services)
-	corev1.RegisterWorkspaceServiceServer(grpcServer, services)
-	corev1.RegisterChangesetServiceServer(grpcServer, services)
+	corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
+	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
+	corev1.RegisterBlobServiceServer(grpcServer, handlers.Blob)
+	corev1.RegisterSliceServiceServer(grpcServer, handlers.Slice)
+	corev1.RegisterWorkspaceServiceServer(grpcServer, handlers.Workspace)
+	corev1.RegisterChangesetServiceServer(grpcServer, handlers.Changeset)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)

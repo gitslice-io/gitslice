@@ -149,100 +149,93 @@ accepted state is behaviorally invalid.
 Semantic conflicts are not solved by the storage layer. They are surfaced
 through required checks and, later, dependency-aware read sets.
 
-## 5. Single Changeset Submit
+## 5. Submit Admission With Path-Head CAS
 
-For one changeset, submit should run:
+The write-path correctness boundary is submit admission, not final root
+publication. Admission uses a durable `path_heads` table that represents the
+latest accepted logical state for each touched path. This can be ahead of
+`refs/global/main` while accepted changes are waiting for batch publication.
+
+For one changeset, submit admission should run:
 
 ```text
-1. Load current target-ref head H.
+1. Load the current target-ref head H for audit and fallback path-head
+   initialization.
 2. Load the current patchset.
 3. Recompute changed paths, read set, write set, coverage, and submit requirements.
 4. Verify authoring slice containment and permissions.
 5. Verify approvals and required checks are fresh for the current patchset.
-6. Verify every read-set predicate is satisfied by H.
-7. Apply the patchset to H.
-8. Create commit C.
-9. CAS target_ref from H to C.
-10. Emit indexing events.
+6. For every read-set path, lock or initialize the corresponding `path_heads`
+   row.
+7. Verify every path-head row satisfies the patchset's recorded base predicate.
+8. Update `path_heads` to the post-patch fingerprints for the write set.
+9. Append a durable `pending_publish` row.
+10. Mark the changeset `pending_publish`.
+11. Commit the admission transaction.
 ```
 
-If step 6 fails, the changeset becomes `NeedsRebase`,
+If step 7 fails, the changeset becomes `NeedsRebase`,
 `MergeConflict`, or `NeedsRequirementRefresh` depending on the failing
 predicate.
 
-If step 9 fails, the submitter reloads the new head and repeats freshness
-validation. CAS failure alone is not data loss; it means another writer moved
-the target ref first.
+`path_heads` stores tombstones for accepted deletes. That distinction matters:
+absence of a row means the path has not been initialized in the path-head
+index, while an existing tombstone means the accepted logical state is
+definitely missing. This prevents a stale update from passing just because the
+delete has not yet been published to the root/ref.
 
-## 6. Batched Submit
+After admission, the change is accepted but not yet visible through root-based
+reads, Git projection, or `refs/global/main`. Clients that need the existing
+synchronous UX may wait until the publisher marks the changeset `submitted`.
+
+## 6. Batched Async Publish
 
 Batching is an optimization for a hot target ref. It does not change the
-changeset model.
+changeset model or the admission correctness boundary.
 
-A batch can contain independently valid changesets from different authoring
+A batch can contain independently accepted changesets from different authoring
 slices, but the batch is not a user-visible cross-slice changeset. Each
 changeset keeps its own authoring slice, approvals, checks, commit, and audit
 record.
 
-A submit worker can group ready changesets that share a `target_ref` when:
+A publish worker can group pending changesets that share a `target_ref` when:
 
-- every candidate already passed review, approval, and required checks
-- every candidate's submit requirements are fresh
-- candidate write sets are pairwise disjoint under path-prefix comparison
-- candidate read sets are compatible with each other
-- all path base predicates are satisfied by the current target-ref head
+- every candidate already passed admission, review, approval, and required
+  checks
+- every candidate still has a durable `pending_publish` row in `pending` state
+- candidates can be ordered deterministically from their admission sequence
 
-Compatibility means no included candidate's write set invalidates another
-included candidate's read predicates. Two sibling file creates can be compatible
-when both only require the parent path to remain a directory; a delete of that
-parent is not compatible.
+Normal same-path conflicts have already been rejected by path-head CAS. The
+publisher still verifies operational invariants such as pending-row status,
+target-ref identity, and target-ref CAS. It does not need to rediscover ordinary
+same-path conflicts unless the system intentionally supports multiple admission
+sources that bypass `path_heads`.
 
-The worker then enters the target-ref sequencer once and revalidates the whole
-candidate set against the latest head.
+The worker then enters the target-ref sequencer once for the batch.
 
 Inside the sequencer:
 
 ```text
-1. Reload current target-ref head H.
-2. Revalidate each candidate's read-set predicates against H.
-3. Remove candidates that no longer pass freshness validation.
-4. Sort the remaining candidates deterministically.
-5. Verify that no candidate write invalidates another included candidate's read
-   predicates.
-6. Apply candidates in order, producing a commit chain:
+1. Reload and lock current target-ref head H.
+2. Select pending rows in admission sequence order.
+3. Load each patchset and apply candidates in order, producing a commit chain:
 
    H -> C1 -> C2 -> C3
 
-7. Publish the commit chain and CAS target_ref from H to C3 in one metadata
+4. Publish the commit chain and CAS target_ref from H to C3 in one metadata
    transaction.
-8. Mark each included changeset submitted with its corresponding commit id.
-9. Return excluded candidates to an open refresh/retry state.
+5. Mark each included changeset `submitted` with its corresponding commit id.
+6. Mark each included `pending_publish` row `published`.
+7. Emit indexing and projection invalidation events.
 ```
 
 The target ref moves once, but each changeset still gets its own commit and
 audit record. This preserves review traceability while reducing target-ref CAS
 pressure.
 
-The deterministic order should use a topological sort based on read/write set
-intersections:
-
-```text
-1. Build a directed graph where an edge exists from Ci to Cj if the read set
-   of Ci intersects the write set of Cj.
-2. Sort topologically. The edge means Ci must be applied before Cj, so readers
-   of a path are ordered before writers of that path within the same batch.
-3. If a cycle is detected, partition the batch or exclude conflicting
-   candidates.
-4. Within each topological level, break ties with submit_ready_at, changeset_id.
-```
-
-This prevents false-positive read-set invalidations that occur with naive
-chronological ordering. If Changeset A modifies `/lib/utils.go` and Changeset B
-reads `/lib/utils.go`, sorting them arbitrarily might cause B's read predicate
-to fail if A is applied first.
-
-Fairness should remain outside the correctness model but can be applied as a
-tiebreaker within topological levels.
+Admission sequence is the MVP order. Later dependency-aware read sets can add a
+topological ordering layer, but it must preserve the invariant that accepted
+path-head state is the source of truth for write conflicts.
 
 ## 7. Why Disjoint Writes Are Not Enough
 

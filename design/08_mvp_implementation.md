@@ -215,6 +215,16 @@ logic in handlers. For example, both `ChangesetService.UpdateChangeset` and
 `WorkspaceService.ValidateWorkspaceDiff` should use the same path normalization,
 authoring-slice containment, path-base, and read/write-set code.
 
+`ChangesetService.SubmitChangeset` should use the async MVP path:
+
+```text
+path-head CAS -> pending_publish append -> in-process batch publisher -> ref CAS
+```
+
+The server binary owns only the publisher wiring: interval, batch size,
+lifecycle, logging, and shutdown. Publish correctness belongs in the storage
+layer so crash recovery can resume from durable `pending_publish` rows.
+
 ## 6. Suggested Go Package Layout
 
 The exact package names can change, but ownership should stay clear.
@@ -265,8 +275,12 @@ Important package rules:
   interceptors, health, metrics, dependency wiring, and graceful shutdown only.
   It must stay free of product business logic.
 - `service` owns all public gRPC service implementations, including the fake
-  account service used by the MVP.
-- `postgres` owns SQL transactions and migrations.
+  account service used by the MVP. Each proto service should have a dedicated
+  handler struct; shared validation should live in small internal helpers rather
+  than a monolithic all-services object.
+- `postgres` owns SQL transactions and migrations. The root store owns DB
+  lifecycle and exposes focused logic structs for auth, blobs, repository,
+  slices, and changesets.
 - `objectstore/filesystem` owns MVP byte storage and verification, not metadata
   truth.
 - `submit` owns target-ref sequencer behavior and CAS publication.
@@ -295,6 +309,19 @@ content-addressed paths under `GITSLICE_OBJECT_STORE_ROOT` and should be safe to
 delete as a unit for test cleanup. Functional, load, restart, and persistence
 tests must use this filesystem adapter so the local prototype exercises real
 byte persistence without external infrastructure.
+
+For the MVP, the same adapter stores both raw blob bytes and immutable tree-node
+payloads:
+
+```text
+blobs/sha256/{hh}/{hh}/{hash}
+trees/sha256/{hh}/{hh}/{hash}.json
+```
+
+PostgreSQL commit rows store `root_tree_id`; tree node contents are not
+expanded into database rows. Publishing a changeset path-copies only the tree
+nodes on the changed paths, writes those new immutable nodes to object storage,
+then records the new commit and target-ref move in PostgreSQL.
 
 The filesystem adapter is not a production object-store design. It assumes a
 single server process or equivalent single-writer discipline over the object

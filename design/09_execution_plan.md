@@ -307,12 +307,16 @@ Server behavior:
 6. Refresh overlap and submit requirements.
 7. Check authoring-slice roles and approvals.
 8. Run required checks.
-9. Hand off to the target-ref landing sequencer.
-10. Revalidate path predicates, submit requirements, checks, and conflicts.
-11. Rebase or apply onto latest target ref.
-12. Create commit or batched commit chain.
-13. Update ref with CAS.
-14. Emit indexing events.
+9. CAS the changed paths against durable `path_heads`.
+10. Update `path_heads` to the accepted post-patch fingerprints.
+11. Append a `pending_publish` row and mark the changeset `pending_publish`.
+12. An in-process publisher batches pending rows by target ref.
+13. For each accepted patchset, path-copy changed tree nodes into the object
+    store and compute a new `root_tree_id`.
+14. Create a commit or batched commit chain whose rows store only the
+    `root_tree_id`, not a full per-commit file snapshot.
+15. Update the target ref with CAS.
+16. Mark included changesets `submitted` and emit indexing events.
 ```
 
 ## 4. Example Git Workflow

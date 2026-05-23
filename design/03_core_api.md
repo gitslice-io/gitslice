@@ -37,12 +37,13 @@ The following proto shape is the starting contract. Some request and response
 messages will grow as implementation details become concrete, but the service
 boundaries should remain stable.
 
-The concrete MVP proto used by the Go prototype lives at
-[`../proto/core/v1/core.proto`](../proto/core/v1/core.proto). That file is the
-implementation source of truth for generated Go stubs. The prototype currently
-keeps file/blob transfer unary and uses string timestamps to keep the first
-end-to-end CLI/server path small; the design target remains streaming payloads
-and typed protobuf timestamps once larger-file behavior is implemented.
+The concrete MVP proto used by the Go prototype lives under
+[`../proto/core/v1/`](../proto/core/v1/). Those files are the implementation
+source of truth for generated Go stubs, split by service boundary with shared
+types in `common.proto`. The prototype currently keeps file/blob transfer unary
+and uses string timestamps to keep the first end-to-end CLI/server path small;
+the design target remains streaming payloads and typed protobuf timestamps once
+larger-file behavior is implemented.
 
 ```proto
 syntax = "proto3";
@@ -369,13 +370,15 @@ message Changeset {
   ChangesetStatus status = 8;
   repeated string affected_paths = 9;
   SubmitRequirements submit_requirements = 10;
+  string commit_id = 11;
+  string pending_publish_id = 12;
 }
 
 enum ChangesetStatus {
   CHANGESET_STATUS_UNSPECIFIED = 0;
   CHANGESET_STATUS_DRAFT = 1;
   CHANGESET_STATUS_REVIEW = 2;
-  CHANGESET_STATUS_SUBMITTING = 3;
+  CHANGESET_STATUS_PENDING_PUBLISH = 3;
   CHANGESET_STATUS_SUBMITTED = 4;
   CHANGESET_STATUS_ABANDONED = 5;
   CHANGESET_STATUS_FAILED = 6;
@@ -490,6 +493,8 @@ message SubmitChangesetResponse {
   string commit_id = 1;
   string target_ref = 2;
   string new_ref_commit_id = 3;
+  string status = 4;
+  string pending_publish_id = 5;
 }
 
 message AbandonChangesetRequest {
@@ -500,6 +505,12 @@ message AbandonChangesetRequest {
 message AbandonChangesetResponse {}
 
 ```
+
+`SubmitChangeset` returns `status = "pending_publish"` when the patchset has
+passed path-head CAS admission but has not yet been published to the target ref.
+In that state `commit_id` and `new_ref_commit_id` may be empty. Clients that
+need root-visible state should poll `GetChangeset` until `status = "submitted"`
+and then read the target ref.
 
 ## 3. Internal Commit API
 
