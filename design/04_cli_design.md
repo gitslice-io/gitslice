@@ -10,7 +10,8 @@ Related documents:
 - [03_core_api.md](03_core_api.md): gRPC APIs used by the CLI
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway and compatibility workflows
 - [07_conflict_resolution.md](07_conflict_resolution.md): path-level conflicts and batched submit
-- [08_execution_plan.md](08_execution_plan.md): rollout phases
+- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
+- [09_execution_plan.md](09_execution_plan.md): rollout phases
 
 ## 1. Positioning
 

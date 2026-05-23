@@ -12,7 +12,8 @@ Related documents:
 - [03_core_api.md](03_core_api.md): gRPC APIs used by the Git gateway
 - [04_cli_design.md](04_cli_design.md): native CLI behavior
 - [07_conflict_resolution.md](07_conflict_resolution.md): path-level conflicts and batched submit
-- [08_execution_plan.md](08_execution_plan.md): rollout phases and Git workflow validation
+- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
+- [09_execution_plan.md](09_execution_plan.md): rollout phases and Git workflow validation
 
 ## 1. Core Principle
 
@@ -312,8 +313,8 @@ changeset and patchset objects.
 ### 11.1 Large Blob Handling
 
 Git LFS support is a confirmed non-goal. Native Gitslice storage stores blobs
-by content hash in Cloudflare R2 with authoritative blob metadata in
-PostgreSQL. The Git gateway projects those native blobs as ordinary Git blob
+by content hash in the filesystem object store with authoritative blob metadata
+in PostgreSQL. The Git gateway projects those native blobs as ordinary Git blob
 objects for clone/fetch/push. This avoids unnecessary architecture complexity
 such as pointer rewriting and binary blob redirection.
 

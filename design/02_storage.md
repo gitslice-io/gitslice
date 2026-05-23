@@ -168,14 +168,15 @@ The MVP storage stack is intentionally concrete:
 
 ```text
 Metadata and operational indexes: PostgreSQL
-Blob/object storage: Cloudflare R2
+Blob/object storage: filesystem object store
 ```
 
 PostgreSQL is the source of truth for refs, commits, trees, slice definitions,
 changesets, path predicates, operational indexes, outbox events, leases, and GC
-state. Cloudflare R2 stores immutable blob bytes and large derived artifacts.
-R2 listing is never authoritative; Postgres records decide which objects exist,
-which objects are live, and which objects may be deleted.
+state. The filesystem object store stores immutable blob bytes and large derived
+artifacts for the MVP. Directory listing is never authoritative; Postgres
+records decide which objects exist, which objects are live, and which objects
+may be deleted.
 
 The metadata store must support:
 
@@ -195,7 +196,7 @@ Derived indexes:
 
 ```text
 PostgreSQL tables for operational indexes
-Cloudflare R2 for immutable index artifacts and shard snapshots
+filesystem object store for immutable index artifacts and shard snapshots
 purpose-built workers for projection, build, and test indexes
 ```
 
@@ -616,9 +617,10 @@ where name = $target_ref
 
 The update succeeds only when exactly one row is updated.
 
-### 4.3 Cloudflare R2 Object Layout
+### 4.3 Filesystem Object Layout
 
-R2 object keys should be deterministic and content-addressed where possible:
+Filesystem object paths should be deterministic and content-addressed where
+possible:
 
 ```text
 blobs/sha256/{aa}/{bb}/{content_hash}
@@ -633,11 +635,12 @@ Rules:
 - Blob keys are immutable after verification.
 - Blob content is verified by hash before the corresponding Postgres `blobs`
   row becomes `available`.
-- R2 lifecycle rules may clean abandoned staging keys, but Postgres GC remains
-  authoritative for available blob deletion.
+- Temporary staging files may be cleaned opportunistically, but Postgres GC
+  remains authoritative for available blob deletion.
 - Projection and index artifacts are disposable caches unless they have an
   active `reachability_roots` row.
-- R2 object listing is useful for repair, not for source-of-truth reads.
+- Filesystem directory listing is useful for repair, not for source-of-truth
+  reads.
 
 ### 4.4 High-Level Storage Interface
 
@@ -1272,7 +1275,7 @@ Blob ids are the simplest content-addressed ids:
 blob_id = hash("gitslice.blob.v1", raw file bytes)
 ```
 
-Compression, object-store chunking, encryption, and R2 multipart upload layout
+Compression, object-store chunking, encryption, and filesystem staging layout
 must not change `blob_id`; they are storage details around the same verified raw
 bytes.
 
@@ -1408,8 +1411,8 @@ Path-based indexes still need to update affected path records after a rename.
 
 ## 8. Replication Architecture
 
-The MVP can start with one primary PostgreSQL region and Cloudflare R2 as the
-managed object store.
+The MVP can start with one primary PostgreSQL instance and a filesystem object
+store rooted on local or attached storage.
 
 Later, use regional read replicas and controlled write coordination.
 

@@ -353,7 +353,7 @@ MVP scope:
 - per-target-ref landing sequencer
 - Git clone/fetch from slice URLs
 - Git push into changesets
-- PostgreSQL metadata storage and Cloudflare R2 object storage
+- PostgreSQL metadata storage and filesystem-based object storage
 - derived indexes for path coverage and history
 - per-path conflict detection and safe batched target-ref updates
 - correctness-first storage lifecycle and GC
@@ -389,10 +389,11 @@ The product should not:
 ## 10. Document Map
 
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): architecture and system model
-- [02_storage.md](02_storage.md): storage stack, Postgres schema, R2 layout, refs, hashing, GC, and replication
+- [02_storage.md](02_storage.md): storage stack, Postgres schema, filesystem object layout, refs, hashing, GC, and replication
 - [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
 - [04_cli_design.md](04_cli_design.md): native `gs` CLI and workspace behavior
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projections, and push behavior
 - [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
 - [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
-- [08_execution_plan.md](08_execution_plan.md): implementation phases and workflow validation
+- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
+- [09_execution_plan.md](09_execution_plan.md): implementation phases and workflow validation

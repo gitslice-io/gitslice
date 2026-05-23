@@ -16,19 +16,20 @@ Git compatibility at the boundary.
 Gitslice should not be implemented internally as a traditional Git server. Git
 clients should see ordinary Git repositories, but the source of truth should be
 a scalable native storage and metadata system. For the MVP, that storage stack
-is PostgreSQL for metadata and operational indexes, plus Cloudflare R2 for
-immutable blob bytes and large derived artifacts.
+is PostgreSQL for metadata and operational indexes, plus filesystem-based object
+storage for immutable blob bytes and large derived artifacts.
 
 Companion documents:
 
 - [00_product.md](00_product.md): product overview, users, workflows, and scope
-- [02_storage.md](02_storage.md): storage stack, Postgres schema, R2 layout, refs, hashing, and replication
+- [02_storage.md](02_storage.md): storage stack, Postgres schema, filesystem object layout, refs, hashing, and replication
 - [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
 - [04_cli_design.md](04_cli_design.md): native `gs` CLI and workspace behavior
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projected refs, synthetic commits, and push behavior
 - [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
 - [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
-- [08_execution_plan.md](08_execution_plan.md): implementation phases and workflow validation
+- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
+- [09_execution_plan.md](09_execution_plan.md): implementation phases and workflow validation
 
 Gitslice is designed to support:
 
@@ -1358,9 +1359,9 @@ Replication Service
 
 ### 16.1 Object Store
 
-Cloudflare R2 stores file contents, large binary objects, staged uploads, and
-large derived artifacts such as Git projection packs. R2 is not the source of
-truth for object liveness; Postgres blob and reachability metadata is.
+The filesystem object store stores file contents, large binary objects, staged
+uploads, and large derived artifacts such as Git projection packs. It is not the
+source of truth for object liveness; Postgres blob and reachability metadata is.
 
 ### 16.2 Metadata Service
 
@@ -1446,8 +1447,9 @@ These invariants must not be violated.
 
 ## 19. Execution Plan
 
-Implementation phases and workflow validation have moved to
-[08_execution_plan.md](08_execution_plan.md).
+MVP implementation details are in
+[08_mvp_implementation.md](08_mvp_implementation.md). Implementation phases and
+workflow validation are in [09_execution_plan.md](09_execution_plan.md).
 
 ---
 
