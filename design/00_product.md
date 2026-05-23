@@ -364,7 +364,8 @@ Later scope:
 - richer branch support
 - advanced query language
 - richer migration tooling from existing Git repositories
-- Git LFS protocol compatibility for configured large-file paths
+- advanced large-file transfer optimizations if native blob storage plus partial
+  clone is not enough
 - IDE integrations
 - hosted review UI
 - organization analytics and policy dashboards
@@ -374,6 +375,7 @@ Later scope:
 The product should not:
 
 - expose cross-slice changesets
+- auto-link multiple changesets into one product-level submission
 - provide atomic multi-slice submission
 - use `/users` or `/orgs` path prefixes
 - support per-directory policy files

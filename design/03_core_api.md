@@ -226,11 +226,13 @@ enum Visibility {
   VISIBILITY_PUBLIC = 3;
 }
 
+// Roles reference immutable subject_id or account_id strings, not mutable
+// usernames or slugs. Slugs are resolved at the API/CLI presentation layer.
 message Roles {
-  repeated string owners = 1;
-  repeated string admins = 2;
-  repeated string writers = 3;
-  repeated string readers = 4;
+  repeated string owner_ids = 1;
+  repeated string admin_ids = 2;
+  repeated string writer_ids = 3;
+  repeated string reader_ids = 4;
 }
 
 message SubmitSettings {
@@ -307,6 +309,9 @@ message HydratePathsResponse {
 
 message ValidateWorkspaceDiffRequest {
   WorkspaceRef workspace = 1;
+  // Singular authoring slice for the proposed changeset. The server rejects
+  // file_edits outside this slice; clients must split local edits before
+  // creating multiple changesets.
   SliceRef authoring_slice = 2;
   string base_commit_id = 3;
   repeated FileEdit file_edits = 4;
@@ -402,6 +407,9 @@ enum FileEditOp {
 
 message PathCoverage {
   string path = 1;
+  // Informational coverage snapshot for overlap, projection invalidation, and
+  // conflict reporting. It does not make the changeset multi-slice and does not
+  // add approval requirements beyond the authoring slice and active path locks.
   repeated string covering_slice_ids = 2;
 }
 
@@ -440,6 +448,8 @@ message SubmitRequirements {
 }
 
 message CreateChangesetRequest {
+  // Exactly one authoring slice. There is intentionally no secondary-slice or
+  // linked-changeset field in the MVP API.
   SliceRef authoring_slice = 1;
   string target_ref = 2;
   string base_commit_id = 3;
@@ -455,6 +465,7 @@ message UpdateChangesetRequest {
   string changeset_id = 1;
   string expected_current_patchset_id = 2;
   string base_commit_id = 3;
+  // Every edit must be contained by the changeset's authoring slice.
   repeated FileEdit file_edits = 4;
 }
 
@@ -555,6 +566,7 @@ Structured error details should include machine-readable reasons such as:
 
 ```text
 PATH_OUTSIDE_AUTHORING_SLICE
+MULTI_SLICE_CHANGESET_UNSUPPORTED
 PATH_BASE_STALE
 SUBMIT_REQUIREMENTS_CHANGED
 REF_CAS_FAILED
@@ -577,5 +589,9 @@ Git URL
   -> ChangesetService writes for push-to-changeset
 ```
 
-Direct pushes to protected refs should either be rejected or translated into
-changesets that follow the same submit validation as native writes.
+Direct pushes to protected refs must be intercepted by the Git gateway and
+routed through the changeset merge path. The gateway must create or update a
+changeset via `ChangesetService.CreateChangeset` or
+`ChangesetService.UpdateChangeset`, generate a patchset, and run the same
+submit validation pipeline as native CLI writes. The gateway should return a
+message informing the user that their push was converted to a changeset.

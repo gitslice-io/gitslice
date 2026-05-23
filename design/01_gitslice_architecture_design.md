@@ -215,7 +215,7 @@ The global namespace allows:
 
 - Unified history
 - Global indexing
-- Cross-slice visibility without cross-slice submission
+- Overlap visibility without multi-slice changesets
 - Consistent absolute paths for humans, agents, APIs, and Git projections
 
 ### 3.1 Account Identity
@@ -259,13 +259,14 @@ rule.
 
 A slice owned by an account may include paths from that same account.
 
-Cross-account changes are not represented as a single changeset. They require
-separate independent changesets, one per affected slice or account workflow. A
-slice must not silently mount another account's paths.
+Cross-account and cross-slice changes are not represented as a single
+changeset. If a product workflow requires work in multiple slices or accounts,
+that coordination happens outside the changeset model as separate, unlinked
+changesets. A slice must not silently mount another account's paths.
 
 Future explicit cross-account collaboration can be added, but it must be modeled
 as explicit authorization and import/export behavior, not as a special namespace
-or a single cross-account changeset.
+or a cross-account changeset.
 
 ---
 
@@ -493,13 +494,13 @@ Definition changes that affect overlap must:
 - invalidate affected projection caches
 
 If a slice definition change adds a new covering slice to an open changeset,
-the changeset must refresh affected-slice notifications. Submit requirements
-change only when the authoring slice submit settings or active path locks
-change.
+the changeset must refresh its coverage snapshot and affected projection
+metadata. Submit requirements change only when the authoring slice submit
+settings or active path locks change.
 
-If a slice definition change removes a covering slice, that slice is removed
-from future affected-slice notifications, but the historical review log is
-preserved.
+If a slice definition change removes a covering slice, future projection
+invalidation for that slice is no longer needed. Historical coverage records are
+preserved for auditability.
 
 ### 4.9 Slice History Projection
 
@@ -647,23 +648,25 @@ included in that authoring slice. A changeset cannot directly span multiple
 slices or accounts.
 
 For each changed global path, the server resolves all covering slices. This is
-still necessary because slices can overlap. Overlap can affect review routing
-and conflict detection, but it does not make the changeset a cross-slice
-changeset.
+still necessary because slices can overlap. Overlap can affect visibility,
+projection invalidation, and conflict reporting, but it does not make the
+changeset a cross-slice changeset.
 
 ```text
 changed paths
+  -> authoring slice containment
   -> covering slices
-  -> submit requirements
-  -> required slice roles
+  -> authoring slice submit requirements
+  -> active path locks
   -> required approvals
   -> required checks
 ```
 
 Cross-slice changesets are not allowed. Work that logically spans slices must be
 split into separate independent changesets, each scoped to its own authoring
-slice. Gitslice does not provide a linked-changeset object or atomic
-coordination layer in the initial design.
+slice. The server must reject any patchset whose file edits are not fully
+contained by the authoring slice. Gitslice does not provide a linked-changeset
+object, multi-slice changeset object, or atomic coordination layer.
 
 Cross-account changesets are not allowed in the initial design.
 
@@ -671,7 +674,8 @@ Default write authorization:
 
 - A user may create a changeset from a slice where they have writer access.
 - The user must have read access to every path they modify.
-- Other covering slices do not add writer-role requirements by default.
+- Other covering slices do not add writer-role, reviewer, or approval
+  requirements.
 - Submission requires all submit requirements, checks, and path locks to be
   satisfied.
 
@@ -757,9 +761,9 @@ The detailed native CLI and local workspace behavior is defined in
 A changeset is the collaboration and submission object.
 
 A changeset represents a proposed change to the global source graph through one
-authoring slice. It cannot directly span multiple slices or accounts. Work that
-must move together across slices is split into independent changesets and
-coordinated outside the changeset model.
+authoring slice. It cannot directly span multiple slices or accounts. The model
+has no field for secondary slices and no server-side relationship that links
+multiple changesets into one submission.
 
 ### 7.1 Changeset Structure
 
@@ -874,9 +878,10 @@ N changesets -> 1 squashed global commit
 The user-facing object remains the changeset.
 
 A changeset does not coordinate file edits across independent slices. The
-atomicity boundary is the metadata transaction for a single target ref update.
-Work that spans slices or accounts should be split into independent changesets
-that submit under each slice's policy.
+atomicity boundary is the metadata transaction for one accepted patchset or
+compatible batch on a single target ref. Work that spans slices or accounts must
+be split before submission; each resulting changeset submits under exactly one
+authoring slice.
 
 ### 7.5 No Direct User Commits
 
@@ -982,7 +987,7 @@ Before submission, the server validates:
 Can the patch apply cleanly to current head?
 Do read-set path predicates still match current head?
 Do affected paths still have the expected covering slices?
-Does the author still have the required slice roles?
+Does the author still have the required role in the authoring slice?
 Do submit requirements pass?
 Do required checks pass on the latest head?
 ```
@@ -1042,7 +1047,7 @@ Process:
 6. Store covering_slices_by_path, slice definition hashes, path base
    predicates, read/write sets, and submit requirements on the patchset.
 7. Compute required approvals, locks, and checks.
-8. Notify reviewers for every affected covering slice and required approval.
+8. Notify required reviewers from the authoring slice and active path locks.
 9. Collect approvals required by submit settings and path locks.
 10. Before submit, recompute coverage and submit requirements against latest definitions.
 11. Verify read-set predicates against the latest target-ref head.
@@ -1060,10 +1065,10 @@ unchanged:
   keep current requirements and continue
 
 covering slice added:
-  update affected-slice notifications
+  refresh coverage snapshot and affected projection metadata
 
 covering slice removed:
-  remove future affected-slice notifications but preserve historical review log
+  refresh coverage snapshot and preserve historical coverage metadata
 
 authoring slice submit settings changed:
   recompute requirements; stale approvals may need renewal
@@ -1081,9 +1086,11 @@ Example:
   covering slices:
     acme/backend
     acme/payment
+  authoring slice:
+    acme/payment
   required:
-    backend-ci
     payment-owner approval
+    payment-ci
 ```
 
 ### 11.3 Concurrent Overlap Changes
@@ -1092,9 +1099,9 @@ Two changesets from different authoring slices can edit the same overlapping
 path.
 
 They do not merge independently per slice. The server resolves every covering
-slice for review routing and conflict detection. Final submission is serialized
-by the target-ref landing sequencer. If the first changeset lands, the second
-changeset must reapply to the new head.
+slice for visibility, projection invalidation, and conflict detection. Final
+submission is serialized by the target-ref landing sequencer. If the first
+changeset lands, the second changeset must reapply to the new head.
 
 If the patch no longer applies cleanly, it becomes `NeedsRebase` or
 `MergeConflict`.
@@ -1104,19 +1111,15 @@ If the patch no longer applies cleanly, it becomes `NeedsRebase` or
 Approvals are recorded against both:
 
 ```text
-slice_id
+authoring_slice_id
 slice_definition_hash
 patchset_id
 ```
 
-An approval remains valid only while the relevant patchset and slice definition
-remain valid for the affected paths, unless submit settings explicitly allow
-stale approvals.
-
-If a new covering slice appears, that slice has not approved the change yet.
-
-If a covering slice disappears, its approval is retained in the audit log but is
-not required for the next submit attempt.
+An approval remains valid only while the relevant patchset, authoring slice
+definition, and submit requirements remain valid, unless submit settings
+explicitly allow stale approvals. Covering-slice changes can refresh projection
+and visibility metadata, but they do not create new approval requirements.
 
 ### 11.5 Submit Requirement Refresh
 
@@ -1159,7 +1162,10 @@ submit:
 Those settings are versioned with the slice definition. Changing them is a
 control-plane change and should go through a changeset or equivalent reviewed
 administrative flow. Weakening required approvals or checks must be audited and
-must not rely on the weakened settings to approve itself.
+must not rely on the weakened settings to approve itself. A changeset that
+weakens submit settings should not include ordinary source changes that depend
+on the weakened requirements; split those changes so the control-plane change is
+reviewed and accepted first.
 
 ### 12.1 Submit Requirement Resolution
 
@@ -1177,8 +1183,8 @@ changed paths
 
 The current MVP rule is intentionally direct: the authoring slice defines submit
 requirements for the whole changeset. Other covering slices affect visibility,
-review routing, projection invalidation, and conflict detection, but they do not
-add submit requirements by default.
+projection invalidation, and conflict detection, but they do not add submit or
+approval requirements.
 
 Submit requirement records:
 
@@ -1211,7 +1217,7 @@ For a changeset:
 10. Revalidate path predicates, submit requirements, checks, and conflicts.
 11. Create final commit or commits.
 12. Atomically update target ref with CAS.
-13. Emit indexing events for every affected covering slice.
+13. Emit indexing events for every affected slice projection.
 ```
 
 If CAS fails despite the sequencer lease, the worker treats it as a stale
@@ -1430,11 +1436,12 @@ These invariants must not be violated.
 11. Default slice history uses the latest accepted slice definition.
 12. Slice visibility and roles govern access to all paths included by the slice.
 13. A global path may be covered by multiple slices.
-14. Writes to overlapping paths must satisfy current submit validation at submit time.
-15. Effective read exposure for a path is the broadest visibility of any covering slice.
-16. Git synthetic commit IDs are stable for the same projection inputs.
-17. Metadata must never reference an unverified blob.
-18. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
+14. Each changeset has exactly one authoring slice; multi-slice changesets are rejected.
+15. Writes to overlapping paths must satisfy current submit validation at submit time.
+16. Effective read exposure for a path is the broadest visibility of any covering slice.
+17. Git synthetic commit IDs are stable for the same projection inputs.
+18. Metadata must never reference an unverified blob.
+19. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
 ```
 
 ---
@@ -1460,6 +1467,7 @@ The initial design should not include:
 - code search in the MVP
 - a separate submit scheduling abstraction in the MVP
 - Git-native storage internals
+- cross-slice changesets
 - distributed atomic commits across slices or target refs
 
 These can be revisited only if a concrete product requirement justifies the

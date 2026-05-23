@@ -77,6 +77,9 @@ Unsupported or constrained operations:
   is Gitslice's primary sparsity mechanism.
 - Direct writes to protected accepted refs should be rejected or translated into
   changesets.
+- A push to a slice repository must create or update a changeset for that slice
+  only. If the diff touches paths outside the URL's slice projection, the push is
+  rejected instead of becoming a cross-slice changeset.
 - Git-native repository administration should not mutate native storage objects.
 - Git object ids are compatibility artifacts, not native object ids.
 
@@ -125,7 +128,7 @@ Projection cache keys must include every input that changes Git-visible output:
 - native target ref and commit id
 - projection algorithm version
 - Git protocol capabilities requested by the client
-- large-blob/LFS projection mode
+- large-blob projection mode
 
 Cache entries are derived artifacts. They must never decide authorization,
 policy, or submit correctness. Every request still authenticates the caller and
@@ -228,8 +231,9 @@ submit validation, and workspace behavior aligned with the native model.
 
 ## 8. Push Into Changesets
 
-Protected targets should not allow ordinary Git pushes to write directly to the
-accepted global ref.
+Protected targets must not allow ordinary Git pushes to write directly to the
+accepted global ref. All pushes to protected refs are intercepted and routed
+through the changeset merge path.
 
 Instead:
 
@@ -248,13 +252,17 @@ Git push
   -> resolve slice from Git URL
   -> convert Git diff to global absolute paths
   -> verify every changed path is inside the authoring slice
+  -> reject if the diff would require more than one authoring slice
   -> create or update changeset
   -> create patchset
   -> run validation
 ```
 
-Direct push to a protected branch should either be rejected or translated into a
-changeset that follows the same submit validation as native writes.
+Direct push to a protected branch must be translated into a changeset that
+follows the same submit validation as native writes. The Git gateway must never
+allow a direct ref update to bypass the changeset pipeline. The server should
+return a message informing the user that their push was converted to a changeset
+and is awaiting validation and submit.
 
 ## 9. Changeset Refs
 
@@ -301,29 +309,13 @@ The Git layer should support common ecosystem expectations:
 CI should run against projected Git commits but report status back to the native
 changeset and patchset objects.
 
-### 11.1 Large Blob And LFS Compatibility
+### 11.1 Large Blob Handling
 
-Native Gitslice storage already stores blobs by content hash and can avoid
-eager blob transfer through partial clone. Git LFS compatibility is still useful
-for Git clients and tooling that expect LFS semantics, but it should be an
-explicit projection mode controlled by submit settings or path locks, not an
-invisible rewrite of arbitrary large files.
-
-Correctness rules:
-
-- Git-visible content must be stable for the same projection inputs.
-- LFS pointer projection must be deterministic and included in the projection
-  cache key.
-- Uploading an LFS object through the Git gateway must create or verify the
-  corresponding native blob before a patchset can reference it.
-- A Git push that edits an LFS pointer is interpreted according to submit
-  settings and path locks, and must not bypass normal blob verification.
-- Slice submit settings or path locks can require owner approval for large
-  binary paths.
-
-The MVP can rely on native blob storage plus partial clone for large files. LFS
-protocol compatibility can be added when Git ecosystem compatibility requires
-it, without changing the native storage model.
+Git LFS support is a confirmed non-goal. Native Gitslice storage stores blobs
+by content hash in Cloudflare R2 with authoritative blob metadata in
+PostgreSQL. The Git gateway projects those native blobs as ordinary Git blob
+objects for clone/fetch/push. This avoids unnecessary architecture complexity
+such as pointer rewriting and binary blob redirection.
 
 ## 12. Jujutsu Interop
 
@@ -340,6 +332,7 @@ The Git compatibility layer should not:
 
 - define the native storage model
 - make every slice an independent Git repository internally
-- allow Git pushes to bypass changeset or submit validation
+- allow Git pushes to bypass the changeset merge path or submit validation
+- create cross-slice changesets from one Git push
 - expose paths outside the authorized slice projection
 - use Git object ids as native commit, tree, or blob ids
