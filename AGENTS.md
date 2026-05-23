@@ -19,6 +19,7 @@ The current MVP prototype is Go-based and uses:
 - `service/`: public gRPC service implementations and fake account service.
 - `internal/postgres`: PostgreSQL metadata store, SQL migrations, and seed data.
 - `internal/objectstore/filesystem`: prototype-only filesystem object store.
+- `internal/treestore`: immutable tree-node storage on top of the object store.
 - `internal/gitcompat`: Git read compatibility layer and projection cache.
 - `tests/functional`: real server plus CLI tests.
 - `tests/load`: opt-in load and contention tests behind the `load` build tag.
@@ -43,6 +44,8 @@ The design source of truth is under `design/`, especially:
 - Keep workspaces bound to exactly one slice.
 - Do not introduce cross-slice changesets.
 - Use PostgreSQL as metadata source of truth.
+- Store commit tree payloads in object storage; PostgreSQL commit rows should
+  store the root tree hash, not per-commit file snapshots.
 - Treat filesystem object storage as prototype-only.
 - Keep `server/` wiring-only: config, listeners, dependency construction,
   interceptors, health, and shutdown.

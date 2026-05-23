@@ -189,6 +189,7 @@ func immediateDirectoryEntriesWithoutIDs(prefix string, files []postgres.FileEnt
 			Kind:        entry.Kind.String(),
 			Mode:        entry.Mode,
 			BlobID:      entry.BlobId,
+			Size:        entry.Size,
 			ContentHash: entry.ContentHash,
 		})
 	}

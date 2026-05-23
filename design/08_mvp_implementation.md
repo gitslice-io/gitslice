@@ -306,6 +306,19 @@ delete as a unit for test cleanup. Functional, load, restart, and persistence
 tests must use this filesystem adapter so the local prototype exercises real
 byte persistence without external infrastructure.
 
+For the MVP, the same adapter stores both raw blob bytes and immutable tree-node
+payloads:
+
+```text
+blobs/sha256/{hh}/{hh}/{hash}
+trees/sha256/{hh}/{hh}/{hash}.json
+```
+
+PostgreSQL commit rows store `root_tree_id`; tree node contents are not
+expanded into database rows. Publishing a changeset path-copies only the tree
+nodes on the changed paths, writes those new immutable nodes to object storage,
+then records the new commit and target-ref move in PostgreSQL.
+
 The filesystem adapter is not a production object-store design. It assumes a
 single server process or equivalent single-writer discipline over the object
 root. A durable object-store adapter should replace it before production-style

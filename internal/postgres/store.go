@@ -9,13 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
@@ -29,7 +29,8 @@ var (
 const DefaultTargetRef = "refs/global/main"
 
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	trees *treestore.Store
 }
 
 type Subject struct {
@@ -84,9 +85,18 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) SetTreeStore(trees *treestore.Store) {
+	s.trees = trees
+}
+
 func (s *Store) Migrate(ctx context.Context) error {
 	for _, stmt := range migrationStatements() {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	if s.trees != nil {
+		if err := s.trees.EnsureEmptyRoot(ctx); err != nil {
 			return err
 		}
 	}
@@ -596,7 +606,7 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 		return nil, err
 	}
 	for _, base := range patchset.PathBases {
-		if err := validateAcceptedPathBaseTx(ctx, tx, currentCommitID, base); err != nil {
+		if err := s.validateAcceptedPathBaseTx(ctx, tx, currentCommitID, base); err != nil {
 			return nil, ErrConflict
 		}
 	}
@@ -629,6 +639,9 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 }
 
 func (s *Store) PublishPending(ctx context.Context, limit int) (int, error) {
+	if s.trees == nil {
+		return 0, fmt.Errorf("tree store is not configured")
+	}
 	if limit <= 0 {
 		limit = 64
 	}
@@ -687,7 +700,7 @@ func (s *Store) PublishPending(ctx context.Context, limit int) (int, error) {
 		return 0, err
 	}
 	currentCommitID := originalCommitID
-	files, err := loadCommitFilesTx(ctx, tx, currentCommitID)
+	rootTreeID, err := s.rootTreeIDForCommitTx(ctx, tx, currentCommitID)
 	if err != nil {
 		return 0, err
 	}
@@ -719,11 +732,18 @@ func (s *Store) PublishPending(ctx context.Context, limit int) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		if err := applyFileEditsTx(ctx, tx, files, patchset.FileEdits); err != nil {
+		treeEdits, err := treeEditsFromPatchsetTx(ctx, tx, patchset.FileEdits)
+		if err != nil {
+			return 0, err
+		}
+		rootTreeID, err = s.trees.ApplyEdits(ctx, rootTreeID, treeEdits)
+		if errors.Is(err, treestore.ErrNotFound) {
+			return 0, ErrConflict
+		}
+		if err != nil {
 			return 0, err
 		}
 		now := baseTime.Add(time.Duration(published) * time.Microsecond)
-		rootTreeID := rootTreeID(files)
 		message := cs.Title
 		if message == "" {
 			message = "Submit " + row.ChangesetID
@@ -750,9 +770,6 @@ func (s *Store) PublishPending(ctx context.Context, limit int) (int, error) {
 			on conflict (id) do nothing
 		`, commitID, parentJSON, rootTreeID, cs.Author, message, now, changedJSON)
 		if err != nil {
-			return 0, err
-		}
-		if err := insertCommitFilesTx(ctx, tx, commitID, files); err != nil {
 			return 0, err
 		}
 		_, err = tx.ExecContext(ctx, `
@@ -822,53 +839,83 @@ func (s *Store) AbandonChangeset(ctx context.Context, changesetID string) error 
 }
 
 func (s *Store) GetFile(ctx context.Context, commitID, p string) (*FileEntry, error) {
-	var entry FileEntry
+	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
+	if err != nil {
+		return nil, err
+	}
+	return s.getFileFromTree(ctx, rootTreeID, p)
+}
+
+func (s *Store) ListFiles(ctx context.Context, commitID, prefix string) ([]FileEntry, error) {
+	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
+	if err != nil {
+		return nil, err
+	}
+	return s.listFilesFromTree(ctx, rootTreeID, prefix)
+}
+
+func (s *Store) rootTreeIDForCommit(ctx context.Context, commitID string) (string, error) {
+	var rootTreeID string
 	err := s.db.QueryRowContext(ctx, `
-		select path, blob_id, content_hash, mode, size
-		from commit_files
-		where commit_id = $1 and path = $2
-	`, commitID, p).Scan(&entry.Path, &entry.BlobID, &entry.ContentHash, &entry.Mode, &entry.Size)
+		select root_tree_id
+		from commits
+		where id = $1
+	`, commitID).Scan(&rootTreeID)
 	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return rootTreeID, err
+}
+
+func (s *Store) rootTreeIDForCommitTx(ctx context.Context, tx *sql.Tx, commitID string) (string, error) {
+	var rootTreeID string
+	err := tx.QueryRowContext(ctx, `
+		select root_tree_id
+		from commits
+		where id = $1
+	`, commitID).Scan(&rootTreeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return rootTreeID, err
+}
+
+func (s *Store) getFileAtCommitTx(ctx context.Context, tx *sql.Tx, commitID, p string) (*FileEntry, error) {
+	rootTreeID, err := s.rootTreeIDForCommitTx(ctx, tx, commitID)
+	if err != nil {
+		return nil, err
+	}
+	return s.getFileFromTree(ctx, rootTreeID, p)
+}
+
+func (s *Store) getFileFromTree(ctx context.Context, rootTreeID, p string) (*FileEntry, error) {
+	if s.trees == nil {
+		return nil, fmt.Errorf("tree store is not configured")
+	}
+	entry, err := s.trees.GetFile(ctx, rootTreeID, p)
+	if errors.Is(err, treestore.ErrNotFound) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &entry, nil
+	file := fileEntryFromTree(*entry)
+	return &file, nil
 }
 
-func (s *Store) ListFiles(ctx context.Context, commitID, prefix string) ([]FileEntry, error) {
-	likePrefix := strings.TrimRight(prefix, "/")
-	var rows *sql.Rows
-	var err error
-	if likePrefix == "" || likePrefix == "/" {
-		rows, err = s.db.QueryContext(ctx, `
-			select path, blob_id, content_hash, mode, size
-			from commit_files
-			where commit_id = $1
-			order by path
-		`, commitID)
-	} else {
-		rows, err = s.db.QueryContext(ctx, `
-			select path, blob_id, content_hash, mode, size
-			from commit_files
-			where commit_id = $1 and (path = $2 or path like $3)
-			order by path
-		`, commitID, likePrefix, likePrefix+"/%")
+func (s *Store) listFilesFromTree(ctx context.Context, rootTreeID, prefix string) ([]FileEntry, error) {
+	if s.trees == nil {
+		return nil, fmt.Errorf("tree store is not configured")
 	}
+	files, err := s.trees.ListFiles(ctx, rootTreeID, prefix)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []FileEntry
-	for rows.Next() {
-		var entry FileEntry
-		if err := rows.Scan(&entry.Path, &entry.BlobID, &entry.ContentHash, &entry.Mode, &entry.Size); err != nil {
-			return nil, err
-		}
-		out = append(out, entry)
+	out := make([]FileEntry, 0, len(files))
+	for _, file := range files {
+		out = append(out, fileEntryFromTree(file))
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Store) CoveringSliceIDs(ctx context.Context, p string) ([]string, error) {
@@ -998,46 +1045,22 @@ func scanPatchset(row scanner) (*corev1.Patchset, error) {
 	return &patchset, nil
 }
 
-func loadCommitFilesTx(ctx context.Context, tx *sql.Tx, commitID string) (map[string]FileEntry, error) {
-	rows, err := tx.QueryContext(ctx, `
-		select path, blob_id, content_hash, mode, size
-		from commit_files
-		where commit_id = $1
-	`, commitID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	files := map[string]FileEntry{}
-	for rows.Next() {
-		var entry FileEntry
-		if err := rows.Scan(&entry.Path, &entry.BlobID, &entry.ContentHash, &entry.Mode, &entry.Size); err != nil {
-			return nil, err
-		}
-		files[entry.Path] = entry
-	}
-	return files, rows.Err()
-}
-
-func applyFileEditsTx(ctx context.Context, tx *sql.Tx, files map[string]FileEntry, edits []*corev1.FileEdit) error {
+func treeEditsFromPatchsetTx(ctx context.Context, tx *sql.Tx, edits []*corev1.FileEdit) ([]treestore.FileEdit, error) {
+	out := make([]treestore.FileEdit, 0, len(edits))
 	for _, edit := range edits {
+		treeEdit := treestore.FileEdit{
+			Op:      edit.Op,
+			Path:    edit.Path,
+			OldPath: edit.OldPath,
+		}
 		switch edit.Op {
-		case "delete":
-			delete(files, edit.Path)
-		case "rename":
-			entry, ok := files[edit.OldPath]
-			if !ok {
-				return ErrConflict
-			}
-			delete(files, edit.OldPath)
-			entry.Path = edit.Path
-			files[edit.Path] = entry
+		case "delete", "rename":
 		default:
 			blob, err := getBlobTx(ctx, tx, edit.BlobId)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			files[edit.Path] = FileEntry{
+			treeEdit.File = &treestore.FileEntry{
 				Path:        edit.Path,
 				BlobID:      blob.Id,
 				ContentHash: blob.ContentHash,
@@ -1045,12 +1068,13 @@ func applyFileEditsTx(ctx context.Context, tx *sql.Tx, files map[string]FileEntr
 				Size:        blob.Size,
 			}
 		}
+		out = append(out, treeEdit)
 	}
-	return nil
+	return out, nil
 }
 
-func validateAcceptedPathBaseTx(ctx context.Context, tx *sql.Tx, currentCommitID string, base *corev1.PathBase) error {
-	head, err := getOrInitPathHeadTx(ctx, tx, currentCommitID, base.Path)
+func (s *Store) validateAcceptedPathBaseTx(ctx context.Context, tx *sql.Tx, currentCommitID string, base *corev1.PathBase) error {
+	head, err := s.getOrInitPathHeadTx(ctx, tx, currentCommitID, base.Path)
 	if err != nil {
 		return err
 	}
@@ -1069,7 +1093,7 @@ func validateAcceptedPathBaseTx(ctx context.Context, tx *sql.Tx, currentCommitID
 	return nil
 }
 
-func getOrInitPathHeadTx(ctx context.Context, tx *sql.Tx, currentCommitID, p string) (*PathHead, error) {
+func (s *Store) getOrInitPathHeadTx(ctx context.Context, tx *sql.Tx, currentCommitID, p string) (*PathHead, error) {
 	head, err := getPathHeadTx(ctx, tx, p)
 	if err == nil {
 		return head, nil
@@ -1077,7 +1101,7 @@ func getOrInitPathHeadTx(ctx context.Context, tx *sql.Tx, currentCommitID, p str
 	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	entry, err := getFileTx(ctx, tx, currentCommitID, p)
+	entry, err := s.getFileAtCommitTx(ctx, tx, currentCommitID, p)
 	if errors.Is(err, ErrNotFound) {
 		if err := insertInitialPathHeadTx(ctx, tx, PathHead{
 			Path:             p,
@@ -1263,65 +1287,6 @@ func getBlobTx(ctx context.Context, tx *sql.Tx, blobID string) (*corev1.BlobReco
 	return &blob, nil
 }
 
-func validatePathBaseTx(ctx context.Context, tx *sql.Tx, currentCommitID string, base *corev1.PathBase) error {
-	current, err := getFileTx(ctx, tx, currentCommitID, base.Path)
-	if errors.Is(err, ErrNotFound) {
-		if base.Exists || base.EntryFingerprint != MissingEntryFingerprint() {
-			return ErrConflict
-		}
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !base.Exists {
-		return ErrConflict
-	}
-	if FileEntryFingerprint(*current) != base.EntryFingerprint {
-		return ErrConflict
-	}
-	return nil
-}
-
-func getFileTx(ctx context.Context, tx *sql.Tx, commitID, p string) (*FileEntry, error) {
-	var entry FileEntry
-	err := tx.QueryRowContext(ctx, `
-		select path, blob_id, content_hash, mode, size
-		from commit_files
-		where commit_id = $1 and path = $2
-	`, commitID, p).Scan(&entry.Path, &entry.BlobID, &entry.ContentHash, &entry.Mode, &entry.Size)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &entry, nil
-}
-
-func insertCommitFilesTx(ctx context.Context, tx *sql.Tx, commitID string, files map[string]FileEntry) error {
-	if len(files) == 0 {
-		return nil
-	}
-	paths := make([]string, 0, len(files))
-	for p := range files {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
-	for _, p := range paths {
-		entry := files[p]
-		_, err := tx.ExecContext(ctx, `
-			insert into commit_files(commit_id, path, blob_id, content_hash, mode, size)
-			values ($1, $2, $3, $4, $5, $6)
-			on conflict (commit_id, path) do nothing
-		`, commitID, entry.Path, entry.BlobID, entry.ContentHash, entry.Mode, entry.Size)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func FileEntryFingerprint(entry FileEntry) string {
 	payload, _ := json.Marshal(struct {
 		Kind        string `json:"kind"`
@@ -1338,28 +1303,28 @@ func FileEntryFingerprint(entry FileEntry) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func MissingEntryFingerprint() string {
-	return "missing"
+func fileEntryFromTree(entry treestore.FileEntry) FileEntry {
+	return FileEntry{
+		Path:        entry.Path,
+		BlobID:      entry.BlobID,
+		ContentHash: entry.ContentHash,
+		Mode:        entry.Mode,
+		Size:        entry.Size,
+	}
 }
 
-func rootTreeID(files map[string]FileEntry) string {
-	paths := make([]string, 0, len(files))
-	for p := range files {
-		paths = append(paths, p)
+func fileEntryToTree(entry FileEntry) treestore.FileEntry {
+	return treestore.FileEntry{
+		Path:        entry.Path,
+		BlobID:      entry.BlobID,
+		ContentHash: entry.ContentHash,
+		Mode:        entry.Mode,
+		Size:        entry.Size,
 	}
-	sort.Strings(paths)
-	entries := make([]objectid.TreeEntry, 0, len(paths))
-	for _, p := range paths {
-		entry := files[p]
-		entries = append(entries, objectid.TreeEntry{
-			Name:        p,
-			Kind:        "file",
-			Mode:        entry.Mode,
-			BlobID:      entry.BlobID,
-			ContentHash: entry.ContentHash,
-		})
-	}
-	return objectid.TreeID(entries)
+}
+
+func MissingEntryFingerprint() string {
+	return "missing"
 }
 
 func normalizeDevSubject(devUser string) string {

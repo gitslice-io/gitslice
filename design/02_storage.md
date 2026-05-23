@@ -168,15 +168,20 @@ The MVP storage stack is intentionally concrete:
 
 ```text
 Metadata and operational indexes: PostgreSQL
-Blob/object storage: prototype filesystem object store
+Blob/tree/object storage: prototype filesystem object store
 ```
 
-PostgreSQL is the source of truth for refs, commits, trees, slice definitions,
+PostgreSQL is the source of truth for refs, commit metadata, slice definitions,
 changesets, path predicates, operational indexes, outbox events, leases, and GC
-state. The prototype filesystem object store stores immutable blob bytes and
-large derived artifacts for the local MVP. Directory listing is never
-authoritative; Postgres records decide which objects exist, which objects are
-live, and which objects may be deleted.
+state. PostgreSQL stores only the `root_tree_id` hash for a commit, not a
+per-commit file listing.
+
+The prototype filesystem object store stores immutable blob bytes, immutable
+tree-node payloads, and large derived artifacts for the local MVP. Tree
+traversal starts from the `root_tree_id` stored on the commit row and resolves
+directory nodes from object storage. Object-store directory listing is never
+authoritative; Postgres records decide which roots are reachable and which
+objects may be deleted.
 
 The metadata store must support:
 
@@ -286,25 +291,10 @@ commit_changed_paths(
   primary key(target_ref, commit_id, path)
 )
 
-trees(
-  id primary key,                 -- tree_id = hash(canonical tree entries)
-  entry_count,
-  created_at
-)
-
-tree_entries(
-  tree_id references trees(id),
-  name,
-  kind,
-  mode,
-  child_tree_id,
-  blob_id,
-  symlink_target,
-  size,
-  content_hash,
-  entry_fingerprint,
-  primary key(tree_id, name)
-)
+object-store tree node:
+  key = trees/sha256/{prefix}/{tree_hash}.json
+  id = hash(gitslice.tree.v1, canonical tree entries)
+  entries[] = ordered child names and file/directory metadata
 
 blobs(
   id primary key,                 -- blob_id = hash(raw file bytes)
@@ -557,8 +547,6 @@ accounts.slug unique
 subjects(external_provider, external_subject) unique where external_provider is not null
 refs.name primary key
 commits.id primary key
-trees.id primary key
-tree_entries(tree_id, name) primary key
 blobs.id primary key
 blobs.content_hash unique
 slices(account_id, slug) unique
@@ -574,7 +562,6 @@ Critical lookup indexes:
 commit_parents(parent_commit_id)
 commit_changed_paths(target_ref, path, commit_id)
 commit_changed_paths(path, commit_id)
-tree_entries(blob_id)
 blobs(state, expires_at)
 blobs(content_hash)
 slice_included_paths(account_id, path_prefix, prefix_end)
@@ -1177,12 +1164,19 @@ Recommended staged write flow:
 1. Client uploads missing blob content by hash.
 2. Server verifies hash and size.
 3. Server marks blob records as staged or available.
-4. Submit transaction writes tree nodes, commit metadata, and ref update.
+4. Publisher writes immutable tree nodes to object storage, then records commit
+   metadata and the ref update transactionally in PostgreSQL.
 5. After commit succeeds, referenced blobs are considered live.
 6. Background GC removes unreferenced staged blobs after a grace period.
 ```
 
 The metadata transaction must never point at a blob that has not been verified.
+
+Tree-node writes are content-addressed and idempotent. The publisher may write
+new tree nodes before the PostgreSQL transaction commits. If the transaction
+later fails, those nodes are harmless unreachable objects and are eligible for
+reachability-based GC. PostgreSQL must not expose a commit until its
+`root_tree_id` and all referenced blob records are durable.
 
 Blob upload can happen before submit. Commit publication happens only through
 the metadata transaction and atomic ref update.

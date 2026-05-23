@@ -1364,17 +1364,20 @@ Replication Service
 
 ### 16.1 Object Store
 
-The prototype filesystem object store stores file contents, large binary
-objects, staged uploads, and large derived artifacts such as Git projection
-packs. It is not the source of truth for object liveness; Postgres blob and
-reachability metadata is. This storage mode is for local prototype and test
-environments, not horizontally scaled production deployment.
+The prototype filesystem object store stores file contents, immutable tree-node
+payloads, large binary objects, staged uploads, and large derived artifacts such
+as Git projection packs. It is not the source of truth for object liveness;
+Postgres commit, blob, and reachability metadata is. This storage mode is for
+local prototype and test environments, not horizontally scaled production
+deployment.
 
 ### 16.2 Metadata Service
 
-PostgreSQL stores trees, commits, refs, slice definitions, changesets, object
-metadata, path predicates, leases, operational indexes, and the transactional
-outbox.
+PostgreSQL stores commit metadata, root tree hashes, refs, slice definitions,
+changesets, object metadata, path predicates, leases, operational indexes, and
+the transactional outbox. It does not store a full file snapshot for every
+commit; path resolution loads tree nodes from object storage starting at the
+commit's `root_tree_id`.
 
 ### 16.3 Slice Service
 

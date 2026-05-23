@@ -330,6 +330,7 @@ Verification:
 
 ```bash
 go test ./...
+go build ./cmd/...
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```
@@ -549,3 +550,69 @@ other projection refresh: p50=772us p95=389.299ms p99=408.879ms
 home accepted-to-visible: p50=4.025s p95=6.558s p99=6.847s
 other accepted-to-visible: p50=4.083s p95=6.617s p99=6.900s
 ```
+
+## 2026-05-23: Object-Store Tree Nodes
+
+Request:
+
+- remove full snapshot-per-commit storage and use object storage for tree nodes;
+  PostgreSQL should store only the hash/root pointer
+
+Implemented:
+
+- added `internal/treestore` for immutable content-addressed tree-node payloads
+  stored under `trees/sha256/...` in the prototype filesystem object store
+- removed the `commit_files` table from the MVP schema
+- changed `commits.root_tree_id` to be the only durable commit-to-tree pointer in
+  PostgreSQL
+- changed repository reads (`GetFile`, `ListFiles`, path-base validation, and
+  projection) to traverse object-store tree nodes from the commit root
+- changed `PublishPending` to path-copy only changed tree nodes, create commit
+  metadata with the resulting `root_tree_id`, and update the target ref with CAS
+- wired the tree store through the single server binary before migrations so the
+  initial empty root tree object exists before the initial commit is seeded
+
+Important decisions and learnings:
+
+- Tree-node writes are content-addressed and idempotent. The publisher can write
+  them before the PostgreSQL transaction commits; if the transaction fails, the
+  object-store nodes are unreachable and can be garbage-collected later.
+- PostgreSQL remains the source of truth for reachability and current state.
+  Object-store directory listing is not authoritative.
+- The async path-head design remains unchanged. `path_heads` is still the
+  conflict boundary; tree-node publication is the storage representation of the
+  accepted commit state.
+- This removes the O(total files in repo) write amplification from commit
+  publication. A one-file update now rewrites the leaf's ancestor directory
+  nodes plus one commit row, rather than copying every file row into
+  `commit_files`.
+
+Verification:
+
+```bash
+go test ./...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 GITSLICE_LOAD_HOT_WORKERS=12 GITSLICE_LOAD_HOT_OPERATIONS=12 GITSLICE_LOAD_PROJECTION_WORKERS=4 go test -count=1 -tags load ./tests/load -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=300 go test -count=1 -tags load ./tests/load -run TestLoadConcurrentDisjointSubmit -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_HOT_WORKERS=300 GITSLICE_LOAD_HOT_OPERATIONS=300 GITSLICE_LOAD_HOT_MAX_ATTEMPTS=600 GITSLICE_LOAD_PROJECTION_WORKERS=16 go test -count=1 -tags load ./tests/load -run TestLoadHotFilesCreateSubmitProjectionLatency -v
+```
+
+Benchmark results:
+
+```text
+concurrent_disjoint_submit operations=300 wall=748ms throughput=400.89/s p50=465ms p95=620ms p99=641ms
+
+hot_files_create_update_submit_accept operations=300 wall=7.861s throughput=38.16/s p50=5.096s p95=7.682s p99=7.811s
+hot_files_contention successes=300 attempts=14807 conflicts=14507 conflict_rate=97.97%
+hot_files_accepted_to_published p50=3.471s p95=5.879s p99=6.158s
+hot_files_home_projection_refresh p50=838us p95=2.184s p99=2.234s
+hot_files_other_projection_refresh p50=900us p95=462ms p99=489ms
+hot_files_home_submit_to_visible p50=3.779s p95=6.339s p99=6.588s
+hot_files_other_submit_to_visible p50=3.826s p95=6.398s p99=6.645s
+```
+
+The hot-file benchmark remains dominated by path-head contention on only three
+paths, so accepted throughput is not expected to improve materially there. The
+main measured gain is that disjoint changes now publish without per-commit file
+snapshot writes and can sustain roughly 400 CLI submits per second on the local
+test setup.

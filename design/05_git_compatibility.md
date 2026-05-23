@@ -313,10 +313,11 @@ changeset and patchset objects.
 ### 11.1 Large Blob Handling
 
 Git LFS support is a confirmed non-goal. Native Gitslice storage stores blobs
-by content hash in the filesystem object store with authoritative blob metadata
-in PostgreSQL. The Git gateway projects those native blobs as ordinary Git blob
-objects for clone/fetch/push. This avoids unnecessary architecture complexity
-such as pointer rewriting and binary blob redirection.
+and immutable tree nodes in the filesystem object store, with authoritative
+commit roots, blob metadata, and reachability metadata in PostgreSQL. The Git
+gateway projects those native blobs as ordinary Git blob objects for
+clone/fetch/push. This avoids unnecessary architecture complexity such as
+pointer rewriting and binary blob redirection.
 
 ## 12. Non-Goals
 

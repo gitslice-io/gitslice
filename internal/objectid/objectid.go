@@ -27,6 +27,7 @@ type TreeEntry struct {
 	TreeID        string `json:"tree_id,omitempty"`
 	BlobID        string `json:"blob_id,omitempty"`
 	SymlinkTarget string `json:"symlink_target,omitempty"`
+	Size          int64  `json:"size,omitempty"`
 	ContentHash   string `json:"content_hash,omitempty"`
 }
 

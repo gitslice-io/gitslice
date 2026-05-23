@@ -311,9 +311,12 @@ Server behavior:
 10. Update `path_heads` to the accepted post-patch fingerprints.
 11. Append a `pending_publish` row and mark the changeset `pending_publish`.
 12. An in-process publisher batches pending rows by target ref.
-13. Create a commit or batched commit chain.
-14. Update the target ref with CAS.
-15. Mark included changesets `submitted` and emit indexing events.
+13. For each accepted patchset, path-copy changed tree nodes into the object
+    store and compute a new `root_tree_id`.
+14. Create a commit or batched commit chain whose rows store only the
+    `root_tree_id`, not a full per-commit file snapshot.
+15. Update the target ref with CAS.
+16. Mark included changesets `submitted` and emit indexing events.
 ```
 
 ## 4. Example Git Workflow

@@ -14,6 +14,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/service"
 	"google.golang.org/grpc"
@@ -39,6 +40,11 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer store.Close()
+	objectStore, err := filesystem.New(cfg.ObjectStoreRoot)
+	if err != nil {
+		return err
+	}
+	store.SetTreeStore(treestore.New(objectStore))
 	if cfg.RunMigrations {
 		if err := store.Migrate(ctx); err != nil {
 			return err
@@ -46,10 +52,6 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	if !cfg.DisableAsyncPublisher {
 		go runPublisher(ctx, store, cfg.PublishBatchSize, cfg.PublishInterval)
-	}
-	objectStore, err := filesystem.New(cfg.ObjectStoreRoot)
-	if err != nil {
-		return err
 	}
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

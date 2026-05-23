@@ -28,6 +28,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/server"
 	"google.golang.org/grpc"
@@ -198,6 +199,7 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	store.SetTreeStore(treestore.New(objectStore))
 	projector, err := gitcompat.NewProjector(store, objectStore, filepath.Join(ts.objectRoot, "projection-cache"))
 	if err != nil {
 		t.Fatal(err)

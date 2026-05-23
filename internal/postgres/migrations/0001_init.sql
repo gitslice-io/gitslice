@@ -51,16 +51,6 @@ create table if not exists commits(
 	metadata jsonb not null default '{}'::jsonb
 );
 
-create table if not exists commit_files(
-	commit_id text not null references commits(id),
-	path text not null,
-	blob_id text not null,
-	content_hash text not null,
-	mode integer not null,
-	size bigint not null,
-	primary key(commit_id, path)
-);
-
 create table if not exists blobs(
 	id text primary key,
 	content_hash text unique not null,
@@ -148,7 +138,6 @@ create table if not exists pending_publish(
 
 create index if not exists idx_sessions_token_hash on sessions(token_hash) where revoked_at is null;
 create index if not exists idx_slices_account_slug on slices(account_id, slug);
-create index if not exists idx_commit_files_path on commit_files(commit_id, path);
 create index if not exists idx_changesets_target_status on changesets(target_ref, status);
 create index if not exists idx_patchsets_changeset_number on patchsets(changeset_id, number desc);
 create index if not exists idx_blobs_content_hash on blobs(content_hash);

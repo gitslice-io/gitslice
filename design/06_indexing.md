@@ -45,6 +45,7 @@ PostgreSQL
   worker checkpoints
 
 Filesystem object store
+  immutable tree nodes
   large immutable index artifacts
   build/test graph snapshots
   projection cache artifacts
