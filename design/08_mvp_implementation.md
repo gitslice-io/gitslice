@@ -317,8 +317,9 @@ user config:
   default output format
 
 workspace .gs/:
-  config.yaml
-  slice.yaml
+  config.json
+  slice.json
+  state.json
   cache/
   overlay/
   op_log/
@@ -339,7 +340,7 @@ gs auth login
 gs workspace init acme/payment
   -> ResolveSlice
   -> check read access
-  -> write .gs/slice.yaml
+  -> write .gs/slice.json
   -> hydrate default metadata
 
 gs status
@@ -358,6 +359,11 @@ gs cs submit
   -> SubmitChangeset
   -> show submitted commit id or exact blocker
 ```
+
+The implementation should start with JSON workspace files instead of YAML. This
+keeps the initial Go CLI small and makes functional tests easier to assert.
+Those files are never the source of truth for authorization, slice membership,
+or submit decisions.
 
 The CLI should support stable JSON output for functional tests:
 

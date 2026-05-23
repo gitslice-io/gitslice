@@ -87,8 +87,9 @@ gs workspace root
 
 ```text
 .gs/
-  config.yaml
-  slice.yaml
+  config.json
+  slice.json
+  state.json
   cache/
   overlay/
   op_log/
@@ -121,10 +122,15 @@ gs slice paths <account>/<slice>
 ```text
 1. ResolveSlice through the core API.
 2. Check read authorization.
-3. Write the binding to .gs/slice.yaml.
+3. Write the binding to `.gs/slice.json`.
 4. Hydrate only requested or default paths.
 5. Record local operation log entry.
 ```
+
+The MVP stores workspace metadata as JSON rather than YAML. JSON keeps the first
+Go CLI dependency-light and gives functional tests stable local-state fixtures.
+The files are local cache and coordination state only; server-side validation
+remains authoritative.
 
 The MVP does not support adding a second slice to an existing workspace. If the
 user needs `acme/payment` and `acme/frontend`, they create two workspaces.
