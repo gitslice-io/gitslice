@@ -1420,23 +1420,26 @@ These invariants must not be violated.
 ```text
 1. A committed tree is immutable.
 2. A committed blob is immutable and content-addressed.
-3. A commit points to exactly one root tree.
-4. A ref update is atomic and conditional.
-5. A single target-ref submit either publishes all final commits and moves that target ref, or publishes none.
-6. Submit settings are versioned with slice definitions.
-7. A patchset records path base predicates, read sets, and write sets used for submit freshness checks.
-8. Batched submit may move a target ref once for multiple changesets only when their read/write sets are compatible and their read-set predicates are fresh.
-9. A changeset must satisfy the submit requirements of its authoring slice and any active path locks.
-10. A slice projection is deterministic for a given slice id, slice definition hash, and global commit.
-11. Default slice history uses the latest accepted slice definition.
-12. Slice visibility and roles govern access to all paths included by the slice.
-13. A global path may be covered by multiple slices.
-14. Each changeset has exactly one authoring slice; multi-slice changesets are rejected.
-15. Writes to overlapping paths must satisfy current submit validation at submit time.
-16. Effective read exposure for a path is the broadest visibility of any covering slice.
-17. Git synthetic commit IDs are stable for the same projection inputs.
-18. Metadata must never reference an unverified blob.
-19. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
+3. A committed tree id is the hash of canonical tree entries.
+4. A commit id is the hash of the canonical commit object.
+5. A commit points to exactly one root tree, and root_tree_id is that tree's id.
+6. Native commit, tree, and blob ids are not Git object ids.
+7. A ref update is atomic and conditional.
+8. A single target-ref submit either publishes all final commits and moves that target ref, or publishes none.
+9. Submit settings are versioned with slice definitions.
+10. A patchset records path base predicates, read sets, and write sets used for submit freshness checks.
+11. Batched submit may move a target ref once for multiple changesets only when their read/write sets are compatible and their read-set predicates are fresh.
+12. A changeset must satisfy the submit requirements of its authoring slice and any active path locks.
+13. A slice projection is deterministic for a given slice id, slice definition hash, and global commit.
+14. Default slice history uses the latest accepted slice definition.
+15. Slice visibility and roles govern access to all paths included by the slice.
+16. A global path may be covered by multiple slices.
+17. Each changeset has exactly one authoring slice; multi-slice changesets are rejected.
+18. Writes to overlapping paths must satisfy current submit validation at submit time.
+19. Effective read exposure for a path is the broadest visibility of any covering slice.
+20. Git synthetic commit IDs are stable for the same projection inputs.
+21. Metadata must never reference an unverified blob.
+22. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
 ```
 
 ---
