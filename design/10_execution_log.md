@@ -3,6 +3,49 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-23: Align Web Interface Design With Current Prototype
+
+Request:
+
+- review `design/11_web_interface_design.md`
+- remove or re-scope features and functions that are not supported yet
+
+Implemented:
+
+- rewrote the web interface design around the currently implemented public
+  service surface in `proto/core/v1`
+- removed first-version UI scope for OAuth, account administration, changeset
+  lists/search, review comments, approvals, check-run details, path-lock
+  management, blame, rebase, and unsupported slice policy fields
+- changed the changeset section from a full review UI to id-based lookup,
+  patchset metadata display, add-patchset, submit, and abandon
+- changed slice administration to direct edits of only visibility and included
+  paths through `SliceService.UpdateSliceDefinition`
+- documented that the current repository still needs a browser-facing web
+  adapter because grpc-gateway/gRPC-Web endpoints are not implemented
+
+Important decisions and learnings:
+
+- The current concrete `SliceDefinition` only carries version, visibility, and
+  included paths; roles, submit settings, default branch, display name, and
+  definition history remain future API work.
+- The current changeset API supports `GetChangeset` by id but no list/search
+  endpoint, so the web MVP should not include dashboards, review queues, or
+  filterable changeset tables.
+- Persisted patchsets expose file edit metadata and blob ids, but there is no
+  public staged-blob read API. The web can show a client-side diff while content
+  is being pasted/uploaded, but should not promise full server-reconstructed
+  diffs yet.
+
+Verification:
+
+```bash
+sed -n '1,260p' design/11_web_interface_design.md
+sed -n '260,620p' design/11_web_interface_design.md
+rg -n "OAuth|approval|approve|comment|review|check-run|Path Locks|path lock management|Account Settings|service account|token revocation|dashboard|activity|blame|search|rebase|default branch|display name|roles|submit settings|grpc-gateway|WebSocket|Monaco|diff-review|inline comments|pending reviews|reviewer" design/11_web_interface_design.md -S
+git diff -- design/11_web_interface_design.md
+```
+
 ## 2026-05-23: Split Service Implementation Files
 
 Request:

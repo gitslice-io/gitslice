@@ -1,689 +1,481 @@
 # Gitslice Web Interface Design
 
-This document defines the web interface for Gitslice. The web UI is a
-review-and-management console that sits on the same gRPC API as the CLI, via
-grpc-gateway JSON endpoints. The CLI remains the primary workspace/edit surface;
-the web excels at code browsing, changeset review, slice administration, and
-account management.
+This document defines the first web interface for Gitslice against the
+capabilities implemented by the current Go prototype. It intentionally avoids
+review, account-management, policy, search, and realtime features that are
+described in broader product docs but are not yet exposed by the concrete
+services under `proto/core/v1`.
+
+The CLI remains the primary workspace and edit surface. The web UI is a thin
+inspection and control console for:
+
+- developer login through the current fake account service
+- source browsing by known account path and ref
+- slice listing, details, and the currently supported definition edits
+- changeset creation from uploaded file edits
+- changeset lookup by id, patchset metadata inspection, submit, and abandon
 
 Related documents:
 
-- [00_product.md](00_product.md): product overview and primary workflows
+- [00_product.md](00_product.md): product overview and broader future workflows
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): top-level architecture
-- [03_core_api.md](03_core_api.md): gRPC APIs used by the web client
-- [04_cli_design.md](04_cli_design.md): native CLI design (edit surface)
+- [03_core_api.md](03_core_api.md): target gRPC API design
+- [04_cli_design.md](04_cli_design.md): native CLI design
+- [08_mvp_implementation.md](08_mvp_implementation.md): concrete MVP implementation shape
 
-## 1. Positioning
+## 1. Current Support Boundary
 
-The web interface is a later client of the same account, auth, changeset,
-submit, and storage APIs used by the CLI. It is not a replacement for `gs`; it
-is a complementary surface for:
+The web MVP may use only the currently implemented public services:
 
-- Browsing the global source graph
-- Reviewing changesets with inline diffs and comments
-- Managing slices, roles, visibility, and submit settings
-- Managing accounts, memberships, service accounts, and tokens
-- Monitoring submit status, checks, and conflicts
+```text
+FakeAccountService.Login
 
-The web UI should not be the primary tool for creating or editing file content.
-That remains the CLI's job. The web can create changesets from uploaded diffs
-or small inline edits, but local workspaces and the edit-build-test cycle belong
-to `gs`.
+RepositoryService.ResolvePath
+RepositoryService.ListDirectory
+RepositoryService.ReadFile
+RepositoryService.GetCommit
+RepositoryService.GetRef
+
+BlobService.GetBlobStatus
+BlobService.UploadBlob
+
+SliceService.ResolveSlice
+SliceService.GetSlice
+SliceService.ListSlices
+SliceService.UpdateSliceDefinition
+
+ChangesetService.CreateChangeset
+ChangesetService.GetChangeset
+ChangesetService.UpdateChangeset
+ChangesetService.SubmitChangeset
+ChangesetService.AbandonChangeset
+```
+
+The first web implementation also needs a browser-facing transport adapter. The
+repository does not currently expose grpc-gateway or gRPC-Web endpoints, so the
+web server should start with a small same-origin HTTP adapter that maps directly
+to the service methods above. Do not add UI flows that depend on generic
+grpc-gateway routes until those bindings exist.
+
+### 1.1 Explicit Non-Scope
+
+The following are not in the first web UI because the current prototype does not
+support them end to end:
+
+- OAuth, SSO, invitations, browser refresh tokens, or production session
+  management
+- account member management, service-account management, token revocation, or
+  account creation
+- changeset list/search feeds; the API can get a changeset by id but cannot list
+  or search changesets
+- code search, global search, or source-tree full-text search
+- inline review comments, general comments, review threads, approvals, review
+  requests, or changes-requested state
+- CI check-run ingestion, check-run details, or mutable check status
+- path-lock creation, release, or management
+- source blame or per-line commit attribution
+- rebase actions
+- persisted patchset diff rendering from server state; patchsets expose file
+  edit metadata and blob ids, but the public API does not expose staged blob
+  reads
+- slice roles, submit settings, default branch, display name, delete, transfer,
+  or audited definition history in the concrete `SliceDefinition`
+- reviewed control-plane changesets for slice-definition changes
+- Git push into changesets
 
 ## 2. Navigation Architecture
 
-The layout uses a persistent sidebar and top bar:
+Use a compact app shell with a persistent sidebar and top bar:
 
 ```text
-┌──────────────────────────────────────────────┐
-│  TopBar: [search bar]        [user menu v]   │
-├────────┬─────────────────────────────────────┤
-│ Sidebar│                                     │
-│        │        Page Content Area            │
-│  ──────│                                     │
-│  Dashboard                                   │
-│  ──────│                                     │
-│  Source│                                     │
-│  Browser                                     │
-│  ──────│                                     │
-│  Changesets                                  │
-│  ──────│                                     │
-│  Slices │                                     │
-│  ──────│                                     │
-│  Path   │                                     │
-│  Locks  │                                     │
-│  ──────│                                     │
-│ Settings│                                     │
-└────────┴─────────────────────────────────────┘
++--------------------------------------------------+
+| TopBar: account/ref inputs            user menu  |
++----------+---------------------------------------+
+| Sidebar  |                                       |
+|          | Page Content Area                     |
+| Home     |                                       |
+| Source   |                                       |
+| Slices   |                                       |
+| Changeset|                                       |
++----------+---------------------------------------+
 ```
-
-When the user navigates into a slice context, the sidebar shows a breadcrumb and
-contextual sub-navigation: Overview, Code, Changesets, Settings.
 
 ### 2.1 Sidebar
 
-- **Account switcher** at the top for users with multiple account memberships.
-- **Nav items**: Dashboard, Source Browser, Changesets, Slices, Path Locks,
-  Settings.
-- **Quick slice list**: recently viewed or pinned slices for fast access.
-- **Contextual sub-nav**: when inside a slice, replace main nav with
-  `{account}/{slice}` breadcrumb and Overview / Code / Changesets / Settings
-  links.
+- **Home**: starting point with dev login state, account input, and common
+  supported actions.
+- **Source**: opens the source browser for an account, path, and known ref.
+- **Slices**: opens the slice list for the selected account.
+- **Changeset**: opens changeset lookup and create flows.
+
+Do not include Path Locks, Account Settings, global Settings, or review queues in
+the first navigation; those depend on unsupported APIs.
 
 ### 2.2 Top Bar
 
-- **Global search**: search changesets by title, author, or affected path.
-  Full-text search over the source tree is not in MVP scope.
-- **User menu**: profile link, account settings, logout.
+- **Account input**: current account slug, persisted in the URL or local app
+  state. There is no account-list endpoint yet.
+- **Ref input**: default `main`; users may enter another known ref name or a
+  commit id where a page supports it.
+- **User menu**: show the logged-in subject id and a logout action that clears
+  the local bearer token.
+
+No global search box in the first version.
 
 ## 3. Page-by-Page Design
 
-### 3.1 Dashboard (`/`)
+### 3.1 Login (`/login`)
 
-The landing page after login. Shows a summary of the user's work across all
-accounts they belong to.
+The web MVP uses the current development login only:
 
 ```text
-┌──────────────────────────────────────────────────┐
-│  Welcome back, nicholas                    [acme v]│
-├──────────────────────┬───────────────────────────┤
-│                      │                           │
-│  My Changesets       │  Pending Reviews          │
-│  ┌──────────────────┐│  ┌───────────────────────┐│
-│  │ #42 Fix auth      ││  │ #38 from alice       ││
-│  │  Review . acme/.. ││  │  Needs your approval  ││
-│  │ #39 Add API       ││  │ #35 from bot-agent   ││
-│  │  Draft . nicho../ ││  │  Checks failing       ││
-│  └──────────────────┘│  └───────────────────────┘│
-│                      │                           │
-│  Recent Activity     │  Your Slices              │
-│  ┌──────────────────┐│  ┌───────────────────────┐│
-│  │ alice submitted   ││  │ acme/payment    public││
-│  │   #38 to acme/.. ││  │ acme/backend  account ││
-│  │ #41 opened by bot ││  │ nicholas/identity ..  ││
-│  │ #40 checks passed ││  │ [+ new slice]         ││
-│  └──────────────────┘│  └───────────────────────┘│
-└──────────────────────┴───────────────────────────┘
++--------------------------------------+
+| Gitslice Dev Login                   |
+| Dev user: [alice________________]    |
+| Server:   [same-origin__________]    |
+|                                      |
+| [Login]                              |
++--------------------------------------+
 ```
 
-Widgets:
+Behavior:
 
-- **My Changesets**: open changesets authored by the current user across all
-  slices. Shows changeset number, title, status badge, and authoring slice.
-- **Pending Reviews**: changesets where the user is a required approver and has
-  not yet approved. Shows status of checks.
-- **Recent Activity**: chronological feed of submits, new changesets, check
-  results, and review requests across the user's accounts.
-- **Your Slices**: quick list of slices the user has write or admin access to,
-  with a "New Slice" button.
+- Calls `FakeAccountService.Login` through the web adapter with `dev_user`.
+- Stores the returned bearer token in app state, with optional development-only
+  session storage for reloads.
+- Does not model refresh tokens, OAuth callbacks, device metadata, invitations,
+  or token revocation.
 
-Each widget row links to the relevant detail page.
+### 3.2 Home (`/`)
 
-### 3.2 Source Browser (`/source/{account}/[...path]`)
-
-The global file explorer. Navigates the canonical path tree rooted at account
-slugs. Supports directory listing, file viewing, blame, and covering-slice
-visibility.
+The landing page is a supported-action launcher, not an activity dashboard.
 
 ```text
-┌──────────────────────────────────────────────────┐
-│  / acme / payment / api / handler.go              │
-│                                [ref: main v] [🔍] │
-├──────────────┬───────────────────────────────────┤
-│ Tree         │  1 │ package api                   │
-│ ┌──────────┐ │  2 │                               │
-│ │ payment/  │ │  3 │ import (                      │
-│ │ ├─ api/   │ │  4 │   "context"                   │
-│ │ │  ├─ ha..│ │  5 │   "net/http"                  │
-│ │ │  └─ mi..│ │  6 │ )                             │
-│ │ ├─ proto/ │ │  7 │                               │
-│ │ └─ READ.. │ │  8 │ func Handler(w http.Respon.  │
-│ └──────────┘ │    │ ...                            │
-│              │                                   │
-│  Covering    │                                   │
-│  Slices:     │                                   │
-│   acme/back..│                                   │
-│   acme/pay..│                                   │
-│   [Blame]    │                                   │
-└──────────────┴───────────────────────────────────┘
++------------------------------------------------+
+| Logged in as user_alice                         |
+| Account: [acme____________]                     |
+|                                                |
+| [Browse Source] [List Slices] [New Changeset]   |
+|                                                |
+| Open Changeset                                 |
+| Changeset id: [cs_...] [Open]                  |
++------------------------------------------------+
 ```
 
-**Directory view**: sortable table with columns for name, kind (file, directory,
-symlink), mode, size, last commit message, and last commit author. Entries link
-into deeper paths.
+Do not show "my changesets", pending reviews, recent activity, or check status
+widgets until list/search/review APIs exist.
 
-**File view**: syntax-highlighted content via Shiki, with a line-number gutter.
-Read-only by default.
+### 3.3 Source Browser (`/source/{account}/[...path]`)
 
-**Ref selector**: dropdown to pick a branch, tag, or commit SHA. The view
-resolves paths against that ref.
-
-**Blamable sidebar**: toggle-able panel that shows the commit and author for
-each line.
-
-**Covering slices badge**: lists every slice whose `included_paths` cover the
-current path. Each slice name links to its detail page.
-
-The source browser is read-only. Users are directed to the CLI for edits.
-
-### 3.3 Changeset List (`/changesets`)
-
-A filterable, sortable table of changesets.
+Read-only source browsing by known ref or commit.
 
 ```text
-┌──────────────────────────────────────────────────┐
-│  Changesets                                      │
-│  [Slice: all v] [Status: open v] [Author: ..v]  │
-│  [Search by title or path...          ] [🔍]     │
-├──────────────────────────────────────────────────┤
-│  ID   │ Title            │ Slice       │ Status  │
-│  #42  │ Fix auth token.. │ acme/payment │ Review │
-│  #41  │ Add health check │ acme/backend │ Draft  │
-│  #39  │ Update proto     │ nicholas/id..│ Submit.│
-│  #38  │ Refactor handler │ acme/payment │ Submit.│
-│       │                  │             │        │
-│  Showing 4 of 12              [← 1 2 3 →]       │
-└──────────────────────────────────────────────────┘
++----------------------------------------------------------+
+| / acme / payment / app.go       ref: [main________]      |
++----------------------+-----------------------------------+
+| Directory            | File                              |
+| app.go      file     | 1 package payment                 |
+| README.md   file     | 2                                |
+| api         dir      | 3 func App() string { ... }       |
++----------------------+-----------------------------------+
+| Covering slices: acme/payment, acme/backend              |
++----------------------------------------------------------+
+```
+
+Supported behavior:
+
+- Resolve `ref=main` through `RepositoryService.GetRef`, or accept an explicit
+  `commit` query parameter.
+- Use `RepositoryService.ResolvePath` to decide whether the path is a file or
+  directory.
+- Use `RepositoryService.ListDirectory` for directories.
+- Use `RepositoryService.ReadFile` for file contents.
+- Show only fields available on `TreeEntry`: name, path, kind, mode, size,
+  content hash, blob id, tree id, and symlink target.
+- Calculate covering slices client-side by calling `SliceService.ListSlices` for
+  the current account and matching `included_paths`.
+
+Not supported in this page:
+
+- branch/tag dropdowns from server-side ref listing
+- last commit author/message per directory entry
+- blame
+- search
+- inline editing
+
+### 3.4 Slice List (`/slices?account={account}`)
+
+Lists slices for a known account slug through `SliceService.ListSlices`.
+
+```text
++----------------------------------------------------------+
+| Slices for acme                                          |
++----------------+------------+---------+------------------+
+| Slice          | Visibility | Version | Included paths   |
+| payment        | account    | 3       | /acme/payment    |
+| backend        | account    | 2       | /acme/backend    |
++----------------+------------+---------+------------------+
 ```
 
 Columns:
 
-- ID (linked to detail page)
-- Title
-- Authoring slice
-- Author
-- Status badge
-- Updated timestamp
+- slice slug
+- visibility
+- definition version
+- definition hash
+- included paths count and preview
 
-Filters:
+No "new slice" action until a create-slice API exists.
 
-- **Slice**: dropdown scoped to slices the user can see.
-- **Status**: multi-select checkboxes for Draft, Review, Pending Publish,
-  Submitted, Abandoned, Failed, Needs Rebase, Merge Conflict, Needs Requirement
-  Refresh.
-- **Author**: free-text or user picker.
-- **Search**: free-text match against title and affected paths.
+### 3.5 Slice Detail (`/slices/{id}`)
 
-Status badges are color-coded: Draft (gray), Review (blue), Pending Publish
-(yellow), Submitted (green), Abandoned (red), Failed (red), Needs Rebase
-(orange), Merge Conflict (red), Needs Requirement Refresh (orange).
-
-The default view shows open changesets (not Submitted or Abandoned) for the
-currently selected account, ordered by most recently updated.
-
-### 3.4 Changeset Detail / Code Review (`/changesets/{id}`)
-
-The primary code review surface. Shows everything about a changeset: metadata,
-diffs, approvals, checks, coverage, and activity.
+Shows the current slice definition and a source browser scoped by its included
+paths.
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│  #42 Fix auth token refresh      [Review] [Rebase] [Abandon]    │
-│  Author: nicholas . Slice: acme/payment . Target: main          │
-│  Base: a1b2c3d . Created: 2h ago . Updated: 10m ago             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Description:                                                    │
-│  │ The token refresh was failing because the grant type was...  │
-│                                                                 │
-│  ┌─ Patchsets ────┬──────────────┬──────────────────────────┐  │
-│  │ PS1  PS2 [PS3] │ 8 files      │ Diff view: [Unified|Split]│  │
-│  │                │              │                           │  │
-│  │ Files changed  │ ┌ diff ────┐│  ┌────────────────────────┐│  │
-│  │ ┌────────────┐ │ │- old line ││  │ Submit Requirements    ││  │
-│  │ │ handler.go │ │ │+ new line ││  │ ✓ payment-owner (bob)  ││  │
-│  │ │ auth.go    │ │ │+ new line ││  │ ✓ payment-ci           ││  │
-│  │ │ auth_test. │ │ │          ││  │                        ││  │
-│  │ │ go.mod    │  │ │          ││  │ Covering Slices        ││  │
-│  │ │ go.sum    │  │ │          ││  │ ┌────────────────────┐ ││  │
-│  │ └────────────┘ │ └───────────┘│  │ │ acme/backend      │ ││  │
-│  │                │              │  │ │ acme/payment (auth)│ ││  │
-│  └────────────────┴──────────────│  │ └────────────────────┘ ││  │
-│                                  │  └────────────────────────┘│  │
-│  ┌─ Activity ────────────────────┤                           │  │
-│  │ nicholas  created #42         │                           │  │
-│  │ nicholas  uploaded PS1        │                           │  │
-│  │ alice     approved PS2        │                           │  │
-│  │ bot-ci    payment-ci: passed  │                           │  │
-│  │ nicholas  uploaded PS3        │                           │  │
-│  │                              │                           │  │
-│  │ [_________________comment__] │                           │  │
-│  └──────────────────────────────┘                           │  │
-└─────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------+
+| acme/payment                         visibility: account |
+| version: 3                            hash: def_...      |
++----------------------------------------------------------+
+| Included paths                                           |
+| /acme/payment                                            |
+| /acme/proto/payment                                      |
+|                                                          |
+| Git clone                                                |
+| http://{git-http-host}/git/acme/payment.git              |
++----------------------------------------------------------+
 ```
 
-#### 3.4.1 Header
+Supported behavior:
 
-Shows changeset number, title, status badge, and action buttons (Submit, Rebase,
-Abandon — context-sensitive based on current status and user permissions).
-Below: author, authoring slice, target ref, base commit, creation and update
-timestamps. The description block renders markdown.
+- Load the slice with `SliceService.GetSlice`.
+- Link each included path to the source browser.
+- Show a Git clone URL only when the deployment config exposes the optional Git
+  smart HTTP server. The current Git layer supports clone and fetch, not push.
 
-#### 3.4.2 Patchset Tabs
+Do not show recent changesets, roles, submit settings, reviewers, or check
+summaries; those require APIs or fields that do not exist yet.
 
-Horizontal tabs to switch between patchset versions (PS1, PS2, PS3, ...). The
-current patchset is highlighted. Tabs show an icon if the patchset has approvals
-or completed checks. Switching patchsets reloads the diff view, changed files
-tree, and approval/check annotations for that version.
+### 3.6 Slice Settings (`/slices/{id}/settings`)
 
-#### 3.4.3 Changed Files Tree
-
-Collapsible tree of changed files with +/- line count indicators. Clicking a
-file scrolls the diff viewer to that file. Files are shown with canonical
-absolute paths (e.g. `/acme/payment/api/handler.go`).
-
-#### 3.4.4 Diff Viewer
-
-Full-width unified or side-by-side diff view of the selected patchset.
-Syntax-highlighted where applicable.
-
-Inline commenting: click a line number (or drag-select a range) in the diff to
-open an inline comment form. Comments are threaded — replies nest under the
-original comment. Each comment thread shows author, timestamp, and resolved
-state. Resolved threads collapse but remain visible.
-
-#### 3.4.5 Submit Requirements Panel
-
-Right sidebar panel showing:
-
-- **Required approvals**: list of teams or individuals who must approve. Each
-  shows status (pending, approved, waived). An approval is recorded against a
-  specific patchset id and slice definition hash.
-- **Required checks**: list of CI checks with status (pending, running, passed,
-  failed). Each links to the check run details.
-- **Admin override**: whether the authoring slice allows admin overrides.
-- **Active path locks**: any path locks intersecting the changed paths.
-
-This panel updates when the user switches patchset tabs, since approvals and
-checks are tied to specific patchsets.
-
-#### 3.4.6 Covering Slices Panel
-
-Right sidebar panel (below submit requirements) showing each changed path and
-its covering slices. The authoring slice is highlighted. Other covering slices
-are listed for visibility and overlap awareness but do not add approval
-requirements.
-
-#### 3.4.7 Activity Timeline
-
-Chronological log of every event on this changeset:
-
-- Created
-- Patchset uploaded
-- Approval granted / revoked
-- Check started / passed / failed
-- Status transitions (Draft → Review, Review → Submitted, etc.)
-- Comments added
-
-Each entry shows actor, timestamp, and a brief description.
-
-#### 3.4.8 General Comments
-
-Thread at the bottom of the page for discussion not tied to a specific diff
-line. Markdown input with preview. Comments are dated and attributed.
-
-#### 3.4.9 Action Buttons
-
-Context-sensitive actions shown in the header:
-
-- **Approve**: record an approval against the current patchset. Available to
-  users listed in required approvals.
-- **Request Changes**: record a changes-requested review. Available to required
-  approvers.
-- **Submit**: trigger `SubmitChangeset`. Available when the user has writer
-  access and all requirements are met (or admin override is available).
-- **Abandon**: close the changeset without submitting. Requires writer access.
-- **Rebase**: update the base commit. Creates a new patchset. Requires writer
-  access.
-
-### 3.5 Create Changeset (`/changesets/new`)
-
-A form for creating a changeset from the web. Not the primary edit path (the
-CLI is), but available for small changes or control-plane changes.
+Allows direct edits to the currently supported slice definition fields:
+visibility and included paths.
 
 ```text
-┌──────────────────────────────────────────────────┐
-│  New Changeset                                   │
-│                                                  │
-│  Authoring Slice: [acme/payment           v]     │
-│  Target Ref:      [main                   v]     │
-│  Title:           [________________________]     │
-│  Description:                                    │
-│  ┌────────────────────────────────────────────┐  │
-│  │                                            │  │
-│  └────────────────────────────────────────────┘  │
-│                                                  │
-│  File Edits:                                     │
-│  ┌────────────────────────────────────────────┐  │
-│  │ [+ Add file edit]                          │  │
-│  │ /acme/payment/api/handler.go  [modify ✕]   │  │
-│  │ /acme/payment/api/auth.go     [add    ✕]   │  │
-│  └────────────────────────────────────────────┘  │
-│                                                  │
-│  Diff Preview:                                   │
-│  ┌────────────────────────────────────────────┐  │
-│  │ [rendered diff of selected file edits]     │  │
-│  └────────────────────────────────────────────┘  │
-│                                                  │
-│  ⚠ Every path must be included by acme/payment   │
-│                                                  │
-│  [Create as Draft]  [Create and Request Review]  │
-└──────────────────────────────────────────────────┘
++----------------------------------------------------------+
+| Slice Settings: acme/payment                             |
+| Current hash: def_...                                    |
+|                                                          |
+| Visibility                                               |
+| ( ) private   (x) account   ( ) public                   |
+|                                                          |
+| Included paths                                           |
+| /acme/payment                                      [x]   |
+| /acme/proto/payment                                [x]   |
+| [Add path]                                               |
+|                                                          |
+| [Save definition]                                        |
++----------------------------------------------------------+
 ```
 
-**Slice picker**: dropdown of slices where the user has writer access.
+Behavior:
 
-**Target ref picker**: dropdown of accepted refs for the selected slice.
+- Calls `SliceService.UpdateSliceDefinition` with the current
+  `expected_definition_hash`.
+- Handles hash conflicts by reloading the slice and asking the user to retry.
+- Validates path shape in the client, then relies on the server for authoritative
+  validation.
 
-**File edit uploader**: users add file edits by specifying the canonical path,
-operation (add, modify, delete, rename), and pasting/uploading file content.
-The web validates that every changed path is included by the authoring slice
-before allowing creation.
+Do not include display name, default branch, role editors, submit settings,
+definition-history tables, delete, transfer, or reviewed-control-plane
+changeset dialogs in this version.
 
-**Diff preview**: renders the proposed diff before submission. Shows covering
-slices per changed path.
+### 3.7 Changeset Lookup (`/changesets`)
 
-The changeset is created in Draft status. The user can then request review or
-continue editing via `gs cs update` from the CLI.
-
-### 3.6 Slice Detail (`/slices/{id}`)
-
-The landing page for a specific slice. Shows overview, code browser, changeset
-list, and settings as tabs.
+Because there is no changeset list endpoint, `/changesets` is a lookup page.
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│  acme/payment                                    [Settings ⚙]   │
-│  org.acme/payment . Public . 3 included paths                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  [Overview] [Code] [Changesets] [Settings]                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Included Paths:                                                 │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ /acme/payment                                            │   │
-│  │ /acme/proto/payment                                      │   │
-│  │ /acme/README.md                                          │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  Clone:  git clone https://gitslice.io/git/acme/payment.git      │
-│                                                                 │
-│  Recent Changesets:                                              │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ #42  Fix auth token refresh          Submitted . 2h ago  │   │
-│  │ #38  Refactor handler                Review . 1d ago     │   │
-│  │ #35  Add payment endpoint            Submitted . 3d ago  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  Roles Summary:                                                  │
-│  │ Owner: nicholas                                              │
-│  │ Admins: alice                                                │
-│  │ Writers: bob, payment-team                                   │
-│  │ Readers: everyone-in-acme                                    │
-│                                                                 │
-│  Submit Settings:                                                │
-│  │ Required Approvals: payment-owners                           │
-│  │ Required Checks: payment-ci, payment-lint                    │
-│  │ Admin Override: allowed                                      │
-└─────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------+
+| Open Changeset                                           |
+| Changeset id: [cs_...] [Open]                            |
+|                                                          |
+| [Create Changeset]                                       |
++----------------------------------------------------------+
 ```
 
-**Overview tab**: included paths, clone URL with copy button, recent changesets
-list, roles summary, submit settings summary.
+No changeset table, filters, pagination, author picker, or search.
 
-**Code tab**: embedded source browser scoped to this slice's included paths.
-The tree view shows only the paths under `included_paths`. Same behavior as the
-global source browser but filtered.
+### 3.8 Create Changeset (`/changesets/new`)
 
-**Changesets tab**: changeset list pre-filtered to this slice.
-
-**Settings tab**: full slice administration panel (see 3.7).
-
-### 3.7 Slice Settings (`/slices/{id}/settings`)
-
-Administration panel for slice owners and admins. All definition changes that
-require review (visibility, included paths, submit settings) create a
-control-plane changeset rather than applying immediately.
+Creates a draft changeset and initial patchset from explicit file edits.
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│  Slice Settings: acme/payment                                   │
-│                                                                 │
-│  ┌─ General ─────────────────────────────────────────────────┐  │
-│  │  Display Name:  [Payment Service          ]               │  │
-│  │  Default Branch: [main v]                                  │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  ┌─ Visibility ──────────────────────────────────────────────┐  │
-│  │  o Private   o Account-visible   . Public                 │  │
-│  │  ! 3 paths are exposed by overlapping public slices       │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  ┌─ Included Paths ──────────────────────────────────────────┐  │
-│  │  ┌─────────────────────────┐  ┌──────────────────────┐    │  │
-│  │  │ /acme/payment       [✕] │  │ Path tree picker     │    │  │
-│  │  │ /acme/proto/payment  [✕] │  │ /acme/              │    │  │
-│  │  │ /acme/README.md      [✕] │  │  ├─ payment/   [✓]   │    │  │
-│  │  │ [+ Add Path]            │  │  ├─ proto/           │    │  │
-│  │  └─────────────────────────┘  │  │  └─ ...           │    │  │
-│  │                                │  └──────────────────────┘   │  │
-│  │  ! Changing included paths requires a reviewed changeset     │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  ┌─ Roles ───────────────────────────────────────────────────┐  │
-│  │  Owner:  nicholas                                         │  │
-│  │  Admins: [nicholas] [alice  ✕] [ + ]                     │  │
-│  │  Writers: [bob ✕] [payment-team v] [ + ]                │  │
-│  │  Readers: [everyone-in-acme v] [ + ]                     │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  ┌─ Submit Settings ─────────────────────────────────────────┐  │
-│  │  Required Approvals:                                      │  │
-│  │    [team: payment-owners ✕] [+ Add]                        │  │
-│  │  Required Checks:                                         │  │
-│  │    [payment-ci ✕] [payment-lint ✕] [+ Add]               │  │
-│  │  ☑ Allow admin override                                   │  │
-│  │  ! Changes require a reviewed control-plane changeset     │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  ┌─ Definition History ──────────────────────────────────────┐  │
-│  │  v3  2026-05-20  Added /acme/README.md   nicholas        │  │
-│  │  v2  2026-05-15  Added payment-lint check  alice         │  │
-│  │  v1  2026-05-01  Initial definition       nicholas       │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  ┌─ Danger Zone ─────────────────────────────────────────────┐  │
-│  │  [Delete this slice]  [Transfer ownership]                │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------+
+| New Changeset                                            |
+| Authoring slice: [acme/payment____________]              |
+| Target ref:      [main____________________]              |
+| Title:           [________________________]              |
+| Description:     [________________________]              |
+|                                                          |
+| File edits                                               |
+| /acme/payment/app.go        modify     [content...]      |
+| /acme/payment/new.go        add        [content...]      |
+| /acme/payment/old.go        delete                     |
+|                                                          |
+| [Validate] [Create Draft]                                |
++----------------------------------------------------------+
 ```
 
-**General**: display name, default branch.
+Supported flow:
 
-**Visibility**: radio buttons for private, account-visible, public. When
-changing to public, the UI shows a warning listing any overlapping private
-slices and the paths they share. Changing visibility creates a reviewed
-changeset.
+1. Resolve the authoring slice with `SliceService.ResolveSlice`.
+2. Resolve `target_ref` with `RepositoryService.GetRef` when `base_commit_id` is
+   not explicitly supplied.
+3. For add/modify/rename edits, upload pasted file content through
+   `BlobService.UploadBlob`.
+4. Call `ChangesetService.CreateChangeset`.
+5. Call `ChangesetService.UpdateChangeset` with the uploaded file edits.
+6. Navigate to `/changesets/{id}`.
 
-**Included Paths**: list of current paths with remove buttons. "Add Path" opens
-a path tree picker. Added/removed paths are staged as a control-plane changeset
-for review.
+The page may show a client-side diff preview while the pasted content is still in
+the browser. Once the changeset is loaded later from the server, the public API
+only guarantees file-edit metadata, not staged blob contents.
 
-**Roles**: owner (read-only display), admins, writers, readers. Each is an
-editable list of subject IDs, teams, or account-level groups. Changes go
-through a reviewed changeset.
+Do not include "request review" or reviewer selection.
 
-**Submit Settings**: required approvals (teams or individuals), required checks
-(CI check names), admin override toggle. Changes go through a reviewed
-changeset.
+### 3.9 Changeset Detail (`/changesets/{id}`)
 
-**Definition History**: list of all accepted slice definition versions with
-version number, date, description of change, and author.
-
-Changeset-gated changes show a warning banner: "This change requires a reviewed
-control-plane changeset." Clicking "Save" opens a "Create Slice Definition
-Changeset" dialog that pre-fills the changeset with the proposed definition
-diff.
-
-### 3.8 Account Settings (`/accounts/{account}/settings`)
-
-Account-level administration for account owners and admins.
+Shows the data returned by `ChangesetService.GetChangeset` and exposes supported
+mutations.
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│  Account Settings: acme                                         │
-│                                                                 │
-│  [Profile] [Members] [Service Accounts] [Sessions & Tokens]     │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Members:                                                       │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ nicholas   owner    [✕] [v change role]                   │   │
-│  │ alice      admin    [✕] [v change role]                   │   │
-│  │ bob        member   [✕] [v change role]                   │   │
-│  │ ci-bot     guest    [✕] [v change role]                   │   │
-│  │                     [ + Invite member ]                    │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  Account roles: owner, admin, member, guest                     │
-└─────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------+
+| cs_123  Fix payment app                     status: draft |
+| author: user_alice  slice: acme/payment  target: main    |
+| base: cmt_abc                                             |
++----------------------------------------------------------+
+| Patchsets                                                |
+| PS1  base cmt_abc  author user_alice  created ...        |
+|                                                          |
+| File edits                                               |
+| op      path                         blob/content hash    |
+| modify  /acme/payment/app.go        blb_... sha256:...    |
+|                                                          |
+| Coverage                                                 |
+| /acme/payment/app.go: slice_1, slice_2                   |
+|                                                          |
+| Submit requirements                                      |
+| approvals: none returned                                 |
+| checks: none returned                                    |
+| path locks: none returned                                |
+|                                                          |
+| [Add Patchset] [Submit] [Abandon]                        |
++----------------------------------------------------------+
 ```
 
-**Profile tab**: display name, account slug (read-only after creation), account
-kind.
+Supported behavior:
 
-**Members tab**: list of account members with role badges. Owner can change
-roles and remove members. Invite button for adding new members.
+- Display id, title, description, author, authoring slice, target ref, base
+  commit, status, current patchset id/number, commit id, and pending publish id.
+- Display each patchset's changed paths, file edits, coverage, path bases, read
+  set, write set, and raw submit requirement ids.
+- Poll `GetChangeset` while status is `pending_publish`.
+- Call `SubmitChangeset` with `expected_current_patchset_id`.
+- Call `AbandonChangeset` with a reason.
+- Allow uploading another patchset with the same file-edit controls used by the
+  create page.
 
-**Service Accounts tab**: create, list, and manage service accounts for CI and
-automation. Each service account has scoped tokens. Tokens can be revoked
-individually without deleting the service account.
+Not supported:
 
-**Sessions & Tokens tab**: list of active sessions and refresh tokens for the
-current user. Each can be revoked individually. Shows device info, IP, issued
-at, and expires at.
-
-### 3.9 Path Locks (`/locks`)
-
-Simple management page for high-risk path locks.
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│  Path Locks                                                     │
-│  [ + New Lock ]                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  Path                              │ Owner     │ Created │      │
-│  /acme/infra/prod                  │ nicholas  │ 2d ago  │ [✕]  │
-│  /acme/releases/2026-Q2.yaml      │ nicholas  │ 5d ago  │ [✕]  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**New Lock dialog**: path input (validated against account namespace), reason
-textarea.
-
-**Lock list**: path, owner, creation date, release button. Releasing a lock
-requires the lock owner or admin permission.
+- full server-reconstructed diffs for persisted patchsets
+- inline comments or general comments
+- approve/request-changes buttons
+- check-run status details
+- rebase
+- activity timeline beyond fields directly available on the changeset and
+  patchsets
 
 ## 4. URL Structure
 
 ```text
-/                                          Dashboard
-/login                                     Login / OAuth callback
-/source/{account}/[...path]?ref={ref}      Source browser
-/changesets                                Changeset list
-/changesets/{id}                           Changeset detail / review
-/changesets/new                            Create changeset
-/slices                                    Slice list
-/slices/{id}                               Slice detail
-/slices/{id}/settings                      Slice settings
-/accounts/{account}                        Account detail
-/accounts/{account}/settings               Account settings
-/locks                                     Path locks
+/                                      Home
+/login                                 Dev login
+/source/{account}/[...path]            Source browser
+/slices?account={account}              Slice list
+/slices/{id}                           Slice detail
+/slices/{id}/settings                  Slice settings
+/changesets                            Changeset lookup
+/changesets/new                        Create changeset
+/changesets/{id}                       Changeset detail
 ```
 
 Query parameters:
 
-- Source browser: `?ref={commit|branch|tag}` selects the ref for path resolution.
-- Changeset list: `?slice={id}`, `?status={status}`, `?author={id}`, `?q={search}`.
-- Changeset detail: `?patchset={number}` selects the patchset to display.
+- Source browser: `?ref={known-ref}` or `?commit={commit-id}`.
+- Slice list: `?account={account}`.
+- Changeset detail: `?patchset={number}` selects a patchset to focus.
 
 ## 5. Component Tree
 
 ```text
 <App>
-  <AuthProvider>
+  <DevAuthProvider>
     <Router>
       <Layout>
         <Sidebar>
-          <AccountSwitcher />
-          <NavSection label="Main">
-            <NavItem to="/" icon={Home} label="Dashboard" />
-            <NavItem to="/source" icon={FolderTree} label="Source" />
-            <NavItem to="/changesets" icon={GitPullRequest} label="Changesets" />
-            <NavItem to="/slices" icon={Layers} label="Slices" />
-            <NavItem to="/locks" icon={Lock} label="Path Locks" />
-          </NavSection>
-          <SliceQuickNav />
+          <NavItem to="/" label="Home" />
+          <NavItem to="/source/:account" label="Source" />
+          <NavItem to="/slices" label="Slices" />
+          <NavItem to="/changesets" label="Changeset" />
         </Sidebar>
         <TopBar>
-          <GlobalSearch />
+          <AccountInput />
+          <RefInput />
           <UserMenu />
         </TopBar>
         <main>
           <Routes>
-            <DashboardPage />
+            <LoginPage />
+            <HomePage />
             <SourcePage>
               <PathBreadcrumb />
-              <RefSelector />
-              <DirectoryView /> | <FileView />
-              <CoveringSlicesBadge />
-              <BlamePanel />
+              <RefOrCommitInput />
+              <DirectoryView />
+              <FileView />
+              <CoveringSlicesList />
             </SourcePage>
-            <ChangesetListPage />
-            <ChangesetDetailPage>
-              <ChangesetHeader />
-              <PatchsetTabs />
-              <ChangedFileTree />
-              <DiffViewer />
-                <DiffLine />
-                <InlineCommentThread />
-              <SubmitRequirementsPanel />
-              <CoveringSlicesPanel />
-              <ActivityTimeline />
-              <GeneralComments />
-              <ActionBar />
-            </ChangesetDetailPage>
-            <CreateChangesetPage>
-              <SlicePicker />
-              <TargetRefPicker />
-              <FileEditUploader />
-              <DiffPreview />
-            </CreateChangesetPage>
             <SliceListPage />
             <SliceDetailPage>
-              <SliceOverview />
-              <SliceSourceBrowser />
-              <SliceChangesetList />
+              <SliceDefinitionSummary />
+              <IncludedPathLinks />
+              <GitCloneInfo />
             </SliceDetailPage>
             <SliceSettingsPage>
               <VisibilitySetting />
               <IncludedPathsEditor />
-              <RolesEditor />
-              <SubmitSettingsEditor />
-              <DefinitionHistory />
+              <SaveDefinitionButton />
             </SliceSettingsPage>
-            <AccountSettingsPage>
-              <MembershipList />
-              <ServiceAccountList />
-              <TokenManager />
-              <SessionList />
-            </AccountSettingsPage>
+            <ChangesetLookupPage />
+            <CreateChangesetPage>
+              <SliceRefInput />
+              <TargetRefInput />
+              <FileEditForm />
+              <ClientSideDiffPreview />
+            </CreateChangesetPage>
+            <ChangesetDetailPage>
+              <ChangesetHeader />
+              <PatchsetTabs />
+              <FileEditTable />
+              <CoverageTable />
+              <PathBaseTable />
+              <SubmitRequirementIds />
+              <ChangesetActionBar />
+            </ChangesetDetailPage>
           </Routes>
         </main>
       </Layout>
     </Router>
-  </AuthProvider>
+  </DevAuthProvider>
 </App>
 ```
 
@@ -691,85 +483,87 @@ Query parameters:
 
 | Layer | Choice | Rationale |
 |-------|--------|-----------|
-| Framework | React 18 + TypeScript | Large ecosystem for diff/code-review UIs |
-| Bundler | Vite | Fast dev builds, good SPA support |
-| Routing | TanStack Router | Type-safe routing with search params |
-| Server state | TanStack Query | Cache invalidation, polling for changeset status |
-| Diff viewer | diff2html or Monaco diff editor | Side-by-side and unified, inline comments |
-| Syntax highlighting | Shiki | Accurate highlighting, WASM, many languages |
-| File tree | react-arborist | Handles deep trees, lightweight |
-| Auth | OAuth2 PKCE + grpc-gateway interceptor | Same token model as CLI |
-| HTTP client | @connectrpc/connect-web or raw fetch | Type-safe if using Connect |
-| CSS | Tailwind CSS | Utility-first, fast development |
+| Framework | React 18 + TypeScript | Standard SPA stack for internal tooling |
+| Bundler | Vite | Fast dev builds and simple static output |
+| Routing | TanStack Router | Typed route and search-param handling |
+| Server state | TanStack Query | Caching, mutation state, and polling publish status |
+| Syntax highlighting | Shiki | Read-only source highlighting |
+| HTTP transport | Same-origin web adapter over current gRPC services | Keeps the browser API limited to supported service methods |
+| CSS | Tailwind CSS | Fast, utilitarian styling for prototype UI |
+
+Do not add a diff-review package, Monaco editor, OAuth client, WebSocket client,
+or comment editor until the corresponding backend capabilities exist.
 
 ## 7. Data Flow
 
 ```text
 Web UI (SPA)
-  -> HTTP/JSON (grpc-gateway)
-    -> gRPC Core Services
-      -> PostgreSQL (metadata)
-      -> Object Store (files)
+  -> same-origin web adapter
+    -> implemented gRPC Core Services
+      -> PostgreSQL metadata
+      -> filesystem object store
 ```
 
-The web app calls the same gRPC services as the CLI but through grpc-gateway
-JSON endpoints. The service boundaries remain identical:
-
-- `RepositoryService` for path resolution, directory listing, file reads
-- `SliceService` for slice resolution, listing, and definition updates
-- `ChangesetService` for create, read, update, submit, and abandon
-- `WorkspaceService` for backend hydration helpers (limited web use)
-
-The web client should not call internal commit services. Those remain behind the
-trusted service boundary.
+The web client must not call internal commit services or read the filesystem
+object store directly. Browser-visible endpoints should correspond to public
+service methods and should preserve the same authorization checks as the CLI.
 
 ## 8. Auth Flow
 
-The web UI uses OAuth2 with PKCE for SPAs:
+The first auth flow is development-only:
 
-1. User visits `/login`, redirected to the identity provider.
-2. Identity provider authenticates the user and redirects back with an
-   authorization code.
-3. The SPA exchanges the code for access and refresh tokens.
-4. Access tokens are stored in memory (not localStorage) and attached to every
-   API request via `Authorization: Bearer` header.
-5. Refresh tokens are stored in a secure, HTTP-only cookie (or handled via
-   token rotation with the backend).
-6. The `AuthProvider` component manages token lifecycle and exposes the current
-   subject, account memberships, and scopes to the rest of the app.
+1. User enters a dev user such as `alice`.
+2. The web adapter calls `FakeAccountService.Login`.
+3. The app attaches the returned bearer token to subsequent requests.
+4. Logout clears the local token.
 
-The auth model should be the same as the CLI's model described in the product
-doc (section 4): subject_id, subject_type, session_id, account_memberships,
-scopes, issued_at, expires_at.
+Production OAuth, refresh tokens, session lists, token rotation, and service
+account token management remain later work.
 
-## 9. Real-Time Updates
+## 9. Polling
 
-The MVP should use polling for changeset status updates, new comments, and
-check results. TanStack Query's `refetchInterval` handles this cleanly.
+Use polling only for currently supported state:
 
-Later, WebSocket or server-sent events can push changeset events to connected
-clients for instant review updates.
+- `ChangesetService.GetChangeset` while a submitted changeset is
+  `pending_publish`
+- explicit reloads for source, slice, and changeset pages after mutations
+
+Do not poll for comments, review events, check runs, path locks, or account
+activity because those resources are not implemented.
 
 ## 10. Web MVP Scope
 
 Included:
 
-- Dashboard with user activity and pending reviews
-- Global source browser with directory/file view, blame, and covering slices
-- Changeset list with filtering and search
-- Changeset detail with inline diff review, comments, approvals, and checks
-- Create changeset from uploaded file edits
-- Slice detail with code browser, changeset list, and clone URL
-- Slice settings (visibility, included paths, roles, submit settings)
-- Account settings (profile, members, service accounts, sessions)
-- Path lock management
-- OAuth2 PKCE auth flow
+- development login against `FakeAccountService.Login`
+- source browser with directory and file views
+- client-side covering-slice display based on `ListSlices`
+- slice list for a known account
+- slice detail with included paths, visibility, version, and definition hash
+- direct slice definition update for visibility and included paths
+- changeset lookup by id
+- changeset creation from explicit uploaded file edits
+- changeset detail with patchset metadata, coverage, path bases, and raw submit
+  requirement ids
+- changeset submit, abandon, and add-patchset actions
+- optional display of Git clone URLs for deployments with Git HTTP enabled
 
 Not in web MVP:
 
-- Code search (not in product MVP scope)
-- Inline file editor in source browser (edits belong to the CLI)
-- Workspace management UI (workspaces are local, CLI-only)
-- Repository migration tooling (later, separate UI surface)
-- Organization analytics dashboards (later)
-- IDE plugin surfaces (later)
+- OAuth or production account flows
+- account, membership, service-account, session, or token management
+- dashboards, activity feeds, pending-review queues, changeset list, or
+  changeset search
+- code search
+- blame
+- full persisted patchset diff rendering
+- inline editing in the source browser
+- review comments, approvals, reviewer assignment, or request-changes state
+- check-run details or CI integration controls
+- path lock management
+- slice roles, submit settings, default branch, display name, delete, transfer,
+  or audited history
+- reviewed control-plane changesets
+- workspace management UI
+- repository migration tooling
+- IDE plugin surfaces
