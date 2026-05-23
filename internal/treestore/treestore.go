@@ -133,6 +133,35 @@ func (s *Store) ListFiles(ctx context.Context, rootTreeID, prefix string) ([]Fil
 }
 
 func (s *Store) ApplyEdits(ctx context.Context, rootTreeID string, edits []FileEdit) (string, error) {
+	if len(edits) == 0 {
+		return rootTreeID, nil
+	}
+	if canApplyEditsInBatch(edits) {
+		ops := make([]batchEdit, 0, len(edits))
+		for _, edit := range edits {
+			parts, err := splitPath(edit.Path)
+			if err != nil {
+				return "", err
+			}
+			if len(parts) == 0 && edit.Op != "delete" {
+				return "", fmt.Errorf("file path is required")
+			}
+			op := batchEdit{parts: parts, op: edit.Op}
+			if edit.Op != "delete" {
+				if edit.File == nil {
+					return "", fmt.Errorf("file edit for %s requires file metadata", edit.Path)
+				}
+				op.file = *edit.File
+			}
+			ops = append(ops, op)
+		}
+		newRoot, _, err := s.applyBatch(ctx, rootTreeID, ops)
+		return newRoot, err
+	}
+	return s.applyEditsSequential(ctx, rootTreeID, edits)
+}
+
+func (s *Store) applyEditsSequential(ctx context.Context, rootTreeID string, edits []FileEdit) (string, error) {
 	current := rootTreeID
 	for _, edit := range edits {
 		var err error
@@ -177,6 +206,114 @@ func (s *Store) ApplyEdits(ctx context.Context, rootTreeID string, edits []FileE
 		}
 	}
 	return current, nil
+}
+
+type batchEdit struct {
+	op    string
+	parts []string
+	file  FileEntry
+}
+
+func canApplyEditsInBatch(edits []FileEdit) bool {
+	if len(edits) == 0 {
+		return true
+	}
+	paths := make([]string, 0, len(edits))
+	for _, edit := range edits {
+		if edit.Op == "rename" {
+			return false
+		}
+		if edit.Op != "delete" && edit.File == nil {
+			return true
+		}
+		parts, err := splitPath(edit.Path)
+		if err != nil || len(parts) == 0 {
+			return true
+		}
+		paths = append(paths, strings.Join(parts, "/"))
+	}
+	sort.Strings(paths)
+	for i := 1; i < len(paths); i++ {
+		prev := paths[i-1]
+		cur := paths[i]
+		if cur == prev || strings.HasPrefix(cur, prev+"/") {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) applyBatch(ctx context.Context, treeID string, edits []batchEdit) (string, bool, error) {
+	node, err := s.readNode(ctx, treeID)
+	if err != nil {
+		return "", false, err
+	}
+	childEdits := map[string][]batchEdit{}
+	for _, edit := range edits {
+		if len(edit.parts) == 0 {
+			continue
+		}
+		name := edit.parts[0]
+		if len(edit.parts) == 1 {
+			switch edit.op {
+			case "delete":
+				node.Entries = removeEntry(node.Entries, name)
+			default:
+				node.Entries = upsertEntry(node.Entries, Entry{
+					Name:        name,
+					Kind:        "file",
+					Mode:        edit.file.Mode,
+					BlobID:      edit.file.BlobID,
+					ContentHash: edit.file.ContentHash,
+					Size:        edit.file.Size,
+				})
+			}
+			continue
+		}
+		childEdits[name] = append(childEdits[name], batchEdit{
+			op:    edit.op,
+			parts: edit.parts[1:],
+			file:  edit.file,
+		})
+	}
+	for name, edits := range childEdits {
+		child, ok := findEntry(node.Entries, name)
+		childTreeID := EmptyRootID()
+		if ok {
+			if child.Kind != "directory" {
+				onlyDeletes := true
+				for _, edit := range edits {
+					if edit.op != "delete" {
+						onlyDeletes = false
+						break
+					}
+				}
+				if onlyDeletes {
+					continue
+				}
+				return "", false, fmt.Errorf("%s is not a directory", name)
+			}
+			childTreeID = child.TreeID
+		}
+		newChildTreeID, childEmpty, err := s.applyBatch(ctx, childTreeID, edits)
+		if err != nil {
+			return "", false, err
+		}
+		if childEmpty {
+			node.Entries = removeEntry(node.Entries, name)
+			continue
+		}
+		node.Entries = upsertEntry(node.Entries, Entry{
+			Name:   name,
+			Kind:   "directory",
+			TreeID: newChildTreeID,
+		})
+	}
+	newTreeID, err := s.writeNode(ctx, node)
+	if err != nil {
+		return "", false, err
+	}
+	return newTreeID, len(node.Entries) == 0, nil
 }
 
 func (s *Store) entryAt(ctx context.Context, treeID string, parts []string) (Entry, error) {

@@ -267,6 +267,68 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd)
 
+	repoCmd := &cobra.Command{
+		Use:   "repo",
+		Short: "Manage imported repositories",
+		RunE:  requireSubcommand("repo"),
+	}
+	repoImportCmd := &cobra.Command{
+		Use:   "import",
+		Short: "Import external repositories",
+		RunE:  requireSubcommand("repo import"),
+	}
+	importMountPath := ""
+	importSlice := ""
+	importMode := "shallow"
+	importDeep := false
+	importMaxCommits := 0
+	importResume := true
+	importGithubCmd := &cobra.Command{
+		Use:   "github <owner/repo-or-url>",
+		Short: "Import a GitHub repository under a mounted path",
+		Args:  exactArgs(1, "gs repo import github <owner/repo-or-url> --mount /acme/payment/vendor/repo [--slice acme/payment] [--mode shallow|deep]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mode := importMode
+			if importDeep {
+				mode = "deep"
+			}
+			return r.runRepoImportGithub(cmd.Context(), *opts, args[0], importMountPath, importSlice, mode, importMaxCommits, importResume)
+		},
+	}
+	importGithubCmd.Flags().StringVar(&importMountPath, "mount", importMountPath, "absolute Gitslice path where the repository should be mounted")
+	importGithubCmd.Flags().StringVar(&importSlice, "slice", importSlice, "authoring slice, defaults to current workspace slice")
+	importGithubCmd.Flags().StringVar(&importMode, "mode", importMode, "import mode: shallow or deep")
+	importGithubCmd.Flags().BoolVar(&importDeep, "deep", importDeep, "import every reachable Git commit")
+	importGithubCmd.Flags().IntVar(&importMaxCommits, "max-commits", importMaxCommits, "maximum recent commits to import in deep mode")
+	importGithubCmd.Flags().BoolVar(&importResume, "resume", importResume, "resume previously completed commits for the same import")
+	repoImportCmd.AddCommand(importGithubCmd)
+	repoCmd.AddCommand(repoImportCmd)
+
+	commitCmd := &cobra.Command{
+		Use:   "commit",
+		Short: "Inspect native commits",
+		RunE:  requireSubcommand("commit"),
+	}
+	commitLimit := 20
+	commitListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List native commits from a ref",
+		Args:  noArgs("gs commit list [--limit 20]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCommitList(cmd.Context(), *opts, commitLimit)
+		},
+	}
+	commitListCmd.Flags().IntVar(&commitLimit, "limit", commitLimit, "maximum commits to list")
+	commitInspectCmd := &cobra.Command{
+		Use:   "inspect <commit-id>",
+		Short: "Inspect a native commit",
+		Args:  exactArgs(1, "gs commit inspect <commit-id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCommitInspect(cmd.Context(), *opts, args[0])
+		},
+	}
+	commitCmd.AddCommand(commitListCmd, commitInspectCmd)
+
 	schemaCmd := &cobra.Command{
 		Use:   "schema",
 		Short: "Print the machine-readable CLI schema",
@@ -284,7 +346,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, repoCmd, commitCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -637,6 +699,206 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions) err
 	return nil
 }
 
+func (r Runner) runRepoImportGithub(ctx context.Context, opts commandOptions, source, mountPath, sliceRef, mode string, maxCommits int, resume bool) error {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return err
+	}
+	if mountPath == "" {
+		return userError("missing_mount", "missing import mount path", "Use --mount /account/slice/path.")
+	}
+	if sliceRef == "" {
+		ws, err := r.readWorkspaceConfig()
+		if err != nil {
+			return err
+		}
+		sliceRef = ws.Account + "/" + ws.Slice
+	}
+	ref, err := parseSliceRef(sliceRef)
+	if err != nil {
+		return err
+	}
+	if maxCommits < 0 {
+		return userError("invalid_max_commits", "max commits must be non-negative", "Use --max-commits 0 for no limit.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	req := &corev1.ImportGitRepositoryRequest{
+		Source:         source,
+		MountPath:      mountPath,
+		AuthoringSlice: ref,
+		Mode:           mode,
+		TargetRef:      postgres.DefaultTargetRef,
+		MaxCommits:     int32(maxCommits),
+		Resume:         resume,
+	}
+	client := corev1.NewRepositoryServiceClient(conn)
+	if opts.jsonOutput() {
+		res, err := client.ImportGitRepository(authContext(ctx, cfg), req)
+		if err != nil {
+			return err
+		}
+		return writeJSON(r.Stdout, res)
+	}
+	stream, err := client.ImportGitRepositoryStream(authContext(ctx, cfg), req)
+	if err != nil {
+		return err
+	}
+	var res *corev1.ImportGitRepositoryResponse
+	reporter := importProgressReporter{w: r.Stderr, quiet: opts.Quiet}
+	for {
+		event, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		reporter.report(event)
+		if event.Result != nil {
+			res = event.Result
+		}
+	}
+	if res == nil {
+		return fmt.Errorf("import completed without a final result")
+	}
+	if opts.Quiet {
+		return nil
+	}
+	printImportSummary(r.Stdout, res)
+	return nil
+}
+
+func printImportSummary(w io.Writer, res *corev1.ImportGitRepositoryResponse) {
+	fmt.Fprintf(w, "imported %d commit(s) from %s\n", len(res.Commits), res.Source)
+	fmt.Fprintf(w, "mount: %s\n", res.MountPath)
+	fmt.Fprintf(w, "mode: %s\n", res.Mode)
+	fmt.Fprintf(w, "final commit: %s\n", res.FinalCommitId)
+	for _, commit := range res.Commits {
+		fmt.Fprintf(w, "  %s -> %s %s\n", shortID(commit.GitCommitId), commit.NativeCommitId, commit.Message)
+	}
+}
+
+type importProgressReporter struct {
+	w        io.Writer
+	quiet    bool
+	lastLine time.Time
+}
+
+func (r *importProgressReporter) report(event *corev1.ImportGitRepositoryProgress) {
+	if r.quiet || r.w == nil || event == nil {
+		return
+	}
+	switch event.Phase {
+	case "cloning":
+		fmt.Fprintln(r.w, "cloning repository...")
+	case "listing_commits":
+		fmt.Fprintln(r.w, "listing commits...")
+	case "listed_commits":
+		fmt.Fprintf(r.w, "found %d commit(s)\n", event.Total)
+	case "reading_commit":
+		if r.shouldPrintCommitLine(event) {
+			fmt.Fprintf(r.w, "reading %d/%d %s %s\n", event.Current, event.Total, shortID(event.GitCommitId), event.Message)
+		}
+	case "uploading_blobs":
+		if r.shouldPrintCommitLine(event) {
+			fmt.Fprintf(r.w, "uploading %d/%d %s (%d changed path(s))\n", event.Current, event.Total, shortID(event.GitCommitId), event.ChangedPathCount)
+		}
+	case "submitting":
+		if r.shouldPrintCommitLine(event) {
+			fmt.Fprintf(r.w, "publishing %d/%d %s\n", event.Current, event.Total, shortID(event.GitCommitId))
+		}
+	case "published":
+		if r.shouldPrintCommitLine(event) {
+			fmt.Fprintf(r.w, "published %d/%d %s -> %s (%d changed path(s))\n", event.Current, event.Total, shortID(event.GitCommitId), event.NativeCommitId, event.ChangedPathCount)
+		}
+	case "skipped":
+		if r.shouldPrintCommitLine(event) {
+			fmt.Fprintf(r.w, "skipped %d/%d %s -> %s\n", event.Current, event.Total, shortID(event.GitCommitId), event.NativeCommitId)
+		}
+	case "done":
+		fmt.Fprintln(r.w, "import complete")
+	}
+}
+
+func (r *importProgressReporter) shouldPrintCommitLine(event *corev1.ImportGitRepositoryProgress) bool {
+	now := time.Now()
+	if event.Total <= 20 || event.Current <= 1 || event.Current == event.Total || now.Sub(r.lastLine) >= 2*time.Second {
+		r.lastLine = now
+		return true
+	}
+	return false
+}
+
+func (r Runner) runCommitList(ctx context.Context, opts commandOptions, limit int) error {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	res, err := corev1.NewRepositoryServiceClient(conn).ListCommits(authContext(ctx, cfg), &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Limit:   int32(limit),
+	})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, res)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	for _, commit := range res.Commits {
+		fmt.Fprintf(r.Stdout, "%s %s\n", commit.Id, commit.Message)
+	}
+	return nil
+}
+
+func (r Runner) runCommitInspect(ctx context.Context, opts commandOptions, commitID string) error {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	commit, err := corev1.NewRepositoryServiceClient(conn).GetCommit(authContext(ctx, cfg), &corev1.GetCommitRequest{CommitId: commitID})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, commit)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "commit: %s\n", commit.Id)
+	fmt.Fprintf(r.Stdout, "root_tree: %s\n", commit.RootTreeId)
+	fmt.Fprintf(r.Stdout, "author: %s\n", commit.Author)
+	fmt.Fprintf(r.Stdout, "created_at: %s\n", commit.CreatedAt)
+	fmt.Fprintf(r.Stdout, "message: %s\n", commit.Message)
+	if len(commit.ParentIds) > 0 {
+		fmt.Fprintf(r.Stdout, "parents: %s\n", strings.Join(commit.ParentIds, " "))
+	}
+	if len(commit.ChangedPaths) > 0 {
+		fmt.Fprintln(r.Stdout, "changed_paths:")
+		for _, p := range commit.ChangedPaths {
+			fmt.Fprintf(r.Stdout, "  %s\n", p)
+		}
+	}
+	return nil
+}
+
 func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {
 	base, err := r.readBaseSnapshot()
 	if err != nil {
@@ -922,6 +1184,27 @@ func (r Runner) runSchema() error {
 				"machine_output": []string{"changeset_id", "patchset_id", "status"},
 			},
 			{
+				"use":            "gs repo import github <owner/repo-or-url>",
+				"summary":        "import a GitHub repository under a mounted path",
+				"flags":          []string{"--mount", "--slice", "--mode", "--deep", "--max-commits", "--resume"},
+				"writes_stdout":  true,
+				"machine_output": []string{"source", "mount_path", "mode", "target_ref", "final_commit_id", "commits"},
+			},
+			{
+				"use":            "gs commit list",
+				"summary":        "list native commits from the main ref",
+				"flags":          []string{"--limit"},
+				"writes_stdout":  true,
+				"machine_output": []string{"commits"},
+			},
+			{
+				"use":            "gs commit inspect <commit-id>",
+				"summary":        "inspect a native commit",
+				"args":           []string{"commit-id"},
+				"writes_stdout":  true,
+				"machine_output": []string{"id", "parent_ids", "root_tree_id", "author", "message", "created_at", "changed_paths"},
+			},
+			{
 				"use":           "gs schema",
 				"summary":       "print this machine-readable CLI schema",
 				"writes_stdout": true,
@@ -1069,6 +1352,13 @@ func sortFileEdits(edits []*corev1.FileEdit) {
 		}
 		return edits[i].Path < edits[j].Path
 	})
+}
+
+func shortID(id string) string {
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
 }
 
 func shouldSkip(rel string, entry fs.DirEntry) bool {

@@ -19,11 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	RepositoryService_ResolvePath_FullMethodName   = "/gitslice.core.v1.RepositoryService/ResolvePath"
-	RepositoryService_ListDirectory_FullMethodName = "/gitslice.core.v1.RepositoryService/ListDirectory"
-	RepositoryService_ReadFile_FullMethodName      = "/gitslice.core.v1.RepositoryService/ReadFile"
-	RepositoryService_GetCommit_FullMethodName     = "/gitslice.core.v1.RepositoryService/GetCommit"
-	RepositoryService_GetRef_FullMethodName        = "/gitslice.core.v1.RepositoryService/GetRef"
+	RepositoryService_ResolvePath_FullMethodName               = "/gitslice.core.v1.RepositoryService/ResolvePath"
+	RepositoryService_ListDirectory_FullMethodName             = "/gitslice.core.v1.RepositoryService/ListDirectory"
+	RepositoryService_ReadFile_FullMethodName                  = "/gitslice.core.v1.RepositoryService/ReadFile"
+	RepositoryService_GetCommit_FullMethodName                 = "/gitslice.core.v1.RepositoryService/GetCommit"
+	RepositoryService_ListCommits_FullMethodName               = "/gitslice.core.v1.RepositoryService/ListCommits"
+	RepositoryService_GetRef_FullMethodName                    = "/gitslice.core.v1.RepositoryService/GetRef"
+	RepositoryService_ImportGitRepository_FullMethodName       = "/gitslice.core.v1.RepositoryService/ImportGitRepository"
+	RepositoryService_ImportGitRepositoryStream_FullMethodName = "/gitslice.core.v1.RepositoryService/ImportGitRepositoryStream"
 )
 
 // RepositoryServiceClient is the client API for RepositoryService service.
@@ -34,7 +37,10 @@ type RepositoryServiceClient interface {
 	ListDirectory(ctx context.Context, in *ListDirectoryRequest, opts ...grpc.CallOption) (*ListDirectoryResponse, error)
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error)
 	GetCommit(ctx context.Context, in *GetCommitRequest, opts ...grpc.CallOption) (*Commit, error)
+	ListCommits(ctx context.Context, in *ListCommitsRequest, opts ...grpc.CallOption) (*ListCommitsResponse, error)
 	GetRef(ctx context.Context, in *GetRefRequest, opts ...grpc.CallOption) (*Ref, error)
+	ImportGitRepository(ctx context.Context, in *ImportGitRepositoryRequest, opts ...grpc.CallOption) (*ImportGitRepositoryResponse, error)
+	ImportGitRepositoryStream(ctx context.Context, in *ImportGitRepositoryRequest, opts ...grpc.CallOption) (RepositoryService_ImportGitRepositoryStreamClient, error)
 }
 
 type repositoryServiceClient struct {
@@ -81,6 +87,15 @@ func (c *repositoryServiceClient) GetCommit(ctx context.Context, in *GetCommitRe
 	return out, nil
 }
 
+func (c *repositoryServiceClient) ListCommits(ctx context.Context, in *ListCommitsRequest, opts ...grpc.CallOption) (*ListCommitsResponse, error) {
+	out := new(ListCommitsResponse)
+	err := c.cc.Invoke(ctx, RepositoryService_ListCommits_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *repositoryServiceClient) GetRef(ctx context.Context, in *GetRefRequest, opts ...grpc.CallOption) (*Ref, error) {
 	out := new(Ref)
 	err := c.cc.Invoke(ctx, RepositoryService_GetRef_FullMethodName, in, out, opts...)
@@ -88,6 +103,47 @@ func (c *repositoryServiceClient) GetRef(ctx context.Context, in *GetRefRequest,
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *repositoryServiceClient) ImportGitRepository(ctx context.Context, in *ImportGitRepositoryRequest, opts ...grpc.CallOption) (*ImportGitRepositoryResponse, error) {
+	out := new(ImportGitRepositoryResponse)
+	err := c.cc.Invoke(ctx, RepositoryService_ImportGitRepository_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *repositoryServiceClient) ImportGitRepositoryStream(ctx context.Context, in *ImportGitRepositoryRequest, opts ...grpc.CallOption) (RepositoryService_ImportGitRepositoryStreamClient, error) {
+	stream, err := c.cc.NewStream(ctx, &RepositoryService_ServiceDesc.Streams[0], RepositoryService_ImportGitRepositoryStream_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &repositoryServiceImportGitRepositoryStreamClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type RepositoryService_ImportGitRepositoryStreamClient interface {
+	Recv() (*ImportGitRepositoryProgress, error)
+	grpc.ClientStream
+}
+
+type repositoryServiceImportGitRepositoryStreamClient struct {
+	grpc.ClientStream
+}
+
+func (x *repositoryServiceImportGitRepositoryStreamClient) Recv() (*ImportGitRepositoryProgress, error) {
+	m := new(ImportGitRepositoryProgress)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // RepositoryServiceServer is the server API for RepositoryService service.
@@ -98,7 +154,10 @@ type RepositoryServiceServer interface {
 	ListDirectory(context.Context, *ListDirectoryRequest) (*ListDirectoryResponse, error)
 	ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error)
 	GetCommit(context.Context, *GetCommitRequest) (*Commit, error)
+	ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error)
 	GetRef(context.Context, *GetRefRequest) (*Ref, error)
+	ImportGitRepository(context.Context, *ImportGitRepositoryRequest) (*ImportGitRepositoryResponse, error)
+	ImportGitRepositoryStream(*ImportGitRepositoryRequest, RepositoryService_ImportGitRepositoryStreamServer) error
 }
 
 // UnimplementedRepositoryServiceServer should be embedded to have forward compatible implementations.
@@ -117,8 +176,17 @@ func (UnimplementedRepositoryServiceServer) ReadFile(context.Context, *ReadFileR
 func (UnimplementedRepositoryServiceServer) GetCommit(context.Context, *GetCommitRequest) (*Commit, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCommit not implemented")
 }
+func (UnimplementedRepositoryServiceServer) ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListCommits not implemented")
+}
 func (UnimplementedRepositoryServiceServer) GetRef(context.Context, *GetRefRequest) (*Ref, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRef not implemented")
+}
+func (UnimplementedRepositoryServiceServer) ImportGitRepository(context.Context, *ImportGitRepositoryRequest) (*ImportGitRepositoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImportGitRepository not implemented")
+}
+func (UnimplementedRepositoryServiceServer) ImportGitRepositoryStream(*ImportGitRepositoryRequest, RepositoryService_ImportGitRepositoryStreamServer) error {
+	return status.Errorf(codes.Unimplemented, "method ImportGitRepositoryStream not implemented")
 }
 
 // UnsafeRepositoryServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -204,6 +272,24 @@ func _RepositoryService_GetCommit_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RepositoryService_ListCommits_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCommitsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RepositoryServiceServer).ListCommits(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RepositoryService_ListCommits_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RepositoryServiceServer).ListCommits(ctx, req.(*ListCommitsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RepositoryService_GetRef_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetRefRequest)
 	if err := dec(in); err != nil {
@@ -220,6 +306,45 @@ func _RepositoryService_GetRef_Handler(srv interface{}, ctx context.Context, dec
 		return srv.(RepositoryServiceServer).GetRef(ctx, req.(*GetRefRequest))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _RepositoryService_ImportGitRepository_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportGitRepositoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RepositoryServiceServer).ImportGitRepository(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RepositoryService_ImportGitRepository_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RepositoryServiceServer).ImportGitRepository(ctx, req.(*ImportGitRepositoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RepositoryService_ImportGitRepositoryStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ImportGitRepositoryRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(RepositoryServiceServer).ImportGitRepositoryStream(m, &repositoryServiceImportGitRepositoryStreamServer{stream})
+}
+
+type RepositoryService_ImportGitRepositoryStreamServer interface {
+	Send(*ImportGitRepositoryProgress) error
+	grpc.ServerStream
+}
+
+type repositoryServiceImportGitRepositoryStreamServer struct {
+	grpc.ServerStream
+}
+
+func (x *repositoryServiceImportGitRepositoryStreamServer) Send(m *ImportGitRepositoryProgress) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 // RepositoryService_ServiceDesc is the grpc.ServiceDesc for RepositoryService service.
@@ -246,10 +371,24 @@ var RepositoryService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RepositoryService_GetCommit_Handler,
 		},
 		{
+			MethodName: "ListCommits",
+			Handler:    _RepositoryService_ListCommits_Handler,
+		},
+		{
 			MethodName: "GetRef",
 			Handler:    _RepositoryService_GetRef_Handler,
 		},
+		{
+			MethodName: "ImportGitRepository",
+			Handler:    _RepositoryService_ImportGitRepository_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ImportGitRepositoryStream",
+			Handler:       _RepositoryService_ImportGitRepositoryStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "proto/core/v1/repository.proto",
 }

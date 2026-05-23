@@ -29,7 +29,15 @@ func New(store *postgres.Store, objectStore ObjectStore) *Handlers {
 	}
 	return &Handlers{
 		FakeAccount: &FakeAccountService{Auth: store.Auth()},
-		Repository:  &RepositoryService{Repository: store.Repository(), ObjectStore: objectStore},
+		Repository: &RepositoryService{
+			Auth:        store.Auth(),
+			Blobs:       store.Blobs(),
+			Changesets:  store.Changesets(),
+			Repository:  store.Repository(),
+			Slices:      store.Slices(),
+			ObjectStore: objectStore,
+			validator:   validator,
+		},
 		Blob:        &BlobService{Blobs: store.Blobs(), ObjectStore: objectStore},
 		Slice:       &SliceService{Auth: store.Auth(), Slices: store.Slices()},
 		Workspace: &WorkspaceService{

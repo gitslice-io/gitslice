@@ -59,7 +59,11 @@ service RepositoryService {
   rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
   rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
   rpc GetCommit(GetCommitRequest) returns (Commit);
+  rpc ListCommits(ListCommitsRequest) returns (ListCommitsResponse);
   rpc GetRef(GetRefRequest) returns (Ref);
+  rpc ImportGitRepository(ImportGitRepositoryRequest) returns (ImportGitRepositoryResponse);
+  rpc ImportGitRepositoryStream(ImportGitRepositoryRequest)
+      returns (stream ImportGitRepositoryProgress);
 }
 
 service BlobService {
@@ -176,9 +180,59 @@ message GetCommitRequest {
   string commit_id = 1;
 }
 
+message ListCommitsRequest {
+  string ref_name = 1;
+  int32 limit = 2;
+}
+
+message ListCommitsResponse {
+  repeated Commit commits = 1;
+}
+
 message GetRefRequest {
   string ref_name = 1;
 }
+
+message ImportGitRepositoryRequest {
+  string source = 1;          // GitHub owner/repo shorthand, URL, or test file path.
+  string mount_path = 2;      // Absolute account-rooted mount path.
+  SliceRef authoring_slice = 3;
+  string mode = 4;            // shallow or deep.
+  string target_ref = 5;
+  int32 max_commits = 6;      // Deep mode only; 0 means no limit.
+  bool resume = 7;            // Reuse completed Git-to-native mappings.
+}
+
+message ImportedGitCommit {
+  string git_commit_id = 1;
+  string native_commit_id = 2;
+  string message = 3;
+}
+
+message ImportGitRepositoryResponse {
+  string source = 1;
+  string mount_path = 2;
+  string mode = 3;
+  string target_ref = 4;
+  string final_commit_id = 5;
+  repeated ImportedGitCommit commits = 6;
+}
+
+message ImportGitRepositoryProgress {
+  string phase = 1;              // cloning, listing_commits, reading_commit,
+                                 // uploading_blobs, submitting, published, done.
+  string message = 2;
+  int64 current = 3;
+  int64 total = 4;
+  string git_commit_id = 5;
+  string native_commit_id = 6;
+  int32 changed_path_count = 7;
+  ImportGitRepositoryResponse result = 8;
+}
+
+`ImportGitRepository` is retained for simple machine clients. The CLI should use
+`ImportGitRepositoryStream` for interactive text output so large imports show
+clone, commit enumeration, per-commit import, and publish progress.
 
 message GetBlobStatusRequest {
   repeated string content_hashes = 1;

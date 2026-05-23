@@ -54,6 +54,8 @@ gs status
 gs diff
 gs file ...
 gs cs ...
+gs repo ...
+gs commit ...
 gs op ...
 gs log ...
 gs config ...
@@ -334,7 +336,72 @@ gs cs status --format json
 gs status --format json
 ```
 
-## 13. Backend Requirements
+## 13. Repository Import And Commit Inspection
+
+The MVP CLI supports importing a GitHub repository into a mounted Gitslice path:
+
+```bash
+gs repo import github <owner/repo-or-url> \
+  --mount /acme/payment/vendor/lib \
+  --slice acme/payment \
+  --mode shallow
+
+gs repo import github <owner/repo-or-url> \
+  --mount /acme/payment/vendor/lib \
+  --slice acme/payment \
+  --mode deep \
+  --max-commits 100
+```
+
+`owner/repo` is resolved to `https://github.com/owner/repo.git`. Tests may pass
+a local Git repository path through the same command so functional coverage does
+not depend on external network access.
+
+Import modes:
+
+- `shallow`: import only the Git `HEAD` tree as one native changeset and commit.
+- `deep`: walk Git commits in topological chronological order and preserve one
+  native commit per Git commit. The first imported commit materializes the mounted
+  tree; subsequent commits use Git tree diffs and read only changed blobs rather
+  than re-reading every file in every snapshot.
+
+`--max-commits N` limits deep import to the most recent N Git commits and uses a
+depth-limited clone. It is intended for bounded validation, staged backfills, and
+large-repo smoke tests before a full history import. `--resume` is enabled by
+default and skips Git commits already recorded for the same source, mount path,
+slice, target ref, and mode.
+
+The mounted path must be inside the authoring slice. Import writes still go
+through server-side validation, path-base checks, pending publish, and ref CAS.
+The CLI does not clone repositories or create native commits locally.
+
+Interactive text imports use the streaming import RPC and print progress to
+stderr:
+
+```text
+cloning repository...
+listing commits...
+found 42 commit(s)
+reading 1/42 1a2b3c4 first commit
+uploading 1/42 1a2b3c4 (12 changed path(s))
+published 1/42 1a2b3c4 -> sha256:... (12 changed path(s))
+import complete
+```
+
+`--json` keeps stdout stable and returns only the final import response.
+
+Commit inspection commands:
+
+```bash
+gs commit list --limit 20
+gs commit inspect <native-commit-id>
+```
+
+These commands are intentionally native. They list and inspect Gitslice commits,
+not Git object ids. The import response maps imported Git commit ids to native
+commit ids for follow-up inspection.
+
+## 14. Backend Requirements
 
 The CLI needs these backend capabilities:
 
@@ -342,6 +409,10 @@ The CLI needs these backend capabilities:
 - `RepositoryService.ResolvePath`
 - `RepositoryService.ListDirectory`
 - `RepositoryService.ReadFile`
+- `RepositoryService.GetCommit`
+- `RepositoryService.ListCommits`
+- `RepositoryService.ImportGitRepository`
+- `RepositoryService.ImportGitRepositoryStream`
 - `BlobService.UploadBlob`
 - `ChangesetService.CreateChangeset`
 - `ChangesetService.UpdateChangeset`
@@ -355,7 +426,7 @@ The CLI needs these backend capabilities:
 The `WorkspaceService` calls are backend helpers. The CLI still owns local
 workspace files, local cache, and local operation undo.
 
-## 14. Non-Goals
+## 15. Non-Goals
 
 The initial CLI should not:
 
