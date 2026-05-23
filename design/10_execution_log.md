@@ -258,3 +258,32 @@ go test ./...
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```
+
+## 2026-05-22: Agent Execution Guide
+
+Request:
+
+- add `AGENTS.md`
+- give a high-level overview of the project
+- document execution rules, including appending important decisions and thinking
+  to the execution log
+
+Implemented:
+
+- added root `AGENTS.md` with:
+  - current MVP package overview
+  - design document map
+  - architecture rules for native storage, single-slice workspaces, Postgres,
+    prototype filesystem object storage, service boundaries, migrations, proto,
+    and Git compatibility
+  - execution rules for scoped edits, preserving unrelated user changes, using
+    `apply_patch`, formatting Go code, and generated proto handling
+  - explicit logging rule to append important decisions, tradeoffs, findings,
+    and verification commands to `design/10_execution_log.md`
+  - default, functional, and load verification commands
+
+Decision:
+
+- Use `design/10_execution_log.md` as the canonical execution log. If a future
+  request says `execution_log.md`, agents should treat this numbered design log
+  as the current log unless the repo intentionally introduces a new file.
