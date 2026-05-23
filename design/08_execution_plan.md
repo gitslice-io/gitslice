@@ -69,6 +69,8 @@ Exit criteria:
 - A user can initialize a workspace and add one or more slices.
 - File hydration preserves canonical account-rooted paths.
 - Local edits can be converted into canonical global path diffs.
+- Changeset creation rejects local diffs that are not contained by one
+  authoring slice.
 - Workspace state does not require cloning the full global source graph.
 - Local operations can be inspected through `gs op log`.
 - `gs cs create` and `gs cs update` produce server patchsets from local snapshots.
@@ -188,18 +190,19 @@ Server behavior:
 
 ```text
 1. Resolve changed absolute paths.
-2. Resolve covering slices.
-3. Record path base predicates, read set, and write set.
-4. Resolve submit requirements from the authoring slice definition and path locks.
-5. Refresh overlap and submit requirements.
-6. Check slice roles and approvals.
-7. Run required checks.
-8. Hand off to the target-ref landing sequencer.
-9. Revalidate path predicates, submit requirements, checks, and conflicts.
-10. Rebase or apply onto latest target ref.
-11. Create commit or batched commit chain.
-12. Update ref with CAS.
-13. Emit indexing events.
+2. Verify all changed paths are contained by the authoring slice.
+3. Resolve covering slices for overlap metadata.
+4. Record path base predicates, read set, and write set.
+5. Resolve submit requirements from the authoring slice definition and path locks.
+6. Refresh overlap and submit requirements.
+7. Check authoring-slice roles and approvals.
+8. Run required checks.
+9. Hand off to the target-ref landing sequencer.
+10. Revalidate path predicates, submit requirements, checks, and conflicts.
+11. Rebase or apply onto latest target ref.
+12. Create commit or batched commit chain.
+13. Update ref with CAS.
+14. Emit indexing events.
 ```
 
 ## 3. Example Git Workflow
@@ -219,11 +222,12 @@ Server behavior:
 1. Resolve slice from URL.
 2. Authenticate and authorize user.
 3. Convert Git diff to global absolute paths.
-4. Resolve covering slices.
-5. Resolve submit requirements.
-6. Create changeset.
-7. Create patchset.
-8. Run validation.
+4. Verify every changed path is inside the URL's authoring slice.
+5. Resolve covering slices for overlap metadata.
+6. Resolve submit requirements.
+7. Create changeset.
+8. Create patchset.
+9. Run validation.
 ```
 
 ## 4. Initial Non-Goals
@@ -237,6 +241,7 @@ The initial implementation should not include:
 - object-store participation in metadata transactions
 - path-level ACLs as the primary access model
 - Git-native storage internals
+- cross-slice changesets
 - distributed atomic commits across slices or target refs
 
 These can be revisited only if a concrete product requirement justifies the

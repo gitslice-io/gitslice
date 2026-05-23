@@ -21,7 +21,8 @@ The conflict model should:
 - keep semantic correctness delegated to required checks and dependency indexes
 
 The model must not introduce cross-slice changesets or atomic multi-slice
-submission. Each changeset still has exactly one authoring slice.
+submission. Each changeset has exactly one authoring slice, and the server
+rejects any patchset whose edits are outside that slice.
 
 ## 2. Core Idea
 
@@ -178,6 +179,11 @@ the target ref first.
 Batching is an optimization for a hot target ref. It does not change the
 changeset model.
 
+A batch can contain independently valid changesets from different authoring
+slices, but the batch is not a user-visible cross-slice changeset. Each
+changeset keeps its own authoring slice, approvals, checks, commit, and audit
+record.
+
 A submit worker can group ready changesets that share a `target_ref` when:
 
 - every candidate already passed review, approval, and required checks
@@ -217,14 +223,26 @@ The target ref moves once, but each changeset still gets its own commit and
 audit record. This preserves review traceability while reducing target-ref CAS
 pressure.
 
-The deterministic order can start with:
+The deterministic order should use a topological sort based on read/write set
+intersections:
 
 ```text
-submit_ready_at, changeset_id
+1. Build a directed graph where an edge exists from Ci to Cj if the read set
+   of Ci intersects the write set of Cj.
+2. Sort topologically. The edge means Ci must be applied before Cj, so readers
+   of a path are ordered before writers of that path within the same batch.
+3. If a cycle is detected, partition the batch or exclude conflicting
+   candidates.
+4. Within each topological level, break ties with submit_ready_at, changeset_id.
 ```
 
-Later it can account for service-level fairness, but fairness should remain
-outside the correctness model.
+This prevents false-positive read-set invalidations that occur with naive
+chronological ordering. If Changeset A modifies `/lib/utils.go` and Changeset B
+reads `/lib/utils.go`, sorting them arbitrarily might cause B's read predicate
+to fail if A is applied first.
+
+Fairness should remain outside the correctness model but can be applied as a
+tiebreaker within topological levels.
 
 ## 7. Why Disjoint Writes Are Not Enough
 
@@ -239,6 +257,22 @@ Examples:
 For the MVP, required checks catch these cases. As dependency indexes mature,
 Gitslice can add dependency-derived paths to each patchset's read set. That
 turns some semantic conflicts into deterministic freshness checks.
+
+## 7.1 Approval Preservation Across Rebases
+
+When a rebase creates a new patchset, existing approvals are not automatically
+invalidated. If the new patchset's write-set diff is semantically identical to
+the previously approved patchset's diff (same paths, same content hashes, same
+operations), the system auto-forwards approvals to the new patchset.
+
+This prevents unnecessary re-review cycles when target refs move frequently but
+the changeset's actual changes are unaffected.
+
+Approvals are invalidated only when:
+
+- the file content diff changes (new paths added, content modified)
+- submit requirements change (definition hash or path lock set hash)
+- the authoring slice definition changes
 
 ## 8. Interaction With Overlapping Slices
 
@@ -255,9 +289,9 @@ same global path + stale path predicate -> conflict
 different global paths + compatible read/write sets -> can batch
 ```
 
-The authoring slice still controls write authorization and submit requirements
-for its changeset. Covering slices affect review routing, visibility, projection
-invalidation, and conflict reporting.
+The authoring slice controls write authorization, reviewer selection, approvals,
+and submit requirements for its changeset. Covering slices affect visibility,
+projection invalidation, and conflict reporting only.
 
 ## 9. Index Support
 

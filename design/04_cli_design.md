@@ -41,11 +41,13 @@ The CLI should expose those ideas through Gitslice objects.
 1. The user works in a sparse Gitslice workspace, not a full global checkout.
 2. The workspace can contain multiple slices.
 3. A changeset is scoped to exactly one authoring slice.
-4. If a command cannot infer the authoring slice, it must ask for `--slice`.
-5. The CLI does not expose direct user-facing commit creation.
-6. The CLI does not expose a Git-style staging area.
-7. Local workspace actions are recorded in a local operation log.
-8. Submitted work is authoritative only after server validation and ref CAS.
+4. If local edits are not fully contained by one authoring slice, the CLI must
+   stop and ask the user to split the work.
+5. If a command cannot infer the authoring slice, it must ask for `--slice`.
+6. The CLI does not expose direct user-facing commit creation.
+7. The CLI does not expose a Git-style staging area.
+8. Local workspace actions are recorded in a local operation log.
+9. Submitted work is authoritative only after server validation and ref CAS.
 
 ## 3. Command Groups
 
@@ -151,7 +153,7 @@ gs diff --to <patchset>
 - snapshot local filesystem metadata
 - detect changed files
 - resolve authoring slice candidates
-- show whether changes are inside one slice or ambiguous
+- show whether changes are inside exactly one authoring slice or need splitting
 - show required approvals and checks when available
 - show current draft changeset and patchset state
 
@@ -167,7 +169,7 @@ On most mutating `gs` commands:
 ```text
 1. Scan changed workspace paths.
 2. Normalize to canonical global paths.
-3. Verify authoring slice containment.
+3. Verify all changed paths are contained by one authoring slice.
 4. Stage changed blob content through BlobService.
 5. Create or refresh a local draft patchset snapshot.
 6. Record a local operation log entry.
@@ -221,21 +223,23 @@ Create flow:
 ```text
 1. Resolve authoring slice.
 2. Snapshot local changes into file edits.
-3. Upload missing blobs.
-4. CreateChangeset.
-5. UpdateChangeset to create patchset 1.
-6. Store changeset id in local workspace state.
-7. Record local operation log entry.
+3. Reject the command if any file edit is outside the authoring slice.
+4. Upload missing blobs.
+5. CreateChangeset.
+6. UpdateChangeset to create patchset 1.
+7. Store changeset id in local workspace state.
+8. Record local operation log entry.
 ```
 
 Update flow:
 
 ```text
 1. Snapshot local changes.
-2. Upload missing blobs.
-3. UpdateChangeset with expected current patchset id.
-4. Store returned patchset id.
-5. Record local operation log entry.
+2. Verify every file edit is still inside the changeset's authoring slice.
+3. Upload missing blobs.
+4. UpdateChangeset with expected current patchset id.
+5. Store returned patchset id.
+6. Record local operation log entry.
 ```
 
 Submit flow:
@@ -387,6 +391,7 @@ The initial CLI should not:
 - expose direct native commit creation
 - expose a Git-style staging area
 - allow cross-slice changesets
+- auto-link multiple changesets into one submission
 - make Git sparse checkout a core workflow
 - bypass server-side submit validation
 

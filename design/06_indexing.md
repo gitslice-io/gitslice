@@ -211,8 +211,10 @@ paths.
 covering_slices(path, definition_epoch) -> []slice_id
 ```
 
-This index accelerates authorization, review routing, projection invalidation,
-and affected-slice calculation. It is derived from slice definitions.
+This index accelerates authorization containment checks, projection
+invalidation, visibility analysis, and affected-slice calculation. It is derived
+from slice definitions and does not create multi-slice changesets or extra
+approval requirements.
 
 ### 3.2 Submit Requirement Provenance
 

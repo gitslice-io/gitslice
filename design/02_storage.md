@@ -49,7 +49,7 @@ This gives the system:
 
 - Unified history
 - Consistent global indexing
-- Cross-slice visibility without cross-slice submission
+- Overlap visibility without multi-slice changesets
 - Deterministic slice projection
 
 ## 3. Ref Model
@@ -438,6 +438,11 @@ check_runs(
   completed_at
 )
 ```
+
+Coverage snapshots are derived metadata for overlap, projection invalidation,
+visibility analysis, and conflict reporting. They are not a changeset ownership
+model. `changesets.authoring_slice_id` is singular, and every `file_edits.path`
+must be contained by that authoring slice.
 
 Operational tables:
 
