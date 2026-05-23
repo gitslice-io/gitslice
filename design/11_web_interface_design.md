@@ -51,11 +51,21 @@ ChangesetService.SubmitChangeset
 ChangesetService.AbandonChangeset
 ```
 
-The first web implementation also needs a browser-facing transport adapter. The
-repository does not currently expose grpc-gateway or gRPC-Web endpoints, so the
-web server should start with a small same-origin HTTP adapter that maps directly
-to the service methods above. Do not add UI flows that depend on generic
-grpc-gateway routes until those bindings exist.
+The server exposes these methods to browsers through the optional HTTP JSON
+gateway enabled by `GITSLICE_HTTP_ADDR` or `--http-addr`. Until explicit
+`google.api.http` annotations are added, the generated grpc-gateway routes use
+unbound method paths such as:
+
+```text
+POST /gitslice.core.v1.FakeAccountService/Login
+POST /gitslice.core.v1.SliceService/ListSlices
+POST /gitslice.core.v1.ChangesetService/GetChangeset
+```
+
+The gateway forwards into the existing gRPC server, so the same auth interceptor
+and service behavior apply to CLI and web callers. Browser clients served from a
+different origin can use `GITSLICE_HTTP_ALLOWED_ORIGIN` or
+`--http-allowed-origin` to enable CORS for local development.
 
 ### 1.1 Explicit Non-Scope
 
@@ -488,7 +498,7 @@ Query parameters:
 | Routing | TanStack Router | Typed route and search-param handling |
 | Server state | TanStack Query | Caching, mutation state, and polling publish status |
 | Syntax highlighting | Shiki | Read-only source highlighting |
-| HTTP transport | Same-origin web adapter over current gRPC services | Keeps the browser API limited to supported service methods |
+| HTTP transport | grpc-gateway over current gRPC services | Keeps the browser API limited to supported service methods |
 | CSS | Tailwind CSS | Fast, utilitarian styling for prototype UI |
 
 Do not add a diff-review package, Monaco editor, OAuth client, WebSocket client,
@@ -498,7 +508,7 @@ or comment editor until the corresponding backend capabilities exist.
 
 ```text
 Web UI (SPA)
-  -> same-origin web adapter
+  -> HTTP JSON grpc-gateway
     -> implemented gRPC Core Services
       -> PostgreSQL metadata
       -> filesystem object store
@@ -513,7 +523,7 @@ service methods and should preserve the same authorization checks as the CLI.
 The first auth flow is development-only:
 
 1. User enters a dev user such as `alice`.
-2. The web adapter calls `FakeAccountService.Login`.
+2. The HTTP gateway calls `FakeAccountService.Login`.
 3. The app attaches the returned bearer token to subsequent requests.
 4. Logout clears the local token.
 

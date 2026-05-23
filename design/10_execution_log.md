@@ -3,6 +3,59 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-23: Add HTTP JSON Gateway For Core gRPC Services
+
+Request:
+
+- add grpc-gateway in the server so the web app can call the API
+
+Implemented:
+
+- generated grpc-gateway stubs for all public `proto/core/v1` service files
+  using unbound method routes
+- added optional server HTTP gateway listener configured by `GITSLICE_HTTP_ADDR`
+  or `--http-addr`
+- added optional CORS origin handling through `GITSLICE_HTTP_ALLOWED_ORIGIN` or
+  `--http-allowed-origin`
+- wired the gateway through the existing gRPC listener with insecure local
+  transport so the current auth interceptor and service behavior remain shared
+  by CLI and web callers
+- forwarded the HTTP `Authorization` header into gRPC metadata for bearer-token
+  protected methods
+- normalized wildcard gRPC listen addresses to loopback before the gateway dials
+  the in-process gRPC server
+- added a real HTTP gateway functional test covering dev login and authenticated
+  `ListSlices`
+- updated proto regeneration instructions to include grpc-gateway output
+
+Important decisions and learnings:
+
+- The current protos do not have `google.api.http` annotations, so the first
+  gateway uses generated unbound POST routes such as
+  `/gitslice.core.v1.SliceService/ListSlices`.
+- `grpc-gateway` v2.29 currently requires a newer Go version than this module,
+  so the dependency is pinned to v2.22.0 to preserve the module's Go 1.22 line
+  while keeping existing grpc/protobuf versions stable.
+- The gateway is optional to avoid introducing a new mandatory listen port for
+  CLI-only and test server runs.
+
+Verification:
+
+```bash
+protoc --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative --grpc-gateway_opt=generate_unbound_methods=true proto/core/v1/*.proto
+gofmt -w cmd/gitslice-server/main.go server/*.go tests/functional/cli_smoke_test.go
+go test ./...
+go build ./cmd/...
+git diff --check
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run TestHTTPGatewayLoginAndListSlices -v
+```
+
+The targeted real-Postgres functional run could not complete in this
+environment because local PostgreSQL rejected password authentication for
+`user=nic database=gitslice_dev` (`SQLSTATE 28P01`). The default test suite
+still passes and skips real-Postgres functional coverage when the database URL
+is unavailable.
+
 ## 2026-05-23: Align Web Interface Design With Current Prototype
 
 Request:
