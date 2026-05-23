@@ -32,6 +32,9 @@ type TreeEntry struct {
 }
 
 func TreeID(entries []TreeEntry) string {
+	if entries == nil {
+		entries = []TreeEntry{}
+	}
 	payload, _ := json.Marshal(struct {
 		Entries []TreeEntry `json:"entries"`
 	}{Entries: entries})
@@ -52,6 +55,13 @@ type CommitObject struct {
 }
 
 func CommitID(obj CommitObject) string {
+	if obj.ParentIDs == nil {
+		obj.ParentIDs = []string{}
+	}
+	if obj.ChangedPaths == nil {
+		obj.ChangedPaths = []string{}
+	}
+	obj.CreatedAt = obj.CreatedAt.UTC()
 	payload, _ := json.Marshal(obj)
 	return hash("gitslice.commit.v1", payload)
 }
