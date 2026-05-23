@@ -215,6 +215,16 @@ logic in handlers. For example, both `ChangesetService.UpdateChangeset` and
 `WorkspaceService.ValidateWorkspaceDiff` should use the same path normalization,
 authoring-slice containment, path-base, and read/write-set code.
 
+`ChangesetService.SubmitChangeset` should use the async MVP path:
+
+```text
+path-head CAS -> pending_publish append -> in-process batch publisher -> ref CAS
+```
+
+The server binary owns only the publisher wiring: interval, batch size,
+lifecycle, logging, and shutdown. Publish correctness belongs in the storage
+layer so crash recovery can resume from durable `pending_publish` rows.
+
 ## 6. Suggested Go Package Layout
 
 The exact package names can change, but ownership should stay clear.

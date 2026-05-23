@@ -264,7 +264,7 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 				projectionJobs <- projectionJob{
 					operation:   operation,
 					file:        file,
-					commitID:    submit.CommitId,
+					changesetID: submit.ChangesetID,
 					submittedAt: submittedAt,
 					attempts:    attempts,
 					conflicts:   conflicts,
@@ -297,12 +297,13 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 	}
 
 	submitSamples := drainDurations(submitDurations)
-	reportDurations(t, "hot_files_create_update_submit", len(submitSamples), submitWall, submitSamples)
+	reportDurations(t, "hot_files_create_update_submit_accept", len(submitSamples), submitWall, submitSamples)
 
-	var homeRefresh, otherRefresh, homeVisible, otherVisible []time.Duration
+	var publishLatency, homeRefresh, otherRefresh, homeVisible, otherVisible []time.Duration
 	totalAttempts := 0
 	totalConflicts := 0
 	for result := range projectionResults {
+		publishLatency = append(publishLatency, result.publishLatency)
 		homeRefresh = append(homeRefresh, result.homeRefresh)
 		otherRefresh = append(otherRefresh, result.otherRefresh)
 		homeVisible = append(homeVisible, result.homeVisible)
@@ -310,6 +311,7 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 		totalAttempts += result.attempts
 		totalConflicts += result.conflicts
 	}
+	sortDurations(publishLatency)
 	sortDurations(homeRefresh)
 	sortDurations(otherRefresh)
 	sortDurations(homeVisible)
@@ -324,6 +326,7 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 		100*float64(totalConflicts)/float64(totalAttempts),
 		projectionWorkers,
 	)
+	reportDurations(t, "hot_files_accepted_to_published", len(publishLatency), submitWall, publishLatency)
 	reportDurations(t, "hot_files_home_projection_refresh", len(homeRefresh), submitWall, homeRefresh)
 	reportDurations(t, "hot_files_other_projection_refresh", len(otherRefresh), submitWall, otherRefresh)
 	reportDurations(t, "hot_files_home_submit_to_visible", len(homeVisible), submitWall, homeVisible)
@@ -394,25 +397,27 @@ type hotFile struct {
 }
 
 type hotSubmitResult struct {
-	CommitId string
+	ChangesetID      string
+	PendingPublishID string
 }
 
 type projectionJob struct {
 	operation   int
 	file        hotFile
-	commitID    string
+	changesetID string
 	submittedAt time.Time
 	attempts    int
 	conflicts   int
 }
 
 type projectionResult struct {
-	homeRefresh  time.Duration
-	otherRefresh time.Duration
-	homeVisible  time.Duration
-	otherVisible time.Duration
-	attempts     int
-	conflicts    int
+	publishLatency time.Duration
+	homeRefresh    time.Duration
+	otherRefresh   time.Duration
+	homeVisible    time.Duration
+	otherVisible   time.Duration
+	attempts       int
+	conflicts      int
 }
 
 func dialLoadGRPC(t *testing.T, addr string) *grpc.ClientConn {
@@ -503,17 +508,21 @@ func submitHotFileOnce(clients loadCoreClients, file hotFile, label string, oper
 	if err != nil {
 		return nil, err
 	}
-	return &hotSubmitResult{CommitId: submit.CommitId}, nil
+	return &hotSubmitResult{ChangesetID: cs.Id, PendingPublishID: submit.PendingPublishId}, nil
 }
 
 func measureProjectionLatency(ctx context.Context, store *postgres.Store, projector *gitcompat.Projector, subjectID string, job projectionJob) (projectionResult, error) {
+	commitID, publishedAt, err := waitForPublishedChangeset(ctx, store, job.changesetID)
+	if err != nil {
+		return projectionResult{}, err
+	}
 	homeStart := time.Now()
 	_, home, err := projector.EnsureProjectedRepo(ctx, subjectID, "acme", "payment")
 	if err != nil {
 		return projectionResult{}, err
 	}
 	homeDone := time.Now()
-	if err := ensureNativeCommitIncludes(ctx, store, job.commitID, home.NativeCommitID); err != nil {
+	if err := ensureNativeCommitIncludes(ctx, store, commitID, home.NativeCommitID); err != nil {
 		return projectionResult{}, fmt.Errorf("home projection: %w", err)
 	}
 
@@ -523,18 +532,40 @@ func measureProjectionLatency(ctx context.Context, store *postgres.Store, projec
 		return projectionResult{}, err
 	}
 	otherDone := time.Now()
-	if err := ensureNativeCommitIncludes(ctx, store, job.commitID, other.NativeCommitID); err != nil {
+	if err := ensureNativeCommitIncludes(ctx, store, commitID, other.NativeCommitID); err != nil {
 		return projectionResult{}, fmt.Errorf("other projection: %w", err)
 	}
 
 	return projectionResult{
-		homeRefresh:  homeDone.Sub(homeStart),
-		otherRefresh: otherDone.Sub(otherStart),
-		homeVisible:  homeDone.Sub(job.submittedAt),
-		otherVisible: otherDone.Sub(job.submittedAt),
-		attempts:     job.attempts,
-		conflicts:    job.conflicts,
+		publishLatency: publishedAt.Sub(job.submittedAt),
+		homeRefresh:    homeDone.Sub(homeStart),
+		otherRefresh:   otherDone.Sub(otherStart),
+		homeVisible:    homeDone.Sub(job.submittedAt),
+		otherVisible:   otherDone.Sub(job.submittedAt),
+		attempts:       job.attempts,
+		conflicts:      job.conflicts,
 	}, nil
+}
+
+func waitForPublishedChangeset(ctx context.Context, store *postgres.Store, changesetID string) (string, time.Time, error) {
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		cs, err := store.GetChangeset(ctx, changesetID)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		if cs.Status == "submitted" && cs.CommitId != "" {
+			return cs.CommitId, time.Now(), nil
+		}
+		if time.Now().After(deadline) {
+			return "", time.Time{}, fmt.Errorf("changeset %s was not published before timeout, last status %s", changesetID, cs.Status)
+		}
+		select {
+		case <-ctx.Done():
+			return "", time.Time{}, ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 func ensureNativeCommitIncludes(ctx context.Context, store *postgres.Store, ancestorCommitID, projectedCommitID string) error {

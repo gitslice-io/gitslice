@@ -102,6 +102,19 @@ create table if not exists changesets(
 	updated_at timestamptz not null default now()
 );
 
+create table if not exists path_heads(
+	path text primary key,
+	exists boolean not null,
+	entry_fingerprint text not null,
+	blob_id text,
+	content_hash text,
+	mode integer,
+	size bigint,
+	accepted_changeset_id text references changesets(id),
+	accepted_patchset_id text,
+	updated_at timestamptz not null default now()
+);
+
 create table if not exists patchsets(
 	id text primary key,
 	changeset_id text not null references changesets(id),
@@ -118,9 +131,26 @@ create table if not exists patchsets(
 	unique(changeset_id, number)
 );
 
+create table if not exists pending_publish(
+	id text primary key,
+	sequence bigserial unique,
+	changeset_id text not null unique references changesets(id),
+	patchset_id text not null references patchsets(id),
+	target_ref text not null references refs(name),
+	base_ref_commit_id text not null,
+	status text not null,
+	commit_id text,
+	error text,
+	created_at timestamptz not null default now(),
+	updated_at timestamptz not null default now(),
+	published_at timestamptz
+);
+
 create index if not exists idx_sessions_token_hash on sessions(token_hash) where revoked_at is null;
 create index if not exists idx_slices_account_slug on slices(account_id, slug);
 create index if not exists idx_commit_files_path on commit_files(commit_id, path);
 create index if not exists idx_changesets_target_status on changesets(target_ref, status);
 create index if not exists idx_patchsets_changeset_number on patchsets(changeset_id, number desc);
 create index if not exists idx_blobs_content_hash on blobs(content_hash);
+create index if not exists idx_pending_publish_status_sequence on pending_publish(status, sequence);
+create index if not exists idx_path_heads_fingerprint on path_heads(path, entry_fingerprint);

@@ -529,14 +529,24 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions) err
 		return err
 	}
 	defer conn.Close()
-	res, err := corev1.NewChangesetServiceClient(conn).SubmitChangeset(authContext(ctx, cfg), &corev1.SubmitChangesetRequest{
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	res, err := changesetClient.SubmitChangeset(authContext(ctx, cfg), &corev1.SubmitChangesetRequest{
 		ChangesetId:               state.CurrentChangesetID,
 		ExpectedCurrentPatchsetId: state.CurrentPatchsetID,
 	})
 	if err != nil {
 		return err
 	}
-	state.BaseCommitID = res.NewRefCommitId
+	commitID := res.CommitId
+	refCommitID := res.NewRefCommitId
+	if refCommitID == "" || res.Status == "pending_publish" {
+		var err error
+		commitID, refCommitID, err = r.waitForChangesetPublished(ctx, conn, cfg, state.CurrentChangesetID)
+		if err != nil {
+			return err
+		}
+	}
+	state.BaseCommitID = refCommitID
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
@@ -544,21 +554,52 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions) err
 	if err != nil {
 		return err
 	}
-	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: res.NewRefCommitId, Files: snapshotFiles(current)}); err != nil {
+	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: refCommitID, Files: snapshotFiles(current)}); err != nil {
 		return err
 	}
 	if opts.jsonOutput() {
 		return writeJSON(r.Stdout, map[string]any{
-			"commit_id":         res.CommitId,
+			"commit_id":         commitID,
 			"target_ref":        res.TargetRef,
-			"new_ref_commit_id": res.NewRefCommitId,
+			"new_ref_commit_id": refCommitID,
+			"status":            "submitted",
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", res.CommitId, res.TargetRef)
+	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", commitID, res.TargetRef)
 	return nil
+}
+
+func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changesetID string) (string, string, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	repoClient := corev1.NewRepositoryServiceClient(conn)
+	for {
+		cs, err := changesetClient.GetChangeset(authContext(waitCtx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
+		if err != nil {
+			return "", "", err
+		}
+		if cs.Status == "submitted" && cs.CommitId != "" {
+			ref, err := repoClient.GetRef(authContext(waitCtx, cfg), &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+			if err != nil {
+				return "", "", err
+			}
+			return cs.CommitId, ref.CommitId, nil
+		}
+		if cs.Status != "pending_publish" && cs.Status != "draft" {
+			return "", "", userError("publish_failed", "changeset publish failed with status "+cs.Status, "Run gs cs status for details.")
+		}
+		select {
+		case <-waitCtx.Done():
+			return "", "", userError("publish_timeout", "changeset accepted but not published before timeout", "Run gs cs status to check publish progress.")
+		case <-ticker.C:
+		}
+	}
 }
 
 func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions) error {

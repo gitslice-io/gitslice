@@ -45,6 +45,23 @@ type FileEntry struct {
 	Size        int64
 }
 
+type PathHead struct {
+	Path             string
+	Exists           bool
+	EntryFingerprint string
+	BlobID           string
+	ContentHash      string
+	Mode             uint32
+	Size             int64
+}
+
+type pendingPublishRow struct {
+	ID          string
+	ChangesetID string
+	PatchsetID  string
+	TargetRef   string
+}
+
 func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if databaseURL == "" {
 		return nil, fmt.Errorf("database URL is required")
@@ -53,6 +70,9 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(32)
+	db.SetMaxIdleConns(32)
+	db.SetConnMaxLifetime(30 * time.Minute)
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -371,17 +391,19 @@ func (s *Store) CreateChangeset(ctx context.Context, subjectID string, req *core
 
 func (s *Store) GetChangeset(ctx context.Context, changesetID string) (*corev1.Changeset, error) {
 	var cs corev1.Changeset
-	var account, slice, currentPatchsetID sql.NullString
+	var account, slice, currentPatchsetID, commitID, pendingPublishID sql.NullString
 	var affectedJSON []byte
 	err := s.db.QueryRowContext(ctx, `
-		select id, authoring_account, authoring_slice, author_subject_id, target_ref,
-		       base_commit_id, title, description, status, affected_paths,
-		       coalesce(current_patchset_number, 0), current_patchset_id
-		from changesets
-		where id = $1
+		select c.id, c.authoring_account, c.authoring_slice, c.author_subject_id, c.target_ref,
+		       c.base_commit_id, c.title, c.description, c.status, c.affected_paths,
+		       coalesce(c.current_patchset_number, 0), c.current_patchset_id,
+		       c.commit_id, p.id
+		from changesets c
+		left join pending_publish p on p.changeset_id = c.id
+		where c.id = $1
 	`, changesetID).Scan(&cs.Id, &account, &slice, &cs.Author, &cs.TargetRef,
 		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
-		&cs.CurrentPatchsetNumber, &currentPatchsetID)
+		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -393,6 +415,12 @@ func (s *Store) GetChangeset(ctx context.Context, changesetID string) (*corev1.C
 	}
 	if currentPatchsetID.Valid {
 		cs.CurrentPatchsetId = currentPatchsetID.String
+	}
+	if commitID.Valid {
+		cs.CommitId = commitID.String
+	}
+	if pendingPublishID.Valid {
+		cs.PendingPublishId = pendingPublishID.String
 	}
 	if err := decodeJSON(affectedJSON, &cs.AffectedPaths); err != nil {
 		return nil, err
@@ -528,7 +556,22 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 		return nil, ErrConflict
 	}
 	if cs.Status == "submitted" && cs.CommitID.Valid {
-		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitID.String, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitID.String}, nil
+		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitID.String, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitID.String, Status: "submitted"}, nil
+	}
+	if cs.Status == "pending_publish" {
+		var pendingID string
+		err := tx.QueryRowContext(ctx, `
+			select id
+			from pending_publish
+			where changeset_id = $1 and status = 'pending'
+		`, cs.ID).Scan(&pendingID)
+		if err == nil {
+			return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID}, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		return nil, ErrConflict
 	}
 	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetID != expectedCurrentPatchsetID {
 		return nil, ErrConflict
@@ -545,7 +588,6 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 		select commit_id
 		from refs
 		where name = $1
-		for update
 	`, cs.TargetRef).Scan(&currentCommitID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -554,77 +596,210 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 		return nil, err
 	}
 	for _, base := range patchset.PathBases {
-		if err := validatePathBaseTx(ctx, tx, currentCommitID, base); err != nil {
+		if err := validateAcceptedPathBaseTx(ctx, tx, currentCommitID, base); err != nil {
 			return nil, ErrConflict
 		}
 	}
-	files, err := loadCommitFilesTx(ctx, tx, currentCommitID)
-	if err != nil {
+	if err := applyPathHeadEditsTx(ctx, tx, cs.ID, patchset.Id, patchset.FileEdits); err != nil {
 		return nil, err
 	}
-	if err := applyFileEditsTx(ctx, tx, files, patchset.FileEdits); err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	rootTreeID := rootTreeID(files)
-	message := cs.Title
-	if message == "" {
-		message = "Submit " + cs.ID
-	}
-	commitID := objectid.CommitID(objectid.CommitObject{
-		ParentIDs:    []string{currentCommitID},
-		RootTreeID:   rootTreeID,
-		Author:       cs.Author,
-		Message:      message,
-		CreatedAt:    now,
-		ChangedPaths: patchset.ChangedPaths,
-	})
-	parentJSON, err := encodeJSON([]string{currentCommitID})
-	if err != nil {
-		return nil, err
-	}
-	changedJSON, err := encodeJSON(patchset.ChangedPaths)
+	pendingID, err := objectid.RandomID("pub")
 	if err != nil {
 		return nil, err
 	}
 	_, err = tx.ExecContext(ctx, `
-		insert into commits(id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths)
-		values ($1, $2, $3, $4, $5, $6, $7)
-		on conflict (id) do nothing
-	`, commitID, parentJSON, rootTreeID, cs.Author, message, now, changedJSON)
+		insert into pending_publish(id, changeset_id, patchset_id, target_ref, base_ref_commit_id, status, created_at, updated_at)
+		values ($1, $2, $3, $4, $5, 'pending', now(), now())
+	`, pendingID, cs.ID, patchset.Id, cs.TargetRef, currentCommitID)
 	if err != nil {
 		return nil, err
-	}
-	if err := insertCommitFilesTx(ctx, tx, commitID, files); err != nil {
-		return nil, err
-	}
-	res, err := tx.ExecContext(ctx, `
-		update refs
-		set commit_id = $1, version = version + 1, updated_at = now(), updated_by = $2
-		where name = $3 and commit_id = $4
-	`, commitID, cs.Author, cs.TargetRef, currentCommitID)
-	if err != nil {
-		return nil, err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return nil, err
-	}
-	if affected == 0 {
-		return nil, ErrConflict
 	}
 	_, err = tx.ExecContext(ctx, `
 		update changesets
-		set status = 'submitted', commit_id = $1, updated_at = now()
-		where id = $2
-	`, commitID, cs.ID)
+		set status = 'pending_publish', updated_at = now()
+		where id = $1
+	`, cs.ID)
 	if err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &corev1.SubmitChangesetResponse{CommitId: commitID, TargetRef: cs.TargetRef, NewRefCommitId: commitID}, nil
+	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID}, nil
+}
+
+func (s *Store) PublishPending(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 64
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `
+		select id, changeset_id, patchset_id, target_ref
+		from pending_publish
+		where status = 'pending'
+		order by sequence
+		limit $1
+		for update skip locked
+	`, limit)
+	if err != nil {
+		return 0, err
+	}
+	var pending []pendingPublishRow
+	for rows.Next() {
+		var row pendingPublishRow
+		if err := rows.Scan(&row.ID, &row.ChangesetID, &row.PatchsetID, &row.TargetRef); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		pending = append(pending, row)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if len(pending) == 0 {
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	targetRef := pending[0].TargetRef
+	batch := pending[:0]
+	for _, row := range pending {
+		if row.TargetRef == targetRef {
+			batch = append(batch, row)
+		}
+	}
+	var originalCommitID string
+	err = tx.QueryRowContext(ctx, `
+		select commit_id
+		from refs
+		where name = $1
+		for update
+	`, targetRef).Scan(&originalCommitID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	currentCommitID := originalCommitID
+	files, err := loadCommitFilesTx(ctx, tx, currentCommitID)
+	if err != nil {
+		return 0, err
+	}
+	baseTime := time.Now().UTC().Truncate(time.Microsecond)
+	published := 0
+	updatedBy := "publisher"
+	for _, row := range batch {
+		var cs struct {
+			Author string
+			Title  string
+			Status string
+		}
+		err := tx.QueryRowContext(ctx, `
+			select author_subject_id, title, status
+			from changesets
+			where id = $1
+			for update
+		`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Status)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		if err != nil {
+			return 0, err
+		}
+		if cs.Status != "pending_publish" {
+			continue
+		}
+		patchset, err := getPatchsetTx(ctx, tx, row.PatchsetID)
+		if err != nil {
+			return 0, err
+		}
+		if err := applyFileEditsTx(ctx, tx, files, patchset.FileEdits); err != nil {
+			return 0, err
+		}
+		now := baseTime.Add(time.Duration(published) * time.Microsecond)
+		rootTreeID := rootTreeID(files)
+		message := cs.Title
+		if message == "" {
+			message = "Submit " + row.ChangesetID
+		}
+		commitID := objectid.CommitID(objectid.CommitObject{
+			ParentIDs:    []string{currentCommitID},
+			RootTreeID:   rootTreeID,
+			Author:       cs.Author,
+			Message:      message,
+			CreatedAt:    now,
+			ChangedPaths: patchset.ChangedPaths,
+		})
+		parentJSON, err := encodeJSON([]string{currentCommitID})
+		if err != nil {
+			return 0, err
+		}
+		changedJSON, err := encodeJSON(patchset.ChangedPaths)
+		if err != nil {
+			return 0, err
+		}
+		_, err = tx.ExecContext(ctx, `
+			insert into commits(id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths)
+			values ($1, $2, $3, $4, $5, $6, $7)
+			on conflict (id) do nothing
+		`, commitID, parentJSON, rootTreeID, cs.Author, message, now, changedJSON)
+		if err != nil {
+			return 0, err
+		}
+		if err := insertCommitFilesTx(ctx, tx, commitID, files); err != nil {
+			return 0, err
+		}
+		_, err = tx.ExecContext(ctx, `
+			update pending_publish
+			set status = 'published', commit_id = $1, updated_at = now(), published_at = now()
+			where id = $2
+		`, commitID, row.ID)
+		if err != nil {
+			return 0, err
+		}
+		_, err = tx.ExecContext(ctx, `
+			update changesets
+			set status = 'submitted', commit_id = $1, updated_at = now()
+			where id = $2
+		`, commitID, row.ChangesetID)
+		if err != nil {
+			return 0, err
+		}
+		currentCommitID = commitID
+		updatedBy = cs.Author
+		published++
+	}
+	if published == 0 {
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	res, err := tx.ExecContext(ctx, `
+		update refs
+		set commit_id = $1, version = version + 1, updated_at = now(), updated_by = $2
+		where name = $3 and commit_id = $4
+	`, currentCommitID, updatedBy, targetRef, originalCommitID)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if affected == 0 {
+		return 0, ErrConflict
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return published, nil
 }
 
 func (s *Store) AbandonChangeset(ctx context.Context, changesetID string) error {
@@ -872,6 +1047,204 @@ func applyFileEditsTx(ctx context.Context, tx *sql.Tx, files map[string]FileEntr
 		}
 	}
 	return nil
+}
+
+func validateAcceptedPathBaseTx(ctx context.Context, tx *sql.Tx, currentCommitID string, base *corev1.PathBase) error {
+	head, err := getOrInitPathHeadTx(ctx, tx, currentCommitID, base.Path)
+	if err != nil {
+		return err
+	}
+	if !head.Exists {
+		if base.Exists || base.EntryFingerprint != MissingEntryFingerprint() {
+			return ErrConflict
+		}
+		return nil
+	}
+	if !base.Exists {
+		return ErrConflict
+	}
+	if head.EntryFingerprint != base.EntryFingerprint {
+		return ErrConflict
+	}
+	return nil
+}
+
+func getOrInitPathHeadTx(ctx context.Context, tx *sql.Tx, currentCommitID, p string) (*PathHead, error) {
+	head, err := getPathHeadTx(ctx, tx, p)
+	if err == nil {
+		return head, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	entry, err := getFileTx(ctx, tx, currentCommitID, p)
+	if errors.Is(err, ErrNotFound) {
+		if err := insertInitialPathHeadTx(ctx, tx, PathHead{
+			Path:             p,
+			Exists:           false,
+			EntryFingerprint: MissingEntryFingerprint(),
+		}, "", ""); err != nil {
+			return nil, err
+		}
+		return getPathHeadTx(ctx, tx, p)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := insertInitialPathHeadTx(ctx, tx, pathHeadFromFile(*entry), "", ""); err != nil {
+		return nil, err
+	}
+	return getPathHeadTx(ctx, tx, p)
+}
+
+func getPathHeadTx(ctx context.Context, tx *sql.Tx, p string) (*PathHead, error) {
+	var head PathHead
+	var blobID, contentHash sql.NullString
+	var mode, size sql.NullInt64
+	err := tx.QueryRowContext(ctx, `
+		select path, exists, entry_fingerprint, blob_id, content_hash, mode, size
+		from path_heads
+		where path = $1
+		for update
+	`, p).Scan(&head.Path, &head.Exists, &head.EntryFingerprint, &blobID, &contentHash, &mode, &size)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if blobID.Valid {
+		head.BlobID = blobID.String
+	}
+	if contentHash.Valid {
+		head.ContentHash = contentHash.String
+	}
+	if mode.Valid {
+		head.Mode = uint32(mode.Int64)
+	}
+	if size.Valid {
+		head.Size = size.Int64
+	}
+	return &head, nil
+}
+
+func applyPathHeadEditsTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string, edits []*corev1.FileEdit) error {
+	for _, edit := range edits {
+		switch edit.Op {
+		case "delete":
+			if err := upsertPathHeadTx(ctx, tx, PathHead{
+				Path:             edit.Path,
+				Exists:           false,
+				EntryFingerprint: MissingEntryFingerprint(),
+			}, changesetID, patchsetID); err != nil {
+				return err
+			}
+		case "rename":
+			head, err := getPathHeadTx(ctx, tx, edit.OldPath)
+			if err != nil {
+				return err
+			}
+			if !head.Exists {
+				return ErrConflict
+			}
+			if err := upsertPathHeadTx(ctx, tx, PathHead{
+				Path:             edit.OldPath,
+				Exists:           false,
+				EntryFingerprint: MissingEntryFingerprint(),
+			}, changesetID, patchsetID); err != nil {
+				return err
+			}
+			head.Path = edit.Path
+			if err := upsertPathHeadTx(ctx, tx, *head, changesetID, patchsetID); err != nil {
+				return err
+			}
+		default:
+			blob, err := getBlobTx(ctx, tx, edit.BlobId)
+			if err != nil {
+				return err
+			}
+			entry := FileEntry{
+				Path:        edit.Path,
+				BlobID:      blob.Id,
+				ContentHash: blob.ContentHash,
+				Mode:        edit.Mode,
+				Size:        blob.Size,
+			}
+			if err := upsertPathHeadTx(ctx, tx, pathHeadFromFile(entry), changesetID, patchsetID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func upsertPathHeadTx(ctx context.Context, tx *sql.Tx, head PathHead, changesetID, patchsetID string) error {
+	var blobID, contentHash any
+	var mode, size any
+	if head.Exists {
+		blobID = head.BlobID
+		contentHash = head.ContentHash
+		mode = int64(head.Mode)
+		size = head.Size
+	}
+	var acceptedChangesetID, acceptedPatchsetID any
+	if changesetID != "" {
+		acceptedChangesetID = changesetID
+	}
+	if patchsetID != "" {
+		acceptedPatchsetID = patchsetID
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into path_heads(path, exists, entry_fingerprint, blob_id, content_hash, mode, size, accepted_changeset_id, accepted_patchset_id, updated_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+		on conflict (path) do update
+		set exists = excluded.exists,
+		    entry_fingerprint = excluded.entry_fingerprint,
+		    blob_id = excluded.blob_id,
+		    content_hash = excluded.content_hash,
+		    mode = excluded.mode,
+		    size = excluded.size,
+		    accepted_changeset_id = excluded.accepted_changeset_id,
+		    accepted_patchset_id = excluded.accepted_patchset_id,
+		    updated_at = now()
+	`, head.Path, head.Exists, head.EntryFingerprint, blobID, contentHash, mode, size, acceptedChangesetID, acceptedPatchsetID)
+	return err
+}
+
+func insertInitialPathHeadTx(ctx context.Context, tx *sql.Tx, head PathHead, changesetID, patchsetID string) error {
+	var blobID, contentHash any
+	var mode, size any
+	if head.Exists {
+		blobID = head.BlobID
+		contentHash = head.ContentHash
+		mode = int64(head.Mode)
+		size = head.Size
+	}
+	var acceptedChangesetID, acceptedPatchsetID any
+	if changesetID != "" {
+		acceptedChangesetID = changesetID
+	}
+	if patchsetID != "" {
+		acceptedPatchsetID = patchsetID
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into path_heads(path, exists, entry_fingerprint, blob_id, content_hash, mode, size, accepted_changeset_id, accepted_patchset_id, updated_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+		on conflict (path) do nothing
+	`, head.Path, head.Exists, head.EntryFingerprint, blobID, contentHash, mode, size, acceptedChangesetID, acceptedPatchsetID)
+	return err
+}
+
+func pathHeadFromFile(entry FileEntry) PathHead {
+	return PathHead{
+		Path:             entry.Path,
+		Exists:           true,
+		EntryFingerprint: FileEntryFingerprint(entry),
+		BlobID:           entry.BlobID,
+		ContentHash:      entry.ContentHash,
+		Mode:             entry.Mode,
+		Size:             entry.Size,
+	}
 }
 
 func getBlobTx(ctx context.Context, tx *sql.Tx, blobID string) (*corev1.BlobRecord, error) {

@@ -1227,24 +1227,28 @@ retry loop.
 Correctness requires one final linearization point per `target_ref`.
 
 The Submit Service owns a target-ref landing sequencer for each target ref.
-Validation and checks may run concurrently, but final landing for a target ref
-happens through the sequencer.
+Validation and checks may run concurrently. Submit admission happens through
+durable path-head CAS: each changed path is compared against the patchset's
+recorded base fingerprint, then advanced to the accepted post-patch
+fingerprint in the same transaction that appends a `pending_publish` row.
 
-Sequencer responsibilities:
+The target-ref publisher remains responsible for making accepted work visible
+through root-based reads and Git projections.
 
-- acquire a short lease for the target ref
+Publisher responsibilities:
+
+- acquire a short publish window for the target ref
 - reload the latest target-ref head
-- rebase or reapply the patchset
-- recompute changed paths, read/write sets, covering slices, and submit requirements
-- verify that approvals, locks, and checks are still fresh
-- publish the commit and move the ref with CAS
+- load pending rows in admission sequence order
+- apply accepted patchsets into a deterministic commit chain
+- publish the commit chain and move the ref with CAS
+- mark included changesets submitted
 
-The sequencer is not a product-level scheduling abstraction. It only serializes
-the final commit publication step for one target ref.
+The publisher is not a product-level scheduling abstraction. It only batches and
+serializes the final commit publication step for one target ref.
 
-The submit service may batch multiple ready changesets for the same target ref
-when their write sets are disjoint, their read/write sets are mutually
-compatible, and every read-set predicate is satisfied by the current head. A
+The submit service may batch multiple accepted changesets for the same target
+ref. Normal same-path conflicts have already been rejected by path-head CAS. A
 batch publishes a deterministic commit chain and moves the target ref once.
 Batching is a throughput optimization; every included changeset still keeps its
 own patchset, approval state, commit id, and audit trail.

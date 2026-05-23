@@ -382,6 +382,7 @@ changesets(
   target_ref,
   base_commit_id,
   current_patchset_id,
+  commit_id,
   status,
   title,
   description,
@@ -437,6 +438,34 @@ patchset_path_sets(
   path,
   recursive boolean,
   primary key(patchset_id, access_kind, path)
+)
+
+path_heads(
+  path primary key,
+  exists boolean,
+  entry_fingerprint,
+  blob_id,
+  content_hash,
+  mode,
+  size,
+  accepted_changeset_id references changesets(id),
+  accepted_patchset_id references patchsets(id),
+  updated_at
+)
+
+pending_publish(
+  id primary key,
+  sequence bigint unique,
+  changeset_id references changesets(id),
+  patchset_id references patchsets(id),
+  target_ref references refs(name),
+  base_ref_commit_id,
+  status,             -- pending, published, failed
+  commit_id,
+  error,
+  created_at,
+  updated_at,
+  published_at
 )
 
 path_coverage_snapshots(
@@ -594,14 +623,23 @@ Submit batching indexes:
 
 ```text
 changesets(target_ref, status, updated_at)
+path_heads(path, entry_fingerprint)
+pending_publish(status, sequence)
 patchset_path_sets(target_ref, access_kind, path, recursive)
 patchset_path_bases(path, check_kind, entry_fingerprint)
 patchsets(source_slice_definition_hash, source_path_lock_set_hash)
 ```
 
-These indexes are accelerators only. The submit service must re-read the latest
-target-ref head and revalidate path predicates, submit requirements, approvals,
-checks, and CAS preconditions before publishing.
+`path_heads` is not just an accelerator. It is the accepted logical head for
+path-level conflict detection. A submit admission transaction compares every
+patchset path predicate against `path_heads`, updates those rows to the
+post-patch fingerprints, and appends a `pending_publish` row. Missing paths are
+represented with tombstone rows when they have been touched, so a pending delete
+blocks stale same-path updates even before `refs/global/main` moves.
+
+The remaining indexes are accelerators. The publish worker still checks
+pending-row status and ref CAS preconditions before making commits reachable,
+but normal same-path conflict detection happens at path-head CAS admission.
 
 Ref CAS is implemented with a conditional update:
 

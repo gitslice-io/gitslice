@@ -477,3 +477,75 @@ go build ./cmd/...
 go run ./cmd/gs schema
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
 ```
+
+## 2026-05-23: Async Path-Head Publish
+
+Request:
+
+- update the design for path-based CAS admission plus async batch root update
+- implement the design
+- test and benchmark it
+
+Implemented:
+
+- added durable `path_heads` and `pending_publish` tables
+- changed `SubmitChangeset` to:
+  - lock or initialize each touched path head
+  - compare path-head fingerprints against the patchset's recorded bases
+  - update accepted path heads to the post-patch fingerprints
+  - append a `pending_publish` row
+  - mark the changeset `pending_publish`
+- added an in-process publisher loop in `server/` that calls storage-layer
+  `PublishPending`, builds a commit chain from pending rows, moves the target
+  ref once, and marks included changesets `submitted`
+- updated CLI submit to preserve the existing synchronous user experience by
+  waiting for the accepted changeset to publish before updating local base
+  state
+- added `status` and `pending_publish_id` fields to `SubmitChangesetResponse`
+  and `commit_id` / `pending_publish_id` to `Changeset`
+- bounded the Postgres connection pool at 32 open connections after the
+  300-worker benchmark hit Postgres `too many clients`
+- updated design docs for storage schema, conflict resolution, core API,
+  architecture, and MVP implementation details
+- updated the hot-file load benchmark to measure:
+  - create/update/submit acceptance latency
+  - accepted-to-published latency
+  - projection refresh latency
+  - accepted-to-visible latency for home and overlapping slices
+
+Important decisions and learnings:
+
+- `path_heads` stores tombstones instead of deleting rows for accepted deletes.
+  This is required so a stale same-path update cannot pass while the delete is
+  accepted but not yet root-published.
+- The accepted path head is now the conflict boundary. The root/ref publisher
+  still checks pending-row status and ref CAS, but it does not rediscover normal
+  same-path conflicts.
+- Under hot-file contention, faster acceptance increased retry pressure on the
+  three path-head rows. That is expected: path CAS improves root/ref throughput
+  and disjoint-write scaling, but same-path workloads still serialize at the
+  touched path rows.
+- The 300-worker benchmark improved accepted write throughput from the previous
+  synchronous-root result of 24.66/s to 41.87/s on the same local Postgres setup.
+
+Verification:
+
+```bash
+go test ./...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 GITSLICE_LOAD_HOT_WORKERS=12 GITSLICE_LOAD_HOT_OPERATIONS=12 GITSLICE_LOAD_PROJECTION_WORKERS=4 go test -count=1 -tags load ./tests/load -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_HOT_WORKERS=12 GITSLICE_LOAD_HOT_OPERATIONS=12 GITSLICE_LOAD_PROJECTION_WORKERS=4 go test -count=1 -tags load ./tests/load -run TestLoadHotFilesCreateSubmitProjectionLatency -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_HOT_WORKERS=300 GITSLICE_LOAD_HOT_OPERATIONS=300 GITSLICE_LOAD_HOT_MAX_ATTEMPTS=600 GITSLICE_LOAD_PROJECTION_WORKERS=16 go test -count=1 -tags load ./tests/load -run TestLoadHotFilesCreateSubmitProjectionLatency -v
+```
+
+300-worker async result:
+
+```text
+create/update/submit accept: operations=300 wall=7.166s throughput=41.87/s p50=4.739s p95=7.010s p99=7.120s
+contention: successes=300 attempts=13904 conflicts=13604 conflict_rate=97.84%
+accepted-to-published: p50=3.690s p95=6.159s p99=6.453s
+home projection refresh: p50=758us p95=2.871s p99=2.992s
+other projection refresh: p50=772us p95=389.299ms p99=408.879ms
+home accepted-to-visible: p50=4.025s p95=6.558s p99=6.847s
+other accepted-to-visible: p50=4.083s p95=6.617s p99=6.900s
+```

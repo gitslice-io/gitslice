@@ -28,6 +28,8 @@ message Changeset {
   string status = 11;
   repeated string affected_paths = 12;
   SubmitRequirements submit_requirements = 13;
+  string commit_id = 14;
+  string pending_publish_id = 15;
 }
 
 message Patchset {
@@ -115,6 +117,8 @@ message SubmitChangesetResponse {
   string commit_id = 1;
   string target_ref = 2;
   string new_ref_commit_id = 3;
+  string status = 4;
+  string pending_publish_id = 5;
 }
 
 message AbandonChangesetRequest {

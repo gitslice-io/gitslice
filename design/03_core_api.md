@@ -370,13 +370,15 @@ message Changeset {
   ChangesetStatus status = 8;
   repeated string affected_paths = 9;
   SubmitRequirements submit_requirements = 10;
+  string commit_id = 11;
+  string pending_publish_id = 12;
 }
 
 enum ChangesetStatus {
   CHANGESET_STATUS_UNSPECIFIED = 0;
   CHANGESET_STATUS_DRAFT = 1;
   CHANGESET_STATUS_REVIEW = 2;
-  CHANGESET_STATUS_SUBMITTING = 3;
+  CHANGESET_STATUS_PENDING_PUBLISH = 3;
   CHANGESET_STATUS_SUBMITTED = 4;
   CHANGESET_STATUS_ABANDONED = 5;
   CHANGESET_STATUS_FAILED = 6;
@@ -491,6 +493,8 @@ message SubmitChangesetResponse {
   string commit_id = 1;
   string target_ref = 2;
   string new_ref_commit_id = 3;
+  string status = 4;
+  string pending_publish_id = 5;
 }
 
 message AbandonChangesetRequest {
@@ -501,6 +505,12 @@ message AbandonChangesetRequest {
 message AbandonChangesetResponse {}
 
 ```
+
+`SubmitChangeset` returns `status = "pending_publish"` when the patchset has
+passed path-head CAS admission but has not yet been published to the target ref.
+In that state `commit_id` and `new_ref_commit_id` may be empty. Clients that
+need root-visible state should poll `GetChangeset` until `status = "submitted"`
+and then read the target ref.
 
 ## 3. Internal Commit API
 

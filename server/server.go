@@ -28,6 +28,12 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	if cfg.PublishBatchSize <= 0 {
+		cfg.PublishBatchSize = 128
+	}
+	if cfg.PublishInterval <= 0 {
+		cfg.PublishInterval = defaultPublishInterval
+	}
 	store, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -37,6 +43,9 @@ func Run(ctx context.Context, cfg Config) error {
 		if err := store.Migrate(ctx); err != nil {
 			return err
 		}
+	}
+	if !cfg.DisableAsyncPublisher {
+		go runPublisher(ctx, store, cfg.PublishBatchSize, cfg.PublishInterval)
 	}
 	objectStore, err := filesystem.New(cfg.ObjectStoreRoot)
 	if err != nil {
