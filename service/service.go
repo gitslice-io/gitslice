@@ -40,7 +40,7 @@ func (s *Services) Login(ctx context.Context, req *corev1.LoginRequest) (*corev1
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.LoginResponse{Token: token, SubjectID: subjectID}, nil
+	return &corev1.LoginResponse{Token: token, SubjectId: subjectID}, nil
 }
 
 func (s *Services) ResolvePath(ctx context.Context, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
@@ -51,14 +51,14 @@ func (s *Services) ResolvePath(ctx context.Context, req *corev1.ResolvePathReque
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	entry, err := s.Store.GetFile(ctx, req.CommitID, p)
+	entry, err := s.Store.GetFile(ctx, req.CommitId, p)
 	if err == nil {
 		return &corev1.ResolvePathResponse{Entry: treeEntryFromFile(*entry)}, nil
 	}
 	if !errors.Is(err, postgres.ErrNotFound) {
 		return nil, grpcError(err)
 	}
-	children, err := s.Store.ListFiles(ctx, req.CommitID, p)
+	children, err := s.Store.ListFiles(ctx, req.CommitId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -68,8 +68,8 @@ func (s *Services) ResolvePath(ctx context.Context, req *corev1.ResolvePathReque
 	return &corev1.ResolvePathResponse{Entry: &corev1.TreeEntry{
 		Path:   p,
 		Name:   path.Base(p),
-		Kind:   corev1.EntryKindDirectory,
-		TreeID: directoryTreeID(p, children),
+		Kind:   corev1.EntryKind_ENTRY_KIND_DIRECTORY,
+		TreeId: directoryTreeID(p, children),
 	}}, nil
 }
 
@@ -88,7 +88,7 @@ func (s *Services) ListDirectory(ctx context.Context, req *corev1.ListDirectoryR
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
-	files, err := s.Store.ListFiles(ctx, req.CommitID, p)
+	files, err := s.Store.ListFiles(ctx, req.CommitId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -104,7 +104,7 @@ func (s *Services) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	entry, err := s.Store.GetFile(ctx, req.CommitID, p)
+	entry, err := s.Store.GetFile(ctx, req.CommitId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -124,7 +124,7 @@ func (s *Services) GetCommit(ctx context.Context, req *corev1.GetCommitRequest) 
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	commit, err := s.Store.GetCommit(ctx, req.CommitID)
+	commit, err := s.Store.GetCommit(ctx, req.CommitId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -185,7 +185,7 @@ func (s *Services) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequest
 	if err := s.Store.UpsertBlob(ctx, blobID, contentHash, int64(len(req.Data)), key); err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.UploadBlobResponse{BlobID: blobID, ContentHash: contentHash, Size: int64(len(req.Data))}, nil
+	return &corev1.UploadBlobResponse{BlobId: blobID, ContentHash: contentHash, Size: int64(len(req.Data))}, nil
 }
 
 func (s *Services) ResolveSlice(ctx context.Context, req *corev1.ResolveSliceRequest) (*corev1.Slice, error) {
@@ -210,7 +210,7 @@ func (s *Services) GetSlice(ctx context.Context, req *corev1.GetSliceRequest) (*
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	slice, err := s.Store.GetSlice(ctx, req.SliceID)
+	slice, err := s.Store.GetSlice(ctx, req.SliceId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -236,7 +236,7 @@ func (s *Services) UpdateSliceDefinition(ctx context.Context, req *corev1.Update
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	definition, err := s.Store.UpdateSliceDefinition(ctx, req.SliceID, req.ExpectedDefinitionHash, req.Definition)
+	definition, err := s.Store.UpdateSliceDefinition(ctx, req.SliceId, req.ExpectedDefinitionHash, req.Definition)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -265,10 +265,10 @@ func (s *Services) GetWorkspaceState(ctx context.Context, req *corev1.GetWorkspa
 	}
 	return &corev1.WorkspaceState{
 		Ref:          req.Workspace,
-		BaseCommitID: target.CommitID,
+		BaseCommitId: target.CommitId,
 		Slice: &corev1.SliceBinding{
 			Slice:               ref,
-			SliceID:             slice.ID,
+			SliceId:             slice.Id,
 			SliceDefinitionHash: slice.DefinitionHash,
 		},
 		HydratedPaths: slice.Definition.IncludedPaths,
@@ -286,11 +286,11 @@ func (s *Services) HydratePaths(ctx context.Context, req *corev1.HydratePathsReq
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	read, err := s.ReadFile(ctx, &corev1.ReadFileRequest{CommitID: target.CommitID, Path: req.Paths[0]})
+	read, err := s.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: target.CommitId, Path: req.Paths[0]})
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := s.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitID: target.CommitID, Path: req.Paths[0]})
+	resolved, err := s.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: target.CommitId, Path: req.Paths[0]})
 	if err != nil {
 		return nil, err
 	}
@@ -313,13 +313,13 @@ func (s *Services) ValidateWorkspaceDiff(ctx context.Context, req *corev1.Valida
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	baseCommitID := req.BaseCommitID
+	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {
 		target, err := s.Store.GetRef(ctx, postgres.DefaultTargetRef)
 		if err != nil {
 			return nil, grpcError(err)
 		}
-		baseCommitID = target.CommitID
+		baseCommitID = target.CommitId
 	}
 	validation, err := s.validateFileEdits(ctx, slice, baseCommitID, req.FileEdits, false)
 	if err != nil {
@@ -336,7 +336,7 @@ func (s *Services) RecordWorkspaceOperation(ctx context.Context, req *corev1.Rec
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.RecordWorkspaceOperationResponse{OperationID: id}, nil
+	return &corev1.RecordWorkspaceOperationResponse{OperationId: id}, nil
 }
 
 func (s *Services) CreateChangeset(ctx context.Context, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
@@ -361,7 +361,7 @@ func (s *Services) GetChangeset(ctx context.Context, req *corev1.GetChangesetReq
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	cs, err := s.Store.GetChangeset(ctx, req.ChangesetID)
+	cs, err := s.Store.GetChangeset(ctx, req.ChangesetId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -373,7 +373,7 @@ func (s *Services) UpdateChangeset(ctx context.Context, req *corev1.UpdateChange
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.Store.GetChangeset(ctx, req.ChangesetID)
+	cs, err := s.Store.GetChangeset(ctx, req.ChangesetId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -381,16 +381,16 @@ func (s *Services) UpdateChangeset(ctx context.Context, req *corev1.UpdateChange
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	baseCommitID := req.BaseCommitID
+	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {
-		baseCommitID = cs.BaseCommitID
+		baseCommitID = cs.BaseCommitId
 	}
 	validation, err := s.validateFileEdits(ctx, slice, baseCommitID, req.FileEdits, true)
 	if err != nil {
 		return nil, err
 	}
 	patchset := &corev1.Patchset{
-		BaseCommitID:       baseCommitID,
+		BaseCommitId:       baseCommitID,
 		Author:             subjectID,
 		ChangedPaths:       validation.AffectedPaths,
 		FileEdits:          req.FileEdits,
@@ -400,7 +400,7 @@ func (s *Services) UpdateChangeset(ctx context.Context, req *corev1.UpdateChange
 		ReadSet:            validation.ReadSet,
 		WriteSet:           validation.WriteSet,
 	}
-	patchset, err = s.Store.AddPatchset(ctx, req.ChangesetID, req.ExpectedCurrentPatchsetID, patchset)
+	patchset, err = s.Store.AddPatchset(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -411,7 +411,7 @@ func (s *Services) SubmitChangeset(ctx context.Context, req *corev1.SubmitChange
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	res, err := s.Store.SubmitChangeset(ctx, req.ChangesetID, req.ExpectedCurrentPatchsetID)
+	res, err := s.Store.SubmitChangeset(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -422,7 +422,7 @@ func (s *Services) AbandonChangeset(ctx context.Context, req *corev1.AbandonChan
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.Store.AbandonChangeset(ctx, req.ChangesetID); err != nil {
+	if err := s.Store.AbandonChangeset(ctx, req.ChangesetId); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.Empty{}, nil
@@ -457,8 +457,12 @@ func (s *Services) validateFileEdits(ctx context.Context, slice *corev1.Slice, b
 		if err != nil {
 			return nil, grpcError(err)
 		}
-		coverage = append(coverage, &corev1.PathCoverage{Path: p, CoveringSliceIDs: covering})
-		pathBases = append(pathBases, &corev1.PathBase{Path: p, BaseCommitID: baseCommitID, Check: "latest_at_submit"})
+		coverage = append(coverage, &corev1.PathCoverage{Path: p, CoveringSliceIds: covering})
+		base, err := s.pathBase(ctx, baseCommitID, p)
+		if err != nil {
+			return nil, err
+		}
+		pathBases = append(pathBases, base)
 		readSet = append(readSet, &corev1.PathSetEntry{Path: p})
 		writeSet = append(writeSet, &corev1.PathSetEntry{Path: p})
 	}
@@ -472,6 +476,29 @@ func (s *Services) validateFileEdits(ctx context.Context, slice *corev1.Slice, b
 		ReadSet:   readSet,
 		WriteSet:  writeSet,
 	}, nil
+}
+
+func (s *Services) pathBase(ctx context.Context, baseCommitID, p string) (*corev1.PathBase, error) {
+	base := &corev1.PathBase{
+		Path:             p,
+		BaseCommitId:     baseCommitID,
+		Check:            "entry_fingerprint",
+		EntryFingerprint: postgres.MissingEntryFingerprint(),
+	}
+	entry, err := s.Store.GetFile(ctx, baseCommitID, p)
+	if errors.Is(err, postgres.ErrNotFound) {
+		return base, nil
+	}
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	base.Exists = true
+	base.EntryKind = "file"
+	base.Mode = entry.Mode
+	base.BlobId = entry.BlobID
+	base.ContentHash = entry.ContentHash
+	base.EntryFingerprint = postgres.FileEntryFingerprint(*entry)
+	return base, nil
 }
 
 func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, error) {
@@ -496,7 +523,7 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 		}
 		out.OldPath = p
 	}
-	if requireBlob && out.Op != "delete" && out.Op != "rename" && out.BlobID == "" {
+	if requireBlob && out.Op != "delete" && out.Op != "rename" && out.BlobId == "" {
 		return nil, fmt.Errorf("blob id is required for %s edit on %s", out.Op, out.Path)
 	}
 	if out.Mode == 0 && out.Op != "delete" {
@@ -525,10 +552,10 @@ func requireSubject(ctx context.Context) (string, error) {
 }
 
 func sliceRefFromWorkspace(ref *corev1.WorkspaceRef) (*corev1.SliceRef, error) {
-	if ref == nil || ref.ID == "" {
+	if ref == nil || ref.Id == "" {
 		return nil, fmt.Errorf("workspace id is required")
 	}
-	parts := strings.Split(ref.ID, "/")
+	parts := strings.Split(ref.Id, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return nil, fmt.Errorf("workspace id must be account/slice")
 	}
@@ -539,9 +566,9 @@ func treeEntryFromFile(entry postgres.FileEntry) *corev1.TreeEntry {
 	return &corev1.TreeEntry{
 		Path:        entry.Path,
 		Name:        path.Base(entry.Path),
-		Kind:        corev1.EntryKindFile,
+		Kind:        corev1.EntryKind_ENTRY_KIND_FILE,
 		Mode:        entry.Mode,
-		BlobID:      entry.BlobID,
+		BlobId:      entry.BlobID,
 		Size:        entry.Size,
 		ContentHash: entry.ContentHash,
 	}
@@ -573,8 +600,8 @@ func immediateDirectoryEntries(prefix string, files []postgres.FileEntry) []*cor
 			byPath[childPath] = &corev1.TreeEntry{
 				Path:   childPath,
 				Name:   parts[0],
-				Kind:   corev1.EntryKindDirectory,
-				TreeID: directoryTreeID(childPath, files),
+				Kind:   corev1.EntryKind_ENTRY_KIND_DIRECTORY,
+				TreeId: directoryTreeID(childPath, files),
 			}
 		}
 	}
@@ -601,9 +628,9 @@ func immediateDirectoryEntriesWithoutIDs(prefix string, files []postgres.FileEnt
 	for _, entry := range uiEntries {
 		entries = append(entries, objectid.TreeEntry{
 			Name:        entry.Name,
-			Kind:        string(entry.Kind),
+			Kind:        entry.Kind.String(),
 			Mode:        entry.Mode,
-			BlobID:      entry.BlobID,
+			BlobID:      entry.BlobId,
 			ContentHash: entry.ContentHash,
 		})
 	}
@@ -633,7 +660,7 @@ func immediateDirectoryEntriesNoTree(prefix string, files []postgres.FileEntry) 
 			continue
 		}
 		if _, ok := byPath[childPath]; !ok {
-			byPath[childPath] = &corev1.TreeEntry{Path: childPath, Name: parts[0], Kind: corev1.EntryKindDirectory}
+			byPath[childPath] = &corev1.TreeEntry{Path: childPath, Name: parts[0], Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY}
 		}
 	}
 	paths := make([]string, 0, len(byPath))

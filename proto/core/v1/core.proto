@@ -1,0 +1,382 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+
+service FakeAccountService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+}
+
+service RepositoryService {
+  rpc ResolvePath(ResolvePathRequest) returns (ResolvePathResponse);
+  rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
+  rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  rpc GetCommit(GetCommitRequest) returns (Commit);
+  rpc GetRef(GetRefRequest) returns (Ref);
+}
+
+service BlobService {
+  rpc GetBlobStatus(GetBlobStatusRequest) returns (GetBlobStatusResponse);
+  rpc UploadBlob(UploadBlobRequest) returns (UploadBlobResponse);
+}
+
+service SliceService {
+  rpc ResolveSlice(ResolveSliceRequest) returns (Slice);
+  rpc GetSlice(GetSliceRequest) returns (Slice);
+  rpc ListSlices(ListSlicesRequest) returns (ListSlicesResponse);
+  rpc UpdateSliceDefinition(UpdateSliceDefinitionRequest) returns (SliceDefinition);
+}
+
+service WorkspaceService {
+  rpc GetWorkspaceState(GetWorkspaceStateRequest) returns (WorkspaceState);
+  rpc HydratePaths(HydratePathsRequest) returns (HydratePathsResponse);
+  rpc ValidateWorkspaceDiff(ValidateWorkspaceDiffRequest) returns (ValidateWorkspaceDiffResponse);
+  rpc RecordWorkspaceOperation(RecordWorkspaceOperationRequest) returns (RecordWorkspaceOperationResponse);
+}
+
+service ChangesetService {
+  rpc CreateChangeset(CreateChangesetRequest) returns (Changeset);
+  rpc GetChangeset(GetChangesetRequest) returns (Changeset);
+  rpc UpdateChangeset(UpdateChangesetRequest) returns (Patchset);
+  rpc SubmitChangeset(SubmitChangesetRequest) returns (SubmitChangesetResponse);
+  rpc AbandonChangeset(AbandonChangesetRequest) returns (Empty);
+}
+
+message LoginRequest {
+  string dev_user = 1;
+}
+
+message LoginResponse {
+  string token = 1;
+  string subject_id = 2;
+}
+
+message Empty {}
+
+message SliceRef {
+  string account = 1;
+  string slice = 2;
+}
+
+message Ref {
+  string name = 1;
+  string commit_id = 2;
+  string updated_at = 3;
+  string updated_by = 4;
+}
+
+message Commit {
+  string id = 1;
+  repeated string parent_ids = 2;
+  string root_tree_id = 3;
+  string author = 4;
+  string message = 5;
+  string created_at = 6;
+  repeated string changed_paths = 7;
+}
+
+enum EntryKind {
+  ENTRY_KIND_UNSPECIFIED = 0;
+  ENTRY_KIND_FILE = 1;
+  ENTRY_KIND_DIRECTORY = 2;
+  ENTRY_KIND_SYMLINK = 3;
+}
+
+message TreeEntry {
+  string path = 1;
+  string name = 2;
+  EntryKind kind = 3;
+  uint32 mode = 4;
+  string tree_id = 5;
+  string blob_id = 6;
+  string symlink_target = 7;
+  int64 size = 8;
+  string content_hash = 9;
+}
+
+message ResolvePathRequest {
+  string commit_id = 1;
+  string path = 2;
+}
+
+message ResolvePathResponse {
+  TreeEntry entry = 1;
+}
+
+message ListDirectoryRequest {
+  string commit_id = 1;
+  string path = 2;
+  string cursor = 3;
+  int32 page_size = 4;
+}
+
+message ListDirectoryResponse {
+  repeated TreeEntry entries = 1;
+  string next_cursor = 2;
+}
+
+message ReadFileRequest {
+  string commit_id = 1;
+  string path = 2;
+  int64 offset = 3;
+  int64 length = 4;
+}
+
+message ReadFileResponse {
+  bytes data = 1;
+  int64 offset = 2;
+  string content_hash = 3;
+}
+
+message GetCommitRequest {
+  string commit_id = 1;
+}
+
+message GetRefRequest {
+  string ref_name = 1;
+}
+
+message GetBlobStatusRequest {
+  repeated string content_hashes = 1;
+}
+
+message BlobRecord {
+  string id = 1;
+  string content_hash = 2;
+  int64 size = 3;
+  string storage_location = 4;
+  string state = 5;
+}
+
+message GetBlobStatusResponse {
+  repeated BlobRecord blobs = 1;
+}
+
+message UploadBlobRequest {
+  string content_hash = 1;
+  bytes data = 2;
+}
+
+message UploadBlobResponse {
+  string blob_id = 1;
+  string content_hash = 2;
+  int64 size = 3;
+}
+
+message Slice {
+  string id = 1;
+  SliceRef ref = 2;
+  SliceDefinition definition = 3;
+  string definition_hash = 4;
+}
+
+message SliceDefinition {
+  string slice_id = 1;
+  int64 version = 2;
+  repeated string included_paths = 3;
+  string visibility = 4;
+}
+
+message ResolveSliceRequest {
+  SliceRef ref = 1;
+}
+
+message GetSliceRequest {
+  string slice_id = 1;
+}
+
+message ListSlicesRequest {
+  string account = 1;
+  string cursor = 2;
+  int32 page_size = 3;
+}
+
+message ListSlicesResponse {
+  repeated Slice slices = 1;
+  string next_cursor = 2;
+}
+
+message UpdateSliceDefinitionRequest {
+  string slice_id = 1;
+  string expected_definition_hash = 2;
+  SliceDefinition definition = 3;
+}
+
+message WorkspaceRef {
+  string id = 1;
+}
+
+message WorkspaceState {
+  WorkspaceRef ref = 1;
+  SliceBinding slice = 2;
+  repeated string hydrated_paths = 3;
+  string base_commit_id = 4;
+  string current_changeset_id = 5;
+  string current_patchset_id = 6;
+}
+
+message SliceBinding {
+  SliceRef slice = 1;
+  string slice_id = 2;
+  string slice_definition_hash = 3;
+}
+
+message GetWorkspaceStateRequest {
+  WorkspaceRef workspace = 1;
+}
+
+message HydratePathsRequest {
+  WorkspaceRef workspace = 1;
+  repeated string paths = 2;
+  string mode = 3;
+}
+
+message HydratePathsResponse {
+  string path = 1;
+  TreeEntry entry = 2;
+  bytes data = 3;
+}
+
+message ValidateWorkspaceDiffRequest {
+  WorkspaceRef workspace = 1;
+  string base_commit_id = 2;
+  repeated FileEdit file_edits = 3;
+}
+
+message ValidateWorkspaceDiffResponse {
+  repeated string affected_paths = 1;
+  repeated PathCoverage coverage = 2;
+  SubmitRequirements submit_requirements = 3;
+  repeated PathBase path_bases = 4;
+  repeated PathSetEntry read_set = 5;
+  repeated PathSetEntry write_set = 6;
+}
+
+message WorkspaceOperation {
+  string id = 1;
+  WorkspaceRef workspace = 2;
+  string operation_type = 3;
+  string description = 4;
+  string created_at = 5;
+  string actor = 6;
+  repeated string affected_paths = 7;
+  string changeset_id = 8;
+  string patchset_id = 9;
+}
+
+message RecordWorkspaceOperationRequest {
+  WorkspaceOperation operation = 1;
+}
+
+message RecordWorkspaceOperationResponse {
+  string operation_id = 1;
+}
+
+message Changeset {
+  string id = 1;
+  SliceRef authoring_slice = 2;
+  string author = 3;
+  string target_ref = 4;
+  string base_commit_id = 5;
+  string title = 6;
+  string description = 7;
+  repeated Patchset patchsets = 8;
+  string current_patchset_id = 9;
+  int64 current_patchset_number = 10;
+  string status = 11;
+  repeated string affected_paths = 12;
+  SubmitRequirements submit_requirements = 13;
+}
+
+message Patchset {
+  string id = 1;
+  string changeset_id = 2;
+  int64 number = 3;
+  string base_commit_id = 4;
+  string author = 5;
+  string created_at = 6;
+  repeated string changed_paths = 7;
+  repeated FileEdit file_edits = 8;
+  repeated PathCoverage coverage = 9;
+  SubmitRequirements submit_requirements = 10;
+  repeated PathBase path_bases = 11;
+  repeated PathSetEntry read_set = 12;
+  repeated PathSetEntry write_set = 13;
+}
+
+message FileEdit {
+  string op = 1;
+  string path = 2;
+  string old_path = 3;
+  string blob_id = 4;
+  string content_hash = 5;
+  uint32 mode = 6;
+}
+
+message PathCoverage {
+  string path = 1;
+  repeated string covering_slice_ids = 2;
+}
+
+message PathBase {
+  string path = 1;
+  string base_commit_id = 2;
+  bool exists = 3;
+  string entry_kind = 4;
+  uint32 mode = 5;
+  string blob_id = 6;
+  string content_hash = 7;
+  string tree_id = 8;
+  string symlink_target = 9;
+  string entry_fingerprint = 10;
+  string check = 11;
+}
+
+message PathSetEntry {
+  string path = 1;
+  bool recursive = 2;
+}
+
+message SubmitRequirements {
+  repeated string required_approvals = 1;
+  repeated string required_checks = 2;
+  repeated string path_lock_ids = 3;
+  string source_slice_definition_hash = 4;
+  string source_path_lock_set_hash = 5;
+}
+
+message CreateChangesetRequest {
+  SliceRef authoring_slice = 1;
+  string target_ref = 2;
+  string base_commit_id = 3;
+  string title = 4;
+  string description = 5;
+}
+
+message GetChangesetRequest {
+  string changeset_id = 1;
+}
+
+message UpdateChangesetRequest {
+  string changeset_id = 1;
+  string expected_current_patchset_id = 2;
+  string base_commit_id = 3;
+  repeated FileEdit file_edits = 4;
+}
+
+message SubmitChangesetRequest {
+  string changeset_id = 1;
+  string expected_current_patchset_id = 2;
+}
+
+message SubmitChangesetResponse {
+  string commit_id = 1;
+  string target_ref = 2;
+  string new_ref_commit_id = 3;
+}
+
+message AbandonChangesetRequest {
+  string changeset_id = 1;
+  string reason = 2;
+}

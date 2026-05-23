@@ -37,6 +37,13 @@ The following proto shape is the starting contract. Some request and response
 messages will grow as implementation details become concrete, but the service
 boundaries should remain stable.
 
+The concrete MVP proto used by the Go prototype lives at
+[`../proto/core/v1/core.proto`](../proto/core/v1/core.proto). That file is the
+implementation source of truth for generated Go stubs. The prototype currently
+keeps file/blob transfer unary and uses string timestamps to keep the first
+end-to-end CLI/server path small; the design target remains streaming payloads
+and typed protobuf timestamps once larger-file behavior is implemented.
+
 ```proto
 syntax = "proto3";
 

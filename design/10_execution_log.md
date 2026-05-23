@@ -85,3 +85,69 @@ Important implementation decisions and learnings:
 ```bash
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run TestMinimalCLIJourney -v
 ```
+
+## 2026-05-22: Correctness And Test Hardening
+
+Request:
+
+- continue until the implementation plan is finished
+- finish the functional tests and load tests
+
+Implemented:
+
+- changed CLI status from "all files are edits" to a workspace base snapshot:
+  - `.gs/base_snapshot.json` records the last accepted local file snapshot
+  - `gs status` compares the working tree against that base
+  - `gs cs submit` refreshes the base snapshot after a successful submit
+  - file deletes now produce delete edits
+- added `gs cs update` so a draft changeset can receive a new patchset before
+  submit
+- changed submit validation from whole-ref freshness to per-path entry
+  fingerprints:
+  - path bases record whether the path existed at patchset creation
+  - file bases record mode, blob id, content hash, and an entry fingerprint
+  - submit allows stale target refs when every changed path still matches its
+    base predicate
+  - disjoint stale changesets can now submit; same-path stale changesets are
+    rejected
+- moved PostgreSQL schema DDL out of Go string literals into
+  `internal/postgres/migrations/0001_init.sql`
+- expanded functional tests to cover:
+  - minimal edit/create/submit/status journey
+  - clean status after submit
+  - changeset update
+  - delete detection and submit
+  - outside-slice edit rejection
+  - disjoint stale changesets submitting successfully
+  - same-path conflict rejection
+  - restart persistence against the same PostgreSQL schema and filesystem object
+    root
+- added opt-in load tests under `tests/load` with the `load` build tag:
+  - concurrent disjoint submit through the real CLI and server
+  - repeated concurrent status calls over a dirty workspace
+  - load tests report operation count, wall time, throughput, p50, p95, and p99
+
+Important decisions and learnings:
+
+- The base snapshot is local cache only. Server-side path containment and
+  submit validation still make the authoritative decision.
+- Path-base predicates are intentionally based on file fingerprints instead of
+  commit equality. This matches the design goal that unrelated changesets can
+  publish even when their original base commit is stale.
+- The submit path still serializes final publication with the target ref row
+  lock and CAS update. The scalability improvement here is that stale disjoint
+  work no longer fails only because another path moved first.
+- Explicit SQL migration files are easier to review and test than a large Go
+  string slice. The Go migrator now embeds and applies those SQL files.
+- Replaced the hand-written gRPC binding layer with `proto/core/v1/core.proto`
+  and generated Go stubs (`core.pb.go` and `core_grpc.pb.go`). The runtime now
+  uses normal protobuf gRPC transport instead of the prototype JSON codec.
+
+Verification:
+
+```bash
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
+```

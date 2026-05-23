@@ -20,3 +20,20 @@ func TestContains(t *testing.T) {
 		t.Fatal("unexpected prefix match")
 	}
 }
+
+func TestFromWorkspacePath(t *testing.T) {
+	got, err := FromWorkspacePath("/acme/payment", "app.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/acme/payment/app.go" {
+		t.Fatalf("got %q", got)
+	}
+	got, err = FromWorkspacePath("/acme/payment", "acme/backend/app.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/acme/backend/app.go" {
+		t.Fatalf("got %q", got)
+	}
+}

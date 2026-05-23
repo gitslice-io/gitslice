@@ -11,7 +11,6 @@ import (
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
-	"github.com/gitslice-io/gitslice/internal/rpcjson"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/service"
 	"google.golang.org/grpc"
@@ -26,7 +25,6 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	rpcjson.Register()
 	store, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err

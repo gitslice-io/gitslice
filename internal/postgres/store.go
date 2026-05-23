@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -64,7 +65,7 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
-	for _, stmt := range migrationStatements {
+	for _, stmt := range migrationStatements() {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
@@ -228,36 +229,40 @@ func (s *Store) UpdateSliceDefinition(ctx context.Context, sliceID, expectedHash
 
 func (s *Store) GetRef(ctx context.Context, name string) (*corev1.Ref, error) {
 	var ref corev1.Ref
+	var updatedAt time.Time
 	err := s.db.QueryRowContext(ctx, `
 		select name, commit_id, updated_at, coalesce(updated_by, '')
 		from refs
 		where name = $1
-	`, name).Scan(&ref.Name, &ref.CommitID, &ref.UpdatedAt, &ref.UpdatedBy)
+	`, name).Scan(&ref.Name, &ref.CommitId, &updatedAt, &ref.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	ref.UpdatedAt = formatTime(updatedAt)
 	return &ref, nil
 }
 
 func (s *Store) GetCommit(ctx context.Context, commitID string) (*corev1.Commit, error) {
 	var commit corev1.Commit
 	var parentJSON, changedJSON []byte
+	var createdAt time.Time
 	err := s.db.QueryRowContext(ctx, `
 		select id, parent_ids, root_tree_id, coalesce(author_subject_id, ''),
 		       message, created_at, changed_paths
 		from commits
 		where id = $1
-	`, commitID).Scan(&commit.ID, &parentJSON, &commit.RootTreeID, &commit.Author, &commit.Message, &commit.CreatedAt, &changedJSON)
+	`, commitID).Scan(&commit.Id, &parentJSON, &commit.RootTreeId, &commit.Author, &commit.Message, &createdAt, &changedJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if err := decodeJSON(parentJSON, &commit.ParentIDs); err != nil {
+	commit.CreatedAt = formatTime(createdAt)
+	if err := decodeJSON(parentJSON, &commit.ParentIds); err != nil {
 		return nil, err
 	}
 	if err := decodeJSON(changedJSON, &commit.ChangedPaths); err != nil {
@@ -285,7 +290,7 @@ func (s *Store) GetBlobByID(ctx context.Context, blobID string) (*corev1.BlobRec
 		select id, content_hash, size, storage_location, state
 		from blobs
 		where id = $1
-	`, blobID).Scan(&blob.ID, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State)
+	`, blobID).Scan(&blob.Id, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -312,7 +317,7 @@ func (s *Store) GetBlobsByContentHash(ctx context.Context, hashes []string) ([]*
 	var out []*corev1.BlobRecord
 	for rows.Next() {
 		var blob corev1.BlobRecord
-		if err := rows.Scan(&blob.ID, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State); err != nil {
+		if err := rows.Scan(&blob.Id, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State); err != nil {
 			return nil, err
 		}
 		out = append(out, &blob)
@@ -328,13 +333,13 @@ func (s *Store) CreateChangeset(ctx context.Context, subjectID string, req *core
 	if targetRef == "" {
 		targetRef = DefaultTargetRef
 	}
-	baseCommitID := req.BaseCommitID
+	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {
 		ref, err := s.GetRef(ctx, targetRef)
 		if err != nil {
 			return nil, err
 		}
-		baseCommitID = ref.CommitID
+		baseCommitID = ref.CommitId
 	}
 	slice, err := s.ResolveSlice(ctx, req.AuthoringSlice)
 	if err != nil {
@@ -356,7 +361,7 @@ func (s *Store) CreateChangeset(ctx context.Context, subjectID string, req *core
 			current_patchset_number, created_at, updated_at
 		)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, 0, $11, $11)
-	`, id, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, slice.ID, subjectID,
+	`, id, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, slice.Id, subjectID,
 		targetRef, baseCommitID, req.Title, req.Description, empty, now)
 	if err != nil {
 		return nil, err
@@ -374,8 +379,8 @@ func (s *Store) GetChangeset(ctx context.Context, changesetID string) (*corev1.C
 		       coalesce(current_patchset_number, 0), current_patchset_id
 		from changesets
 		where id = $1
-	`, changesetID).Scan(&cs.ID, &account, &slice, &cs.Author, &cs.TargetRef,
-		&cs.BaseCommitID, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
+	`, changesetID).Scan(&cs.Id, &account, &slice, &cs.Author, &cs.TargetRef,
+		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
 		&cs.CurrentPatchsetNumber, &currentPatchsetID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -387,7 +392,7 @@ func (s *Store) GetChangeset(ctx context.Context, changesetID string) (*corev1.C
 		cs.AuthoringSlice = &corev1.SliceRef{Account: account.String, Slice: slice.String}
 	}
 	if currentPatchsetID.Valid {
-		cs.CurrentPatchsetID = currentPatchsetID.String
+		cs.CurrentPatchsetId = currentPatchsetID.String
 	}
 	if err := decodeJSON(affectedJSON, &cs.AffectedPaths); err != nil {
 		return nil, err
@@ -432,10 +437,11 @@ func (s *Store) AddPatchset(ctx context.Context, changesetID, expectedCurrentPat
 	if err != nil {
 		return nil, err
 	}
-	patchset.ID = patchsetID
-	patchset.ChangesetID = changesetID
+	patchset.Id = patchsetID
+	patchset.ChangesetId = changesetID
 	patchset.Number = currentNumber + 1
-	patchset.CreatedAt = time.Now().UTC()
+	createdAt := time.Now().UTC()
+	patchset.CreatedAt = formatTime(createdAt)
 	fileEditsJSON, err := encodeJSON(patchset.FileEdits)
 	if err != nil {
 		return nil, err
@@ -466,8 +472,8 @@ func (s *Store) AddPatchset(ctx context.Context, changesetID, expectedCurrentPat
 			changed_paths, coverage, path_bases, read_set, write_set, created_at
 		)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	`, patchset.ID, changesetID, patchset.Number, patchset.BaseCommitID, patchset.Author,
-		fileEditsJSON, changedJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, patchset.CreatedAt)
+	`, patchset.Id, changesetID, patchset.Number, patchset.BaseCommitId, patchset.Author,
+		fileEditsJSON, changedJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +484,7 @@ func (s *Store) AddPatchset(ctx context.Context, changesetID, expectedCurrentPat
 		    affected_paths = $3,
 		    updated_at = now()
 		where id = $4
-	`, patchset.ID, patchset.Number, changedJSON, changesetID)
+	`, patchset.Id, patchset.Number, changedJSON, changesetID)
 	if err != nil {
 		return nil, err
 	}
@@ -522,7 +528,7 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 		return nil, ErrConflict
 	}
 	if cs.Status == "submitted" && cs.CommitID.Valid {
-		return &corev1.SubmitChangesetResponse{CommitID: cs.CommitID.String, TargetRef: cs.TargetRef, NewRefCommitID: cs.CommitID.String}, nil
+		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitID.String, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitID.String}, nil
 	}
 	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetID != expectedCurrentPatchsetID {
 		return nil, ErrConflict
@@ -548,7 +554,7 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 		return nil, err
 	}
 	for _, base := range patchset.PathBases {
-		if base.BaseCommitID != currentCommitID {
+		if err := validatePathBaseTx(ctx, tx, currentCommitID, base); err != nil {
 			return nil, ErrConflict
 		}
 	}
@@ -618,7 +624,7 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &corev1.SubmitChangesetResponse{CommitID: commitID, TargetRef: cs.TargetRef, NewRefCommitID: commitID}, nil
+	return &corev1.SubmitChangesetResponse{CommitId: commitID, TargetRef: cs.TargetRef, NewRefCommitId: commitID}, nil
 }
 
 func (s *Store) AbandonChangeset(ctx context.Context, changesetID string) error {
@@ -739,11 +745,11 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 		return nil, err
 	}
 	return &corev1.Slice{
-		ID:             id,
+		Id:             id,
 		Ref:            &corev1.SliceRef{Account: account, Slice: slug},
 		DefinitionHash: definitionHash,
 		Definition: &corev1.SliceDefinition{
-			SliceID:       id,
+			SliceId:       id,
 			Version:       version,
 			IncludedPaths: included,
 			Visibility:    visibility,
@@ -787,8 +793,9 @@ func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.
 func scanPatchset(row scanner) (*corev1.Patchset, error) {
 	var patchset corev1.Patchset
 	var changedJSON, fileEditsJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON []byte
-	err := row.Scan(&patchset.ID, &patchset.ChangesetID, &patchset.Number, &patchset.BaseCommitID,
-		&patchset.Author, &patchset.CreatedAt, &changedJSON, &fileEditsJSON, &coverageJSON,
+	var createdAt time.Time
+	err := row.Scan(&patchset.Id, &patchset.ChangesetId, &patchset.Number, &patchset.BaseCommitId,
+		&patchset.Author, &createdAt, &changedJSON, &fileEditsJSON, &coverageJSON,
 		&pathBasesJSON, &readSetJSON, &writeSetJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -796,6 +803,7 @@ func scanPatchset(row scanner) (*corev1.Patchset, error) {
 	if err != nil {
 		return nil, err
 	}
+	patchset.CreatedAt = formatTime(createdAt)
 	for _, item := range []struct {
 		raw []byte
 		dst any
@@ -850,13 +858,13 @@ func applyFileEditsTx(ctx context.Context, tx *sql.Tx, files map[string]FileEntr
 			entry.Path = edit.Path
 			files[edit.Path] = entry
 		default:
-			blob, err := getBlobTx(ctx, tx, edit.BlobID)
+			blob, err := getBlobTx(ctx, tx, edit.BlobId)
 			if err != nil {
 				return err
 			}
 			files[edit.Path] = FileEntry{
 				Path:        edit.Path,
-				BlobID:      blob.ID,
+				BlobID:      blob.Id,
 				ContentHash: blob.ContentHash,
 				Mode:        edit.Mode,
 				Size:        blob.Size,
@@ -872,7 +880,7 @@ func getBlobTx(ctx context.Context, tx *sql.Tx, blobID string) (*corev1.BlobReco
 		select id, content_hash, size, storage_location, state
 		from blobs
 		where id = $1 and state = 'available'
-	`, blobID).Scan(&blob.ID, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State)
+	`, blobID).Scan(&blob.Id, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -880,6 +888,42 @@ func getBlobTx(ctx context.Context, tx *sql.Tx, blobID string) (*corev1.BlobReco
 		return nil, err
 	}
 	return &blob, nil
+}
+
+func validatePathBaseTx(ctx context.Context, tx *sql.Tx, currentCommitID string, base *corev1.PathBase) error {
+	current, err := getFileTx(ctx, tx, currentCommitID, base.Path)
+	if errors.Is(err, ErrNotFound) {
+		if base.Exists || base.EntryFingerprint != MissingEntryFingerprint() {
+			return ErrConflict
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !base.Exists {
+		return ErrConflict
+	}
+	if FileEntryFingerprint(*current) != base.EntryFingerprint {
+		return ErrConflict
+	}
+	return nil
+}
+
+func getFileTx(ctx context.Context, tx *sql.Tx, commitID, p string) (*FileEntry, error) {
+	var entry FileEntry
+	err := tx.QueryRowContext(ctx, `
+		select path, blob_id, content_hash, mode, size
+		from commit_files
+		where commit_id = $1 and path = $2
+	`, commitID, p).Scan(&entry.Path, &entry.BlobID, &entry.ContentHash, &entry.Mode, &entry.Size)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &entry, nil
 }
 
 func insertCommitFilesTx(ctx context.Context, tx *sql.Tx, commitID string, files map[string]FileEntry) error {
@@ -903,6 +947,26 @@ func insertCommitFilesTx(ctx context.Context, tx *sql.Tx, commitID string, files
 		}
 	}
 	return nil
+}
+
+func FileEntryFingerprint(entry FileEntry) string {
+	payload, _ := json.Marshal(struct {
+		Kind        string `json:"kind"`
+		Mode        uint32 `json:"mode"`
+		BlobID      string `json:"blob_id"`
+		ContentHash string `json:"content_hash"`
+	}{
+		Kind:        "file",
+		Mode:        entry.Mode,
+		BlobID:      entry.BlobID,
+		ContentHash: entry.ContentHash,
+	})
+	sum := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func MissingEntryFingerprint() string {
+	return "missing"
 }
 
 func rootTreeID(files map[string]FileEntry) string {
@@ -962,6 +1026,13 @@ func decodeJSON(raw []byte, v any) error {
 		raw = []byte("null")
 	}
 	return json.Unmarshal(raw, v)
+}
+
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
 func (s *Store) seedDevFixture(ctx context.Context) error {
@@ -1052,120 +1123,29 @@ func seedSlice(ctx context.Context, tx *sql.Tx, id, slug string, included []stri
 	return err
 }
 
-var migrationStatements = []string{
-	`create table if not exists accounts(
-		id text primary key,
-		slug text unique not null,
-		kind text not null,
-		created_at timestamptz not null default now(),
-		updated_at timestamptz not null default now()
-	)`,
-	`create table if not exists subjects(
-		id text primary key,
-		kind text not null,
-		external_provider text,
-		external_subject text,
-		display_name text not null,
-		created_at timestamptz not null default now()
-	)`,
-	`create table if not exists account_memberships(
-		account_id text not null references accounts(id),
-		subject_id text not null references subjects(id),
-		role text not null,
-		created_at timestamptz not null default now(),
-		primary key(account_id, subject_id, role)
-	)`,
-	`create table if not exists sessions(
-		id text primary key,
-		subject_id text not null references subjects(id),
-		token_hash text unique not null,
-		expires_at timestamptz not null,
-		revoked_at timestamptz,
-		created_at timestamptz not null default now()
-	)`,
-	`create table if not exists refs(
-		name text primary key,
-		commit_id text not null,
-		version bigint not null default 0,
-		updated_at timestamptz not null default now(),
-		updated_by text
-	)`,
-	`create table if not exists commits(
-		id text primary key,
-		parent_ids jsonb not null,
-		root_tree_id text not null,
-		author_subject_id text,
-		message text not null,
-		created_at timestamptz not null,
-		changed_paths jsonb not null,
-		metadata jsonb not null default '{}'::jsonb
-	)`,
-	`create table if not exists commit_files(
-		commit_id text not null references commits(id),
-		path text not null,
-		blob_id text not null,
-		content_hash text not null,
-		mode integer not null,
-		size bigint not null,
-		primary key(commit_id, path)
-	)`,
-	`create table if not exists blobs(
-		id text primary key,
-		content_hash text unique not null,
-		size bigint not null,
-		storage_location text not null,
-		state text not null,
-		created_at timestamptz not null default now()
-	)`,
-	`create table if not exists slices(
-		id text primary key,
-		account_id text not null references accounts(id),
-		slug text not null,
-		version bigint not null,
-		definition_hash text not null,
-		visibility text not null,
-		included_paths jsonb not null,
-		created_at timestamptz not null default now(),
-		updated_at timestamptz not null default now(),
-		unique(account_id, slug)
-	)`,
-	`create table if not exists changesets(
-		id text primary key,
-		authoring_account text not null,
-		authoring_slice text not null,
-		authoring_slice_id text not null references slices(id),
-		author_subject_id text not null references subjects(id),
-		target_ref text not null references refs(name),
-		base_commit_id text not null,
-		title text not null,
-		description text not null,
-		status text not null,
-		affected_paths jsonb not null,
-		current_patchset_id text,
-		current_patchset_number bigint not null default 0,
-		commit_id text,
-		created_at timestamptz not null default now(),
-		updated_at timestamptz not null default now()
-	)`,
-	`create table if not exists patchsets(
-		id text primary key,
-		changeset_id text not null references changesets(id),
-		number bigint not null,
-		base_commit_id text not null,
-		author_subject_id text not null references subjects(id),
-		file_edits jsonb not null,
-		changed_paths jsonb not null,
-		coverage jsonb not null,
-		path_bases jsonb not null,
-		read_set jsonb not null,
-		write_set jsonb not null,
-		created_at timestamptz not null default now(),
-		unique(changeset_id, number)
-	)`,
-	`create index if not exists idx_sessions_token_hash on sessions(token_hash) where revoked_at is null`,
-	`create index if not exists idx_slices_account_slug on slices(account_id, slug)`,
-	`create index if not exists idx_commit_files_path on commit_files(commit_id, path)`,
-	`create index if not exists idx_changesets_target_status on changesets(target_ref, status)`,
-	`create index if not exists idx_patchsets_changeset_number on patchsets(changeset_id, number desc)`,
-	`create index if not exists idx_blobs_content_hash on blobs(content_hash)`,
+//go:embed migrations/*.sql
+var migrationFS embed.FS
+
+func migrationStatements() []string {
+	entries, err := migrationFS.ReadDir("migrations")
+	if err != nil {
+		panic(err)
+	}
+	var statements []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		raw, err := migrationFS.ReadFile("migrations/" + entry.Name())
+		if err != nil {
+			panic(err)
+		}
+		for _, stmt := range strings.Split(string(raw), ";") {
+			stmt = strings.TrimSpace(stmt)
+			if stmt != "" {
+				statements = append(statements, stmt)
+			}
+		}
+	}
+	return statements
 }

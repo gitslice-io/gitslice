@@ -50,8 +50,9 @@ func InAnyPrefix(prefixes []string, p string) bool {
 
 func FromWorkspacePath(includedPrefix, workspacePath string) (string, error) {
 	workspacePath = strings.TrimPrefix(strings.ReplaceAll(workspacePath, "\\", "/"), "./")
-	if strings.HasPrefix(workspacePath, strings.TrimPrefix(includedPrefix, "/")+"/") ||
-		workspacePath == strings.TrimPrefix(includedPrefix, "/") {
+	trimmedPrefix := strings.TrimPrefix(includedPrefix, "/")
+	account := strings.Split(trimmedPrefix, "/")[0]
+	if strings.HasPrefix(workspacePath, account+"/") {
 		return Canonical(workspacePath)
 	}
 	if workspacePath == "" {

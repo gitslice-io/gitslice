@@ -10,13 +10,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
-	"github.com/gitslice-io/gitslice/internal/rpcjson"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -49,6 +49,24 @@ type WorkspaceState struct {
 	CurrentChangesetID string `json:"current_changeset_id"`
 	CurrentPatchsetID  string `json:"current_patchset_id"`
 	BaseCommitID       string `json:"base_commit_id"`
+}
+
+type BaseSnapshot struct {
+	CommitID string                      `json:"commit_id"`
+	Files    map[string]BaseSnapshotFile `json:"files"`
+}
+
+type BaseSnapshotFile struct {
+	Path        string `json:"path"`
+	RelPath     string `json:"rel_path"`
+	ContentHash string `json:"content_hash"`
+	Mode        uint32 `json:"mode"`
+	Size        int64  `json:"size"`
+}
+
+type workingFile struct {
+	BaseSnapshotFile
+	AbsPath string
 }
 
 func Main(args []string, stdout, stderr io.Writer) int {
@@ -104,11 +122,11 @@ func (r Runner) runAuth(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg := UserConfig{ServerAddr: *serverAddr, Token: res.Token, SubjectID: res.SubjectID}
+	cfg := UserConfig{ServerAddr: *serverAddr, Token: res.Token, SubjectID: res.SubjectId}
 	if err := r.writeUserConfig(cfg); err != nil {
 		return err
 	}
-	fmt.Fprintf(r.Stdout, "logged in as %s\n", res.SubjectID)
+	fmt.Fprintf(r.Stdout, "logged in as %s\n", res.SubjectId)
 	return nil
 }
 
@@ -141,15 +159,18 @@ func (r Runner) runWorkspace(ctx context.Context, args []string) error {
 	workspace := WorkspaceConfig{
 		Account:        ref.Account,
 		Slice:          ref.Slice,
-		SliceID:        slice.ID,
+		SliceID:        slice.Id,
 		DefinitionHash: slice.DefinitionHash,
 		IncludedPaths:  slice.Definition.IncludedPaths,
-		BaseCommitID:   refRecord.CommitID,
+		BaseCommitID:   refRecord.CommitId,
 	}
 	if err := r.writeWorkspaceConfig(workspace); err != nil {
 		return err
 	}
-	if err := r.writeWorkspaceState(WorkspaceState{BaseCommitID: refRecord.CommitID}); err != nil {
+	if err := r.writeWorkspaceState(WorkspaceState{BaseCommitID: refRecord.CommitId}); err != nil {
+		return err
+	}
+	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: refRecord.CommitId, Files: map[string]BaseSnapshotFile{}}); err != nil {
 		return err
 	}
 	fmt.Fprintf(r.Stdout, "initialized workspace for %s/%s\n", ref.Account, ref.Slice)
@@ -162,7 +183,7 @@ func (r Runner) runStatus(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	edits, err := r.snapshotEdits(ctx, nil, cfg, ws, false)
+	edits, _, err := r.snapshotEdits(ctx, nil, cfg, ws, false)
 	if err != nil {
 		return err
 	}
@@ -173,7 +194,7 @@ func (r Runner) runStatus(ctx context.Context, args []string) error {
 	defer conn.Close()
 	validation, err := corev1.NewWorkspaceServiceClient(conn).ValidateWorkspaceDiff(authContext(ctx, cfg), &corev1.ValidateWorkspaceDiffRequest{
 		Workspace:    workspaceRef(ws),
-		BaseCommitID: state.BaseCommitID,
+		BaseCommitId: state.BaseCommitID,
 		FileEdits:    edits,
 	})
 	if err != nil {
@@ -207,6 +228,8 @@ func (r Runner) runChangeset(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "create":
 		return r.runChangesetCreate(ctx, args[1:])
+	case "update":
+		return r.runChangesetUpdate(ctx, args[1:])
 	case "submit":
 		return r.runChangesetSubmit(ctx, args[1:])
 	case "status":
@@ -232,7 +255,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, args []string) error {
 		return err
 	}
 	defer conn.Close()
-	edits, err := r.snapshotEdits(ctx, conn, cfg, ws, true)
+	edits, _, err := r.snapshotEdits(ctx, conn, cfg, ws, true)
 	if err != nil {
 		return err
 	}
@@ -241,32 +264,67 @@ func (r Runner) runChangesetCreate(ctx context.Context, args []string) error {
 	cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
 		AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
 		TargetRef:      postgres.DefaultTargetRef,
-		BaseCommitID:   state.BaseCommitID,
+		BaseCommitId:   state.BaseCommitID,
 		Title:          *title,
 	})
 	if err != nil {
 		return err
 	}
 	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
-		ChangesetID:  cs.ID,
-		BaseCommitID: state.BaseCommitID,
+		ChangesetId:  cs.Id,
+		BaseCommitId: state.BaseCommitID,
 		FileEdits:    edits,
 	})
 	if err != nil {
 		return err
 	}
-	state.CurrentChangesetID = cs.ID
-	state.CurrentPatchsetID = patchset.ID
+	state.CurrentChangesetID = cs.Id
+	state.CurrentPatchsetID = patchset.Id
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
-	fmt.Fprintf(r.Stdout, "created changeset %s patchset %s\n", cs.ID, patchset.ID)
+	fmt.Fprintf(r.Stdout, "created changeset %s patchset %s\n", cs.Id, patchset.Id)
+	return nil
+}
+
+func (r Runner) runChangesetUpdate(ctx context.Context, args []string) error {
+	_ = args
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if state.CurrentChangesetID == "" {
+		return fmt.Errorf("no current changeset in workspace")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	edits, _, err := r.snapshotEdits(ctx, conn, cfg, ws, true)
+	if err != nil {
+		return err
+	}
+	patchset, err := corev1.NewChangesetServiceClient(conn).UpdateChangeset(authContext(ctx, cfg), &corev1.UpdateChangesetRequest{
+		ChangesetId:               state.CurrentChangesetID,
+		ExpectedCurrentPatchsetId: state.CurrentPatchsetID,
+		BaseCommitId:              state.BaseCommitID,
+		FileEdits:                 edits,
+	})
+	if err != nil {
+		return err
+	}
+	state.CurrentPatchsetID = patchset.Id
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	fmt.Fprintf(r.Stdout, "updated changeset %s patchset %s\n", state.CurrentChangesetID, patchset.Id)
 	return nil
 }
 
 func (r Runner) runChangesetSubmit(ctx context.Context, args []string) error {
 	_ = args
-	cfg, _, state, err := r.loadLocalState()
+	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
 	}
@@ -279,17 +337,24 @@ func (r Runner) runChangesetSubmit(ctx context.Context, args []string) error {
 	}
 	defer conn.Close()
 	res, err := corev1.NewChangesetServiceClient(conn).SubmitChangeset(authContext(ctx, cfg), &corev1.SubmitChangesetRequest{
-		ChangesetID:               state.CurrentChangesetID,
-		ExpectedCurrentPatchsetID: state.CurrentPatchsetID,
+		ChangesetId:               state.CurrentChangesetID,
+		ExpectedCurrentPatchsetId: state.CurrentPatchsetID,
 	})
 	if err != nil {
 		return err
 	}
-	state.BaseCommitID = res.NewRefCommitID
+	state.BaseCommitID = res.NewRefCommitId
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
-	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", res.CommitID, res.TargetRef)
+	current, err := r.scanWorkspaceFiles(ws)
+	if err != nil {
+		return err
+	}
+	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: res.NewRefCommitId, Files: snapshotFiles(current)}); err != nil {
+		return err
+	}
+	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", res.CommitId, res.TargetRef)
 	return nil
 }
 
@@ -307,32 +372,70 @@ func (r Runner) runChangesetStatus(ctx context.Context, args []string) error {
 		return err
 	}
 	defer conn.Close()
-	cs, err := corev1.NewChangesetServiceClient(conn).GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetID: state.CurrentChangesetID})
+	cs, err := corev1.NewChangesetServiceClient(conn).GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: state.CurrentChangesetID})
 	if err != nil {
 		return err
 	}
 	if format == "json" {
 		return writeJSON(r.Stdout, cs)
 	}
-	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\npatchset: %s\n", cs.ID, cs.Status, cs.CurrentPatchsetID)
+	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\npatchset: %s\n", cs.Id, cs.Status, cs.CurrentPatchsetId)
 	return nil
 }
 
-func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, upload bool) ([]*corev1.FileEdit, error) {
-	root := r.cwd()
-	if len(ws.IncludedPaths) == 0 {
-		return nil, fmt.Errorf("workspace has no included paths")
+func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {
+	base, err := r.readBaseSnapshot()
+	if err != nil {
+		return nil, nil, err
+	}
+	current, err := r.scanWorkspaceFiles(ws)
+	if err != nil {
+		return nil, nil, err
 	}
 	var blobClient corev1.BlobServiceClient
 	callCtx := ctx
 	if upload {
 		if conn == nil {
-			return nil, fmt.Errorf("connection is required for blob upload")
+			return nil, nil, fmt.Errorf("connection is required for blob upload")
 		}
 		blobClient = corev1.NewBlobServiceClient(conn)
 		callCtx = authContext(ctx, cfg)
 	}
 	var edits []*corev1.FileEdit
+	for p, file := range current {
+		baseFile, ok := base.Files[p]
+		if ok && baseFile.ContentHash == file.ContentHash && baseFile.Mode == file.Mode {
+			continue
+		}
+		edit := &corev1.FileEdit{Op: "upsert", Path: p, ContentHash: file.ContentHash, Mode: file.Mode}
+		if upload {
+			data, err := os.ReadFile(file.AbsPath)
+			if err != nil {
+				return nil, nil, err
+			}
+			uploadRes, err := blobClient.UploadBlob(callCtx, &corev1.UploadBlobRequest{ContentHash: file.ContentHash, Data: data})
+			if err != nil {
+				return nil, nil, err
+			}
+			edit.BlobId = uploadRes.BlobId
+		}
+		edits = append(edits, edit)
+	}
+	for p := range base.Files {
+		if _, ok := current[p]; !ok {
+			edits = append(edits, &corev1.FileEdit{Op: "delete", Path: p})
+		}
+	}
+	sortFileEdits(edits)
+	return edits, current, nil
+}
+
+func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, error) {
+	root := r.cwd()
+	if len(ws.IncludedPaths) == 0 {
+		return nil, fmt.Errorf("workspace has no included paths")
+	}
+	files := map[string]workingFile{}
 	err := filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -371,21 +474,22 @@ func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg Us
 		if info.Mode()&0o111 != 0 {
 			mode = 0o100755
 		}
-		edit := &corev1.FileEdit{Op: "upsert", Path: globalPath, ContentHash: contentHash, Mode: mode}
-		if upload {
-			uploadRes, err := blobClient.UploadBlob(callCtx, &corev1.UploadBlobRequest{ContentHash: contentHash, Data: data})
-			if err != nil {
-				return err
-			}
-			edit.BlobID = uploadRes.BlobID
+		files[globalPath] = workingFile{
+			BaseSnapshotFile: BaseSnapshotFile{
+				Path:        globalPath,
+				RelPath:     rel,
+				ContentHash: contentHash,
+				Mode:        mode,
+				Size:        info.Size(),
+			},
+			AbsPath: p,
 		}
-		edits = append(edits, edit)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return edits, nil
+	return files, nil
 }
 
 func (r Runner) loadLocalState() (UserConfig, WorkspaceConfig, WorkspaceState, error) {
@@ -453,6 +557,33 @@ func (r Runner) readWorkspaceState() (WorkspaceState, error) {
 	return state, err
 }
 
+func (r Runner) readBaseSnapshot() (BaseSnapshot, error) {
+	var snapshot BaseSnapshot
+	err := readJSONFile(filepath.Join(r.cwd(), ".gs", "base_snapshot.json"), &snapshot)
+	if errors.Is(err, os.ErrNotExist) {
+		snapshot.Files = map[string]BaseSnapshotFile{}
+		return snapshot, nil
+	}
+	if err != nil {
+		return snapshot, err
+	}
+	if snapshot.Files == nil {
+		snapshot.Files = map[string]BaseSnapshotFile{}
+	}
+	return snapshot, nil
+}
+
+func (r Runner) writeBaseSnapshot(snapshot BaseSnapshot) error {
+	if snapshot.Files == nil {
+		snapshot.Files = map[string]BaseSnapshotFile{}
+	}
+	dir := filepath.Join(r.cwd(), ".gs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return writeJSONFile(filepath.Join(dir, "base_snapshot.json"), snapshot, 0o644)
+}
+
 func (r Runner) writeWorkspaceState(state WorkspaceState) error {
 	dir := filepath.Join(r.cwd(), ".gs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -486,7 +617,7 @@ func parseSliceRef(value string) (*corev1.SliceRef, error) {
 }
 
 func workspaceRef(ws WorkspaceConfig) *corev1.WorkspaceRef {
-	return &corev1.WorkspaceRef{ID: ws.Account + "/" + ws.Slice}
+	return &corev1.WorkspaceRef{Id: ws.Account + "/" + ws.Slice}
 }
 
 func authContext(ctx context.Context, cfg UserConfig) context.Context {
@@ -494,13 +625,11 @@ func authContext(ctx context.Context, cfg UserConfig) context.Context {
 }
 
 func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
-	rpcjson.Register()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return grpc.DialContext(ctx, addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
-		grpc.WithDefaultCallOptions(grpc.ForceCodec(rpcjson.Codec{})),
 	)
 }
 
@@ -521,6 +650,23 @@ func parseFormat(args []string) string {
 		}
 	}
 	return "text"
+}
+
+func snapshotFiles(current map[string]workingFile) map[string]BaseSnapshotFile {
+	out := make(map[string]BaseSnapshotFile, len(current))
+	for p, file := range current {
+		out[p] = file.BaseSnapshotFile
+	}
+	return out
+}
+
+func sortFileEdits(edits []*corev1.FileEdit) {
+	sort.Slice(edits, func(i, j int) bool {
+		if edits[i].Path == edits[j].Path {
+			return edits[i].Op < edits[j].Op
+		}
+		return edits[i].Path < edits[j].Path
+	})
 }
 
 func shouldSkip(rel string, entry fs.DirEntry) bool {
