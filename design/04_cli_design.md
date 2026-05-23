@@ -8,7 +8,7 @@ Related documents:
 - [00_product.md](00_product.md): product overview and primary workflows
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): top-level architecture
 - [03_core_api.md](03_core_api.md): gRPC APIs used by the CLI
-- [05_git_compatibility.md](05_git_compatibility.md): Git gateway and optional Git/Jujutsu interop
+- [05_git_compatibility.md](05_git_compatibility.md): Git gateway and compatibility workflows
 - [07_conflict_resolution.md](07_conflict_resolution.md): path-level conflicts and batched submit
 - [08_execution_plan.md](08_execution_plan.md): rollout phases
 
@@ -16,25 +16,17 @@ Related documents:
 
 `gs` is the primary Gitslice CLI.
 
-The CLI should be Gitslice-native, not a thin wrapper around Git or Jujutsu.
-Gitslice has first-class concepts that those tools do not own:
+The CLI should be Gitslice-native, not a thin wrapper around Git. Gitslice has
+first-class concepts that Git does not own:
 
 - account-rooted global paths
 - slices
 - changesets and patchsets
 - server-side submit validation
 - Git projection as a compatibility layer
-
-Jujutsu is still a strong UX reference. The useful ideas to borrow are:
-
-- no user-facing staging area
-- working-copy changes are easy to snapshot
 - local operation log and undo
-- expressive revision/file selection
-- conflict state as data instead of as an interrupted command mode
-- simple commands for splitting, squashing, rebasing, and describing work
-
-The CLI should expose those ideas through Gitslice objects.
+- draft patchset snapshots
+- conflict state as explicit patchset data
 
 ## 2. Core UX Rules
 
@@ -74,7 +66,6 @@ gs squash
 gs rebase
 gs describe
 gs resolve
-gs jj ...
 ```
 
 The later commands should be added when the underlying changeset and patchset
@@ -173,8 +164,7 @@ On most mutating `gs` commands:
 6. Record a local operation log entry.
 ```
 
-This is inspired by Jujutsu's automatic working-copy snapshots, but the Gitslice
-unit is a draft patchset, not a local commit.
+The Gitslice unit is a draft patchset, not a local commit.
 
 Correctness must not depend on a file watcher. The CLI may keep a local changed
 path index for speed, but every mutating command must be able to reconcile that
@@ -314,7 +304,7 @@ expected/current fingerprints when available. The detailed conflict model is in
 
 ## 12. Query And Formatting
 
-The CLI should eventually support revset-like and fileset-like selectors:
+The CLI should eventually support structured changeset and file selectors:
 
 ```bash
 gs log -r 'mine() & open()'
@@ -337,32 +327,7 @@ gs cs status --format json
 gs status --format json
 ```
 
-## 13. Optional Jujutsu Interop
-
-Jujutsu should be supported as optional interop, not as the primary CLI.
-
-Supported later:
-
-```bash
-jj git clone https://gitslice.io/git/acme/payment.git
-gs cs create --from-jj '@'
-gs cs update --from-jj 'stack(@)'
-```
-
-Interop path:
-
-```text
-jj local commits
-  -> Git-compatible projected slice repository
-  -> gs converts selected jj/Git commits to file edits
-  -> Gitslice changeset and patchset
-  -> normal submit validation
-```
-
-The interop layer must not bypass Gitslice changesets or submit validation. The
-selected jj/Git commits must fit the workspace's single bound slice.
-
-## 14. Backend Requirements
+## 13. Backend Requirements
 
 The CLI needs these backend capabilities:
 
@@ -383,11 +348,12 @@ The CLI needs these backend capabilities:
 The `WorkspaceService` calls are backend helpers. The CLI still owns local
 workspace files, local cache, and local operation undo.
 
-## 15. Non-Goals
+## 14. Non-Goals
 
 The initial CLI should not:
 
-- use Jujutsu as the only supported frontend
+- depend on an external VCS frontend
+- support external VCS-specific interop commands in the MVP
 - expose direct native commit creation
 - expose a Git-style staging area
 - allow cross-slice changesets
@@ -395,11 +361,3 @@ The initial CLI should not:
 - bind multiple slices into one workspace
 - make Git sparse checkout a core workflow
 - bypass server-side submit validation
-
-## 16. External References
-
-- Jujutsu repository: <https://github.com/jj-vcs/jj>
-- Jujutsu working copy model: <https://docs.jj-vcs.dev/latest/working-copy/>
-- Jujutsu operation log: <https://docs.jj-vcs.dev/latest/operation-log/>
-- Jujutsu architecture: <https://docs.jj-vcs.dev/latest/technical/architecture/>
-- Jujutsu Git compatibility: <https://docs.jj-vcs.dev/latest/git-compatibility/>

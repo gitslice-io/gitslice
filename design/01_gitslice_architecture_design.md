@@ -24,7 +24,7 @@ Companion documents:
 - [00_product.md](00_product.md): product overview, users, workflows, and scope
 - [02_storage.md](02_storage.md): storage stack, Postgres schema, R2 layout, refs, hashing, and replication
 - [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
-- [04_cli_design.md](04_cli_design.md): native `gs` CLI, workspace behavior, and jj-inspired UX
+- [04_cli_design.md](04_cli_design.md): native `gs` CLI and workspace behavior
 - [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projected refs, synthetic commits, and push behavior
 - [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
 - [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
