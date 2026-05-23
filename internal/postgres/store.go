@@ -29,9 +29,20 @@ var (
 const DefaultTargetRef = "refs/global/main"
 
 type Store struct {
-	db    *sql.DB
-	trees *treestore.Store
+	db         *sql.DB
+	trees      *treestore.Store
+	auth       AuthStore
+	blobs      BlobStore
+	repository RepositoryStore
+	slices     SliceStore
+	changesets ChangesetStore
 }
+
+type AuthStore struct{ *Store }
+type BlobStore struct{ *Store }
+type RepositoryStore struct{ *Store }
+type SliceStore struct{ *Store }
+type ChangesetStore struct{ *Store }
 
 type Subject struct {
 	ID          string
@@ -78,7 +89,9 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	store := &Store{db: db}
+	store.initLogic()
+	return store, nil
 }
 
 func (s *Store) Close() error {
@@ -87,6 +100,42 @@ func (s *Store) Close() error {
 
 func (s *Store) SetTreeStore(trees *treestore.Store) {
 	s.trees = trees
+}
+
+func (s *Store) Auth() *AuthStore {
+	s.initLogic()
+	return &s.auth
+}
+
+func (s *Store) Blobs() *BlobStore {
+	s.initLogic()
+	return &s.blobs
+}
+
+func (s *Store) Repository() *RepositoryStore {
+	s.initLogic()
+	return &s.repository
+}
+
+func (s *Store) Slices() *SliceStore {
+	s.initLogic()
+	return &s.slices
+}
+
+func (s *Store) Changesets() *ChangesetStore {
+	s.initLogic()
+	return &s.changesets
+}
+
+func (s *Store) initLogic() {
+	if s.auth.Store == s {
+		return
+	}
+	s.auth = AuthStore{Store: s}
+	s.blobs = BlobStore{Store: s}
+	s.repository = RepositoryStore{Store: s}
+	s.slices = SliceStore{Store: s}
+	s.changesets = ChangesetStore{Store: s}
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
@@ -104,6 +153,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func (s *Store) LoginDevUser(ctx context.Context, devUser string) (string, string, error) {
+	return s.Auth().LoginDevUser(ctx, devUser)
+}
+
+func (s *AuthStore) LoginDevUser(ctx context.Context, devUser string) (string, string, error) {
 	subjectID := normalizeDevSubject(devUser)
 	var found string
 	err := s.db.QueryRowContext(ctx, `select id from subjects where id = $1`, subjectID).Scan(&found)
@@ -132,6 +185,10 @@ func (s *Store) LoginDevUser(ctx context.Context, devUser string) (string, strin
 }
 
 func (s *Store) SubjectForToken(ctx context.Context, token string) (*Subject, error) {
+	return s.Auth().SubjectForToken(ctx, token)
+}
+
+func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject, error) {
 	var subject Subject
 	err := s.db.QueryRowContext(ctx, `
 		select subjects.id, subjects.display_name
@@ -151,6 +208,10 @@ func (s *Store) SubjectForToken(ctx context.Context, token string) (*Subject, er
 }
 
 func (s *Store) EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error {
+	return s.Auth().EnsureAccountMember(ctx, subjectID, accountSlug)
+}
+
+func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error {
 	var ok bool
 	err := s.db.QueryRowContext(ctx, `
 		select exists(
@@ -170,6 +231,10 @@ func (s *Store) EnsureAccountMember(ctx context.Context, subjectID, accountSlug 
 }
 
 func (s *Store) ResolveSlice(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
+	return s.Slices().Resolve(ctx, ref)
+}
+
+func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
 	if ref == nil || ref.Account == "" || ref.Slice == "" {
 		return nil, fmt.Errorf("slice ref requires account and slice")
 	}
@@ -184,6 +249,10 @@ func (s *Store) ResolveSlice(ctx context.Context, ref *corev1.SliceRef) (*corev1
 }
 
 func (s *Store) GetSlice(ctx context.Context, sliceID string) (*corev1.Slice, error) {
+	return s.Slices().Get(ctx, sliceID)
+}
+
+func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       slices.visibility, slices.included_paths
@@ -195,6 +264,10 @@ func (s *Store) GetSlice(ctx context.Context, sliceID string) (*corev1.Slice, er
 }
 
 func (s *Store) ListSlices(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
+	return s.Slices().List(ctx, account, limit)
+}
+
+func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -223,6 +296,10 @@ func (s *Store) ListSlices(ctx context.Context, account string, limit int) ([]*c
 }
 
 func (s *Store) UpdateSliceDefinition(ctx context.Context, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+	return s.Slices().UpdateDefinition(ctx, sliceID, expectedHash, definition)
+}
+
+func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
 	if definition == nil {
 		return nil, fmt.Errorf("slice definition is required")
 	}
@@ -258,6 +335,10 @@ func (s *Store) UpdateSliceDefinition(ctx context.Context, sliceID, expectedHash
 }
 
 func (s *Store) GetRef(ctx context.Context, name string) (*corev1.Ref, error) {
+	return s.Repository().GetRef(ctx, name)
+}
+
+func (s *RepositoryStore) GetRef(ctx context.Context, name string) (*corev1.Ref, error) {
 	var ref corev1.Ref
 	var updatedAt time.Time
 	err := s.db.QueryRowContext(ctx, `
@@ -276,6 +357,10 @@ func (s *Store) GetRef(ctx context.Context, name string) (*corev1.Ref, error) {
 }
 
 func (s *Store) GetCommit(ctx context.Context, commitID string) (*corev1.Commit, error) {
+	return s.Repository().GetCommit(ctx, commitID)
+}
+
+func (s *RepositoryStore) GetCommit(ctx context.Context, commitID string) (*corev1.Commit, error) {
 	var commit corev1.Commit
 	var parentJSON, changedJSON []byte
 	var createdAt time.Time
@@ -302,6 +387,10 @@ func (s *Store) GetCommit(ctx context.Context, commitID string) (*corev1.Commit,
 }
 
 func (s *Store) UpsertBlob(ctx context.Context, blobID, contentHash string, size int64, storageLocation string) error {
+	return s.Blobs().Upsert(ctx, blobID, contentHash, size, storageLocation)
+}
+
+func (s *BlobStore) Upsert(ctx context.Context, blobID, contentHash string, size int64, storageLocation string) error {
 	_, err := s.db.ExecContext(ctx, `
 		insert into blobs(id, content_hash, size, storage_location, state)
 		values ($1, $2, $3, $4, 'available')
@@ -315,6 +404,10 @@ func (s *Store) UpsertBlob(ctx context.Context, blobID, contentHash string, size
 }
 
 func (s *Store) GetBlobByID(ctx context.Context, blobID string) (*corev1.BlobRecord, error) {
+	return s.Blobs().GetByID(ctx, blobID)
+}
+
+func (s *BlobStore) GetByID(ctx context.Context, blobID string) (*corev1.BlobRecord, error) {
 	var blob corev1.BlobRecord
 	err := s.db.QueryRowContext(ctx, `
 		select id, content_hash, size, storage_location, state
@@ -331,6 +424,10 @@ func (s *Store) GetBlobByID(ctx context.Context, blobID string) (*corev1.BlobRec
 }
 
 func (s *Store) GetBlobsByContentHash(ctx context.Context, hashes []string) ([]*corev1.BlobRecord, error) {
+	return s.Blobs().GetByContentHash(ctx, hashes)
+}
+
+func (s *BlobStore) GetByContentHash(ctx context.Context, hashes []string) ([]*corev1.BlobRecord, error) {
 	if len(hashes) == 0 {
 		return nil, nil
 	}
@@ -356,6 +453,10 @@ func (s *Store) GetBlobsByContentHash(ctx context.Context, hashes []string) ([]*
 }
 
 func (s *Store) CreateChangeset(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
+	return s.Changesets().Create(ctx, subjectID, req)
+}
+
+func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
 	if req.AuthoringSlice == nil {
 		return nil, fmt.Errorf("authoring slice is required")
 	}
@@ -365,13 +466,13 @@ func (s *Store) CreateChangeset(ctx context.Context, subjectID string, req *core
 	}
 	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {
-		ref, err := s.GetRef(ctx, targetRef)
+		ref, err := s.Repository().GetRef(ctx, targetRef)
 		if err != nil {
 			return nil, err
 		}
 		baseCommitID = ref.CommitId
 	}
-	slice, err := s.ResolveSlice(ctx, req.AuthoringSlice)
+	slice, err := s.Slices().Resolve(ctx, req.AuthoringSlice)
 	if err != nil {
 		return nil, err
 	}
@@ -396,10 +497,14 @@ func (s *Store) CreateChangeset(ctx context.Context, subjectID string, req *core
 	if err != nil {
 		return nil, err
 	}
-	return s.GetChangeset(ctx, id)
+	return s.Get(ctx, id)
 }
 
 func (s *Store) GetChangeset(ctx context.Context, changesetID string) (*corev1.Changeset, error) {
+	return s.Changesets().Get(ctx, changesetID)
+}
+
+func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.Changeset, error) {
 	var cs corev1.Changeset
 	var account, slice, currentPatchsetID, commitID, pendingPublishID sql.NullString
 	var affectedJSON []byte
@@ -445,6 +550,10 @@ func (s *Store) GetChangeset(ctx context.Context, changesetID string) (*corev1.C
 }
 
 func (s *Store) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
+	return s.Changesets().AddPatchset(ctx, changesetID, expectedCurrentPatchsetID, patchset)
+}
+
+func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -533,6 +642,10 @@ func (s *Store) AddPatchset(ctx context.Context, changesetID, expectedCurrentPat
 }
 
 func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+	return s.Changesets().Submit(ctx, changesetID, expectedCurrentPatchsetID)
+}
+
+func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -639,6 +752,10 @@ func (s *Store) SubmitChangeset(ctx context.Context, changesetID, expectedCurren
 }
 
 func (s *Store) PublishPending(ctx context.Context, limit int) (int, error) {
+	return s.Changesets().PublishPending(ctx, limit)
+}
+
+func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, error) {
 	if s.trees == nil {
 		return 0, fmt.Errorf("tree store is not configured")
 	}
@@ -820,6 +937,10 @@ func (s *Store) PublishPending(ctx context.Context, limit int) (int, error) {
 }
 
 func (s *Store) AbandonChangeset(ctx context.Context, changesetID string) error {
+	return s.Changesets().Abandon(ctx, changesetID)
+}
+
+func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {
 	res, err := s.db.ExecContext(ctx, `
 		update changesets
 		set status = 'abandoned', updated_at = now()
@@ -839,6 +960,10 @@ func (s *Store) AbandonChangeset(ctx context.Context, changesetID string) error 
 }
 
 func (s *Store) GetFile(ctx context.Context, commitID, p string) (*FileEntry, error) {
+	return s.Repository().GetFile(ctx, commitID, p)
+}
+
+func (s *RepositoryStore) GetFile(ctx context.Context, commitID, p string) (*FileEntry, error) {
 	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
 	if err != nil {
 		return nil, err
@@ -847,6 +972,10 @@ func (s *Store) GetFile(ctx context.Context, commitID, p string) (*FileEntry, er
 }
 
 func (s *Store) ListFiles(ctx context.Context, commitID, prefix string) ([]FileEntry, error) {
+	return s.Repository().ListFiles(ctx, commitID, prefix)
+}
+
+func (s *RepositoryStore) ListFiles(ctx context.Context, commitID, prefix string) ([]FileEntry, error) {
 	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
 	if err != nil {
 		return nil, err
@@ -919,6 +1048,10 @@ func (s *Store) listFilesFromTree(ctx context.Context, rootTreeID, prefix string
 }
 
 func (s *Store) CoveringSliceIDs(ctx context.Context, p string) ([]string, error) {
+	return s.Slices().CoveringIDs(ctx, p)
+}
+
+func (s *SliceStore) CoveringIDs(ctx context.Context, p string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `select id, included_paths from slices order by id`)
 	if err != nil {
 		return nil, err

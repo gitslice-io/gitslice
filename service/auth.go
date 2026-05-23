@@ -4,13 +4,18 @@ import (
 	"context"
 
 	"github.com/gitslice-io/gitslice/internal/authctx"
+	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func (s *Services) Login(ctx context.Context, req *corev1.LoginRequest) (*corev1.LoginResponse, error) {
-	token, subjectID, err := s.Store.LoginDevUser(ctx, req.DevUser)
+type FakeAccountService struct {
+	Auth *postgres.AuthStore
+}
+
+func (s *FakeAccountService) Login(ctx context.Context, req *corev1.LoginRequest) (*corev1.LoginResponse, error) {
+	token, subjectID, err := s.Auth.LoginDevUser(ctx, req.DevUser)
 	if err != nil {
 		return nil, grpcError(err)
 	}

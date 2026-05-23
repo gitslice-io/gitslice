@@ -275,8 +275,12 @@ Important package rules:
   interceptors, health, metrics, dependency wiring, and graceful shutdown only.
   It must stay free of product business logic.
 - `service` owns all public gRPC service implementations, including the fake
-  account service used by the MVP.
-- `postgres` owns SQL transactions and migrations.
+  account service used by the MVP. Each proto service should have a dedicated
+  handler struct; shared validation should live in small internal helpers rather
+  than a monolithic all-services object.
+- `postgres` owns SQL transactions and migrations. The root store owns DB
+  lifecycle and exposes focused logic structs for auth, blobs, repository,
+  slices, and changesets.
 - `objectstore/filesystem` owns MVP byte storage and verification, not metadata
   truth.
 - `submit` owns target-ref sequencer behavior and CAS publication.

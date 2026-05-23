@@ -1,0 +1,258 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
+	"github.com/gitslice-io/gitslice/internal/treestore"
+	"github.com/gitslice-io/gitslice/proto/core/v1"
+)
+
+func TestStoragePublishesObjectStoreTreeAndReadsFiles(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	blobID, contentHash := upsertTestBlob(t, ctx, store, "package payment\nconst A = 1\n")
+	path := "/acme/payment/a.go"
+
+	patchset := createDraftPatchset(t, ctx, store, base.CommitId, path, blobID, contentHash)
+	submit, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submit.Status != "pending_publish" {
+		t.Fatalf("submit status = %q, want pending_publish", submit.Status)
+	}
+	published, err := store.Changesets().PublishPending(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 {
+		t.Fatalf("published = %d, want 1", published)
+	}
+	ref := getTestRef(t, ctx, store)
+	if ref.CommitId == base.CommitId {
+		t.Fatal("ref did not move after publish")
+	}
+	commit, err := store.Repository().GetCommit(ctx, ref.CommitId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commit.RootTreeId == "" {
+		t.Fatal("published commit has empty root_tree_id")
+	}
+	entry, err := store.Repository().GetFile(ctx, ref.CommitId, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.BlobID != blobID || entry.ContentHash != contentHash {
+		t.Fatalf("entry = %#v, want blob=%s hash=%s", entry, blobID, contentHash)
+	}
+	files, err := store.Repository().ListFiles(ctx, ref.CommitId, "/acme/payment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Path != path {
+		t.Fatalf("files = %#v, want only %s", files, path)
+	}
+}
+
+func TestStoragePathHeadRejectsSamePathBeforePublish(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	path := "/acme/payment/conflict.go"
+	firstBlobID, firstHash := upsertTestBlob(t, ctx, store, "package payment\nconst V = 1\n")
+	secondBlobID, secondHash := upsertTestBlob(t, ctx, store, "package payment\nconst V = 2\n")
+
+	first := createDraftPatchset(t, ctx, store, base.CommitId, path, firstBlobID, firstHash)
+	second := createDraftPatchset(t, ctx, store, base.CommitId, path, secondBlobID, secondHash)
+
+	if _, err := store.Changesets().Submit(ctx, first.ChangesetId, first.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Changesets().Submit(ctx, second.ChangesetId, second.Id); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second submit err = %v, want ErrConflict", err)
+	}
+	ref := getTestRef(t, ctx, store)
+	if ref.CommitId != base.CommitId {
+		t.Fatal("ref moved before pending publish was processed")
+	}
+}
+
+func TestStorageDisjointPendingPublishesAsBatch(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	firstBlobID, firstHash := upsertTestBlob(t, ctx, store, "package payment\nconst A = 1\n")
+	secondBlobID, secondHash := upsertTestBlob(t, ctx, store, "package payment\nconst B = 1\n")
+
+	first := createDraftPatchset(t, ctx, store, base.CommitId, "/acme/payment/a.go", firstBlobID, firstHash)
+	second := createDraftPatchset(t, ctx, store, base.CommitId, "/acme/payment/b.go", secondBlobID, secondHash)
+	if _, err := store.Changesets().Submit(ctx, first.ChangesetId, first.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Changesets().Submit(ctx, second.ChangesetId, second.Id); err != nil {
+		t.Fatal(err)
+	}
+	published, err := store.Changesets().PublishPending(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 2 {
+		t.Fatalf("published = %d, want 2", published)
+	}
+	ref := getTestRef(t, ctx, store)
+	for _, path := range []string{"/acme/payment/a.go", "/acme/payment/b.go"} {
+		if _, err := store.Repository().GetFile(ctx, ref.CommitId, path); err != nil {
+			t.Fatalf("GetFile(%s): %v", path, err)
+		}
+	}
+}
+
+func newPostgresTestStore(t *testing.T) (context.Context, *Store) {
+	t.Helper()
+	databaseURL := os.Getenv("GITSLICE_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set GITSLICE_TEST_DATABASE_URL to run Postgres storage tests")
+	}
+	ctx := context.Background()
+	schema := "gitslice_store_" + sanitizeSchemaName(t.Name()) + "_" + time.Now().Format("150405000000")
+	createTestSchema(t, databaseURL, schema)
+	store, err := Open(ctx, databaseURLWithSearchPath(t, databaseURL, schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectStore, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetTreeStore(treestore.New(objectStore))
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close store: %v", err)
+		}
+		dropTestSchema(t, databaseURL, schema)
+	})
+	return ctx, store
+}
+
+func createDraftPatchset(t *testing.T, ctx context.Context, store *Store, baseCommitID, path, blobID, contentHash string) *corev1.Patchset {
+	t.Helper()
+	cs, err := store.Changesets().Create(ctx, "user_alice", &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      DefaultTargetRef,
+		BaseCommitId:   baseCommitID,
+		Title:          "storage test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchset, err := store.Changesets().AddPatchset(ctx, cs.Id, "", &corev1.Patchset{
+		BaseCommitId: baseCommitID,
+		Author:       "user_alice",
+		ChangedPaths: []string{path},
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        path,
+			BlobId:      blobID,
+			ContentHash: contentHash,
+			Mode:        0o100644,
+		}},
+		PathBases: []*corev1.PathBase{{
+			Path:             path,
+			BaseCommitId:     baseCommitID,
+			Exists:           false,
+			EntryFingerprint: MissingEntryFingerprint(),
+			Check:            "entry_fingerprint",
+		}},
+		ReadSet:  []*corev1.PathSetEntry{{Path: path}},
+		WriteSet: []*corev1.PathSetEntry{{Path: path}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return patchset
+}
+
+func upsertTestBlob(t *testing.T, ctx context.Context, store *Store, content string) (string, string) {
+	t.Helper()
+	data := []byte(content)
+	blobID := objectid.BlobID(data)
+	contentHash := objectid.RawContentHash(data)
+	if err := store.Blobs().Upsert(ctx, blobID, contentHash, int64(len(data)), filesystem.BlobKey(contentHash)); err != nil {
+		t.Fatal(err)
+	}
+	return blobID, contentHash
+}
+
+func getTestRef(t *testing.T, ctx context.Context, store *Store) *corev1.Ref {
+	t.Helper()
+	ref, err := store.Repository().GetRef(ctx, DefaultTargetRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
+}
+
+func createTestSchema(t *testing.T, databaseURL, schema string) {
+	t.Helper()
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`create schema ` + schema); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func dropTestSchema(t *testing.T, databaseURL, schema string) {
+	t.Helper()
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`drop schema if exists ` + schema + ` cascade`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func databaseURLWithSearchPath(t *testing.T, rawURL, schema string) string {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := parsed.Query()
+	q.Set("search_path", schema)
+	parsed.RawQuery = q.Encode()
+	return parsed.String()
+}
+
+func sanitizeSchemaName(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(value) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('_')
+	}
+	if b.Len() == 0 {
+		return "test"
+	}
+	return fmt.Sprintf("%.48s", b.String())
+}

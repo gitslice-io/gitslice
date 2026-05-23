@@ -616,3 +616,37 @@ paths, so accepted throughput is not expected to improve materially there. The
 main measured gain is that disjoint changes now publish without per-commit file
 snapshot writes and can sustain roughly 400 CLI submits per second on the local
 test setup.
+
+## 2026-05-23: Service And Storage Struct Split
+
+Request:
+
+- replace the monolithic service implementation struct with per-service structs
+- split the Postgres storage object into focused logic structs
+- add targeted Postgres-backed storage tests
+
+Implemented:
+
+- replaced the single `service.Services` implementation with dedicated
+  `FakeAccountService`, `RepositoryService`, `BlobService`, `SliceService`,
+  `WorkspaceService`, and `ChangesetService` structs
+- kept shared path diff validation in a small internal `diffValidator` helper
+  used by workspace and changeset flows
+- added repository read helpers so workspace hydration can use repository logic
+  without depending on the repository gRPC handler object
+- split `internal/postgres.Store` into lifecycle plus focused logic accessors:
+  auth, blobs, repository, slices, and changesets
+- kept compatibility wrapper methods on `Store` for callers such as the Git
+  compatibility layer while new service code depends on narrower storage structs
+- added Postgres-backed storage tests for:
+  - publishing object-store tree nodes and reading files through `root_tree_id`
+  - rejecting same-path submits through path-head CAS before root publish
+  - accepting and publishing disjoint pending changesets in one batch
+
+Verification:
+
+```bash
+go test ./...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+```

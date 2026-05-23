@@ -6,16 +6,22 @@ import (
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
+	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func (s *Services) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStatusRequest) (*corev1.GetBlobStatusResponse, error) {
+type BlobService struct {
+	Blobs       *postgres.BlobStore
+	ObjectStore ObjectStore
+}
+
+func (s *BlobService) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStatusRequest) (*corev1.GetBlobStatusResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	records, err := s.Store.GetBlobsByContentHash(ctx, req.ContentHashes)
+	records, err := s.Blobs.GetByContentHash(ctx, req.ContentHashes)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -34,7 +40,7 @@ func (s *Services) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStatusR
 	return &corev1.GetBlobStatusResponse{Blobs: out}, nil
 }
 
-func (s *Services) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequest) (*corev1.UploadBlobResponse, error) {
+func (s *BlobService) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequest) (*corev1.UploadBlobResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
@@ -47,7 +53,7 @@ func (s *Services) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequest
 	if err := s.ObjectStore.Put(ctx, key, bytes.NewReader(req.Data)); err != nil {
 		return nil, grpcError(err)
 	}
-	if err := s.Store.UpsertBlob(ctx, blobID, contentHash, int64(len(req.Data)), key); err != nil {
+	if err := s.Blobs.Upsert(ctx, blobID, contentHash, int64(len(req.Data)), key); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.UploadBlobResponse{BlobId: blobID, ContentHash: contentHash, Size: int64(len(req.Data))}, nil

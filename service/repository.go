@@ -17,22 +17,31 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (s *Services) ResolvePath(ctx context.Context, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
+type RepositoryService struct {
+	Repository  *postgres.RepositoryStore
+	ObjectStore ObjectStore
+}
+
+func (s *RepositoryService) ResolvePath(ctx context.Context, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
+	return resolvePath(ctx, s.Repository, req)
+}
+
+func resolvePath(ctx context.Context, repository *postgres.RepositoryStore, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
 	p, err := paths.Canonical(req.Path)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	entry, err := s.Store.GetFile(ctx, req.CommitId, p)
+	entry, err := repository.GetFile(ctx, req.CommitId, p)
 	if err == nil {
 		return &corev1.ResolvePathResponse{Entry: treeEntryFromFile(*entry)}, nil
 	}
 	if !errors.Is(err, postgres.ErrNotFound) {
 		return nil, grpcError(err)
 	}
-	children, err := s.Store.ListFiles(ctx, req.CommitId, p)
+	children, err := repository.ListFiles(ctx, req.CommitId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -47,7 +56,7 @@ func (s *Services) ResolvePath(ctx context.Context, req *corev1.ResolvePathReque
 	}}, nil
 }
 
-func (s *Services) ListDirectory(ctx context.Context, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
+func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
@@ -62,7 +71,7 @@ func (s *Services) ListDirectory(ctx context.Context, req *corev1.ListDirectoryR
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
-	files, err := s.Store.ListFiles(ctx, req.CommitId, p)
+	files, err := s.Repository.ListFiles(ctx, req.CommitId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -70,19 +79,23 @@ func (s *Services) ListDirectory(ctx context.Context, req *corev1.ListDirectoryR
 	return &corev1.ListDirectoryResponse{Entries: entries}, nil
 }
 
-func (s *Services) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
+func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
+	return readFile(ctx, s.Repository, s.ObjectStore, req)
+}
+
+func readFile(ctx context.Context, repository *postgres.RepositoryStore, objectStore ObjectStore, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
 	p, err := paths.Canonical(req.Path)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	entry, err := s.Store.GetFile(ctx, req.CommitId, p)
+	entry, err := repository.GetFile(ctx, req.CommitId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(entry.ContentHash), req.Offset, req.Length)
+	rc, err := objectStore.Get(ctx, filesystem.BlobKey(entry.ContentHash), req.Offset, req.Length)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -94,18 +107,18 @@ func (s *Services) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*
 	return &corev1.ReadFileResponse{Data: data, Offset: req.Offset, ContentHash: entry.ContentHash}, nil
 }
 
-func (s *Services) GetCommit(ctx context.Context, req *corev1.GetCommitRequest) (*corev1.Commit, error) {
+func (s *RepositoryService) GetCommit(ctx context.Context, req *corev1.GetCommitRequest) (*corev1.Commit, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	commit, err := s.Store.GetCommit(ctx, req.CommitId)
+	commit, err := s.Repository.GetCommit(ctx, req.CommitId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return commit, nil
 }
 
-func (s *Services) GetRef(ctx context.Context, req *corev1.GetRefRequest) (*corev1.Ref, error) {
+func (s *RepositoryService) GetRef(ctx context.Context, req *corev1.GetRefRequest) (*corev1.Ref, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
@@ -113,7 +126,7 @@ func (s *Services) GetRef(ctx context.Context, req *corev1.GetRefRequest) (*core
 	if refName == "" {
 		refName = postgres.DefaultTargetRef
 	}
-	ref, err := s.Store.GetRef(ctx, refName)
+	ref, err := s.Repository.GetRef(ctx, refName)
 	if err != nil {
 		return nil, grpcError(err)
 	}

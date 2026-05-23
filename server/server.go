@@ -107,14 +107,14 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func NewGRPCServer(store *postgres.Store, services *service.Services) *grpc.Server {
+func NewGRPCServer(store *postgres.Store, handlers *service.Handlers) *grpc.Server {
 	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(authInterceptor(store)))
-	corev1.RegisterFakeAccountServiceServer(grpcServer, services)
-	corev1.RegisterRepositoryServiceServer(grpcServer, services)
-	corev1.RegisterBlobServiceServer(grpcServer, services)
-	corev1.RegisterSliceServiceServer(grpcServer, services)
-	corev1.RegisterWorkspaceServiceServer(grpcServer, services)
-	corev1.RegisterChangesetServiceServer(grpcServer, services)
+	corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
+	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
+	corev1.RegisterBlobServiceServer(grpcServer, handlers.Blob)
+	corev1.RegisterSliceServiceServer(grpcServer, handlers.Slice)
+	corev1.RegisterWorkspaceServiceServer(grpcServer, handlers.Workspace)
+	corev1.RegisterChangesetServiceServer(grpcServer, handlers.Changeset)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)

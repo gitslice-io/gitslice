@@ -12,7 +12,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (s *Services) GetWorkspaceState(ctx context.Context, req *corev1.GetWorkspaceStateRequest) (*corev1.WorkspaceState, error) {
+type WorkspaceService struct {
+	Auth        *postgres.AuthStore
+	Repository  *postgres.RepositoryStore
+	Slices      *postgres.SliceStore
+	ObjectStore ObjectStore
+	validator   diffValidator
+}
+
+func (s *WorkspaceService) GetWorkspaceState(ctx context.Context, req *corev1.GetWorkspaceStateRequest) (*corev1.WorkspaceState, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
 		return nil, err
@@ -21,14 +29,14 @@ func (s *Services) GetWorkspaceState(ctx context.Context, req *corev1.GetWorkspa
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := s.Store.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
+	if err := s.Auth.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
 		return nil, grpcError(err)
 	}
-	slice, err := s.Store.ResolveSlice(ctx, ref)
+	slice, err := s.Slices.Resolve(ctx, ref)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	target, err := s.Store.GetRef(ctx, postgres.DefaultTargetRef)
+	target, err := s.Repository.GetRef(ctx, postgres.DefaultTargetRef)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -44,29 +52,29 @@ func (s *Services) GetWorkspaceState(ctx context.Context, req *corev1.GetWorkspa
 	}, nil
 }
 
-func (s *Services) HydratePaths(ctx context.Context, req *corev1.HydratePathsRequest) (*corev1.HydratePathsResponse, error) {
+func (s *WorkspaceService) HydratePaths(ctx context.Context, req *corev1.HydratePathsRequest) (*corev1.HydratePathsResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
 	if len(req.Paths) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one path is required")
 	}
-	target, err := s.Store.GetRef(ctx, postgres.DefaultTargetRef)
+	target, err := s.Repository.GetRef(ctx, postgres.DefaultTargetRef)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	read, err := s.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: target.CommitId, Path: req.Paths[0]})
+	read, err := readFile(ctx, s.Repository, s.ObjectStore, &corev1.ReadFileRequest{CommitId: target.CommitId, Path: req.Paths[0]})
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := s.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: target.CommitId, Path: req.Paths[0]})
+	resolved, err := resolvePath(ctx, s.Repository, &corev1.ResolvePathRequest{CommitId: target.CommitId, Path: req.Paths[0]})
 	if err != nil {
 		return nil, err
 	}
 	return &corev1.HydratePathsResponse{Path: req.Paths[0], Entry: resolved.Entry, Data: read.Data}, nil
 }
 
-func (s *Services) ValidateWorkspaceDiff(ctx context.Context, req *corev1.ValidateWorkspaceDiffRequest) (*corev1.ValidateWorkspaceDiffResponse, error) {
+func (s *WorkspaceService) ValidateWorkspaceDiff(ctx context.Context, req *corev1.ValidateWorkspaceDiffRequest) (*corev1.ValidateWorkspaceDiffResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
 		return nil, err
@@ -75,29 +83,29 @@ func (s *Services) ValidateWorkspaceDiff(ctx context.Context, req *corev1.Valida
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := s.Store.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
+	if err := s.Auth.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
 		return nil, grpcError(err)
 	}
-	slice, err := s.Store.ResolveSlice(ctx, ref)
+	slice, err := s.Slices.Resolve(ctx, ref)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {
-		target, err := s.Store.GetRef(ctx, postgres.DefaultTargetRef)
+		target, err := s.Repository.GetRef(ctx, postgres.DefaultTargetRef)
 		if err != nil {
 			return nil, grpcError(err)
 		}
 		baseCommitID = target.CommitId
 	}
-	validation, err := s.validateFileEdits(ctx, slice, baseCommitID, req.FileEdits, false)
+	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, req.FileEdits, false)
 	if err != nil {
 		return nil, err
 	}
 	return validation, nil
 }
 
-func (s *Services) RecordWorkspaceOperation(ctx context.Context, req *corev1.RecordWorkspaceOperationRequest) (*corev1.RecordWorkspaceOperationResponse, error) {
+func (s *WorkspaceService) RecordWorkspaceOperation(ctx context.Context, req *corev1.RecordWorkspaceOperationRequest) (*corev1.RecordWorkspaceOperationResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}

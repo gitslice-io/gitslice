@@ -13,7 +13,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (s *Services) CreateChangeset(ctx context.Context, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
+type ChangesetService struct {
+	Auth       *postgres.AuthStore
+	Changesets *postgres.ChangesetStore
+	Slices     *postgres.SliceStore
+	validator  diffValidator
+}
+
+type diffValidator struct {
+	Repository *postgres.RepositoryStore
+	Slices     *postgres.SliceStore
+}
+
+func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
 		return nil, err
@@ -21,37 +33,37 @@ func (s *Services) CreateChangeset(ctx context.Context, req *corev1.CreateChange
 	if req.AuthoringSlice == nil {
 		return nil, status.Error(codes.InvalidArgument, "authoring slice is required")
 	}
-	if err := s.Store.EnsureAccountMember(ctx, subjectID, req.AuthoringSlice.Account); err != nil {
+	if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.AuthoringSlice.Account); err != nil {
 		return nil, grpcError(err)
 	}
-	cs, err := s.Store.CreateChangeset(ctx, subjectID, req)
+	cs, err := s.Changesets.Create(ctx, subjectID, req)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return cs, nil
 }
 
-func (s *Services) GetChangeset(ctx context.Context, req *corev1.GetChangesetRequest) (*corev1.Changeset, error) {
+func (s *ChangesetService) GetChangeset(ctx context.Context, req *corev1.GetChangesetRequest) (*corev1.Changeset, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	cs, err := s.Store.GetChangeset(ctx, req.ChangesetId)
+	cs, err := s.Changesets.Get(ctx, req.ChangesetId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return cs, nil
 }
 
-func (s *Services) UpdateChangeset(ctx context.Context, req *corev1.UpdateChangesetRequest) (*corev1.Patchset, error) {
+func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.UpdateChangesetRequest) (*corev1.Patchset, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.Store.GetChangeset(ctx, req.ChangesetId)
+	cs, err := s.Changesets.Get(ctx, req.ChangesetId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	slice, err := s.Store.ResolveSlice(ctx, cs.AuthoringSlice)
+	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -59,7 +71,7 @@ func (s *Services) UpdateChangeset(ctx context.Context, req *corev1.UpdateChange
 	if baseCommitID == "" {
 		baseCommitID = cs.BaseCommitId
 	}
-	validation, err := s.validateFileEdits(ctx, slice, baseCommitID, req.FileEdits, true)
+	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, req.FileEdits, true)
 	if err != nil {
 		return nil, err
 	}
@@ -74,35 +86,35 @@ func (s *Services) UpdateChangeset(ctx context.Context, req *corev1.UpdateChange
 		ReadSet:            validation.ReadSet,
 		WriteSet:           validation.WriteSet,
 	}
-	patchset, err = s.Store.AddPatchset(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId, patchset)
+	patchset, err = s.Changesets.AddPatchset(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return patchset, nil
 }
 
-func (s *Services) SubmitChangeset(ctx context.Context, req *corev1.SubmitChangesetRequest) (*corev1.SubmitChangesetResponse, error) {
+func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.SubmitChangesetRequest) (*corev1.SubmitChangesetResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	res, err := s.Store.SubmitChangeset(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId)
+	res, err := s.Changesets.Submit(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return res, nil
 }
 
-func (s *Services) AbandonChangeset(ctx context.Context, req *corev1.AbandonChangesetRequest) (*corev1.Empty, error) {
+func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.AbandonChangesetRequest) (*corev1.Empty, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
-	if err := s.Store.AbandonChangeset(ctx, req.ChangesetId); err != nil {
+	if err := s.Changesets.Abandon(ctx, req.ChangesetId); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.Empty{}, nil
 }
 
-func (s *Services) validateFileEdits(ctx context.Context, slice *corev1.Slice, baseCommitID string, edits []*corev1.FileEdit, requireBlob bool) (*corev1.ValidateWorkspaceDiffResponse, error) {
+func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slice, baseCommitID string, edits []*corev1.FileEdit, requireBlob bool) (*corev1.ValidateWorkspaceDiffResponse, error) {
 	changed := map[string]struct{}{}
 	for _, edit := range edits {
 		normalized, err := normalizeEdit(edit, requireBlob)
@@ -127,12 +139,12 @@ func (s *Services) validateFileEdits(ctx context.Context, slice *corev1.Slice, b
 	readSet := make([]*corev1.PathSetEntry, 0, len(affected))
 	writeSet := make([]*corev1.PathSetEntry, 0, len(affected))
 	for _, p := range affected {
-		covering, err := s.Store.CoveringSliceIDs(ctx, p)
+		covering, err := v.Slices.CoveringIDs(ctx, p)
 		if err != nil {
 			return nil, grpcError(err)
 		}
 		coverage = append(coverage, &corev1.PathCoverage{Path: p, CoveringSliceIds: covering})
-		base, err := s.pathBase(ctx, baseCommitID, p)
+		base, err := v.pathBase(ctx, baseCommitID, p)
 		if err != nil {
 			return nil, err
 		}
@@ -152,14 +164,14 @@ func (s *Services) validateFileEdits(ctx context.Context, slice *corev1.Slice, b
 	}, nil
 }
 
-func (s *Services) pathBase(ctx context.Context, baseCommitID, p string) (*corev1.PathBase, error) {
+func (v diffValidator) pathBase(ctx context.Context, baseCommitID, p string) (*corev1.PathBase, error) {
 	base := &corev1.PathBase{
 		Path:             p,
 		BaseCommitId:     baseCommitID,
 		Check:            "entry_fingerprint",
 		EntryFingerprint: postgres.MissingEntryFingerprint(),
 	}
-	entry, err := s.Store.GetFile(ctx, baseCommitID, p)
+	entry, err := v.Repository.GetFile(ctx, baseCommitID, p)
 	if errors.Is(err, postgres.ErrNotFound) {
 		return base, nil
 	}
