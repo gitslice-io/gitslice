@@ -227,6 +227,186 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```
 
+## 2026-05-23: Incremental Deep Import And CLI Progress
+
+Request:
+
+- make deep import practical by avoiding full snapshot-per-commit work
+- improve CLI UX so imports show progress
+- confirm that deep import remains server-side
+
+Implemented:
+
+- added `RepositoryService.ImportGitRepositoryStream`, a server-streaming import
+  RPC that sends clone, commit listing, per-commit read/upload/submit/publish,
+  and final result events
+- added gRPC stream authentication so streaming service methods get the same
+  subject context as unary methods
+- changed the CLI text path to use the streaming RPC and print progress to
+  stderr while keeping `--json` as a final-response-only unary call
+- changed deep import after the first commit to use `git diff-tree` between the
+  previously imported Git commit and the next Git commit, then read only changed
+  blobs with `git cat-file --batch`
+- kept the first deep commit as a mounted-tree materialization so importing onto
+  an existing mount still replaces stale mounted contents
+
+Important decisions:
+
+- Deep import stays server-side. The CLI only submits source, mount, slice, and
+  mode, then renders server progress.
+- The MVP native history remains linear. For each Git commit in topo-order, the
+  importer computes the tree delta from the previously imported Git commit to
+  the next Git commit, so each emitted native commit represents that Git tree in
+  the chosen linear import sequence without re-reading the full tree.
+- Text progress goes to stderr so stdout can remain a clean summary. JSON output
+  remains stable and does not include progress events.
+
+Verification:
+
+```bash
+go test ./service
+go test ./server
+go test ./internal/cli
+go test ./internal/treestore
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestGitHubImport' -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
+```
+
+## 2026-05-23: Bounded Resumable Linux Deep Import
+
+Request:
+
+- prove deep import against Linux in a bounded way
+- add resumability before attempting large history imports
+
+Implemented:
+
+- added `max_commits` and `resume` to `ImportGitRepositoryRequest`
+- added CLI flags:
+  - `--max-commits N` for bounded deep import of the most recent N commits
+  - `--resume` enabled by default to reuse completed imports
+- added server-side `git_imports` and `git_import_commits` tables to persist
+  Git-to-native commit mappings by source, mount path, authoring slice, target
+  ref, and mode
+- changed bounded deep imports to use `git clone --depth N` so large-repo tests
+  do not clone full history
+- added functional coverage for bounded deep import and resume skipping
+
+Linux bounded test:
+
+```bash
+gs repo import github torvalds/linux \
+  --mount /acme/payment/imported/linux-deep \
+  --slice acme/payment \
+  --mode deep \
+  --max-commits 5
+```
+
+Result:
+
+```text
+first run: 108.578s, imported 5 commits, pending=0, object_store=1.8G
+resume run: 29.734s, skipped all 5 commits
+```
+
+The first selected commit materialized 93,689 paths. Subsequent selected commits
+used incremental Git diffs and changed 1, 1, 1, and 1,852 paths respectively.
+
+Verification:
+
+```bash
+go test ./service
+go test ./internal/postgres
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestGitHubImport' -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
+```
+
+## 2026-05-23: Linux Deep Import 5000-Commit Attempt
+
+Request:
+
+- measure deep import time for `torvalds/linux` with `--max-commits 5000`
+
+Result:
+
+- The import did not reach native import work. Both attempts failed during the
+  server-side GitHub clone.
+- Attempt 1 used the default Git HTTP behavior:
+  - duration: 323.043s
+  - failure: `curl 92 HTTP/2 stream 5 was not closed cleanly: CANCEL`
+  - imported commits: 0
+  - published commits: 0
+- Attempt 2 forced Git HTTP/1.1 through inherited Git config:
+  - duration: 326.322s
+  - failure: `curl 18 transfer closed with outstanding read data remaining`
+  - imported commits: 0
+  - published commits: 0
+
+Important learning:
+
+- At `--depth 5000`, the current server-side `git clone --depth N` path is not
+  reliable enough against GitHub for Linux-sized repositories. The next fix
+  should make import clone/fetch resumable, probably by using a server-side Git
+  cache and fetch retries instead of cloning into a throwaway directory for every
+  import attempt.
+
+Verification command shape:
+
+```bash
+gs repo import github torvalds/linux \
+  --mount /acme/payment/imported/linux-deep5000 \
+  --slice acme/payment \
+  --mode deep \
+  --max-commits 5000
+```
+
+## 2026-05-23: Linux Deep Import 1000-Commit Run
+
+Request:
+
+- try a bounded Linux deep import with `--max-commits 1000`
+
+Command:
+
+```bash
+gs repo import github torvalds/linux \
+  --mount /acme/payment/imported/linux-deep1000 \
+  --slice acme/payment \
+  --mode deep \
+  --max-commits 1000
+```
+
+Result:
+
+```text
+status: success
+duration: 1155.289s
+native commits published: 1000
+pending publishes: 0
+object store size: 2.9G
+object store files: 147060
+observed temporary Git checkout size: 8.0G
+```
+
+Important observations:
+
+- `git clone --depth 1000` completed successfully, unlike the earlier
+  `--depth 5000` attempts.
+- The first selected commit materialized 93,693 paths.
+- The importer completed all 1000 native publishes. Several merge commits still
+  touched thousands of paths, including observed diffs of 9,511, 9,569, 25,935,
+  and 25,824 changed paths.
+- End-to-end time includes server startup, clone, commit listing, initial tree
+  materialization, incremental Git diff reads, blob writes, native changeset
+  submit, and publish for every selected commit.
+
 ## 2026-05-22: Git Read Compatibility Layer
 
 Request:
@@ -713,4 +893,93 @@ repeated_status operations=32 wall=45.9465ms throughput=696.46/s p50=9.240542ms 
 hot_files_create_update_submit_accept operations=12 wall=140.116041ms throughput=85.64/s p50=77.477958ms p95=139.282084ms p99=139.282084ms
 hot_files_contention successes=12 attempts=76 conflicts=64 conflict_rate=84.21%
 integrity ref_count=1 commit_count=16 blob_count=79 tree_count=61 tree_file_count=42 path_head_count=3
+```
+
+## 2026-05-23: GitHub Repository Import CLI
+
+Request:
+
+- add CLI support to import a GitHub repository under a chosen Gitslice path
+- support shallow import and deep import with every Git commit
+- test listing and inspecting imported commits
+
+Implemented:
+
+- added `RepositoryService.ImportGitRepository`
+  - accepts GitHub `owner/repo`, Git URLs, or local Git paths for tests
+  - validates that the mount path is inside the authoring slice
+  - clones shallow for `mode=shallow` and imports only `HEAD`
+  - clones full history for `mode=deep` and imports commits in chronological
+    order as native changesets
+  - writes imported blobs through the object store and blob metadata path
+  - submits through the existing changeset, path-head CAS, pending publish, and
+    ref CAS flow rather than creating local commits in the CLI
+- added `RepositoryService.ListCommits` for native commit listing by ref
+- added CLI commands:
+  - `gs repo import github <owner/repo-or-url> --mount <path> --slice <slice> --mode shallow`
+  - `gs repo import github <owner/repo-or-url> --mount <path> --slice <slice> --mode deep`
+  - `gs commit list --limit N`
+  - `gs commit inspect <native-commit-id>`
+- added functional tests that create a local Git repo, import it through the
+  GitHub import command in shallow and deep modes, list native commits, inspect
+  imported commits, and verify the final projected Git checkout contains the
+  imported files
+
+Important decisions and learnings:
+
+- The CLI command is named for GitHub, but tests pass a local Git path through
+  the same code path so CI does not depend on external network access.
+- Deep import preserves one native commit per Git commit for linear histories by
+  diffing each Git commit snapshot against the previous imported snapshot. Merge
+  semantics can be made richer later, but the MVP creates a deterministic linear
+  native history.
+- Import is intentionally server-side. The CLI starts the operation and displays
+  the Git-to-native commit mapping; the server owns validation, blob persistence,
+  submit admission, and publication.
+
+Verification:
+
+```bash
+go test ./...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+```
+
+## 2026-05-23: Large GitHub Import Performance Fix
+
+Request:
+
+- fix the Linux-sized shallow GitHub import path after the benchmark showed it
+  failed after about 24 minutes waiting for publish
+
+Implemented:
+
+- replaced per-file `git show <commit>:<path>` import reads with one
+  `git cat-file --batch` process per snapshot
+- batched treestore edit application so large sibling file imports rewrite each
+  touched directory once instead of path-copying the tree once per file
+- made filesystem object-store writes idempotent when the content-addressed
+  target already exists
+- made import publish waiting scale with changed file count instead of using a
+  fixed 30-second timeout
+
+Important learnings:
+
+- The first `torvalds/linux` shallow import reached 93,703 path heads and
+  93,064 blob rows, but failed because the final publish took longer than the
+  import wait timeout.
+- The old treestore path copied the root-to-file directory chain for every file
+  edit, producing 918,429 filesystem objects and a 7.6 GB object store for one
+  Linux shallow import.
+- After batching, the same shallow import completed successfully in 96.908s and
+  produced a 1.7 GB object store with 99,205 files.
+
+Verification:
+
+```bash
+go test ./internal/treestore
+go test ./service
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestGitHubImport' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```

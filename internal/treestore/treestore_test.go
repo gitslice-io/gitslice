@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -61,6 +62,35 @@ func TestApplyEditsPathCopiesTreeNodes(t *testing.T) {
 	}
 }
 
+func TestApplyEditsBatchesSharedDirectoryWrites(t *testing.T) {
+	ctx := context.Background()
+	objects := newMemoryObjectStore()
+	store := New(objects)
+	edits := make([]FileEdit, 0, 100)
+	for i := 0; i < 100; i++ {
+		path := fmt.Sprintf("/acme/payment/file-%03d.go", i)
+		edits = append(edits, FileEdit{
+			Op:   "upsert",
+			Path: path,
+			File: &FileEntry{Path: path, BlobID: fmt.Sprintf("blob-%03d", i), ContentHash: fmt.Sprintf("sha256:%03d", i), Mode: 0o100644, Size: int64(i)},
+		})
+	}
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), edits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if objects.putCount() > 4 {
+		t.Fatalf("batched apply wrote %d tree objects, want at most 4", objects.putCount())
+	}
+	files, err := store.ListFiles(ctx, root, "/acme/payment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != len(edits) {
+		t.Fatalf("files = %d, want %d", len(files), len(edits))
+	}
+}
+
 func TestRenameAndDelete(t *testing.T) {
 	ctx := context.Background()
 	store := New(newMemoryObjectStore())
@@ -106,6 +136,7 @@ func TestRenameAndDelete(t *testing.T) {
 type memoryObjectStore struct {
 	mu      sync.Mutex
 	objects map[string][]byte
+	puts    int
 }
 
 func newMemoryObjectStore() *memoryObjectStore {
@@ -119,6 +150,7 @@ func (m *memoryObjectStore) Put(_ context.Context, key string, r io.Reader) erro
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.puts++
 	m.objects[key] = data
 	return nil
 }
@@ -131,4 +163,10 @@ func (m *memoryObjectStore) Get(_ context.Context, key string, _, _ int64) (io.R
 		return nil, errors.New("missing object")
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func (m *memoryObjectStore) putCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.puts
 }

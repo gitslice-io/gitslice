@@ -28,6 +28,11 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if _, err := os.Stat(target); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
@@ -42,6 +47,11 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 		return err
 	}
 	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if _, err := os.Stat(target); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
 		return err
 	}
 	return os.Rename(tmpPath, target)

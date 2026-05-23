@@ -344,6 +344,163 @@ func TestGitCloneProjection(t *testing.T) {
 	}
 }
 
+func TestGitHubImportShallow(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	sourceRepo := createImportGitRepo(t)
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+
+	raw := runCLI(t, home, workspace,
+		"repo", "import", "github", sourceRepo,
+		"--mount", "/acme/payment/imported/shallow",
+		"--slice", "acme/payment",
+		"--mode", "shallow",
+		"--json",
+	)
+	var imported struct {
+		FinalCommitID string `json:"final_commit_id"`
+		Commits       []struct {
+			NativeCommitID string `json:"native_commit_id"`
+			Message        string `json:"message"`
+		} `json:"commits"`
+	}
+	if err := json.Unmarshal([]byte(raw), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if len(imported.Commits) != 1 {
+		t.Fatalf("shallow import commits = %d, want 1: %s", len(imported.Commits), raw)
+	}
+	if imported.Commits[0].Message != "third commit" {
+		t.Fatalf("shallow import message = %q, want third commit", imported.Commits[0].Message)
+	}
+	inspect := runCLI(t, home, workspace, "commit", "inspect", imported.FinalCommitID)
+	if !strings.Contains(inspect, "message: third commit") ||
+		!strings.Contains(inspect, "/acme/payment/imported/shallow/README.md") {
+		t.Fatalf("unexpected inspect output:\n%s", inspect)
+	}
+}
+
+func TestGitHubImportProgressText(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	sourceRepo := createImportGitRepo(t)
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+
+	stdout, stderr := runCLIStreams(t, home, workspace,
+		"repo", "import", "github", sourceRepo,
+		"--mount", "/acme/payment/imported/progress",
+		"--slice", "acme/payment",
+		"--mode", "shallow",
+	)
+	if !strings.Contains(stdout, "imported 1 commit(s)") ||
+		!strings.Contains(stdout, "final commit:") {
+		t.Fatalf("unexpected import stdout:\n%s", stdout)
+	}
+	for _, want := range []string{"cloning repository", "found 1 commit(s)", "import complete"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("import stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestGitHubImportDeepListAndInspectCommits(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	sourceRepo := createImportGitRepo(t)
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	token := readToken(t, home)
+
+	raw := runCLI(t, home, workspace,
+		"repo", "import", "github", sourceRepo,
+		"--mount", "/acme/payment/imported/deep",
+		"--slice", "acme/payment",
+		"--mode", "deep",
+		"--json",
+	)
+	var imported struct {
+		FinalCommitID string `json:"final_commit_id"`
+		Commits       []struct {
+			NativeCommitID string `json:"native_commit_id"`
+			Message        string `json:"message"`
+		} `json:"commits"`
+	}
+	if err := json.Unmarshal([]byte(raw), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if len(imported.Commits) != 3 {
+		t.Fatalf("deep import commits = %d, want 3: %s", len(imported.Commits), raw)
+	}
+	for i, want := range []string{"first commit", "second commit", "third commit"} {
+		if imported.Commits[i].Message != want {
+			t.Fatalf("commit %d message = %q, want %q", i, imported.Commits[i].Message, want)
+		}
+	}
+	list := runCLI(t, home, workspace, "commit", "list", "--limit", "4")
+	for _, want := range []string{"third commit", "second commit", "first commit"} {
+		if !strings.Contains(list, want) {
+			t.Fatalf("commit list missing %q:\n%s", want, list)
+		}
+	}
+	inspect := runCLI(t, home, workspace, "commit", "inspect", imported.Commits[1].NativeCommitID)
+	if !strings.Contains(inspect, "message: second commit") ||
+		!strings.Contains(inspect, "/acme/payment/imported/deep/lib/code.go") {
+		t.Fatalf("unexpected second commit inspect output:\n%s", inspect)
+	}
+	cloneDir := cloneSlice(t, ts, token)
+	assertProjectedFile(t, cloneDir, "acme/payment/imported/deep/README.md", "hello v2\n")
+	assertProjectedFile(t, cloneDir, "acme/payment/imported/deep/lib/code.go", "package lib\nconst Value = 1\n")
+}
+
+func TestGitHubImportDeepMaxCommitsAndResume(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	sourceRepo := createImportGitRepo(t)
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+
+	raw := runCLI(t, home, workspace,
+		"repo", "import", "github", sourceRepo,
+		"--mount", "/acme/payment/imported/bounded",
+		"--slice", "acme/payment",
+		"--mode", "deep",
+		"--max-commits", "2",
+		"--json",
+	)
+	var imported struct {
+		Commits []struct {
+			Message string `json:"message"`
+		} `json:"commits"`
+	}
+	if err := json.Unmarshal([]byte(raw), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if len(imported.Commits) != 2 {
+		t.Fatalf("bounded deep import commits = %d, want 2: %s", len(imported.Commits), raw)
+	}
+	for i, want := range []string{"second commit", "third commit"} {
+		if imported.Commits[i].Message != want {
+			t.Fatalf("commit %d message = %q, want %q", i, imported.Commits[i].Message, want)
+		}
+	}
+
+	stdout, stderr := runCLIStreams(t, home, workspace,
+		"repo", "import", "github", sourceRepo,
+		"--mount", "/acme/payment/imported/bounded",
+		"--slice", "acme/payment",
+		"--mode", "deep",
+		"--max-commits", "2",
+	)
+	if !strings.Contains(stdout, "imported 2 commit(s)") {
+		t.Fatalf("unexpected resume stdout:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "skipped") {
+		t.Fatalf("resume stderr missing skipped progress:\n%s", stderr)
+	}
+}
+
 type testServer struct {
 	addr        string
 	gitAddr     string
@@ -416,12 +573,18 @@ func (ts *testServer) restart(t *testing.T) {
 
 func runCLI(t *testing.T, home, workspace string, args ...string) string {
 	t.Helper()
+	stdout, _ := runCLIStreams(t, home, workspace, args...)
+	return stdout
+}
+
+func runCLIStreams(t *testing.T, home, workspace string, args ...string) (string, string) {
+	t.Helper()
 	var stdout, stderr bytes.Buffer
 	r := cli.Runner{Home: home, Dir: workspace, Stdout: &stdout, Stderr: &stderr}
 	if err := r.Run(context.Background(), args); err != nil {
 		t.Fatalf("gs %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout.String(), stderr.String())
 	}
-	return stdout.String()
+	return stdout.String(), stderr.String()
 }
 
 func runCLIFails(t *testing.T, home, workspace string, args ...string) (string, string) {
@@ -469,6 +632,36 @@ func copyWorkspaceFile(t *testing.T, fromWorkspace, toWorkspace, rel string) {
 	if err := os.WriteFile(target, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func createImportGitRepo(t *testing.T) string {
+	t.Helper()
+	repo := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.name", "Import Tester")
+	runGit(t, repo, "config", "user.email", "importer@example.invalid")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "first commit")
+	if err := os.MkdirAll(filepath.Join(repo, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "lib", "code.go"), []byte("package lib\nconst Value = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "lib/code.go")
+	runGit(t, repo, "commit", "-m", "second commit")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "third commit")
+	return repo
 }
 
 func cloneSlice(t *testing.T, ts *testServer, token string) string {

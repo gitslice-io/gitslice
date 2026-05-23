@@ -136,6 +136,37 @@ create table if not exists pending_publish(
 	published_at timestamptz
 );
 
+create table if not exists git_imports(
+	id text primary key,
+	subject_id text not null references subjects(id),
+	source text not null,
+	mount_path text not null,
+	authoring_account text not null,
+	authoring_slice text not null,
+	authoring_slice_id text not null references slices(id),
+	target_ref text not null references refs(name),
+	mode text not null,
+	status text not null,
+	total_commits bigint not null default 0,
+	imported_count bigint not null default 0,
+	last_git_commit_id text,
+	final_native_commit_id text,
+	created_at timestamptz not null default now(),
+	updated_at timestamptz not null default now(),
+	unique(source, mount_path, authoring_slice_id, target_ref, mode)
+);
+
+create table if not exists git_import_commits(
+	import_id text not null references git_imports(id),
+	git_commit_id text not null,
+	native_commit_id text not null,
+	message text not null,
+	position bigint not null,
+	changed_path_count integer not null,
+	created_at timestamptz not null default now(),
+	primary key(import_id, git_commit_id)
+);
+
 create index if not exists idx_sessions_token_hash on sessions(token_hash) where revoked_at is null;
 create index if not exists idx_slices_account_slug on slices(account_id, slug);
 create index if not exists idx_changesets_target_status on changesets(target_ref, status);
@@ -143,3 +174,4 @@ create index if not exists idx_patchsets_changeset_number on patchsets(changeset
 create index if not exists idx_blobs_content_hash on blobs(content_hash);
 create index if not exists idx_pending_publish_status_sequence on pending_publish(status, sequence);
 create index if not exists idx_path_heads_fingerprint on path_heads(path, entry_fingerprint);
+create index if not exists idx_git_import_commits_position on git_import_commits(import_id, position);

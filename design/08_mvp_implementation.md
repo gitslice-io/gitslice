@@ -184,7 +184,14 @@ RepositoryService
   ListDirectory
   ReadFile
   GetCommit
+  ListCommits
   GetRef
+  ImportGitRepository
+  ImportGitRepositoryStream
+
+  ImportGitRepository accepts `max_commits` for bounded deep imports and
+  `resume` for skipping completed Git commits recorded in the server-side import
+  ledger.
 
 BlobService
   GetBlobStatus

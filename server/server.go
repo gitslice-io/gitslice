@@ -108,7 +108,10 @@ func Run(ctx context.Context, cfg Config) error {
 }
 
 func NewGRPCServer(store *postgres.Store, handlers *service.Handlers) *grpc.Server {
-	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(authInterceptor(store)))
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(authInterceptor(store)),
+		grpc.StreamInterceptor(authStreamInterceptor(store)),
+	)
 	corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
 	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
 	corev1.RegisterBlobServiceServer(grpcServer, handlers.Blob)
@@ -119,6 +122,35 @@ func NewGRPCServer(store *postgres.Store, handlers *service.Handlers) *grpc.Serv
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)
 	return grpcServer
+}
+
+func authStreamInterceptor(store *postgres.Store) grpc.StreamServerInterceptor {
+	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if isPublicMethod(info.FullMethod) {
+			return handler(srv, stream)
+		}
+		token, err := bearerToken(stream.Context())
+		if err != nil {
+			return err
+		}
+		subject, err := store.SubjectForToken(stream.Context(), token)
+		if err != nil {
+			return grpcAuthError(err)
+		}
+		return handler(srv, &contextServerStream{
+			ServerStream: stream,
+			ctx:          authctx.WithSubjectID(stream.Context(), subject.ID),
+		})
+	}
+}
+
+type contextServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *contextServerStream) Context() context.Context {
+	return s.ctx
 }
 
 func authInterceptor(store *postgres.Store) grpc.UnaryServerInterceptor {
