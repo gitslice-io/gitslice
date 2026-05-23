@@ -8,9 +8,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -22,10 +24,18 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/gitslice-io/gitslice/internal/cli"
+	"github.com/gitslice-io/gitslice/internal/gitcompat"
+	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
+	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/server"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestLoadConcurrentDisjointSubmit(t *testing.T) {
@@ -170,12 +180,166 @@ func TestLoadRepeatedStatus(t *testing.T) {
 	reportDurations(t, "repeated_status", total, time.Since(start), durations)
 }
 
+func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
+	ts := startLoadServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	conn := dialLoadGRPC(t, ts.addr)
+	defer conn.Close()
+	clients := newLoadCoreClients(t, ctx, conn)
+
+	store, err := postgres.Open(ctx, databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	objectStore, err := filesystem.New(ts.objectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector, err := gitcompat.NewProjector(store, objectStore, filepath.Join(ts.objectRoot, "projection-cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hotFiles := []hotFile{
+		{name: "X", path: "/acme/payment/shared/x.go", gitPath: "acme/payment/shared/x.go"},
+		{name: "Y", path: "/acme/payment/shared/y.go", gitPath: "acme/payment/shared/y.go"},
+		{name: "Z", path: "/acme/payment/shared/z.go", gitPath: "acme/payment/shared/z.go"},
+	}
+	for _, file := range hotFiles {
+		if _, err := submitHotFileOnce(clients, file, "seed", 0, 1); err != nil {
+			t.Fatalf("seed %s: %v", file.name, err)
+		}
+	}
+
+	workers := envInt("GITSLICE_LOAD_HOT_WORKERS", 300)
+	operations := envInt("GITSLICE_LOAD_HOT_OPERATIONS", workers)
+	maxAttempts := envInt("GITSLICE_LOAD_HOT_MAX_ATTEMPTS", workers)
+	projectionWorkers := envInt("GITSLICE_LOAD_PROJECTION_WORKERS", minInt(32, workers))
+	if projectionWorkers > operations {
+		projectionWorkers = operations
+	}
+
+	jobs := make(chan int, operations)
+	submitDurations := make(chan time.Duration, operations)
+	errs := make(chan error, operations)
+	projectionJobs := make(chan projectionJob, operations)
+	projectionResults := make(chan projectionResult, operations)
+	projectionErrs := make(chan error, operations)
+
+	var projectionWG sync.WaitGroup
+	for i := 0; i < projectionWorkers; i++ {
+		projectionWG.Add(1)
+		go func(worker int) {
+			defer projectionWG.Done()
+			for job := range projectionJobs {
+				result, err := measureProjectionLatency(ctx, store, projector, clients.subjectID, job)
+				if err != nil {
+					projectionErrs <- fmt.Errorf("projection worker %d job %d: %w", worker, job.operation, err)
+					continue
+				}
+				projectionResults <- result
+			}
+		}(i)
+	}
+
+	var wg sync.WaitGroup
+	start := time.Now()
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for operation := range jobs {
+				file := hotFiles[operation%len(hotFiles)]
+				begin := time.Now()
+				submit, attempts, conflicts, err := submitHotFileWithRetry(clients, file, worker, operation, maxAttempts)
+				if err != nil {
+					errs <- fmt.Errorf("worker %d operation %d: %w", worker, operation, err)
+					continue
+				}
+				submittedAt := time.Now()
+				submitDurations <- submittedAt.Sub(begin)
+				projectionJobs <- projectionJob{
+					operation:   operation,
+					file:        file,
+					commitID:    submit.CommitId,
+					submittedAt: submittedAt,
+					attempts:    attempts,
+					conflicts:   conflicts,
+				}
+			}
+		}(worker)
+	}
+	for operation := 0; operation < operations; operation++ {
+		jobs <- operation
+	}
+	close(jobs)
+	wg.Wait()
+	submitWall := time.Since(start)
+	close(projectionJobs)
+	projectionWG.Wait()
+	close(submitDurations)
+	close(errs)
+	close(projectionResults)
+	close(projectionErrs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for err := range projectionErrs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	submitSamples := drainDurations(submitDurations)
+	reportDurations(t, "hot_files_create_update_submit", len(submitSamples), submitWall, submitSamples)
+
+	var homeRefresh, otherRefresh, homeVisible, otherVisible []time.Duration
+	totalAttempts := 0
+	totalConflicts := 0
+	for result := range projectionResults {
+		homeRefresh = append(homeRefresh, result.homeRefresh)
+		otherRefresh = append(otherRefresh, result.otherRefresh)
+		homeVisible = append(homeVisible, result.homeVisible)
+		otherVisible = append(otherVisible, result.otherVisible)
+		totalAttempts += result.attempts
+		totalConflicts += result.conflicts
+	}
+	sortDurations(homeRefresh)
+	sortDurations(otherRefresh)
+	sortDurations(homeVisible)
+	sortDurations(otherVisible)
+	if len(homeRefresh) != len(submitSamples) {
+		t.Fatalf("expected %d projection samples, got %d", len(submitSamples), len(homeRefresh))
+	}
+	t.Logf("hot_files_contention successes=%d attempts=%d conflicts=%d conflict_rate=%.2f%% projection_workers=%d",
+		len(submitSamples),
+		totalAttempts,
+		totalConflicts,
+		100*float64(totalConflicts)/float64(totalAttempts),
+		projectionWorkers,
+	)
+	reportDurations(t, "hot_files_home_projection_refresh", len(homeRefresh), submitWall, homeRefresh)
+	reportDurations(t, "hot_files_other_projection_refresh", len(otherRefresh), submitWall, otherRefresh)
+	reportDurations(t, "hot_files_home_submit_to_visible", len(homeVisible), submitWall, homeVisible)
+	reportDurations(t, "hot_files_other_submit_to_visible", len(otherVisible), submitWall, otherVisible)
+
+	assertFinalProjectionMatchesNative(t, ctx, store, objectStore, projector, clients.subjectID, "payment", hotFiles)
+	assertFinalProjectionMatchesNative(t, ctx, store, objectStore, projector, clients.subjectID, "backend", hotFiles)
+}
+
 type loadServer struct {
 	addr        string
 	cancel      context.CancelFunc
 	errCh       chan error
 	databaseURL string
 	schema      string
+	objectRoot  string
 }
 
 func startLoadServer(t *testing.T) *loadServer {
@@ -193,12 +357,13 @@ func startLoadServer(t *testing.T) *loadServer {
 		errCh:       make(chan error, 1),
 		databaseURL: databaseURL,
 		schema:      schema,
+		objectRoot:  t.TempDir(),
 	}
 	go func() {
 		ts.errCh <- server.Run(ctx, server.Config{
 			GRPCAddr:        ts.addr,
 			DatabaseURL:     databaseURLWithSearchPath(t, databaseURL, schema),
-			ObjectStoreRoot: t.TempDir(),
+			ObjectStoreRoot: ts.objectRoot,
 			RunMigrations:   true,
 		})
 	}()
@@ -212,6 +377,229 @@ func startLoadServer(t *testing.T) *loadServer {
 		dropSchema(t, databaseURL, schema)
 	})
 	return ts
+}
+
+type loadCoreClients struct {
+	ctx       context.Context
+	subjectID string
+	repo      corev1.RepositoryServiceClient
+	blob      corev1.BlobServiceClient
+	changeset corev1.ChangesetServiceClient
+}
+
+type hotFile struct {
+	name    string
+	path    string
+	gitPath string
+}
+
+type hotSubmitResult struct {
+	CommitId string
+}
+
+type projectionJob struct {
+	operation   int
+	file        hotFile
+	commitID    string
+	submittedAt time.Time
+	attempts    int
+	conflicts   int
+}
+
+type projectionResult struct {
+	homeRefresh  time.Duration
+	otherRefresh time.Duration
+	homeVisible  time.Duration
+	otherVisible time.Duration
+	attempts     int
+	conflicts    int
+}
+
+func dialLoadGRPC(t *testing.T, addr string) *grpc.ClientConn {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := grpc.DialContext(ctx, addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return conn
+}
+
+func newLoadCoreClients(t *testing.T, ctx context.Context, conn *grpc.ClientConn) loadCoreClients {
+	t.Helper()
+	login, err := corev1.NewFakeAccountServiceClient(conn).Login(ctx, &corev1.LoginRequest{DevUser: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return loadCoreClients{
+		ctx:       metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+login.Token),
+		subjectID: login.SubjectId,
+		repo:      corev1.NewRepositoryServiceClient(conn),
+		blob:      corev1.NewBlobServiceClient(conn),
+		changeset: corev1.NewChangesetServiceClient(conn),
+	}
+}
+
+func submitHotFileWithRetry(clients loadCoreClients, file hotFile, worker, operation, maxAttempts int) (*hotSubmitResult, int, int, error) {
+	conflicts := 0
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		result, err := submitHotFileOnce(clients, file, fmt.Sprintf("w%03d-op%05d", worker, operation), operation, attempt)
+		if err == nil {
+			return result, attempt, conflicts, nil
+		}
+		if !isConflictError(err) {
+			return nil, attempt, conflicts, err
+		}
+		conflicts++
+		time.Sleep(time.Duration((worker+operation+attempt)%17+1) * time.Millisecond)
+	}
+	return nil, maxAttempts, conflicts, fmt.Errorf("exhausted %d attempts on %s", maxAttempts, file.path)
+}
+
+func submitHotFileOnce(clients loadCoreClients, file hotFile, label string, operation, attempt int) (*hotSubmitResult, error) {
+	ref, err := clients.repo.GetRef(clients.ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		return nil, err
+	}
+	content := []byte(fmt.Sprintf("package shared\n\nconst %s = %q\nconst Operation = %d\nconst Attempt = %d\n", file.name, label, operation, attempt))
+	upload, err := clients.blob.UploadBlob(clients.ctx, &corev1.UploadBlobRequest{
+		ContentHash: objectid.RawContentHash(content),
+		Data:        content,
+	})
+	if err != nil {
+		return nil, err
+	}
+	cs, err := clients.changeset.CreateChangeset(clients.ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      postgres.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          fmt.Sprintf("hot file %s %s attempt %d", file.name, label, attempt),
+	})
+	if err != nil {
+		return nil, err
+	}
+	patchset, err := clients.changeset.UpdateChangeset(clients.ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        file.path,
+			BlobId:      upload.BlobId,
+			ContentHash: upload.ContentHash,
+			Mode:        0o100644,
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	submit, err := clients.changeset.SubmitChangeset(clients.ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: patchset.Id,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &hotSubmitResult{CommitId: submit.CommitId}, nil
+}
+
+func measureProjectionLatency(ctx context.Context, store *postgres.Store, projector *gitcompat.Projector, subjectID string, job projectionJob) (projectionResult, error) {
+	homeStart := time.Now()
+	_, home, err := projector.EnsureProjectedRepo(ctx, subjectID, "acme", "payment")
+	if err != nil {
+		return projectionResult{}, err
+	}
+	homeDone := time.Now()
+	if err := ensureNativeCommitIncludes(ctx, store, job.commitID, home.NativeCommitID); err != nil {
+		return projectionResult{}, fmt.Errorf("home projection: %w", err)
+	}
+
+	otherStart := time.Now()
+	_, other, err := projector.EnsureProjectedRepo(ctx, subjectID, "acme", "backend")
+	if err != nil {
+		return projectionResult{}, err
+	}
+	otherDone := time.Now()
+	if err := ensureNativeCommitIncludes(ctx, store, job.commitID, other.NativeCommitID); err != nil {
+		return projectionResult{}, fmt.Errorf("other projection: %w", err)
+	}
+
+	return projectionResult{
+		homeRefresh:  homeDone.Sub(homeStart),
+		otherRefresh: otherDone.Sub(otherStart),
+		homeVisible:  homeDone.Sub(job.submittedAt),
+		otherVisible: otherDone.Sub(job.submittedAt),
+		attempts:     job.attempts,
+		conflicts:    job.conflicts,
+	}, nil
+}
+
+func ensureNativeCommitIncludes(ctx context.Context, store *postgres.Store, ancestorCommitID, projectedCommitID string) error {
+	for current := projectedCommitID; current != ""; {
+		if current == ancestorCommitID {
+			return nil
+		}
+		commit, err := store.GetCommit(ctx, current)
+		if err != nil {
+			return err
+		}
+		if len(commit.ParentIds) == 0 {
+			break
+		}
+		current = commit.ParentIds[0]
+	}
+	return fmt.Errorf("projected native commit %s does not include submitted commit %s", projectedCommitID, ancestorCommitID)
+}
+
+func assertFinalProjectionMatchesNative(t *testing.T, ctx context.Context, store *postgres.Store, objectStore *filesystem.Store, projector *gitcompat.Projector, subjectID, slice string, files []hotFile) {
+	t.Helper()
+	ref, err := store.GetRef(ctx, postgres.DefaultTargetRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoPath, projection, err := projector.EnsureProjectedRepo(ctx, subjectID, "acme", slice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.NativeCommitID != ref.CommitId {
+		t.Fatalf("%s projection at %s, want latest %s", slice, projection.NativeCommitID, ref.CommitId)
+	}
+	for _, file := range files {
+		entry, err := store.GetFile(ctx, ref.CommitId, file.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc, err := objectStore.Get(ctx, filesystem.BlobKey(entry.ContentHash), 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := io.ReadAll(rc)
+		_ = rc.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := gitShowFile(t, repoPath, file.gitPath)
+		if string(got) != string(want) {
+			t.Fatalf("%s projection mismatch for %s\nwant:\n%s\ngot:\n%s", slice, file.path, string(want), string(got))
+		}
+	}
+}
+
+func gitShowFile(t *testing.T, repoPath, gitPath string) []byte {
+	t.Helper()
+	cmd := exec.Command("git", "--git-dir", repoPath, "show", "refs/heads/main:"+gitPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git show %s in %s failed: %v\n%s", gitPath, repoPath, err, string(out))
+	}
+	return out
+}
+
+func isConflictError(err error) bool {
+	return status.Code(err) == codes.FailedPrecondition || strings.Contains(err.Error(), "conflict")
 }
 
 func runCLI(t *testing.T, home, workspace string, args ...string) string {
@@ -248,8 +636,12 @@ func drainDurations(ch <-chan time.Duration) []time.Duration {
 	for d := range ch {
 		out = append(out, d)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	sortDurations(out)
 	return out
+}
+
+func sortDurations(durations []time.Duration) {
+	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 }
 
 func reportDurations(t *testing.T, name string, operations int, wall time.Duration, durations []time.Duration) {
@@ -286,6 +678,13 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func createSchema(t *testing.T, databaseURL, schema string) {

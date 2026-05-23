@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+
+message Empty {}
+
+message SliceRef {
+  string account = 1;
+  string slice = 2;
+}
+
+enum EntryKind {
+  ENTRY_KIND_UNSPECIFIED = 0;
+  ENTRY_KIND_FILE = 1;
+  ENTRY_KIND_DIRECTORY = 2;
+  ENTRY_KIND_SYMLINK = 3;
+}
+
+message TreeEntry {
+  string path = 1;
+  string name = 2;
+  EntryKind kind = 3;
+  uint32 mode = 4;
+  string tree_id = 5;
+  string blob_id = 6;
+  string symlink_target = 7;
+  int64 size = 8;
+  string content_hash = 9;
+}

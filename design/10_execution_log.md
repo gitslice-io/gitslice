@@ -3,6 +3,81 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-23: Split Service Implementation Files
+
+Request:
+
+- break up `service/service.go` into multiple files
+
+Implemented:
+
+- kept `service/service.go` focused on shared construction and the object-store
+  interface
+- moved service methods into files that match API boundaries:
+  - `auth.go`
+  - `blob.go`
+  - `changeset.go`
+  - `repository.go`
+  - `slice.go`
+  - `workspace.go`
+- moved shared gRPC error mapping to `errors.go`
+- kept repository tree-entry helpers with repository read behavior, and kept
+  changeset validation helpers with changeset submit/update behavior
+
+Important decisions and learnings:
+
+- This is a code-organization-only change; service behavior and public gRPC
+  registrations remain unchanged.
+- The split mirrors the proto file boundaries introduced in the same API layer.
+
+Verification:
+
+```bash
+gofmt -w service/*.go
+go test -mod=readonly ./service ./server
+go test -mod=readonly ./...
+go build -mod=readonly ./cmd/...
+```
+
+## 2026-05-23: Split Core Proto Files
+
+Request:
+
+- break down `proto/core/v1/core.proto` into multiple files
+
+Implemented:
+
+- replaced the monolithic `core.proto` with service-scoped proto files:
+  - `auth.proto`
+  - `blob.proto`
+  - `changeset.proto`
+  - `repository.proto`
+  - `slice.proto`
+  - `workspace.proto`
+- added `common.proto` for cross-service primitives (`Empty`, `SliceRef`,
+  `EntryKind`, and `TreeEntry`)
+- regenerated Go protobuf and gRPC stubs from all `proto/core/v1/*.proto`
+  inputs
+- updated proto regeneration instructions to use the full proto file set
+
+Important decisions and learnings:
+
+- Kept the protobuf package and Go package unchanged so existing Go call sites
+  continue to use the same `corev1.*` symbols.
+- Kept submit-validation types in `changeset.proto` and imported them from
+  `workspace.proto`, matching their shared use by changeset submit and
+  workspace diff validation.
+- Removed the stale generated `core.pb.go` and `core_grpc.pb.go`; generated
+  output now tracks the proto file boundaries.
+
+Verification:
+
+```bash
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false proto/core/v1/*.proto
+go test ./...
+go build ./cmd/...
+```
+
 ## 2026-05-22: Start Go Prototype
 
 Request:
@@ -287,3 +362,118 @@ Decision:
 - Use `design/10_execution_log.md` as the canonical execution log. If a future
   request says `execution_log.md`, agents should treat this numbered design log
   as the current log unless the repo intentionally introduces a new file.
+
+## 2026-05-23: Hot-File Load And Projection Latency Test
+
+Request:
+
+- load test hundreds of threads creating and submitting changesets on one slice
+- use slice A modifying files X, Y, and Z
+- measure throughput and latency for those changes to be projected on the home
+  slice and another slice containing those files
+
+Implemented:
+
+- added `TestLoadHotFilesCreateSubmitProjectionLatency` under `tests/load`
+- the test uses direct gRPC clients against the real local server instead of
+  shelling out to the CLI, so the measurement focuses on backend create,
+  patchset update, and submit behavior
+- slice A is `acme/payment`
+- hot files are:
+  - `/acme/payment/shared/x.go`
+  - `/acme/payment/shared/y.go`
+  - `/acme/payment/shared/z.go`
+- `acme/backend` is used as the overlapping slice because the dev fixture covers
+  `/acme/payment/shared`
+- the test records:
+  - create/update/submit throughput and latency
+  - conflict/retry rate under three-path contention
+  - home slice projection refresh latency
+  - overlapping slice projection refresh latency
+  - submit-to-visible latency for both projected slices
+- the projection assertion checks that the projected native commit includes each
+  submitted commit, then verifies final projected Git contents match the native
+  object store for both `acme/payment` and `acme/backend`
+
+Important decisions and learnings:
+
+- Current Git projection is on-demand. There is no asynchronous projector yet,
+  so "time to projected" is measured as submit completion to completion of a
+  projection request.
+- With 300 concurrent workers and only three hot files, contention dominates:
+  300 successful submits required 4036 total attempts, with 3736 conflicts
+  rejected by path-base validation.
+- The home and overlapping projections both become visible through the same
+  global ref movement, but each slice rebuilds its own Git projection cache.
+
+Verification:
+
+```bash
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_HOT_WORKERS=12 GITSLICE_LOAD_HOT_OPERATIONS=12 GITSLICE_LOAD_PROJECTION_WORKERS=4 go test -count=1 -tags load ./tests/load -run TestLoadHotFilesCreateSubmitProjectionLatency -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_HOT_WORKERS=200 GITSLICE_LOAD_HOT_OPERATIONS=200 GITSLICE_LOAD_HOT_MAX_ATTEMPTS=400 GITSLICE_LOAD_PROJECTION_WORKERS=16 go test -count=1 -tags load ./tests/load -run TestLoadHotFilesCreateSubmitProjectionLatency -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_HOT_WORKERS=300 GITSLICE_LOAD_HOT_OPERATIONS=300 GITSLICE_LOAD_HOT_MAX_ATTEMPTS=600 GITSLICE_LOAD_PROJECTION_WORKERS=16 go test -count=1 -tags load ./tests/load -run TestLoadHotFilesCreateSubmitProjectionLatency -v
+```
+
+300-worker result:
+
+```text
+create/update/submit: operations=300 wall=12.164s throughput=24.66/s p50=6.726s p95=11.952s p99=12.137s
+contention: successes=300 attempts=4036 conflicts=3736 conflict_rate=92.57%
+home projection refresh: p50=2.223ms p95=5.511s p99=6.783s
+other projection refresh: p50=2.081ms p95=753.895ms p99=883.395ms
+home submit-to-visible: p50=7.772s p95=12.255s p99=12.651s
+other submit-to-visible: p50=7.857s p95=12.271s p99=12.714s
+```
+
+## 2026-05-23: Cobra CLI And Agent-Friendly Output
+
+Request:
+
+- apply agent-friendly CLI best practices to `gs`
+- migrate CLI command parsing to Cobra
+
+Implemented:
+
+- replaced the hand-rolled `internal/cli` command switch with a Cobra command
+  tree while preserving the MVP command names and default human-readable output
+- added global flags for explicit machine and automation modes:
+  - `--format text|json`
+  - `--json`
+  - `--quiet`
+  - `--non-interactive`
+  - `--no-color`
+  - `--verbose`
+  - `--debug`
+  - `--trace`
+- expanded JSON success output beyond status commands so implemented write
+  commands return stable resource identifiers on stdout
+- added structured JSON error output from `cmd/gs` when `--json` or
+  `--format json` is requested; diagnostics stay on stderr
+- added `gs schema` to expose supported commands, global flags, machine output
+  fields, and the structured error shape without scraping help text
+- added focused CLI tests for schema output and format validation
+
+Important decisions and learnings:
+
+- Default text output remains stable for existing functional tests and human
+  workflows. Agent-facing behavior is opt-in through `--json`/`--format json`
+  rather than changing the non-TTY default in this MVP pass.
+- The new global flags are accepted consistently through Cobra even when some
+  are no-ops today. This reserves the interface for future non-interactive,
+  diagnostic, and color behavior without introducing prompts or terminal-only
+  output now.
+- During implementation the worktree already contained a split protobuf layout
+  and additional design/test changes. The CLI migration used the current
+  generated `corev1` package and did not revert those unrelated changes.
+
+Verification:
+
+```bash
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+go run ./cmd/gs schema
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+```

@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+import "proto/core/v1/common.proto";
+
+option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+
+service ChangesetService {
+  rpc CreateChangeset(CreateChangesetRequest) returns (Changeset);
+  rpc GetChangeset(GetChangesetRequest) returns (Changeset);
+  rpc UpdateChangeset(UpdateChangesetRequest) returns (Patchset);
+  rpc SubmitChangeset(SubmitChangesetRequest) returns (SubmitChangesetResponse);
+  rpc AbandonChangeset(AbandonChangesetRequest) returns (Empty);
+}
+
+message Changeset {
+  string id = 1;
+  SliceRef authoring_slice = 2;
+  string author = 3;
+  string target_ref = 4;
+  string base_commit_id = 5;
+  string title = 6;
+  string description = 7;
+  repeated Patchset patchsets = 8;
+  string current_patchset_id = 9;
+  int64 current_patchset_number = 10;
+  string status = 11;
+  repeated string affected_paths = 12;
+  SubmitRequirements submit_requirements = 13;
+}
+
+message Patchset {
+  string id = 1;
+  string changeset_id = 2;
+  int64 number = 3;
+  string base_commit_id = 4;
+  string author = 5;
+  string created_at = 6;
+  repeated string changed_paths = 7;
+  repeated FileEdit file_edits = 8;
+  repeated PathCoverage coverage = 9;
+  SubmitRequirements submit_requirements = 10;
+  repeated PathBase path_bases = 11;
+  repeated PathSetEntry read_set = 12;
+  repeated PathSetEntry write_set = 13;
+}
+
+message FileEdit {
+  string op = 1;
+  string path = 2;
+  string old_path = 3;
+  string blob_id = 4;
+  string content_hash = 5;
+  uint32 mode = 6;
+}
+
+message PathCoverage {
+  string path = 1;
+  repeated string covering_slice_ids = 2;
+}
+
+message PathBase {
+  string path = 1;
+  string base_commit_id = 2;
+  bool exists = 3;
+  string entry_kind = 4;
+  uint32 mode = 5;
+  string blob_id = 6;
+  string content_hash = 7;
+  string tree_id = 8;
+  string symlink_target = 9;
+  string entry_fingerprint = 10;
+  string check = 11;
+}
+
+message PathSetEntry {
+  string path = 1;
+  bool recursive = 2;
+}
+
+message SubmitRequirements {
+  repeated string required_approvals = 1;
+  repeated string required_checks = 2;
+  repeated string path_lock_ids = 3;
+  string source_slice_definition_hash = 4;
+  string source_path_lock_set_hash = 5;
+}
+
+message CreateChangesetRequest {
+  SliceRef authoring_slice = 1;
+  string target_ref = 2;
+  string base_commit_id = 3;
+  string title = 4;
+  string description = 5;
+}
+
+message GetChangesetRequest {
+  string changeset_id = 1;
+}
+
+message UpdateChangesetRequest {
+  string changeset_id = 1;
+  string expected_current_patchset_id = 2;
+  string base_commit_id = 3;
+  repeated FileEdit file_edits = 4;
+}
+
+message SubmitChangesetRequest {
+  string changeset_id = 1;
+  string expected_current_patchset_id = 2;
+}
+
+message SubmitChangesetResponse {
+  string commit_id = 1;
+  string target_ref = 2;
+  string new_ref_commit_id = 3;
+}
+
+message AbandonChangesetRequest {
+  string changeset_id = 1;
+  string reason = 2;
+}

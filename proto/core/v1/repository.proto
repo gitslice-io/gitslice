@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+import "proto/core/v1/common.proto";
+
+option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+
+service RepositoryService {
+  rpc ResolvePath(ResolvePathRequest) returns (ResolvePathResponse);
+  rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
+  rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  rpc GetCommit(GetCommitRequest) returns (Commit);
+  rpc GetRef(GetRefRequest) returns (Ref);
+}
+
+message Ref {
+  string name = 1;
+  string commit_id = 2;
+  string updated_at = 3;
+  string updated_by = 4;
+}
+
+message Commit {
+  string id = 1;
+  repeated string parent_ids = 2;
+  string root_tree_id = 3;
+  string author = 4;
+  string message = 5;
+  string created_at = 6;
+  repeated string changed_paths = 7;
+}
+
+message ResolvePathRequest {
+  string commit_id = 1;
+  string path = 2;
+}
+
+message ResolvePathResponse {
+  TreeEntry entry = 1;
+}
+
+message ListDirectoryRequest {
+  string commit_id = 1;
+  string path = 2;
+  string cursor = 3;
+  int32 page_size = 4;
+}
+
+message ListDirectoryResponse {
+  repeated TreeEntry entries = 1;
+  string next_cursor = 2;
+}
+
+message ReadFileRequest {
+  string commit_id = 1;
+  string path = 2;
+  int64 offset = 3;
+  int64 length = 4;
+}
+
+message ReadFileResponse {
+  bytes data = 1;
+  int64 offset = 2;
+  string content_hash = 3;
+}
+
+message GetCommitRequest {
+  string commit_id = 1;
+}
+
+message GetRefRequest {
+  string ref_name = 1;
+}

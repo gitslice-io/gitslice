@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+import "proto/core/v1/changeset.proto";
+import "proto/core/v1/common.proto";
+
+option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+
+service WorkspaceService {
+  rpc GetWorkspaceState(GetWorkspaceStateRequest) returns (WorkspaceState);
+  rpc HydratePaths(HydratePathsRequest) returns (HydratePathsResponse);
+  rpc ValidateWorkspaceDiff(ValidateWorkspaceDiffRequest) returns (ValidateWorkspaceDiffResponse);
+  rpc RecordWorkspaceOperation(RecordWorkspaceOperationRequest) returns (RecordWorkspaceOperationResponse);
+}
+
+message WorkspaceRef {
+  string id = 1;
+}
+
+message WorkspaceState {
+  WorkspaceRef ref = 1;
+  SliceBinding slice = 2;
+  repeated string hydrated_paths = 3;
+  string base_commit_id = 4;
+  string current_changeset_id = 5;
+  string current_patchset_id = 6;
+}
+
+message SliceBinding {
+  SliceRef slice = 1;
+  string slice_id = 2;
+  string slice_definition_hash = 3;
+}
+
+message GetWorkspaceStateRequest {
+  WorkspaceRef workspace = 1;
+}
+
+message HydratePathsRequest {
+  WorkspaceRef workspace = 1;
+  repeated string paths = 2;
+  string mode = 3;
+}
+
+message HydratePathsResponse {
+  string path = 1;
+  TreeEntry entry = 2;
+  bytes data = 3;
+}
+
+message ValidateWorkspaceDiffRequest {
+  WorkspaceRef workspace = 1;
+  string base_commit_id = 2;
+  repeated FileEdit file_edits = 3;
+}
+
+message ValidateWorkspaceDiffResponse {
+  repeated string affected_paths = 1;
+  repeated PathCoverage coverage = 2;
+  SubmitRequirements submit_requirements = 3;
+  repeated PathBase path_bases = 4;
+  repeated PathSetEntry read_set = 5;
+  repeated PathSetEntry write_set = 6;
+}
+
+message WorkspaceOperation {
+  string id = 1;
+  WorkspaceRef workspace = 2;
+  string operation_type = 3;
+  string description = 4;
+  string created_at = 5;
+  string actor = 6;
+  repeated string affected_paths = 7;
+  string changeset_id = 8;
+  string patchset_id = 9;
+}
+
+message RecordWorkspaceOperationRequest {
+  WorkspaceOperation operation = 1;
+}
+
+message RecordWorkspaceOperationResponse {
+  string operation_id = 1;
+}

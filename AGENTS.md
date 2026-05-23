@@ -61,12 +61,12 @@ The design source of truth is under `design/`, especially:
   files alone, including `.antigravitycli/`.
 - Use `apply_patch` for manual edits.
 - Run `gofmt` on edited Go files.
-- Prefer generated protobuf stubs from `proto/core/v1/core.proto`; do not
+- Prefer generated protobuf stubs from `proto/core/v1/*.proto`; do not
   reintroduce hand-written gRPC bindings.
 - If changing generated protobuf output, regenerate with:
 
 ```bash
-protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false proto/core/v1/core.proto
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false proto/core/v1/*.proto
 ```
 
 ## Logging Rule
