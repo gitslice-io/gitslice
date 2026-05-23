@@ -73,6 +73,60 @@ func TestLoadConcurrentDisjointSubmit(t *testing.T) {
 	reportDurations(t, "concurrent_disjoint_submit", workers, time.Since(start), durations)
 }
 
+func TestLoadSamePathSubmitContention(t *testing.T) {
+	ts := startLoadServer(t)
+	workers := envInt("GITSLICE_LOAD_WORKERS", 16)
+	home := t.TempDir()
+	firstWorkspace := t.TempDir()
+	runCLI(t, home, firstWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+
+	workspaces := make([]string, workers)
+	for i := range workers {
+		workspace := t.TempDir()
+		workspaces[i] = workspace
+		runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+		writeWorkspaceFile(t, workspace, "hotspot.go", fmt.Sprintf("package payment\nconst Hotspot = %d\n", i))
+		runCLI(t, home, workspace, "cs", "create", "--title", fmt.Sprintf("hotspot %03d", i))
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan time.Duration, workers)
+	errs := make(chan error, workers)
+	start := time.Now()
+	for i := range workers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			begin := time.Now()
+			_, err := runCLIResult(home, workspaces[i], "cs", "submit")
+			results <- time.Since(begin)
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	successes := 0
+	conflicts := 0
+	for err := range errs {
+		if err == nil {
+			successes++
+			continue
+		}
+		if strings.Contains(err.Error(), "FailedPrecondition") || strings.Contains(err.Error(), "conflict") {
+			conflicts++
+			continue
+		}
+		t.Fatalf("unexpected contention error: %v", err)
+	}
+	if successes != 1 || conflicts != workers-1 {
+		t.Fatalf("expected one success and %d conflicts, got successes=%d conflicts=%d", workers-1, successes, conflicts)
+	}
+	durations := drainDurations(results)
+	reportDurations(t, "same_path_submit_contention", workers, time.Since(start), durations)
+}
+
 func TestLoadRepeatedStatus(t *testing.T) {
 	ts := startLoadServer(t)
 	workers := envInt("GITSLICE_LOAD_WORKERS", 16)

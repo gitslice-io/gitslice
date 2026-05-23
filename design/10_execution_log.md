@@ -205,3 +205,56 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run TestGitCloneProjection -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```
+
+## 2026-05-22: Conflict And Concurrency Coverage
+
+Request:
+
+- add more comprehensive conflict-resolution cases
+- add more concurrency tests to verify system correctness
+
+Implemented:
+
+- added functional conflict coverage for stale disjoint updates:
+  - seed a file
+  - create a stale update changeset for that file
+  - land a separate stale disjoint changeset first
+  - submit the original stale update
+  - clone the Git projection and verify both final files are present with the
+    expected contents
+- added delete/update conflict coverage in both orders:
+  - delete lands first, stale update is rejected
+  - update lands first, stale delete is rejected
+- added concurrent same-new-path submit coverage:
+  - create multiple changesets from the same missing path base
+  - submit them concurrently
+  - assert exactly one succeeds and all others fail with conflict semantics
+- added concurrent disjoint submit final-state coverage:
+  - create multiple stale disjoint changesets
+  - submit them concurrently
+  - clone the projected Git repository
+  - verify every submitted file is present in the final accepted state
+- added opt-in load contention coverage:
+  - `TestLoadSamePathSubmitContention` drives concurrent same-path submit
+    attempts and asserts one winner plus deterministic conflicts
+
+Important decisions and learnings:
+
+- The tests intentionally prepare stale patchsets before concurrent submit. This
+  verifies the path-base conflict predicates rather than simply testing fresh
+  sequential work.
+- Some delete/update tests need to simulate a hydrated workspace by copying the
+  base snapshot and file contents from the seed workspace. The current CLI does
+  not yet hydrate files during `workspace init`, so the test keeps the focus on
+  submit correctness without adding a hydration feature in the same change.
+- Git projection is useful as a black-box final-state assertion because it
+  verifies server submit, Postgres metadata, filesystem object storage, and Git
+  read projection together.
+
+Verification:
+
+```bash
+go test ./...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
+```
