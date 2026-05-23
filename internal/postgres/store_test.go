@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -118,7 +119,66 @@ func TestStorageDisjointPendingPublishesAsBatch(t *testing.T) {
 	}
 }
 
+func TestStorageIntegrityVerifierPassesAfterPublish(t *testing.T) {
+	ctx, store, objectStore := newPostgresTestStoreWithObjects(t)
+	base := getTestRef(t, ctx, store)
+	blobID, contentHash := upsertTestBlobObject(t, ctx, store, objectStore, "package payment\nconst Integrity = true\n")
+
+	patchset := createDraftPatchset(t, ctx, store, base.CommitId, "/acme/payment/integrity.go", blobID, contentHash)
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+		t.Fatal(err)
+	}
+	if published, err := store.Changesets().PublishPending(ctx, 10); err != nil {
+		t.Fatal(err)
+	} else if published != 1 {
+		t.Fatalf("published = %d, want 1", published)
+	}
+
+	report, err := store.VerifyIntegrity(ctx, objectStore)
+	if err != nil {
+		t.Fatalf("VerifyIntegrity failed: %v\nfindings: %#v", err, report.Findings)
+	}
+	if !report.OK() {
+		t.Fatalf("integrity report not OK: %#v", report)
+	}
+	if report.RefCount == 0 || report.CommitCount == 0 || report.BlobCount == 0 || report.TreeCount == 0 {
+		t.Fatalf("integrity report did not inspect expected state: %#v", report)
+	}
+}
+
+func TestStorageIntegrityVerifierDetectsMissingBlobObject(t *testing.T) {
+	ctx, store, objectStore := newPostgresTestStoreWithObjects(t)
+	base := getTestRef(t, ctx, store)
+	blobID, contentHash := upsertTestBlobObject(t, ctx, store, objectStore, "package payment\nconst Broken = true\n")
+
+	patchset := createDraftPatchset(t, ctx, store, base.CommitId, "/acme/payment/broken.go", blobID, contentHash)
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Changesets().PublishPending(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := objectStore.Delete(ctx, filesystem.BlobKey(contentHash)); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := store.VerifyIntegrity(ctx, objectStore)
+	var integrityErr IntegrityError
+	if !errors.As(err, &integrityErr) {
+		t.Fatalf("VerifyIntegrity err = %v, want IntegrityError\nreport: %#v", err, report)
+	}
+	if !hasFinding(report, "blob_object_unreadable") {
+		t.Fatalf("expected blob_object_unreadable finding, got %#v", report.Findings)
+	}
+}
+
 func newPostgresTestStore(t *testing.T) (context.Context, *Store) {
+	t.Helper()
+	ctx, store, _ := newPostgresTestStoreWithObjects(t)
+	return ctx, store
+}
+
+func newPostgresTestStoreWithObjects(t *testing.T) (context.Context, *Store, *filesystem.Store) {
 	t.Helper()
 	databaseURL := os.Getenv("GITSLICE_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -145,7 +205,7 @@ func newPostgresTestStore(t *testing.T) (context.Context, *Store) {
 		}
 		dropTestSchema(t, databaseURL, schema)
 	})
-	return ctx, store
+	return ctx, store, objectStore
 }
 
 func createDraftPatchset(t *testing.T, ctx context.Context, store *Store, baseCommitID, path, blobID, contentHash string) *corev1.Patchset {
@@ -195,6 +255,30 @@ func upsertTestBlob(t *testing.T, ctx context.Context, store *Store, content str
 		t.Fatal(err)
 	}
 	return blobID, contentHash
+}
+
+func upsertTestBlobObject(t *testing.T, ctx context.Context, store *Store, objectStore *filesystem.Store, content string) (string, string) {
+	t.Helper()
+	data := []byte(content)
+	blobID := objectid.BlobID(data)
+	contentHash := objectid.RawContentHash(data)
+	key := filesystem.BlobKey(contentHash)
+	if err := objectStore.Put(ctx, key, bytes.NewReader(data)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Blobs().Upsert(ctx, blobID, contentHash, int64(len(data)), key); err != nil {
+		t.Fatal(err)
+	}
+	return blobID, contentHash
+}
+
+func hasFinding(report IntegrityReport, code string) bool {
+	for _, finding := range report.Findings {
+		if finding.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func getTestRef(t *testing.T, ctx context.Context, store *Store) *corev1.Ref {

@@ -336,6 +336,7 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 
 	assertFinalProjectionMatchesNative(t, ctx, store, objectStore, projector, clients.subjectID, "payment", hotFiles)
 	assertFinalProjectionMatchesNative(t, ctx, store, objectStore, projector, clients.subjectID, "backend", hotFiles)
+	assertLoadIntegrity(t, ctx, store, objectStore)
 }
 
 type loadServer struct {
@@ -619,6 +620,22 @@ func assertFinalProjectionMatchesNative(t *testing.T, ctx context.Context, store
 			t.Fatalf("%s projection mismatch for %s\nwant:\n%s\ngot:\n%s", slice, file.path, string(want), string(got))
 		}
 	}
+}
+
+func assertLoadIntegrity(t *testing.T, ctx context.Context, store *postgres.Store, objectStore *filesystem.Store) {
+	t.Helper()
+	report, err := store.VerifyIntegrity(ctx, objectStore)
+	if err != nil {
+		t.Fatalf("integrity verification failed: %v\nreport: %#v", err, report)
+	}
+	t.Logf("integrity ref_count=%d commit_count=%d blob_count=%d tree_count=%d tree_file_count=%d path_head_count=%d",
+		report.RefCount,
+		report.CommitCount,
+		report.BlobCount,
+		report.TreeCount,
+		report.TreeFileCount,
+		report.PathHeadCount,
+	)
 }
 
 func gitShowFile(t *testing.T, repoPath, gitPath string) []byte {

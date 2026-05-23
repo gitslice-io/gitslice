@@ -650,3 +650,67 @@ go test ./...
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
 ```
+
+## 2026-05-23: Integrity Verifier And Production Future Work
+
+Request:
+
+- make the repo a stronger proof of concept for a large-scale monorepo system
+- keep the POC on PostgreSQL plus filesystem object storage
+- prove scalability and integrity
+- add `future_work.md` for production work
+
+Implemented:
+
+- added a storage integrity verifier in `internal/postgres` that checks:
+  - refs point at existing commits
+  - commit ids recompute from canonical commit payloads
+  - commit parents exist
+  - reachable root tree objects exist and hash to their content-addressed ids
+  - tree file entries reference existing blob rows with matching metadata
+  - blob rows match filesystem object bytes by id, raw content hash, and size
+  - path heads match the current accepted ref when no publish is pending
+- added tree-object verification in `internal/treestore` so the verifier can
+  traverse immutable tree nodes from a root tree id and detect missing or
+  corrupt tree payloads
+- fixed native object-id canonicalization so nil and empty tree/commit slices
+  hash identically, and commit timestamps are normalized to UTC before hashing
+- added Postgres-backed tests proving the verifier passes after publish and
+  detects a missing filesystem blob object
+- added the verifier to the hot-file load/projection test so a scale run ends
+  with a native metadata plus filesystem-object integrity check
+- added root `future_work.md` covering production storage, scalability,
+  integrity, security, product completeness, and operations work
+
+Important decisions and learnings:
+
+- The integrity verifier intentionally treats PostgreSQL as the reachability
+  source of truth and object-store directory listing as non-authoritative.
+- Path heads may legitimately run ahead of the accepted ref while publish is
+  pending, so the verifier only enforces path-head/current-ref equality when
+  there are no pending publish rows.
+- The first DB-backed integrity run exposed that object ids could vary based on
+  empty slice representation and timestamp timezone formatting. Canonicalizing
+  those inputs in `internal/objectid` makes commit and tree ids stable across
+  storage round trips.
+
+Verification:
+
+```bash
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 GITSLICE_LOAD_HOT_WORKERS=12 GITSLICE_LOAD_HOT_OPERATIONS=12 GITSLICE_LOAD_HOT_MAX_ATTEMPTS=80 GITSLICE_LOAD_PROJECTION_WORKERS=4 go test -count=1 -tags load ./tests/load -v
+```
+
+Bounded load result:
+
+```text
+concurrent_disjoint_submit operations=8 wall=54.702958ms throughput=146.24/s p50=52.81425ms p95=53.591625ms p99=53.591625ms
+same_path_submit_contention operations=8 wall=25.94375ms throughput=308.36/s p50=7.598833ms p95=8.043084ms p99=8.043084ms
+repeated_status operations=32 wall=45.9465ms throughput=696.46/s p50=9.240542ms p95=20.643208ms p99=20.902375ms
+hot_files_create_update_submit_accept operations=12 wall=140.116041ms throughput=85.64/s p50=77.477958ms p95=139.282084ms p99=139.282084ms
+hot_files_contention successes=12 attempts=76 conflicts=64 conflict_rate=84.21%
+integrity ref_count=1 commit_count=16 blob_count=79 tree_count=61 tree_file_count=42 path_head_count=3
+```
