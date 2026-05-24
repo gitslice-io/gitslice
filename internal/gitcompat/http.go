@@ -31,14 +31,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if isReceivePack(r) {
-		http.Error(w, "git push is not supported by the MVP Git layer; use native changesets", http.StatusForbidden)
-		return
-	}
 	subjectID, err := h.authenticate(r.Context(), r)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Basic realm="gitslice"`)
 		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	if isReceivePack(r) {
+		if err := h.projector.AuthorizeSlice(r.Context(), subjectID, account, slice); err != nil {
+			writeGitError(w, err)
+			return
+		}
+		http.Error(w, "git push is not supported by the MVP Git layer; use native changesets", http.StatusForbidden)
 		return
 	}
 	if _, _, err := h.projector.EnsureProjectedRepo(r.Context(), subjectID, account, slice); err != nil {
