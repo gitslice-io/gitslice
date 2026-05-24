@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=readonly
+
+jobs:
+  go:
+    name: Go tests and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          files="$(gofmt -l $(find . -name '*.go' -not -path './.git/*'))"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Run unit tests
+        run: go test ./...
+
+      - name: Build commands
+        run: go build ./cmd/...
+
+  postgres:
+    name: PostgreSQL functional tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gitslice
+          POSTGRES_PASSWORD: gitslice
+          POSTGRES_DB: gitslice_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gitslice -d gitslice_dev"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      GITSLICE_TEST_DATABASE_URL: postgres://gitslice:gitslice@localhost:5432/gitslice_dev?sslmode=disable
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run PostgreSQL storage tests
+        run: go test -count=1 ./internal/postgres -v
+
+      - name: Run functional tests
+        run: go test -count=1 ./tests/functional -v
+
+  load:
+    name: Load tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gitslice
+          POSTGRES_PASSWORD: gitslice
+          POSTGRES_DB: gitslice_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gitslice -d gitslice_dev"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      GITSLICE_TEST_DATABASE_URL: postgres://gitslice:gitslice@localhost:5432/gitslice_dev?sslmode=disable
+      GITSLICE_LOAD_WORKERS: 8
+      GITSLICE_LOAD_STATUS_ITERATIONS: 4
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run opt-in load tests
+        run: go test -count=1 -tags load ./tests/load -v

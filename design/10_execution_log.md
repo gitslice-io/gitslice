@@ -3,6 +3,48 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: GitHub Actions CI
+
+Request:
+
+- add GitHub CI
+
+Implemented:
+
+- added `.github/workflows/ci.yml`
+- configured CI to run on pull requests, pushes to `main`, and manual
+  `workflow_dispatch`
+- added a normal Go job for:
+  - checkout
+  - Go setup from `go.mod`
+  - `gofmt` verification
+  - `go test ./...`
+  - `go build ./cmd/...`
+- added a PostgreSQL-backed job using a `postgres:16` service for:
+  - `go test -count=1 ./internal/postgres -v`
+  - `go test -count=1 ./tests/functional -v`
+- added an opt-in manual load-test job that runs the AGENTS.md load gate with
+  the same PostgreSQL service
+
+Important decisions and learnings:
+
+- CI keeps load tests behind `workflow_dispatch` because AGENTS.md describes the
+  load gate as opt-in, while pull requests should still run the normal and real
+  PostgreSQL functional gates.
+- The workflow uses `actions/checkout@v6` and `actions/setup-go@v6`, which are
+  the current official major versions at the time this CI was added.
+- `actionlint` is not installed in this local environment, so workflow syntax
+  was reviewed manually and by GitHub-compatible structure rather than through a
+  local action linter.
+
+Verification:
+
+```bash
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
 ## 2026-05-24: Server-Side Interactive File Shell
 
 Request:
