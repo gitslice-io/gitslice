@@ -71,6 +71,14 @@ func (p *Projector) CacheRoot() string {
 	return p.cacheRoot
 }
 
+func (p *Projector) AuthorizeSlice(ctx context.Context, subjectID, account, sliceSlug string) error {
+	if err := p.auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
+		return err
+	}
+	_, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
+	return err
+}
+
 func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account, sliceSlug string) (string, *Projection, error) {
 	if err := p.auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
 		return "", nil, err

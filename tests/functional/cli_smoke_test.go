@@ -815,6 +815,61 @@ func TestRestartPreservesSubmittedState(t *testing.T) {
 	}
 }
 
+func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
+	ts := startTestServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+
+	uploadInfoRefs := "/git/acme/payment.git/info/refs?service=git-upload-pack"
+	statusCode, headers, body := gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "")
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated upload-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
+	}
+	if got := headers.Get("WWW-Authenticate"); !strings.Contains(got, `Basic realm="gitslice"`) {
+		t.Fatalf("expected basic auth challenge, got %q", got)
+	}
+
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer not-a-token")
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected invalid token upload-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
+	}
+
+	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:"+token))
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, basicAuth)
+	if statusCode != http.StatusOK {
+		t.Fatalf("expected basic-auth upload-pack discovery to return 200, got %d:\n%s", statusCode, string(body))
+	}
+	if got := headers.Get("Content-Type"); !strings.Contains(got, "application/x-git-upload-pack-advertisement") {
+		t.Fatalf("expected upload-pack advertisement content type, got %q", got)
+	}
+
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, "/git/acme/missing.git/info/refs?service=git-upload-pack", "Bearer "+token)
+	if statusCode != http.StatusNotFound {
+		t.Fatalf("expected missing slice to return 404, got %d:\n%s", statusCode, string(body))
+	}
+
+	receiveInfoRefs := "/git/acme/payment.git/info/refs?service=git-receive-pack"
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, receiveInfoRefs, "")
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated receive-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
+	}
+	if got := headers.Get("WWW-Authenticate"); !strings.Contains(got, `Basic realm="gitslice"`) {
+		t.Fatalf("expected receive-pack auth challenge, got %q", got)
+	}
+
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, receiveInfoRefs, "Bearer "+token)
+	if statusCode != http.StatusForbidden {
+		t.Fatalf("expected authenticated receive-pack discovery to return 403, got %d:\n%s", statusCode, string(body))
+	}
+	if !strings.Contains(string(body), "git push is not supported") || !strings.Contains(string(body), "native changesets") {
+		t.Fatalf("expected push rejection to direct users to native changesets, got:\n%s", string(body))
+	}
+
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, "/not-git/acme/payment.git/info/refs?service=git-upload-pack", "Bearer "+token)
+	if statusCode != http.StatusNotFound {
+		t.Fatalf("expected non-git route to return 404, got %d:\n%s", statusCode, string(body))
+	}
+}
+
 func TestGitCloneProjection(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
@@ -1079,6 +1134,7 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 	}()
 	waitForHealth(t, ts.addr)
 	waitForHTTPGateway(t, ts.httpAddr)
+	waitForGitHTTP(t, ts.gitAddr)
 }
 
 func (ts *testServer) stop(t *testing.T) {
@@ -1464,6 +1520,27 @@ func httpGatewayOptions(t *testing.T, addr, path, origin string) (int, http.Head
 	return resp.StatusCode, resp.Header.Clone()
 }
 
+func gitHTTPRaw(t *testing.T, addr, path, authorization string) (int, http.Header, []byte) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "http://"+addr+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, resp.Header.Clone(), data
+}
+
 func waitForGatewayChangesetStatus(t *testing.T, addr, token, changesetID, want string) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -1556,6 +1633,16 @@ func waitForHealth(t *testing.T, addr string) {
 
 func waitForHTTPGateway(t *testing.T, addr string) {
 	t.Helper()
+	waitForHTTPServer(t, addr, "server HTTP gateway")
+}
+
+func waitForGitHTTP(t *testing.T, addr string) {
+	t.Helper()
+	waitForHTTPServer(t, addr, "server Git HTTP")
+}
+
+func waitForHTTPServer(t *testing.T, addr, name string) {
+	t.Helper()
 	client := http.Client{Timeout: time.Second}
 	deadline := time.Now().Add(10 * time.Second)
 	var lastErr error
@@ -1569,5 +1656,5 @@ func waitForHTTPGateway(t *testing.T, addr string) {
 		lastErr = err
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal(fmt.Errorf("server HTTP gateway did not start: %w", lastErr))
+	t.Fatal(fmt.Errorf("%s did not start: %w", name, lastErr))
 }

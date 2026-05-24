@@ -3,6 +3,50 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Git HTTP Auth Coverage
+
+Request:
+
+- apply the actionable Git HTTP follow-ups
+- address other actionable items found during the Git HTTP review
+- create a PR for the non-CI changes after the CI PR merged
+- remove the compatibility matrix document from that PR scope
+
+Implemented:
+
+- tightened Git smart HTTP receive-pack handling so callers must authenticate
+  and pass slice authorization before receiving the MVP "push is not supported;
+  use native changesets" response
+- added functional coverage for the Git HTTP auth/unsupported-operation matrix:
+  unauthenticated and invalid-token upload-pack rejection, Basic-token
+  upload-pack discovery, missing-slice 404s, unauthenticated receive-pack
+  rejection, authenticated receive-pack rejection, and non-Git route 404s
+- made the functional test harness wait for the optional Git HTTP listener
+  before Git HTTP assertions run
+- removed the proposed compatibility matrix document and its doc links from the
+  PR scope
+
+Important decisions and learnings:
+
+- Unsupported Git pushes should still follow the normal auth/authorization
+  boundary before returning product guidance.
+
+Verification:
+
+```bash
+gofmt -w internal/gitcompat/http.go internal/gitcompat/projector.go tests/functional/cli_smoke_test.go
+go test ./internal/gitcompat ./server
+go test ./...
+go build ./cmd/...
+go test -count=1 ./tests/functional -run TestGitHTTPAuthAndUnsupportedOperationMatrix -v
+git diff --check
+```
+
+The focused functional command skipped locally because
+`GITSLICE_TEST_DATABASE_URL` was not set. The default `go test ./...` and
+`go build ./cmd/...` gates passed, and `git diff --check` reported no
+whitespace errors.
+
 ## 2026-05-24: GitHub Actions CI
 
 Request:
