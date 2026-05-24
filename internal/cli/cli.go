@@ -2186,15 +2186,16 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sli
 		scoped:        workspaceScoped,
 		syntheticDirs: syntheticDirs,
 		color:         r.colorEnabled(opts),
+		stickyHeader:  r.stickyShellHeaderEnabled(opts),
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(sh.stdout, "%s: %s @ %s\n", sh.colorize(ansiGreen, "server shell"), scopeLabel, shortID(commitID))
-		fmt.Fprintf(sh.stdout, "%s: %s\n", sh.colorize(ansiDim, "cwd"), sh.shellPath(sh.cwd))
-		fmt.Fprintln(sh.stdout, sh.colorize(ansiDim, "type help for commands"))
+		sh.printHeader()
+		defer sh.restoreHeader()
 	}
 	scanner := bufio.NewScanner(r.stdin())
 	for {
 		if !opts.Quiet {
+			sh.refreshHeader()
 			fmt.Fprint(sh.stdout, sh.prompt())
 		}
 		if !scanner.Scan() {
@@ -2332,6 +2333,8 @@ type serverShell struct {
 	scoped        bool
 	syntheticDirs map[string]*corev1.TreeEntry
 	color         bool
+	stickyHeader  bool
+	headerActive  bool
 }
 
 func (s *serverShell) exec(ctx context.Context, line string) (bool, error) {
@@ -2427,6 +2430,58 @@ func (s *serverShell) exec(ctx context.Context, line string) (bool, error) {
 		return false, fmt.Errorf("unknown command %q", fields[0])
 	}
 	return false, nil
+}
+
+func (s *serverShell) printHeader() {
+	if s.stickyHeader {
+		s.headerActive = true
+		fmt.Fprint(s.stdout, "\x1b[2J\x1b[H")
+		s.refreshHeader()
+		fmt.Fprint(s.stdout, "\x1b[4;r\x1b[4;1H")
+		return
+	}
+	fmt.Fprintf(s.stdout, "%s: %s @ %s\n", s.colorize(ansiGreen, "server shell"), s.scope, shortID(s.commitID))
+	fmt.Fprintf(s.stdout, "%s: %s\n", s.colorize(ansiDim, "cwd"), s.shellPath(s.cwd))
+	fmt.Fprintln(s.stdout, s.colorize(ansiDim, "type help for commands"))
+}
+
+func (s *serverShell) refreshHeader() {
+	if !s.stickyHeader || !s.headerActive {
+		return
+	}
+	mode := "read-only"
+	if s.mutator != nil {
+		mode = "mutable"
+	}
+	scopeLabel := s.scope
+	if scopeLabel == "/" {
+		scopeLabel = "global root"
+	}
+	fmt.Fprint(s.stdout, "\x1b[s")
+	fmt.Fprint(s.stdout, "\x1b[r")
+	fmt.Fprint(s.stdout, "\x1b[1;1H\x1b[2K")
+	fmt.Fprintf(s.stdout, "%s  %s %s  %s %s  %s %s\n",
+		s.colorize(ansiGreen, "Gitslice shell"),
+		s.colorize(ansiDim, "slice:"), scopeLabel,
+		s.colorize(ansiDim, "commit:"), shortID(s.commitID),
+		s.colorize(ansiDim, "mode:"), mode)
+	fmt.Fprint(s.stdout, "\x1b[2K")
+	fmt.Fprintf(s.stdout, "%s %s  %s %s  %s\n",
+		s.colorize(ansiDim, "cwd:"), s.shellPath(s.cwd),
+		s.colorize(ansiDim, "root:"), s.shellPath(s.root),
+		s.colorize(ansiDim, "help: type help, exit to quit"))
+	fmt.Fprint(s.stdout, "\x1b[2K")
+	fmt.Fprintln(s.stdout, s.colorize(ansiDim, strings.Repeat("-", 72)))
+	fmt.Fprint(s.stdout, "\x1b[4;r")
+	fmt.Fprint(s.stdout, "\x1b[u")
+}
+
+func (s *serverShell) restoreHeader() {
+	if !s.stickyHeader || !s.headerActive {
+		return
+	}
+	fmt.Fprint(s.stdout, "\x1b[r\n")
+	s.headerActive = false
 }
 
 func (s *serverShell) printHelp() {
@@ -3193,11 +3248,26 @@ func (r Runner) colorEnabled(opts commandOptions) bool {
 	if opts.NoColor || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
 		return false
 	}
-	file, ok := r.stdout().(*os.File)
+	return isTerminal(r.stdout())
+}
+
+func (r Runner) stickyShellHeaderEnabled(opts commandOptions) bool {
+	if opts.NoColor || opts.Quiet || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	return isTerminal(r.stdout()) && isTerminal(r.stdin())
+}
+
+func isTerminal(w any) bool {
+	file, ok := w.(*os.File)
 	if !ok {
 		return false
 	}
-	return file == os.Stdout || file == os.Stderr
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 func (r Runner) objectCache() (*clientcache.ObjectCache, error) {

@@ -3,6 +3,41 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Sticky Interactive Shell Header
+
+Request:
+
+- anchor shell context such as the attached slice at the top of `gs shell`
+
+Implemented:
+
+- added an interactive terminal-only sticky shell header using ANSI scroll
+  regions
+- pinned attached slice, current commit, mutable/read-only mode, root, and cwd
+  at the top of the shell view
+- refreshed the pinned header before each prompt, so `cd` and mutations keep
+  the displayed cwd and commit current
+- kept non-terminal, piped, test, `--quiet`, and `--no-color` shell output on
+  the existing plain text path
+
+Important decisions and learnings:
+
+- Sticky anchoring is terminal UI behavior, not machine output. It is disabled
+  unless both stdin and stdout are terminal devices to avoid emitting cursor
+  controls into scripts and tests.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestServerShell(AttachesExplicitSlice|RunsOutsideWorkspace|NavigationAndSliceBoundary)' -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
 ## 2026-05-24: Explicit Shell Slice Attachment
 
 Request:

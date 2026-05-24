@@ -291,9 +291,11 @@ it, waits for publish, and advances the shell to the new commit. Mutations are
 disabled when the shell has fallen back to the legacy global root because there
 is no authoring slice to validate against.
 
-Shell prompts should show the current scope and current path. Color is allowed
-for interactive text output, but `--no-color`, JSON mode, and non-terminal test
-writers must remain stable and uncolored.
+Shell prompts should show the current scope and current path. On interactive
+terminals, the shell may pin a compact status header at the top of the screen
+with the attached slice, current commit, mode, root, and current path. Color and
+terminal-control output are disabled by `--no-color`, `--quiet`, JSON mode,
+non-terminal writers, and test/piped usage so scripted output stays stable.
 
 ## 6.1 Absolute Filesystem Commands
 
