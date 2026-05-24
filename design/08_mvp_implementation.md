@@ -117,6 +117,9 @@ The MVP account service is intentionally fake. It exists to unblock local
 correctness testing without building production OAuth, SSO, invitations, billing,
 or organization administration.
 
+The current implemented account and auth model is summarized in
+[12_account_auth.md](12_account_auth.md).
+
 Responsibilities:
 
 - load users, service accounts, accounts, memberships, and sessions from a local

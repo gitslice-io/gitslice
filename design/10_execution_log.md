@@ -1433,3 +1433,31 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=d
 go test ./...
 go build ./cmd/...
 ```
+
+## 2026-05-24: Account And Auth Current-State Design Doc
+
+Request:
+
+- add a design document that describes the current account and authentication
+  system
+
+Implemented:
+
+- added `design/12_account_auth.md`
+- documented the implemented PostgreSQL account/auth tables, development seed
+  fixture, fake login flow, 24-hour hashed-token sessions, auth-status RPC,
+  gRPC and Git HTTP authentication paths, coarse membership authorization,
+  subject propagation, invariants, and known gaps
+- linked the new document from `design/08_mvp_implementation.md`
+
+Important decisions and learnings:
+
+- The document is intentionally current-state rather than aspirational. It calls
+  out incomplete authorization surfaces such as repository/blob read APIs and
+  the lack of role-specific enforcement.
+
+Verification:
+
+```bash
+git diff --check HEAD
+```
