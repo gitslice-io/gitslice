@@ -75,6 +75,28 @@ gs resolve
 The later commands should be added when the underlying changeset and patchset
 model can represent the operation cleanly.
 
+## 3.1 Auth Commands
+
+```bash
+gs auth login --server <grpc-addr> --dev-user <name>
+gs auth status
+```
+
+`gs auth status` reads the locally configured server and bearer token, validates
+that token with the server's authenticated auth-status RPC, and never prints the
+saved bearer token. JSON output should expose only stable, non-secret fields:
+
+```json
+{
+  "signed_in": true,
+  "server_addr": "127.0.0.1:50051",
+  "subject_id": "user_alice"
+}
+```
+
+If the local config is missing, incomplete, or the server rejects the token, the
+command reports `"signed_in": false` and may include a non-secret `reason`.
+
 ## 4. Workspace Commands
 
 ```bash
@@ -178,10 +200,14 @@ gs shell
 gs shell --commit <commit-id>
 ```
 
-`gs shell` is a local interactive shell for inspecting server-side files in the
-current workspace's bound slice. It does not browse or mutate the local
-workspace filesystem. The workspace is used only for auth config, slice scope,
-and relative path mapping.
+`gs shell` is a local interactive shell for inspecting server-side files. It can
+run from any local directory after `gs auth login`; it does not require a
+Gitslice workspace and does not browse or mutate the local filesystem.
+
+When launched inside a workspace, the shell keeps the existing slice-rooted
+view: `/` means the workspace's bound slice root. When launched outside a
+workspace, `/` means the global repository root and paths such as
+`/acme/payment/app.go` are interpreted directly.
 
 By default, the shell reads the latest `refs/global/main` commit from the
 server. `--commit` pins inspection to a specific native commit.
@@ -199,10 +225,11 @@ help             show shell commands
 exit, quit       leave the shell
 ```
 
-Paths inside the shell are slice-rooted. `/` means the bound slice root, while a
-full canonical path such as `/acme/payment/app.go` is also accepted when it is
-inside the bound slice. Attempts to leave the bound slice are rejected locally
-before issuing server reads.
+Paths inside the shell are slice-rooted only when the shell is launched from a
+workspace. In that mode, a full canonical path such as `/acme/payment/app.go` is
+also accepted when it is inside the bound slice, and attempts to leave the bound
+slice are rejected locally before issuing server reads. Outside a workspace,
+paths are global repository paths.
 
 The shell is read-only in the MVP. Local editing still happens in the hydrated
 workspace and is validated through `gs status`, `gs cs create`, and submit.

@@ -105,3 +105,91 @@ var FakeAccountService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/core/v1/auth.proto",
 }
+
+const (
+	AuthService_GetAuthStatus_FullMethodName = "/gitslice.core.v1.AuthService/GetAuthStatus"
+)
+
+// AuthServiceClient is the client API for AuthService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type AuthServiceClient interface {
+	GetAuthStatus(ctx context.Context, in *GetAuthStatusRequest, opts ...grpc.CallOption) (*GetAuthStatusResponse, error)
+}
+
+type authServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAuthServiceClient(cc grpc.ClientConnInterface) AuthServiceClient {
+	return &authServiceClient{cc}
+}
+
+func (c *authServiceClient) GetAuthStatus(ctx context.Context, in *GetAuthStatusRequest, opts ...grpc.CallOption) (*GetAuthStatusResponse, error) {
+	out := new(GetAuthStatusResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetAuthStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AuthServiceServer is the server API for AuthService service.
+// All implementations should embed UnimplementedAuthServiceServer
+// for forward compatibility
+type AuthServiceServer interface {
+	GetAuthStatus(context.Context, *GetAuthStatusRequest) (*GetAuthStatusResponse, error)
+}
+
+// UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedAuthServiceServer struct {
+}
+
+func (UnimplementedAuthServiceServer) GetAuthStatus(context.Context, *GetAuthStatusRequest) (*GetAuthStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAuthStatus not implemented")
+}
+
+// UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AuthServiceServer will
+// result in compilation errors.
+type UnsafeAuthServiceServer interface {
+	mustEmbedUnimplementedAuthServiceServer()
+}
+
+func RegisterAuthServiceServer(s grpc.ServiceRegistrar, srv AuthServiceServer) {
+	s.RegisterService(&AuthService_ServiceDesc, srv)
+}
+
+func _AuthService_GetAuthStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAuthStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetAuthStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetAuthStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetAuthStatus(ctx, req.(*GetAuthStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AuthService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "gitslice.core.v1.AuthService",
+	HandlerType: (*AuthServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetAuthStatus",
+			Handler:    _AuthService_GetAuthStatus_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "proto/core/v1/auth.proto",
+}

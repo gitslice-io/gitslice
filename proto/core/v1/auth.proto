@@ -8,6 +8,10 @@ service FakeAccountService {
   rpc Login(LoginRequest) returns (LoginResponse);
 }
 
+service AuthService {
+  rpc GetAuthStatus(GetAuthStatusRequest) returns (GetAuthStatusResponse);
+}
+
 message LoginRequest {
   string dev_user = 1;
 }
@@ -15,4 +19,10 @@ message LoginRequest {
 message LoginResponse {
   string token = 1;
   string subject_id = 2;
+}
+
+message GetAuthStatusRequest {}
+
+message GetAuthStatusResponse {
+  string subject_id = 1;
 }

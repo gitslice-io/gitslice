@@ -39,6 +39,14 @@ func TestMinimalCLIJourney(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	authStatus := runCLI(t, home, workspace, "auth", "status")
+	if !strings.Contains(authStatus, "signed in as user_alice") || !strings.Contains(authStatus, "server: "+ts.addr) {
+		t.Fatalf("unexpected auth status:\n%s", authStatus)
+	}
+	authStatusJSON := runCLI(t, home, workspace, "auth", "status", "--json")
+	if strings.Contains(authStatusJSON, "token") {
+		t.Fatalf("auth status leaked token data:\n%s", authStatusJSON)
+	}
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	status := runCLI(t, home, workspace, "status")
 	if !strings.Contains(status, "status: clean") {
@@ -194,6 +202,46 @@ func TestServerShellCommitPinning(t *testing.T) {
 	}
 	if !strings.Contains(current, "const Version = 2") {
 		t.Fatalf("expected current shell to show version 2, got:\n%s", current)
+	}
+}
+
+func TestServerShellRunsOutsideWorkspace(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	outsideWorkspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "global_shell.go", "package payment\nconst GlobalShell = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "global shell seed")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
+		"pwd",
+		"ls /",
+		"ls /acme",
+		"cd acme/payment",
+		"pwd",
+		"cat global_shell.go",
+		"stat /acme/payment/global_shell.go",
+		"quit",
+	}, "\n")+"\n", "shell")
+	if stderr != "" {
+		t.Fatalf("expected empty shell stderr, got:\n%s", stderr)
+	}
+	for _, want := range []string{
+		"server shell: / @",
+		"gs /> /",
+		"acme/",
+		"payment/",
+		"gs /acme/payment> /acme/payment",
+		"package payment\nconst GlobalShell = true\n",
+		"shell_path: /acme/payment/global_shell.go",
+		"kind: file",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("global shell output missing %q:\n%s", want, stdout)
+		}
 	}
 }
 

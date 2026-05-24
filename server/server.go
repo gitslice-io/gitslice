@@ -149,6 +149,7 @@ func NewGRPCServer(auth *postgres.AuthStore, handlers *service.Handlers) *grpc.S
 		grpc.StreamInterceptor(authStreamInterceptor(auth)),
 	)
 	corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
+	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)
 	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
 	corev1.RegisterBlobServiceServer(grpcServer, handlers.Blob)
 	corev1.RegisterSliceServiceServer(grpcServer, handlers.Slice)

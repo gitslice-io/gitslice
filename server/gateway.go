@@ -17,6 +17,7 @@ func NewHTTPGateway(ctx context.Context, grpcEndpoint string) (http.Handler, err
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	registerHandlers := []func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error{
 		corev1.RegisterFakeAccountServiceHandlerFromEndpoint,
+		corev1.RegisterAuthServiceHandlerFromEndpoint,
 		corev1.RegisterRepositoryServiceHandlerFromEndpoint,
 		corev1.RegisterBlobServiceHandlerFromEndpoint,
 		corev1.RegisterSliceServiceHandlerFromEndpoint,
