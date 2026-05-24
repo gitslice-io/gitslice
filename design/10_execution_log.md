@@ -1079,3 +1079,57 @@ go build ./cmd/...
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestGitHubImport' -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```
+
+## 2026-05-24: Functional Test Coverage Gaps
+
+Request:
+
+- add the missing functional coverage identified after reviewing the existing
+  functional tests
+
+Implemented:
+
+- expanded HTTP gateway functional coverage beyond login/list slices to cover:
+  unauthenticated and invalid-token rejection, CORS preflight, blob upload and
+  status lookup, changeset create/update/submit, and polling a submitted
+  changeset through the gateway
+- added direct gRPC functional coverage for repository read APIs:
+  `GetRef`, `GetCommit`, `ListDirectory`, `ResolvePath`, full file reads, and
+  range file reads after a real CLI submit
+- added slice definition update coverage, including stale
+  `expected_definition_hash` conflict handling
+- added changeset lifecycle coverage for submit idempotency, abandon, and
+  rejected submit after abandon
+- added workspace helper coverage for `GetWorkspaceState`, `HydratePaths`,
+  `RecordWorkspaceOperation`, and invalid workspace ids
+- expanded Git smart HTTP coverage to include unauthenticated clone rejection,
+  authenticated clone, fetch after a new native submit, and push rejection
+- fixed Git projection clone checkout by setting each bare projection repo's
+  symbolic `HEAD` to `refs/heads/main` before pushing `main`
+
+Important decisions and learnings:
+
+- the new tests stay in the existing real-server functional harness so they
+  exercise auth interceptors, service wiring, storage, gateway transcoding, and
+  projection behavior together
+- the Git unauthenticated clone assertion accepts several common Git stderr
+  phrasings because clients can report the same 401 challenge differently
+- running the real functional suite exposed that projection repos pushed
+  `refs/heads/main` while bare repo `HEAD` still pointed at the default branch,
+  causing clones to succeed without checking out files
+
+Verification:
+
+```bash
+gofmt -w internal/gitcompat/projector.go tests/functional/cli_smoke_test.go
+GITSLICE_TEST_DATABASE_URL=<local test database URL> go test -count=1 ./tests/functional -run 'Test(StaleDisjointUpdatePreservesFinalState|ConcurrentDisjointSubmitFinalProjection|GitCloneProjection)$' -v
+GITSLICE_TEST_DATABASE_URL=<local test database URL> go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=<local test database URL> go test -count=1 ./internal/postgres -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+The default `go test ./...`, `go build ./cmd/...`, and `git diff --check`
+gates passed. The real PostgreSQL functional and storage gates passed with a
+local test database URL.
