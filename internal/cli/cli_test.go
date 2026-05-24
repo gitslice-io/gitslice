@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"path/filepath"
 	"testing"
 
@@ -12,6 +13,9 @@ import (
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
@@ -39,6 +43,82 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	}
 	if got.ErrorOutput["stream"] != "stderr" {
 		t.Fatalf("expected stderr error stream, got %#v", got.ErrorOutput["stream"])
+	}
+}
+
+func TestAuthStatusReportsSignedOut(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"auth", "status", "--json"}); err != nil {
+		t.Fatalf("auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	var got authStatusOutput
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("auth status output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.SignedIn {
+		t.Fatalf("expected signed out status, got %#v", got)
+	}
+	if got.ServerAddr != "" || got.SubjectID != "" {
+		t.Fatalf("signed out status exposed config fields: %#v", got)
+	}
+}
+
+func TestAuthStatusReportsStoredLoginWithoutToken(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	serverAddr := startFakeAuthStatusServer(t, "secret-token", "user_alice")
+	if err := r.writeUserConfig(UserConfig{
+		ServerAddr: serverAddr,
+		Token:      "secret-token",
+		SubjectID:  "stale_local_subject",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Run(context.Background(), []string{"auth", "status", "--json"}); err != nil {
+		t.Fatalf("auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if bytes.Contains(stdout.Bytes(), []byte("secret-token")) || bytes.Contains(stdout.Bytes(), []byte("token")) {
+		t.Fatalf("auth status leaked token data:\n%s", stdout.String())
+	}
+
+	var got authStatusOutput
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("auth status output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.SignedIn {
+		t.Fatalf("expected signed in status, got %#v", got)
+	}
+	if got.ServerAddr != serverAddr || got.SubjectID != "user_alice" {
+		t.Fatalf("unexpected auth status: %#v", got)
+	}
+}
+
+func TestAuthStatusReportsInvalidStoredToken(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	serverAddr := startFakeAuthStatusServer(t, "valid-token", "user_alice")
+	if err := r.writeUserConfig(UserConfig{
+		ServerAddr: serverAddr,
+		Token:      "stale-token",
+		SubjectID:  "user_alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Run(context.Background(), []string{"auth", "status", "--json"}); err != nil {
+		t.Fatalf("auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	var got authStatusOutput
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("auth status output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.SignedIn {
+		t.Fatalf("expected signed out status, got %#v", got)
+	}
+	if got.ServerAddr != serverAddr || got.SubjectID != "" || got.Reason != "invalid_token" {
+		t.Fatalf("unexpected auth status for invalid token: %#v", got)
 	}
 }
 
@@ -146,4 +226,44 @@ func (f *fakeBlobClient) UploadBlob(ctx context.Context, req *corev1.UploadBlobR
 		ContentHash: objectid.RawContentHash(req.Data),
 		Size:        int64(len(req.Data)),
 	}, nil
+}
+
+type fakeAuthStatusServer struct {
+	subjectID string
+}
+
+func (f fakeAuthStatusServer) GetAuthStatus(ctx context.Context, req *corev1.GetAuthStatusRequest) (*corev1.GetAuthStatusResponse, error) {
+	return &corev1.GetAuthStatusResponse{SubjectId: f.subjectID}, nil
+}
+
+func startFakeAuthStatusServer(t *testing.T, validToken, subjectID string) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, status.Error(codes.Unauthenticated, "missing metadata")
+		}
+		values := md.Get("authorization")
+		if len(values) != 1 || values[0] != "Bearer "+validToken {
+			return nil, status.Error(codes.Unauthenticated, "invalid token")
+		}
+		return handler(ctx, req)
+	}))
+	corev1.RegisterAuthServiceServer(server, fakeAuthStatusServer{subjectID: subjectID})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Serve(lis)
+	}()
+	t.Cleanup(func() {
+		server.Stop()
+		_ = lis.Close()
+		if err := <-errCh; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			t.Errorf("fake auth status server failed: %v", err)
+		}
+	})
+	return lis.Addr().String()
 }

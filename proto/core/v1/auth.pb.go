@@ -117,6 +117,86 @@ func (x *LoginResponse) GetSubjectId() string {
 	return ""
 }
 
+type GetAuthStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAuthStatusRequest) Reset() {
+	*x = GetAuthStatusRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAuthStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAuthStatusRequest) ProtoMessage() {}
+
+func (x *GetAuthStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAuthStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetAuthStatusRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{2}
+}
+
+type GetAuthStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SubjectId     string                 `protobuf:"bytes,1,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAuthStatusResponse) Reset() {
+	*x = GetAuthStatusResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAuthStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAuthStatusResponse) ProtoMessage() {}
+
+func (x *GetAuthStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAuthStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetAuthStatusResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GetAuthStatusResponse) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
 var File_proto_core_v1_auth_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_auth_proto_rawDesc = "" +
@@ -127,9 +207,15 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\rLoginResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1d\n" +
 	"\n" +
-	"subject_id\x18\x02 \x01(\tR\tsubjectId2^\n" +
+	"subject_id\x18\x02 \x01(\tR\tsubjectId\"\x16\n" +
+	"\x14GetAuthStatusRequest\"6\n" +
+	"\x15GetAuthStatusResponse\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\x01 \x01(\tR\tsubjectId2^\n" +
 	"\x12FakeAccountService\x12H\n" +
-	"\x05Login\x12\x1e.gitslice.core.v1.LoginRequest\x1a\x1f.gitslice.core.v1.LoginResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x05Login\x12\x1e.gitslice.core.v1.LoginRequest\x1a\x1f.gitslice.core.v1.LoginResponse2o\n" +
+	"\vAuthService\x12`\n" +
+	"\rGetAuthStatus\x12&.gitslice.core.v1.GetAuthStatusRequest\x1a'.gitslice.core.v1.GetAuthStatusResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_auth_proto_rawDescOnce sync.Once
@@ -143,16 +229,20 @@ func file_proto_core_v1_auth_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_auth_proto_rawDescData
 }
 
-var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_proto_core_v1_auth_proto_goTypes = []any{
-	(*LoginRequest)(nil),  // 0: gitslice.core.v1.LoginRequest
-	(*LoginResponse)(nil), // 1: gitslice.core.v1.LoginResponse
+	(*LoginRequest)(nil),          // 0: gitslice.core.v1.LoginRequest
+	(*LoginResponse)(nil),         // 1: gitslice.core.v1.LoginResponse
+	(*GetAuthStatusRequest)(nil),  // 2: gitslice.core.v1.GetAuthStatusRequest
+	(*GetAuthStatusResponse)(nil), // 3: gitslice.core.v1.GetAuthStatusResponse
 }
 var file_proto_core_v1_auth_proto_depIdxs = []int32{
 	0, // 0: gitslice.core.v1.FakeAccountService.Login:input_type -> gitslice.core.v1.LoginRequest
-	1, // 1: gitslice.core.v1.FakeAccountService.Login:output_type -> gitslice.core.v1.LoginResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	2, // 1: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
+	1, // 2: gitslice.core.v1.FakeAccountService.Login:output_type -> gitslice.core.v1.LoginResponse
+	3, // 3: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -169,9 +259,9 @@ func file_proto_core_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_auth_proto_rawDesc), len(file_proto_core_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_proto_core_v1_auth_proto_goTypes,
 		DependencyIndexes: file_proto_core_v1_auth_proto_depIdxs,

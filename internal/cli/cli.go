@@ -132,6 +132,13 @@ type changesetOutput struct {
 	Status      string `json:"status,omitempty"`
 }
 
+type authStatusOutput struct {
+	SignedIn   bool   `json:"signed_in"`
+	ServerAddr string `json:"server_addr,omitempty"`
+	SubjectID  string `json:"subject_id,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
 type hydrateResult struct {
 	FileCount   int `json:"file_count"`
 	CacheHits   int `json:"cache_hits"`
@@ -210,7 +217,15 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	loginCmd.Flags().StringVar(&loginServer, "server", loginServer, "server gRPC address")
 	loginCmd.Flags().StringVar(&loginDevUser, "dev-user", loginDevUser, "development user")
-	authCmd.AddCommand(loginCmd)
+	authStatusCmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show current authentication status",
+		Args:  noArgs("gs auth status [--format text|json] [--json]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAuthStatus(cmd.Context(), *opts)
+		},
+	}
+	authCmd.AddCommand(loginCmd, authStatusCmd)
 
 	workspaceCmd := &cobra.Command{
 		Use:   "workspace",
@@ -351,7 +366,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	shellCommit := ""
 	shellCmd := &cobra.Command{
 		Use:   "shell",
-		Short: "Browse server-side files for the current workspace slice",
+		Short: "Browse server-side files",
 		Args:  noArgs("gs shell [--commit commit-id]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runShell(cmd.Context(), *opts, shellCommit)
@@ -404,6 +419,66 @@ func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAdd
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "logged in as %s\n", res.SubjectId)
+	return nil
+}
+
+func (r Runner) runAuthStatus(ctx context.Context, opts commandOptions) error {
+	var cfg UserConfig
+	if err := readJSONFile(r.userConfigPath(), &cfg); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return r.writeAuthStatus(opts, authStatusOutput{Reason: "not_logged_in"})
+	}
+	if cfg.ServerAddr == "" || cfg.Token == "" {
+		return r.writeAuthStatus(opts, authStatusOutput{Reason: "invalid_config"})
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	res, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(authContext(ctx, cfg), &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		if grpcstatus.Code(err) == codes.Unauthenticated {
+			return r.writeAuthStatus(opts, authStatusOutput{
+				ServerAddr: cfg.ServerAddr,
+				Reason:     "invalid_token",
+			})
+		}
+		return err
+	}
+	status := authStatusOutput{
+		SignedIn:   true,
+		ServerAddr: cfg.ServerAddr,
+		SubjectID:  res.SubjectId,
+	}
+	return r.writeAuthStatus(opts, status)
+}
+
+func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) error {
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, status)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if !status.SignedIn {
+		fmt.Fprintln(r.Stdout, "not logged in")
+		if status.ServerAddr != "" {
+			fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
+		}
+		if status.Reason != "" && status.Reason != "not_logged_in" {
+			fmt.Fprintf(r.Stdout, "reason: %s\n", strings.ReplaceAll(status.Reason, "_", " "))
+		}
+		return nil
+	}
+	if status.SubjectID != "" {
+		fmt.Fprintf(r.Stdout, "signed in as %s\n", status.SubjectID)
+	} else {
+		fmt.Fprintln(r.Stdout, "signed in")
+	}
+	fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
 	return nil
 }
 
@@ -984,14 +1059,11 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 	if opts.jsonOutput() {
 		return userError("unsupported_format", "gs shell only supports text output", "Run gs shell without --json or --format json.")
 	}
-	cfg, ws, _, err := r.loadLocalState()
+	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
 	}
-	if len(ws.IncludedPaths) == 0 {
-		return fmt.Errorf("workspace has no included paths")
-	}
-	rootPath, err := paths.Canonical(ws.IncludedPaths[0])
+	rootPath, scopeLabel, workspaceScoped, err := r.shellScope()
 	if err != nil {
 		return err
 	}
@@ -1014,13 +1086,14 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 		stdout:   r.stdout(),
 		stderr:   r.stderr(),
 		repo:     repo,
-		ws:       ws,
 		root:     rootPath,
 		cwd:      rootPath,
 		commitID: commitID,
+		scope:    scopeLabel,
+		scoped:   workspaceScoped,
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(sh.stdout, "server shell: %s/%s @ %s\n", ws.Account, ws.Slice, shortID(commitID))
+		fmt.Fprintf(sh.stdout, "server shell: %s @ %s\n", scopeLabel, shortID(commitID))
 		fmt.Fprintln(sh.stdout, "type help for commands")
 	}
 	scanner := bufio.NewScanner(r.stdin())
@@ -1043,15 +1116,35 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 	return scanner.Err()
 }
 
+func (r Runner) shellScope() (rootPath, scopeLabel string, workspaceScoped bool, err error) {
+	ws, err := r.readWorkspaceConfig()
+	if err != nil {
+		var cmdErr commandError
+		if errors.As(err, &cmdErr) && cmdErr.Code == "not_in_workspace" {
+			return "/", "/", false, nil
+		}
+		return "", "", false, err
+	}
+	if len(ws.IncludedPaths) == 0 {
+		return "", "", false, fmt.Errorf("workspace has no included paths")
+	}
+	rootPath, err = paths.Canonical(ws.IncludedPaths[0])
+	if err != nil {
+		return "", "", false, err
+	}
+	return rootPath, ws.Account + "/" + ws.Slice, true, nil
+}
+
 type serverShell struct {
 	runner   Runner
 	stdout   io.Writer
 	stderr   io.Writer
 	repo     corev1.RepositoryServiceClient
-	ws       WorkspaceConfig
 	root     string
 	cwd      string
 	commitID string
+	scope    string
+	scoped   bool
 }
 
 func (s *serverShell) exec(ctx context.Context, line string) (bool, error) {
@@ -1251,13 +1344,24 @@ func (s *serverShell) resolve(value string) (string, error) {
 	if value == "" || value == "." {
 		return s.cwd, nil
 	}
+	if !s.scoped {
+		var candidate string
+		if strings.HasPrefix(value, "/") {
+			candidate = value
+		} else {
+			candidate = strings.TrimRight(s.cwd, "/") + "/" + value
+		}
+		return cleanShellGlobalPath(candidate)
+	}
 	var candidate string
+	scopeRoot := "/" + s.scope
 	switch {
-	case strings.HasPrefix(value, "/"+s.ws.Account+"/"+s.ws.Slice):
+	case value == scopeRoot || strings.HasPrefix(value, scopeRoot+"/"):
 		candidate = value
 	case strings.HasPrefix(value, "/"):
 		segments := strings.Split(strings.Trim(value, "/"), "/")
-		if len(segments) >= 2 && segments[0] == s.ws.Account {
+		scopeSegments := strings.Split(s.scope, "/")
+		if len(segments) >= 2 && len(scopeSegments) > 0 && segments[0] == scopeSegments[0] {
 			candidate = value
 		} else {
 			candidate = strings.TrimRight(s.root, "/") + "/" + strings.TrimPrefix(value, "/")
@@ -1276,15 +1380,40 @@ func (s *serverShell) resolve(value string) (string, error) {
 }
 
 func (s *serverShell) prompt() string {
-	return fmt.Sprintf("gs %s/%s:%s> ", s.ws.Account, s.ws.Slice, s.shellPath(s.cwd))
+	if !s.scoped {
+		return fmt.Sprintf("gs %s> ", s.shellPath(s.cwd))
+	}
+	return fmt.Sprintf("gs %s:%s> ", s.scope, s.shellPath(s.cwd))
 }
 
 func (s *serverShell) shellPath(globalPath string) string {
+	if !s.scoped {
+		cleaned, err := cleanShellGlobalPath(globalPath)
+		if err != nil {
+			return globalPath
+		}
+		return cleaned
+	}
 	if globalPath == s.root {
 		return "/"
 	}
 	rel := strings.TrimPrefix(globalPath, strings.TrimRight(s.root, "/")+"/")
 	return "/" + rel
+}
+
+func cleanShellGlobalPath(value string) (string, error) {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
+	if value == "" {
+		return "/", nil
+	}
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	cleaned := path.Clean(value)
+	if cleaned == "." {
+		return "/", nil
+	}
+	return cleaned, nil
 }
 
 func (s *serverShell) entryName(entry *corev1.TreeEntry) string {
@@ -1802,6 +1931,12 @@ func (r Runner) runSchema() error {
 				"machine_output": []string{"server_addr", "subject_id"},
 			},
 			{
+				"use":            "gs auth status",
+				"summary":        "show current authentication status after validating the local token",
+				"writes_stdout":  true,
+				"machine_output": []string{"signed_in", "server_addr", "subject_id", "reason"},
+			},
+			{
 				"use":            "gs workspace init <account>/<slice>",
 				"summary":        "bind the current directory to one slice and hydrate its files",
 				"args":           []string{"account/slice"},
@@ -1869,7 +2004,7 @@ func (r Runner) runSchema() error {
 			},
 			{
 				"use":           "gs shell",
-				"summary":       "browse server-side files for the current workspace slice",
+				"summary":       "browse server-side files",
 				"flags":         []string{"--commit"},
 				"writes_stdout": true,
 			},

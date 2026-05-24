@@ -71,6 +71,10 @@ service BlobService {
   rpc UploadBlob(stream UploadBlobRequest) returns (UploadBlobResponse);
 }
 
+service AuthService {
+  rpc GetAuthStatus(GetAuthStatusRequest) returns (GetAuthStatusResponse);
+}
+
 service SliceService {
   rpc ResolveSlice(ResolveSliceRequest) returns (Slice);
   rpc GetSlice(GetSliceRequest) returns (Slice);

@@ -117,12 +117,16 @@ The MVP account service is intentionally fake. It exists to unblock local
 correctness testing without building production OAuth, SSO, invitations, billing,
 or organization administration.
 
+The current implemented account and auth model is summarized in
+[12_account_auth.md](12_account_auth.md).
+
 Responsibilities:
 
 - load users, service accounts, accounts, memberships, and sessions from a local
   fixture or seed table
 - issue development session tokens for `gs auth login`
 - validate bearer tokens in a gRPC interceptor
+- expose an authenticated status RPC so clients can verify a saved token
 - attach subject id and account membership context to each request
 - enforce simple role checks used by slice and changeset services
 - write audit fields such as `actor_subject_id`
@@ -140,6 +144,7 @@ Development login can be explicit:
 
 ```bash
 gs auth login --server 127.0.0.1:50051 --dev-user alice
+gs auth status
 ```
 
 The CLI stores the returned token in the user config directory, not in workspace
@@ -393,11 +398,12 @@ gs workspace hydrate <path>
   -> write the workspace file and update .gs/base_snapshot.json
 
 gs shell
-  -> load current workspace slice binding
+  -> load current workspace slice binding when present
+  -> otherwise use the global repository root
   -> resolve latest refs/global/main or requested --commit
   -> start a read-only interactive shell over RepositoryService
   -> support pwd, ls, cd, cat, stat, ref, help, and exit
-  -> reject paths outside the bound slice before server reads
+  -> reject paths outside the bound slice before server reads when workspace-rooted
 
 gs status
   -> reconcile filesystem with local base snapshot

@@ -15,6 +15,7 @@ type ObjectStore interface {
 
 type Handlers struct {
 	FakeAccount *FakeAccountService
+	Auth        *AuthService
 	Repository  *RepositoryService
 	Blob        *BlobService
 	Slice       *SliceService
@@ -37,6 +38,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 	}
 	return &Handlers{
 		FakeAccount: &FakeAccountService{Auth: stores.Auth},
+		Auth:        &AuthService{},
 		Repository: &RepositoryService{
 			Auth:        stores.Auth,
 			Blobs:       stores.Blobs,

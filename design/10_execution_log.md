@@ -1350,3 +1350,114 @@ git diff --check
 The default `go test ./...`, `go build ./cmd/...`, and `git diff --check`
 gates passed. The real PostgreSQL functional and storage gates passed with a
 local test database URL.
+
+## 2026-05-24: Verified Auth Status CLI
+
+Request:
+
+- add a CLI command to check current sign-in status
+- validate the local token with the server so a stale or revoked token is not
+  reported as signed in
+
+Implemented:
+
+- added `AuthService.GetAuthStatus`, an authenticated RPC that returns the
+  subject id from the server auth interceptor context
+- registered `AuthService` in the gRPC server and grpc-gateway wiring
+- added `gs auth status`, with text and JSON output that never prints the saved
+  bearer token
+- made `gs auth status` return `"signed_in": false` for missing config,
+  incomplete config, and server-rejected tokens; other connection or server
+  errors still fail because the status is unknown
+- updated the CLI schema and design docs for the new command and RPC
+- regenerated protobuf, gRPC, and grpc-gateway stubs from `proto/core/v1/*.proto`
+
+Important decisions and learnings:
+
+- `gs auth status` uses the server response as the source of truth for signed-in
+  status; the local config is only the source of the server address and bearer
+  token to validate.
+- The status RPC is intentionally separate from `FakeAccountService` so fake dev
+  login remains only the token-issuing MVP service.
+- Full grpc-gateway regeneration refreshed stale generated repository gateway
+  handlers for existing unbound repository RPCs while adding the new auth-status
+  handler.
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go server/gateway.go server/server.go service/auth.go service/service.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs auth status --json
+```
+
+## 2026-05-24: Workspace-Optional Server Shell
+
+Request:
+
+- make `gs shell` runnable from any local directory, not only from a Gitslice
+  workspace
+
+Implemented:
+
+- changed `gs shell` to require only global auth config
+- kept the existing slice-rooted shell behavior when `.gs/slice.json` is
+  present
+- added a global shell mode when no workspace is present; `/` is the global
+  repository root and full server paths such as `/acme/payment/file.go` are
+  interpreted directly
+- relaxed repository read path handling for `ResolvePath` and `ListDirectory`
+  so pseudo-directories like `/` and `/acme` can be browsed
+- updated CLI help/schema text and design docs
+- added functional coverage that seeds data through a workspace, then runs
+  `gs shell` from an unrelated directory
+
+Important decisions and learnings:
+
+- Workspace metadata is now optional for the shell only; workspace status,
+  changeset creation, and hydration still require `.gs` state.
+- Existing workspace shell path semantics are preserved to avoid breaking
+  users who expect `/` to mean the bound slice root.
+- The server repository read APIs need to tolerate account-level directory
+  paths for a global shell to navigate naturally from `/` to `/acme/payment`.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go service/repository.go tests/functional/cli_smoke_test.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestServerShell' -v
+go test ./...
+go build ./cmd/...
+```
+
+## 2026-05-24: Account And Auth Current-State Design Doc
+
+Request:
+
+- add a design document that describes the current account and authentication
+  system
+
+Implemented:
+
+- added `design/12_account_auth.md`
+- documented the implemented PostgreSQL account/auth tables, development seed
+  fixture, fake login flow, 24-hour hashed-token sessions, auth-status RPC,
+  gRPC and Git HTTP authentication paths, coarse membership authorization,
+  subject propagation, invariants, and known gaps
+- linked the new document from `design/08_mvp_implementation.md`
+
+Important decisions and learnings:
+
+- The document is intentionally current-state rather than aspirational. It calls
+  out incomplete authorization surfaces such as repository/blob read APIs and
+  the lack of role-specific enforcement.
+
+Verification:
+
+```bash
+git diff --check HEAD
+```

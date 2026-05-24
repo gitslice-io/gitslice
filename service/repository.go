@@ -42,16 +42,18 @@ func (s *RepositoryService) ResolvePath(ctx context.Context, req *corev1.Resolve
 }
 
 func resolvePath(ctx context.Context, repository *postgres.RepositoryStore, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
-	p, err := paths.Canonical(req.Path)
+	p, err := repositoryReadPath(req.Path)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	entry, err := repository.GetFile(ctx, req.CommitId, p)
-	if err == nil {
-		return &corev1.ResolvePathResponse{Entry: treeEntryFromFile(*entry)}, nil
-	}
-	if !errors.Is(err, postgres.ErrNotFound) {
-		return nil, grpcError(err)
+	if p != "/" {
+		entry, err := repository.GetFile(ctx, req.CommitId, p)
+		if err == nil {
+			return &corev1.ResolvePathResponse{Entry: treeEntryFromFile(*entry)}, nil
+		}
+		if !errors.Is(err, postgres.ErrNotFound) {
+			return nil, grpcError(err)
+		}
 	}
 	children, err := repository.ListFiles(ctx, req.CommitId, p)
 	if err != nil {
@@ -68,20 +70,30 @@ func resolvePath(ctx context.Context, repository *postgres.RepositoryStore, req 
 	}}, nil
 }
 
+func repositoryReadPath(p string) (string, error) {
+	p = strings.TrimSpace(strings.ReplaceAll(p, "\\", "/"))
+	if p == "" {
+		return "/", nil
+	}
+	if !strings.HasPrefix(p, "/") {
+		return "", fmt.Errorf("path must be absolute: %s", p)
+	}
+	cleaned := path.Clean(p)
+	if cleaned == "." {
+		return "/", nil
+	}
+	return cleaned, nil
+}
+
 func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
 	if _, err := requireSubject(ctx); err != nil {
 		return nil, err
 	}
 	p := req.Path
-	if p == "" {
-		p = "/"
-	}
-	if p != "/" {
-		var err error
-		p, err = paths.Canonical(p)
-		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
+	var err error
+	p, err = repositoryReadPath(p)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	files, err := s.Repository.ListFiles(ctx, req.CommitId, p)
 	if err != nil {
