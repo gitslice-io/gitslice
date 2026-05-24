@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
 type Handler struct {
@@ -31,14 +32,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if isReceivePack(r) {
-		http.Error(w, "git push is not supported by the MVP Git layer; use native changesets", http.StatusForbidden)
-		return
-	}
 	subjectID, err := h.authenticate(r.Context(), r)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", `Basic realm="gitslice"`)
 		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+	if isReceivePack(r) {
+		if err := h.authorizeSlice(r.Context(), subjectID, account, slice); err != nil {
+			writeGitError(w, err)
+			return
+		}
+		http.Error(w, "git push is not supported by the MVP Git layer; use native changesets", http.StatusForbidden)
 		return
 	}
 	if _, _, err := h.projector.EnsureProjectedRepo(r.Context(), subjectID, account, slice); err != nil {
@@ -63,6 +68,14 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (string, er
 		return "", err
 	}
 	return subject.ID, nil
+}
+
+func (h *Handler) authorizeSlice(ctx context.Context, subjectID, account, sliceSlug string) error {
+	if err := h.store.EnsureAccountMember(ctx, subjectID, account); err != nil {
+		return err
+	}
+	_, err := h.store.ResolveSlice(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
+	return err
 }
 
 func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo string) error {

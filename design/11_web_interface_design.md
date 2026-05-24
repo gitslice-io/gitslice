@@ -22,6 +22,8 @@ Related documents:
 - [03_core_api.md](03_core_api.md): target gRPC API design
 - [04_cli_design.md](04_cli_design.md): native CLI design
 - [08_mvp_implementation.md](08_mvp_implementation.md): concrete MVP implementation shape
+- [12_compatibility_matrix.md](12_compatibility_matrix.md): supported,
+  partial, planned, and non-goal product surfaces
 
 ## 1. Current Support Boundary
 

@@ -36,6 +36,8 @@ The design source of truth is under `design/`, especially:
 - `design/08_mvp_implementation.md`
 - `design/09_execution_plan.md`
 - `design/10_execution_log.md`
+- `design/11_web_interface_design.md`
+- `design/12_compatibility_matrix.md`
 
 ## Architecture Rules
 

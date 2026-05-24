@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,10 +23,15 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/gitslice-io/gitslice/internal/cli"
+	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/server"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 func TestMinimalCLIJourney(t *testing.T) {
@@ -57,6 +63,26 @@ func TestMinimalCLIJourney(t *testing.T) {
 
 func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 	ts := startTestServer(t)
+	statusCode, _, body := httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "", map[string]any{
+		"account": "acme",
+	})
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated ListSlices to return 401, got %d:\n%s", statusCode, string(body))
+	}
+	statusCode, _, body = httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "not-a-token", map[string]any{
+		"account": "acme",
+	})
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected invalid-token ListSlices to return 401, got %d:\n%s", statusCode, string(body))
+	}
+	statusCode, headers := httpGatewayOptions(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "http://web.test")
+	if statusCode != http.StatusNoContent {
+		t.Fatalf("expected CORS preflight to return 204, got %d", statusCode)
+	}
+	if got := headers.Get("Access-Control-Allow-Origin"); got != "http://web.test" {
+		t.Fatalf("expected CORS allow-origin for web app, got %q", got)
+	}
+
 	login := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/Login", "", map[string]string{
 		"devUser": "alice",
 	})
@@ -86,6 +112,80 @@ func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected acme/payment slice in response: %#v", response)
+}
+
+func TestHTTPGatewayWriteChangesetFlow(t *testing.T) {
+	ts := startTestServer(t)
+	login := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/Login", "", map[string]string{
+		"devUser": "alice",
+	})
+	token, _ := login["token"].(string)
+	if token == "" {
+		t.Fatalf("expected login token in response: %#v", login)
+	}
+
+	content := []byte("package payment\nconst GatewayWrite = true\n")
+	upload := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/UploadBlob", token, map[string]any{
+		"data": base64.StdEncoding.EncodeToString(content),
+	})
+	blobID, _ := upload["blobId"].(string)
+	contentHash, _ := upload["contentHash"].(string)
+	if blobID == "" || contentHash == "" {
+		t.Fatalf("expected uploaded blob id and hash: %#v", upload)
+	}
+
+	blobStatus := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/GetBlobStatus", token, map[string]any{
+		"contentHashes": []string{contentHash, "sha256:missing"},
+	})
+	records, ok := blobStatus["blobs"].([]any)
+	if !ok || len(records) != 2 {
+		t.Fatalf("expected two blob status records: %#v", blobStatus)
+	}
+	if first, _ := records[0].(map[string]any); first["state"] != "available" {
+		t.Fatalf("expected uploaded blob to be available: %#v", blobStatus)
+	}
+	if second, _ := records[1].(map[string]any); second["state"] != "missing" {
+		t.Fatalf("expected unknown blob to be missing: %#v", blobStatus)
+	}
+
+	cs := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.ChangesetService/CreateChangeset", token, map[string]any{
+		"authoringSlice": map[string]string{"account": "acme", "slice": "payment"},
+		"title":          "gateway write",
+		"description":    "created through HTTP gateway",
+	})
+	changesetID, _ := cs["id"].(string)
+	baseCommitID, _ := cs["baseCommitId"].(string)
+	if changesetID == "" || baseCommitID == "" {
+		t.Fatalf("expected changeset id and base commit: %#v", cs)
+	}
+
+	patchset := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.ChangesetService/UpdateChangeset", token, map[string]any{
+		"changesetId":  changesetID,
+		"baseCommitId": baseCommitID,
+		"fileEdits": []map[string]any{{
+			"op":          "add",
+			"path":        "/acme/payment/gateway_write.go",
+			"blobId":      blobID,
+			"contentHash": contentHash,
+			"mode":        420,
+		}},
+	})
+	patchsetID, _ := patchset["id"].(string)
+	if patchsetID == "" {
+		t.Fatalf("expected patchset id: %#v", patchset)
+	}
+
+	submit := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.ChangesetService/SubmitChangeset", token, map[string]any{
+		"changesetId":               changesetID,
+		"expectedCurrentPatchsetId": patchsetID,
+	})
+	if status, _ := submit["status"].(string); status != "pending_publish" && status != "submitted" {
+		t.Fatalf("unexpected submit response: %#v", submit)
+	}
+	published := waitForGatewayChangesetStatus(t, ts.httpAddr, token, changesetID, "submitted")
+	if commitID, _ := published["commitId"].(string); commitID == "" {
+		t.Fatalf("expected published commit id: %#v", published)
+	}
 }
 
 func TestChangesetUpdateAndDelete(t *testing.T) {
@@ -164,6 +264,236 @@ func TestSamePathConflictRejected(t *testing.T) {
 	_, stderr := runCLIFails(t, home, workspaceB, "cs", "submit")
 	if !strings.Contains(stderr, "FailedPrecondition") && !strings.Contains(stderr, "conflict") {
 		t.Fatalf("expected same-path conflict, got stderr:\n%s", stderr)
+	}
+}
+
+func TestRepositoryReadAPIs(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	token := readToken(t, home)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	const content = "package api\nconst ReadAPI = true\n"
+	writeWorkspaceFile(t, workspace, "api/read_api.go", content)
+	runCLI(t, home, workspace, "cs", "create", "--title", "repository api read")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	repository := corev1.NewRepositoryServiceClient(conn)
+
+	ref, err := repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Name != postgres.DefaultTargetRef || ref.CommitId == "" {
+		t.Fatalf("unexpected default ref: %#v", ref)
+	}
+	commit, err := repository.GetCommit(ctx, &corev1.GetCommitRequest{CommitId: ref.CommitId})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(commit.ChangedPaths, "/acme/payment/api/read_api.go") {
+		t.Fatalf("expected commit to include changed path, got %#v", commit.ChangedPaths)
+	}
+	root, err := repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: ref.CommitId, Path: "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEntry(root.Entries, "acme", corev1.EntryKind_ENTRY_KIND_DIRECTORY) {
+		t.Fatalf("expected root to contain acme directory: %#v", root.Entries)
+	}
+	payment, err := repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: ref.CommitId, Path: "/acme/payment"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEntry(payment.Entries, "api", corev1.EntryKind_ENTRY_KIND_DIRECTORY) {
+		t.Fatalf("expected payment directory to contain api directory: %#v", payment.Entries)
+	}
+	resolvedDir, err := repository.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: ref.CommitId, Path: "/acme/payment/api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedDir.Entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+		t.Fatalf("expected api to resolve as directory: %#v", resolvedDir.Entry)
+	}
+	resolvedFile, err := repository.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: ref.CommitId, Path: "/acme/payment/api/read_api.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedFile.Entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE || resolvedFile.Entry.ContentHash == "" {
+		t.Fatalf("expected read_api.go to resolve as file with content hash: %#v", resolvedFile.Entry)
+	}
+	read, err := repository.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: ref.CommitId, Path: "/acme/payment/api/read_api.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(read.Data) != content || read.ContentHash != resolvedFile.Entry.ContentHash {
+		t.Fatalf("unexpected read response: content=%q hash=%q want hash=%q", string(read.Data), read.ContentHash, resolvedFile.Entry.ContentHash)
+	}
+	partial, err := repository.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: ref.CommitId, Path: "/acme/payment/api/read_api.go", Offset: 8, Length: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(partial.Data) != "api" || partial.Offset != 8 {
+		t.Fatalf("unexpected partial read response: %#v data=%q", partial, string(partial.Data))
+	}
+}
+
+func TestSliceDefinitionUpdateConflict(t *testing.T) {
+	ts := startTestServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	slice, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "payment"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                slice.Id,
+		ExpectedDefinitionHash: slice.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			Version:       slice.Definition.Version,
+			Visibility:    "public",
+			IncludedPaths: append(append([]string{}, slice.Definition.IncludedPaths...), "/acme/payment/docs"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != slice.Definition.Version+1 {
+		t.Fatalf("expected definition version %d, got %d", slice.Definition.Version+1, updated.Version)
+	}
+	if updated.Visibility != "public" || !containsString(updated.IncludedPaths, "/acme/payment/docs") {
+		t.Fatalf("unexpected updated definition: %#v", updated)
+	}
+	_, err = slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                slice.Id,
+		ExpectedDefinitionHash: slice.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			Version:       updated.Version,
+			Visibility:    "account",
+			IncludedPaths: []string{"/acme/payment"},
+		},
+	})
+	if grpcstatus.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected stale definition update to fail with FailedPrecondition, got %v", err)
+	}
+}
+
+func TestChangesetAbandonAndSubmitIdempotency(t *testing.T) {
+	ts := startTestServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+
+	submittedID, patchsetID := createDirectPatchset(t, ctx, clients, "/acme/payment/idempotent_submit.go", "package payment\nconst Idempotent = true\n", "idempotent submit")
+	first, err := clients.changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               submittedID,
+		ExpectedCurrentPatchsetId: patchsetID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Status != "pending_publish" && first.Status != "submitted" {
+		t.Fatalf("unexpected first submit response: %#v", first)
+	}
+	published := waitForSubmittedChangeset(t, ctx, clients.changeset, submittedID)
+	second, err := clients.changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               submittedID,
+		ExpectedCurrentPatchsetId: patchsetID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Status != "submitted" || second.CommitId != published.CommitId {
+		t.Fatalf("expected idempotent submitted response with same commit, got %#v want commit %s", second, published.CommitId)
+	}
+
+	abandoned, err := clients.changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      postgres.DefaultTargetRef,
+		Title:          "abandon draft",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clients.changeset.AbandonChangeset(ctx, &corev1.AbandonChangesetRequest{ChangesetId: abandoned.Id, Reason: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := clients.changeset.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: abandoned.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "abandoned" {
+		t.Fatalf("expected abandoned status, got %#v", got)
+	}
+	_, err = clients.changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{ChangesetId: abandoned.Id})
+	if grpcstatus.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected abandoned submit to fail with FailedPrecondition, got %v", err)
+	}
+}
+
+func TestWorkspaceServiceHelpers(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	token := readToken(t, home)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	const content = "package payment\nconst Hydrate = true\n"
+	writeWorkspaceFile(t, workspace, "hydrate.go", content)
+	runCLI(t, home, workspace, "cs", "create", "--title", "hydrate helper")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	workspaceClient := corev1.NewWorkspaceServiceClient(conn)
+	ref := &corev1.WorkspaceRef{Id: "acme/payment"}
+
+	state, err := workspaceClient.GetWorkspaceState(ctx, &corev1.GetWorkspaceStateRequest{Workspace: ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.BaseCommitId == "" || state.Slice == nil || state.Slice.SliceId == "" || !containsString(state.HydratedPaths, "/acme/payment") {
+		t.Fatalf("unexpected workspace state: %#v", state)
+	}
+	hydrated, err := workspaceClient.HydratePaths(ctx, &corev1.HydratePathsRequest{
+		Workspace: ref,
+		Paths:     []string{"/acme/payment/hydrate.go"},
+		Mode:      "file_contents",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(hydrated.Data) != content || hydrated.Entry == nil || hydrated.Entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE {
+		t.Fatalf("unexpected hydration response: %#v data=%q", hydrated, string(hydrated.Data))
+	}
+	recorded, err := workspaceClient.RecordWorkspaceOperation(ctx, &corev1.RecordWorkspaceOperationRequest{
+		Operation: &corev1.WorkspaceOperation{
+			Workspace:     ref,
+			OperationType: "functional_test",
+			Description:   "record workspace operation",
+			AffectedPaths: []string{"/acme/payment/hydrate.go"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(recorded.OperationId, "op_") {
+		t.Fatalf("expected generated operation id, got %#v", recorded)
+	}
+	_, err = workspaceClient.GetWorkspaceState(ctx, &corev1.GetWorkspaceStateRequest{Workspace: &corev1.WorkspaceRef{Id: "bad-workspace"}})
+	if grpcstatus.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected invalid workspace id to fail with InvalidArgument, got %v", err)
 	}
 }
 
@@ -349,6 +679,61 @@ func TestRestartPreservesSubmittedState(t *testing.T) {
 	}
 }
 
+func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
+	ts := startTestServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+
+	uploadInfoRefs := "/git/acme/payment.git/info/refs?service=git-upload-pack"
+	statusCode, headers, body := gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "")
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated upload-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
+	}
+	if got := headers.Get("WWW-Authenticate"); !strings.Contains(got, `Basic realm="gitslice"`) {
+		t.Fatalf("expected basic auth challenge, got %q", got)
+	}
+
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer not-a-token")
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected invalid token upload-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
+	}
+
+	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:"+token))
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, basicAuth)
+	if statusCode != http.StatusOK {
+		t.Fatalf("expected basic-auth upload-pack discovery to return 200, got %d:\n%s", statusCode, string(body))
+	}
+	if got := headers.Get("Content-Type"); !strings.Contains(got, "application/x-git-upload-pack-advertisement") {
+		t.Fatalf("expected upload-pack advertisement content type, got %q", got)
+	}
+
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, "/git/acme/missing.git/info/refs?service=git-upload-pack", "Bearer "+token)
+	if statusCode != http.StatusNotFound {
+		t.Fatalf("expected missing slice to return 404, got %d:\n%s", statusCode, string(body))
+	}
+
+	receiveInfoRefs := "/git/acme/payment.git/info/refs?service=git-receive-pack"
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, receiveInfoRefs, "")
+	if statusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated receive-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
+	}
+	if got := headers.Get("WWW-Authenticate"); !strings.Contains(got, `Basic realm="gitslice"`) {
+		t.Fatalf("expected receive-pack auth challenge, got %q", got)
+	}
+
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, receiveInfoRefs, "Bearer "+token)
+	if statusCode != http.StatusForbidden {
+		t.Fatalf("expected authenticated receive-pack discovery to return 403, got %d:\n%s", statusCode, string(body))
+	}
+	if !strings.Contains(string(body), "git push is not supported") || !strings.Contains(string(body), "native changesets") {
+		t.Fatalf("expected push rejection to direct users to native changesets, got:\n%s", string(body))
+	}
+
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, "/not-git/acme/payment.git/info/refs?service=git-upload-pack", "Bearer "+token)
+	if statusCode != http.StatusNotFound {
+		t.Fatalf("expected non-git route to return 404, got %d:\n%s", statusCode, string(body))
+	}
+}
+
 func TestGitCloneProjection(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
@@ -362,6 +747,16 @@ func TestGitCloneProjection(t *testing.T) {
 
 	cloneDir := filepath.Join(t.TempDir(), "payment")
 	gitURL := "http://" + ts.gitAddr + "/git/acme/payment.git"
+	_, stderr, err := runGitResult("", "clone", gitURL, filepath.Join(t.TempDir(), "unauthenticated-payment"))
+	if err == nil {
+		t.Fatal("expected unauthenticated git clone to be rejected")
+	}
+	if !strings.Contains(stderr, "401") &&
+		!strings.Contains(stderr, "Authentication failed") &&
+		!strings.Contains(stderr, "authentication") &&
+		!strings.Contains(stderr, "Username") {
+		t.Fatalf("expected unauthenticated clone rejection, got stderr:\n%s", stderr)
+	}
 	runGit(t, "", "-c", "http.extraHeader=Authorization: Bearer "+token, "clone", gitURL, cloneDir)
 	projected, err := os.ReadFile(filepath.Join(cloneDir, "acme", "payment", "git_layer.go"))
 	if err != nil {
@@ -370,7 +765,20 @@ func TestGitCloneProjection(t *testing.T) {
 	if string(projected) != "package payment\nconst GitLayer = true\n" {
 		t.Fatalf("unexpected projected file contents:\n%s", string(projected))
 	}
-	_, stderr, err := runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/new")
+	writeWorkspaceFile(t, workspace, "git_fetch.go", "package payment\nconst GitFetch = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "git fetch projection")
+	runCLI(t, home, workspace, "cs", "submit")
+	runGit(t, "", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "fetch", "origin", "main")
+	runGit(t, "", "-C", cloneDir, "checkout", "-B", "main", "origin/main")
+	projectedFetch, err := os.ReadFile(filepath.Join(cloneDir, "acme", "payment", "git_fetch.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(projectedFetch) != "package payment\nconst GitFetch = true\n" {
+		t.Fatalf("unexpected fetched file contents:\n%s", string(projectedFetch))
+	}
+
+	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/new")
 	if err == nil {
 		t.Fatal("expected git push to be rejected")
 	}
@@ -578,17 +986,19 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 	ts.errCh = make(chan error, 1)
 	go func() {
 		ts.errCh <- server.Run(ts.ctx, server.Config{
-			GRPCAddr:        ts.addr,
-			HTTPAddr:        ts.httpAddr,
-			GitHTTPAddr:     ts.gitAddr,
-			GitCacheRoot:    filepath.Join(ts.objectRoot, "git-cache"),
-			DatabaseURL:     databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
-			ObjectStoreRoot: ts.objectRoot,
-			RunMigrations:   migrate,
+			GRPCAddr:          ts.addr,
+			HTTPAddr:          ts.httpAddr,
+			HTTPAllowedOrigin: "http://web.test",
+			GitHTTPAddr:       ts.gitAddr,
+			GitCacheRoot:      filepath.Join(ts.objectRoot, "git-cache"),
+			DatabaseURL:       databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
+			ObjectStoreRoot:   ts.objectRoot,
+			RunMigrations:     migrate,
 		})
 	}()
 	waitForHealth(t, ts.addr)
 	waitForHTTPGateway(t, ts.httpAddr)
+	waitForGitHTTP(t, ts.gitAddr)
 }
 
 func (ts *testServer) stop(t *testing.T) {
@@ -645,6 +1055,104 @@ func runCLIResult(home, workspace string, args ...string) (string, error) {
 		return stdout.String(), fmt.Errorf("gs %s failed: %w\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout.String(), stderr.String())
 	}
 	return stdout.String(), nil
+}
+
+type testCoreClients struct {
+	repository corev1.RepositoryServiceClient
+	blob       corev1.BlobServiceClient
+	changeset  corev1.ChangesetServiceClient
+}
+
+func newTestCoreClients(conn *grpc.ClientConn) testCoreClients {
+	return testCoreClients{
+		repository: corev1.NewRepositoryServiceClient(conn),
+		blob:       corev1.NewBlobServiceClient(conn),
+		changeset:  corev1.NewChangesetServiceClient(conn),
+	}
+}
+
+func dialTestGRPC(t *testing.T, addr string) *grpc.ClientConn {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return conn
+}
+
+func loginViaGRPC(t *testing.T, addr, devUser string) string {
+	t.Helper()
+	conn := dialTestGRPC(t, addr)
+	defer conn.Close()
+	login, err := corev1.NewFakeAccountServiceClient(conn).Login(context.Background(), &corev1.LoginRequest{DevUser: devUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if login.Token == "" {
+		t.Fatalf("empty token from login: %#v", login)
+	}
+	return login.Token
+}
+
+func grpcAuthContext(token string) context.Context {
+	return metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer "+token)
+}
+
+func createDirectPatchset(t *testing.T, ctx context.Context, clients testCoreClients, path, content, title string) (string, string) {
+	t.Helper()
+	ref, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := clients.changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      postgres.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          title,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchset, err := clients.changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "add",
+			Path:        path,
+			BlobId:      upload.BlobId,
+			ContentHash: upload.ContentHash,
+			Mode:        0o644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cs.Id, patchset.Id
+}
+
+func waitForSubmittedChangeset(t *testing.T, ctx context.Context, client corev1.ChangesetServiceClient, changesetID string) *corev1.Changeset {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var last *corev1.Changeset
+	for time.Now().Before(deadline) {
+		cs, err := client.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: changesetID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		last = cs
+		if cs.Status == "submitted" && cs.CommitId != "" {
+			return cs
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("changeset %s did not reach submitted status, last=%#v", changesetID, last)
+	return nil
 }
 
 func writeWorkspaceFile(t *testing.T, workspace, rel, content string) {
@@ -729,6 +1237,24 @@ func assertConflictError(t *testing.T, stderr string) {
 	}
 }
 
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEntry(entries []*corev1.TreeEntry, name string, kind corev1.EntryKind) bool {
+	for _, entry := range entries {
+		if entry.Name == name && entry.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func readToken(t *testing.T, home string) string {
 	t.Helper()
 	var cfg struct {
@@ -774,6 +1300,19 @@ func runGitResult(dir string, args ...string) (string, string, error) {
 
 func httpGatewayPost(t *testing.T, addr, path, token string, body any) map[string]any {
 	t.Helper()
+	statusCode, _, data := httpGatewayPostRaw(t, addr, path, token, body)
+	if statusCode >= 300 {
+		t.Fatalf("gateway %s returned %d:\n%s", path, statusCode, string(data))
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode gateway response: %v\n%s", err, string(data))
+	}
+	return out
+}
+
+func httpGatewayPostRaw(t *testing.T, addr, path, token string, body any) (int, http.Header, []byte) {
+	t.Helper()
 	payload, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -795,14 +1334,62 @@ func httpGatewayPost(t *testing.T, addr, path, token string, body any) map[strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode >= 300 {
-		t.Fatalf("gateway %s returned %s:\n%s", path, resp.Status, string(data))
+	return resp.StatusCode, resp.Header.Clone(), data
+}
+
+func httpGatewayOptions(t *testing.T, addr, path, origin string) (int, http.Header) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodOptions, "http://"+addr+path, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	var out map[string]any
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatalf("decode gateway response: %v\n%s", err, string(data))
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return out
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode, resp.Header.Clone()
+}
+
+func gitHTTPRaw(t *testing.T, addr, path, authorization string) (int, http.Header, []byte) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "http://"+addr+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, resp.Header.Clone(), data
+}
+
+func waitForGatewayChangesetStatus(t *testing.T, addr, token, changesetID, want string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var last map[string]any
+	for time.Now().Before(deadline) {
+		last = httpGatewayPost(t, addr, "/gitslice.core.v1.ChangesetService/GetChangeset", token, map[string]any{
+			"changesetId": changesetID,
+		})
+		if status, _ := last["status"].(string); status == want {
+			return last
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("changeset %s did not reach %s status, last=%#v", changesetID, want, last)
+	return nil
 }
 
 func createSchema(t *testing.T, databaseURL, schema string) {
@@ -880,6 +1467,16 @@ func waitForHealth(t *testing.T, addr string) {
 
 func waitForHTTPGateway(t *testing.T, addr string) {
 	t.Helper()
+	waitForHTTPServer(t, addr, "server HTTP gateway")
+}
+
+func waitForGitHTTP(t *testing.T, addr string) {
+	t.Helper()
+	waitForHTTPServer(t, addr, "server Git HTTP")
+}
+
+func waitForHTTPServer(t *testing.T, addr, name string) {
+	t.Helper()
 	client := http.Client{Timeout: time.Second}
 	deadline := time.Now().Add(10 * time.Second)
 	var lastErr error
@@ -893,5 +1490,5 @@ func waitForHTTPGateway(t *testing.T, addr string) {
 		lastErr = err
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal(fmt.Errorf("server HTTP gateway did not start: %w", lastErr))
+	t.Fatal(fmt.Errorf("%s did not start: %w", name, lastErr))
 }

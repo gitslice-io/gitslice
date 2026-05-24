@@ -3,6 +3,101 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: GitHub Actions CI
+
+Request:
+
+- add GitHub CI
+
+Implemented:
+
+- added `.github/workflows/ci.yml`
+- configured CI to run on pull requests, pushes to `main`, and manual
+  `workflow_dispatch`
+- added a normal Go job for:
+  - checkout
+  - Go setup from `go.mod`
+  - `gofmt` verification
+  - `go test ./...`
+  - `go build ./cmd/...`
+- added a PostgreSQL-backed job using a `postgres:16` service for:
+  - `go test -count=1 ./internal/postgres -v`
+  - `go test -count=1 ./tests/functional -v`
+- added an opt-in manual load-test job that runs the AGENTS.md load gate with
+  the same PostgreSQL service
+
+Important decisions and learnings:
+
+- CI keeps load tests behind `workflow_dispatch` because AGENTS.md describes the
+  load gate as opt-in, while pull requests should still run the normal and real
+  PostgreSQL functional gates.
+- The workflow uses `actions/checkout@v6` and `actions/setup-go@v6`, which are
+  the current official major versions at the time this CI was added.
+- `actionlint` is not installed in this local environment, so workflow syntax
+  was reviewed manually and by GitHub-compatible structure rather than through a
+  local action linter.
+
+Verification:
+
+```bash
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+## 2026-05-24: Compatibility Matrix And Git HTTP Auth Coverage
+
+Request:
+
+- apply the actionable follow-ups from reviewing
+  `https://github.com/ngaut/agent-git-service`
+- address other actionable items from that comparison
+
+Implemented:
+
+- added `design/12_compatibility_matrix.md` as a Gitslice-specific support
+  matrix for the native API, HTTP JSON gateway, Git smart HTTP layer, web MVP,
+  and GitHub-compatible surfaces
+- linked the matrix from the web interface design and the agent guide so future
+  web/API work has one current support boundary to check
+- tightened Git smart HTTP receive-pack handling so callers must authenticate
+  and pass slice authorization before receiving the MVP "push is not supported;
+  use native changesets" response
+- added functional coverage for the Git HTTP auth/unsupported-operation matrix:
+  unauthenticated and invalid-token upload-pack rejection, Basic-token
+  upload-pack discovery, missing-slice 404s, unauthenticated receive-pack
+  rejection, authenticated receive-pack rejection, and non-Git route 404s
+- made the functional test harness wait for the optional Git HTTP listener
+  before Git HTTP assertions run
+
+Important decisions and learnings:
+
+- `agent-git-service` is a useful reference for compatibility-matrix discipline
+  and Git HTTP operational details, but it makes Git repositories authoritative.
+  Gitslice keeps the native source graph, slices, changesets, PostgreSQL
+  metadata, and object storage authoritative.
+- The matrix marks broad GitHub REST, GraphQL, OAuth, issues, pull requests,
+  reviews, actions, webhooks, and search as deferred or non-goal instead of
+  silently implying they are available to the web app.
+- Unsupported Git pushes should still follow the normal auth/authorization
+  boundary before returning product guidance.
+
+Verification:
+
+```bash
+gofmt -w internal/gitcompat/http.go tests/functional/cli_smoke_test.go
+go test ./internal/gitcompat ./server
+go test ./...
+go build ./cmd/...
+go test -count=1 ./tests/functional -run TestGitHTTPAuthAndUnsupportedOperationMatrix -v
+git diff --check
+```
+
+The focused functional command skipped in this shell because
+`GITSLICE_TEST_DATABASE_URL` was not set. The default `go test ./...` and
+`go build ./cmd/...` gates passed, and `git diff --check` reported no
+whitespace errors.
+
 ## 2026-05-23: Add HTTP JSON Gateway For Core gRPC Services
 
 Request:
@@ -1079,3 +1174,57 @@ go build ./cmd/...
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestGitHubImport' -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```
+
+## 2026-05-24: Functional Test Coverage Gaps
+
+Request:
+
+- add the missing functional coverage identified after reviewing the existing
+  functional tests
+
+Implemented:
+
+- expanded HTTP gateway functional coverage beyond login/list slices to cover:
+  unauthenticated and invalid-token rejection, CORS preflight, blob upload and
+  status lookup, changeset create/update/submit, and polling a submitted
+  changeset through the gateway
+- added direct gRPC functional coverage for repository read APIs:
+  `GetRef`, `GetCommit`, `ListDirectory`, `ResolvePath`, full file reads, and
+  range file reads after a real CLI submit
+- added slice definition update coverage, including stale
+  `expected_definition_hash` conflict handling
+- added changeset lifecycle coverage for submit idempotency, abandon, and
+  rejected submit after abandon
+- added workspace helper coverage for `GetWorkspaceState`, `HydratePaths`,
+  `RecordWorkspaceOperation`, and invalid workspace ids
+- expanded Git smart HTTP coverage to include unauthenticated clone rejection,
+  authenticated clone, fetch after a new native submit, and push rejection
+- fixed Git projection clone checkout by setting each bare projection repo's
+  symbolic `HEAD` to `refs/heads/main` before pushing `main`
+
+Important decisions and learnings:
+
+- the new tests stay in the existing real-server functional harness so they
+  exercise auth interceptors, service wiring, storage, gateway transcoding, and
+  projection behavior together
+- the Git unauthenticated clone assertion accepts several common Git stderr
+  phrasings because clients can report the same 401 challenge differently
+- running the real functional suite exposed that projection repos pushed
+  `refs/heads/main` while bare repo `HEAD` still pointed at the default branch,
+  causing clones to succeed without checking out files
+
+Verification:
+
+```bash
+gofmt -w internal/gitcompat/projector.go tests/functional/cli_smoke_test.go
+GITSLICE_TEST_DATABASE_URL=<local test database URL> go test -count=1 ./tests/functional -run 'Test(StaleDisjointUpdatePreservesFinalState|ConcurrentDisjointSubmitFinalProjection|GitCloneProjection)$' -v
+GITSLICE_TEST_DATABASE_URL=<local test database URL> go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=<local test database URL> go test -count=1 ./internal/postgres -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+The default `go test ./...`, `go build ./cmd/...`, and `git diff --check`
+gates passed. The real PostgreSQL functional and storage gates passed with a
+local test database URL.
