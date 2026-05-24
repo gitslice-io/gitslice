@@ -55,6 +55,33 @@ func TestMinimalCLIJourney(t *testing.T) {
 	}
 }
 
+func TestWorkspaceInitHydrateUsesGlobalClientObjectCache(t *testing.T) {
+	ts := startTestServer(t)
+	seedHome := t.TempDir()
+	seedWorkspace := t.TempDir()
+	runCLI(t, seedHome, seedWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, seedHome, seedWorkspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, seedWorkspace, "cached.go", "package payment\nconst Cached = true\n")
+	runCLI(t, seedHome, seedWorkspace, "cs", "create", "--title", "seed cached")
+	runCLI(t, seedHome, seedWorkspace, "cs", "submit")
+
+	home := t.TempDir()
+	firstWorkspace := t.TempDir()
+	secondWorkspace := t.TempDir()
+	runCLI(t, home, firstWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	first := runCLI(t, home, firstWorkspace, "workspace", "init", "acme/payment")
+	if !strings.Contains(first, "hydrated 1 file(s) through cache (0 hit(s), 1 miss(es))") {
+		t.Fatalf("expected first hydrate to miss cache, got:\n%s", first)
+	}
+	assertWorkspaceFile(t, firstWorkspace, "cached.go", "package payment\nconst Cached = true\n")
+
+	second := runCLI(t, home, secondWorkspace, "workspace", "init", "acme/payment")
+	if !strings.Contains(second, "hydrated 1 file(s) through cache (1 hit(s), 0 miss(es))") {
+		t.Fatalf("expected second hydrate to hit cache, got:\n%s", second)
+	}
+	assertWorkspaceFile(t, secondWorkspace, "cached.go", "package payment\nconst Cached = true\n")
+}
+
 func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 	ts := startTestServer(t)
 	login := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/Login", "", map[string]string{
@@ -655,6 +682,17 @@ func writeWorkspaceFile(t *testing.T, workspace, rel, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func assertWorkspaceFile(t *testing.T, workspace, rel, want string) {
+	t.Helper()
+	got, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("unexpected workspace file %s:\nwant:\n%s\ngot:\n%s", rel, want, string(got))
 	}
 }
 

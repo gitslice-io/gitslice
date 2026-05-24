@@ -358,11 +358,19 @@ workspace .gs/:
   overlay/
   op_log/
   draft_patchsets/
+
+user cache:
+  gitslice/objects/sha256/<2>/<2>/<digest>
+  gitslice/tmp/
 ```
 
 The CLI should not use local state as an authority for server-visible decisions.
 Before creating or updating a patchset, it should call
 `WorkspaceService.ValidateWorkspaceDiff` or equivalent core validation.
+The user cache is a local performance cache only. Server-side blob status,
+path containment, and submit validation remain authoritative.
+`GITSLICE_CLIENT_CACHE_DIR` may override the user cache root in tests and
+isolated agent runs.
 
 Command behavior:
 
@@ -375,16 +383,25 @@ gs workspace init acme/payment
   -> ResolveSlice
   -> check read access
   -> write .gs/slice.json
-  -> hydrate default metadata
+  -> initialize the global client object cache
+  -> hydrate included paths through the cache
+
+gs workspace hydrate <path>
+  -> resolve file metadata from the server
+  -> reuse cached bytes when the content hash exists locally
+  -> otherwise read file bytes from the server and store them in the cache
+  -> write the workspace file and update .gs/base_snapshot.json
 
 gs status
-  -> reconcile filesystem with local cache
+  -> reconcile filesystem with local base snapshot
+  -> write scanned file bytes through the global client object cache
   -> normalize changed paths
   -> validate against bound slice
   -> show changed paths and draft changeset state
 
 gs cs create
-  -> upload missing blobs
+  -> call BlobService.GetBlobStatus for changed content hashes
+  -> upload only server-missing blobs from the global client object cache
   -> CreateChangeset
   -> UpdateChangeset with patchset 1
   -> record current changeset id locally

@@ -13,14 +13,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/clientcache"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 type Runner struct {
@@ -127,6 +129,12 @@ type changesetOutput struct {
 	Status      string `json:"status,omitempty"`
 }
 
+type hydrateResult struct {
+	FileCount   int `json:"file_count"`
+	CacheHits   int `json:"cache_hits"`
+	CacheMisses int `json:"cache_misses"`
+}
+
 func Main(args []string, stdout, stderr io.Writer) int {
 	r := Runner{Stdout: stdout, Stderr: stderr}
 	if err := r.Run(context.Background(), args); err != nil {
@@ -214,7 +222,15 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
 		},
 	}
-	workspaceCmd.AddCommand(workspaceInitCmd)
+	workspaceHydrateCmd := &cobra.Command{
+		Use:   "hydrate <path> [path...]",
+		Short: "Hydrate workspace files through the client object cache",
+		Args:  minArgs(1, "gs workspace hydrate <path> [path...]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runWorkspaceHydrate(cmd.Context(), *opts, args)
+		},
+	}
+	workspaceCmd.AddCommand(workspaceInitCmd, workspaceHydrateCmd)
 
 	statusCmd := &cobra.Command{
 		Use:   "status",
@@ -382,6 +398,10 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err != nil {
 		return err
 	}
+	cache, err := r.objectCache()
+	if err != nil {
+		return err
+	}
 	ref, err := parseSliceRef(sliceRef)
 	if err != nil {
 		return err
@@ -417,17 +437,64 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: refRecord.CommitId, Files: map[string]BaseSnapshotFile{}}); err != nil {
 		return err
 	}
+	hydrated, err := r.hydrateWorkspacePaths(callCtx, conn, workspace, refRecord.CommitId, workspace.IncludedPaths, cache)
+	if err != nil {
+		return err
+	}
 	if opts.jsonOutput() {
 		return writeJSON(r.Stdout, map[string]any{
-			"workspace":      ref.Account + "/" + ref.Slice,
-			"slice_id":       slice.Id,
-			"base_commit_id": refRecord.CommitId,
+			"workspace":           ref.Account + "/" + ref.Slice,
+			"slice_id":            slice.Id,
+			"base_commit_id":      refRecord.CommitId,
+			"client_object_cache": cache.Root(),
+			"hydrated":            hydrated,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "initialized workspace for %s/%s\n", ref.Account, ref.Slice)
+	fmt.Fprintf(r.Stdout, "hydrated %d file(s) through cache (%d hit(s), %d miss(es))\n", hydrated.FileCount, hydrated.CacheHits, hydrated.CacheMisses)
+	return nil
+}
+
+func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, requested []string) error {
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	cache, err := r.objectCache()
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	baseCommitID := state.BaseCommitID
+	if baseCommitID == "" {
+		baseCommitID = ws.BaseCommitID
+	}
+	if baseCommitID == "" {
+		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs workspace init <account>/<slice> again.")
+	}
+	hydrated, err := r.hydrateWorkspacePaths(authContext(ctx, cfg), conn, ws, baseCommitID, requested, cache)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, map[string]any{
+			"workspace":           ws.Account + "/" + ws.Slice,
+			"base_commit_id":      baseCommitID,
+			"client_object_cache": cache.Root(),
+			"hydrated":            hydrated,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "hydrated %d file(s) through cache (%d hit(s), %d miss(es))\n", hydrated.FileCount, hydrated.CacheHits, hydrated.CacheMisses)
 	return nil
 }
 
@@ -899,6 +966,154 @@ func (r Runner) runCommitInspect(ctx context.Context, opts commandOptions, commi
 	return nil
 }
 
+func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn, ws WorkspaceConfig, commitID string, requested []string, cache *clientcache.ObjectCache) (hydrateResult, error) {
+	base, err := r.readBaseSnapshot()
+	if err != nil {
+		return hydrateResult{}, err
+	}
+	if base.CommitID == "" {
+		base.CommitID = commitID
+	}
+	if base.Files == nil {
+		base.Files = map[string]BaseSnapshotFile{}
+	}
+	repo := corev1.NewRepositoryServiceClient(conn)
+	hydrator := workspaceHydrator{
+		runner:   r,
+		repo:     repo,
+		cache:    cache,
+		ws:       ws,
+		commitID: commitID,
+		base:     base,
+	}
+	for _, requestedPath := range requested {
+		globalPath, err := workspaceInputToGlobalPath(ws, requestedPath)
+		if err != nil {
+			return hydrateResult{}, err
+		}
+		if err := hydrator.hydratePath(ctx, globalPath); err != nil {
+			return hydrateResult{}, err
+		}
+	}
+	if err := r.writeBaseSnapshot(hydrator.base); err != nil {
+		return hydrateResult{}, err
+	}
+	return hydrator.result, nil
+}
+
+type workspaceHydrator struct {
+	runner   Runner
+	repo     corev1.RepositoryServiceClient
+	cache    *clientcache.ObjectCache
+	ws       WorkspaceConfig
+	commitID string
+	base     BaseSnapshot
+	result   hydrateResult
+}
+
+func (h *workspaceHydrator) hydratePath(ctx context.Context, globalPath string) error {
+	resolved, err := h.repo.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: h.commitID, Path: globalPath})
+	if err != nil {
+		if grpcstatus.Code(err) == codes.NotFound {
+			return nil
+		}
+		return err
+	}
+	entry := resolved.Entry
+	if entry == nil {
+		return nil
+	}
+	switch entry.Kind {
+	case corev1.EntryKind_ENTRY_KIND_FILE:
+		return h.hydrateFile(ctx, entry)
+	case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
+		return h.hydrateDirectory(ctx, entry.Path)
+	default:
+		return fmt.Errorf("unsupported entry kind for %s", globalPath)
+	}
+}
+
+func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath string) error {
+	list, err := h.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 1000})
+	if err != nil {
+		return err
+	}
+	for _, entry := range list.Entries {
+		if entry == nil {
+			continue
+		}
+		switch entry.Kind {
+		case corev1.EntryKind_ENTRY_KIND_FILE:
+			if err := h.hydrateFile(ctx, entry); err != nil {
+				return err
+			}
+		case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
+			if err := h.hydrateDirectory(ctx, entry.Path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeEntry) error {
+	data, err := h.cachedFileBytes(ctx, entry)
+	if err != nil {
+		return err
+	}
+	rel, err := workspaceRelPath(h.ws, entry.Path)
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(h.runner.cwd(), filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	mode := uint32(entry.Mode)
+	if mode == 0 {
+		mode = 0o100644
+	}
+	fileMode := fs.FileMode(0o644)
+	if mode&0o111 != 0 {
+		fileMode = 0o755
+	}
+	if err := os.WriteFile(target, data, fileMode); err != nil {
+		return err
+	}
+	h.base.Files[entry.Path] = BaseSnapshotFile{
+		Path:        entry.Path,
+		RelPath:     rel,
+		ContentHash: entry.ContentHash,
+		Mode:        mode,
+		Size:        int64(len(data)),
+	}
+	h.result.FileCount++
+	return nil
+}
+
+func (h *workspaceHydrator) cachedFileBytes(ctx context.Context, entry *corev1.TreeEntry) ([]byte, error) {
+	if entry.ContentHash == "" {
+		return nil, fmt.Errorf("file %s has no content hash", entry.Path)
+	}
+	if h.cache.Exists(entry.ContentHash) {
+		h.result.CacheHits++
+		return h.cache.Read(entry.ContentHash)
+	}
+	read, err := h.repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: h.commitID, Path: entry.Path})
+	if err != nil {
+		return nil, err
+	}
+	cached, err := h.cache.PutBytes(read.Data)
+	if err != nil {
+		return nil, err
+	}
+	if cached.ContentHash != entry.ContentHash {
+		return nil, fmt.Errorf("hydrated content hash mismatch for %s: got %s, want %s", entry.Path, cached.ContentHash, entry.ContentHash)
+	}
+	h.result.CacheMisses++
+	return read.Data, nil
+}
+
 func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {
 	base, err := r.readBaseSnapshot()
 	if err != nil {
@@ -917,6 +1132,10 @@ func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg Us
 		blobClient = corev1.NewBlobServiceClient(conn)
 		callCtx = authContext(ctx, cfg)
 	}
+	cache, err := r.objectCache()
+	if err != nil {
+		return nil, nil, err
+	}
 	var edits []*corev1.FileEdit
 	for p, file := range current {
 		baseFile, ok := base.Files[p]
@@ -924,17 +1143,6 @@ func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg Us
 			continue
 		}
 		edit := &corev1.FileEdit{Op: "upsert", Path: p, ContentHash: file.ContentHash, Mode: file.Mode}
-		if upload {
-			data, err := os.ReadFile(file.AbsPath)
-			if err != nil {
-				return nil, nil, err
-			}
-			uploadRes, err := blobClient.UploadBlob(callCtx, &corev1.UploadBlobRequest{ContentHash: file.ContentHash, Data: data})
-			if err != nil {
-				return nil, nil, err
-			}
-			edit.BlobId = uploadRes.BlobId
-		}
 		edits = append(edits, edit)
 	}
 	for p := range base.Files {
@@ -942,17 +1150,26 @@ func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg Us
 			edits = append(edits, &corev1.FileEdit{Op: "delete", Path: p})
 		}
 	}
+	if upload {
+		if err := attachBlobIDs(callCtx, blobClient, cache, edits); err != nil {
+			return nil, nil, err
+		}
+	}
 	sortFileEdits(edits)
 	return edits, current, nil
 }
 
 func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, error) {
+	cache, err := r.objectCache()
+	if err != nil {
+		return nil, err
+	}
 	root := r.cwd()
 	if len(ws.IncludedPaths) == 0 {
 		return nil, fmt.Errorf("workspace has no included paths")
 	}
 	files := map[string]workingFile{}
-	err := filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -977,7 +1194,7 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 		if err != nil {
 			return err
 		}
-		data, err := os.ReadFile(p)
+		cached, err := cache.PutFile(p)
 		if err != nil {
 			return err
 		}
@@ -985,7 +1202,6 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 		if err != nil {
 			return err
 		}
-		contentHash := objectid.RawContentHash(data)
 		mode := uint32(0o100644)
 		if info.Mode()&0o111 != 0 {
 			mode = 0o100755
@@ -994,7 +1210,7 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 			BaseSnapshotFile: BaseSnapshotFile{
 				Path:        globalPath,
 				RelPath:     rel,
-				ContentHash: contentHash,
+				ContentHash: cached.ContentHash,
 				Mode:        mode,
 				Size:        info.Size(),
 			},
@@ -1006,6 +1222,59 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 		return nil, err
 	}
 	return files, nil
+}
+
+func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, cache *clientcache.ObjectCache, edits []*corev1.FileEdit) error {
+	hashSet := map[string]struct{}{}
+	for _, edit := range edits {
+		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.BlobId != "" || edit.ContentHash == "" {
+			continue
+		}
+		hashSet[edit.ContentHash] = struct{}{}
+	}
+	if len(hashSet) == 0 {
+		return nil
+	}
+
+	hashes := make([]string, 0, len(hashSet))
+	for hash := range hashSet {
+		hashes = append(hashes, hash)
+	}
+	sort.Strings(hashes)
+
+	status, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes})
+	if err != nil {
+		return err
+	}
+	blobIDs := map[string]string{}
+	for _, record := range status.Blobs {
+		if record.Id != "" && record.State == "available" {
+			blobIDs[record.ContentHash] = record.Id
+		}
+	}
+
+	for _, hash := range hashes {
+		if blobIDs[hash] != "" {
+			continue
+		}
+		data, err := cache.Read(hash)
+		if err != nil {
+			return fmt.Errorf("read cached object %s: %w", hash, err)
+		}
+		uploaded, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data})
+		if err != nil {
+			return err
+		}
+		blobIDs[hash] = uploaded.BlobId
+	}
+
+	for _, edit := range edits {
+		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.BlobId != "" {
+			continue
+		}
+		edit.BlobId = blobIDs[edit.ContentHash]
+	}
+	return nil
 }
 
 func (r Runner) loadLocalState() (UserConfig, WorkspaceConfig, WorkspaceState, error) {
@@ -1109,11 +1378,33 @@ func (r Runner) writeWorkspaceState(state WorkspaceState) error {
 }
 
 func (r Runner) userConfigPath() string {
-	home := r.Home
-	if home == "" {
-		home, _ = os.UserHomeDir()
+	return filepath.Join(r.homeDir(), ".gitslice", "config.json")
+}
+
+func (r Runner) objectCache() (*clientcache.ObjectCache, error) {
+	root := os.Getenv("GITSLICE_CLIENT_CACHE_DIR")
+	if root == "" {
+		root = r.defaultObjectCacheRoot()
 	}
-	return filepath.Join(home, ".gitslice", "config.json")
+	return clientcache.New(root)
+}
+
+func (r Runner) defaultObjectCacheRoot() string {
+	if r.Home != "" {
+		return filepath.Join(r.Home, ".cache", "gitslice")
+	}
+	if cacheDir, err := os.UserCacheDir(); err == nil && cacheDir != "" {
+		return filepath.Join(cacheDir, "gitslice")
+	}
+	return filepath.Join(r.homeDir(), ".cache", "gitslice")
+}
+
+func (r Runner) homeDir() string {
+	if r.Home != "" {
+		return r.Home
+	}
+	home, _ := os.UserHomeDir()
+	return home
 }
 
 func (r Runner) cwd() string {
@@ -1147,10 +1438,17 @@ func (r Runner) runSchema() error {
 			},
 			{
 				"use":            "gs workspace init <account>/<slice>",
-				"summary":        "bind the current directory to one slice",
+				"summary":        "bind the current directory to one slice and hydrate its files",
 				"args":           []string{"account/slice"},
 				"writes_stdout":  true,
-				"machine_output": []string{"workspace", "slice_id", "base_commit_id"},
+				"machine_output": []string{"workspace", "slice_id", "base_commit_id", "client_object_cache", "hydrated"},
+			},
+			{
+				"use":            "gs workspace hydrate <path> [path...]",
+				"summary":        "hydrate workspace files through the client object cache",
+				"args":           []string{"path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"workspace", "base_commit_id", "client_object_cache", "hydrated"},
 			},
 			{
 				"use":            "gs status",
@@ -1236,6 +1534,47 @@ func workspaceRef(ws WorkspaceConfig) *corev1.WorkspaceRef {
 	return &corev1.WorkspaceRef{Id: ws.Account + "/" + ws.Slice}
 }
 
+func workspaceInputToGlobalPath(ws WorkspaceConfig, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "." {
+		if len(ws.IncludedPaths) == 0 {
+			return "", fmt.Errorf("workspace has no included paths")
+		}
+		return paths.Canonical(ws.IncludedPaths[0])
+	}
+	var globalPath string
+	var err error
+	if strings.HasPrefix(value, "/") {
+		globalPath, err = paths.Canonical(value)
+	} else {
+		globalPath, err = paths.FromWorkspacePath(ws.IncludedPaths[0], value)
+	}
+	if err != nil {
+		return "", err
+	}
+	if !paths.InAnyPrefix(ws.IncludedPaths, globalPath) {
+		return "", userError("outside_slice", "path is outside the workspace slice: "+globalPath, "Use a path under the workspace's bound slice.")
+	}
+	return globalPath, nil
+}
+
+func workspaceRelPath(ws WorkspaceConfig, globalPath string) (string, error) {
+	for _, prefix := range ws.IncludedPaths {
+		if !paths.Contains(prefix, globalPath) {
+			continue
+		}
+		trimmedPrefix := strings.TrimRight(prefix, "/")
+		rel := strings.TrimPrefix(globalPath, trimmedPrefix)
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" {
+			parts := strings.Split(strings.Trim(globalPath, "/"), "/")
+			rel = parts[len(parts)-1]
+		}
+		return rel, nil
+	}
+	return "", userError("outside_slice", "path is outside the workspace slice: "+globalPath, "Use a path under the workspace's bound slice.")
+}
+
 func authContext(ctx context.Context, cfg UserConfig) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+cfg.Token)
 }
@@ -1281,6 +1620,15 @@ func exactArgs(want int, usage string) cobra.PositionalArgs {
 			return nil
 		}
 		return userError("invalid_args", fmt.Sprintf("expected %d argument(s), got %d", want, len(args)), "Usage: "+usage)
+	}
+}
+
+func minArgs(want int, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) >= want {
+			return nil
+		}
+		return userError("invalid_args", fmt.Sprintf("expected at least %d argument(s), got %d", want, len(args)), "Usage: "+usage)
 	}
 }
 

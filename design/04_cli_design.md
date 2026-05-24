@@ -107,9 +107,41 @@ The workspace stores:
 - local operation log
 - server metadata cache
 
-Files are hydrated on demand. The CLI should preserve canonical account-rooted
-paths inside the workspace. Creating another workspace is the supported way to
-work on another slice.
+Files for the bound slice are hydrated during workspace initialization. The CLI
+should preserve canonical account-rooted paths inside the workspace. Creating
+another workspace is the supported way to work on another slice.
+
+The client also has a global object cache outside any workspace:
+
+```text
+user cache dir:
+  gitslice/
+    objects/
+      sha256/<2>/<2>/<digest>
+    tmp/
+```
+
+The cache is content-addressed by file content hash and shared by every
+workspace for the same local user. The default root is the user's local cache
+area; `GITSLICE_CLIENT_CACHE_DIR` can override it for tests or isolated agent
+runs. Workspace metadata may reference content hashes, but cached bytes are not
+workspace-private. `gs status`, `gs cs create`, `gs cs update`,
+`gs workspace hydrate`, and `gs workspace init` all write discovered file bytes
+through this cache.
+
+Hydration is cache-first:
+
+1. Resolve the file entry and content hash from the server.
+2. If the content hash exists in the client cache, write workspace bytes from
+   the cache without reading the blob from the server.
+3. If the content hash is absent, read bytes from the server, verify the hash,
+   store them in the global cache, then write the workspace file.
+4. Record hydrated files in `.gs/base_snapshot.json` for that workspace only.
+
+Submit is also cache-aware. Before uploading changed blobs, the CLI calls
+`BlobService.GetBlobStatus` for the changed content hashes. Hashes already
+available on the server are reused by blob id. Missing hashes are uploaded from
+the global client cache, not reread from the workspace path.
 
 ## 5. Slice Commands
 
@@ -125,8 +157,9 @@ gs slice paths <account>/<slice>
 1. ResolveSlice through the core API.
 2. Check read authorization.
 3. Write the binding to `.gs/slice.json`.
-4. Hydrate only requested or default paths.
-5. Record local operation log entry.
+4. Initialize the global client object cache.
+5. Hydrate included paths through the global object cache.
+6. Record local operation log entry.
 ```
 
 The MVP stores workspace metadata as JSON rather than YAML. JSON keeps the first
