@@ -88,6 +88,115 @@ func TestWorkspaceInitHydrateUsesGlobalClientObjectCache(t *testing.T) {
 	assertWorkspaceFile(t, secondWorkspace, "cached.go", "package payment\nconst Cached = true\n")
 }
 
+func TestServerShellInspectsServerFilesWithoutLocalFile(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "server_only.go", "package payment\nconst ServerOnly = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "server shell seed")
+	runCLI(t, home, workspace, "cs", "submit")
+	if err := os.Remove(filepath.Join(workspace, "server_only.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := runCLIStreamsWithInput(t, home, workspace, strings.Join([]string{
+		"pwd",
+		"ls",
+		"cat server_only.go",
+		"stat server_only.go",
+		"quit",
+	}, "\n")+"\n", "shell")
+	if stderr != "" {
+		t.Fatalf("expected empty shell stderr, got:\n%s", stderr)
+	}
+	for _, want := range []string{
+		"server shell: acme/payment @",
+		"gs acme/payment:/> /",
+		"server_only.go",
+		"package payment\nconst ServerOnly = true\n",
+		"kind: file",
+		"shell_path: /server_only.go",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("shell output missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestServerShellNavigationAndSliceBoundary(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "nested/a.go", "package nested\nconst A = true\n")
+	writeWorkspaceFile(t, workspace, "nested/deep/b.go", "package deep\nconst B = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "server shell nested")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	stdout, stderr := runCLIStreamsWithInput(t, home, workspace, strings.Join([]string{
+		"ls /",
+		"cd nested",
+		"pwd",
+		"ls",
+		"cat a.go",
+		"cat /nested/deep/b.go",
+		"stat /acme/payment/nested/deep/b.go",
+		"cat /acme/backend/secret.go",
+		"quit",
+	}, "\n")+"\n", "shell")
+	for _, want := range []string{
+		"nested/",
+		"gs acme/payment:/nested> /nested",
+		"a.go",
+		"deep/",
+		"package nested\nconst A = true\n",
+		"package deep\nconst B = true\n",
+		"shell_path: /nested/deep/b.go",
+		"kind: file",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("shell output missing %q:\n%s", want, stdout)
+		}
+	}
+	if !strings.Contains(stderr, "outside the workspace slice") {
+		t.Fatalf("expected outside-slice error in stderr, got:\n%s", stderr)
+	}
+}
+
+func TestServerShellCommitPinning(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "versioned.go", "package payment\nconst Version = 1\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "server shell v1")
+	firstSubmit := runCLI(t, home, workspace, "cs", "submit", "--json")
+	firstCommitID := submittedRefCommitID(t, firstSubmit)
+
+	writeWorkspaceFile(t, workspace, "versioned.go", "package payment\nconst Version = 2\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "server shell v2")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	pinned, pinnedStderr := runCLIStreamsWithInput(t, home, workspace, "cat versioned.go\nquit\n", "shell", "--commit", firstCommitID)
+	if pinnedStderr != "" {
+		t.Fatalf("expected empty pinned shell stderr, got:\n%s", pinnedStderr)
+	}
+	if !strings.Contains(pinned, "const Version = 1") || strings.Contains(pinned, "const Version = 2") {
+		t.Fatalf("expected pinned shell to show version 1 only, got:\n%s", pinned)
+	}
+	current, currentStderr := runCLIStreamsWithInput(t, home, workspace, "cat versioned.go\nquit\n", "shell")
+	if currentStderr != "" {
+		t.Fatalf("expected empty current shell stderr, got:\n%s", currentStderr)
+	}
+	if !strings.Contains(current, "const Version = 2") {
+		t.Fatalf("expected current shell to show version 2, got:\n%s", current)
+	}
+}
+
 func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 	ts := startTestServer(t)
 	statusCode, _, body := httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "", map[string]any{
@@ -999,8 +1108,13 @@ func runCLI(t *testing.T, home, workspace string, args ...string) string {
 
 func runCLIStreams(t *testing.T, home, workspace string, args ...string) (string, string) {
 	t.Helper()
+	return runCLIStreamsWithInput(t, home, workspace, "", args...)
+}
+
+func runCLIStreamsWithInput(t *testing.T, home, workspace, stdin string, args ...string) (string, string) {
+	t.Helper()
 	var stdout, stderr bytes.Buffer
-	r := cli.Runner{Home: home, Dir: workspace, Stdout: &stdout, Stderr: &stderr}
+	r := cli.Runner{Home: home, Dir: workspace, Stdin: strings.NewReader(stdin), Stdout: &stdout, Stderr: &stderr}
 	if err := r.Run(context.Background(), args); err != nil {
 		t.Fatalf("gs %s failed: %v\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout.String(), stderr.String())
 	}
@@ -1146,6 +1260,20 @@ func assertWorkspaceFile(t *testing.T, workspace, rel, want string) {
 	if string(got) != want {
 		t.Fatalf("unexpected workspace file %s:\nwant:\n%s\ngot:\n%s", rel, want, string(got))
 	}
+}
+
+func submittedRefCommitID(t *testing.T, raw string) string {
+	t.Helper()
+	var res struct {
+		NewRefCommitID string `json:"new_ref_commit_id"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatalf("submit output is not JSON: %v\n%s", err, raw)
+	}
+	if res.NewRefCommitID == "" {
+		t.Fatalf("submit output missing new_ref_commit_id:\n%s", raw)
+	}
+	return res.NewRefCommitID
 }
 
 func copyWorkspaceFile(t *testing.T, fromWorkspace, toWorkspace, rel string) {

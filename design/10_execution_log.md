@@ -3,6 +3,50 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Server-Side Interactive File Shell
+
+Request:
+
+- add a `gs shell` command for interactive file and folder inspection
+- ensure the shell inspects server files, not local workspace files
+
+Implemented:
+
+- added `gs shell` as a local REPL that uses the current workspace only for
+  auth, slice scope, and relative path mapping
+- defaulted shell inspection to latest `refs/global/main`, with `--commit` for
+  pinned native commit inspection
+- added read-only shell commands: `pwd`, `ls`, `cd`, `cat`, `stat`, `ref`,
+  `help`, `exit`, and `quit`
+- mapped shell paths to the bound slice root and rejected paths outside the
+  slice before issuing server reads
+- added functional coverage proving `cat` reads a submitted server file even
+  after the local workspace copy is deleted
+- expanded functional coverage for shell navigation, absolute canonical paths,
+  slice-boundary rejection, and `--commit` pinned historical reads
+
+Important decisions and learnings:
+
+- The shell is deliberately read-only in the MVP. Local edits still happen in
+  the hydrated workspace and go through `gs status`, `gs cs create`, and submit
+  validation.
+- Keeping the shell server-backed avoids confusing local dirty state with the
+  authoritative committed tree the user wants to inspect.
+- Leading slash paths can mean shell-rooted paths such as `/nested/file.go`.
+  Canonical paths under the current account such as `/acme/backend/file.go`
+  must still be interpreted as canonical so cross-slice escapes are rejected.
+
+Verification:
+
+```bash
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestServerShell' -v
+git diff --check
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+```
+
 ## 2026-05-24: Global Client Object Cache
 
 Request:
@@ -42,6 +86,52 @@ go test ./internal/clientcache ./internal/cli
 go test ./...
 go build ./cmd/...
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+```
+
+## 2026-05-24: Split PostgreSQL Stores
+
+Request:
+
+- break up the broad Postgres `Store` object
+- remove `internal/postgres/store.go`
+- have callers depend on specific store objects instead of a monolithic store
+
+Implemented:
+
+- replaced the broad `postgres.Store` type with a lifecycle-only `postgres.DB`
+  handle for opening, closing, migrations, tree-store configuration, and
+  integrity verification
+- moved Postgres behavior into focused store files:
+  - `auth_store.go`
+  - `blob_store.go`
+  - `changeset_store.go`
+  - `repository_store.go`
+  - `slice_store.go`
+- moved shared types, errors, migrations, fixture seeding, and helpers into
+  focused files and removed `internal/postgres/store.go`
+- removed compatibility forwarding methods such as `Store.GetRef`,
+  `Store.GetChangeset`, and `Store.PublishPending`
+- updated service construction, gRPC auth interceptors, the publisher loop, and
+  Git compatibility to accept the specific Postgres stores they use
+
+Important decisions and learnings:
+
+- `postgres.DB` remains as the ownership/lifecycle boundary for the shared SQL
+  connection and migrations, but product behavior now hangs off `AuthStore`,
+  `RepositoryStore`, `BlobStore`, `SliceStore`, and `ChangesetStore`.
+- `ChangesetStore` keeps explicit references to `RepositoryStore` and
+  `SliceStore` because create/submit/publish need ref reads, slice resolution,
+  and tree access inside the same Postgres-backed boundary.
+- Integrity verification stays on `postgres.DB` because it intentionally spans
+  refs, commits, blobs, path heads, and tree reachability.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/*.go server/*.go service/*.go internal/gitcompat/*.go tests/load/load_test.go
+go test -mod=readonly ./internal/postgres ./service ./server ./internal/gitcompat
+go test -mod=readonly ./cmd/gitslice-server ./internal/authctx ./internal/gitcompat ./internal/objectstore/filesystem ./internal/objectid ./internal/paths ./internal/postgres ./internal/treestore ./proto/core/v1 ./server ./service
+go build -mod=readonly ./cmd/gitslice-server
 ```
 
 ## 2026-05-23: Add HTTP JSON Gateway For Core gRPC Services

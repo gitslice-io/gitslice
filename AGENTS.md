@@ -12,8 +12,8 @@ The current MVP prototype is Go-based and uses:
 
 - `cmd/gitslice-server`: one server binary for fake account auth, core gRPC
   services, and optional Git smart HTTP read compatibility.
-- `cmd/gs`: native CLI for login, single-slice workspaces, status, changesets,
-  submit, and changeset status.
+- `cmd/gs`: native CLI for login, single-slice workspaces, server file shell,
+  status, changesets, submit, and changeset status.
 - `proto/core/v1`: protobuf API contract and generated Go gRPC stubs.
 - `server/`: process wiring only. Keep product rules out of this package.
 - `service/`: public gRPC service implementations and fake account service.

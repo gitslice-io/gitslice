@@ -172,13 +172,13 @@ func TestStorageIntegrityVerifierDetectsMissingBlobObject(t *testing.T) {
 	}
 }
 
-func newPostgresTestStore(t *testing.T) (context.Context, *Store) {
+func newPostgresTestStore(t *testing.T) (context.Context, *DB) {
 	t.Helper()
 	ctx, store, _ := newPostgresTestStoreWithObjects(t)
 	return ctx, store
 }
 
-func newPostgresTestStoreWithObjects(t *testing.T) (context.Context, *Store, *filesystem.Store) {
+func newPostgresTestStoreWithObjects(t *testing.T) (context.Context, *DB, *filesystem.Store) {
 	t.Helper()
 	databaseURL := os.Getenv("GITSLICE_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -208,7 +208,7 @@ func newPostgresTestStoreWithObjects(t *testing.T) (context.Context, *Store, *fi
 	return ctx, store, objectStore
 }
 
-func createDraftPatchset(t *testing.T, ctx context.Context, store *Store, baseCommitID, path, blobID, contentHash string) *corev1.Patchset {
+func createDraftPatchset(t *testing.T, ctx context.Context, store *DB, baseCommitID, path, blobID, contentHash string) *corev1.Patchset {
 	t.Helper()
 	cs, err := store.Changesets().Create(ctx, "user_alice", &corev1.CreateChangesetRequest{
 		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
@@ -246,7 +246,7 @@ func createDraftPatchset(t *testing.T, ctx context.Context, store *Store, baseCo
 	return patchset
 }
 
-func upsertTestBlob(t *testing.T, ctx context.Context, store *Store, content string) (string, string) {
+func upsertTestBlob(t *testing.T, ctx context.Context, store *DB, content string) (string, string) {
 	t.Helper()
 	data := []byte(content)
 	blobID := objectid.BlobID(data)
@@ -257,7 +257,7 @@ func upsertTestBlob(t *testing.T, ctx context.Context, store *Store, content str
 	return blobID, contentHash
 }
 
-func upsertTestBlobObject(t *testing.T, ctx context.Context, store *Store, objectStore *filesystem.Store, content string) (string, string) {
+func upsertTestBlobObject(t *testing.T, ctx context.Context, store *DB, objectStore *filesystem.Store, content string) (string, string) {
 	t.Helper()
 	data := []byte(content)
 	blobID := objectid.BlobID(data)
@@ -281,7 +281,7 @@ func hasFinding(report IntegrityReport, code string) bool {
 	return false
 }
 
-func getTestRef(t *testing.T, ctx context.Context, store *Store) *corev1.Ref {
+func getTestRef(t *testing.T, ctx context.Context, store *DB) *corev1.Ref {
 	t.Helper()
 	ref, err := store.Repository().GetRef(ctx, DefaultTargetRef)
 	if err != nil {

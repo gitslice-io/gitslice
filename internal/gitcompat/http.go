@@ -17,12 +17,12 @@ import (
 )
 
 type Handler struct {
-	store     *postgres.Store
+	auth      *postgres.AuthStore
 	projector *Projector
 }
 
-func NewHandler(store *postgres.Store, projector *Projector) *Handler {
-	return &Handler{store: store, projector: projector}
+func NewHandler(auth *postgres.AuthStore, projector *Projector) *Handler {
+	return &Handler{auth: auth, projector: projector}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +58,7 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (string, er
 	if token == "" {
 		return "", postgres.ErrUnauthenticated
 	}
-	subject, err := h.store.SubjectForToken(ctx, token)
+	subject, err := h.auth.SubjectForToken(ctx, token)
 	if err != nil {
 		return "", err
 	}

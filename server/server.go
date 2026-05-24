@@ -35,29 +35,36 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.PublishInterval <= 0 {
 		cfg.PublishInterval = defaultPublishInterval
 	}
-	store, err := postgres.Open(ctx, cfg.DatabaseURL)
+	db, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer db.Close()
 	objectStore, err := filesystem.New(cfg.ObjectStoreRoot)
 	if err != nil {
 		return err
 	}
-	store.SetTreeStore(treestore.New(objectStore))
+	db.SetTreeStore(treestore.New(objectStore))
 	if cfg.RunMigrations {
-		if err := store.Migrate(ctx); err != nil {
+		if err := db.Migrate(ctx); err != nil {
 			return err
 		}
 	}
 	if !cfg.DisableAsyncPublisher {
-		go runPublisher(ctx, store, cfg.PublishBatchSize, cfg.PublishInterval)
+		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval)
 	}
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
 		return err
 	}
-	grpcServer := NewGRPCServer(store, service.New(store, objectStore))
+	stores := service.Stores{
+		Auth:       db.Auth(),
+		Blobs:      db.Blobs(),
+		Changesets: db.Changesets(),
+		Repository: db.Repository(),
+		Slices:     db.Slices(),
+	}
+	grpcServer := NewGRPCServer(db.Auth(), service.New(stores, objectStore))
 	var gatewayServer *http.Server
 	var gatewayLis net.Listener
 	if cfg.HTTPAddr != "" {
@@ -77,7 +84,11 @@ func Run(ctx context.Context, cfg Config) error {
 		if cfg.GitCacheRoot == "" {
 			cfg.GitCacheRoot = filepath.Join(cfg.ObjectStoreRoot, "git-cache")
 		}
-		projector, err := gitcompat.NewProjector(store, objectStore, cfg.GitCacheRoot)
+		projector, err := gitcompat.NewProjector(gitcompat.ProjectorStores{
+			Auth:       db.Auth(),
+			Repository: db.Repository(),
+			Slices:     db.Slices(),
+		}, objectStore, cfg.GitCacheRoot)
 		if err != nil {
 			return err
 		}
@@ -85,7 +96,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		gitHTTPServer = &http.Server{Handler: gitcompat.NewHandler(store, projector)}
+		gitHTTPServer = &http.Server{Handler: gitcompat.NewHandler(db.Auth(), projector)}
 	}
 	errCh := make(chan error, 3)
 	go func() {
@@ -132,10 +143,10 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func NewGRPCServer(store *postgres.Store, handlers *service.Handlers) *grpc.Server {
+func NewGRPCServer(auth *postgres.AuthStore, handlers *service.Handlers) *grpc.Server {
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(authInterceptor(store)),
-		grpc.StreamInterceptor(authStreamInterceptor(store)),
+		grpc.UnaryInterceptor(authInterceptor(auth)),
+		grpc.StreamInterceptor(authStreamInterceptor(auth)),
 	)
 	corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
 	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
@@ -149,7 +160,7 @@ func NewGRPCServer(store *postgres.Store, handlers *service.Handlers) *grpc.Serv
 	return grpcServer
 }
 
-func authStreamInterceptor(store *postgres.Store) grpc.StreamServerInterceptor {
+func authStreamInterceptor(auth *postgres.AuthStore) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if isPublicMethod(info.FullMethod) {
 			return handler(srv, stream)
@@ -158,7 +169,7 @@ func authStreamInterceptor(store *postgres.Store) grpc.StreamServerInterceptor {
 		if err != nil {
 			return err
 		}
-		subject, err := store.SubjectForToken(stream.Context(), token)
+		subject, err := auth.SubjectForToken(stream.Context(), token)
 		if err != nil {
 			return grpcAuthError(err)
 		}
@@ -178,7 +189,7 @@ func (s *contextServerStream) Context() context.Context {
 	return s.ctx
 }
 
-func authInterceptor(store *postgres.Store) grpc.UnaryServerInterceptor {
+func authInterceptor(auth *postgres.AuthStore) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if isPublicMethod(info.FullMethod) {
 			return handler(ctx, req)
@@ -187,7 +198,7 @@ func authInterceptor(store *postgres.Store) grpc.UnaryServerInterceptor {
 		if err != nil {
 			return nil, err
 		}
-		subject, err := store.SubjectForToken(ctx, token)
+		subject, err := auth.SubjectForToken(ctx, token)
 		if err != nil {
 			return nil, grpcAuthError(err)
 		}

@@ -10,7 +10,7 @@ import (
 
 const defaultPublishInterval = 25 * time.Millisecond
 
-func runPublisher(ctx context.Context, store *postgres.Store, batchSize int, interval time.Duration) {
+func runPublisher(ctx context.Context, changesets *postgres.ChangesetStore, batchSize int, interval time.Duration) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -18,7 +18,7 @@ func runPublisher(ctx context.Context, store *postgres.Store, batchSize int, int
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			published, err := store.PublishPending(ctx, batchSize)
+			published, err := changesets.PublishPending(ctx, batchSize)
 			if err != nil && ctx.Err() == nil {
 				slog.Warn("pending publish batch failed", "error", err)
 			}

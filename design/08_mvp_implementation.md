@@ -392,6 +392,13 @@ gs workspace hydrate <path>
   -> otherwise read file bytes from the server and store them in the cache
   -> write the workspace file and update .gs/base_snapshot.json
 
+gs shell
+  -> load current workspace slice binding
+  -> resolve latest refs/global/main or requested --commit
+  -> start a read-only interactive shell over RepositoryService
+  -> support pwd, ls, cd, cat, stat, ref, help, and exit
+  -> reject paths outside the bound slice before server reads
+
 gs status
   -> reconcile filesystem with local base snapshot
   -> write scanned file bytes through the global client object cache
