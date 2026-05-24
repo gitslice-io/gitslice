@@ -3,6 +3,47 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Global Client Object Cache
+
+Request:
+
+- add a global client-side object cache shared across workspaces
+- make workspace initialization use the same cache for hydrated files
+
+Implemented:
+
+- added `internal/clientcache` as a content-addressed local cache rooted at the
+  user cache directory, keyed by `sha256:<digest>`
+- made workspace scans write file bytes through the global cache before status
+  or changeset creation
+- changed changeset create/update to call `BlobService.GetBlobStatus` for
+  changed content hashes and upload only server-missing blobs from the cache
+- made `gs workspace init <account>/<slice>` hydrate the slice through the
+  global cache by default
+- added `gs workspace hydrate <path>` for targeted follow-up hydration through
+  the same cache
+
+Important decisions and learnings:
+
+- Workspace `.gs` state remains workspace-local. Cached bytes are local
+  performance data and are not authoritative for authorization, path
+  containment, or submit correctness.
+- Init-time hydration resolves server metadata first. If the content hash is
+  already present locally, the CLI writes workspace bytes from the cache without
+  reading the blob from the server.
+- The cache is safe to share across workspaces because content hashes are
+  verified before storage and server blob identity is revalidated with
+  `GetBlobStatus` before submit.
+
+Verification:
+
+```bash
+go test ./internal/clientcache ./internal/cli
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+```
+
 ## 2026-05-23: Add HTTP JSON Gateway For Core gRPC Services
 
 Request:

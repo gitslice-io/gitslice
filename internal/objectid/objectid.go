@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -14,6 +15,15 @@ const algorithm = "sha256"
 func RawContentHash(data []byte) string {
 	sum := sha256.Sum256(data)
 	return algorithm + ":" + hex.EncodeToString(sum[:])
+}
+
+func RawContentHashReader(r io.Reader) (string, int64, error) {
+	h := sha256.New()
+	n, err := io.Copy(h, r)
+	if err != nil {
+		return "", n, err
+	}
+	return algorithm + ":" + hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
 func BlobID(data []byte) string {
