@@ -22,35 +22,43 @@ type Handlers struct {
 	Changeset   *ChangesetService
 }
 
-func New(store *postgres.Store, objectStore ObjectStore) *Handlers {
+type Stores struct {
+	Auth       *postgres.AuthStore
+	Blobs      *postgres.BlobStore
+	Changesets *postgres.ChangesetStore
+	Repository *postgres.RepositoryStore
+	Slices     *postgres.SliceStore
+}
+
+func New(stores Stores, objectStore ObjectStore) *Handlers {
 	validator := diffValidator{
-		Repository: store.Repository(),
-		Slices:     store.Slices(),
+		Repository: stores.Repository,
+		Slices:     stores.Slices,
 	}
 	return &Handlers{
-		FakeAccount: &FakeAccountService{Auth: store.Auth()},
+		FakeAccount: &FakeAccountService{Auth: stores.Auth},
 		Repository: &RepositoryService{
-			Auth:        store.Auth(),
-			Blobs:       store.Blobs(),
-			Changesets:  store.Changesets(),
-			Repository:  store.Repository(),
-			Slices:      store.Slices(),
+			Auth:        stores.Auth,
+			Blobs:       stores.Blobs,
+			Changesets:  stores.Changesets,
+			Repository:  stores.Repository,
+			Slices:      stores.Slices,
 			ObjectStore: objectStore,
 			validator:   validator,
 		},
-		Blob:        &BlobService{Blobs: store.Blobs(), ObjectStore: objectStore},
-		Slice:       &SliceService{Auth: store.Auth(), Slices: store.Slices()},
+		Blob:  &BlobService{Blobs: stores.Blobs, ObjectStore: objectStore},
+		Slice: &SliceService{Auth: stores.Auth, Slices: stores.Slices},
 		Workspace: &WorkspaceService{
-			Auth:        store.Auth(),
-			Repository:  store.Repository(),
-			Slices:      store.Slices(),
+			Auth:        stores.Auth,
+			Repository:  stores.Repository,
+			Slices:      stores.Slices,
 			ObjectStore: objectStore,
 			validator:   validator,
 		},
 		Changeset: &ChangesetService{
-			Auth:       store.Auth(),
-			Changesets: store.Changesets(),
-			Slices:     store.Slices(),
+			Auth:       stores.Auth,
+			Changesets: stores.Changesets,
+			Slices:     stores.Slices,
 			validator:  validator,
 		},
 	}

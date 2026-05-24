@@ -25,12 +25,20 @@ type ObjectStore interface {
 }
 
 type Projector struct {
-	store       *postgres.Store
+	auth        *postgres.AuthStore
+	repository  *postgres.RepositoryStore
+	slices      *postgres.SliceStore
 	objectStore ObjectStore
 	cacheRoot   string
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
+}
+
+type ProjectorStores struct {
+	Auth       *postgres.AuthStore
+	Repository *postgres.RepositoryStore
+	Slices     *postgres.SliceStore
 }
 
 type Projection struct {
@@ -42,14 +50,21 @@ type Projection struct {
 	GitCommitID    string `json:"git_commit_id"`
 }
 
-func NewProjector(store *postgres.Store, objectStore ObjectStore, cacheRoot string) (*Projector, error) {
+func NewProjector(stores ProjectorStores, objectStore ObjectStore, cacheRoot string) (*Projector, error) {
 	if cacheRoot == "" {
 		return nil, fmt.Errorf("git cache root is required")
 	}
 	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
 		return nil, err
 	}
-	return &Projector{store: store, objectStore: objectStore, cacheRoot: cacheRoot, locks: map[string]*sync.Mutex{}}, nil
+	return &Projector{
+		auth:        stores.Auth,
+		repository:  stores.Repository,
+		slices:      stores.Slices,
+		objectStore: objectStore,
+		cacheRoot:   cacheRoot,
+		locks:       map[string]*sync.Mutex{},
+	}, nil
 }
 
 func (p *Projector) CacheRoot() string {
@@ -57,18 +72,18 @@ func (p *Projector) CacheRoot() string {
 }
 
 func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account, sliceSlug string) (string, *Projection, error) {
-	if err := p.store.EnsureAccountMember(ctx, subjectID, account); err != nil {
+	if err := p.auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
 		return "", nil, err
 	}
-	slice, err := p.store.ResolveSlice(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
+	slice, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
 	if err != nil {
 		return "", nil, err
 	}
-	ref, err := p.store.GetRef(ctx, postgres.DefaultTargetRef)
+	ref, err := p.repository.GetRef(ctx, postgres.DefaultTargetRef)
 	if err != nil {
 		return "", nil, err
 	}
-	commit, err := p.store.GetCommit(ctx, ref.CommitId)
+	commit, err := p.repository.GetCommit(ctx, ref.CommitId)
 	if err != nil {
 		return "", nil, err
 	}
@@ -168,7 +183,7 @@ func (p *Projector) projectedFiles(ctx context.Context, slice *corev1.Slice, com
 		if err != nil {
 			return nil, err
 		}
-		files, err := p.store.ListFiles(ctx, commitID, canonical)
+		files, err := p.repository.ListFiles(ctx, commitID, canonical)
 		if err != nil {
 			return nil, err
 		}

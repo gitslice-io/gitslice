@@ -71,13 +71,13 @@ type integrityCommit struct {
 	ChangedPaths []string
 }
 
-func (s *Store) VerifyIntegrity(ctx context.Context, objects ObjectReader) (IntegrityReport, error) {
+func (d *DB) VerifyIntegrity(ctx context.Context, objects ObjectReader) (IntegrityReport, error) {
 	var report IntegrityReport
 	addFinding := func(code, detail string) {
 		report.Findings = append(report.Findings, IntegrityFinding{Code: code, Detail: detail})
 	}
 
-	blobs, err := s.loadIntegrityBlobs(ctx)
+	blobs, err := d.loadIntegrityBlobs(ctx)
 	if err != nil {
 		return report, err
 	}
@@ -95,7 +95,7 @@ func (s *Store) VerifyIntegrity(ctx context.Context, objects ObjectReader) (Inte
 		}
 	}
 
-	commits, err := s.loadIntegrityCommits(ctx)
+	commits, err := d.loadIntegrityCommits(ctx)
 	if err != nil {
 		return report, err
 	}
@@ -123,13 +123,13 @@ func (s *Store) VerifyIntegrity(ctx context.Context, objects ObjectReader) (Inte
 		}
 	}
 
-	refCount, err := s.verifyRefs(ctx, commitByID, addFinding)
+	refCount, err := d.verifyRefs(ctx, commitByID, addFinding)
 	if err != nil {
 		return report, err
 	}
 	report.RefCount = refCount
 
-	if s.trees == nil {
+	if d.repository.trees == nil {
 		addFinding("tree_store_missing", "tree store is not configured")
 	} else {
 		verifiedRoots := map[string]bool{}
@@ -138,7 +138,7 @@ func (s *Store) VerifyIntegrity(ctx context.Context, objects ObjectReader) (Inte
 				continue
 			}
 			verifiedRoots[commit.RootTreeID] = true
-			treeReport, err := s.trees.VerifyReachable(ctx, commit.RootTreeID)
+			treeReport, err := d.repository.trees.VerifyReachable(ctx, commit.RootTreeID)
 			if err != nil {
 				addFinding("tree_unreadable", fmt.Sprintf("commit %s root %s: %v", commit.ID, commit.RootTreeID, err))
 				continue
@@ -146,17 +146,17 @@ func (s *Store) VerifyIntegrity(ctx context.Context, objects ObjectReader) (Inte
 			report.UniqueRootTreeCount++
 			report.TreeCount += treeReport.TreeCount
 			report.TreeFileCount += treeReport.FileCount
-			verifyTreeBlobReferences(ctx, s, commit.RootTreeID, blobs, addFinding)
+			verifyTreeBlobReferences(ctx, d, commit.RootTreeID, blobs, addFinding)
 		}
 	}
 
-	pendingCount, err := s.pendingPublishCount(ctx)
+	pendingCount, err := d.pendingPublishCount(ctx)
 	if err != nil {
 		return report, err
 	}
 	report.PendingPublishCount = pendingCount
 	if pendingCount == 0 {
-		pathHeadCount, err := s.verifyPathHeadsAgainstCurrentRef(ctx, addFinding)
+		pathHeadCount, err := d.verifyPathHeadsAgainstCurrentRef(ctx, addFinding)
 		if err != nil {
 			return report, err
 		}
@@ -169,8 +169,8 @@ func (s *Store) VerifyIntegrity(ctx context.Context, objects ObjectReader) (Inte
 	return report, nil
 }
 
-func (s *Store) loadIntegrityBlobs(ctx context.Context) (map[string]integrityBlob, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (d *DB) loadIntegrityBlobs(ctx context.Context) (map[string]integrityBlob, error) {
+	rows, err := d.db.QueryContext(ctx, `
 		select id, content_hash, size, storage_location, state
 		from blobs
 		order by id
@@ -190,8 +190,8 @@ func (s *Store) loadIntegrityBlobs(ctx context.Context) (map[string]integrityBlo
 	return out, rows.Err()
 }
 
-func (s *Store) loadIntegrityCommits(ctx context.Context) ([]integrityCommit, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (d *DB) loadIntegrityCommits(ctx context.Context) ([]integrityCommit, error) {
+	rows, err := d.db.QueryContext(ctx, `
 		select id, parent_ids, root_tree_id, coalesce(author_subject_id, ''),
 		       message, created_at, changed_paths
 		from commits
@@ -219,8 +219,8 @@ func (s *Store) loadIntegrityCommits(ctx context.Context) ([]integrityCommit, er
 	return out, rows.Err()
 }
 
-func (s *Store) verifyRefs(ctx context.Context, commitByID map[string]integrityCommit, addFinding func(string, string)) (int, error) {
-	rows, err := s.db.QueryContext(ctx, `select name, commit_id from refs order by name`)
+func (d *DB) verifyRefs(ctx context.Context, commitByID map[string]integrityCommit, addFinding func(string, string)) (int, error) {
+	rows, err := d.db.QueryContext(ctx, `select name, commit_id from refs order by name`)
 	if err != nil {
 		return 0, err
 	}
@@ -268,8 +268,8 @@ func verifyBlobObject(ctx context.Context, objects ObjectReader, blob integrityB
 	}
 }
 
-func verifyTreeBlobReferences(ctx context.Context, s *Store, rootTreeID string, blobs map[string]integrityBlob, addFinding func(string, string)) {
-	files, err := s.trees.ListFiles(ctx, rootTreeID, "/")
+func verifyTreeBlobReferences(ctx context.Context, d *DB, rootTreeID string, blobs map[string]integrityBlob, addFinding func(string, string)) {
+	files, err := d.repository.trees.ListFiles(ctx, rootTreeID, "/")
 	if err != nil {
 		addFinding("tree_file_list_failed", fmt.Sprintf("root %s: %v", rootTreeID, err))
 		return
@@ -289,21 +289,21 @@ func verifyTreeBlobReferences(ctx context.Context, s *Store, rootTreeID string, 
 	}
 }
 
-func (s *Store) pendingPublishCount(ctx context.Context) (int, error) {
+func (d *DB) pendingPublishCount(ctx context.Context) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, `select count(*) from pending_publish where status = 'pending'`).Scan(&count)
+	err := d.db.QueryRowContext(ctx, `select count(*) from pending_publish where status = 'pending'`).Scan(&count)
 	return count, err
 }
 
-func (s *Store) verifyPathHeadsAgainstCurrentRef(ctx context.Context, addFinding func(string, string)) (int, error) {
-	ref, err := s.GetRef(ctx, DefaultTargetRef)
+func (d *DB) verifyPathHeadsAgainstCurrentRef(ctx context.Context, addFinding func(string, string)) (int, error) {
+	ref, err := d.repository.GetRef(ctx, DefaultTargetRef)
 	if errors.Is(err, ErrNotFound) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
 	}
-	files, err := s.ListFiles(ctx, ref.CommitId, "/")
+	files, err := d.repository.ListFiles(ctx, ref.CommitId, "/")
 	if err != nil {
 		return 0, err
 	}
@@ -312,7 +312,7 @@ func (s *Store) verifyPathHeadsAgainstCurrentRef(ctx context.Context, addFinding
 		filesByPath[file.Path] = file
 	}
 
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := d.db.QueryContext(ctx, `
 		select path, exists, entry_fingerprint, blob_id, content_hash, mode, size
 		from path_heads
 		order by path

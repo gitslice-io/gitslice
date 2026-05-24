@@ -190,17 +190,21 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 	defer conn.Close()
 	clients := newLoadCoreClients(t, ctx, conn)
 
-	store, err := postgres.Open(ctx, databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	db, err := postgres.Open(ctx, databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer db.Close()
 	objectStore, err := filesystem.New(ts.objectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.SetTreeStore(treestore.New(objectStore))
-	projector, err := gitcompat.NewProjector(store, objectStore, filepath.Join(ts.objectRoot, "projection-cache"))
+	db.SetTreeStore(treestore.New(objectStore))
+	projector, err := gitcompat.NewProjector(gitcompat.ProjectorStores{
+		Auth:       db.Auth(),
+		Repository: db.Repository(),
+		Slices:     db.Slices(),
+	}, objectStore, filepath.Join(ts.objectRoot, "projection-cache"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +241,7 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 		go func(worker int) {
 			defer projectionWG.Done()
 			for job := range projectionJobs {
-				result, err := measureProjectionLatency(ctx, store, projector, clients.subjectID, job)
+				result, err := measureProjectionLatency(ctx, db.Changesets(), db.Repository(), projector, clients.subjectID, job)
 				if err != nil {
 					projectionErrs <- fmt.Errorf("projection worker %d job %d: %w", worker, job.operation, err)
 					continue
@@ -334,9 +338,9 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 	reportDurations(t, "hot_files_home_submit_to_visible", len(homeVisible), submitWall, homeVisible)
 	reportDurations(t, "hot_files_other_submit_to_visible", len(otherVisible), submitWall, otherVisible)
 
-	assertFinalProjectionMatchesNative(t, ctx, store, objectStore, projector, clients.subjectID, "payment", hotFiles)
-	assertFinalProjectionMatchesNative(t, ctx, store, objectStore, projector, clients.subjectID, "backend", hotFiles)
-	assertLoadIntegrity(t, ctx, store, objectStore)
+	assertFinalProjectionMatchesNative(t, ctx, db.Repository(), objectStore, projector, clients.subjectID, "payment", hotFiles)
+	assertFinalProjectionMatchesNative(t, ctx, db.Repository(), objectStore, projector, clients.subjectID, "backend", hotFiles)
+	assertLoadIntegrity(t, ctx, db, objectStore)
 }
 
 type loadServer struct {
@@ -514,8 +518,8 @@ func submitHotFileOnce(clients loadCoreClients, file hotFile, label string, oper
 	return &hotSubmitResult{ChangesetID: cs.Id, PendingPublishID: submit.PendingPublishId}, nil
 }
 
-func measureProjectionLatency(ctx context.Context, store *postgres.Store, projector *gitcompat.Projector, subjectID string, job projectionJob) (projectionResult, error) {
-	commitID, publishedAt, err := waitForPublishedChangeset(ctx, store, job.changesetID)
+func measureProjectionLatency(ctx context.Context, changesets *postgres.ChangesetStore, repository *postgres.RepositoryStore, projector *gitcompat.Projector, subjectID string, job projectionJob) (projectionResult, error) {
+	commitID, publishedAt, err := waitForPublishedChangeset(ctx, changesets, job.changesetID)
 	if err != nil {
 		return projectionResult{}, err
 	}
@@ -525,7 +529,7 @@ func measureProjectionLatency(ctx context.Context, store *postgres.Store, projec
 		return projectionResult{}, err
 	}
 	homeDone := time.Now()
-	if err := ensureNativeCommitIncludes(ctx, store, commitID, home.NativeCommitID); err != nil {
+	if err := ensureNativeCommitIncludes(ctx, repository, commitID, home.NativeCommitID); err != nil {
 		return projectionResult{}, fmt.Errorf("home projection: %w", err)
 	}
 
@@ -535,7 +539,7 @@ func measureProjectionLatency(ctx context.Context, store *postgres.Store, projec
 		return projectionResult{}, err
 	}
 	otherDone := time.Now()
-	if err := ensureNativeCommitIncludes(ctx, store, commitID, other.NativeCommitID); err != nil {
+	if err := ensureNativeCommitIncludes(ctx, repository, commitID, other.NativeCommitID); err != nil {
 		return projectionResult{}, fmt.Errorf("other projection: %w", err)
 	}
 
@@ -550,10 +554,10 @@ func measureProjectionLatency(ctx context.Context, store *postgres.Store, projec
 	}, nil
 }
 
-func waitForPublishedChangeset(ctx context.Context, store *postgres.Store, changesetID string) (string, time.Time, error) {
+func waitForPublishedChangeset(ctx context.Context, changesets *postgres.ChangesetStore, changesetID string) (string, time.Time, error) {
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		cs, err := store.GetChangeset(ctx, changesetID)
+		cs, err := changesets.Get(ctx, changesetID)
 		if err != nil {
 			return "", time.Time{}, err
 		}
@@ -571,12 +575,12 @@ func waitForPublishedChangeset(ctx context.Context, store *postgres.Store, chang
 	}
 }
 
-func ensureNativeCommitIncludes(ctx context.Context, store *postgres.Store, ancestorCommitID, projectedCommitID string) error {
+func ensureNativeCommitIncludes(ctx context.Context, repository *postgres.RepositoryStore, ancestorCommitID, projectedCommitID string) error {
 	for current := projectedCommitID; current != ""; {
 		if current == ancestorCommitID {
 			return nil
 		}
-		commit, err := store.GetCommit(ctx, current)
+		commit, err := repository.GetCommit(ctx, current)
 		if err != nil {
 			return err
 		}
@@ -588,9 +592,9 @@ func ensureNativeCommitIncludes(ctx context.Context, store *postgres.Store, ance
 	return fmt.Errorf("projected native commit %s does not include submitted commit %s", projectedCommitID, ancestorCommitID)
 }
 
-func assertFinalProjectionMatchesNative(t *testing.T, ctx context.Context, store *postgres.Store, objectStore *filesystem.Store, projector *gitcompat.Projector, subjectID, slice string, files []hotFile) {
+func assertFinalProjectionMatchesNative(t *testing.T, ctx context.Context, repository *postgres.RepositoryStore, objectStore *filesystem.Store, projector *gitcompat.Projector, subjectID, slice string, files []hotFile) {
 	t.Helper()
-	ref, err := store.GetRef(ctx, postgres.DefaultTargetRef)
+	ref, err := repository.GetRef(ctx, postgres.DefaultTargetRef)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +606,7 @@ func assertFinalProjectionMatchesNative(t *testing.T, ctx context.Context, store
 		t.Fatalf("%s projection at %s, want latest %s", slice, projection.NativeCommitID, ref.CommitId)
 	}
 	for _, file := range files {
-		entry, err := store.GetFile(ctx, ref.CommitId, file.path)
+		entry, err := repository.GetFile(ctx, ref.CommitId, file.path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -622,9 +626,9 @@ func assertFinalProjectionMatchesNative(t *testing.T, ctx context.Context, store
 	}
 }
 
-func assertLoadIntegrity(t *testing.T, ctx context.Context, store *postgres.Store, objectStore *filesystem.Store) {
+func assertLoadIntegrity(t *testing.T, ctx context.Context, db *postgres.DB, objectStore *filesystem.Store) {
 	t.Helper()
-	report, err := store.VerifyIntegrity(ctx, objectStore)
+	report, err := db.VerifyIntegrity(ctx, objectStore)
 	if err != nil {
 		t.Fatalf("integrity verification failed: %v\nreport: %#v", err, report)
 	}
