@@ -52,7 +52,7 @@ gs workspace ...
 gs slice ...
 gs status
 gs diff
-gs file ...
+gs fs ...
 gs cs ...
 gs repo ...
 gs commit ...
@@ -290,22 +290,25 @@ Shell prompts should show the current scope and current path. Color is allowed
 for interactive text output, but `--no-color`, JSON mode, and non-terminal test
 writers must remain stable and uncolored.
 
-## 6.1 Absolute File Commands
+## 6.1 Absolute Filesystem Commands
 
 ```bash
-gs file mkdir /nic/notes
-gs file write /nic/notes/readme.md --text "hello"
-gs file write /nic/notes/readme.md --stdin
-gs file touch /nic/notes/empty.txt
-gs file mv /nic/notes/readme.md /nic/notes/today.md
-gs file rm /nic/notes/today.md
+gs fs ls /nic
+gs fs cat /nic/notes/readme.md
+gs fs mkdir /nic/notes
+gs fs write /nic/notes/readme.md --text "hello"
+gs fs write /nic/notes/readme.md --stdin
+gs fs touch /nic/notes/empty.txt
+gs fs mv /nic/notes/readme.md /nic/notes/today.md
+gs fs rm /nic/notes/today.md
 ```
 
-`gs file` commands always require absolute global paths. They are intended for
-small remote edits to the signed-in user's personal home slice. For username
-`nic`, every `gs file` mutation must stay under `/nic`; attempts to mutate
-`/alice`, `/acme`, or any other account root are rejected before submit and are
-also rejected by server-side changeset validation.
+`gs fs` commands use absolute global paths when a path is provided. They are
+intended for small remote reads and edits in the signed-in user's personal home
+slice. For username `nic`, every `gs fs` operation must stay under `/nic`;
+attempts to read or mutate `/alice`, `/acme`, or any other account root are
+rejected before issuing server calls that need the path, and mutations are also
+rejected by server-side changeset validation.
 
 Empty directories are first-class tree entries for these commands. Creating a
 directory does not create a placeholder file.

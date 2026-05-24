@@ -158,7 +158,7 @@ it exists and labels the shell with that slice. The empty account-root folder is
 visible from slice metadata, so a newly signed-up user can run `gs shell` and
 see `nic/` from `ls` before creating any files.
 
-`gs file` and mutating `gs shell` commands use the same personal home slice as
+`gs fs` and mutating `gs shell` commands use the same personal home slice as
 their authoring slice. Paths must resolve under the home slice included path,
 for example `/nic`. Client-side checks reject absolute paths outside that root
 before submit, and the changeset service revalidates the same path containment

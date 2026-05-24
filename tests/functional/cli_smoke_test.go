@@ -313,7 +313,7 @@ func TestCLISliceCRUD(t *testing.T) {
 	}
 
 	listed := runCLI(t, home, workspace, "slice", "list", "acme")
-	for _, want := range []string{"acme/payment", "acme/docs"} {
+	for _, want := range []string{"slices for account acme:", "acme/payment", "acme/docs", "visibility: account", "included paths: /acme/docs"} {
 		if !strings.Contains(listed, want) {
 			t.Fatalf("slice list output missing %q:\n%s", want, listed)
 		}
@@ -476,11 +476,22 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 	dir := t.TempDir()
 
 	runCLISignupThroughWeb(t, home, dir, ts, "file_user")
-	runCLI(t, home, dir, "file", "mkdir", "/file-user/docs")
-	runCLI(t, home, dir, "file", "write", "/file-user/docs/readme.md", "--text", "hello from file command\n")
-	runCLI(t, home, dir, "file", "mv", "/file-user/docs/readme.md", "/file-user/docs/today.md")
-	runCLI(t, home, dir, "file", "mkdir", "/file-user/empty")
-	runCLI(t, home, dir, "file", "mv", "/file-user/empty", "/file-user/archive")
+	runCLI(t, home, dir, "fs", "mkdir", "/file-user/docs")
+	runCLI(t, home, dir, "fs", "write", "/file-user/docs/readme.md", "--text", "hello from file command\n")
+	runCLI(t, home, dir, "fs", "mv", "/file-user/docs/readme.md", "/file-user/docs/today.md")
+	runCLI(t, home, dir, "fs", "mkdir", "/file-user/empty")
+	runCLI(t, home, dir, "fs", "mv", "/file-user/empty", "/file-user/archive")
+
+	fsList := runCLI(t, home, dir, "fs", "ls", "/file-user")
+	for _, want := range []string{"archive/", "docs/"} {
+		if !strings.Contains(fsList, want) {
+			t.Fatalf("fs ls output missing %q:\n%s", want, fsList)
+		}
+	}
+	fsCat := runCLI(t, home, dir, "fs", "cat", "/file-user/docs/today.md")
+	if fsCat != "hello from file command\n" {
+		t.Fatalf("unexpected fs cat output:\n%s", fsCat)
+	}
 
 	stdout, stderr := runCLIStreamsWithInput(t, home, dir, strings.Join([]string{
 		"ls /file-user",
@@ -513,11 +524,11 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 		}
 	}
 
-	_, stderr = runCLIFails(t, home, dir, "file", "write", "relative.txt", "--text", "no")
+	_, stderr = runCLIFails(t, home, dir, "fs", "write", "relative.txt", "--text", "no")
 	if !strings.Contains(stderr, "paths must be absolute") {
 		t.Fatalf("expected absolute-path error, got:\n%s", stderr)
 	}
-	_, stderr = runCLIFails(t, home, dir, "file", "write", "/alice/hack.txt", "--text", "no")
+	_, stderr = runCLIFails(t, home, dir, "fs", "write", "/alice/hack.txt", "--text", "no")
 	if !strings.Contains(stderr, "outside the home slice") {
 		t.Fatalf("expected outside-home error, got:\n%s", stderr)
 	}

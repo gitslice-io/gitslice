@@ -3,6 +3,45 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Filesystem CLI Rename
+
+Request:
+
+- rename the shorter remote file command group to `gs fs`
+- add non-interactive `ls` and `cat` commands alongside existing filesystem
+  mutations
+
+Implemented:
+
+- renamed the visible CLI command group from `gs file` to `gs fs`
+- kept `gs file` as a compatibility alias, while help and schema advertise
+  `gs fs`
+- added `gs fs ls [absolute-path]` for listing a home-slice directory or file;
+  omitting the path lists the signed-in user's home root
+- added `gs fs cat <absolute-path>` for printing a home-slice file
+- moved `mkdir`, `write`, `touch`, `mv`, and `rm` under `gs fs`
+- updated CLI and account/auth design docs and functional coverage
+
+Important decisions and learnings:
+
+- Read operations use the same signed-in home-slice boundary as mutations, so
+  `gs fs ls` and `gs fs cat` reject paths outside the user's home root before
+  making path-specific server calls.
+- `gs fs cat --json` returns base64 content to keep JSON output safe for binary
+  file contents.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLIFileAndShellMutationsStayInHome -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
 ## 2026-05-24: Home File Commands And Mutable Shell
 
 Request:

@@ -47,6 +47,15 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	if len(got.Commands) == 0 {
 		t.Fatal("schema did not include commands")
 	}
+	uses := map[string]bool{}
+	for _, command := range got.Commands {
+		uses[command.Use] = true
+	}
+	for _, want := range []string{"gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>"} {
+		if !uses[want] {
+			t.Fatalf("schema missing %q", want)
+		}
+	}
 	if got.ErrorOutput["stream"] != "stderr" {
 		t.Fatalf("expected stderr error stream, got %#v", got.ErrorOutput["stream"])
 	}

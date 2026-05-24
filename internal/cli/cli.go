@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -168,6 +169,32 @@ type fileMutationOutput struct {
 	CommitID       string   `json:"commit_id"`
 	NewRefCommitID string   `json:"new_ref_commit_id"`
 	ChangedPaths   []string `json:"changed_paths"`
+}
+
+type fsListOutput struct {
+	Path     string          `json:"path"`
+	Slice    string          `json:"slice"`
+	CommitID string          `json:"commit_id"`
+	Entries  []fsEntryOutput `json:"entries"`
+}
+
+type fsEntryOutput struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Mode        uint32 `json:"mode,omitempty"`
+	Size        int64  `json:"size,omitempty"`
+	TreeID      string `json:"tree_id,omitempty"`
+	BlobID      string `json:"blob_id,omitempty"`
+	ContentHash string `json:"content_hash,omitempty"`
+}
+
+type fsCatOutput struct {
+	Path        string `json:"path"`
+	Slice       string `json:"slice"`
+	CommitID    string `json:"commit_id"`
+	ContentHash string `json:"content_hash,omitempty"`
+	DataBase64  string `json:"data_base64"`
 }
 
 const (
@@ -351,72 +378,93 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd)
 
-	fileCmd := &cobra.Command{
-		Use:   "file",
-		Short: "Mutate files in the signed-in home slice",
-		RunE:  requireSubcommand("file"),
+	fsCmd := &cobra.Command{
+		Use:     "fs",
+		Aliases: []string{"file"},
+		Short:   "Read and mutate files in the signed-in home slice",
+		RunE:    requireSubcommand("fs"),
 	}
-	fileMkdirCmd := &cobra.Command{
+	fsLsCmd := &cobra.Command{
+		Use:   "ls [absolute-path]",
+		Short: "List a remote directory or file",
+		Args:  maxArgs(1, "gs fs ls [/account/path]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := ""
+			if len(args) > 0 {
+				p = args[0]
+			}
+			return r.runFSList(cmd.Context(), *opts, p)
+		},
+	}
+	fsCatCmd := &cobra.Command{
+		Use:   "cat <absolute-path>",
+		Short: "Print a remote file",
+		Args:  exactArgs(1, "gs fs cat /account/path"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runFSCat(cmd.Context(), *opts, args[0])
+		},
+	}
+	fsMkdirCmd := &cobra.Command{
 		Use:   "mkdir <absolute-path>",
 		Short: "Create a remote directory",
-		Args:  exactArgs(1, "gs file mkdir /account/path"),
+		Args:  exactArgs(1, "gs fs mkdir /account/path"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runFileMkdir(cmd.Context(), *opts, args[0])
 		},
 	}
-	fileTouchCmd := &cobra.Command{
+	fsTouchCmd := &cobra.Command{
 		Use:   "touch <absolute-path>",
 		Short: "Create an empty remote file",
-		Args:  exactArgs(1, "gs file touch /account/path"),
+		Args:  exactArgs(1, "gs fs touch /account/path"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runFileWrite(cmd.Context(), *opts, args[0], nil)
 		},
 	}
-	fileWriteText := ""
-	fileWriteStdin := false
-	fileWriteCmd := &cobra.Command{
+	fsWriteText := ""
+	fsWriteStdin := false
+	fsWriteCmd := &cobra.Command{
 		Use:   "write <absolute-path> (--text text|--stdin)",
 		Short: "Create or replace a remote file",
-		Args:  exactArgs(1, "gs file write /account/path --text text"),
+		Args:  exactArgs(1, "gs fs write /account/path --text text"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if fileWriteStdin && fileWriteText != "" {
-				return userError("invalid_args", "use --text or --stdin, not both", "Run gs file write /account/path --text text.")
+			if fsWriteStdin && fsWriteText != "" {
+				return userError("invalid_args", "use --text or --stdin, not both", "Run gs fs write /account/path --text text.")
 			}
-			if !fileWriteStdin && fileWriteText == "" {
+			if !fsWriteStdin && fsWriteText == "" {
 				return userError("invalid_args", "file content is required", "Pass --text text or --stdin.")
 			}
 			var data []byte
-			if fileWriteStdin {
+			if fsWriteStdin {
 				var err error
 				data, err = io.ReadAll(r.stdin())
 				if err != nil {
 					return err
 				}
 			} else {
-				data = []byte(fileWriteText)
+				data = []byte(fsWriteText)
 			}
 			return r.runFileWrite(cmd.Context(), *opts, args[0], data)
 		},
 	}
-	fileWriteCmd.Flags().StringVar(&fileWriteText, "text", fileWriteText, "file content")
-	fileWriteCmd.Flags().BoolVar(&fileWriteStdin, "stdin", fileWriteStdin, "read file content from stdin")
-	fileMvCmd := &cobra.Command{
+	fsWriteCmd.Flags().StringVar(&fsWriteText, "text", fsWriteText, "file content")
+	fsWriteCmd.Flags().BoolVar(&fsWriteStdin, "stdin", fsWriteStdin, "read file content from stdin")
+	fsMvCmd := &cobra.Command{
 		Use:   "mv <absolute-old-path> <absolute-new-path>",
 		Short: "Rename or move a remote file or directory",
-		Args:  exactArgs(2, "gs file mv /account/old /account/new"),
+		Args:  exactArgs(2, "gs fs mv /account/old /account/new"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runFileMove(cmd.Context(), *opts, args[0], args[1])
 		},
 	}
-	fileRmCmd := &cobra.Command{
+	fsRmCmd := &cobra.Command{
 		Use:   "rm <absolute-path>",
 		Short: "Delete a remote file or directory",
-		Args:  exactArgs(1, "gs file rm /account/path"),
+		Args:  exactArgs(1, "gs fs rm /account/path"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runFileRemove(cmd.Context(), *opts, args[0])
 		},
 	}
-	fileCmd.AddCommand(fileMkdirCmd, fileTouchCmd, fileWriteCmd, fileMvCmd, fileRmCmd)
+	fsCmd.AddCommand(fsLsCmd, fsCatCmd, fsMkdirCmd, fsTouchCmd, fsWriteCmd, fsMvCmd, fsRmCmd)
 
 	repoCmd := &cobra.Command{
 		Use:   "repo",
@@ -571,7 +619,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, fileCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -887,8 +935,11 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 		fmt.Fprintf(r.Stdout, "no slices found for account %s\n", account)
 		return nil
 	}
+	fmt.Fprintf(r.Stdout, "slices for account %s:\n", account)
 	for _, slice := range out {
-		fmt.Fprintf(r.Stdout, "%s\t%s\t%s\n", slice.Ref, slice.Visibility, strings.Join(slice.IncludedPaths, ","))
+		fmt.Fprintf(r.Stdout, "  %s\n", slice.Ref)
+		fmt.Fprintf(r.Stdout, "    visibility: %s\n", slice.Visibility)
+		fmt.Fprintf(r.Stdout, "    included paths: %s\n", strings.Join(slice.IncludedPaths, ", "))
 	}
 	return nil
 }
@@ -1442,6 +1493,133 @@ func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.Client
 	}
 }
 
+func (r Runner) runFSList(ctx context.Context, opts commandOptions, requestedPath string) error {
+	cfg, conn, slice, repo, commitID, err := r.homeFSReadScope(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	root, err := homeSliceRoot(slice)
+	if err != nil {
+		return err
+	}
+	p := strings.TrimSpace(requestedPath)
+	if p == "" {
+		p = root
+	}
+	p, err = normalizeHomePath(slice, p, true)
+	if err != nil {
+		return err
+	}
+	callCtx := authContext(ctx, cfg)
+	var entries []*corev1.TreeEntry
+	resolved, err := repo.ResolvePath(callCtx, &corev1.ResolvePathRequest{CommitId: commitID, Path: p})
+	if err != nil {
+		if grpcstatus.Code(err) != codes.NotFound || p != root {
+			return err
+		}
+		entries = []*corev1.TreeEntry{}
+	} else if resolved.Entry != nil && resolved.Entry.Kind == corev1.EntryKind_ENTRY_KIND_FILE {
+		entries = []*corev1.TreeEntry{resolved.Entry}
+	} else {
+		list, err := repo.ListDirectory(callCtx, &corev1.ListDirectoryRequest{CommitId: commitID, Path: p, PageSize: 1000})
+		if err != nil {
+			return err
+		}
+		entries = append(entries, list.Entries...)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return fsEntryName(entries[i]) < fsEntryName(entries[j])
+	})
+	if opts.jsonOutput() {
+		out := fsListOutput{
+			Path:     p,
+			Slice:    slice.Ref.Account + "/" + slice.Ref.Slice,
+			CommitID: commitID,
+			Entries:  make([]fsEntryOutput, 0, len(entries)),
+		}
+		for _, entry := range entries {
+			out.Entries = append(out.Entries, fsEntryOutputFromProto(entry))
+		}
+		return writeJSON(r.Stdout, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	color := r.colorEnabled(opts)
+	for _, entry := range entries {
+		name := fsEntryName(entry)
+		if entry.Kind == corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+			name += "/"
+			name = colorize(color, ansiBlue, name)
+		}
+		fmt.Fprintln(r.Stdout, name)
+	}
+	return nil
+}
+
+func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath string) error {
+	cfg, conn, slice, repo, commitID, err := r.homeFSReadScope(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	p, err := normalizeHomePath(slice, requestedPath, true)
+	if err != nil {
+		return err
+	}
+	callCtx := authContext(ctx, cfg)
+	resolved, err := repo.ResolvePath(callCtx, &corev1.ResolvePathRequest{CommitId: commitID, Path: p})
+	if err != nil {
+		return err
+	}
+	if resolved.Entry == nil || resolved.Entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE {
+		return fmt.Errorf("%s is not a file", p)
+	}
+	read, err := repo.ReadFile(callCtx, &corev1.ReadFileRequest{CommitId: commitID, Path: p})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, fsCatOutput{
+			Path:        p,
+			Slice:       slice.Ref.Account + "/" + slice.Ref.Slice,
+			CommitID:    commitID,
+			ContentHash: read.ContentHash,
+			DataBase64:  base64.StdEncoding.EncodeToString(read.Data),
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	_, err = r.stdout().Write(read.Data)
+	return err
+}
+
+func (r Runner) homeFSReadScope(ctx context.Context) (UserConfig, *grpc.ClientConn, *corev1.Slice, corev1.RepositoryServiceClient, string, error) {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return UserConfig{}, nil, nil, nil, "", err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return UserConfig{}, nil, nil, nil, "", err
+	}
+	callCtx := authContext(ctx, cfg)
+	slice, err := r.personalHomeSlice(callCtx, cfg, conn)
+	if err != nil {
+		conn.Close()
+		return UserConfig{}, nil, nil, nil, "", err
+	}
+	repo := corev1.NewRepositoryServiceClient(conn)
+	ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		conn.Close()
+		return UserConfig{}, nil, nil, nil, "", err
+	}
+	return cfg, conn, slice, repo, ref.CommitId, nil
+}
+
 func (r Runner) runFileMkdir(ctx context.Context, opts commandOptions, p string) error {
 	return r.runHomeFileMutation(ctx, opts, "mkdir", []*corev1.FileEdit{{Op: "mkdir", Path: p}})
 }
@@ -1645,24 +1823,71 @@ func normalizeMutationEdits(slice *corev1.Slice, edits []*corev1.FileEdit) ([]st
 }
 
 func normalizeMutationPath(slice *corev1.Slice, value string) (string, error) {
+	return normalizeHomePath(slice, value, false)
+}
+
+func normalizeHomePath(slice *corev1.Slice, value string, allowRoot bool) (string, error) {
 	if !strings.HasPrefix(strings.TrimSpace(value), "/") {
-		return "", userError("invalid_path", "gs file paths must be absolute: "+value, "Use an absolute path such as /"+slice.Ref.Account+"/notes/readme.md.")
+		account := "account"
+		if slice != nil && slice.Ref != nil && slice.Ref.Account != "" {
+			account = slice.Ref.Account
+		}
+		return "", userError("invalid_path", "gs fs paths must be absolute: "+value, "Use an absolute path such as /"+account+"/notes/readme.md.")
 	}
-	cleaned, err := paths.Canonical(value)
+	cleaned, err := cleanShellGlobalPath(value)
 	if err != nil {
 		return "", err
 	}
+	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return "", fmt.Errorf("home slice has no included paths")
+	}
 	for _, prefix := range slice.Definition.IncludedPaths {
-		root := strings.TrimRight(prefix, "/")
+		root, err := cleanShellGlobalPath(prefix)
+		if err != nil {
+			return "", err
+		}
 		if !paths.Contains(root, cleaned) {
 			continue
 		}
-		if cleaned == root {
+		if cleaned == root && !allowRoot {
 			return "", userError("invalid_path", "cannot mutate the home root: "+cleaned, "Choose a path under "+root+".")
 		}
 		return cleaned, nil
 	}
 	return "", userError("outside_home", "path is outside the home slice: "+cleaned, "Use a path under "+strings.TrimRight(slice.Definition.IncludedPaths[0], "/")+".")
+}
+
+func homeSliceRoot(slice *corev1.Slice) (string, error) {
+	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return "", fmt.Errorf("home slice has no included paths")
+	}
+	return cleanShellGlobalPath(slice.Definition.IncludedPaths[0])
+}
+
+func fsEntryName(entry *corev1.TreeEntry) string {
+	if entry == nil {
+		return ""
+	}
+	if entry.Name != "" {
+		return entry.Name
+	}
+	return path.Base(entry.Path)
+}
+
+func fsEntryOutputFromProto(entry *corev1.TreeEntry) fsEntryOutput {
+	if entry == nil {
+		return fsEntryOutput{}
+	}
+	return fsEntryOutput{
+		Path:        entry.Path,
+		Name:        fsEntryName(entry),
+		Kind:        entryKindName(entry.Kind),
+		Mode:        entry.Mode,
+		Size:        entry.Size,
+		TreeID:      entry.TreeId,
+		BlobID:      entry.BlobId,
+		ContentHash: entry.ContentHash,
+	}
 }
 
 func operationPastTense(operation string) string {
@@ -2481,7 +2706,11 @@ func (s *serverShell) entryName(entry *corev1.TreeEntry) string {
 }
 
 func (s *serverShell) colorize(code, value string) string {
-	if !s.color {
+	return colorize(s.color, code, value)
+}
+
+func colorize(enabled bool, code, value string) string {
+	if !enabled {
 		return value
 	}
 	return code + value + ansiReset
@@ -3106,14 +3335,28 @@ func (r Runner) runSchema() error {
 				"machine_output": []string{"changeset_id", "patchset_id", "status"},
 			},
 			{
-				"use":            "gs file mkdir <absolute-path>",
+				"use":            "gs fs ls [absolute-path]",
+				"summary":        "list a remote directory or file under the signed-in home slice",
+				"args":           []string{"absolute-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"path", "slice", "commit_id", "entries"},
+			},
+			{
+				"use":            "gs fs cat <absolute-path>",
+				"summary":        "print a remote file under the signed-in home slice",
+				"args":           []string{"absolute-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"path", "slice", "commit_id", "content_hash", "data_base64"},
+			},
+			{
+				"use":            "gs fs mkdir <absolute-path>",
 				"summary":        "create a remote directory under the signed-in home slice",
 				"args":           []string{"absolute-path"},
 				"writes_stdout":  true,
 				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
 			},
 			{
-				"use":            "gs file write <absolute-path> (--text text|--stdin)",
+				"use":            "gs fs write <absolute-path> (--text text|--stdin)",
 				"summary":        "create or replace a remote file under the signed-in home slice",
 				"args":           []string{"absolute-path"},
 				"flags":          []string{"--text", "--stdin"},
@@ -3121,21 +3364,21 @@ func (r Runner) runSchema() error {
 				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
 			},
 			{
-				"use":            "gs file touch <absolute-path>",
+				"use":            "gs fs touch <absolute-path>",
 				"summary":        "create an empty remote file under the signed-in home slice",
 				"args":           []string{"absolute-path"},
 				"writes_stdout":  true,
 				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
 			},
 			{
-				"use":            "gs file mv <absolute-old-path> <absolute-new-path>",
+				"use":            "gs fs mv <absolute-old-path> <absolute-new-path>",
 				"summary":        "rename or move a remote file or directory under the signed-in home slice",
 				"args":           []string{"absolute-old-path", "absolute-new-path"},
 				"writes_stdout":  true,
 				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
 			},
 			{
-				"use":            "gs file rm <absolute-path>",
+				"use":            "gs fs rm <absolute-path>",
 				"summary":        "delete a remote file or directory under the signed-in home slice",
 				"args":           []string{"absolute-path"},
 				"writes_stdout":  true,
