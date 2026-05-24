@@ -246,6 +246,45 @@ func TestServerShellRunsOutsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestServerShellAttachesExplicitSlice(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	outsideWorkspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "explicit.go", "package payment\nconst ExplicitShell = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "explicit shell seed")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
+		"pwd",
+		"ls",
+		"cat explicit.go",
+		"mkdir explicit-dir",
+		"write explicit-dir/from_shell.txt hello explicit slice",
+		"cat explicit-dir/from_shell.txt",
+		"cat /acme/backend/secret.go",
+		"quit",
+	}, "\n")+"\n", "shell", "--slice", "acme/payment")
+	for _, want := range []string{
+		"server shell: acme/payment @",
+		"gs acme/payment:/> /",
+		"explicit.go",
+		"package payment\nconst ExplicitShell = true\n",
+		"ok created @",
+		"ok wrote @",
+		"hello explicit slice",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("explicit slice shell output missing %q:\n%s", want, stdout)
+		}
+	}
+	if !strings.Contains(stderr, "outside the workspace slice") {
+		t.Fatalf("expected explicit slice boundary error in stderr, got:\n%s", stderr)
+	}
+}
+
 func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 	ts := startTestServer(t)
 	statusCode, _, body := httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "", map[string]any{

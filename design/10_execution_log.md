@@ -3,6 +3,38 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Explicit Shell Slice Attachment
+
+Request:
+
+- add support for attaching `gs shell` to a specified slice
+
+Implemented:
+
+- added `gs shell --slice <account>/<slice>`
+- made explicit slice selection override workspace and personal-home shell
+  autodetection
+- made the explicit shell scope slice-rooted, so `/` maps to the selected
+  slice's first included root
+- kept shell mutations enabled for explicit slices when inspecting the current
+  ref, and read-only when `--commit` pins a historical commit
+- added functional coverage for running an explicit-slice shell outside a
+  workspace, reading files, mutating files, and rejecting paths outside the
+  attached slice
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestServerShell(AttachesExplicitSlice|RunsOutsideWorkspace|NavigationAndSliceBoundary)' -v
+go run ./cmd/gs shell --help
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
 ## 2026-05-24: Filesystem CLI Rename
 
 Request:

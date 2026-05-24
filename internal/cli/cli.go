@@ -529,15 +529,17 @@ func (r Runner) rootCommand() *cobra.Command {
 	commitCmd.AddCommand(commitListCmd, commitInspectCmd)
 
 	shellCommit := ""
+	shellSlice := ""
 	shellCmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Browse server-side files",
-		Args:  noArgs("gs shell [--commit commit-id]"),
+		Args:  noArgs("gs shell [--slice account/slice] [--commit commit-id]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runShell(cmd.Context(), *opts, shellCommit)
+			return r.runShell(cmd.Context(), *opts, shellCommit, shellSlice)
 		},
 	}
 	shellCmd.Flags().StringVar(&shellCommit, "commit", shellCommit, "native commit id to inspect; defaults to refs/global/main")
+	shellCmd.Flags().StringVar(&shellSlice, "slice", shellSlice, "slice to attach, defaults to workspace slice or personal home slice")
 
 	schemaCmd := &cobra.Command{
 		Use:   "schema",
@@ -2140,7 +2142,7 @@ func (r Runner) runCommitInspect(ctx context.Context, opts commandOptions, commi
 	return nil
 }
 
-func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID string) error {
+func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sliceRef string) error {
 	if opts.jsonOutput() {
 		return userError("unsupported_format", "gs shell only supports text output", "Run gs shell without --json or --format json.")
 	}
@@ -2154,7 +2156,7 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 	}
 	defer conn.Close()
 	callCtx := authContext(ctx, cfg)
-	rootPath, scopeLabel, workspaceScoped, syntheticDirs, mutationSlice, err := r.shellScope(callCtx, cfg, conn)
+	rootPath, scopeLabel, workspaceScoped, syntheticDirs, mutationSlice, err := r.shellScope(callCtx, cfg, conn, sliceRef)
 	if err != nil {
 		return err
 	}
@@ -2210,7 +2212,10 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 	return scanner.Err()
 }
 
-func (r Runner) shellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
+func (r Runner) shellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceRef string) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
+	if strings.TrimSpace(sliceRef) != "" {
+		return r.explicitShellScope(ctx, conn, sliceRef)
+	}
 	ws, err := r.readWorkspaceConfig()
 	if err != nil {
 		var cmdErr commandError
@@ -2244,6 +2249,25 @@ func (r Runner) shellScope(ctx context.Context, cfg UserConfig, conn *grpc.Clien
 		return "", "", false, nil, nil, err
 	}
 	return rootPath, ws.Account + "/" + ws.Slice, true, nil, slice, nil
+}
+
+func (r Runner) explicitShellScope(ctx context.Context, conn *grpc.ClientConn, sliceRef string) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
+	ref, err := parseSliceRef(sliceRef)
+	if err != nil {
+		return "", "", false, nil, nil, err
+	}
+	slice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		return "", "", false, nil, nil, err
+	}
+	if slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return "", "", false, nil, nil, fmt.Errorf("slice %s/%s has no included paths", ref.Account, ref.Slice)
+	}
+	rootPath, err = canonicalIncludedRoot(slice.Definition.IncludedPaths[0])
+	if err != nil {
+		return "", "", false, nil, nil, err
+	}
+	return rootPath, ref.Account + "/" + ref.Slice, true, nil, slice, nil
 }
 
 func (r Runner) personalHomeShellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (string, map[string]*corev1.TreeEntry, error) {
@@ -3408,7 +3432,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":           "gs shell",
 				"summary":       "browse server-side files",
-				"flags":         []string{"--commit"},
+				"flags":         []string{"--commit", "--slice"},
 				"writes_stdout": true,
 			},
 			{

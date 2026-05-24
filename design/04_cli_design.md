@@ -235,6 +235,7 @@ user needs `acme/payment` and `acme/frontend`, they create two workspaces.
 
 ```bash
 gs shell
+gs shell --slice <account>/<slice>
 gs shell --commit <commit-id>
 ```
 
@@ -242,18 +243,22 @@ gs shell --commit <commit-id>
 run from any local directory after `gs auth login`; it does not require a
 Gitslice workspace and does not browse or mutate the local filesystem.
 
-When launched inside a workspace, the shell keeps the existing slice-rooted
-view: `/` means the workspace's bound slice root. When launched outside a
-workspace, the shell first tries to resolve the signed-in user's default
-personal home slice, `<username>/home`. If that slice exists, the shell labels
-the session with that slice and shows the user's account-root folder from `/`,
-for example `ls` shows `nic/` for `nic/home`. Empty home folders are visible
-from slice metadata even before the user has created files. Legacy development
-accounts without a personal home slice fall back to the global repository root,
-where paths such as `/acme/payment/app.go` are interpreted directly.
+`--slice <account>/<slice>` explicitly attaches the shell to a slice and makes
+`/` mean that slice's first included root. When the flag is omitted inside a
+workspace, the shell keeps the existing slice-rooted view for the workspace's
+bound slice. When the flag is omitted outside a workspace, the shell first tries
+to resolve the signed-in user's default personal home slice, `<username>/home`.
+If that slice exists, the shell labels the session with that slice and shows the
+user's account-root folder from `/`, for example `ls` shows `nic/` for
+`nic/home`. Empty home folders are visible from slice metadata even before the
+user has created files. Legacy development accounts without a personal home
+slice fall back to the global repository root, where paths such as
+`/acme/payment/app.go` are interpreted directly.
 
 By default, the shell reads the latest `refs/global/main` commit from the
-server. `--commit` pins inspection to a specific native commit.
+server. `--commit` pins inspection to a specific native commit. A pinned shell
+remains read-only even when `--slice` or a workspace provides an authoring
+slice.
 
 Initial commands:
 
