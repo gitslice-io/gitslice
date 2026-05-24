@@ -108,6 +108,9 @@ func (p *Projector) rebuild(ctx context.Context, repoPath string, slice *corev1.
 	} else if err != nil {
 		return err
 	}
+	if err := runGit(ctx, repoPath, nil, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
+		return err
+	}
 	worktree, err := os.MkdirTemp(filepath.Dir(repoPath), ".projection-*")
 	if err != nil {
 		return err
