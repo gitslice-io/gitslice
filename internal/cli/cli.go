@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -28,6 +30,7 @@ import (
 type Runner struct {
 	Stdout io.Writer
 	Stderr io.Writer
+	Stdin  io.Reader
 	Dir    string
 	Home   string
 }
@@ -136,7 +139,7 @@ type hydrateResult struct {
 }
 
 func Main(args []string, stdout, stderr io.Writer) int {
-	r := Runner{Stdout: stdout, Stderr: stderr}
+	r := Runner{Stdout: stdout, Stderr: stderr, Stdin: os.Stdin}
 	if err := r.Run(context.Background(), args); err != nil {
 		if wantsJSON(args) {
 			if writeErr := writeJSON(stderr, classifyError(err)); writeErr != nil {
@@ -345,6 +348,17 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	commitCmd.AddCommand(commitListCmd, commitInspectCmd)
 
+	shellCommit := ""
+	shellCmd := &cobra.Command{
+		Use:   "shell",
+		Short: "Browse server-side files for the current workspace slice",
+		Args:  noArgs("gs shell [--commit commit-id]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runShell(cmd.Context(), *opts, shellCommit)
+		},
+	}
+	shellCmd.Flags().StringVar(&shellCommit, "commit", shellCommit, "native commit id to inspect; defaults to refs/global/main")
+
 	schemaCmd := &cobra.Command{
 		Use:   "schema",
 		Short: "Print the machine-readable CLI schema",
@@ -362,7 +376,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, repoCmd, commitCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -966,6 +980,336 @@ func (r Runner) runCommitInspect(ctx context.Context, opts commandOptions, commi
 	return nil
 }
 
+func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID string) error {
+	if opts.jsonOutput() {
+		return userError("unsupported_format", "gs shell only supports text output", "Run gs shell without --json or --format json.")
+	}
+	cfg, ws, _, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if len(ws.IncludedPaths) == 0 {
+		return fmt.Errorf("workspace has no included paths")
+	}
+	rootPath, err := paths.Canonical(ws.IncludedPaths[0])
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	repo := corev1.NewRepositoryServiceClient(conn)
+	if commitID == "" {
+		ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+		if err != nil {
+			return err
+		}
+		commitID = ref.CommitId
+	}
+	sh := &serverShell{
+		runner:   r,
+		stdout:   r.stdout(),
+		stderr:   r.stderr(),
+		repo:     repo,
+		ws:       ws,
+		root:     rootPath,
+		cwd:      rootPath,
+		commitID: commitID,
+	}
+	if !opts.Quiet {
+		fmt.Fprintf(sh.stdout, "server shell: %s/%s @ %s\n", ws.Account, ws.Slice, shortID(commitID))
+		fmt.Fprintln(sh.stdout, "type help for commands")
+	}
+	scanner := bufio.NewScanner(r.stdin())
+	for {
+		if !opts.Quiet {
+			fmt.Fprint(sh.stdout, sh.prompt())
+		}
+		if !scanner.Scan() {
+			break
+		}
+		done, err := sh.exec(callCtx, scanner.Text())
+		if err != nil {
+			fmt.Fprintf(sh.stderr, "error: %v\n", err)
+			continue
+		}
+		if done {
+			return nil
+		}
+	}
+	return scanner.Err()
+}
+
+type serverShell struct {
+	runner   Runner
+	stdout   io.Writer
+	stderr   io.Writer
+	repo     corev1.RepositoryServiceClient
+	ws       WorkspaceConfig
+	root     string
+	cwd      string
+	commitID string
+}
+
+func (s *serverShell) exec(ctx context.Context, line string) (bool, error) {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return false, nil
+	}
+	switch fields[0] {
+	case "exit", "quit":
+		return true, nil
+	case "help", "?":
+		s.printHelp()
+	case "pwd":
+		if len(fields) != 1 {
+			return false, fmt.Errorf("usage: pwd")
+		}
+		fmt.Fprintln(s.stdout, s.shellPath(s.cwd))
+	case "ref":
+		if len(fields) != 1 {
+			return false, fmt.Errorf("usage: ref")
+		}
+		fmt.Fprintln(s.stdout, s.commitID)
+	case "cd":
+		target := "."
+		if len(fields) > 2 {
+			return false, fmt.Errorf("usage: cd [path]")
+		}
+		if len(fields) == 2 {
+			target = fields[1]
+		}
+		return false, s.cd(ctx, target)
+	case "ls":
+		target := "."
+		if len(fields) > 2 {
+			return false, fmt.Errorf("usage: ls [path]")
+		}
+		if len(fields) == 2 {
+			target = fields[1]
+		}
+		return false, s.ls(ctx, target)
+	case "cat":
+		if len(fields) != 2 {
+			return false, fmt.Errorf("usage: cat <file>")
+		}
+		return false, s.cat(ctx, fields[1])
+	case "stat":
+		if len(fields) != 2 {
+			return false, fmt.Errorf("usage: stat <path>")
+		}
+		return false, s.stat(ctx, fields[1])
+	default:
+		return false, fmt.Errorf("unknown command %q", fields[0])
+	}
+	return false, nil
+}
+
+func (s *serverShell) printHelp() {
+	fmt.Fprintln(s.stdout, "commands:")
+	fmt.Fprintln(s.stdout, "  pwd              print current server path")
+	fmt.Fprintln(s.stdout, "  ls [path]        list a server directory")
+	fmt.Fprintln(s.stdout, "  cd [path]        change server directory")
+	fmt.Fprintln(s.stdout, "  cat <file>       print a server file")
+	fmt.Fprintln(s.stdout, "  stat <path>      inspect server file or directory metadata")
+	fmt.Fprintln(s.stdout, "  ref              print inspected commit id")
+	fmt.Fprintln(s.stdout, "  help             show this help")
+	fmt.Fprintln(s.stdout, "  exit, quit       leave the shell")
+}
+
+func (s *serverShell) cd(ctx context.Context, target string) error {
+	globalPath, err := s.resolve(target)
+	if err != nil {
+		return err
+	}
+	if globalPath == s.root {
+		s.cwd = globalPath
+		return nil
+	}
+	entry, err := s.resolveEntry(ctx, globalPath)
+	if err != nil {
+		return err
+	}
+	if entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+		return fmt.Errorf("%s is not a directory", s.shellPath(globalPath))
+	}
+	s.cwd = globalPath
+	return nil
+}
+
+func (s *serverShell) ls(ctx context.Context, target string) error {
+	globalPath, err := s.resolve(target)
+	if err != nil {
+		return err
+	}
+	entry, err := s.resolveEntry(ctx, globalPath)
+	if err == nil && entry.Kind == corev1.EntryKind_ENTRY_KIND_FILE {
+		fmt.Fprintln(s.stdout, s.entryName(entry))
+		return nil
+	}
+	if err != nil && (grpcstatus.Code(err) != codes.NotFound || globalPath != s.root) {
+		return err
+	}
+	list, err := s.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: s.commitID, Path: globalPath, PageSize: 1000})
+	if err != nil {
+		return err
+	}
+	entries := append([]*corev1.TreeEntry(nil), list.Entries...)
+	sort.Slice(entries, func(i, j int) bool {
+		return s.entryName(entries[i]) < s.entryName(entries[j])
+	})
+	for _, entry := range entries {
+		name := s.entryName(entry)
+		if entry.Kind == corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+			name += "/"
+		}
+		fmt.Fprintln(s.stdout, name)
+	}
+	return nil
+}
+
+func (s *serverShell) cat(ctx context.Context, target string) error {
+	globalPath, err := s.resolve(target)
+	if err != nil {
+		return err
+	}
+	entry, err := s.resolveEntry(ctx, globalPath)
+	if err != nil {
+		return err
+	}
+	if entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE {
+		return fmt.Errorf("%s is not a file", s.shellPath(globalPath))
+	}
+	read, err := s.repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: s.commitID, Path: globalPath})
+	if err != nil {
+		return err
+	}
+	if _, err := s.stdout.Write(read.Data); err != nil {
+		return err
+	}
+	if len(read.Data) == 0 || read.Data[len(read.Data)-1] != '\n' {
+		fmt.Fprintln(s.stdout)
+	}
+	return nil
+}
+
+func (s *serverShell) stat(ctx context.Context, target string) error {
+	globalPath, err := s.resolve(target)
+	if err != nil {
+		return err
+	}
+	if globalPath == s.root {
+		if _, err := s.resolveEntry(ctx, globalPath); err != nil && grpcstatus.Code(err) != codes.NotFound {
+			return err
+		}
+		fmt.Fprintf(s.stdout, "path: %s\n", globalPath)
+		fmt.Fprintf(s.stdout, "shell_path: %s\n", s.shellPath(globalPath))
+		fmt.Fprintln(s.stdout, "kind: directory")
+		return nil
+	}
+	entry, err := s.resolveEntry(ctx, globalPath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(s.stdout, "path: %s\n", entry.Path)
+	fmt.Fprintf(s.stdout, "shell_path: %s\n", s.shellPath(entry.Path))
+	fmt.Fprintf(s.stdout, "kind: %s\n", entryKindName(entry.Kind))
+	if entry.Mode != 0 {
+		fmt.Fprintf(s.stdout, "mode: %o\n", entry.Mode)
+	}
+	if entry.Size != 0 {
+		fmt.Fprintf(s.stdout, "size: %d\n", entry.Size)
+	}
+	if entry.ContentHash != "" {
+		fmt.Fprintf(s.stdout, "content_hash: %s\n", entry.ContentHash)
+	}
+	if entry.TreeId != "" {
+		fmt.Fprintf(s.stdout, "tree_id: %s\n", entry.TreeId)
+	}
+	if entry.BlobId != "" {
+		fmt.Fprintf(s.stdout, "blob_id: %s\n", entry.BlobId)
+	}
+	return nil
+}
+
+func (s *serverShell) resolveEntry(ctx context.Context, globalPath string) (*corev1.TreeEntry, error) {
+	resolved, err := s.repo.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: s.commitID, Path: globalPath})
+	if err != nil {
+		return nil, err
+	}
+	if resolved.Entry == nil {
+		return nil, fmt.Errorf("path not found: %s", s.shellPath(globalPath))
+	}
+	return resolved.Entry, nil
+}
+
+func (s *serverShell) resolve(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "." {
+		return s.cwd, nil
+	}
+	var candidate string
+	switch {
+	case strings.HasPrefix(value, "/"+s.ws.Account+"/"+s.ws.Slice):
+		candidate = value
+	case strings.HasPrefix(value, "/"):
+		segments := strings.Split(strings.Trim(value, "/"), "/")
+		if len(segments) >= 2 && segments[0] == s.ws.Account {
+			candidate = value
+		} else {
+			candidate = strings.TrimRight(s.root, "/") + "/" + strings.TrimPrefix(value, "/")
+		}
+	default:
+		candidate = strings.TrimRight(s.cwd, "/") + "/" + value
+	}
+	cleaned, err := paths.Canonical(path.Clean(candidate))
+	if err != nil {
+		return "", err
+	}
+	if !paths.Contains(s.root, cleaned) {
+		return "", userError("outside_slice", "path is outside the workspace slice: "+cleaned, "Use paths under "+s.shellPath(s.root)+".")
+	}
+	return cleaned, nil
+}
+
+func (s *serverShell) prompt() string {
+	return fmt.Sprintf("gs %s/%s:%s> ", s.ws.Account, s.ws.Slice, s.shellPath(s.cwd))
+}
+
+func (s *serverShell) shellPath(globalPath string) string {
+	if globalPath == s.root {
+		return "/"
+	}
+	rel := strings.TrimPrefix(globalPath, strings.TrimRight(s.root, "/")+"/")
+	return "/" + rel
+}
+
+func (s *serverShell) entryName(entry *corev1.TreeEntry) string {
+	if entry == nil {
+		return ""
+	}
+	if entry.Name != "" {
+		return entry.Name
+	}
+	return path.Base(entry.Path)
+}
+
+func entryKindName(kind corev1.EntryKind) string {
+	switch kind {
+	case corev1.EntryKind_ENTRY_KIND_FILE:
+		return "file"
+	case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
+		return "directory"
+	case corev1.EntryKind_ENTRY_KIND_SYMLINK:
+		return "symlink"
+	default:
+		return "unspecified"
+	}
+}
+
 func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn, ws WorkspaceConfig, commitID string, requested []string, cache *clientcache.ObjectCache) (hydrateResult, error) {
 	base, err := r.readBaseSnapshot()
 	if err != nil {
@@ -1381,6 +1725,27 @@ func (r Runner) userConfigPath() string {
 	return filepath.Join(r.homeDir(), ".gitslice", "config.json")
 }
 
+func (r Runner) stdin() io.Reader {
+	if r.Stdin != nil {
+		return r.Stdin
+	}
+	return os.Stdin
+}
+
+func (r Runner) stdout() io.Writer {
+	if r.Stdout != nil {
+		return r.Stdout
+	}
+	return os.Stdout
+}
+
+func (r Runner) stderr() io.Writer {
+	if r.Stderr != nil {
+		return r.Stderr
+	}
+	return os.Stderr
+}
+
 func (r Runner) objectCache() (*clientcache.ObjectCache, error) {
 	root := os.Getenv("GITSLICE_CLIENT_CACHE_DIR")
 	if root == "" {
@@ -1501,6 +1866,12 @@ func (r Runner) runSchema() error {
 				"args":           []string{"commit-id"},
 				"writes_stdout":  true,
 				"machine_output": []string{"id", "parent_ids", "root_tree_id", "author", "message", "created_at", "changed_paths"},
+			},
+			{
+				"use":           "gs shell",
+				"summary":       "browse server-side files for the current workspace slice",
+				"flags":         []string{"--commit"},
+				"writes_stdout": true,
 			},
 			{
 				"use":           "gs schema",

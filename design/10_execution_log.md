@@ -3,6 +3,50 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Server-Side Interactive File Shell
+
+Request:
+
+- add a `gs shell` command for interactive file and folder inspection
+- ensure the shell inspects server files, not local workspace files
+
+Implemented:
+
+- added `gs shell` as a local REPL that uses the current workspace only for
+  auth, slice scope, and relative path mapping
+- defaulted shell inspection to latest `refs/global/main`, with `--commit` for
+  pinned native commit inspection
+- added read-only shell commands: `pwd`, `ls`, `cd`, `cat`, `stat`, `ref`,
+  `help`, `exit`, and `quit`
+- mapped shell paths to the bound slice root and rejected paths outside the
+  slice before issuing server reads
+- added functional coverage proving `cat` reads a submitted server file even
+  after the local workspace copy is deleted
+- expanded functional coverage for shell navigation, absolute canonical paths,
+  slice-boundary rejection, and `--commit` pinned historical reads
+
+Important decisions and learnings:
+
+- The shell is deliberately read-only in the MVP. Local edits still happen in
+  the hydrated workspace and go through `gs status`, `gs cs create`, and submit
+  validation.
+- Keeping the shell server-backed avoids confusing local dirty state with the
+  authoritative committed tree the user wants to inspect.
+- Leading slash paths can mean shell-rooted paths such as `/nested/file.go`.
+  Canonical paths under the current account such as `/acme/backend/file.go`
+  must still be interpreted as canonical so cross-slice escapes are rejected.
+
+Verification:
+
+```bash
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestServerShell' -v
+git diff --check
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+```
+
 ## 2026-05-24: Global Client Object Cache
 
 Request:

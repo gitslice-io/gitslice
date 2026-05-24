@@ -56,6 +56,7 @@ gs file ...
 gs cs ...
 gs repo ...
 gs commit ...
+gs shell
 gs op ...
 gs log ...
 gs config ...
@@ -170,7 +171,43 @@ remains authoritative.
 The MVP does not support adding a second slice to an existing workspace. If the
 user needs `acme/payment` and `acme/frontend`, they create two workspaces.
 
-## 6. Status And Diff
+## 6. Server File Shell
+
+```bash
+gs shell
+gs shell --commit <commit-id>
+```
+
+`gs shell` is a local interactive shell for inspecting server-side files in the
+current workspace's bound slice. It does not browse or mutate the local
+workspace filesystem. The workspace is used only for auth config, slice scope,
+and relative path mapping.
+
+By default, the shell reads the latest `refs/global/main` commit from the
+server. `--commit` pins inspection to a specific native commit.
+
+Initial commands:
+
+```text
+pwd              print current server path
+ls [path]        list a server directory
+cd [path]        change server directory
+cat <file>       print a server file
+stat <path>      inspect server file or directory metadata
+ref              print inspected commit id
+help             show shell commands
+exit, quit       leave the shell
+```
+
+Paths inside the shell are slice-rooted. `/` means the bound slice root, while a
+full canonical path such as `/acme/payment/app.go` is also accepted when it is
+inside the bound slice. Attempts to leave the bound slice are rejected locally
+before issuing server reads.
+
+The shell is read-only in the MVP. Local editing still happens in the hydrated
+workspace and is validated through `gs status`, `gs cs create`, and submit.
+
+## 7. Status And Diff
 
 ```bash
 gs status
@@ -191,7 +228,7 @@ gs diff --to <patchset>
 `gs diff` should show the diff between local overlay changes and the current
 base commit for the bound slice.
 
-## 7. Working Copy Snapshot Model
+## 8. Working Copy Snapshot Model
 
 The CLI should use a working-copy-as-draft-patchset model.
 
@@ -236,7 +273,7 @@ gs cs update
 gs cs submit
 ```
 
-## 8. Changeset Commands
+## 9. Changeset Commands
 
 ```bash
 gs cs create
@@ -284,7 +321,7 @@ Submit flow:
    reason.
 ```
 
-## 9. Submit Status Commands
+## 10. Submit Status Commands
 
 ```bash
 gs cs status
@@ -299,7 +336,7 @@ Submit status commands should use `ChangesetService` to show:
 - submit requirement refresh state
 - CAS/rebase retry state
 
-## 10. Operation Log And Undo
+## 11. Operation Log And Undo
 
 ```bash
 gs op log
@@ -326,7 +363,7 @@ manual action is required.
 The backend may accept optional workspace operation records for audit and agent
 debugging, but local undo must not depend on a server round trip.
 
-## 11. Conflict Handling
+## 12. Conflict Handling
 
 Conflicts should be first-class patchset state.
 
@@ -344,7 +381,7 @@ When the server reports a stale path base, the CLI should show the path and the
 expected/current fingerprints when available. The detailed conflict model is in
 [07_conflict_resolution.md](07_conflict_resolution.md).
 
-## 12. Query And Formatting
+## 13. Query And Formatting
 
 The CLI should eventually support structured changeset and file selectors:
 
@@ -369,7 +406,7 @@ gs cs status --format json
 gs status --format json
 ```
 
-## 13. Repository Import And Commit Inspection
+## 14. Repository Import And Commit Inspection
 
 The MVP CLI supports importing a GitHub repository into a mounted Gitslice path:
 
@@ -434,7 +471,7 @@ These commands are intentionally native. They list and inspect Gitslice commits,
 not Git object ids. The import response maps imported Git commit ids to native
 commit ids for follow-up inspection.
 
-## 14. Backend Requirements
+## 15. Backend Requirements
 
 The CLI needs these backend capabilities:
 
@@ -459,7 +496,7 @@ The CLI needs these backend capabilities:
 The `WorkspaceService` calls are backend helpers. The CLI still owns local
 workspace files, local cache, and local operation undo.
 
-## 15. Non-Goals
+## 16. Non-Goals
 
 The initial CLI should not:
 
