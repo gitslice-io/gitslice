@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
@@ -14,9 +16,57 @@ type SliceStore struct {
 	db *sql.DB
 }
 
+func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string) (*corev1.Slice, error) {
+	ref, err := normalizeSliceRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	includedPaths, visibility, err = validateSliceDefinition(ref, includedPaths, visibility)
+	if err != nil {
+		return nil, err
+	}
+
+	var accountID string
+	err = s.db.QueryRowContext(ctx, `select id from accounts where slug = $1`, ref.Account).Scan(&accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var existingID string
+	err = s.db.QueryRowContext(ctx, `
+		select slices.id
+		from slices
+		where slices.account_id = $1 and slices.slug = $2
+	`, accountID, ref.Slice).Scan(&existingID)
+	if err == nil {
+		return nil, fmt.Errorf("%w: slice %s/%s already exists", ErrConflict, ref.Account, ref.Slice)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	id := sliceID(ref.Account, ref.Slice)
+	includedJSON, err := encodeJSON(includedPaths)
+	if err != nil {
+		return nil, err
+	}
+	definitionHash := definitionHash(id, 1, includedPaths, visibility)
+	_, err = s.db.ExecContext(ctx, `
+		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
+		values ($1, $2, $3, 1, $4, $5, $6, now(), now())
+	`, id, accountID, ref.Slice, definitionHash, visibility, includedJSON)
+	if err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, id)
+}
+
 func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
-	if ref == nil || ref.Account == "" || ref.Slice == "" {
-		return nil, fmt.Errorf("slice ref requires account and slice")
+	ref, err := normalizeSliceRef(ref)
+	if err != nil {
+		return nil, err
 	}
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
@@ -40,6 +90,10 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 }
 
 func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
+	account, err := normalizeSlug(account, "account")
+	if err != nil {
+		return nil, err
+	}
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -68,23 +122,40 @@ func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*co
 }
 
 func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
-	if definition == nil {
-		return nil, fmt.Errorf("slice definition is required")
+	sliceID = strings.TrimSpace(sliceID)
+	expectedHash = strings.TrimSpace(expectedHash)
+	if sliceID == "" {
+		return nil, fmt.Errorf("%w: slice_id is required", ErrInvalid)
 	}
-	included, err := encodeJSON(definition.IncludedPaths)
+	if expectedHash == "" {
+		return nil, fmt.Errorf("%w: expected_definition_hash is required", ErrInvalid)
+	}
+	if definition == nil {
+		return nil, fmt.Errorf("%w: slice definition is required", ErrInvalid)
+	}
+	current, err := s.Get(ctx, sliceID)
 	if err != nil {
 		return nil, err
 	}
-	nextHash := definitionHash(sliceID, definition.Version+1, definition.IncludedPaths, definition.Visibility)
+	includedPaths, visibility, err := validateSliceDefinition(current.Ref, definition.IncludedPaths, definition.Visibility)
+	if err != nil {
+		return nil, err
+	}
+	included, err := encodeJSON(includedPaths)
+	if err != nil {
+		return nil, err
+	}
+	nextVersion := current.Definition.Version + 1
+	nextHash := definitionHash(sliceID, nextVersion, includedPaths, visibility)
 	res, err := s.db.ExecContext(ctx, `
 		update slices
-		set version = version + 1,
-		    definition_hash = $1,
-		    visibility = $2,
-		    included_paths = $3,
+		set version = $1,
+		    definition_hash = $2,
+		    visibility = $3,
+		    included_paths = $4,
 		    updated_at = now()
-		where id = $4 and definition_hash = $5
-	`, nextHash, definition.Visibility, included, sliceID, expectedHash)
+		where id = $5 and definition_hash = $6
+	`, nextVersion, nextHash, visibility, included, sliceID, expectedHash)
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +171,39 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash
 		return nil, err
 	}
 	return slice.Definition, nil
+}
+
+func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
+	sliceID = strings.TrimSpace(sliceID)
+	if sliceID == "" {
+		return fmt.Errorf("%w: slice_id is required", ErrInvalid)
+	}
+	if _, err := s.Get(ctx, sliceID); err != nil {
+		return err
+	}
+	var changesets int
+	if err := s.db.QueryRowContext(ctx, `
+		select count(*)
+		from changesets
+		where authoring_slice_id = $1
+	`, sliceID).Scan(&changesets); err != nil {
+		return err
+	}
+	if changesets > 0 {
+		return fmt.Errorf("%w: slice has changesets", ErrConflict)
+	}
+	res, err := s.db.ExecContext(ctx, `delete from slices where id = $1`, sliceID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *SliceStore) CoveringIDs(ctx context.Context, p string) ([]string, error) {
@@ -127,6 +231,116 @@ func (s *SliceStore) CoveringIDs(ctx context.Context, p string) ([]string, error
 		}
 	}
 	return ids, rows.Err()
+}
+
+func normalizeSliceRef(ref *corev1.SliceRef) (*corev1.SliceRef, error) {
+	if ref == nil {
+		return nil, fmt.Errorf("%w: slice ref is required", ErrInvalid)
+	}
+	account, err := normalizeSlug(ref.Account, "account")
+	if err != nil {
+		return nil, err
+	}
+	slug, err := normalizeSlug(ref.Slice, "slice")
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.SliceRef{Account: account, Slice: slug}, nil
+}
+
+func normalizeSlug(value, name string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, "_", "-")
+	if value == "" {
+		return "", fmt.Errorf("%w: %s is required", ErrInvalid, name)
+	}
+	if len(value) > 63 {
+		return "", fmt.Errorf("%w: %s must be 63 characters or fewer", ErrInvalid, name)
+	}
+	if strings.HasPrefix(value, "-") || strings.HasSuffix(value, "-") {
+		return "", fmt.Errorf("%w: %s must not start or end with '-'", ErrInvalid, name)
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return "", fmt.Errorf("%w: %s may contain only letters, numbers, '-' or '_'", ErrInvalid, name)
+	}
+	return value, nil
+}
+
+func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string) ([]string, string, error) {
+	if ref == nil {
+		return nil, "", fmt.Errorf("%w: slice ref is required", ErrInvalid)
+	}
+	visibility = strings.TrimSpace(visibility)
+	if visibility == "" {
+		visibility = "account"
+	}
+	switch visibility {
+	case "account", "public":
+	default:
+		return nil, "", fmt.Errorf("%w: visibility must be account or public", ErrInvalid)
+	}
+	if len(includedPaths) == 0 {
+		return nil, "", fmt.Errorf("%w: included path is required", ErrInvalid)
+	}
+	out := make([]string, 0, len(includedPaths))
+	seen := map[string]struct{}{}
+	for _, raw := range includedPaths {
+		cleaned, err := canonicalSliceIncludedPath(ref, raw)
+		if err != nil {
+			return nil, "", err
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		out = append(out, cleaned)
+	}
+	return out, visibility, nil
+}
+
+func canonicalSliceIncludedPath(ref *corev1.SliceRef, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("%w: included path is required", ErrInvalid)
+	}
+	cleaned, err := paths.Canonical(value)
+	if err != nil {
+		accountRoot, rootErr := canonicalAccountRootPath(value)
+		if rootErr != nil || ref.Slice != "home" {
+			return "", fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		cleaned = accountRoot
+	}
+	segments := strings.Split(strings.Trim(cleaned, "/"), "/")
+	if len(segments) == 0 || segments[0] != ref.Account {
+		return "", fmt.Errorf("%w: included path %s must be under /%s", ErrInvalid, cleaned, ref.Account)
+	}
+	if len(segments) == 1 && ref.Slice != "home" {
+		return "", fmt.Errorf("%w: only home slices may include account root %s", ErrInvalid, cleaned)
+	}
+	return cleaned, nil
+}
+
+func canonicalAccountRootPath(value string) (string, error) {
+	value = strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	cleaned := path.Clean(value)
+	if cleaned == "." || cleaned == "/" {
+		return "", fmt.Errorf("path must include account segment")
+	}
+	segments := strings.Split(strings.Trim(cleaned, "/"), "/")
+	if len(segments) != 1 {
+		return "", fmt.Errorf("path is not an account root")
+	}
+	if segments[0] == "" || segments[0] == "." || segments[0] == ".." {
+		return "", fmt.Errorf("invalid account path segment")
+	}
+	return cleaned, nil
 }
 
 func scanSlice(row scanner) (*corev1.Slice, error) {

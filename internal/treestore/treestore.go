@@ -33,6 +33,17 @@ type FileEntry struct {
 	Size        int64
 }
 
+type TreeEntry struct {
+	Path        string
+	Name        string
+	Kind        string
+	Mode        uint32
+	TreeID      string
+	BlobID      string
+	ContentHash string
+	Size        int64
+}
+
 type FileEdit struct {
 	Op      string
 	Path    string
@@ -98,6 +109,64 @@ func (s *Store) GetFile(ctx context.Context, rootTreeID, p string) (*FileEntry, 
 		Mode:        entry.Mode,
 		Size:        entry.Size,
 	}, nil
+}
+
+func (s *Store) GetEntry(ctx context.Context, rootTreeID, p string) (*TreeEntry, error) {
+	parts, err := splitPath(p)
+	if err != nil {
+		return nil, err
+	}
+	if len(parts) == 0 {
+		return &TreeEntry{Path: "/", Name: "/", Kind: "directory", TreeID: rootTreeID}, nil
+	}
+	entry, err := s.entryAt(ctx, rootTreeID, parts)
+	if err != nil {
+		return nil, err
+	}
+	fullPath := "/" + strings.Join(parts, "/")
+	out := treeEntryFromNodeEntry(fullPath, entry)
+	return &out, nil
+}
+
+func (s *Store) ListDirectory(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error) {
+	parts, err := splitPath(p)
+	if err != nil {
+		return nil, err
+	}
+	treeID := rootTreeID
+	prefix := "/"
+	if len(parts) > 0 {
+		entry, err := s.entryAt(ctx, rootTreeID, parts)
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		fullPath := "/" + strings.Join(parts, "/")
+		if entry.Kind == "file" {
+			return []TreeEntry{treeEntryFromNodeEntry(fullPath, entry)}, nil
+		}
+		if entry.Kind != "directory" {
+			return nil, nil
+		}
+		treeID = entry.TreeID
+		prefix = fullPath
+	}
+	node, err := s.readNode(ctx, treeID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TreeEntry, 0, len(node.Entries))
+	for _, entry := range node.Entries {
+		childPath := strings.TrimRight(prefix, "/") + "/" + entry.Name
+		if prefix == "/" {
+			childPath = "/" + entry.Name
+		}
+		out = append(out, treeEntryFromNodeEntry(childPath, entry))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
 }
 
 func (s *Store) ListFiles(ctx context.Context, rootTreeID, prefix string) ([]FileEntry, error) {
@@ -166,6 +235,12 @@ func (s *Store) applyEditsSequential(ctx context.Context, rootTreeID string, edi
 	for _, edit := range edits {
 		var err error
 		switch edit.Op {
+		case "mkdir":
+			parts, splitErr := splitPath(edit.Path)
+			if splitErr != nil {
+				return "", splitErr
+			}
+			current, err = s.setDirectory(ctx, current, parts)
 		case "delete":
 			parts, splitErr := splitPath(edit.Path)
 			if splitErr != nil {
@@ -173,24 +248,23 @@ func (s *Store) applyEditsSequential(ctx context.Context, rootTreeID string, edi
 			}
 			current, _, err = s.deletePath(ctx, current, parts)
 		case "rename":
-			file, err := s.GetFile(ctx, current, edit.OldPath)
-			if err != nil {
-				return "", err
-			}
 			oldParts, splitErr := splitPath(edit.OldPath)
 			if splitErr != nil {
 				return "", splitErr
+			}
+			entry, err := s.entryAt(ctx, current, oldParts)
+			if err != nil {
+				return "", err
 			}
 			current, _, err = s.deletePath(ctx, current, oldParts)
 			if err != nil {
 				return "", err
 			}
-			file.Path = edit.Path
 			newParts, splitErr := splitPath(edit.Path)
 			if splitErr != nil {
 				return "", splitErr
 			}
-			current, err = s.setFile(ctx, current, newParts, *file)
+			current, err = s.setEntry(ctx, current, newParts, entry)
 		default:
 			if edit.File == nil {
 				return "", fmt.Errorf("file edit for %s requires file metadata", edit.Path)
@@ -220,11 +294,11 @@ func canApplyEditsInBatch(edits []FileEdit) bool {
 	}
 	paths := make([]string, 0, len(edits))
 	for _, edit := range edits {
-		if edit.Op == "rename" {
+		if edit.Op == "rename" || edit.Op == "mkdir" {
 			return false
 		}
 		if edit.Op != "delete" && edit.File == nil {
-			return true
+			return false
 		}
 		parts, err := splitPath(edit.Path)
 		if err != nil || len(parts) == 0 {
@@ -300,7 +374,11 @@ func (s *Store) applyBatch(ctx context.Context, treeID string, edits []batchEdit
 			return "", false, err
 		}
 		if childEmpty {
-			node.Entries = removeEntry(node.Entries, name)
+			node.Entries = upsertEntry(node.Entries, Entry{
+				Name:   name,
+				Kind:   "directory",
+				TreeID: newChildTreeID,
+			})
 			continue
 		}
 		node.Entries = upsertEntry(node.Entries, Entry{
@@ -405,6 +483,70 @@ func (s *Store) setFile(ctx context.Context, treeID string, parts []string, file
 	return s.writeNode(ctx, node)
 }
 
+func (s *Store) setDirectory(ctx context.Context, treeID string, parts []string) (string, error) {
+	if len(parts) == 0 {
+		return "", fmt.Errorf("directory path is required")
+	}
+	node, err := s.readNode(ctx, treeID)
+	if err != nil {
+		return "", err
+	}
+	if len(parts) == 1 {
+		existing, ok := findEntry(node.Entries, parts[0])
+		if ok {
+			if existing.Kind != "directory" {
+				return "", fmt.Errorf("%s is not a directory", parts[0])
+			}
+			return treeID, nil
+		}
+		node.Entries = upsertEntry(node.Entries, Entry{Name: parts[0], Kind: "directory", TreeID: EmptyRootID()})
+		return s.writeNode(ctx, node)
+	}
+	child, ok := findEntry(node.Entries, parts[0])
+	if ok && child.Kind != "directory" {
+		return "", fmt.Errorf("%s is not a directory", parts[0])
+	}
+	childTreeID := EmptyRootID()
+	if ok {
+		childTreeID = child.TreeID
+	}
+	newChildTreeID, err := s.setDirectory(ctx, childTreeID, parts[1:])
+	if err != nil {
+		return "", err
+	}
+	node.Entries = upsertEntry(node.Entries, Entry{Name: parts[0], Kind: "directory", TreeID: newChildTreeID})
+	return s.writeNode(ctx, node)
+}
+
+func (s *Store) setEntry(ctx context.Context, treeID string, parts []string, entry Entry) (string, error) {
+	if len(parts) == 0 {
+		return "", fmt.Errorf("path is required")
+	}
+	node, err := s.readNode(ctx, treeID)
+	if err != nil {
+		return "", err
+	}
+	if len(parts) == 1 {
+		entry.Name = parts[0]
+		node.Entries = upsertEntry(node.Entries, entry)
+		return s.writeNode(ctx, node)
+	}
+	child, ok := findEntry(node.Entries, parts[0])
+	if ok && child.Kind != "directory" {
+		return "", fmt.Errorf("%s is not a directory", parts[0])
+	}
+	childTreeID := EmptyRootID()
+	if ok {
+		childTreeID = child.TreeID
+	}
+	newChildTreeID, err := s.setEntry(ctx, childTreeID, parts[1:], entry)
+	if err != nil {
+		return "", err
+	}
+	node.Entries = upsertEntry(node.Entries, Entry{Name: parts[0], Kind: "directory", TreeID: newChildTreeID})
+	return s.writeNode(ctx, node)
+}
+
 func (s *Store) deletePath(ctx context.Context, treeID string, parts []string) (string, bool, error) {
 	if len(parts) == 0 {
 		return treeID, false, nil
@@ -430,7 +572,8 @@ func (s *Store) deletePath(ctx context.Context, treeID string, parts []string) (
 		return "", false, err
 	}
 	if childEmpty {
-		node.Entries = removeEntry(node.Entries, parts[0])
+		entry.TreeID = newChildTreeID
+		node.Entries = upsertEntry(node.Entries, entry)
 	} else {
 		entry.TreeID = newChildTreeID
 		node.Entries = upsertEntry(node.Entries, entry)
@@ -544,4 +687,17 @@ func removeEntry(entries []Entry, name string) []Entry {
 
 func sortEntries(entries []Entry) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+}
+
+func treeEntryFromNodeEntry(fullPath string, entry Entry) TreeEntry {
+	return TreeEntry{
+		Path:        fullPath,
+		Name:        entry.Name,
+		Kind:        entry.Kind,
+		Mode:        entry.Mode,
+		TreeID:      entry.TreeID,
+		BlobID:      entry.BlobID,
+		ContentHash: entry.ContentHash,
+		Size:        entry.Size,
+	}
 }

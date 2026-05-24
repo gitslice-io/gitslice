@@ -76,10 +76,12 @@ service AuthService {
 }
 
 service SliceService {
+  rpc CreateSlice(CreateSliceRequest) returns (Slice);
   rpc ResolveSlice(ResolveSliceRequest) returns (Slice);
   rpc GetSlice(GetSliceRequest) returns (Slice);
   rpc ListSlices(ListSlicesRequest) returns (ListSlicesResponse);
   rpc UpdateSliceDefinition(UpdateSliceDefinitionRequest) returns (SliceDefinition);
+  rpc DeleteSlice(DeleteSliceRequest) returns (DeleteSliceResponse);
 }
 
 service ChangesetService {

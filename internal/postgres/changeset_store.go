@@ -577,7 +577,7 @@ func treeEditsFromPatchsetTx(ctx context.Context, tx *sql.Tx, edits []*corev1.Fi
 			OldPath: edit.OldPath,
 		}
 		switch edit.Op {
-		case "delete", "rename":
+		case "delete", "rename", "mkdir":
 		default:
 			blob, err := getBlobTx(ctx, tx, edit.BlobId)
 			if err != nil {
@@ -624,7 +624,7 @@ func (s *ChangesetStore) getOrInitPathHeadTx(ctx context.Context, tx *sql.Tx, cu
 	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	entry, err := s.repository.getFileAtCommitTx(ctx, tx, currentCommitID, p)
+	entry, err := s.repository.getEntryAtCommitTx(ctx, tx, currentCommitID, p)
 	if errors.Is(err, ErrNotFound) {
 		if err := insertInitialPathHeadTx(ctx, tx, PathHead{
 			Path:             p,
@@ -638,7 +638,7 @@ func (s *ChangesetStore) getOrInitPathHeadTx(ctx context.Context, tx *sql.Tx, cu
 	if err != nil {
 		return nil, err
 	}
-	if err := insertInitialPathHeadTx(ctx, tx, pathHeadFromFile(*entry), "", ""); err != nil {
+	if err := insertInitialPathHeadTx(ctx, tx, pathHeadFromTreeEntry(*entry), "", ""); err != nil {
 		return nil, err
 	}
 	return getPathHeadTx(ctx, tx, p)
@@ -678,6 +678,14 @@ func getPathHeadTx(ctx context.Context, tx *sql.Tx, p string) (*PathHead, error)
 func applyPathHeadEditsTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string, edits []*corev1.FileEdit) error {
 	for _, edit := range edits {
 		switch edit.Op {
+		case "mkdir":
+			if err := upsertPathHeadTx(ctx, tx, PathHead{
+				Path:             edit.Path,
+				Exists:           true,
+				EntryFingerprint: DirectoryEntryFingerprint(treestore.EmptyRootID()),
+			}, changesetID, patchsetID); err != nil {
+				return err
+			}
 		case "delete":
 			if err := upsertPathHeadTx(ctx, tx, PathHead{
 				Path:             edit.Path,
@@ -792,4 +800,21 @@ func pathHeadFromFile(entry FileEntry) PathHead {
 		Mode:             entry.Mode,
 		Size:             entry.Size,
 	}
+}
+
+func pathHeadFromTreeEntry(entry TreeEntry) PathHead {
+	if entry.Kind == "directory" {
+		return PathHead{
+			Path:             entry.Path,
+			Exists:           true,
+			EntryFingerprint: DirectoryEntryFingerprint(entry.TreeID),
+		}
+	}
+	return pathHeadFromFile(FileEntry{
+		Path:        entry.Path,
+		BlobID:      entry.BlobID,
+		ContentHash: entry.ContentHash,
+		Mode:        entry.Mode,
+		Size:        entry.Size,
+	})
 }

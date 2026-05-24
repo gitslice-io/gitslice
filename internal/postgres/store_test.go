@@ -20,6 +20,33 @@ import (
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
+func TestSliceDefinitionValidation(t *testing.T) {
+	ref := &corev1.SliceRef{Account: "nic", Slice: "tools"}
+	included, visibility, err := validateSliceDefinition(ref, []string{"/nic/tools", "nic/tools"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visibility != "account" {
+		t.Fatalf("visibility = %q, want account", visibility)
+	}
+	if len(included) != 1 || included[0] != "/nic/tools" {
+		t.Fatalf("included = %#v, want [/nic/tools]", included)
+	}
+	if _, _, err := validateSliceDefinition(ref, []string{"/other/tools"}, "account"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("outside account err = %v, want ErrInvalid", err)
+	}
+	if _, _, err := validateSliceDefinition(ref, []string{"/nic"}, "account"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("custom account-root err = %v, want ErrInvalid", err)
+	}
+	homeIncluded, _, err := validateSliceDefinition(&corev1.SliceRef{Account: "nic", Slice: "home"}, []string{"/nic"}, "account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(homeIncluded) != 1 || homeIncluded[0] != "/nic" {
+		t.Fatalf("home included = %#v, want [/nic]", homeIncluded)
+	}
+}
+
 func TestStoragePublishesObjectStoreTreeAndReadsFiles(t *testing.T) {
 	ctx, store := newPostgresTestStore(t)
 	base := getTestRef(t, ctx, store)

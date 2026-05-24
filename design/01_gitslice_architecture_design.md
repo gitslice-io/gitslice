@@ -260,6 +260,16 @@ cannot be account slugs unless explicitly allowed by a future compatibility
 rule.
 
 A slice owned by an account may include paths from that same account.
+For personal accounts, the default slice is `{username}/home`. Its slice slug is
+`home`, and its included path is the user's account root:
+
+```text
+nic/home -> /nic
+```
+
+Personal custom slices may use other slice slugs, but their included paths must
+remain under the same personal account root. For example, `nic/tools` may cover
+`/nic/tools`, but it must not cover `/alice` or `/acme`.
 
 Cross-account and cross-slice changes are not represented as a single
 changeset. If a product workflow requires work in multiple slices or accounts,
@@ -288,6 +298,8 @@ Slice identity includes account slug and slice slug.
 Examples:
 
 ```text
+nic/home
+nic/tools
 nicholas/identity
 acme/payment
 ```
@@ -301,6 +313,11 @@ This identity is used in:
 - Git URLs
 - projection cache keys
 - audit logs
+
+The slice slug is the short, URL-safe name after the account slug. The slug
+`home` is reserved as the default personal slice slug. Organization and custom
+personal slices should use explicit product or project names such as `payment`,
+`backend`, `tools`, or `dotfiles`.
 
 ### 4.2 Slice Definition
 
@@ -359,6 +376,25 @@ included_paths:
   - /acme/payment
   - /acme/proto/payment
   - /acme/README.md
+```
+
+The default personal home slice uses the account root, not a nested
+`/{account}/home` directory:
+
+```yaml
+account: nic
+slug: home
+included_paths:
+  - /nic
+```
+
+Custom personal slices are narrower views inside that account root:
+
+```yaml
+account: nic
+slug: tools
+included_paths:
+  - /nic/tools
 ```
 
 There are no mount aliases.

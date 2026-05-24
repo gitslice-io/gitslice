@@ -46,28 +46,29 @@ func resolvePath(ctx context.Context, repository *postgres.RepositoryStore, req 
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if p != "/" {
-		entry, err := repository.GetFile(ctx, req.CommitId, p)
-		if err == nil {
-			return &corev1.ResolvePathResponse{Entry: treeEntryFromFile(*entry)}, nil
-		}
-		if !errors.Is(err, postgres.ErrNotFound) {
+	if p == "/" {
+		entries, err := repository.ListDirectory(ctx, req.CommitId, p)
+		if err != nil {
 			return nil, grpcError(err)
 		}
+		if len(entries) == 0 {
+			return nil, status.Error(codes.NotFound, "path not found")
+		}
+		return &corev1.ResolvePathResponse{Entry: &corev1.TreeEntry{
+			Path:   p,
+			Name:   path.Base(p),
+			Kind:   corev1.EntryKind_ENTRY_KIND_DIRECTORY,
+			TreeId: directoryTreeIDFromEntries(entries),
+		}}, nil
 	}
-	children, err := repository.ListFiles(ctx, req.CommitId, p)
+	entry, err := repository.GetEntry(ctx, req.CommitId, p)
+	if errors.Is(err, postgres.ErrNotFound) {
+		return nil, status.Error(codes.NotFound, "path not found")
+	}
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if len(children) == 0 {
-		return nil, status.Error(codes.NotFound, "path not found")
-	}
-	return &corev1.ResolvePathResponse{Entry: &corev1.TreeEntry{
-		Path:   p,
-		Name:   path.Base(p),
-		Kind:   corev1.EntryKind_ENTRY_KIND_DIRECTORY,
-		TreeId: directoryTreeID(p, children),
-	}}, nil
+	return &corev1.ResolvePathResponse{Entry: treeEntryFromRepositoryEntry(*entry)}, nil
 }
 
 func repositoryReadPath(p string) (string, error) {
@@ -95,12 +96,15 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	files, err := s.Repository.ListFiles(ctx, req.CommitId, p)
+	entries, err := s.Repository.ListDirectory(ctx, req.CommitId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	entries := immediateDirectoryEntries(p, files)
-	return &corev1.ListDirectoryResponse{Entries: entries}, nil
+	out := make([]*corev1.TreeEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, treeEntryFromRepositoryEntry(entry))
+	}
+	return &corev1.ListDirectoryResponse{Entries: out}, nil
 }
 
 func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
@@ -424,6 +428,28 @@ func treeEntryFromFile(entry postgres.FileEntry) *corev1.TreeEntry {
 	}
 }
 
+func treeEntryFromRepositoryEntry(entry postgres.TreeEntry) *corev1.TreeEntry {
+	kind := corev1.EntryKind_ENTRY_KIND_UNSPECIFIED
+	switch entry.Kind {
+	case "file":
+		kind = corev1.EntryKind_ENTRY_KIND_FILE
+	case "directory":
+		kind = corev1.EntryKind_ENTRY_KIND_DIRECTORY
+	case "symlink":
+		kind = corev1.EntryKind_ENTRY_KIND_SYMLINK
+	}
+	return &corev1.TreeEntry{
+		Path:        entry.Path,
+		Name:        entry.Name,
+		Kind:        kind,
+		Mode:        entry.Mode,
+		TreeId:      entry.TreeID,
+		BlobId:      entry.BlobID,
+		ContentHash: entry.ContentHash,
+		Size:        entry.Size,
+	}
+}
+
 func immediateDirectoryEntries(prefix string, files []postgres.FileEntry) []*corev1.TreeEntry {
 	prefix = strings.TrimRight(prefix, "/")
 	if prefix == "" {
@@ -465,6 +491,22 @@ func immediateDirectoryEntries(prefix string, files []postgres.FileEntry) []*cor
 		out = append(out, byPath[p])
 	}
 	return out
+}
+
+func directoryTreeIDFromEntries(entries []postgres.TreeEntry) string {
+	idEntries := make([]objectid.TreeEntry, 0, len(entries))
+	for _, entry := range entries {
+		idEntries = append(idEntries, objectid.TreeEntry{
+			Name:        entry.Name,
+			Kind:        entry.Kind,
+			Mode:        entry.Mode,
+			TreeID:      entry.TreeID,
+			BlobID:      entry.BlobID,
+			Size:        entry.Size,
+			ContentHash: entry.ContentHash,
+		})
+	}
+	return objectid.TreeID(idEntries)
 }
 
 func directoryTreeID(prefix string, files []postgres.FileEntry) string {

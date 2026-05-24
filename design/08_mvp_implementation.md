@@ -125,6 +125,8 @@ Responsibilities:
 - load users, service accounts, accounts, memberships, and sessions from a local
   fixture or seed table
 - issue development session tokens for `gs auth login`
+- issue fake browser-approved signup sessions for `gs auth signup`
+- create the signed-up user's default personal `home` slice
 - validate bearer tokens in a gRPC interceptor
 - expose an authenticated status RPC so clients can verify a saved token
 - attach subject id and account membership context to each request
@@ -134,18 +136,24 @@ Responsibilities:
 Non-goals:
 
 - real OAuth or device-code login
-- browser login
+- production browser login
 - billing
 - organization invitation flows
-- public sign-up
+- production public sign-up
 - long-lived production refresh-token lifecycle
 
 Development login can be explicit:
 
 ```bash
 gs auth login --server 127.0.0.1:50051 --dev-user alice
+gs auth signup --username nic
 gs auth status
 ```
+
+Signup creates `nic/home` for username `nic`. The slice slug is `home`, and its
+included path is `/nic`, so writes through the default personal workspace are
+limited to the user's account root. Custom personal slices can be added later as
+narrower views under `/nic`.
 
 The CLI stores the returned token in the user config directory, not in workspace
 metadata.

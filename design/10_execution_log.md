@@ -3,6 +3,110 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Home File Commands And Mutable Shell
+
+Request:
+
+- make `gs file` always use absolute paths
+- add file and directory mutation operations to `gs shell`
+- improve `gs shell` UX by showing the current path and using color where
+  appropriate
+
+Implemented:
+
+- documented absolute `gs file` commands and mutable shell commands in the CLI
+  design, and documented that home-slice mutations must stay under the
+  signed-in user's home root
+- added `gs file mkdir`, `write`, `touch`, `mv`, and `rm`; each command targets
+  the signed-in user's `<account>/home` slice, requires absolute paths, creates
+  one changeset, submits it, waits for publish, and reports the resulting commit
+- added mutable `mkdir`, `write`, `touch`, `mv`, and `rm` commands to
+  `gs shell`; successful mutations refresh the shell's inspected commit
+- improved shell text output with a header, current-path prompt, colored
+  directories, and `--no-color` / non-terminal behavior that remains uncolored
+- made empty directories first-class tree entries for native reads so `mkdir`
+  and directory moves are visible through `ListDirectory` and shell `ls`
+- added repository store and service entry APIs that preserve directory entries
+  alongside file entries
+- added functional coverage for signup, home-slice creation, absolute
+  `gs file` mutations, shell mutations, directory moves, and home-boundary
+  rejection
+
+Important decisions and learnings:
+
+- `gs file` validates paths before file blob upload so rejected relative or
+  outside-home writes do not create storage side effects.
+- Shell mutations use the same changeset submit path as workspace mutations;
+  they do not bypass validation or write directly to the repository tree.
+- Empty parent directories must be preserved after deleting the last child.
+  The first functional run found that deleting `/file-user/shell/final.txt`
+  made `/file-user/shell` disappear, which broke a follow-up `ls`; treestore
+  delete and batch application now keep explicit empty directory entries.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/treestore/treestore.go
+go test ./internal/treestore ./internal/postgres ./service ./internal/cli
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'Test(CLIFileAndShellMutationsStayInHome|CLISignupShellDefaultsToPersonalHome)' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLIFileAndShellMutationsStayInHome -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Slice CLI CRUD
+
+Request:
+
+- add CRUD support for the slice CLI
+
+Implemented:
+
+- extended `SliceService` with `CreateSlice` and `DeleteSlice` RPCs and
+  regenerated Go and grpc-gateway stubs
+- added PostgreSQL slice creation and deletion paths on top of the existing
+  `slices` metadata table
+- added account membership checks to slice create, resolve, get, list, update,
+  and delete paths
+- added canonical included-path validation for slice definitions:
+  - paths must stay under the slice account root
+  - custom slices must include paths below the account root
+  - only `home` slices may include the account root itself
+  - duplicate included paths are collapsed after canonicalization
+- added CLI commands:
+  - `gs slice create <account>/<slice>`
+  - `gs slice list [account]`
+  - `gs slice info <account>/<slice>`
+  - `gs slice paths <account>/<slice>`
+  - `gs slice update <account>/<slice>`
+  - `gs slice delete <account>/<slice> --yes`
+- documented the API and CLI shape in the core API and CLI design docs
+
+Important decisions and learnings:
+
+- Slice definition updates continue to use `definition_hash` as the optimistic
+  concurrency guard. The store computes the next version from the persisted
+  current slice rather than trusting a client-supplied version.
+- Slice deletion is metadata-only and refuses to delete slices referenced by
+  changesets, avoiding dangling authoring slice references.
+- `gs slice list` can default to the signed-up user's personal account when
+  the local subject id has the `user_...` shape; org accounts still need an
+  explicit account argument such as `gs slice list acme`.
+
+Verification:
+
+```bash
+gofmt -w proto/core/v1/slice.pb.go proto/core/v1/slice_grpc.pb.go proto/core/v1/slice.pb.gw.go internal/postgres/helpers.go internal/postgres/errors.go internal/postgres/slice_store.go service/errors.go service/slice.go internal/cli/cli.go tests/functional/cli_smoke_test.go internal/postgres/store_test.go
+go test ./internal/postgres ./service ./internal/cli
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'Test(CLISliceCRUD|SliceDefinitionUpdateConflict|HTTPGatewayLoginAndListSlices)' -v
+git diff --check
+```
+
 ## 2026-05-24: Git HTTP Auth Coverage
 
 Request:
@@ -39,6 +143,54 @@ go test ./internal/gitcompat ./server
 go test ./...
 go build ./cmd/...
 go test -count=1 ./tests/functional -run TestGitHTTPAuthAndUnsupportedOperationMatrix -v
+git diff --check
+```
+
+## 2026-05-24: Signup Home Shell Default
+
+Request:
+
+- make `gs shell` connect to the signed-up user's remote personal home slice
+  when it is run outside a workspace
+- add a functional signup flow test proving that signup creates the home slice
+  and that `gs shell` plus `ls` shows the home folder
+
+Implemented:
+
+- documented the outside-workspace shell default in the CLI and account/auth
+  design docs
+- changed `gs shell` scope selection so outside-workspace shells try to resolve
+  `<username>/home` from the stored signup subject before falling back to the
+  legacy global root behavior
+- added a shell-local synthetic directory entry for the resolved home slice
+  root, so an empty home folder such as `/shell-user` is visible from `ls`
+  before any files exist
+- allowed CLI workspace/shell root handling to accept an account-root included
+  path such as `/shell-user`, while keeping normal file paths validated through
+  the existing canonical path rules
+- added `TestCLISignupShellDefaultsToPersonalHome`, which runs `gs auth signup`
+  through the web approval callback, initializes `shell-user/home`, runs
+  `gs shell` outside any workspace, and verifies `ls` shows `shell-user/`
+
+Important decisions and learnings:
+
+- Empty directories are not first-class tree payloads in the MVP, so the shell
+  displays an empty home folder from slice metadata instead of creating a
+  placeholder file or bypassing the changeset model.
+- Legacy development accounts that do not have a personal home slice still use
+  the global root shell fallback, preserving existing dev-fixture workflows.
+- The home slice included path is account-root shaped (`/<username>`), so CLI
+  root handling needs to distinguish slice roots from file edit paths.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli ./web ./service ./server
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'Test(CLISignupShellDefaultsToPersonalHome|SignupWebApproveIssuesToken|ServerShellRunsOutsideWorkspace)' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLISignupShellDefaultsToPersonalHome -v
+go test ./...
+go build ./cmd/...
 git diff --check
 ```
 
@@ -1460,4 +1612,104 @@ Verification:
 
 ```bash
 git diff --check HEAD
+```
+
+## 2026-05-24: Browser-Approved Signup Prototype
+
+Request:
+
+- add `gs auth signup --username=XXX`
+- implement a device-style browser approval flow without a real identity
+  provider
+- add a simple web server under `web/`
+
+Implemented:
+
+- added `gs auth signup --username <name>`
+- the CLI starts a temporary localhost callback listener, builds a `/signup`
+  approval URL, opens the browser when possible, waits for the callback token,
+  validates callback state, and stores the returned token in
+  `~/.gitslice/config.json`
+- added `web.NewHandler` with:
+  - `GET /signup` approval page
+  - `POST /signup/approve` token-issuing approval endpoint
+- mounted the web signup handler on the existing HTTP listener next to the
+  grpc-gateway
+- added `AuthStore.SignupUser`, which creates or reuses a normalized user
+  subject, creates or reuses a personal account, grants admin membership, and
+  issues a 24-hour hashed-token session
+- documented the signup flow in the CLI and account/auth design docs
+
+Important decisions and learnings:
+
+- The approval endpoint only redirects tokens to loopback callback URLs. This
+  keeps the prototype from sending bearer tokens to arbitrary remote origins.
+- Signup is intentionally separate from production identity. The web page is a
+  local-development approval screen, not an OAuth or SSO substitute.
+- Personal account slugs are derived from normalized usernames. Existing
+  non-personal account slugs, such as `acme`, cannot be claimed through signup.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/helpers.go internal/postgres/auth_store.go internal/cli/cli.go internal/cli/cli_test.go server/server.go web/signup.go web/signup_test.go tests/functional/cli_smoke_test.go
+go test ./internal/cli ./web
+go test ./internal/postgres
+go test ./service ./server
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestSignupWebApproveIssuesToken' -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+Follow-up:
+
+- changed the local development HTTP default from `127.0.0.1:8080` to
+  `127.0.0.1:8082` in both `Makefile` and the CLI signup default because an
+  existing local server commonly occupies `8080`; signup approval URLs should
+  point at the server that hosts `/signup` by default.
+
+## 2026-05-24: Default Personal Home Slice
+
+Request:
+
+- define the home-slice product shape before implementation
+- create a default home slice when a user signs up
+- ensure a personal user can only create files and folders under their home
+  directory, for example `/nic`
+
+Implemented:
+
+- documented that personal signup creates `<username>/home`
+- reserved `home` as the default personal slice slug
+- documented that `<username>/home` includes the account root path
+  `/<username>`, not a nested `/<username>/home` path
+- documented custom personal slices as narrower views under the same account
+  root
+- updated signup storage so `AuthStore.SignupUser` creates or reuses the
+  default `home` slice in the same transaction as subject, account,
+  membership, and session creation
+- extended the functional signup test to resolve `signup-user/home`, verify it
+  includes `/signup-user`, accept an edit under `/signup-user`, and reject an
+  edit under `/alice`
+
+Important decisions and learnings:
+
+- The default home slice is a slice named `home`, but its authorization and
+  path scope are the whole personal account root.
+- No separate write-path validator was needed for signup. Existing workspace
+  diff validation enforces the slice `included_paths` once signup creates the
+  right slice definition.
+- Existing home slices are reused instead of overwritten, preserving future
+  administrative edits to the default slice definition.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/helpers.go internal/postgres/auth_store.go tests/functional/cli_smoke_test.go
+go test ./internal/postgres ./service ./server ./web
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestSignupWebApproveIssuesToken -v
+go test ./...
+go build ./cmd/...
+git diff --check
 ```

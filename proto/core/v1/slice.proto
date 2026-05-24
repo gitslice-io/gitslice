@@ -7,10 +7,12 @@ import "proto/core/v1/common.proto";
 option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
 
 service SliceService {
+  rpc CreateSlice(CreateSliceRequest) returns (Slice);
   rpc ResolveSlice(ResolveSliceRequest) returns (Slice);
   rpc GetSlice(GetSliceRequest) returns (Slice);
   rpc ListSlices(ListSlicesRequest) returns (ListSlicesResponse);
   rpc UpdateSliceDefinition(UpdateSliceDefinitionRequest) returns (SliceDefinition);
+  rpc DeleteSlice(DeleteSliceRequest) returns (DeleteSliceResponse);
 }
 
 message Slice {
@@ -25,6 +27,12 @@ message SliceDefinition {
   int64 version = 2;
   repeated string included_paths = 3;
   string visibility = 4;
+}
+
+message CreateSliceRequest {
+  SliceRef ref = 1;
+  repeated string included_paths = 2;
+  string visibility = 3;
 }
 
 message ResolveSliceRequest {
@@ -50,4 +58,12 @@ message UpdateSliceDefinitionRequest {
   string slice_id = 1;
   string expected_definition_hash = 2;
   SliceDefinition definition = 3;
+}
+
+message DeleteSliceRequest {
+  string slice_id = 1;
+}
+
+message DeleteSliceResponse {
+  string slice_id = 1;
 }
