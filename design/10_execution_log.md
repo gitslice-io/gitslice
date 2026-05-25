@@ -2237,3 +2237,50 @@ go test ./...
 go build ./cmd/...
 git diff --check
 ```
+
+## 2026-05-25: Changeset Workflow Commands And Server Diff
+
+Request:
+
+- fill out the missing changeset workflow commands
+- add server-side changeset diff support
+
+Implemented:
+
+- added `ChangesetService.ListChangesets` and `ChangesetService.DiffChangeset`
+  RPCs
+- added a shared unified diff helper used by local workspace diff and
+  server-side changeset diff
+- added `gs diff` for local workspace diffs, plus `--name-only` and `--stat`
+- added `gs cs show`, `gs cs explain`, `gs cs versions`/`patchsets`,
+  `gs cs diff`, `gs cs list`, `gs cs abandon`, and id-accepting
+  `gs cs status`/`submit`
+- updated the CLI schema and the core API / CLI design docs for the new
+  command and RPC surface
+- added CLI and RPC e2e coverage for listing changesets and diffing both a
+  patchset against its base and two patchsets against each other
+
+Important decisions and learnings:
+
+- Server-side diffs are changeset-scoped and select patchsets by id or patchset
+  number. A single patchset diff compares to that patchset's base commit;
+  `--from`/`--to` compares two patchsets.
+- `gs cs list` stays slice-scoped. Inside a workspace it defaults to the bound
+  slice; outside a workspace callers must pass `--slice`.
+- `gs cs submit <id>` can submit a named changeset. Local workspace base
+  snapshots are refreshed only when the submitted changeset is the workspace's
+  current changeset.
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/cli/cli.go internal/postgres/changeset_store.go service/changeset.go service/service.go internal/diffutil/diff.go tests/cli/cli_smoke_test.go tests/rpc/slice_test.go
+go test ./internal/diffutil ./internal/cli ./service ./tests/rpc ./tests/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestChangesetWorkflowCommandsAndServerDiff -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestChangesetServiceListAndDiff -v
+go test ./...
+go build ./cmd/...
+git diff --check
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
+```

@@ -9,6 +9,8 @@ option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
 service ChangesetService {
   rpc CreateChangeset(CreateChangesetRequest) returns (Changeset);
   rpc GetChangeset(GetChangesetRequest) returns (Changeset);
+  rpc ListChangesets(ListChangesetsRequest) returns (ListChangesetsResponse);
+  rpc DiffChangeset(DiffChangesetRequest) returns (DiffChangesetResponse);
   rpc UpdateChangeset(UpdateChangesetRequest) returns (Patchset);
   rpc SubmitChangeset(SubmitChangesetRequest) returns (SubmitChangesetResponse);
   rpc AbandonChangeset(AbandonChangesetRequest) returns (Empty);
@@ -99,6 +101,33 @@ message CreateChangesetRequest {
 
 message GetChangesetRequest {
   string changeset_id = 1;
+}
+
+message ListChangesetsRequest {
+  SliceRef authoring_slice = 1;
+  string status = 2;
+  int32 limit = 3;
+}
+
+message ListChangesetsResponse {
+  repeated Changeset changesets = 1;
+}
+
+message DiffChangesetRequest {
+  string changeset_id = 1;
+  // patchset, from_patchset, and to_patchset accept either a patchset id or a
+  // patchset number encoded as a string.
+  string patchset = 2;
+  string from_patchset = 3;
+  string to_patchset = 4;
+}
+
+message DiffChangesetResponse {
+  string changeset_id = 1;
+  string from_patchset_id = 2;
+  string to_patchset_id = 3;
+  repeated string changed_paths = 4;
+  string diff = 5;
 }
 
 message UpdateChangesetRequest {

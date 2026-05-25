@@ -62,10 +62,13 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			validator:   validator,
 		},
 		Changeset: &ChangesetService{
-			Auth:       stores.Auth,
-			Changesets: stores.Changesets,
-			Slices:     stores.Slices,
-			validator:  validator,
+			Auth:        stores.Auth,
+			Blobs:       stores.Blobs,
+			Changesets:  stores.Changesets,
+			Repository:  stores.Repository,
+			Slices:      stores.Slices,
+			ObjectStore: objectStore,
+			validator:   validator,
 		},
 	}
 }

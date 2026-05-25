@@ -120,6 +120,104 @@ func TestSliceServiceCustomSliceValidation(t *testing.T) {
 	}
 }
 
+func TestChangesetServiceListAndDiff(t *testing.T) {
+	ts := startRPCServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+
+	ref, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("package payment\nconst Version = 1\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := clients.changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      postgres.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "rpc diff workflow",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstPatchset, err := clients.changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        "/acme/payment/rpc_diff.go",
+			BlobId:      first.BlobId,
+			ContentHash: first.ContentHash,
+			Mode:        0o644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("package payment\nconst Version = 2\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPatchset, err := clients.changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: firstPatchset.Id,
+		BaseCommitId:              ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        "/acme/payment/rpc_diff.go",
+			BlobId:      second.BlobId,
+			ContentHash: second.ContentHash,
+			Mode:        0o644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := clients.changeset.ListChangesets(ctx, &corev1.ListChangesetsRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		Status:         "draft",
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changesetListContains(listed.Changesets, cs.Id) {
+		t.Fatalf("ListChangesets did not include %s: %#v", cs.Id, listed.Changesets)
+	}
+
+	firstDiff, err := clients.changeset.DiffChangeset(ctx, &corev1.DiffChangesetRequest{
+		ChangesetId: cs.Id,
+		Patchset:    "1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstDiff.ToPatchsetId != firstPatchset.Id || !containsString(firstDiff.ChangedPaths, "/acme/payment/rpc_diff.go") || !strings.Contains(firstDiff.Diff, "+const Version = 1") {
+		t.Fatalf("unexpected first patchset diff: %#v", firstDiff)
+	}
+
+	between, err := clients.changeset.DiffChangeset(ctx, &corev1.DiffChangesetRequest{
+		ChangesetId:  cs.Id,
+		FromPatchset: "1",
+		ToPatchset:   "2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if between.FromPatchsetId != firstPatchset.Id || between.ToPatchsetId != secondPatchset.Id {
+		t.Fatalf("unexpected patchset ids in diff: %#v", between)
+	}
+	if !strings.Contains(between.Diff, "-const Version = 1") || !strings.Contains(between.Diff, "+const Version = 2") {
+		t.Fatalf("patchset-to-patchset diff missing expected content:\n%s", between.Diff)
+	}
+}
+
 type testRPCServer struct {
 	addr        string
 	ctx         context.Context
@@ -370,6 +468,15 @@ func waitForHealth(t *testing.T, addr string) {
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func changesetListContains(values []*corev1.Changeset, want string) bool {
+	for _, value := range values {
+		if value != nil && value.Id == want {
 			return true
 		}
 	}

@@ -894,6 +894,94 @@ func TestChangesetUpdateAndDelete(t *testing.T) {
 	}
 }
 
+func TestChangesetWorkflowCommandsAndServerDiff(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+
+	writeWorkspaceFile(t, workspace, "workflow.go", "package payment\nconst Version = 1\n")
+	localDiff := runCLI(t, home, workspace, "diff")
+	for _, want := range []string{"diff --git", "a/acme/payment/workflow.go", "+const Version = 1"} {
+		if !strings.Contains(localDiff, want) {
+			t.Fatalf("workspace diff missing %q:\n%s", want, localDiff)
+		}
+	}
+	nameOnly := runCLI(t, home, workspace, "diff", "--name-only")
+	if strings.TrimSpace(nameOnly) != "/acme/payment/workflow.go" {
+		t.Fatalf("workspace diff --name-only = %q", nameOnly)
+	}
+	stat := runCLI(t, home, workspace, "diff", "--stat")
+	if !strings.Contains(stat, "1 changed path(s)") || !strings.Contains(stat, "/acme/payment/workflow.go") {
+		t.Fatalf("workspace diff --stat missing path summary:\n%s", stat)
+	}
+
+	createOut := runCLI(t, home, workspace, "cs", "create", "--title", "workflow commands", "--json")
+	changesetID, firstPatchsetID := parseChangesetOutput(t, createOut)
+	show := runCLI(t, home, workspace, "cs", "show")
+	for _, want := range []string{changesetID, "title: workflow commands", "patchsets:", "/acme/payment/workflow.go"} {
+		if !strings.Contains(show, want) {
+			t.Fatalf("cs show missing %q:\n%s", want, show)
+		}
+	}
+	list := runCLI(t, home, workspace, "cs", "list", "--status", "draft")
+	if !strings.Contains(list, changesetID) || !strings.Contains(list, "workflow commands") {
+		t.Fatalf("cs list missing changeset:\n%s", list)
+	}
+	versions := runCLI(t, home, workspace, "cs", "versions")
+	if !strings.Contains(versions, "1 "+firstPatchsetID) {
+		t.Fatalf("cs versions missing first patchset:\n%s", versions)
+	}
+	firstDiff := runCLI(t, home, workspace, "cs", "diff", "--patchset", "1")
+	if !strings.Contains(firstDiff, "+const Version = 1") {
+		t.Fatalf("server diff for first patchset missing addition:\n%s", firstDiff)
+	}
+
+	writeWorkspaceFile(t, workspace, "workflow.go", "package payment\nconst Version = 2\n")
+	updateOut := runCLI(t, home, workspace, "cs", "update", "--json")
+	_, secondPatchsetID := parseChangesetOutput(t, updateOut)
+	versions = runCLI(t, home, workspace, "cs", "patchsets", changesetID)
+	if !strings.Contains(versions, "2 "+secondPatchsetID) {
+		t.Fatalf("cs patchsets missing second patchset:\n%s", versions)
+	}
+	between := runCLI(t, home, workspace, "cs", "diff", changesetID, "--from", "1", "--to", "2")
+	for _, want := range []string{"-const Version = 1", "+const Version = 2"} {
+		if !strings.Contains(between, want) {
+			t.Fatalf("server patchset diff missing %q:\n%s", want, between)
+		}
+	}
+	serverNameOnly := runCLI(t, home, workspace, "cs", "diff", "--name-only")
+	if strings.TrimSpace(serverNameOnly) != "/acme/payment/workflow.go" {
+		t.Fatalf("cs diff --name-only = %q", serverNameOnly)
+	}
+	explain := runCLI(t, home, workspace, "cs", "explain")
+	for _, want := range []string{"validation:", "submit_requirements:", "read_set:", "write_set:"} {
+		if !strings.Contains(explain, want) {
+			t.Fatalf("cs explain missing %q:\n%s", want, explain)
+		}
+	}
+	status := runCLI(t, home, workspace, "cs", "status", changesetID)
+	if !strings.Contains(status, "status: draft") {
+		t.Fatalf("cs status <id> missing draft status:\n%s", status)
+	}
+
+	runCLI(t, home, workspace, "cs", "submit", changesetID)
+	status = runCLI(t, home, workspace, "cs", "status", changesetID)
+	if !strings.Contains(status, "status: submitted") {
+		t.Fatalf("cs status <id> missing submitted status:\n%s", status)
+	}
+
+	writeWorkspaceFile(t, workspace, "abandon.go", "package payment\nconst Abandon = true\n")
+	abandonOut := runCLI(t, home, workspace, "cs", "create", "--title", "abandon workflow", "--json")
+	abandonID, _ := parseChangesetOutput(t, abandonOut)
+	runCLI(t, home, workspace, "cs", "abandon", "--reason", "test cleanup")
+	status = runCLI(t, home, workspace, "cs", "status", abandonID)
+	if !strings.Contains(status, "status: abandoned") {
+		t.Fatalf("cs abandon did not mark changeset abandoned:\n%s", status)
+	}
+}
+
 func TestOutsideSliceEditRejected(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
@@ -1952,6 +2040,21 @@ func submittedRefCommitID(t *testing.T, raw string) string {
 		t.Fatalf("submit output missing new_ref_commit_id:\n%s", raw)
 	}
 	return res.NewRefCommitID
+}
+
+func parseChangesetOutput(t *testing.T, raw string) (string, string) {
+	t.Helper()
+	var res struct {
+		ChangesetID string `json:"changeset_id"`
+		PatchsetID  string `json:"patchset_id"`
+	}
+	if err := json.Unmarshal([]byte(raw), &res); err != nil {
+		t.Fatalf("changeset output is not JSON: %v\n%s", err, raw)
+	}
+	if res.ChangesetID == "" || res.PatchsetID == "" {
+		t.Fatalf("changeset output missing ids:\n%s", raw)
+	}
+	return res.ChangesetID, res.PatchsetID
 }
 
 func createImportGitRepo(t *testing.T) string {

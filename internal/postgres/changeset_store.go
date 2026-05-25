@@ -108,6 +108,75 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 	return &cs, nil
 }
 
+func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error) {
+	limit := int(req.Limit)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var rows *sql.Rows
+	var err error
+	status := ""
+	if req.Status != "" {
+		status = req.Status
+	}
+	if req.AuthoringSlice != nil && status != "" {
+		rows, err = s.db.QueryContext(ctx, `
+			select id
+			from changesets
+			where authoring_account = $1 and authoring_slice = $2 and status = $3
+			order by updated_at desc, id desc
+			limit $4
+		`, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, status, limit)
+	} else if req.AuthoringSlice != nil {
+		rows, err = s.db.QueryContext(ctx, `
+			select id
+			from changesets
+			where authoring_account = $1 and authoring_slice = $2
+			order by updated_at desc, id desc
+			limit $3
+		`, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, limit)
+	} else if status != "" {
+		rows, err = s.db.QueryContext(ctx, `
+			select id
+			from changesets
+			where status = $1
+			order by updated_at desc, id desc
+			limit $2
+		`, status, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			select id
+			from changesets
+			order by updated_at desc, id desc
+			limit $1
+		`, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]*corev1.Changeset, 0, len(ids))
+	for _, id := range ids {
+		cs, err := s.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, cs)
+	}
+	return out, nil
+}
+
 func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
