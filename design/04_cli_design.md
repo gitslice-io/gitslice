@@ -558,8 +558,15 @@ is no authoring slice to validate against.
 Shell prompts should show the current scope and current path. On interactive
 terminals, the shell may pin a compact status header at the top of the screen
 with the attached slice, current commit, mode, root, and current path. Color and
-terminal-control output are disabled by `--no-color`, `--quiet`, JSON mode,
-non-terminal writers, and test/piped usage so scripted output stays stable.
+sticky-header terminal-control output are disabled by `--no-color`, `--quiet`,
+JSON mode, non-terminal writers, and test/piped usage so scripted output stays
+stable.
+When stdin and stdout are attached to a real terminal, `gs shell` uses a line
+editor with command history and Tab completion for shell commands and visible
+server paths. Completion must use the same slice projection and synthesized
+directory rules as `ls` and `cd`, so custom slices complete account-rooted
+ancestor directories before included roots. Piped input, test runners, and
+`--quiet` continue to use the simple scanner path without terminal control.
 
 ## 6.1 Absolute Filesystem Commands
 

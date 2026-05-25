@@ -42,6 +42,7 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=d
 go test ./...
 go build ./cmd/...
 git diff --check
+make dev-install
 ```
 
 ## 2026-05-25: RPC Functional Coverage For Custom Slices
@@ -2924,4 +2925,46 @@ go test ./...
 go build ./cmd/...
 git diff --check
 go run ./cmd/gs schema --jq '.commands[] | select(.use == "gs completion <shell>") | .summary'
+```
+
+## 2026-05-25: Interactive Shell Tab Completion
+
+Request:
+
+- make Tab autocomplete work inside `gs shell`
+
+Implemented:
+
+- added a TTY-only line editor for `gs shell` with in-session history and Tab
+  completion
+- kept the existing scanner loop for piped input, tests, `--quiet`, and dumb
+  terminals so scripted output remains stable
+- added command completion for the interactive shell commands and server-path
+  completion for path-taking arguments
+- factored shell directory listing into a shared helper so completion follows
+  the same synthetic home directory and custom-slice projection rules as `ls`
+  and `cd`
+- documented the interactive completion behavior in the CLI design
+
+Important decisions and learnings:
+
+- Completion intentionally asks the server for visible directory entries at the
+  current commit instead of caching aggressively. Shell mutations advance the
+  shell commit, and fresh RPC completion avoids stale suggestions.
+- Custom slices remain account-rooted in completion. A slice that includes
+  `/nic4/tests` completes `nic4/` at `/` and `nic4/tests/` beneath it, matching
+  the projection model already used by listings.
+- The line editor prompt is rendered without ANSI escape sequences because the
+  editor validates prompt control characters; the existing colored header and
+  command output remain controlled by the normal color settings.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go mod tidy
+go test ./...
+go build ./cmd/...
+git diff --check
 ```
