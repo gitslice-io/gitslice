@@ -6365,6 +6365,12 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"writes_stdout": true,
 			},
 			{
+				"use":           "gs completion <shell>",
+				"summary":       "generate shell completion scripts",
+				"args":          []string{"shell"},
+				"writes_stdout": true,
+			},
+			{
 				"use":            "gs help <topic>",
 				"summary":        "show help for a command or CLI topic",
 				"args":           []string{"command", "topic"},
