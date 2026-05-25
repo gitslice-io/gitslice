@@ -515,6 +515,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "gs",
 		Short:         "Gitslice native CLI",
+		Example:       "  gs auth signup --username nic\n  gs shell\n  gs fs upload ./notes /nic/notes --recursive\n  gs workspace init nic/home\n  gs status\n  gs cs create --title \"update notes\"\n  gs cs diff\n  gs cs submit",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -591,9 +592,10 @@ func (r Runner) rootCommand() *cobra.Command {
 	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd)
 
 	workspaceCmd := &cobra.Command{
-		Use:   "workspace",
-		Short: "Manage the current single-slice workspace",
-		RunE:  requireSubcommand("workspace"),
+		Use:     "workspace",
+		Aliases: []string{"ws"},
+		Short:   "Manage the current single-slice workspace",
+		RunE:    requireSubcommand("workspace"),
 	}
 	workspaceInitCmd := &cobra.Command{
 		Use:   "init <account>/<slice>",
@@ -614,25 +616,28 @@ func (r Runner) rootCommand() *cobra.Command {
 	workspaceCmd.AddCommand(workspaceInitCmd, workspaceHydrateCmd)
 
 	statusCmd := &cobra.Command{
-		Use:   "status",
-		Short: "Show workspace changes against the local base snapshot",
-		Args:  noArgs("gs status [--format text|json] [--json]"),
+		Use:     "status",
+		Aliases: []string{"st"},
+		Short:   "Show workspace changes against the local base snapshot",
+		Args:    noArgs("gs status [--format text|json] [--json]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStatus(cmd.Context(), *opts)
 		},
 	}
 	contextCmd := &cobra.Command{
-		Use:   "context",
-		Short: "Show resolved CLI context",
-		Args:  noArgs("gs context [--format text|json] [--json]"),
+		Use:     "context",
+		Aliases: []string{"ctx"},
+		Short:   "Show resolved CLI context",
+		Args:    noArgs("gs context [--format text|json] [--json]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runContext(cmd.Context(), *opts)
 		},
 	}
 	configCmd := &cobra.Command{
-		Use:   "config",
-		Short: "Manage local CLI configuration",
-		RunE:  requireSubcommand("config"),
+		Use:     "config",
+		Aliases: []string{"cfg"},
+		Short:   "Manage local CLI configuration",
+		RunE:    requireSubcommand("config"),
 	}
 	configListCmd := &cobra.Command{
 		Use:   "list",
@@ -945,9 +950,10 @@ func (r Runner) rootCommand() *cobra.Command {
 	fsCmd.AddCommand(fsLsCmd, fsCatCmd, fsMkdirCmd, fsTouchCmd, fsWriteCmd, fsUploadCmd, fsMvCmd, fsRmCmd)
 
 	repoCmd := &cobra.Command{
-		Use:   "repo",
-		Short: "Manage imported repositories",
-		RunE:  requireSubcommand("repo"),
+		Use:     "repo",
+		Aliases: []string{"repository"},
+		Short:   "Manage imported repositories",
+		RunE:    requireSubcommand("repo"),
 	}
 	repoImportCmd := &cobra.Command{
 		Use:   "import",
@@ -982,9 +988,10 @@ func (r Runner) rootCommand() *cobra.Command {
 	repoCmd.AddCommand(repoImportCmd)
 
 	commitCmd := &cobra.Command{
-		Use:   "commit",
-		Short: "Inspect native commits",
-		RunE:  requireSubcommand("commit"),
+		Use:     "commit",
+		Aliases: []string{"commits"},
+		Short:   "Inspect native commits",
+		RunE:    requireSubcommand("commit"),
 	}
 	commitLimit := 20
 	commitListCmd := &cobra.Command{
@@ -1029,9 +1036,10 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 
 	sliceCmd := &cobra.Command{
-		Use:   "slice",
-		Short: "Manage slices",
-		RunE:  requireSubcommand("slice"),
+		Use:     "slice",
+		Aliases: []string{"slices"},
+		Short:   "Manage slices",
+		RunE:    requireSubcommand("slice"),
 	}
 	sliceCreateVisibility := "account"
 	var sliceCreateIncludes []string
@@ -5453,18 +5461,21 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs context",
 				"summary":        "show resolved server, auth, workspace, and active slice context",
+				"aliases":        []string{"gs ctx"},
 				"writes_stdout":  true,
 				"machine_output": []string{"cwd", "config_path", "server_addr", "signed_in", "subject_id", "auth_reason", "workspace", "active_slice", "active_slice_source"},
 			},
 			{
 				"use":            "gs config list",
 				"summary":        "list local CLI configuration without exposing secrets",
+				"aliases":        []string{"gs cfg list"},
 				"writes_stdout":  true,
 				"machine_output": []string{"config_path", "server_addr", "subject_id", "token_present"},
 			},
 			{
 				"use":            "gs config get <key>",
 				"summary":        "get one local CLI configuration value",
+				"aliases":        []string{"gs cfg get <key>"},
 				"args":           []string{"key"},
 				"writes_stdout":  true,
 				"machine_output": []string{"<key>"},
@@ -5472,6 +5483,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs config set <key> <value>",
 				"summary":        "set one local CLI configuration value",
+				"aliases":        []string{"gs cfg set <key> <value>"},
 				"args":           []string{"key", "value"},
 				"writes_stdout":  true,
 				"machine_output": []string{"config_path", "server_addr", "subject_id", "token_present"},
@@ -5493,6 +5505,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs workspace init <account>/<slice>",
 				"summary":        "bind the current directory to one slice and hydrate its files",
+				"aliases":        []string{"gs ws init <account>/<slice>"},
 				"args":           []string{"account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"workspace", "slice_id", "base_commit_id", "client_object_cache", "hydrated"},
@@ -5500,6 +5513,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs workspace hydrate <path> [path...]",
 				"summary":        "hydrate workspace files through the client object cache",
+				"aliases":        []string{"gs ws hydrate <path> [path...]"},
 				"args":           []string{"path"},
 				"writes_stdout":  true,
 				"machine_output": []string{"workspace", "base_commit_id", "client_object_cache", "hydrated"},
@@ -5507,6 +5521,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs status",
 				"summary":        "show workspace changes against the local base snapshot",
+				"aliases":        []string{"gs st"},
 				"writes_stdout":  true,
 				"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "changeset_id", "patchset_id"},
 			},
@@ -5520,6 +5535,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs slice create <account>/<slice>",
 				"summary":        "create a slice",
+				"aliases":        []string{"gs slices create <account>/<slice>"},
 				"args":           []string{"account/slice"},
 				"flags":          []string{"--include", "--visibility"},
 				"writes_stdout":  true,
@@ -5528,6 +5544,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs slice list [account]",
 				"summary":        "list slices in an account",
+				"aliases":        []string{"gs slices list [account]"},
 				"args":           []string{"account"},
 				"writes_stdout":  true,
 				"machine_output": []string{"account", "slices"},
@@ -5535,6 +5552,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs slice info <account>/<slice>",
 				"summary":        "show slice metadata",
+				"aliases":        []string{"gs slices info <account>/<slice>"},
 				"args":           []string{"account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
@@ -5542,6 +5560,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs slice paths <account>/<slice>",
 				"summary":        "show slice included paths",
+				"aliases":        []string{"gs slices paths <account>/<slice>"},
 				"args":           []string{"account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"ref", "included_paths"},
@@ -5549,6 +5568,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs slice update <account>/<slice>",
 				"summary":        "update slice included paths or visibility",
+				"aliases":        []string{"gs slices update <account>/<slice>"},
 				"args":           []string{"account/slice"},
 				"flags":          []string{"--include", "--visibility"},
 				"writes_stdout":  true,
@@ -5557,6 +5577,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs slice delete <account>/<slice>",
 				"summary":        "delete a slice",
+				"aliases":        []string{"gs slices delete <account>/<slice>"},
 				"args":           []string{"account/slice"},
 				"flags":          []string{"--yes"},
 				"writes_stdout":  true,
@@ -5565,6 +5586,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs cs create",
 				"summary":        "create a changeset and first patchset from workspace edits",
+				"aliases":        []string{"gs changeset create"},
 				"flags":          []string{"--title"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "patchset_id"},
@@ -5572,43 +5594,49 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs cs update",
 				"summary":        "create a new patchset for the current changeset",
+				"aliases":        []string{"gs changeset update"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "patchset_id"},
 			},
 			{
 				"use":            "gs cs submit [changeset-id]",
 				"summary":        "submit the current or named changeset through server-side validation",
+				"aliases":        []string{"gs changeset submit [changeset-id]"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "commit_id", "target_ref", "new_ref_commit_id"},
 			},
 			{
 				"use":            "gs cs status [changeset-id]",
 				"summary":        "show the current or named changeset status",
+				"aliases":        []string{"gs changeset status [changeset-id]"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "patchset_id", "status"},
 			},
 			{
 				"use":            "gs cs show [changeset-id]",
 				"summary":        "show changeset details and patchsets",
+				"aliases":        []string{"gs changeset show [changeset-id]"},
 				"writes_stdout":  true,
 				"machine_output": []string{"id", "authoring_slice", "status", "patchsets", "current_patchset_id"},
 			},
 			{
 				"use":            "gs cs explain [changeset-id]",
 				"summary":        "show changeset validation inputs, requirements, read set, and write set",
+				"aliases":        []string{"gs changeset explain [changeset-id]"},
 				"writes_stdout":  true,
 				"machine_output": []string{"id", "submit_requirements", "patchsets"},
 			},
 			{
 				"use":            "gs cs versions [changeset-id]",
 				"summary":        "list patchset versions for a changeset",
-				"aliases":        []string{"gs cs patchsets"},
+				"aliases":        []string{"gs changeset versions [changeset-id]", "gs cs patchsets", "gs changeset patchsets"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "patchsets"},
 			},
 			{
 				"use":            "gs cs diff [changeset-id]",
 				"summary":        "show a server-side diff for one patchset or between two patchsets",
+				"aliases":        []string{"gs changeset diff [changeset-id]"},
 				"flags":          []string{"--patchset", "--from", "--to", "--name-only", "--stat"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "from_patchset_id", "to_patchset_id", "changed_paths", "diff"},
@@ -5616,6 +5644,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs cs list",
 				"summary":        "list changesets for a slice",
+				"aliases":        []string{"gs changeset list"},
 				"flags":          []string{"--slice", "--status", "--limit"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changesets"},
@@ -5623,6 +5652,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs cs abandon [changeset-id]",
 				"summary":        "abandon the current or named draft changeset",
+				"aliases":        []string{"gs changeset abandon [changeset-id]"},
 				"flags":          []string{"--reason"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "status"},
@@ -5688,6 +5718,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs repo import github <owner/repo-or-url>",
 				"summary":        "import a GitHub repository under a mounted path",
+				"aliases":        []string{"gs repository import github <owner/repo-or-url>"},
 				"flags":          []string{"--mount", "--slice", "--mode", "--deep", "--max-commits", "--resume"},
 				"writes_stdout":  true,
 				"machine_output": []string{"source", "mount_path", "mode", "target_ref", "final_commit_id", "commits"},
@@ -5695,6 +5726,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs commit list",
 				"summary":        "list native commits from the main ref",
+				"aliases":        []string{"gs commits list"},
 				"flags":          []string{"--limit"},
 				"writes_stdout":  true,
 				"machine_output": []string{"commits"},
@@ -5702,6 +5734,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":            "gs commit inspect <commit-id>",
 				"summary":        "inspect a native commit",
+				"aliases":        []string{"gs commits inspect <commit-id>"},
 				"args":           []string{"commit-id"},
 				"writes_stdout":  true,
 				"machine_output": []string{"id", "parent_ids", "root_tree_id", "author", "message", "created_at", "changed_paths"},

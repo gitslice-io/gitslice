@@ -35,7 +35,8 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	var got struct {
 		SchemaVersion string `json:"schema_version"`
 		Commands      []struct {
-			Use string `json:"use"`
+			Use     string   `json:"use"`
+			Aliases []string `json:"aliases"`
 		} `json:"commands"`
 		HelpTopics []struct {
 			Name string `json:"name"`
@@ -52,12 +53,27 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		t.Fatal("schema did not include commands")
 	}
 	uses := map[string]bool{}
+	aliases := map[string][]string{}
 	for _, command := range got.Commands {
 		uses[command.Use] = true
+		aliases[command.Use] = command.Aliases
 	}
 	for _, want := range []string{"gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
+		}
+	}
+	for use, wantAlias := range map[string]string{
+		"gs context":                                "gs ctx",
+		"gs config list":                            "gs cfg list",
+		"gs workspace init <account>/<slice>":       "gs ws init <account>/<slice>",
+		"gs status":                                 "gs st",
+		"gs slice list [account]":                   "gs slices list [account]",
+		"gs repo import github <owner/repo-or-url>": "gs repository import github <owner/repo-or-url>",
+		"gs commit list":                            "gs commits list",
+	} {
+		if !stringSliceContains(aliases[use], wantAlias) {
+			t.Fatalf("schema aliases for %q missing %q: %#v", use, wantAlias, aliases[use])
 		}
 	}
 	topics := map[string]bool{}
@@ -71,6 +87,33 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	}
 	if got.ErrorOutput["stream"] != "stderr" {
 		t.Fatalf("expected stderr error stream, got %#v", got.ErrorOutput["stream"])
+	}
+}
+
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRootHelpIncludesWorkflowExamples(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"help"}); err != nil {
+		t.Fatalf("help failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"gs auth signup --username nic",
+		"gs fs upload ./notes /nic/notes --recursive",
+		"gs cs submit",
+		"HELP TOPICS",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("root help missing %q:\n%s", want, stdout.String())
+		}
 	}
 }
 
@@ -301,7 +344,7 @@ func TestContextReportsAuthAndWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := r.Run(context.Background(), []string{"context", "--json"}); err != nil {
+	if err := r.Run(context.Background(), []string{"ctx", "--json"}); err != nil {
 		t.Fatalf("context failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	var got contextOutput
@@ -334,7 +377,7 @@ func TestConfigCommandsListGetSetAndRedactToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := r.Run(context.Background(), []string{"config", "list", "--json"}); err != nil {
+	if err := r.Run(context.Background(), []string{"cfg", "list", "--json"}); err != nil {
 		t.Fatalf("config list failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "secret-token") {
@@ -349,7 +392,7 @@ func TestConfigCommandsListGetSetAndRedactToken(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if err := r.Run(context.Background(), []string{"config", "get", "server_addr"}); err != nil {
+	if err := r.Run(context.Background(), []string{"cfg", "get", "server_addr"}); err != nil {
 		t.Fatalf("config get failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	if strings.TrimSpace(stdout.String()) != "127.0.0.1:50051" {
@@ -357,7 +400,7 @@ func TestConfigCommandsListGetSetAndRedactToken(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if err := r.Run(context.Background(), []string{"config", "set", "server_addr", "127.0.0.1:60000"}); err != nil {
+	if err := r.Run(context.Background(), []string{"cfg", "set", "server_addr", "127.0.0.1:60000"}); err != nil {
 		t.Fatalf("config set failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	cfg, err := r.readPartialUserConfig()

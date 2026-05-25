@@ -2476,3 +2476,41 @@ git diff --check
 go run ./cmd/gs rpc list --json
 go run ./cmd/gs rpc call AuthService/GetAuthStatus --request '{}' --json=subject_id
 ```
+
+## 2026-05-25: CLI Discovery Aliases And Workflow Examples
+
+Request:
+
+- continue applying GitHub CLI design learnings by improving command
+  discoverability without changing existing command behavior
+
+Implemented:
+
+- added root help workflow examples that show signup, shell, `gs fs upload`,
+  workspace init, status, changeset diff, and submit together
+- added short or natural aliases for common top-level command groups:
+  `workspace/ws`, `status/st`, `context/ctx`, `config/cfg`, `slice/slices`,
+  `repo/repository`, and `commit/commits`
+- updated `gs schema` so machine consumers can discover the canonical commands
+  and their aliases
+- updated CLI tests and CLI design docs for the alias and example contract
+
+Important decisions and learnings:
+
+- Canonical command names remain the primary documented spelling. Aliases are
+  secondary affordances for frequent commands and singular/plural discovery, so
+  scripts can keep using the explicit names.
+- `gs fs` remains the advertised filesystem command; the older `gs file`
+  spelling stays compatibility-only.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs help
+go run ./cmd/gs cfg list --json=config_path
+```
