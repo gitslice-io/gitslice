@@ -35,6 +35,7 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=d
 printf 'pwd\nls /nic4/test2\ncd /nic4/test2\npwd\nls\nstat test.txt\ncat test.txt\nquit\n' | ./bin/gs shell --no-color
 go test ./...
 go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
 git diff --check
 ```
 
