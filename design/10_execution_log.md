@@ -2553,3 +2553,37 @@ go test ./...
 go build ./cmd/...
 git diff --check
 ```
+
+## 2026-05-25: CLI Browser Handoff
+
+Request:
+
+- continue applying GitHub CLI design learnings by adding a lightweight web
+  handoff command similar to `gh browse`
+
+Implemented:
+
+- added `gs browse [web-path]` with `--web-url` and `--print`
+- reused `GS_WEB_URL` / `GITSLICE_WEB_URL` for the default web UI base URL
+- made `--print` emit the resolved URL without launching a browser for scripts
+  and tests
+- updated `gs schema`, CLI help docs, and CLI unit tests for the URL builder
+
+Important decisions and learnings:
+
+- `gs browse` only constructs and opens URLs under the configured web UI base.
+  It does not add new server APIs or claim that every designed web route is
+  implemented in the current static app.
+- Browser-open failures return a structured CLI error with a `--print`
+  recovery hint.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs browse signup --web-url http://127.0.0.1:8082 --print
+```

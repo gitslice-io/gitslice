@@ -51,6 +51,7 @@ gs auth ...
 gs context
 gs config ...
 gs rpc ...
+gs browse
 gs help ...
 gs workspace ...
 gs slice ...
@@ -225,8 +226,8 @@ The CLI supports short `GS_*` environment aliases while preserving existing
 GS_SERVER_ADDR          preferred server default
 GITSLICE_GRPC_ADDR      compatibility server default
 GITSLICE_SERVER_ADDR    compatibility server default
-GS_WEB_URL              preferred signup web URL default
-GITSLICE_WEB_URL        compatibility signup web URL default
+GS_WEB_URL              preferred web UI URL default
+GITSLICE_WEB_URL        compatibility web UI URL default
 GS_GATEWAY_URL          preferred signup gateway URL default
 GITSLICE_GATEWAY_URL    compatibility signup gateway URL default
 GS_HTTP_ADDR            compatibility gateway address source
@@ -260,6 +261,24 @@ login/signup.
 
 Streaming RPCs remain out of scope for the generic escape hatch and should use
 dedicated commands where progress and cancellation semantics are explicit.
+
+## 3.5 Browser Handoff
+
+```bash
+gs browse
+gs browse signup
+gs browse source/nic/notes?ref=main --print
+```
+
+`gs browse` is a small browser handoff modeled after `gh browse`. It builds a
+URL under the configured web UI base and opens it in the local browser, or
+prints it with `--print` for scripts and terminals where browser launch is not
+wanted. The command does not add server APIs and does not imply every designed
+web route is already implemented; it is only a stable way for the CLI to hand
+the user to the web surface.
+
+The default base URL comes from `GS_WEB_URL`, then `GITSLICE_WEB_URL`, then the
+local development default.
 
 ## 4. Workspace Commands
 
