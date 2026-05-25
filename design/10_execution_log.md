@@ -49,6 +49,12 @@ Verification:
 ```bash
 gofmt -w service/auth.go server/server.go proto/core/v1/auth.pb.go proto/core/v1/auth_grpc.pb.go proto/core/v1/auth.pb.gw.go internal/cli/cli.go tests/functional/cli_smoke_test.go
 go test ./internal/cli ./service ./server ./tests/functional -run 'Test(AuthSignupStoresCallbackToken|SignupWebApproveIssuesToken|CLISignupShellDefaultsToPersonalHome)' -count=1 -v
+node --check web/signup/signup.js
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'Test(SignupWebApproveIssuesToken|CLISignupShellDefaultsToPersonalHome|CLIFileAndShellMutationsStayInHome)' -v
+python3 -m http.server 6173 --bind 127.0.0.1 --directory web
+git diff --check
 ```
 
 ## 2026-05-24: Explicit Custom Slice Canonical Shell Paths
