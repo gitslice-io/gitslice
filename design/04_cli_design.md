@@ -50,6 +50,7 @@ Initial command groups:
 gs auth ...
 gs context
 gs config ...
+gs alias ...
 gs rpc ...
 gs browse
 gs help ...
@@ -239,7 +240,27 @@ NO_COLOR                disable color
 TERM=dumb               disable color and sticky shell headers
 ```
 
-## 3.4 RPC Escape Hatch
+## 3.4 User Aliases
+
+```bash
+gs alias list
+gs alias set mine "cs list --status draft"
+gs alias delete mine
+```
+
+`gs alias` is modeled after `gh alias`: it stores local, user-controlled command
+shortcuts in the CLI config file. Alias expansion is intentionally command-only,
+not shell execution. An alias replaces the top-level command token once and then
+the normal Cobra command parser handles flags, validation, output format, and
+errors. For example, `gs mine --json` can expand to
+`gs cs list --status draft --json`.
+
+Alias names must use letters, numbers, dash, or underscore, cannot start with a
+dash, and cannot shadow built-in commands or built-in command aliases. Auth
+commands preserve configured aliases when they update the saved server/token
+state.
+
+## 3.5 RPC Escape Hatch
 
 ```bash
 gs rpc list
@@ -263,7 +284,7 @@ login/signup.
 Streaming RPCs remain out of scope for the generic escape hatch and should use
 dedicated commands where progress and cancellation semantics are explicit.
 
-## 3.5 Browser Handoff
+## 3.6 Browser Handoff
 
 ```bash
 gs browse
@@ -281,7 +302,7 @@ the user to the web surface.
 The default base URL comes from `GS_WEB_URL`, then `GITSLICE_WEB_URL`, then the
 local development default.
 
-## 3.6 Version Command
+## 3.7 Version Command
 
 ```bash
 gs version

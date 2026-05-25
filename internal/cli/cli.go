@@ -56,9 +56,10 @@ var (
 )
 
 type UserConfig struct {
-	ServerAddr string `json:"server_addr"`
-	Token      string `json:"token"`
-	SubjectID  string `json:"subject_id"`
+	ServerAddr string            `json:"server_addr"`
+	Token      string            `json:"token"`
+	SubjectID  string            `json:"subject_id"`
+	Aliases    map[string]string `json:"aliases,omitempty"`
 }
 
 type WorkspaceConfig struct {
@@ -205,6 +206,11 @@ type configOutput struct {
 	ServerAddr   string `json:"server_addr,omitempty"`
 	SubjectID    string `json:"subject_id,omitempty"`
 	TokenPresent bool   `json:"token_present"`
+}
+
+type aliasEntryOutput struct {
+	Name      string `json:"name"`
+	Expansion string `json:"expansion"`
 }
 
 type rpcMethodOutput struct {
@@ -482,11 +488,70 @@ func exitCodeForError(err error) int {
 }
 
 func (r Runner) Run(ctx context.Context, args []string) error {
+	expanded, err := r.expandAliasArgs(args)
+	if err != nil {
+		return r.enhanceCommandError(err)
+	}
 	root := r.rootCommand()
-	root.SetArgs(args)
+	root.SetArgs(expanded)
 	root.SetOut(r.Stdout)
 	root.SetErr(r.Stderr)
 	return r.enhanceCommandError(root.ExecuteContext(ctx))
+}
+
+func (r Runner) expandAliasArgs(args []string) ([]string, error) {
+	idx := aliasExpansionIndex(args)
+	if idx < 0 {
+		return args, nil
+	}
+	name := args[idx]
+	if name == "alias" || name == "help" || name == "completion" {
+		return args, nil
+	}
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		return nil, err
+	}
+	expansion, ok := cfg.Aliases[name]
+	if !ok {
+		return args, nil
+	}
+	parts, err := splitAliasExpansion(expansion)
+	if err != nil {
+		return nil, err
+	}
+	if len(parts) == 0 {
+		return nil, userError("invalid_alias", "alias "+name+" has an empty expansion", "Run gs alias set "+name+" '<command>' to replace it.")
+	}
+	expanded := make([]string, 0, len(args)-1+len(parts))
+	expanded = append(expanded, args[:idx]...)
+	expanded = append(expanded, parts...)
+	expanded = append(expanded, args[idx+1:]...)
+	return expanded, nil
+}
+
+func aliasExpansionIndex(args []string) int {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			if i+1 < len(args) {
+				return i + 1
+			}
+			return -1
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return i
+		}
+		switch {
+		case arg == "--format" || arg == "--json":
+			i++
+		case strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "--json="):
+		case arg == "--quiet" || arg == "--non-interactive" || arg == "--no-color" || arg == "--verbose" || arg == "--debug" || arg == "--trace":
+		default:
+			return i
+		}
+	}
+	return -1
 }
 
 func (r Runner) enhanceCommandError(err error) error {
@@ -679,6 +744,39 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 	configCmd.AddCommand(configListCmd, configGetCmd, configSetCmd)
+
+	aliasCmd := &cobra.Command{
+		Use:   "alias",
+		Short: "Manage local command aliases",
+		RunE:  requireSubcommand("alias"),
+	}
+	aliasListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List local command aliases",
+		Args:  noArgs("gs alias list"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAliasList(*opts)
+		},
+	}
+	aliasSetCmd := &cobra.Command{
+		Use:   "set <name> <command>",
+		Short: "Create or update a local command alias",
+		Args:  exactArgs(2, "gs alias set <name> '<command>'"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAliasSet(*opts, args[0], args[1])
+		},
+	}
+	aliasDeleteCmd := &cobra.Command{
+		Use:     "delete <name>",
+		Aliases: []string{"remove", "rm"},
+		Short:   "Delete a local command alias",
+		Args:    exactArgs(1, "gs alias delete <name>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAliasDelete(*opts, args[0])
+		},
+	}
+	aliasCmd.AddCommand(aliasListCmd, aliasSetCmd, aliasDeleteCmd)
+
 	rpcCmd := &cobra.Command{
 		Use:   "rpc",
 		Short: "Call generated core RPCs for diagnostics",
@@ -1165,7 +1263,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, configCmd, rpcCmd, browseCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -1242,6 +1340,9 @@ func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAdd
 		return err
 	}
 	cfg := UserConfig{ServerAddr: serverAddr, Token: res.Token, SubjectID: res.SubjectId}
+	if existing, err := r.readPartialUserConfig(); err == nil {
+		cfg.Aliases = existing.Aliases
+	}
 	if err := r.writeUserConfig(cfg); err != nil {
 		return err
 	}
@@ -1320,6 +1421,9 @@ func (r Runner) runAuthSignup(ctx context.Context, opts commandOptions, serverAd
 		return userError("signup_failed", result.Error, "Try gs auth signup again.")
 	}
 	cfg := UserConfig{ServerAddr: serverAddr, Token: result.Token, SubjectID: result.SubjectID}
+	if existing, err := r.readPartialUserConfig(); err == nil {
+		cfg.Aliases = existing.Aliases
+	}
 	if err := r.writeUserConfig(cfg); err != nil {
 		return err
 	}
@@ -1744,6 +1848,133 @@ func configOutputFromUserConfig(configPath string, cfg UserConfig) configOutput 
 		SubjectID:    cfg.SubjectID,
 		TokenPresent: cfg.Token != "",
 	}
+}
+
+func (r Runner) runAliasList(opts commandOptions) error {
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		return err
+	}
+	entries := aliasEntries(cfg.Aliases)
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"aliases": entries})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(r.Stdout, "no aliases configured")
+		return nil
+	}
+	for _, entry := range entries {
+		fmt.Fprintf(r.Stdout, "%s: %s\n", entry.Name, entry.Expansion)
+	}
+	return nil
+}
+
+func (r Runner) runAliasSet(opts commandOptions, name, expansion string) error {
+	name = strings.TrimSpace(name)
+	expansion = strings.TrimSpace(expansion)
+	if err := validateAliasName(name); err != nil {
+		return err
+	}
+	if reservedAliasNames()[name] {
+		return userError("reserved_alias", "alias "+name+" conflicts with a built-in command", "Choose a different alias name.")
+	}
+	if parts, err := splitAliasExpansion(expansion); err != nil {
+		return err
+	} else if len(parts) == 0 {
+		return userError("invalid_alias", "alias expansion cannot be empty", "Pass a command such as 'status --json'.")
+	}
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.Aliases == nil {
+		cfg.Aliases = map[string]string{}
+	}
+	cfg.Aliases[name] = expansion
+	if err := r.writeUserConfig(cfg); err != nil {
+		return err
+	}
+	entry := aliasEntryOutput{Name: name, Expansion: expansion}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, entry)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "set alias %s: %s\n", name, expansion)
+	return nil
+}
+
+func (r Runner) runAliasDelete(opts commandOptions, name string) error {
+	name = strings.TrimSpace(name)
+	if err := validateAliasName(name); err != nil {
+		return err
+	}
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		return err
+	}
+	if _, ok := cfg.Aliases[name]; !ok {
+		return userError("unknown_alias", "unknown alias "+name, "Run gs alias list to inspect configured aliases.")
+	}
+	delete(cfg.Aliases, name)
+	if len(cfg.Aliases) == 0 {
+		cfg.Aliases = nil
+	}
+	if err := r.writeUserConfig(cfg); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"name": name, "deleted": true})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "deleted alias %s\n", name)
+	return nil
+}
+
+func aliasEntries(aliases map[string]string) []aliasEntryOutput {
+	entries := make([]aliasEntryOutput, 0, len(aliases))
+	for name, expansion := range aliases {
+		entries = append(entries, aliasEntryOutput{Name: name, Expansion: expansion})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name < entries[j].Name
+	})
+	return entries
+}
+
+func validateAliasName(name string) error {
+	if name == "" {
+		return userError("invalid_alias", "alias name cannot be empty", "Use letters, numbers, dash, or underscore.")
+	}
+	if strings.HasPrefix(name, "-") {
+		return userError("invalid_alias", "alias name cannot start with '-'", "Use letters, numbers, dash, or underscore.")
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return userError("invalid_alias", "alias name contains unsupported characters: "+name, "Use letters, numbers, dash, or underscore.")
+	}
+	return nil
+}
+
+func reservedAliasNames() map[string]bool {
+	names := []string{
+		"alias", "auth", "browse", "commit", "commits", "completion", "config", "cfg", "context", "ctx",
+		"cs", "changeset", "diff", "file", "fs", "help", "repo", "repository", "rpc", "schema",
+		"shell", "slice", "slices", "st", "status", "version", "workspace", "ws",
+	}
+	reserved := make(map[string]bool, len(names))
+	for _, name := range names {
+		reserved[name] = true
+	}
+	return reserved
 }
 
 func (r Runner) runRPCList(opts commandOptions) error {
@@ -5697,6 +5928,27 @@ func (r Runner) runSchema() error {
 				"machine_output": []string{"config_path", "server_addr", "subject_id", "token_present"},
 			},
 			{
+				"use":            "gs alias list",
+				"summary":        "list local command aliases",
+				"writes_stdout":  true,
+				"machine_output": []string{"aliases"},
+			},
+			{
+				"use":            "gs alias set <name> <command>",
+				"summary":        "create or update a local command alias",
+				"args":           []string{"name", "command"},
+				"writes_stdout":  true,
+				"machine_output": []string{"name", "expansion"},
+			},
+			{
+				"use":            "gs alias delete <name>",
+				"summary":        "delete a local command alias",
+				"aliases":        []string{"gs alias remove <name>", "gs alias rm <name>"},
+				"args":           []string{"name"},
+				"writes_stdout":  true,
+				"machine_output": []string{"name", "deleted"},
+			},
+			{
 				"use":            "gs rpc list",
 				"summary":        "list generated core RPC methods",
 				"writes_stdout":  true,
@@ -6208,6 +6460,55 @@ func parsePositiveDurationFlag(name, value string) (time.Duration, error) {
 		return 0, userError("invalid_duration", "invalid --"+name+" duration "+value, "Use a positive duration such as 10s, 2m, or 500ms.")
 	}
 	return duration, nil
+}
+
+func splitAliasExpansion(value string) ([]string, error) {
+	var parts []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if current.Len() == 0 {
+			return
+		}
+		parts = append(parts, current.String())
+		current.Reset()
+	}
+	for _, r := range strings.TrimSpace(value) {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+				continue
+			}
+			current.WriteRune(r)
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case ' ', '\t', '\n', '\r':
+			flush()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if escaped {
+		current.WriteRune('\\')
+	}
+	if quote != 0 {
+		return nil, userError("invalid_alias", "alias expansion has an unterminated quote", "Close the quote or remove it.")
+	}
+	flush()
+	return parts, nil
 }
 
 func userError(code, message, hint string) error {
