@@ -70,7 +70,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs version", "gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs version", "gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -328,6 +328,66 @@ func TestAuthStatusReportsInvalidStoredToken(t *testing.T) {
 	}
 	if got.ServerAddr != serverAddr || got.SubjectID != "" || got.Reason != "invalid_token" {
 		t.Fatalf("unexpected auth status for invalid token: %#v", got)
+	}
+}
+
+func TestAuthTokenPrintsValidatedToken(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	serverAddr := startFakeAuthStatusServer(t, "secret-token", "user_alice")
+	if err := r.writeUserConfig(UserConfig{
+		ServerAddr: serverAddr,
+		Token:      "secret-token",
+		SubjectID:  "stale_local_subject",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.Run(context.Background(), []string{"auth", "token"}); err != nil {
+		t.Fatalf("auth token failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(stdout.String()), "secret-token"; got != want {
+		t.Fatalf("auth token output = %q, want %q", got, want)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := r.Run(context.Background(), []string{"auth", "token", "--json"}); err != nil {
+		t.Fatalf("auth token --json failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	var got authTokenOutput
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("auth token JSON is invalid: %v\n%s", err, stdout.String())
+	}
+	if got.Token != "secret-token" || got.ServerAddr != serverAddr || got.SubjectID != "user_alice" {
+		t.Fatalf("unexpected auth token JSON: %#v", got)
+	}
+}
+
+func TestAuthTokenRejectsInvalidStoredToken(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	serverAddr := startFakeAuthStatusServer(t, "valid-token", "user_alice")
+	if err := r.writeUserConfig(UserConfig{
+		ServerAddr: serverAddr,
+		Token:      "stale-token",
+		SubjectID:  "user_alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := r.Run(context.Background(), []string{"auth", "token"})
+	if err == nil {
+		t.Fatal("expected invalid token error")
+	}
+	if !isUserErrorCode(err, "invalid_token") {
+		t.Fatalf("expected invalid_token, got %T: %v", err, err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("auth token printed invalid token:\n%s", stdout.String())
+	}
+	if !strings.Contains(err.Error(), "gs auth status") || !strings.Contains(err.Error(), "gs auth signup --username alice") {
+		t.Fatalf("expected recovery hint, got:\n%v", err)
 	}
 }
 

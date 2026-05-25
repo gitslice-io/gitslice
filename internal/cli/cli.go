@@ -179,6 +179,12 @@ type authStatusOutput struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+type authTokenOutput struct {
+	Token      string `json:"token"`
+	ServerAddr string `json:"server_addr"`
+	SubjectID  string `json:"subject_id,omitempty"`
+}
+
 type contextOutput struct {
 	CWD               string                  `json:"cwd"`
 	ConfigPath        string                  `json:"config_path"`
@@ -677,6 +683,14 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runAuthStatus(cmd.Context(), *opts)
 		},
 	}
+	authTokenCmd := &cobra.Command{
+		Use:   "token",
+		Short: "Print the validated bearer token",
+		Args:  noArgs("gs auth token"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAuthToken(cmd.Context(), *opts)
+		},
+	}
 	authLogoutCmd := &cobra.Command{
 		Use:   "logout",
 		Short: "Clear saved authentication credentials",
@@ -685,7 +699,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runAuthLogout(*opts)
 		},
 	}
-	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd, authLogoutCmd)
+	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd, authTokenCmd, authLogoutCmd)
 
 	workspaceCmd := &cobra.Command{
 		Use:     "workspace",
@@ -1611,6 +1625,23 @@ func (r Runner) runAuthStatus(ctx context.Context, opts commandOptions) error {
 	return r.writeAuthStatus(opts, status)
 }
 
+func (r Runner) runAuthToken(ctx context.Context, opts commandOptions) error {
+	cfg, subjectID, err := r.validatedAuthToken(ctx)
+	if err != nil {
+		return err
+	}
+	out := authTokenOutput{
+		Token:      cfg.Token,
+		ServerAddr: cfg.ServerAddr,
+		SubjectID:  subjectID,
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	fmt.Fprintln(r.Stdout, cfg.Token)
+	return nil
+}
+
 func (r Runner) runAuthLogout(opts commandOptions) error {
 	path := r.userConfigPath()
 	cfg, err := r.readPartialUserConfig()
@@ -1655,6 +1686,26 @@ func (r Runner) runAuthLogout(opts commandOptions) error {
 		fmt.Fprintf(r.Stdout, "server: %s\n", cfg.ServerAddr)
 	}
 	return nil
+}
+
+func (r Runner) validatedAuthToken(ctx context.Context) (UserConfig, string, error) {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return UserConfig{}, "", err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return UserConfig{}, "", err
+	}
+	defer conn.Close()
+	res, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(authContext(ctx, cfg), &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		if grpcstatus.Code(err) == codes.Unauthenticated {
+			return UserConfig{}, "", userError("invalid_token", "saved auth token is invalid", r.authRecoveryHint())
+		}
+		return UserConfig{}, "", err
+	}
+	return cfg, res.SubjectId, nil
 }
 
 func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
@@ -1849,7 +1900,7 @@ func (r Runner) runConfigGet(opts commandOptions, key string) error {
 	case "token_present":
 		value = out.TokenPresent
 	case "token":
-		return userError("secret_config_key", "token is secret and cannot be printed", "Run gs auth status to inspect auth state without exposing the token.")
+		return userError("secret_config_key", "token is secret and cannot be printed by config", "Run gs auth token only when a script needs the bearer token, or gs auth status for non-secret auth state.")
 	default:
 		return userError("unknown_config_key", "unknown config key "+key, "Supported keys: config_path, server_addr, subject_id, token_present.")
 	}
@@ -5959,6 +6010,12 @@ func (r Runner) runSchema() error {
 				"summary":        "show current authentication status after validating the local token",
 				"writes_stdout":  true,
 				"machine_output": []string{"signed_in", "server_addr", "subject_id", "reason"},
+			},
+			{
+				"use":            "gs auth token",
+				"summary":        "print the validated bearer token for scripts and Git-compatible flows",
+				"writes_stdout":  true,
+				"machine_output": []string{"token", "server_addr", "subject_id"},
 			},
 			{
 				"use":            "gs auth logout",
