@@ -34,7 +34,10 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 
 	var got struct {
 		SchemaVersion string `json:"schema_version"`
-		Commands      []struct {
+		GlobalFlags   []struct {
+			Name string `json:"name"`
+		} `json:"global_flags"`
+		Commands []struct {
 			Use     string   `json:"use"`
 			Aliases []string `json:"aliases"`
 		} `json:"commands"`
@@ -51,6 +54,15 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	}
 	if len(got.Commands) == 0 {
 		t.Fatal("schema did not include commands")
+	}
+	globalFlags := map[string]bool{}
+	for _, flag := range got.GlobalFlags {
+		globalFlags[flag.Name] = true
+	}
+	for _, want := range []string{"--format", "--json", "--template"} {
+		if !globalFlags[want] {
+			t.Fatalf("schema missing global flag %q", want)
+		}
 	}
 	uses := map[string]bool{}
 	aliases := map[string][]string{}
@@ -123,7 +135,7 @@ func TestHelpTopics(t *testing.T) {
 		want string
 	}{
 		{"environment", "GITSLICE_GRPC_ADDR"},
-		{"formatting", "--format json"},
+		{"formatting", "--template"},
 		{"exit-codes", "4"},
 		{"paths", "account-rooted"},
 		{"slices", "nic/home"},
@@ -255,6 +267,40 @@ func TestJSONFieldSelectionRejectsUnknownField(t *testing.T) {
 	}
 	if !isUserErrorCode(err, "unknown_json_field") {
 		t.Fatalf("expected unknown_json_field, got %T: %v", err, err)
+	}
+}
+
+func TestTemplateOutput(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"auth", "status", "--template", "{{.signed_in}} {{.reason}}"}); err != nil {
+		t.Fatalf("auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(stdout.String()), "false not_logged_in"; got != want {
+		t.Fatalf("template output = %q, want %q", got, want)
+	}
+}
+
+func TestTemplateOutputUsesSelectedFields(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"auth", "status", "--json=reason", "--template", "{{.reason}}"}); err != nil {
+		t.Fatalf("auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(stdout.String()), "not_logged_in"; got != want {
+		t.Fatalf("template output = %q, want %q", got, want)
+	}
+}
+
+func TestTemplateOutputRejectsMissingField(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	err := r.Run(context.Background(), []string{"auth", "status", "--template", "{{.missing}}"})
+	if err == nil {
+		t.Fatal("expected missing template field error")
+	}
+	if !isUserErrorCode(err, "template_failed") {
+		t.Fatalf("expected template_failed, got %T: %v", err, err)
 	}
 }
 

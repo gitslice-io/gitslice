@@ -2692,3 +2692,45 @@ go test ./...
 go build ./cmd/...
 git diff --check
 ```
+
+## 2026-05-25: Template Output Formatting
+
+Request:
+
+- continue applying GitHub CLI design learnings by adding template formatting
+  similar to `gh --template`
+
+Implemented:
+
+- added global `--template <template>` support for commands that expose
+  structured output
+- templates execute against JSON-shaped field names, so field names match
+  `gs schema` and `--json` output
+- `--template` can be combined with `--json=field,field` to project top-level
+  fields before formatting
+- added a `json` template helper for nested arrays and objects
+- enabled JSON-shaped stderr errors for template parse and execution failures
+- updated `gs help formatting`, `gs schema`, CLI design docs, and unit tests
+
+Important decisions and learnings:
+
+- Template execution uses Go `text/template` with `missingkey=error` so scripts
+  fail clearly when a field name is stale or misspelled.
+- The template data is round-tripped through JSON before execution to keep the
+  template surface aligned with documented snake_case machine-output fields
+  rather than Go struct field names.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+tmp_home=$(mktemp -d)
+trap 'rm -rf "$tmp_home"' EXIT
+gomodcache=$(go env GOMODCACHE)
+gocache=$(go env GOCACHE)
+HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs auth status --template '{{.signed_in}} {{.reason}}'
+```
