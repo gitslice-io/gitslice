@@ -24,7 +24,7 @@ PROTO_FILES := $(wildcard proto/core/v1/*.proto)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deps fmt test build check install dev-install run-server run-web server functional load proto clean
+.PHONY: help deps fmt test build check install dev-install run-server run-web server cli rpc functional load proto clean
 
 help: ## Show available targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -69,8 +69,13 @@ run-web: ## Serve the static web app locally.
 
 server: run-server ## Alias for run-server.
 
-functional: ## Run real-Postgres functional tests.
-	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 ./tests/functional -v
+cli: ## Run real-Postgres CLI e2e tests.
+	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 ./tests/cli -v
+
+rpc: ## Run real-Postgres RPC e2e tests.
+	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 ./tests/rpc -v
+
+functional: cli rpc ## Run real-Postgres CLI and RPC e2e tests.
 
 load: ## Run opt-in load tests against local PostgreSQL.
 	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" \

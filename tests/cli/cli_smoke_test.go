@@ -1,4 +1,4 @@
-package functional_test
+package cli_test
 
 import (
 	"bufio"
@@ -427,101 +427,6 @@ func TestCLISliceCRUD(t *testing.T) {
 	_, stderr = runCLIFails(t, home, workspace, "slice", "info", "acme/docs")
 	if !strings.Contains(stderr, "not found") {
 		t.Fatalf("slice info after delete stderr = %q, want not found", stderr)
-	}
-}
-
-func TestSliceServiceCustomSliceRPCValidation(t *testing.T) {
-	ts := startTestServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
-	conn := dialTestGRPC(t, ts.addr)
-	defer conn.Close()
-	ctx := grpcAuthContext(token)
-	clients := newTestCoreClients(conn)
-	slices := corev1.NewSliceServiceClient(conn)
-
-	submitDirectFile(t, ctx, clients, "/acme/payment/rpc-docs/seed.txt", "rpc docs\n", "rpc docs seed")
-	submitDirectFile(t, ctx, clients, "/acme/payment/rpc-docs/archive/seed.txt", "rpc archive\n", "rpc archive seed")
-	submitDirectFile(t, ctx, clients, "/acme/payment/rpc-multi-a/seed.txt", "rpc multi a\n", "rpc multi a seed")
-	submitDirectFile(t, ctx, clients, "/acme/payment/rpc-multi-b/seed.txt", "rpc multi b\n", "rpc multi b seed")
-
-	_, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
-		Ref:           &corev1.SliceRef{Account: "acme", Slice: "rpc-missing"},
-		IncludedPaths: []string{"/acme/payment/rpc-missing"},
-	})
-	if grpcstatus.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "included path does not exist: /acme/payment/rpc-missing") {
-		t.Fatalf("missing include CreateSlice err = %v, want FailedPrecondition existence error", err)
-	}
-
-	_, err = slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
-		Ref:           &corev1.SliceRef{Account: "acme", Slice: "rpc-comma"},
-		IncludedPaths: []string{"/acme/payment/rpc-multi-a,/acme/payment/rpc-multi-b"},
-	})
-	if grpcstatus.Code(err) != codes.InvalidArgument || !strings.Contains(err.Error(), "must not contain commas") {
-		t.Fatalf("comma include CreateSlice err = %v, want InvalidArgument comma error", err)
-	}
-
-	created, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
-		Ref:           &corev1.SliceRef{Account: "acme", Slice: "rpc-docs"},
-		IncludedPaths: []string{"/acme/payment/rpc-docs"},
-		Visibility:    "account",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if created.Ref.Account != "acme" || created.Ref.Slice != "rpc-docs" || created.Definition.Visibility != "account" {
-		t.Fatalf("unexpected created slice: %#v", created)
-	}
-	if got := created.Definition.IncludedPaths; len(got) != 1 || got[0] != "/acme/payment/rpc-docs" {
-		t.Fatalf("created included paths = %#v, want [/acme/payment/rpc-docs]", got)
-	}
-
-	multi, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
-		Ref:           &corev1.SliceRef{Account: "acme", Slice: "rpc-multi"},
-		IncludedPaths: []string{"/acme/payment/rpc-multi-a", "/acme/payment/rpc-multi-b"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := multi.Definition.IncludedPaths; len(got) != 2 || got[0] != "/acme/payment/rpc-multi-a" || got[1] != "/acme/payment/rpc-multi-b" {
-		t.Fatalf("multi included paths = %#v, want both RPC include paths", got)
-	}
-
-	_, err = slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
-		SliceId:                created.Id,
-		ExpectedDefinitionHash: created.DefinitionHash,
-		Definition: &corev1.SliceDefinition{
-			IncludedPaths: []string{"/acme/payment/rpc-missing-update"},
-			Visibility:    "account",
-		},
-	})
-	if grpcstatus.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "included path does not exist: /acme/payment/rpc-missing-update") {
-		t.Fatalf("missing include UpdateSliceDefinition err = %v, want FailedPrecondition existence error", err)
-	}
-
-	updated, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
-		SliceId:                created.Id,
-		ExpectedDefinitionHash: created.DefinitionHash,
-		Definition: &corev1.SliceDefinition{
-			IncludedPaths: []string{"/acme/payment/rpc-docs", "/acme/payment/rpc-docs/archive"},
-			Visibility:    "public",
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Visibility != "public" || updated.Version != created.Definition.Version+1 {
-		t.Fatalf("unexpected updated definition: %#v", updated)
-	}
-	if got := updated.IncludedPaths; len(got) != 2 || got[0] != "/acme/payment/rpc-docs" || got[1] != "/acme/payment/rpc-docs/archive" {
-		t.Fatalf("updated included paths = %#v, want docs and archive", got)
-	}
-
-	resolved, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "rpc-docs"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolved.Definition.Visibility != "public" || !containsString(resolved.Definition.IncludedPaths, "/acme/payment/rpc-docs/archive") {
-		t.Fatalf("resolved slice did not persist updated definition: %#v", resolved)
 	}
 }
 
@@ -1580,7 +1485,7 @@ func startTestServer(t *testing.T) *testServer {
 	t.Helper()
 	databaseURL := os.Getenv("GITSLICE_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set GITSLICE_TEST_DATABASE_URL to run the real Postgres functional smoke test")
+		t.Skip("set GITSLICE_TEST_DATABASE_URL to run real Postgres CLI e2e tests")
 	}
 	schema := "gitslice_test_" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", "_")) + "_" + time.Now().Format("150405000000")
 	createSchema(t, databaseURL, schema)
@@ -1827,22 +1732,6 @@ func createDirectPatchset(t *testing.T, ctx context.Context, clients testCoreCli
 		t.Fatal(err)
 	}
 	return cs.Id, patchset.Id
-}
-
-func submitDirectFile(t *testing.T, ctx context.Context, clients testCoreClients, path, content, title string) *corev1.Changeset {
-	t.Helper()
-	changesetID, patchsetID := createDirectPatchset(t, ctx, clients, path, content, title)
-	submitted, err := clients.changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
-		ChangesetId:               changesetID,
-		ExpectedCurrentPatchsetId: patchsetID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if submitted.Status != "pending_publish" && submitted.Status != "submitted" {
-		t.Fatalf("unexpected submit response: %#v", submitted)
-	}
-	return waitForSubmittedChangeset(t, ctx, clients.changeset, changesetID)
 }
 
 func waitForSubmittedChangeset(t *testing.T, ctx context.Context, client corev1.ChangesetServiceClient, changesetID string) *corev1.Changeset {
@@ -2159,7 +2048,7 @@ func databaseURLWithSearchPath(t *testing.T, databaseURL, schema string) string 
 	t.Helper()
 	parsed, err := url.Parse(databaseURL)
 	if err != nil || parsed.Scheme == "" {
-		t.Fatalf("GITSLICE_TEST_DATABASE_URL must be a URL connection string for functional tests")
+		t.Fatalf("GITSLICE_TEST_DATABASE_URL must be a URL connection string for CLI e2e tests")
 	}
 	q := parsed.Query()
 	q.Set("search_path", schema)

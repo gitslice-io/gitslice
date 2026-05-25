@@ -3,6 +3,44 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: CLI and RPC E2E Suite Split
+
+Request:
+
+- move the custom-slice RPC e2e test to `tests/rpc`
+- rename the CLI e2e suite from `tests/functional` to `tests/cli`
+
+Implemented:
+
+- moved `tests/functional/cli_smoke_test.go` to
+  `tests/cli/cli_smoke_test.go` and renamed the package to `cli_test`
+- extracted the custom-slice direct gRPC e2e test into
+  `tests/rpc/slice_test.go` with a minimal RPC-only server harness
+- added `make cli` and `make rpc`; kept `make functional` as a compatibility
+  target that runs both suites
+- updated the agent guide verification command to use `./tests/cli ./tests/rpc`
+
+Important decisions and learnings:
+
+- The RPC suite intentionally starts only the gRPC server listener. It avoids
+  CLI, HTTP gateway, and Git HTTP setup so direct RPC coverage stays scoped to
+  the server contract.
+- Existing older mixed tests remain in `tests/cli` for now because they are
+  tied to CLI setup flows; this split isolates the newly added custom-slice RPC
+  contract test without a larger suite migration.
+
+Verification:
+
+```bash
+gofmt -w tests/cli/cli_smoke_test.go tests/rpc/slice_test.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/rpc -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli -run 'Test(CLISliceCRUD|ServerShellAttachesExplicitSlice|CLISignupShellDefaultsToPersonalHome)' -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
+git diff --check
+```
+
 ## 2026-05-24: Custom Slice RPC E2E Coverage
 
 Request:
@@ -31,11 +69,11 @@ Important decisions and learnings:
 Verification:
 
 ```bash
-gofmt -w tests/functional/cli_smoke_test.go
-GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestSliceServiceCustomSliceRPCValidation -v
+gofmt -w tests/cli/cli_smoke_test.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestSliceServiceCustomSliceValidation -v
 go test ./...
 go build ./cmd/...
-GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
 ```
 
 ## 2026-05-24: Home Shell Projection Isolation

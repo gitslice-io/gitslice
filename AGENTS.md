@@ -21,7 +21,8 @@ The current MVP prototype is Go-based and uses:
 - `internal/objectstore/filesystem`: prototype-only filesystem object store.
 - `internal/treestore`: immutable tree-node storage on top of the object store.
 - `internal/gitcompat`: Git read compatibility layer and projection cache.
-- `tests/functional`: real server plus CLI tests.
+- `tests/cli`: real server plus CLI e2e tests.
+- `tests/rpc`: real server plus direct RPC e2e tests.
 - `tests/load`: opt-in load and contention tests behind the `load` build tag.
 
 The design source of truth is under `design/`, especially:
@@ -103,7 +104,7 @@ go build ./cmd/...
 Real PostgreSQL functional gate:
 
 ```bash
-GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
 ```
 
 Opt-in load gate:

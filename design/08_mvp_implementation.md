@@ -472,25 +472,18 @@ cli := testharness.NewCLI(t, server.GRPCAddr)
 cli.Run(t, "auth", "login", "--dev-user", "alice")
 ```
 
-Baseline functional suites:
+Baseline e2e suites:
 
-- auth login and token persistence
-- workspace init for one slice
-- hydrate file and read file contents
-- status on clean workspace
-- status after file create/modify/delete/rename
-- changeset create
-- changeset update creates a new patchset
-- submit happy path moves target ref
-- submit conflict when path base is stale
-- rejection for path outside bound slice
-- blob upload deduplication
-- server restart preserves committed state
-- abandoned changeset cannot submit
-- overlapping slice coverage is recorded without creating multi-slice changesets
+- `tests/cli`: CLI-driven real-server journeys for auth, workspace init,
+  hydrate, status, changeset create/update/submit, shell, Git compatibility,
+  restart/persistence, and user-visible error text.
+- `tests/rpc`: direct RPC real-server journeys for API contracts that should
+  not depend on CLI parsing or formatting, such as custom slice definition
+  validation.
 
-Each functional test should prefer CLI assertions first and direct database or
-gRPC assertions only when the CLI cannot expose the invariant cleanly.
+CLI e2e tests should prefer CLI assertions first and direct database or gRPC
+assertions only when the CLI cannot expose the invariant cleanly. RPC e2e tests
+should use generated clients directly and avoid CLI setup.
 
 ## 10. Load Test Harness
 
@@ -573,11 +566,11 @@ Required gates:
 
 - unit tests for path, object id, storage, and submit primitives
 - gRPC service tests for each core service
-- functional CLI tests against a real local server
+- CLI and RPC e2e tests against a real local server
 - restart/persistence tests using PostgreSQL plus filesystem object store
 - load tests for read, write, and submit contention paths
 - race-enabled Go tests for packages with concurrent submit or cache logic
 
-The default developer test target should run unit and functional tests. Load
-tests can be opt-in because they are slower, but they must remain part of the
-MVP acceptance suite.
+The default developer test target should run unit and e2e tests. Load tests can
+be opt-in because they are slower, but they must remain part of the MVP
+acceptance suite.
