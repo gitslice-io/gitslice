@@ -120,6 +120,7 @@ gs cs submit
 gs auth login --server <grpc-addr> --dev-user <name>
 gs auth signup --username <name>
 gs auth status
+gs auth token
 gs auth logout
 ```
 
@@ -147,6 +148,13 @@ saved bearer token. JSON output should expose only stable, non-secret fields:
 
 If the local config is missing, incomplete, or the server rejects the token, the
 command reports `"signed_in": false` and may include a non-secret `reason`.
+
+`gs auth token` is the explicit secret-bearing auth command for scripts and
+Git-compatible flows that need a bearer token. It reads the saved token, first
+validates it with `AuthService.GetAuthStatus`, and prints the raw token only
+when the server accepts it. JSON/template output is supported for automation,
+but users should prefer `gs auth status` when they only need non-secret auth
+state.
 
 `gs auth logout` clears the saved bearer token and subject id without contacting
 the server. It preserves non-secret local configuration such as `server_addr`
@@ -221,7 +229,8 @@ gs config set server_addr 127.0.0.1:50051
 `gs config` exposes local CLI configuration without exposing secrets. It can
 print the config path, saved server address, saved subject id, and whether a
 token is present. It must never print the bearer token; `gs config get token`
-is rejected with a hint to use `gs auth status` for non-secret auth state.
+is rejected with a hint to use `gs auth token` when a script truly needs the
+secret, or `gs auth status` for non-secret auth state.
 
 The initial mutable key is `server_addr`. Authentication-owned fields such as
 `subject_id` and token state are read-only and are updated by `gs auth login` or

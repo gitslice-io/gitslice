@@ -2734,3 +2734,52 @@ gomodcache=$(go env GOMODCACHE)
 gocache=$(go env GOCACHE)
 HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs auth status --template '{{.signed_in}} {{.reason}}'
 ```
+
+## 2026-05-25: Auth Token Command
+
+Request:
+
+- continue applying GitHub CLI design learnings by adding an explicit
+  secret-bearing auth token command similar to `gh auth token`
+
+Implemented:
+
+- added `gs auth token` to print the saved bearer token only after validating it
+  with `AuthService.GetAuthStatus`
+- kept `gs config get token` blocked so generic config inspection remains
+  non-secret by default
+- added JSON/template-compatible output for `gs auth token` with `token`,
+  `server_addr`, and server-confirmed `subject_id`
+- return a stable `invalid_token` user error without printing the token when
+  the saved token is rejected by the server
+- updated CLI schema, CLI design, account/auth design, and unit tests
+
+Important decisions and learnings:
+
+- Token retrieval is intentionally explicit. `gs auth status` remains the
+  default human and diagnostic command because it never exposes the bearer
+  token.
+- The command validates against the server before printing so stale local config
+  after a database reset cannot silently hand an invalid token to scripts.
+- Logout remains local-only in the MVP; the account/auth current-state document
+  now records that server-side session revocation is still a gap.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+tmp_home=$(mktemp -d)
+trap 'rm -rf "$tmp_home"' EXIT
+gomodcache=$(go env GOMODCACHE)
+gocache=$(go env GOCACHE)
+set +e
+output=$(HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs auth token --json 2>&1)
+rc=$?
+set -e
+test "$rc" -eq 1
+printf '%s\n' "$output" | rg '"code": "not_logged_in"'
+```

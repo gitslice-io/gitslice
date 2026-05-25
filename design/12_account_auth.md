@@ -90,8 +90,9 @@ Implementation behavior:
 - sessions expire after 24 hours
 - the CLI stores the raw token in `~/.gitslice/config.json`
 
-There is no CLI logout command yet. The schema supports revocation through
-`sessions.revoked_at`, but no user-facing revoke flow exists.
+`gs auth logout` clears the saved token and subject id from local CLI config.
+It does not currently revoke the server-side session. The schema supports
+revocation through `sessions.revoked_at`, but no user-facing revoke flow exists.
 
 ## 5. Browser-Approved Signup
 
@@ -172,7 +173,7 @@ Custom personal slices may use other URL-safe slugs such as `tools`,
 Organization slices use the same `<account>/<slice-slug>` identity shape, such
 as `acme/payment`, and may include paths under their owning account root.
 
-## 6. Auth Status
+## 6. Auth Status And Token
 
 The current authenticated status surface is `AuthService.GetAuthStatus`.
 
@@ -181,6 +182,7 @@ CLI usage:
 ```bash
 gs auth status
 gs auth status --json
+gs auth token
 ```
 
 `gs auth status` reads the local server address and bearer token from
@@ -198,6 +200,13 @@ JSON output exposes only non-secret fields:
   "subject_id": "user_alice"
 }
 ```
+
+`gs auth token` is the explicit secret-bearing CLI command for scripts and
+Git-compatible flows that need the bearer token. It reads
+`~/.gitslice/config.json`, validates the saved token with
+`AuthService.GetAuthStatus`, and prints the raw token only if the server accepts
+it. The non-secret `gs auth status` command remains the preferred inspection
+surface for humans and diagnostics.
 
 ## 7. Native Request Authentication
 
@@ -300,7 +309,7 @@ from the validated bearer token on each server request.
 
 - no production identity provider
 - no refresh-token lifecycle
-- no logout or session revocation command
+- no server-side session revocation command
 - no account or membership administration API
 - no role-specific authorization enforcement beyond storing `role`
 - incomplete path/read authorization on repository and blob APIs
