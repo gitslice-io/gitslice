@@ -294,7 +294,7 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 			t.Fatalf("explicit slice shell output missing %q:\n%s", want, stdout)
 		}
 	}
-	if !strings.Contains(stderr, "outside the workspace slice") {
+	if !strings.Contains(stderr, "outside the attached slice") {
 		t.Fatalf("expected explicit slice boundary error in stderr, got:\n%s", stderr)
 	}
 	if !strings.Contains(stderr, "/acme/payment/explicit.go") {
@@ -529,6 +529,8 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 	outsideWorkspace := t.TempDir()
 	homeWorkspace := t.TempDir()
 
+	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "other_user")
+	runCLI(t, home, outsideWorkspace, "fs", "mkdir", "/other-user/docs")
 	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "shell_user")
 	initOutput := runCLI(t, home, homeWorkspace, "workspace", "init", "shell-user/home")
 	if !strings.Contains(initOutput, "initialized workspace for shell-user/home") {
@@ -537,12 +539,13 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
 		"pwd",
 		"ls",
+		"cd other-user",
 		"cd shell-user",
 		"pwd",
 		"quit",
 	}, "\n")+"\n", "shell")
-	if stderr != "" {
-		t.Fatalf("expected empty shell stderr, got:\n%s", stderr)
+	if !strings.Contains(stderr, "path is outside the attached slice: /other-user") {
+		t.Fatalf("expected other-user to be hidden from shell-user home shell, got stderr:\n%s", stderr)
 	}
 	for _, want := range []string{
 		"server shell: shell-user/home @",
@@ -552,6 +555,9 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("signup shell output missing %q:\n%s", want, stdout)
 		}
+	}
+	if strings.Contains(stdout, "other-user/") {
+		t.Fatalf("shell-user home shell leaked other-user folder:\n%s", stdout)
 	}
 }
 

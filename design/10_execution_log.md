@@ -3,6 +3,42 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Home Shell Projection Isolation
+
+Request:
+
+- fix `gs shell` without `--slice` so signing in as `nic5` does not show
+  `nic4/` from `ls /`
+
+Implemented:
+
+- changed implicit personal-home shell sessions to use the signed-in user's home
+  slice included paths as projection roots
+- kept workspace-launched shell behavior slice-rooted for the workspace binding
+- enforced projection boundaries during path resolution for non-workspace home
+  shells, so `cd /other-user` is rejected before server reads
+- added functional coverage that creates data under another signed-up user's
+  home and verifies the current user's default home shell hides and rejects it
+
+Important decisions and learnings:
+
+- Plain `gs shell` outside a workspace already attached to `<user>/home`, but it
+  was still listing the global root because projection filtering was only
+  enabled for explicit `--slice`. The default home shell must be projected too.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLISignupShellDefaultsToPersonalHome -v
+printf 'pwd\nls\ncd /nic4\nquit\n' | ./bin/gs shell --no-color
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
 ## 2026-05-24: Comma-Separated Slice Includes
 
 Request:

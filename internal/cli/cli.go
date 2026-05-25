@@ -2197,7 +2197,7 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sli
 	if mutationSlice != nil && !pinnedCommit {
 		mutator = &remoteFileMutator{runner: r, cfg: cfg, conn: conn, slice: mutationSlice}
 	}
-	projectionRoots, err := explicitShellProjectionRoots(sliceRef, mutationSlice)
+	projectionRoots, err := shellProjectionRoots(sliceRef, mutationSlice, workspaceScoped)
 	if err != nil {
 		return err
 	}
@@ -2297,8 +2297,8 @@ func (r Runner) explicitShellScope(ctx context.Context, conn *grpc.ClientConn, s
 	return rootPath, ref.Account + "/" + ref.Slice, true, nil, slice, nil
 }
 
-func explicitShellProjectionRoots(sliceRef string, slice *corev1.Slice) ([]string, error) {
-	if strings.TrimSpace(sliceRef) == "" {
+func shellProjectionRoots(sliceRef string, slice *corev1.Slice, workspaceScoped bool) ([]string, error) {
+	if strings.TrimSpace(sliceRef) == "" && workspaceScoped {
 		return nil, nil
 	}
 	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
@@ -2851,32 +2851,31 @@ func (s *serverShell) resolve(value string) (string, error) {
 	if value == "" || value == "." {
 		return s.cwd, nil
 	}
+	var candidate string
 	if !s.scoped {
-		var candidate string
 		if strings.HasPrefix(value, "/") {
 			candidate = value
 		} else {
 			candidate = strings.TrimRight(s.cwd, "/") + "/" + value
 		}
-		return cleanShellGlobalPath(candidate)
-	}
-	var candidate string
-	scopeRoot := "/" + s.scope
-	switch {
-	case strings.HasPrefix(value, "/") && (value == s.root || strings.HasPrefix(value, strings.TrimRight(s.root, "/")+"/")):
-		candidate = value
-	case value == scopeRoot || strings.HasPrefix(value, scopeRoot+"/"):
-		candidate = value
-	case strings.HasPrefix(value, "/"):
-		segments := strings.Split(strings.Trim(value, "/"), "/")
-		scopeSegments := strings.Split(s.scope, "/")
-		if len(segments) >= 2 && len(scopeSegments) > 0 && segments[0] == scopeSegments[0] {
+	} else {
+		scopeRoot := "/" + s.scope
+		switch {
+		case strings.HasPrefix(value, "/") && (value == s.root || strings.HasPrefix(value, strings.TrimRight(s.root, "/")+"/")):
 			candidate = value
-		} else {
-			candidate = strings.TrimRight(s.root, "/") + "/" + strings.TrimPrefix(value, "/")
+		case value == scopeRoot || strings.HasPrefix(value, scopeRoot+"/"):
+			candidate = value
+		case strings.HasPrefix(value, "/"):
+			segments := strings.Split(strings.Trim(value, "/"), "/")
+			scopeSegments := strings.Split(s.scope, "/")
+			if len(segments) >= 2 && len(scopeSegments) > 0 && segments[0] == scopeSegments[0] {
+				candidate = value
+			} else {
+				candidate = strings.TrimRight(s.root, "/") + "/" + strings.TrimPrefix(value, "/")
+			}
+		default:
+			candidate = strings.TrimRight(s.cwd, "/") + "/" + value
 		}
-	default:
-		candidate = strings.TrimRight(s.cwd, "/") + "/" + value
 	}
 	cleaned, err := cleanShellGlobalPath(candidate)
 	if err != nil {
@@ -2886,7 +2885,11 @@ func (s *serverShell) resolve(value string) (string, error) {
 		return "", userError("outside_slice", "path is outside the workspace slice: "+cleaned, "Use paths under "+s.shellPath(s.root)+".")
 	}
 	if !s.pathInProjection(cleaned) {
-		return "", userError("outside_slice", "path is outside the workspace slice: "+cleaned, "Use paths included by "+s.scope+".")
+		scopeKind := "workspace slice"
+		if s.root == "/" {
+			scopeKind = "attached slice"
+		}
+		return "", userError("outside_slice", "path is outside the "+scopeKind+": "+cleaned, "Use paths included by "+s.scope+".")
 	}
 	return cleaned, nil
 }

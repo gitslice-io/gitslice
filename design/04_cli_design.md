@@ -261,9 +261,11 @@ the flag is omitted outside a workspace, the shell first tries to resolve the
 signed-in user's default personal home slice,
 `<username>/home`. If that slice exists, the shell labels the session with that
 slice and shows the user's account-root folder from `/`, for example `ls` shows
-`nic/` for `nic/home`. Empty home folders are visible from slice metadata even
-before the user has created files. Legacy development accounts without a
-personal home slice fall back to the global repository root, where paths such as
+`nic/` for `nic/home`. The home shell is still a slice projection: other
+account roots are filtered from listings and rejected on navigation or file
+operations. Empty home folders are visible from slice metadata even before the
+user has created files. Legacy development accounts without a personal home
+slice fall back to the global repository root, where paths such as
 `/acme/payment/app.go` are interpreted directly.
 
 By default, the shell reads the latest `refs/global/main` commit from the
