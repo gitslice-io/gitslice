@@ -2587,3 +2587,38 @@ go build ./cmd/...
 git diff --check
 go run ./cmd/gs browse signup --web-url http://127.0.0.1:8082 --print
 ```
+
+## 2026-05-25: CLI Version Command
+
+Request:
+
+- continue applying GitHub CLI design learnings by adding CLI self-inspection
+  similar to `gh version`
+
+Implemented:
+
+- added `gs version` with human-readable text output
+- added JSON output fields for `version`, `commit`, `build_date`,
+  `go_version`, and `dirty`
+- populated local build metadata from linker-injected variables first and Go
+  build-info VCS settings when available
+- updated `gs schema`, CLI design, and unit tests for the command
+
+Important decisions and learnings:
+
+- The command performs no server calls; it is safe in any directory and useful
+  before auth or workspace setup.
+- Local builds default to `version=dev`, while release automation can inject a
+  concrete version using Go linker flags.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs version
+go run ./cmd/gs version --json=version,go_version,dirty
+```
