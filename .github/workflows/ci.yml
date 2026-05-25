@@ -47,7 +47,7 @@ jobs:
         run: go build ./cmd/...
 
   postgres:
-    name: PostgreSQL functional tests
+    name: PostgreSQL e2e tests
     runs-on: ubuntu-latest
 
     services:
@@ -81,8 +81,8 @@ jobs:
       - name: Run PostgreSQL storage tests
         run: go test -count=1 ./internal/postgres -v
 
-      - name: Run functional tests
-        run: go test -count=1 ./tests/functional -v
+      - name: Run CLI and RPC e2e tests
+        run: go test -count=1 ./tests/cli ./tests/rpc -v
 
   load:
     name: Load tests

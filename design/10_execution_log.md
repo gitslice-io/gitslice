@@ -18,6 +18,8 @@ Implemented:
   `tests/rpc/slice_test.go` with a minimal RPC-only server harness
 - added `make cli` and `make rpc`; kept `make functional` as a compatibility
   target that runs both suites
+- updated CI's PostgreSQL e2e job to run `./tests/cli ./tests/rpc` instead of
+  the removed `./tests/functional` package
 - updated the agent guide verification command to use `./tests/cli ./tests/rpc`
 
 Important decisions and learnings:

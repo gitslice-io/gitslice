@@ -101,7 +101,7 @@ go test ./...
 go build ./cmd/...
 ```
 
-Real PostgreSQL functional gate:
+Real PostgreSQL e2e gate:
 
 ```bash
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
@@ -114,5 +114,5 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable
 ```
 
 If a change touches submit, conflict detection, concurrency, storage, or the Git
-projection layer, prefer running the real PostgreSQL functional gate. Run the
+projection layer, prefer running the real PostgreSQL e2e gate. Run the
 load gate when changing contention or performance-sensitive paths.
