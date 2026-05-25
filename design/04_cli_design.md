@@ -120,6 +120,7 @@ gs cs submit
 gs auth login --server <grpc-addr> --dev-user <name>
 gs auth signup --username <name>
 gs auth status
+gs auth logout
 ```
 
 `gs auth signup --username <name>` starts a fake browser-approved device flow
@@ -146,6 +147,11 @@ saved bearer token. JSON output should expose only stable, non-secret fields:
 
 If the local config is missing, incomplete, or the server rejects the token, the
 command reports `"signed_in": false` and may include a non-secret `reason`.
+
+`gs auth logout` clears the saved bearer token and subject id without contacting
+the server. It preserves non-secret local configuration such as `server_addr`
+and user-defined aliases, so the next login can reuse the same server and local
+shortcuts.
 
 Authenticated commands that receive an unauthenticated RPC error should not leak
 or print the saved bearer token. They should turn the raw RPC failure into a

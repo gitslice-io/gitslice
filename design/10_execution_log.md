@@ -2660,3 +2660,35 @@ go build ./cmd/...
 git diff --check
 tmp_home=$(mktemp -d); gomodcache=$(go env GOMODCACHE); gocache=$(go env GOCACHE); HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs alias set who version && HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs who --json=version && HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs alias delete who; rc=$?; rm -rf "$tmp_home"; exit $rc
 ```
+
+## 2026-05-25: Auth Logout Command
+
+Request:
+
+- continue applying GitHub CLI design learnings by completing the auth
+  lifecycle with a logout command similar to `gh auth logout`
+
+Implemented:
+
+- added `gs auth logout` with text and JSON output
+- clear saved bearer token and subject id without contacting the server
+- preserve non-secret local config such as `server_addr` and user-defined
+  aliases
+- updated `gs schema`, CLI design, and unit tests for logout behavior
+
+Important decisions and learnings:
+
+- Logout is intentionally local-only in the prototype because the fake account
+  service has no token revocation endpoint.
+- Keeping `server_addr` avoids forcing the user to remember the local dev
+  server address before the next login.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
