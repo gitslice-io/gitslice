@@ -3,6 +3,59 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Home Slice Upload Command
+
+Request:
+
+- add an optimized `gs fs upload` command and test it with directories
+  containing many files and directories
+
+Implemented:
+
+- added `gs fs upload <local-path> <absolute-remote-path>` for uploading local
+  regular files into the signed-in user's home slice
+- added recursive directory upload behind `--recursive`; directory contents are
+  mapped below the remote destination and empty leaf directories are preserved
+- added `--concurrency` and a CPU-based default for bounded concurrent hashing
+  and missing-blob uploads
+- hashes local files first and calls `BlobService.GetBlobStatus` in batches so
+  blobs already present on the server are reused instead of uploaded again
+- submits the full upload as one changeset, avoiding per-file changeset
+  overhead and keeping treestore's batched file-edit path available for large
+  sibling writes
+- extended treestore's batched edit applicator to handle `mkdir` edits, so
+  upload batches that preserve empty directories do not fall back to
+  path-copying every file edit sequentially
+- shortened text output for multi-path mutations so large uploads report a path
+  count rather than printing every changed path
+- added CLI e2e coverage that uploads 256 files across 75 directories by
+  default, verifies the remote file count through repository RPCs, checks an
+  uploaded file, and verifies preserved empty directories
+- made the upload e2e file count configurable with
+  `GITSLICE_UPLOAD_TEST_FILES` so larger local stress runs can reuse the same
+  correctness assertions without slowing normal CI
+
+Important decisions and learnings:
+
+- File source paths use local filesystem semantics and may be relative. Remote
+  destinations keep the existing `gs fs` rule: they must be absolute global
+  paths under the signed-in home slice.
+- Symlinks and non-regular files are rejected instead of followed. That keeps
+  upload behavior deterministic and prevents accidental reads outside the
+  selected local tree.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/treestore/treestore.go internal/treestore/treestore_test.go tests/cli/cli_smoke_test.go
+go test ./internal/cli ./internal/treestore
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli -run TestCLIUploadLargeDirectory -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable GITSLICE_UPLOAD_TEST_FILES=5000 go test -count=1 ./tests/cli -run TestCLIUploadLargeDirectory -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 -v ./tests/cli ./tests/rpc
+```
+
 ## 2026-05-24: CLI and RPC E2E Suite Split
 
 Request:

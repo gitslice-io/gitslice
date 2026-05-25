@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/clientcache"
@@ -195,6 +196,25 @@ type fsCatOutput struct {
 	CommitID    string `json:"commit_id"`
 	ContentHash string `json:"content_hash,omitempty"`
 	DataBase64  string `json:"data_base64"`
+}
+
+type fsUploadOptions struct {
+	Recursive   bool
+	Concurrency int
+}
+
+type localUploadPlan struct {
+	Files           []localUploadFile
+	EmptyRemoteDirs []string
+}
+
+type localUploadFile struct {
+	LocalPath   string
+	RemotePath  string
+	Mode        uint32
+	Size        int64
+	ContentHash string
+	BlobID      string
 }
 
 const (
@@ -448,6 +468,21 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	fsWriteCmd.Flags().StringVar(&fsWriteText, "text", fsWriteText, "file content")
 	fsWriteCmd.Flags().BoolVar(&fsWriteStdin, "stdin", fsWriteStdin, "read file content from stdin")
+	fsUploadRecursive := false
+	fsUploadConcurrency := defaultUploadConcurrency()
+	fsUploadCmd := &cobra.Command{
+		Use:   "upload <local-path> <absolute-remote-path>",
+		Short: "Upload a local file or directory into the home slice",
+		Args:  exactArgs(2, "gs fs upload ./local /account/path [--recursive]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runFSUpload(cmd.Context(), *opts, args[0], args[1], fsUploadOptions{
+				Recursive:   fsUploadRecursive,
+				Concurrency: fsUploadConcurrency,
+			})
+		},
+	}
+	fsUploadCmd.Flags().BoolVarP(&fsUploadRecursive, "recursive", "r", fsUploadRecursive, "upload a directory recursively")
+	fsUploadCmd.Flags().IntVar(&fsUploadConcurrency, "concurrency", fsUploadConcurrency, "maximum concurrent file uploads")
 	fsMvCmd := &cobra.Command{
 		Use:   "mv <absolute-old-path> <absolute-new-path>",
 		Short: "Rename or move a remote file or directory",
@@ -464,7 +499,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runFileRemove(cmd.Context(), *opts, args[0])
 		},
 	}
-	fsCmd.AddCommand(fsLsCmd, fsCatCmd, fsMkdirCmd, fsTouchCmd, fsWriteCmd, fsMvCmd, fsRmCmd)
+	fsCmd.AddCommand(fsLsCmd, fsCatCmd, fsMkdirCmd, fsTouchCmd, fsWriteCmd, fsUploadCmd, fsMvCmd, fsRmCmd)
 
 	repoCmd := &cobra.Command{
 		Use:   "repo",
@@ -1667,6 +1702,198 @@ func (r Runner) runFileWrite(ctx context.Context, opts commandOptions, p string,
 	return mutator.apply(ctx, opts, "write", []*corev1.FileEdit{edit})
 }
 
+func (r Runner) runFSUpload(ctx context.Context, opts commandOptions, localPath, remotePath string, uploadOpts fsUploadOptions) error {
+	if uploadOpts.Concurrency <= 0 {
+		return userError("invalid_args", "upload concurrency must be positive", "Pass --concurrency 1 or higher.")
+	}
+	cfg, conn, mutator, err := r.homeFileMutator(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	source := localUploadSourcePath(r.cwd(), localPath)
+	plan, err := buildLocalUploadPlan(mutator.slice, source, remotePath, uploadOpts.Recursive)
+	if err != nil {
+		return err
+	}
+	edits := make([]*corev1.FileEdit, 0, len(plan.Files)+len(plan.EmptyRemoteDirs))
+	if len(plan.Files) > 0 {
+		fileEdits, err := r.uploadLocalFiles(ctx, cfg, conn, plan.Files, uploadOpts.Concurrency)
+		if err != nil {
+			return err
+		}
+		edits = append(edits, fileEdits...)
+	}
+	for _, dir := range plan.EmptyRemoteDirs {
+		edits = append(edits, &corev1.FileEdit{Op: "mkdir", Path: dir})
+	}
+	if len(edits) == 0 {
+		return userError("empty_upload", "no files or directories to upload", "Choose a non-empty source or a destination below the home root.")
+	}
+	return mutator.apply(ctx, opts, "upload", edits)
+}
+
+func localUploadSourcePath(cwd, value string) string {
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Clean(filepath.Join(cwd, value))
+}
+
+func buildLocalUploadPlan(slice *corev1.Slice, source, remotePath string, recursive bool) (localUploadPlan, error) {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return localUploadPlan{}, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return localUploadPlan{}, userError("unsupported_local_file", "local source is a symlink: "+source, "Upload regular files or directories.")
+	}
+	if !info.IsDir() {
+		if !info.Mode().IsRegular() {
+			return localUploadPlan{}, userError("unsupported_local_file", "local source is not a regular file: "+source, "Upload regular files or directories.")
+		}
+		p, err := normalizeMutationPath(slice, remotePath)
+		if err != nil {
+			return localUploadPlan{}, err
+		}
+		return localUploadPlan{Files: []localUploadFile{{
+			LocalPath:  source,
+			RemotePath: p,
+			Mode:       uploadFileMode(info.Mode()),
+			Size:       info.Size(),
+		}}}, nil
+	}
+	if !recursive {
+		return localUploadPlan{}, userError("recursive_required", "local source is a directory: "+source, "Pass --recursive to upload directories.")
+	}
+	remoteRoot, err := normalizeHomePath(slice, remotePath, true)
+	if err != nil {
+		return localUploadPlan{}, err
+	}
+	root, err := homeSliceRoot(slice)
+	if err != nil {
+		return localUploadPlan{}, err
+	}
+	source = filepath.Clean(source)
+	plan := localUploadPlan{}
+	dirs := map[string]struct{}{}
+	nonEmptyDirs := map[string]struct{}{}
+	err = filepath.WalkDir(source, func(p string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(source, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		parent := path.Dir(rel)
+		if parent == "." {
+			parent = ""
+		}
+		nonEmptyDirs[parent] = struct{}{}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return userError("unsupported_local_file", "local source contains a symlink: "+p, "Upload regular files or directories.")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			dirs[rel] = struct{}{}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return userError("unsupported_local_file", "local source contains a non-regular file: "+p, "Upload regular files or directories.")
+		}
+		remoteFile, err := normalizeMutationPath(slice, joinRemoteUploadPath(remoteRoot, rel))
+		if err != nil {
+			return err
+		}
+		plan.Files = append(plan.Files, localUploadFile{
+			LocalPath:  p,
+			RemotePath: remoteFile,
+			Mode:       uploadFileMode(info.Mode()),
+			Size:       info.Size(),
+		})
+		return nil
+	})
+	if err != nil {
+		return localUploadPlan{}, err
+	}
+	if len(plan.Files) == 0 && len(dirs) == 0 {
+		if remoteRoot == root {
+			return plan, nil
+		}
+		dir, err := normalizeMutationPath(slice, remoteRoot)
+		if err != nil {
+			return localUploadPlan{}, err
+		}
+		plan.EmptyRemoteDirs = append(plan.EmptyRemoteDirs, dir)
+		return plan, nil
+	}
+	emptyDirs := make([]string, 0, len(dirs))
+	for dir := range dirs {
+		if _, ok := nonEmptyDirs[dir]; ok {
+			continue
+		}
+		emptyDirs = append(emptyDirs, dir)
+	}
+	sort.Strings(emptyDirs)
+	for _, dir := range emptyDirs {
+		remoteDir, err := normalizeMutationPath(slice, joinRemoteUploadPath(remoteRoot, dir))
+		if err != nil {
+			return localUploadPlan{}, err
+		}
+		plan.EmptyRemoteDirs = append(plan.EmptyRemoteDirs, remoteDir)
+	}
+	sort.Slice(plan.Files, func(i, j int) bool {
+		return plan.Files[i].RemotePath < plan.Files[j].RemotePath
+	})
+	return plan, nil
+}
+
+func joinRemoteUploadPath(root, rel string) string {
+	if rel == "" || rel == "." {
+		return root
+	}
+	return path.Join(root, rel)
+}
+
+func uploadFileMode(mode fs.FileMode) uint32 {
+	if mode&0o111 != 0 {
+		return 0o100755
+	}
+	return 0o100644
+}
+
+func defaultUploadConcurrency() int {
+	n := runtime.NumCPU() * 2
+	if n < 4 {
+		return 4
+	}
+	if n > 16 {
+		return 16
+	}
+	return n
+}
+
+func boundedUploadConcurrency(value, itemCount int) int {
+	if itemCount <= 0 {
+		return 1
+	}
+	if value <= 0 {
+		value = defaultUploadConcurrency()
+	}
+	if value > itemCount {
+		return itemCount
+	}
+	return value
+}
+
 func (r Runner) runFileMove(ctx context.Context, opts commandOptions, oldPath, newPath string) error {
 	return r.runHomeFileMutation(ctx, opts, "mv", []*corev1.FileEdit{{Op: "rename", OldPath: oldPath, Path: newPath}})
 }
@@ -1740,6 +1967,216 @@ func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, p str
 	}, nil
 }
 
+func (r Runner) uploadLocalFiles(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, files []localUploadFile, concurrency int) ([]*corev1.FileEdit, error) {
+	files = append([]localUploadFile(nil), files...)
+	if err := hashLocalUploadFiles(ctx, files, boundedUploadConcurrency(concurrency, len(files))); err != nil {
+		return nil, err
+	}
+	blobClient := corev1.NewBlobServiceClient(conn)
+	callCtx := authContext(ctx, cfg)
+	known, err := remoteBlobRecords(callCtx, blobClient, files)
+	if err != nil {
+		return nil, err
+	}
+	missingByHash := map[string]localUploadFile{}
+	for _, file := range files {
+		if record, ok := known[file.ContentHash]; ok && record.Id != "" && record.State != "missing" {
+			continue
+		}
+		if _, ok := missingByHash[file.ContentHash]; !ok {
+			missingByHash[file.ContentHash] = file
+		}
+	}
+	if len(missingByHash) > 0 {
+		uploaded, err := uploadMissingLocalBlobs(callCtx, blobClient, missingByHash, boundedUploadConcurrency(concurrency, len(missingByHash)))
+		if err != nil {
+			return nil, err
+		}
+		for hash, record := range uploaded {
+			known[hash] = record
+		}
+	}
+	edits := make([]*corev1.FileEdit, 0, len(files))
+	for _, file := range files {
+		record, ok := known[file.ContentHash]
+		if !ok || record.Id == "" {
+			return nil, fmt.Errorf("blob upload did not return blob id for %s", file.LocalPath)
+		}
+		edits = append(edits, &corev1.FileEdit{
+			Op:          "upsert",
+			Path:        file.RemotePath,
+			BlobId:      record.Id,
+			ContentHash: file.ContentHash,
+			Mode:        file.Mode,
+		})
+	}
+	return edits, nil
+}
+
+func hashLocalUploadFiles(ctx context.Context, files []localUploadFile, concurrency int) error {
+	type result struct {
+		index       int
+		contentHash string
+		size        int64
+		err         error
+	}
+	jobs := make(chan int)
+	results := make(chan result, len(files))
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				select {
+				case <-ctx.Done():
+					results <- result{index: index, err: ctx.Err()}
+					continue
+				default:
+				}
+				f, err := os.Open(files[index].LocalPath)
+				if err != nil {
+					results <- result{index: index, err: err}
+					continue
+				}
+				hash, size, hashErr := objectid.RawContentHashReader(f)
+				closeErr := f.Close()
+				if hashErr != nil {
+					results <- result{index: index, err: hashErr}
+					continue
+				}
+				if closeErr != nil {
+					results <- result{index: index, err: closeErr}
+					continue
+				}
+				results <- result{index: index, contentHash: hash, size: size}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for i := range files {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- i:
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+	for result := range results {
+		if result.err != nil {
+			return result.err
+		}
+		files[result.index].ContentHash = result.contentHash
+		files[result.index].Size = result.size
+	}
+	return ctx.Err()
+}
+
+func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient, files []localUploadFile) (map[string]*corev1.BlobRecord, error) {
+	seen := map[string]struct{}{}
+	hashes := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.ContentHash == "" {
+			return nil, fmt.Errorf("missing content hash for %s", file.LocalPath)
+		}
+		if _, ok := seen[file.ContentHash]; ok {
+			continue
+		}
+		seen[file.ContentHash] = struct{}{}
+		hashes = append(hashes, file.ContentHash)
+	}
+	records := map[string]*corev1.BlobRecord{}
+	const batchSize = 512
+	for start := 0; start < len(hashes); start += batchSize {
+		end := start + batchSize
+		if end > len(hashes) {
+			end = len(hashes)
+		}
+		res, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes[start:end]})
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range res.Blobs {
+			records[record.ContentHash] = record
+		}
+	}
+	return records, nil
+}
+
+func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, missing map[string]localUploadFile, concurrency int) (map[string]*corev1.BlobRecord, error) {
+	hashes := make([]string, 0, len(missing))
+	for hash := range missing {
+		hashes = append(hashes, hash)
+	}
+	sort.Strings(hashes)
+	type result struct {
+		hash   string
+		record *corev1.BlobRecord
+		err    error
+	}
+	jobs := make(chan string)
+	results := make(chan result, len(hashes))
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for hash := range jobs {
+				file := missing[hash]
+				data, err := os.ReadFile(file.LocalPath)
+				if err != nil {
+					results <- result{hash: hash, err: err}
+					continue
+				}
+				upload, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data})
+				if err != nil {
+					results <- result{hash: hash, err: err}
+					continue
+				}
+				results <- result{
+					hash: hash,
+					record: &corev1.BlobRecord{
+						Id:          upload.BlobId,
+						ContentHash: upload.ContentHash,
+						Size:        upload.Size,
+						State:       "present",
+					},
+				}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, hash := range hashes {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- hash:
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+	records := map[string]*corev1.BlobRecord{}
+	for result := range results {
+		if result.err != nil {
+			return nil, result.err
+		}
+		records[result.hash] = result.record
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
 type remoteFileMutator struct {
 	runner Runner
 	cfg    UserConfig
@@ -1762,7 +2199,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 		return err
 	}
 	changesetClient := corev1.NewChangesetServiceClient(m.conn)
-	title := "file " + operation + " " + strings.Join(changed, " ")
+	title := mutationTitle(operation, changed)
 	if len(title) > 180 {
 		title = title[:180]
 	}
@@ -1811,7 +2248,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(m.runner.stdout(), "%s %s in %s at %s\n", operationPastTense(operation), strings.Join(changed, ", "), output.Slice, shortID(refCommitID))
+	fmt.Fprintf(m.runner.stdout(), "%s %s in %s at %s\n", operationPastTense(operation), changedPathsSummary(changed), output.Slice, shortID(refCommitID))
 	return nil
 }
 
@@ -1922,6 +2359,8 @@ func operationPastTense(operation string) string {
 		return "created"
 	case "write":
 		return "wrote"
+	case "upload":
+		return "uploaded"
 	case "mv":
 		return "moved"
 	case "rm":
@@ -1929,6 +2368,26 @@ func operationPastTense(operation string) string {
 	default:
 		return operation
 	}
+}
+
+func mutationTitle(operation string, changed []string) string {
+	if len(changed) == 0 {
+		return "file " + operation
+	}
+	if len(changed) == 1 {
+		return "file " + operation + " " + changed[0]
+	}
+	return fmt.Sprintf("file %s %s and %d more paths", operation, changed[0], len(changed)-1)
+}
+
+func changedPathsSummary(changed []string) string {
+	if len(changed) == 0 {
+		return "0 paths"
+	}
+	if len(changed) <= 5 {
+		return strings.Join(changed, ", ")
+	}
+	return fmt.Sprintf("%d paths", len(changed))
 }
 
 func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions) error {
@@ -3618,6 +4077,14 @@ func (r Runner) runSchema() error {
 				"use":            "gs fs touch <absolute-path>",
 				"summary":        "create an empty remote file under the signed-in home slice",
 				"args":           []string{"absolute-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
+			},
+			{
+				"use":            "gs fs upload <local-path> <absolute-remote-path>",
+				"summary":        "upload a local file or directory under the signed-in home slice",
+				"args":           []string{"local-path", "absolute-remote-path"},
+				"flags":          []string{"--recursive", "--concurrency"},
 				"writes_stdout":  true,
 				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
 			},

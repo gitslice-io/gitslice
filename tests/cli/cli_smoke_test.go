@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -628,6 +629,97 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 	_, stderr = runCLIFails(t, home, dir, "fs", "write", "/alice/hack.txt", "--text", "no")
 	if !strings.Contains(stderr, "outside the home slice") {
 		t.Fatalf("expected outside-home error, got:\n%s", stderr)
+	}
+}
+
+func TestCLIUploadLargeDirectory(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	dir := t.TempDir()
+
+	runCLISignupThroughWeb(t, home, dir, ts, "upload_user")
+	sourceRoot := filepath.Join(t.TempDir(), "source")
+	targetFiles := uploadTestFileCount(t)
+	filesPerDir := 8
+	dirCount := (targetFiles + filesPerDir - 1) / filesPerDir
+	totalFiles := 0
+	for d := 0; d < dirCount; d++ {
+		subdir := filepath.Join(sourceRoot, fmt.Sprintf("dir-%02d", d), fmt.Sprintf("sub-%02d", d%4))
+		if err := os.MkdirAll(subdir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for f := 0; f < filesPerDir && totalFiles < targetFiles; f++ {
+			name := fmt.Sprintf("file-%02d.txt", f)
+			content := fmt.Sprintf("dir=%02d sub=%02d file=%02d\n", d, d%4, f)
+			if err := os.WriteFile(filepath.Join(subdir, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			totalFiles++
+		}
+	}
+	for i := 0; i < 10; i++ {
+		if err := os.MkdirAll(filepath.Join(sourceRoot, "empty", fmt.Sprintf("leaf-%02d", i)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, stderr := runCLIFails(t, home, dir, "fs", "upload", sourceRoot, "/upload-user/not-recursive")
+	if !strings.Contains(stderr, "Pass --recursive") {
+		t.Fatalf("directory upload without --recursive stderr missing hint:\n%s", stderr)
+	}
+
+	output := runCLI(t, home, dir, "fs", "upload", sourceRoot, "/upload-user/bulk", "--recursive", "--concurrency", "8")
+	wantChangedPaths := totalFiles + 10
+	wantSummary := fmt.Sprintf("uploaded %d paths in upload-user/home", wantChangedPaths)
+	if !strings.Contains(output, wantSummary) {
+		t.Fatalf("unexpected upload output:\n%s", output)
+	}
+	lastDir := (targetFiles - 1) / filesPerDir
+	lastFile := (targetFiles - 1) % filesPerDir
+	lastSubdir := lastDir % 4
+	lastRemotePath := fmt.Sprintf("/upload-user/bulk/dir-%02d/sub-%02d/file-%02d.txt", lastDir, lastSubdir, lastFile)
+	wantContent := fmt.Sprintf("dir=%02d sub=%02d file=%02d\n", lastDir, lastSubdir, lastFile)
+	if got := runCLI(t, home, dir, "fs", "cat", lastRemotePath); got != wantContent {
+		t.Fatalf("uploaded file content = %q", got)
+	}
+
+	token := readToken(t, home)
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	repo := corev1.NewRepositoryServiceClient(conn)
+	ref, err := repo.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, dirs := countRemoteTree(t, ctx, repo, ref.CommitId, "/upload-user/bulk")
+	if files != totalFiles {
+		t.Fatalf("uploaded file count = %d, want %d", files, totalFiles)
+	}
+	wantMinDirs := dirCount*2 + 11
+	if dirs < wantMinDirs {
+		t.Fatalf("uploaded directory count = %d, want at least %d", dirs, wantMinDirs)
+	}
+	resolved, err := repo.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: ref.CommitId, Path: "/upload-user/bulk/empty/leaf-09"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Entry == nil || resolved.Entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+		t.Fatalf("empty directory was not preserved: %#v", resolved.Entry)
+	}
+
+	singleFile := filepath.Join(t.TempDir(), "single.txt")
+	if err := os.WriteFile(singleFile, []byte("single upload\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, home, dir, "fs", "upload", singleFile, "/upload-user/single.txt")
+	if got := runCLI(t, home, dir, "fs", "cat", "/upload-user/single.txt"); got != "single upload\n" {
+		t.Fatalf("single uploaded file content = %q", got)
+	}
+
+	_, stderr = runCLIFails(t, home, dir, "fs", "upload", singleFile, "/alice/hack.txt")
+	if !strings.Contains(stderr, "outside the home slice") {
+		t.Fatalf("expected outside-home upload error, got:\n%s", stderr)
 	}
 }
 
@@ -1876,6 +1968,42 @@ func hasEntry(entries []*corev1.TreeEntry, name string, kind corev1.EntryKind) b
 		}
 	}
 	return false
+}
+
+func uploadTestFileCount(t *testing.T) int {
+	t.Helper()
+	const defaultFileCount = 256
+	value := os.Getenv("GITSLICE_UPLOAD_TEST_FILES")
+	if value == "" {
+		return defaultFileCount
+	}
+	count, err := strconv.Atoi(value)
+	if err != nil || count <= 0 {
+		t.Fatalf("GITSLICE_UPLOAD_TEST_FILES must be a positive integer, got %q", value)
+	}
+	return count
+}
+
+func countRemoteTree(t *testing.T, ctx context.Context, repo corev1.RepositoryServiceClient, commitID, p string) (int, int) {
+	t.Helper()
+	list, err := repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: commitID, Path: p, PageSize: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := 0
+	dirs := 0
+	for _, entry := range list.Entries {
+		switch entry.Kind {
+		case corev1.EntryKind_ENTRY_KIND_FILE:
+			files++
+		case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
+			dirs++
+			childFiles, childDirs := countRemoteTree(t, ctx, repo, commitID, entry.Path)
+			files += childFiles
+			dirs += childDirs
+		}
+	}
+	return files, dirs
 }
 
 func readToken(t *testing.T, home string) string {
