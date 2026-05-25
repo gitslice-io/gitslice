@@ -204,7 +204,9 @@ Supported behavior:
   `commit` query parameter.
 - Use `RepositoryService.ResolvePath` to decide whether the path is a file or
   directory.
-- Use `RepositoryService.ListDirectory` for directories.
+- Use `RepositoryService.ListDirectory` for directories. When browsing in the
+  context of a selected slice, pass the optional `slice` projection so directory
+  entries are filtered to that slice's `included_paths`.
 - Use `RepositoryService.ReadFile` for file contents.
 - Show only fields available on `TreeEntry`: name, path, kind, mode, size,
   content hash, blob id, tree id, and symlink target.
@@ -265,6 +267,8 @@ paths.
 Supported behavior:
 
 - Load the slice with `SliceService.GetSlice`.
+- Browse the selected slice through `RepositoryService.ListDirectory` with the
+  optional `slice` projection, so custom slices show only included folders.
 - Link each included path to the source browser.
 - Show a Git clone URL only when the deployment config exposes the optional Git
   smart HTTP server. The current Git layer supports clone and fetch, not push.
