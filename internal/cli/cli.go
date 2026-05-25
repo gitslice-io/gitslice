@@ -17,6 +17,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -47,6 +48,12 @@ type Runner struct {
 	Dir    string
 	Home   string
 }
+
+var (
+	Version     = "dev"
+	BuildCommit = ""
+	BuildDate   = ""
+)
 
 type UserConfig struct {
 	ServerAddr string `json:"server_addr"`
@@ -144,6 +151,14 @@ type changesetOutput struct {
 	ChangesetID string `json:"changeset_id"`
 	PatchsetID  string `json:"patchset_id,omitempty"`
 	Status      string `json:"status,omitempty"`
+}
+
+type versionOutput struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit,omitempty"`
+	BuildDate string `json:"build_date,omitempty"`
+	GoVersion string `json:"go_version"`
+	Dirty     bool   `json:"dirty"`
 }
 
 type workspaceDiffOutput struct {
@@ -1060,6 +1075,15 @@ func (r Runner) rootCommand() *cobra.Command {
 	shellCmd.Flags().StringVar(&shellCommit, "commit", shellCommit, "native commit id to inspect; defaults to refs/global/main")
 	shellCmd.Flags().StringVar(&shellSlice, "slice", shellSlice, "slice to attach, defaults to workspace slice or personal home slice")
 
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print CLI version information",
+		Args:  noArgs("gs version [--format text|json] [--json]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runVersion(*opts)
+		},
+	}
+
 	schemaCmd := &cobra.Command{
 		Use:   "schema",
 		Short: "Print the machine-readable CLI schema",
@@ -1141,7 +1165,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, configCmd, rpcCmd, browseCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, configCmd, rpcCmd, browseCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -5554,6 +5578,60 @@ func (r Runner) workspaceRoot() (string, error) {
 	}
 }
 
+func (r Runner) runVersion(opts commandOptions) error {
+	out := cliVersionInfo()
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "gs version %s\n", out.Version)
+	if out.Commit != "" {
+		fmt.Fprintf(r.Stdout, "commit: %s\n", out.Commit)
+	}
+	if out.BuildDate != "" {
+		fmt.Fprintf(r.Stdout, "built: %s\n", out.BuildDate)
+	}
+	fmt.Fprintf(r.Stdout, "go: %s\n", out.GoVersion)
+	if out.Dirty {
+		fmt.Fprintln(r.Stdout, "dirty: true")
+	}
+	return nil
+}
+
+func cliVersionInfo() versionOutput {
+	out := versionOutput{
+		Version:   Version,
+		Commit:    BuildCommit,
+		BuildDate: BuildDate,
+		GoVersion: runtime.Version(),
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if (out.Version == "" || out.Version == "dev") && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			out.Version = info.Main.Version
+		}
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				if out.Commit == "" {
+					out.Commit = setting.Value
+				}
+			case "vcs.time":
+				if out.BuildDate == "" {
+					out.BuildDate = setting.Value
+				}
+			case "vcs.modified":
+				out.Dirty = setting.Value == "true"
+			}
+		}
+	}
+	if out.Version == "" {
+		out.Version = "dev"
+	}
+	return out
+}
+
 func (r Runner) runSchema() error {
 	return writeJSON(r.Stdout, map[string]any{
 		"schema_version": "v1",
@@ -5884,6 +5962,12 @@ func (r Runner) runSchema() error {
 				"summary":       "browse server-side files",
 				"flags":         []string{"--commit", "--slice"},
 				"writes_stdout": true,
+			},
+			{
+				"use":            "gs version",
+				"summary":        "print CLI version and build information",
+				"writes_stdout":  true,
+				"machine_output": []string{"version", "commit", "build_date", "go_version", "dirty"},
 			},
 			{
 				"use":           "gs schema",

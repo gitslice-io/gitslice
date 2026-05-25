@@ -62,6 +62,7 @@ gs cs ...
 gs repo ...
 gs commit ...
 gs shell
+gs version
 gs op ...
 gs log ...
 gs config ...
@@ -279,6 +280,19 @@ the user to the web surface.
 
 The default base URL comes from `GS_WEB_URL`, then `GITSLICE_WEB_URL`, then the
 local development default.
+
+## 3.6 Version Command
+
+```bash
+gs version
+gs version --json=version,commit,go_version,dirty
+```
+
+`gs version` prints CLI version and build metadata for bug reports, CI logs, and
+local environment inspection. Text output is for humans; JSON output exposes the
+stable fields `version`, `commit`, `build_date`, `go_version`, and `dirty`.
+Release builds can inject version metadata with Go linker flags, while local
+builds fall back to Go build-info VCS settings when available.
 
 ## 4. Workspace Commands
 
