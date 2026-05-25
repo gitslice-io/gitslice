@@ -92,9 +92,11 @@ service SliceService {
 service ChangesetService {
   rpc CreateChangeset(CreateChangesetRequest) returns (Changeset);
   rpc GetChangeset(GetChangesetRequest) returns (Changeset);
+  rpc ListChangesets(ListChangesetsRequest) returns (ListChangesetsResponse);
+  rpc DiffChangeset(DiffChangesetRequest) returns (DiffChangesetResponse);
   rpc UpdateChangeset(UpdateChangesetRequest) returns (Patchset);
   rpc SubmitChangeset(SubmitChangesetRequest) returns (SubmitChangesetResponse);
-  rpc AbandonChangeset(AbandonChangesetRequest) returns (AbandonChangesetResponse);
+  rpc AbandonChangeset(AbandonChangesetRequest) returns (Empty);
 }
 
 service WorkspaceService {
@@ -430,26 +432,16 @@ message Changeset {
   string author = 3;
   string target_ref = 4;
   string base_commit_id = 5;
-  repeated Patchset patchsets = 6;
-  int64 current_patchset_number = 7;
-  ChangesetStatus status = 8;
-  repeated string affected_paths = 9;
-  SubmitRequirements submit_requirements = 10;
-  string commit_id = 11;
-  string pending_publish_id = 12;
-}
-
-enum ChangesetStatus {
-  CHANGESET_STATUS_UNSPECIFIED = 0;
-  CHANGESET_STATUS_DRAFT = 1;
-  CHANGESET_STATUS_REVIEW = 2;
-  CHANGESET_STATUS_PENDING_PUBLISH = 3;
-  CHANGESET_STATUS_SUBMITTED = 4;
-  CHANGESET_STATUS_ABANDONED = 5;
-  CHANGESET_STATUS_FAILED = 6;
-  CHANGESET_STATUS_NEEDS_REBASE = 7;
-  CHANGESET_STATUS_MERGE_CONFLICT = 8;
-  CHANGESET_STATUS_NEEDS_REQUIREMENT_REFRESH = 9;
+  string title = 6;
+  string description = 7;
+  repeated Patchset patchsets = 8;
+  string current_patchset_id = 9;
+  int64 current_patchset_number = 10;
+  string status = 11;
+  repeated string affected_paths = 12;
+  SubmitRequirements submit_requirements = 13;
+  string commit_id = 14;
+  string pending_publish_id = 15;
 }
 
 message Patchset {
@@ -469,20 +461,12 @@ message Patchset {
 }
 
 message FileEdit {
-  FileEditOp op = 1;
+  string op = 1;       // upsert, delete, rename, mkdir
   string path = 2;
   string old_path = 3;
-  string staged_blob_id = 4;
+  string blob_id = 4;
   string content_hash = 5;
   uint32 mode = 6;
-}
-
-enum FileEditOp {
-  FILE_EDIT_OP_UNSPECIFIED = 0;
-  FILE_EDIT_OP_ADD = 1;
-  FILE_EDIT_OP_MODIFY = 2;
-  FILE_EDIT_OP_DELETE = 3;
-  FILE_EDIT_OP_RENAME = 4;
 }
 
 message PathCoverage {
@@ -541,6 +525,34 @@ message GetChangesetRequest {
   string changeset_id = 1;
 }
 
+message ListChangesetsRequest {
+  SliceRef authoring_slice = 1;
+  string status = 2;
+  int32 limit = 3;
+}
+
+message ListChangesetsResponse {
+  repeated Changeset changesets = 1;
+}
+
+message DiffChangesetRequest {
+  string changeset_id = 1;
+  // patchset, from_patchset, and to_patchset accept either a patchset id or a
+  // patchset number encoded as a string. Empty patchset/to_patchset means the
+  // changeset's current patchset.
+  string patchset = 2;
+  string from_patchset = 3;
+  string to_patchset = 4;
+}
+
+message DiffChangesetResponse {
+  string changeset_id = 1;
+  string from_patchset_id = 2;
+  string to_patchset_id = 3;
+  repeated string changed_paths = 4;
+  string diff = 5;
+}
+
 message UpdateChangesetRequest {
   string changeset_id = 1;
   string expected_current_patchset_id = 2;
@@ -566,8 +578,6 @@ message AbandonChangesetRequest {
   string changeset_id = 1;
   string reason = 2;
 }
-
-message AbandonChangesetResponse {}
 
 ```
 

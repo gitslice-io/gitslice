@@ -363,8 +363,9 @@ local CPU count and can be overridden with `--concurrency`.
 ```bash
 gs status
 gs diff
-gs diff --from <patchset>
-gs diff --to <patchset>
+gs diff --name-only
+gs diff --stat
+gs diff --from <patchset> --to <patchset>
 ```
 
 `gs status` should:
@@ -376,8 +377,11 @@ gs diff --to <patchset>
 - show required approvals and checks when available
 - show current draft changeset and patchset state
 
-`gs diff` should show the diff between local overlay changes and the current
-base commit for the bound slice.
+`gs diff` shows the diff between local overlay changes and the current base
+commit for the bound slice. `--name-only` prints canonical global paths only,
+and `--stat` prints a compact changed-path summary. When `--from` or `--to` is
+provided, `gs diff` delegates to the server-side current changeset diff and
+uses the same patchset selector semantics as `gs cs diff`.
 
 ## 8. Working Copy Snapshot Model
 
@@ -427,13 +431,21 @@ gs cs submit
 ## 9. Changeset Commands
 
 ```bash
-gs cs create
+gs cs create [--title <title>]
 gs cs update
-gs cs status
-gs cs show <id>
-gs cs abandon <id>
-gs cs submit <id>
-gs cs list
+gs cs submit [changeset-id]
+gs cs status [changeset-id]
+gs cs show [changeset-id]
+gs cs explain [changeset-id]
+gs cs versions [changeset-id]
+gs cs patchsets [changeset-id]
+gs cs diff [changeset-id]
+gs cs diff [changeset-id] --patchset <patchset>
+gs cs diff [changeset-id] --from <patchset> --to <patchset>
+gs cs diff [changeset-id] --name-only
+gs cs diff [changeset-id] --stat
+gs cs list [--slice <account>/<slice>] [--status <status>] [--limit <n>]
+gs cs abandon [changeset-id] [--reason <reason>]
 ```
 
 Create flow:
@@ -472,6 +484,28 @@ Submit flow:
    reason.
 ```
 
+Show, versions, and explain flow:
+
+```text
+1. If no changeset id is supplied, read the current workspace changeset id.
+2. Fetch the changeset through ChangesetService.GetChangeset.
+3. `show` prints metadata, affected paths, and patchsets.
+4. `versions`/`patchsets` prints patchset numbers, ids, and changed paths.
+5. `explain` prints the current patchset's submit requirements, read set,
+   write set, and path-base fingerprints.
+```
+
+Server-side diff flow:
+
+```text
+1. Resolve the current or supplied changeset id.
+2. Call ChangesetService.DiffChangeset.
+3. With --patchset, compare that patchset against its base commit.
+4. With --from/--to, compare two patchsets by id or patchset number.
+5. With --name-only or --stat, use the server-returned changed path list
+   instead of rendering unified diff text.
+```
+
 ## 10. Submit Status Commands
 
 ```bash
@@ -486,6 +520,9 @@ Submit status commands should use `ChangesetService` to show:
 - required approvals
 - submit requirement refresh state
 - CAS/rebase retry state
+
+`gs cs list` is slice-scoped. Inside a workspace it defaults to that
+workspace's slice; outside a workspace the caller must pass `--slice`.
 
 ## 11. Operation Log And Undo
 

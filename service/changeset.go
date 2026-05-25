@@ -4,8 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
+	"strconv"
+	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/diffutil"
+	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
@@ -14,10 +19,13 @@ import (
 )
 
 type ChangesetService struct {
-	Auth       *postgres.AuthStore
-	Changesets *postgres.ChangesetStore
-	Slices     *postgres.SliceStore
-	validator  diffValidator
+	Auth        *postgres.AuthStore
+	Blobs       *postgres.BlobStore
+	Changesets  *postgres.ChangesetStore
+	Repository  *postgres.RepositoryStore
+	Slices      *postgres.SliceStore
+	ObjectStore ObjectStore
+	validator   diffValidator
 }
 
 type diffValidator struct {
@@ -52,6 +60,88 @@ func (s *ChangesetService) GetChangeset(ctx context.Context, req *corev1.GetChan
 		return nil, grpcError(err)
 	}
 	return cs, nil
+}
+
+func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListChangesetsRequest) (*corev1.ListChangesetsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.AuthoringSlice == nil {
+		return nil, status.Error(codes.InvalidArgument, "authoring slice is required")
+	}
+	if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.AuthoringSlice.Account); err != nil {
+		return nil, grpcError(err)
+	}
+	changesets, err := s.Changesets.List(ctx, req)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.ListChangesetsResponse{Changesets: changesets}, nil
+}
+
+func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffChangesetRequest) (*corev1.DiffChangesetResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.Changesets.Get(ctx, req.ChangesetId)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if cs.AuthoringSlice == nil {
+		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
+	}
+	if err := s.Auth.EnsureAccountMember(ctx, subjectID, cs.AuthoringSlice.Account); err != nil {
+		return nil, grpcError(err)
+	}
+	toSelector := req.Patchset
+	if toSelector == "" {
+		toSelector = req.ToPatchset
+	}
+	toPatchset, err := selectChangesetPatchset(cs, toSelector)
+	if err != nil {
+		return nil, err
+	}
+	var fromPatchset *corev1.Patchset
+	if req.FromPatchset != "" {
+		fromPatchset, err = selectChangesetPatchset(cs, req.FromPatchset)
+		if err != nil {
+			return nil, err
+		}
+	}
+	paths := changedPathsForDiff(fromPatchset, toPatchset)
+	var out strings.Builder
+	for _, p := range paths {
+		var oldFile diffutil.File
+		if fromPatchset == nil {
+			oldFile, err = s.baseFile(ctx, toPatchset.BaseCommitId, p)
+		} else {
+			oldFile, err = s.patchsetFile(ctx, fromPatchset, p)
+		}
+		if err != nil {
+			return nil, err
+		}
+		newFile, err := s.patchsetFile(ctx, toPatchset, p)
+		if err != nil {
+			return nil, err
+		}
+		chunk := diffutil.UnifiedFileDiff(oldFile, newFile)
+		if chunk != "" {
+			out.WriteString(chunk)
+		}
+	}
+	fromID := ""
+	if fromPatchset != nil {
+		fromID = fromPatchset.Id
+	}
+	return &corev1.DiffChangesetResponse{
+		ChangesetId:    cs.Id,
+		FromPatchsetId: fromID,
+		ToPatchsetId:   toPatchset.Id,
+		ChangedPaths:   paths,
+		Diff:           out.String(),
+	}, nil
 }
 
 func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.UpdateChangesetRequest) (*corev1.Patchset, error) {
@@ -91,6 +181,135 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		return nil, grpcError(err)
 	}
 	return patchset, nil
+}
+
+func selectChangesetPatchset(cs *corev1.Changeset, selector string) (*corev1.Patchset, error) {
+	if len(cs.Patchsets) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "changeset has no patchsets")
+	}
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		if cs.CurrentPatchsetId == "" {
+			return cs.Patchsets[len(cs.Patchsets)-1], nil
+		}
+		selector = cs.CurrentPatchsetId
+	}
+	if n, err := strconv.ParseInt(selector, 10, 64); err == nil {
+		for _, patchset := range cs.Patchsets {
+			if patchset.Number == n {
+				return patchset, nil
+			}
+		}
+		return nil, status.Errorf(codes.NotFound, "patchset number %d not found", n)
+	}
+	for _, patchset := range cs.Patchsets {
+		if patchset.Id == selector {
+			return patchset, nil
+		}
+	}
+	return nil, status.Errorf(codes.NotFound, "patchset %s not found", selector)
+}
+
+func changedPathsForDiff(from, to *corev1.Patchset) []string {
+	seen := map[string]struct{}{}
+	for _, patchset := range []*corev1.Patchset{from, to} {
+		if patchset == nil {
+			continue
+		}
+		for _, edit := range patchset.FileEdits {
+			for _, p := range editPaths(edit) {
+				seen[p] = struct{}{}
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (s *ChangesetService) patchsetFile(ctx context.Context, patchset *corev1.Patchset, p string) (diffutil.File, error) {
+	file, err := s.baseFile(ctx, patchset.BaseCommitId, p)
+	if err != nil {
+		return diffutil.File{}, err
+	}
+	for _, edit := range patchset.FileEdits {
+		switch edit.Op {
+		case "delete":
+			if edit.Path == p {
+				file = diffutil.File{Path: p}
+			}
+		case "rename":
+			if edit.OldPath == p {
+				file = diffutil.File{Path: p}
+			}
+			if edit.Path == p {
+				if edit.BlobId != "" || edit.ContentHash != "" {
+					return s.editFile(ctx, edit, p)
+				}
+				oldFile, err := s.baseFile(ctx, patchset.BaseCommitId, edit.OldPath)
+				if err != nil {
+					return diffutil.File{}, err
+				}
+				oldFile.Path = p
+				file = oldFile
+			}
+		case "upsert", "add", "update":
+			if edit.Path == p {
+				return s.editFile(ctx, edit, p)
+			}
+		}
+	}
+	return file, nil
+}
+
+func (s *ChangesetService) baseFile(ctx context.Context, commitID, p string) (diffutil.File, error) {
+	entry, err := s.Repository.GetFile(ctx, commitID, p)
+	if errors.Is(err, postgres.ErrNotFound) {
+		return diffutil.File{Path: p}, nil
+	}
+	if err != nil {
+		return diffutil.File{}, grpcError(err)
+	}
+	data, err := s.readContentHash(ctx, entry.ContentHash)
+	if err != nil {
+		return diffutil.File{}, err
+	}
+	return diffutil.File{Path: p, Exists: true, Data: data}, nil
+}
+
+func (s *ChangesetService) editFile(ctx context.Context, edit *corev1.FileEdit, p string) (diffutil.File, error) {
+	contentHash := edit.ContentHash
+	if contentHash == "" && edit.BlobId != "" {
+		blob, err := s.Blobs.GetByID(ctx, edit.BlobId)
+		if err != nil {
+			return diffutil.File{}, grpcError(err)
+		}
+		contentHash = blob.ContentHash
+	}
+	if contentHash == "" {
+		return diffutil.File{}, status.Errorf(codes.FailedPrecondition, "edit for %s has no content hash", p)
+	}
+	data, err := s.readContentHash(ctx, contentHash)
+	if err != nil {
+		return diffutil.File{}, err
+	}
+	return diffutil.File{Path: p, Exists: true, Data: data}, nil
+}
+
+func (s *ChangesetService) readContentHash(ctx context.Context, contentHash string) ([]byte, error) {
+	rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return data, nil
 }
 
 func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.SubmitChangesetRequest) (*corev1.SubmitChangesetResponse, error) {
