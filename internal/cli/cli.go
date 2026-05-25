@@ -156,6 +156,30 @@ type authStatusOutput struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
+type contextOutput struct {
+	CWD               string                  `json:"cwd"`
+	ConfigPath        string                  `json:"config_path"`
+	ServerAddr        string                  `json:"server_addr,omitempty"`
+	SignedIn          bool                    `json:"signed_in"`
+	SubjectID         string                  `json:"subject_id,omitempty"`
+	AuthReason        string                  `json:"auth_reason,omitempty"`
+	AuthError         string                  `json:"auth_error,omitempty"`
+	Workspace         *contextWorkspaceOutput `json:"workspace,omitempty"`
+	ActiveSlice       string                  `json:"active_slice,omitempty"`
+	ActiveSliceSource string                  `json:"active_slice_source,omitempty"`
+}
+
+type contextWorkspaceOutput struct {
+	Root               string   `json:"root"`
+	Ref                string   `json:"ref"`
+	SliceID            string   `json:"slice_id"`
+	DefinitionHash     string   `json:"definition_hash,omitempty"`
+	IncludedPaths      []string `json:"included_paths,omitempty"`
+	BaseCommitID       string   `json:"base_commit_id,omitempty"`
+	CurrentChangesetID string   `json:"current_changeset_id,omitempty"`
+	CurrentPatchsetID  string   `json:"current_patchset_id,omitempty"`
+}
+
 type hydrateResult struct {
 	FileCount   int `json:"file_count"`
 	CacheHits   int `json:"cache_hits"`
@@ -255,7 +279,41 @@ func (r Runner) Run(ctx context.Context, args []string) error {
 	root.SetArgs(args)
 	root.SetOut(r.Stdout)
 	root.SetErr(r.Stderr)
-	return root.ExecuteContext(ctx)
+	return r.enhanceCommandError(root.ExecuteContext(ctx))
+}
+
+func (r Runner) enhanceCommandError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var cmdErr commandError
+	if errors.As(err, &cmdErr) {
+		return err
+	}
+	if grpcstatus.Code(err) != codes.Unauthenticated {
+		return err
+	}
+	message := grpcstatus.Convert(err).Message()
+	if message == "" {
+		message = "unauthenticated"
+	}
+	return commandError{
+		Code:    "unauthenticated",
+		Message: "authentication failed: " + message,
+		Hint:    r.authRecoveryHint(),
+		Cause:   err,
+	}
+}
+
+func (r Runner) authRecoveryHint() string {
+	hint := "Run gs auth status to inspect the saved token."
+	var cfg UserConfig
+	if err := readJSONFile(r.userConfigPath(), &cfg); err == nil {
+		if account, ok := personalAccountSlugFromSubjectID(cfg.SubjectID); ok {
+			return hint + " If it is invalid, run gs auth signup --username " + account + "."
+		}
+	}
+	return hint + " If it is invalid, run gs auth signup --username <name>."
 }
 
 func (r Runner) rootCommand() *cobra.Command {
@@ -362,6 +420,14 @@ func (r Runner) rootCommand() *cobra.Command {
 		Args:  noArgs("gs status [--format text|json] [--json]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStatus(cmd.Context(), *opts)
+		},
+	}
+	contextCmd := &cobra.Command{
+		Use:   "context",
+		Short: "Show resolved CLI context",
+		Args:  noArgs("gs context [--format text|json] [--json]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runContext(cmd.Context(), *opts)
 		},
 	}
 	diffNameOnly := false
@@ -776,7 +842,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -962,37 +1028,44 @@ func openBrowserURL(rawURL string) error {
 }
 
 func (r Runner) runAuthStatus(ctx context.Context, opts commandOptions) error {
+	status, err := r.probeAuthStatus(ctx)
+	if err != nil {
+		return err
+	}
+	return r.writeAuthStatus(opts, status)
+}
+
+func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
 	var cfg UserConfig
 	if err := readJSONFile(r.userConfigPath(), &cfg); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			return err
+			return authStatusOutput{}, err
 		}
-		return r.writeAuthStatus(opts, authStatusOutput{Reason: "not_logged_in"})
+		return authStatusOutput{Reason: "not_logged_in"}, nil
 	}
 	if cfg.ServerAddr == "" || cfg.Token == "" {
-		return r.writeAuthStatus(opts, authStatusOutput{Reason: "invalid_config"})
+		return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "invalid_config"}, nil
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
-		return err
+		return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "server_unavailable"}, err
 	}
 	defer conn.Close()
 	res, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(authContext(ctx, cfg), &corev1.GetAuthStatusRequest{})
 	if err != nil {
 		if grpcstatus.Code(err) == codes.Unauthenticated {
-			return r.writeAuthStatus(opts, authStatusOutput{
+			return authStatusOutput{
 				ServerAddr: cfg.ServerAddr,
 				Reason:     "invalid_token",
-			})
+			}, nil
 		}
-		return err
+		return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "auth_check_failed"}, err
 	}
-	status := authStatusOutput{
+	return authStatusOutput{
 		SignedIn:   true,
 		ServerAddr: cfg.ServerAddr,
 		SubjectID:  res.SubjectId,
-	}
-	return r.writeAuthStatus(opts, status)
+	}, nil
 }
 
 func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) error {
@@ -1018,6 +1091,100 @@ func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) er
 		fmt.Fprintln(r.Stdout, "signed in")
 	}
 	fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
+	return nil
+}
+
+func (r Runner) runContext(ctx context.Context, opts commandOptions) error {
+	authStatus, authErr := r.probeAuthStatus(ctx)
+	out := contextOutput{
+		CWD:        r.cwd(),
+		ConfigPath: r.userConfigPath(),
+		ServerAddr: authStatus.ServerAddr,
+		SignedIn:   authStatus.SignedIn,
+		SubjectID:  authStatus.SubjectID,
+		AuthReason: authStatus.Reason,
+	}
+	if authErr != nil {
+		out.AuthError = authErr.Error()
+	}
+	if root, err := r.workspaceRoot(); err == nil {
+		ws, wsErr := r.readWorkspaceConfig()
+		if wsErr != nil {
+			return wsErr
+		}
+		state, stateErr := r.readWorkspaceState()
+		if stateErr != nil {
+			return stateErr
+		}
+		ref := ws.Account + "/" + ws.Slice
+		out.Workspace = &contextWorkspaceOutput{
+			Root:               root,
+			Ref:                ref,
+			SliceID:            ws.SliceID,
+			DefinitionHash:     ws.DefinitionHash,
+			IncludedPaths:      ws.IncludedPaths,
+			BaseCommitID:       state.BaseCommitID,
+			CurrentChangesetID: state.CurrentChangesetID,
+			CurrentPatchsetID:  state.CurrentPatchsetID,
+		}
+		if out.Workspace.BaseCommitID == "" {
+			out.Workspace.BaseCommitID = ws.BaseCommitID
+		}
+		out.ActiveSlice = ref
+		out.ActiveSliceSource = "workspace"
+	} else if !isUserErrorCode(err, "not_in_workspace") {
+		return err
+	} else if authStatus.SignedIn {
+		if account, ok := personalAccountSlugFromSubjectID(authStatus.SubjectID); ok {
+			out.ActiveSlice = account + "/home"
+			out.ActiveSliceSource = "signed_in_home"
+		}
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	return r.writeContextText(out)
+}
+
+func (r Runner) writeContextText(out contextOutput) error {
+	fmt.Fprintf(r.Stdout, "cwd: %s\n", out.CWD)
+	fmt.Fprintf(r.Stdout, "config: %s\n", out.ConfigPath)
+	if out.ServerAddr != "" {
+		fmt.Fprintf(r.Stdout, "server: %s\n", out.ServerAddr)
+	}
+	if out.SignedIn {
+		if out.SubjectID != "" {
+			fmt.Fprintf(r.Stdout, "auth: signed in as %s\n", out.SubjectID)
+		} else {
+			fmt.Fprintln(r.Stdout, "auth: signed in")
+		}
+	} else {
+		fmt.Fprintln(r.Stdout, "auth: not signed in")
+		if out.AuthReason != "" {
+			fmt.Fprintf(r.Stdout, "auth_reason: %s\n", strings.ReplaceAll(out.AuthReason, "_", " "))
+		}
+		if out.AuthError != "" {
+			fmt.Fprintf(r.Stdout, "auth_error: %s\n", out.AuthError)
+		}
+	}
+	if out.Workspace != nil {
+		fmt.Fprintf(r.Stdout, "workspace: %s\n", out.Workspace.Root)
+		fmt.Fprintf(r.Stdout, "workspace_slice: %s\n", out.Workspace.Ref)
+		if out.Workspace.BaseCommitID != "" {
+			fmt.Fprintf(r.Stdout, "base_commit: %s\n", out.Workspace.BaseCommitID)
+		}
+		if out.Workspace.CurrentChangesetID != "" {
+			fmt.Fprintf(r.Stdout, "current_changeset: %s\n", out.Workspace.CurrentChangesetID)
+		}
+	} else {
+		fmt.Fprintln(r.Stdout, "workspace: none")
+	}
+	if out.ActiveSlice != "" {
+		fmt.Fprintf(r.Stdout, "active_slice: %s (%s)\n", out.ActiveSlice, out.ActiveSliceSource)
+	}
 	return nil
 }
 
@@ -4702,6 +4869,12 @@ func (r Runner) runSchema() error {
 				"summary":        "show current authentication status after validating the local token",
 				"writes_stdout":  true,
 				"machine_output": []string{"signed_in", "server_addr", "subject_id", "reason"},
+			},
+			{
+				"use":            "gs context",
+				"summary":        "show resolved server, auth, workspace, and active slice context",
+				"writes_stdout":  true,
+				"machine_output": []string{"cwd", "config_path", "server_addr", "signed_in", "subject_id", "auth_reason", "workspace", "active_slice", "active_slice_source"},
 			},
 			{
 				"use":            "gs workspace init <account>/<slice>",

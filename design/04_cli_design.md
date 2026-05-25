@@ -48,6 +48,7 @@ Initial command groups:
 
 ```text
 gs auth ...
+gs context
 gs workspace ...
 gs slice ...
 gs status
@@ -107,6 +108,62 @@ saved bearer token. JSON output should expose only stable, non-secret fields:
 
 If the local config is missing, incomplete, or the server rejects the token, the
 command reports `"signed_in": false` and may include a non-secret `reason`.
+
+Authenticated commands that receive an unauthenticated RPC error should not leak
+or print the saved bearer token. They should turn the raw RPC failure into a
+stable CLI error with an actionable recovery hint:
+
+```text
+authentication failed: invalid token
+hint: Run gs auth status to inspect the saved token. If it is invalid, run gs auth signup --username nic.
+```
+
+The username-specific hint is derived from local non-secret subject metadata
+when available, for example `user_nic` -> `nic`.
+
+## 3.2 Context Command
+
+```bash
+gs context
+gs context --json
+```
+
+`gs context` explains what local and server context the CLI resolved before a
+workflow runs. It is modeled after `gh`'s repository-context behavior: the CLI
+uses the current directory and saved configuration by default, while explicit
+flags on individual commands can override those defaults.
+
+Context resolution precedence for slice-aware commands should be:
+
+```text
+1. command flag such as --slice <account>/<slice>
+2. current workspace slice found by walking up to .gs/slice.json
+3. future GS_SLICE environment override
+4. signed-in user's personal <account>/home slice
+```
+
+The command should be diagnostic and scriptable. It validates the saved auth
+token when possible, reports invalid-token and unavailable-server state without
+printing secrets, and reports the nearest workspace even when invoked from a
+subdirectory:
+
+```json
+{
+  "cwd": "/work/checkout/src",
+  "config_path": "/home/alice/.gitslice/config.json",
+  "server_addr": "127.0.0.1:50051",
+  "signed_in": true,
+  "subject_id": "user_alice",
+  "workspace": {
+    "root": "/work/checkout",
+    "ref": "alice/home",
+    "slice_id": "slice_alice_home",
+    "base_commit_id": "sha256:..."
+  },
+  "active_slice": "alice/home",
+  "active_slice_source": "workspace"
+}
+```
 
 ## 4. Workspace Commands
 
