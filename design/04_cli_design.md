@@ -50,6 +50,7 @@ Initial command groups:
 gs auth ...
 gs context
 gs config ...
+gs rpc ...
 gs help ...
 gs workspace ...
 gs slice ...
@@ -203,6 +204,30 @@ GITSLICE_CLIENT_CACHE_DIR compatibility cache root override
 NO_COLOR                disable color
 TERM=dumb               disable color and sticky shell headers
 ```
+
+## 3.4 RPC Escape Hatch
+
+```bash
+gs rpc list
+gs rpc call AuthService/GetAuthStatus --request '{}'
+gs rpc call gitslice.core.v1.AuthService/GetAuthStatus --request '{}' --json=subject_id
+gs rpc call FakeAccountService/Login --request '{"dev_user":"alice"}' --unauthenticated
+```
+
+`gs rpc` is a diagnostic escape hatch, similar in spirit to `gh api`. It should
+not replace dedicated product commands, but it gives developers a way to inspect
+and exercise generated core RPCs while iterating on the CLI and server.
+
+The first version uses generated protobuf descriptors linked into the CLI rather
+than server reflection. `gs rpc list` lists generated core RPC methods.
+`gs rpc call` supports unary RPCs only, accepts protojson request bodies, and
+prints protojson responses. By default it uses the saved server and bearer
+token; `--server` overrides the server address and `--unauthenticated` omits the
+saved bearer token for development-only unauthenticated methods such as fake
+login/signup.
+
+Streaming RPCs remain out of scope for the generic escape hatch and should use
+dedicated commands where progress and cancellation semantics are explicit.
 
 ## 4. Workspace Commands
 
