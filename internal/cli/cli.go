@@ -300,7 +300,7 @@ GITSLICE_GRPC_ADDR, GITSLICE_SERVER_ADDR
   Compatibility aliases for GS_SERVER_ADDR when GS_SERVER_ADDR is unset.
 
 GS_WEB_URL
-  Default browser approval base URL for gs auth signup.
+  Default browser UI base URL for gs auth signup and gs browse.
 
 GITSLICE_WEB_URL
   Compatibility alias for GS_WEB_URL when GS_WEB_URL is unset.
@@ -692,6 +692,24 @@ func (r Runner) rootCommand() *cobra.Command {
 	rpcCallCmd.Flags().StringVar(&rpcCallServer, "server", rpcCallServer, "server gRPC address override")
 	rpcCallCmd.Flags().BoolVar(&rpcCallUnauthenticated, "unauthenticated", rpcCallUnauthenticated, "call without adding the saved bearer token")
 	rpcCmd.AddCommand(rpcListCmd, rpcCallCmd)
+
+	browseWebURL := defaultWebURL()
+	browsePrint := false
+	browseCmd := &cobra.Command{
+		Use:   "browse [web-path]",
+		Short: "Open the Gitslice web UI",
+		Args:  maxArgs(1, "gs browse [web-path] [--web-url url] [--print]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			route := ""
+			if len(args) > 0 {
+				route = args[0]
+			}
+			return r.runBrowse(*opts, browseWebURL, route, browsePrint)
+		},
+	}
+	browseCmd.Flags().StringVar(&browseWebURL, "web-url", browseWebURL, "web UI base URL")
+	browseCmd.Flags().BoolVar(&browsePrint, "print", browsePrint, "print the URL instead of opening a browser")
+
 	diffNameOnly := false
 	diffStat := false
 	diffFrom := ""
@@ -1123,7 +1141,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, configCmd, rpcCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, configCmd, rpcCmd, browseCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -1354,6 +1372,77 @@ func signupApprovalURL(webURL, username, callbackURL, state string) (string, err
 	query.Set("gateway_url", defaultGatewayURL())
 	query.Set("state", state)
 	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+func (r Runner) runBrowse(opts commandOptions, webURL, route string, printOnly bool) error {
+	target, err := webRouteURL(webURL, route)
+	if err != nil {
+		return err
+	}
+	if printOnly {
+		fmt.Fprintln(r.Stdout, target)
+		return nil
+	}
+	if err := openBrowserURL(target); err != nil {
+		hint := "Run gs browse --print"
+		if strings.TrimSpace(route) != "" {
+			hint += " " + route
+		}
+		hint += " to print the URL."
+		return userError("browser_open_failed", "could not open browser: "+err.Error(), hint)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.stderr(), "opened %s\n", target)
+	return nil
+}
+
+func webRouteURL(webURL, route string) (string, error) {
+	webURL = strings.TrimSpace(webURL)
+	if webURL == "" {
+		webURL = defaultWebURL()
+	}
+	if !strings.Contains(webURL, "://") {
+		webURL = "http://" + webURL
+	}
+	parsed, err := url.Parse(webURL)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", userError("invalid_web_url", "web-url must use http or https", "Pass --web-url http://127.0.0.1:8082.")
+	}
+	route = strings.TrimSpace(route)
+	if route == "" {
+		if parsed.Path == "" {
+			parsed.Path = "/"
+		}
+		return parsed.String(), nil
+	}
+	routePath, routeQuery, hasQuery := strings.Cut(route, "?")
+	routePath = strings.TrimSpace(routePath)
+	basePath := strings.TrimRight(parsed.Path, "/")
+	if routePath == "" || routePath == "/" {
+		if basePath == "" {
+			parsed.Path = "/"
+		} else {
+			parsed.Path = basePath + "/"
+		}
+	} else {
+		if !strings.HasPrefix(routePath, "/") {
+			routePath = "/" + routePath
+		}
+		cleaned := path.Clean(routePath)
+		if strings.HasSuffix(routePath, "/") && cleaned != "/" {
+			cleaned += "/"
+		}
+		parsed.Path = path.Join(basePath, cleaned)
+	}
+	if hasQuery {
+		parsed.RawQuery = routeQuery
+	}
 	return parsed.String(), nil
 }
 
@@ -5542,6 +5631,14 @@ func (r Runner) runSchema() error {
 				"flags":          []string{"--request", "--server", "--unauthenticated"},
 				"writes_stdout":  true,
 				"machine_output": []string{"RPC response fields"},
+			},
+			{
+				"use":            "gs browse [web-path]",
+				"summary":        "open or print a Gitslice web UI URL",
+				"args":           []string{"web-path"},
+				"flags":          []string{"--web-url", "--print"},
+				"writes_stdout":  true,
+				"machine_output": []string{"url"},
 			},
 			{
 				"use":            "gs workspace init <account>/<slice>",

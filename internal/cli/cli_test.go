@@ -58,7 +58,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs browse [web-path]", "gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -499,6 +499,41 @@ func TestEnvironmentAliases(t *testing.T) {
 	t.Setenv("GITSLICE_GATEWAY_URL", "http://127.0.0.1:8082")
 	if got := defaultGatewayURL(); got != "http://127.0.0.1:60003" {
 		t.Fatalf("defaultGatewayURL = %q, want GS_GATEWAY_URL", got)
+	}
+}
+
+func TestBrowsePrintsWebURL(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "root",
+			args: []string{"browse", "--web-url", "127.0.0.1:8082", "--print"},
+			want: "http://127.0.0.1:8082/",
+		},
+		{
+			name: "route",
+			args: []string{"browse", "signup", "--web-url", "http://127.0.0.1:8082", "--print"},
+			want: "http://127.0.0.1:8082/signup",
+		},
+		{
+			name: "base path and query",
+			args: []string{"browse", "slices?account=nic", "--web-url", "https://web.example.invalid/ui/", "--print"},
+			want: "https://web.example.invalid/ui/slices?account=nic",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+			if err := r.Run(context.Background(), tc.args); err != nil {
+				t.Fatalf("browse failed: %v\nstderr:\n%s", err, stderr.String())
+			}
+			if strings.TrimSpace(stdout.String()) != tc.want {
+				t.Fatalf("browse URL = %q, want %q", strings.TrimSpace(stdout.String()), tc.want)
+			}
+		})
 	}
 }
 
