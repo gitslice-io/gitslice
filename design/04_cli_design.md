@@ -79,6 +79,38 @@ gs resolve
 The later commands should be added when the underlying changeset and patchset
 model can represent the operation cleanly.
 
+Command names should stay stable, explicit, and discoverable. The CLI may also
+offer short aliases for commands that are frequently typed or whose noun has a
+natural singular/plural variant:
+
+```text
+gs workspace ...  alias: gs ws ...
+gs status         alias: gs st
+gs context        alias: gs ctx
+gs config ...     alias: gs cfg ...
+gs slice ...      alias: gs slices ...
+gs repo ...       alias: gs repository ...
+gs commit ...     alias: gs commits ...
+gs cs ...         alias: gs changeset ...
+gs fs ...         compatibility alias: gs file ...
+```
+
+Help and schema output should advertise the canonical command first and list
+aliases as secondary metadata. Root help should include a compact, end-to-end
+workflow example so a new user can move from signup to shell, file upload,
+workspace initialization, status, changeset creation, diff, and submit:
+
+```bash
+gs auth signup --username nic
+gs shell
+gs fs upload ./notes /nic/notes --recursive
+gs workspace init nic/home
+gs status
+gs cs create --title "update notes"
+gs cs diff
+gs cs submit
+```
+
 ## 3.1 Auth Commands
 
 ```bash
