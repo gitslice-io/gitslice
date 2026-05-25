@@ -31,7 +31,9 @@ import (
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/itchyny/gojq"
+	"github.com/peterh/liner"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -4624,18 +4626,25 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sli
 		sh.printHeader()
 		defer sh.restoreHeader()
 	}
-	scanner := bufio.NewScanner(r.stdin())
+	if r.shellLineEditorEnabled(opts) {
+		return sh.runLineEditor(callCtx)
+	}
+	return sh.runScanner(callCtx, r.stdin(), opts.Quiet)
+}
+
+func (s *serverShell) runScanner(ctx context.Context, input io.Reader, quiet bool) error {
+	scanner := bufio.NewScanner(input)
 	for {
-		if !opts.Quiet {
-			sh.refreshHeader()
-			fmt.Fprint(sh.stdout, sh.prompt())
+		if !quiet {
+			s.refreshHeader()
+			fmt.Fprint(s.stdout, s.prompt())
 		}
 		if !scanner.Scan() {
 			break
 		}
-		done, err := sh.exec(callCtx, scanner.Text())
+		done, err := s.exec(ctx, scanner.Text())
 		if err != nil {
-			fmt.Fprintf(sh.stderr, "%s: %v\n", sh.colorize(ansiRed, "error"), err)
+			fmt.Fprintf(s.stderr, "%s: %v\n", s.colorize(ansiRed, "error"), err)
 			continue
 		}
 		if done {
@@ -4643,6 +4652,35 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sli
 		}
 	}
 	return scanner.Err()
+}
+
+func (s *serverShell) runLineEditor(ctx context.Context) error {
+	line := liner.NewLiner()
+	defer line.Close()
+	line.SetCompleter(func(input string) []string {
+		return s.completeLine(ctx, input)
+	})
+	for {
+		s.refreshHeader()
+		input, err := line.Prompt(s.plainPrompt())
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(input) != "" {
+			line.AppendHistory(input)
+		}
+		done, err := s.exec(ctx, input)
+		if err != nil {
+			fmt.Fprintf(s.stderr, "%s: %v\n", s.colorize(ansiRed, "error"), err)
+			continue
+		}
+		if done {
+			return nil
+		}
+	}
 }
 
 func (r Runner) shellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceRef string) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
@@ -4783,6 +4821,24 @@ type serverShell struct {
 	color         bool
 	stickyHeader  bool
 	headerActive  bool
+}
+
+var serverShellCommands = []string{
+	"?",
+	"cat",
+	"cd",
+	"exit",
+	"help",
+	"ls",
+	"mkdir",
+	"mv",
+	"pwd",
+	"ref",
+	"rm",
+	"stat",
+	"touch",
+	"quit",
+	"write",
 }
 
 func (s *serverShell) exec(ctx context.Context, line string) (bool, error) {
@@ -4948,6 +5004,172 @@ func (s *serverShell) printHelp() {
 	fmt.Fprintln(s.stdout, "  ref              print inspected commit id")
 	fmt.Fprintln(s.stdout, "  help             show this help")
 	fmt.Fprintln(s.stdout, "  exit, quit       leave the shell")
+	fmt.Fprintln(s.stdout, "  <tab>            complete commands and server paths")
+}
+
+func (s *serverShell) completeLine(ctx context.Context, line string) []string {
+	tokens := shellLineTokens(line)
+	if len(tokens) == 0 {
+		return completeShellCommand(line, "")
+	}
+	if len(tokens) == 1 && !shellLineEndsWithSpace(line) {
+		return completeShellCommand(line[:tokens[0].start], tokens[0].value)
+	}
+	command := tokens[0].value
+	argIndex := 1
+	token := ""
+	prefix := line
+	if !shellLineEndsWithSpace(line) {
+		current := tokens[len(tokens)-1]
+		argIndex = len(tokens) - 1
+		token = current.value
+		prefix = line[:current.start]
+	} else {
+		argIndex = len(tokens)
+	}
+	dirsOnly, ok := shellPathCompletion(command, argIndex)
+	if !ok {
+		return nil
+	}
+	completed := s.completePath(ctx, token, dirsOnly)
+	out := make([]string, 0, len(completed))
+	for _, value := range completed {
+		out = append(out, prefix+value)
+	}
+	return out
+}
+
+func completeShellCommand(prefix, token string) []string {
+	var out []string
+	for _, command := range serverShellCommands {
+		if !strings.HasPrefix(command, token) {
+			continue
+		}
+		value := command
+		if shellCommandAcceptsPath(command) {
+			value += " "
+		}
+		out = append(out, prefix+value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func shellPathCompletion(command string, argIndex int) (dirsOnly bool, ok bool) {
+	switch command {
+	case "cd":
+		return true, argIndex == 1
+	case "ls", "cat", "stat", "mkdir", "touch", "rm":
+		return false, argIndex == 1
+	case "mv":
+		return false, argIndex == 1 || argIndex == 2
+	case "write":
+		return false, argIndex == 1
+	default:
+		return false, false
+	}
+}
+
+func shellCommandAcceptsPath(command string) bool {
+	_, ok := shellPathCompletion(command, 1)
+	return ok
+}
+
+func (s *serverShell) completePath(ctx context.Context, token string, dirsOnly bool) []string {
+	dirToken, namePrefix, replacementPrefix := shellCompletionPathParts(token)
+	globalDir, err := s.resolve(dirToken)
+	if err != nil {
+		return nil
+	}
+	entries, err := s.directoryEntries(ctx, globalDir)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		if dirsOnly && entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+			continue
+		}
+		name := s.entryName(entry)
+		if name == "" || !strings.HasPrefix(name, namePrefix) {
+			continue
+		}
+		suffix := ""
+		if entry.Kind == corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+			suffix = "/"
+		}
+		out = append(out, replacementPrefix+name+suffix)
+	}
+	sort.Strings(out)
+	return compactSortedStrings(out)
+}
+
+func shellCompletionPathParts(token string) (dirToken, namePrefix, replacementPrefix string) {
+	if token == "" {
+		return ".", "", ""
+	}
+	if strings.HasSuffix(token, "/") {
+		return token, "", token
+	}
+	slash := strings.LastIndex(token, "/")
+	if slash < 0 {
+		return ".", token, ""
+	}
+	if slash == 0 {
+		return "/", token[1:], "/"
+	}
+	dirToken = token[:slash]
+	replacementPrefix = token[:slash+1]
+	return dirToken, token[slash+1:], replacementPrefix
+}
+
+type shellLineToken struct {
+	value string
+	start int
+	end   int
+}
+
+func shellLineTokens(line string) []shellLineToken {
+	var tokens []shellLineToken
+	for i := 0; i < len(line); {
+		for i < len(line) && isShellLineSpace(line[i]) {
+			i++
+		}
+		if i >= len(line) {
+			break
+		}
+		start := i
+		for i < len(line) && !isShellLineSpace(line[i]) {
+			i++
+		}
+		tokens = append(tokens, shellLineToken{value: line[start:i], start: start, end: i})
+	}
+	return tokens
+}
+
+func shellLineEndsWithSpace(line string) bool {
+	return len(line) > 0 && isShellLineSpace(line[len(line)-1])
+}
+
+func isShellLineSpace(b byte) bool {
+	return b == ' ' || b == '\t'
+}
+
+func compactSortedStrings(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	out := values[:1]
+	for _, value := range values[1:] {
+		if value == out[len(out)-1] {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }
 
 func (s *serverShell) cd(ctx context.Context, target string) error {
@@ -4983,14 +5205,29 @@ func (s *serverShell) ls(ctx context.Context, target string) error {
 	if err != nil && (grpcstatus.Code(err) != codes.NotFound || globalPath != s.root) {
 		return s.lookupError(err, globalPath)
 	}
+	entries, err := s.directoryEntries(ctx, globalPath)
+	if err != nil {
+		return s.lookupError(err, globalPath)
+	}
+	for _, entry := range entries {
+		name := s.entryName(entry)
+		if entry.Kind == corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+			name = s.colorize(ansiBlue, name+"/")
+		}
+		fmt.Fprintln(s.stdout, name)
+	}
+	return nil
+}
+
+func (s *serverShell) directoryEntries(ctx context.Context, globalPath string) ([]*corev1.TreeEntry, error) {
 	list, err := s.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: s.commitID, Path: globalPath, PageSize: 1000})
 	var entries []*corev1.TreeEntry
 	if err != nil {
 		if grpcstatus.Code(err) != codes.NotFound {
-			return err
+			return nil, err
 		}
 		if globalPath != s.root && s.projectionDirectoryEntry(globalPath) == nil {
-			return err
+			return nil, err
 		}
 	} else {
 		entries = append([]*corev1.TreeEntry(nil), list.Entries...)
@@ -5000,14 +5237,7 @@ func (s *serverShell) ls(ctx context.Context, target string) error {
 	sort.Slice(entries, func(i, j int) bool {
 		return s.entryName(entries[i]) < s.entryName(entries[j])
 	})
-	for _, entry := range entries {
-		name := s.entryName(entry)
-		if entry.Kind == corev1.EntryKind_ENTRY_KIND_DIRECTORY {
-			name = s.colorize(ansiBlue, name+"/")
-		}
-		fmt.Fprintln(s.stdout, name)
-	}
-	return nil
+	return entries, nil
 }
 
 func (s *serverShell) cat(ctx context.Context, target string) error {
@@ -5298,10 +5528,18 @@ func (s *serverShell) resolve(value string) (string, error) {
 }
 
 func (s *serverShell) prompt() string {
+	return s.promptWithColor(s.color)
+}
+
+func (s *serverShell) plainPrompt() string {
+	return s.promptWithColor(false)
+}
+
+func (s *serverShell) promptWithColor(enabled bool) string {
 	if !s.scoped {
-		return fmt.Sprintf("%s %s> ", s.colorize(ansiDim, "gs"), s.colorize(ansiCyan, s.shellPath(s.cwd)))
+		return fmt.Sprintf("%s %s> ", colorize(enabled, ansiDim, "gs"), colorize(enabled, ansiCyan, s.shellPath(s.cwd)))
 	}
-	return fmt.Sprintf("%s %s:%s> ", s.colorize(ansiDim, "gs"), s.colorize(ansiGreen, s.scope), s.colorize(ansiCyan, s.shellPath(s.cwd)))
+	return fmt.Sprintf("%s %s:%s> ", colorize(enabled, ansiDim, "gs"), colorize(enabled, ansiGreen, s.scope), colorize(enabled, ansiCyan, s.shellPath(s.cwd)))
 }
 
 func (s *serverShell) shellPath(globalPath string) string {
@@ -5868,16 +6106,19 @@ func (r Runner) stickyShellHeaderEnabled(opts commandOptions) bool {
 	return isTerminal(r.stdout()) && isTerminal(r.stdin())
 }
 
+func (r Runner) shellLineEditorEnabled(opts commandOptions) bool {
+	if opts.Quiet || opts.NonInteractive || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	return r.stdin() == os.Stdin && r.stdout() == os.Stdout && isTerminal(os.Stdin) && isTerminal(os.Stdout)
+}
+
 func isTerminal(w any) bool {
 	file, ok := w.(*os.File)
 	if !ok {
 		return false
 	}
-	info, err := file.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(file.Fd()))
 }
 
 func (r Runner) objectCache() (*clientcache.ObjectCache, error) {
