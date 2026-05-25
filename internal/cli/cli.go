@@ -259,6 +259,143 @@ const (
 	ansiRed   = "\x1b[31m"
 )
 
+type helpTopic struct {
+	Name    string
+	Summary string
+	Body    string
+}
+
+var cliHelpTopics = []helpTopic{
+	{
+		Name:    "environment",
+		Summary: "Environment variables used by gs",
+		Body: `Environment
+
+GITSLICE_GRPC_ADDR
+  Default gRPC server address for commands that accept --server.
+
+GITSLICE_SERVER_ADDR
+  Compatibility alias for GITSLICE_GRPC_ADDR when GITSLICE_GRPC_ADDR is unset.
+
+GITSLICE_WEB_URL
+  Default browser approval base URL for gs auth signup.
+
+GITSLICE_GATEWAY_URL
+  Default HTTP JSON gateway URL used by the signup approval page.
+
+GITSLICE_HTTP_ADDR
+  Compatibility source for the default gateway URL when GITSLICE_GATEWAY_URL is unset.
+
+GITSLICE_CLIENT_CACHE_DIR
+  Override the shared local content-addressed object cache root.
+
+NO_COLOR
+  Disable ANSI color output.
+
+TERM=dumb
+  Disable color and sticky interactive shell headers.
+`,
+	},
+	{
+		Name:    "formatting",
+		Summary: "Text, JSON, and error output conventions",
+		Body: `Formatting
+
+By default, gs prints human-readable text to stdout.
+
+Use --json or --format json for stable machine-readable output:
+
+  gs status --json
+  gs context --format json
+
+Diagnostics, progress, and errors are written to stderr. When a command is run
+with --json or --format json, error output has this shape:
+
+  {
+    "error": {
+      "code": "stable_snake_case_code",
+      "message": "human-readable message",
+      "hint": "optional next action",
+      "retriable": false
+    }
+  }
+
+Use --quiet to suppress non-essential text output and --no-color or NO_COLOR to
+disable ANSI color. Field selection, jq filters, and templates are planned
+extensions; scripts should currently consume the documented JSON fields from
+gs schema.
+`,
+	},
+	{
+		Name:    "exit-codes",
+		Summary: "Exit codes returned by gs",
+		Body: `Exit Codes
+
+0
+  Success.
+
+1
+  General command failure.
+
+2
+  Command canceled.
+
+4
+  Authentication is missing, invalid, or rejected by the server.
+
+Commands may print additional structured error details on stderr when --json or
+--format json is set.
+`,
+	},
+	{
+		Name:    "paths",
+		Summary: "Account-rooted path rules",
+		Body: `Paths
+
+Server paths are canonical account-rooted paths:
+
+  /nic/notes/readme.md
+  /acme/payment/app.go
+
+gs fs commands always require absolute server paths and are scoped to the
+signed-in user's home slice. For user nic, mutations must stay under /nic.
+
+Workspaces materialize canonical account-rooted paths below the workspace root.
+A server file at /nic/hello/readme.md appears locally as:
+
+  nic/hello/readme.md
+
+Inside gs shell, relative paths are resolved from the shell's current server
+directory. Absolute paths are still canonical server paths.
+`,
+	},
+	{
+		Name:    "slices",
+		Summary: "Home slices, custom slices, and slice slugs",
+		Body: `Slices
+
+A slice is a named view over one or more account-rooted server path prefixes.
+Slice references use:
+
+  <account>/<slice>
+
+The reserved home slice is created by signup:
+
+  nic/home
+
+The home slice covers the account root /nic, not /nic/home. Custom personal
+slices use other slugs and must cover existing paths under the same account,
+for example:
+
+  nic/dotfiles -> /nic/dotfiles
+  nic/tools    -> /nic/tools
+
+Workspaces bind to exactly one slice. Changesets created from a workspace use
+that bound slice as the authoring slice.
+`,
+	},
+}
+
 func Main(args []string, stdout, stderr io.Writer) int {
 	r := Runner{Stdout: stdout, Stderr: stderr, Stdin: os.Stdin}
 	if err := r.Run(context.Background(), args); err != nil {
@@ -269,9 +406,29 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		} else {
 			fmt.Fprintln(stderr, err)
 		}
-		return 1
+		return exitCodeForError(err)
 	}
 	return 0
+}
+
+func exitCodeForError(err error) int {
+	if err == nil {
+		return 0
+	}
+	if errors.Is(err, context.Canceled) {
+		return 2
+	}
+	var cmdErr commandError
+	if errors.As(err, &cmdErr) {
+		switch cmdErr.Code {
+		case "not_logged_in", "invalid_user_config", "unauthenticated":
+			return 4
+		}
+	}
+	if grpcstatus.Code(err) == codes.Unauthenticated {
+		return 4
+	}
+	return 1
 }
 
 func (r Runner) Run(ctx context.Context, args []string) error {
@@ -347,6 +504,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	root.PersistentFlags().BoolVar(&opts.Verbose, "verbose", false, "emit additional diagnostic output")
 	root.PersistentFlags().BoolVar(&opts.Debug, "debug", false, "emit debug diagnostics")
 	root.PersistentFlags().BoolVar(&opts.Trace, "trace", false, "emit trace diagnostics")
+	root.SetHelpCommand(r.helpCommand(root))
 
 	authCmd := &cobra.Command{
 		Use:   "auth",
@@ -844,6 +1002,68 @@ func (r Runner) rootCommand() *cobra.Command {
 
 	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
 	return root
+}
+
+func (r Runner) helpCommand(root *cobra.Command) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "help [command|topic]",
+		Short: "Help about any command or topic",
+		Long:  "Help provides command help and Gitslice topic guides.",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				if err := root.Help(); err != nil {
+					return err
+				}
+				r.writeHelpTopicList()
+				return nil
+			}
+			if len(args) == 1 {
+				if topic, ok := findHelpTopic(args[0]); ok {
+					return writeHelpTopic(r.Stdout, topic)
+				}
+			}
+			target, _, err := root.Find(args)
+			if err == nil && target != nil && target != root && target != cmd {
+				return target.Help()
+			}
+			return userError("unknown_help_topic", "unknown help topic or command: "+strings.Join(args, " "), "Run gs help to list available help topics.")
+		},
+	}
+	for _, topic := range cliHelpTopics {
+		topic := topic
+		cmd.AddCommand(&cobra.Command{
+			Use:   topic.Name,
+			Short: topic.Summary,
+			Args:  noArgs("gs help " + topic.Name),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return writeHelpTopic(r.Stdout, topic)
+			},
+		})
+	}
+	return cmd
+}
+
+func (r Runner) writeHelpTopicList() {
+	fmt.Fprintln(r.Stdout)
+	fmt.Fprintln(r.Stdout, "HELP TOPICS")
+	for _, topic := range cliHelpTopics {
+		fmt.Fprintf(r.Stdout, "  %-13s %s\n", topic.Name+":", topic.Summary)
+	}
+}
+
+func findHelpTopic(name string) (helpTopic, bool) {
+	for _, topic := range cliHelpTopics {
+		if topic.Name == name {
+			return topic, true
+		}
+	}
+	return helpTopic{}, false
+}
+
+func writeHelpTopic(w io.Writer, topic helpTopic) error {
+	_, err := fmt.Fprint(w, strings.TrimRight(topic.Body, "\n")+"\n")
+	return err
 }
 
 func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAddr, devUser string) error {
@@ -5103,7 +5323,15 @@ func (r Runner) runSchema() error {
 				"summary":       "print this machine-readable CLI schema",
 				"writes_stdout": true,
 			},
+			{
+				"use":            "gs help <topic>",
+				"summary":        "show help for a command or CLI topic",
+				"args":           []string{"command", "topic"},
+				"writes_stdout":  true,
+				"machine_output": []string{},
+			},
 		},
+		"help_topics": cliHelpTopicSchema(),
 		"error_output": map[string]any{
 			"stream": "stderr",
 			"shape": map[string]any{
@@ -5116,6 +5344,17 @@ func (r Runner) runSchema() error {
 			},
 		},
 	})
+}
+
+func cliHelpTopicSchema() []map[string]string {
+	out := make([]map[string]string, 0, len(cliHelpTopics))
+	for _, topic := range cliHelpTopics {
+		out = append(out, map[string]string{
+			"name":    topic.Name,
+			"summary": topic.Summary,
+		})
+	}
+	return out
 }
 
 func parseSliceRef(value string) (*corev1.SliceRef, error) {

@@ -2321,3 +2321,43 @@ go build ./cmd/...
 git diff --check
 go run ./cmd/gs context --json
 ```
+
+## 2026-05-25: CLI Help Topics And Exit Codes
+
+Request:
+
+- continue applying GitHub CLI design learnings after merging the context/auth
+  recovery PR
+
+Implemented:
+
+- added `gs help <topic>` support while preserving command help such as
+  `gs help auth status`
+- added first-class help topics for environment variables, formatting,
+  exit codes, account-rooted paths, and slice semantics
+- documented the baseline process exit code contract and made authentication
+  failures return exit code 4 from the `gs` binary entrypoint
+- exposed help topics through `gs schema`
+- updated the CLI design with the help-topic and exit-code contract
+
+Important decisions and learnings:
+
+- Help topics are a low-risk way to make recurring concepts discoverable
+  without adding new backend behavior.
+- The help text documents only currently implemented formatting features. JQ,
+  templates, and JSON field selection remain planned follow-up work.
+- Authentication failures now follow the GitHub CLI-inspired convention of
+  using a distinct exit code so scripts can separate auth recovery from general
+  command failures.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs help environment
+go run ./cmd/gs help exit-codes
+```
