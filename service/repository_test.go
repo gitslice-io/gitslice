@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
 func TestGitSnapshotReadsTreeWithBatchBlobContents(t *testing.T) {
@@ -100,6 +103,17 @@ func TestGitDeltaEditsReadsOnlyChangedPaths(t *testing.T) {
 	}
 }
 
+func TestImmediateDirectoryEntriesFiltersFilesOutsidePrefix(t *testing.T) {
+	files := []postgres.FileEntry{
+		{Path: "/acme/backend/server.go", Mode: 0o100644},
+		{Path: "/acme/payment/shared/code.go", Mode: 0o100644},
+	}
+
+	assertImmediateEntryNames(t, immediateDirectoryEntries("/acme/payment", files), "shared")
+	assertImmediateEntryNames(t, immediateDirectoryEntries("/acme", files), "backend", "payment")
+	assertImmediateEntryNames(t, immediateDirectoryEntries("/", files), "acme")
+}
+
 func runGitTest(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -109,4 +123,15 @@ func runGitTest(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
 	}
 	return string(out)
+}
+
+func assertImmediateEntryNames(t *testing.T, entries []*corev1.TreeEntry, want ...string) {
+	t.Helper()
+	got := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		got = append(got, entry.Name)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("entry names = %#v, want %#v", got, want)
+	}
 }

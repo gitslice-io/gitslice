@@ -87,11 +87,14 @@ func repositoryReadPath(p string) (string, error) {
 }
 
 func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
 		return nil, err
 	}
+	if req.Slice != nil {
+		return s.listSliceDirectory(ctx, subjectID, req)
+	}
 	p := req.Path
-	var err error
 	p, err = repositoryReadPath(p)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -105,6 +108,55 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 		out = append(out, treeEntryFromRepositoryEntry(entry))
 	}
 	return &corev1.ListDirectoryResponse{Entries: out}, nil
+}
+
+func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID string, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
+	if req.Slice.Account == "" || req.Slice.Slice == "" {
+		return nil, status.Error(codes.InvalidArgument, "slice ref is required")
+	}
+	if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.Slice.Account); err != nil {
+		return nil, grpcError(err)
+	}
+	slice, err := s.Slices.Resolve(ctx, req.Slice)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	p, err := repositoryReadPath(req.Path)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	files, err := s.sliceProjectedFiles(ctx, slice, req.CommitId)
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.ListDirectoryResponse{Entries: immediateDirectoryEntries(p, files)}, nil
+}
+
+func (s *RepositoryService) sliceProjectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]postgres.FileEntry, error) {
+	byPath := map[string]postgres.FileEntry{}
+	for _, prefix := range slice.Definition.IncludedPaths {
+		canonical, err := paths.Canonical(prefix)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		files, err := s.Repository.ListFiles(ctx, commitID, canonical)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		for _, file := range files {
+			byPath[file.Path] = file
+		}
+	}
+	paths := make([]string, 0, len(byPath))
+	for p := range byPath {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	out := make([]postgres.FileEntry, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, byPath[p])
+	}
+	return out, nil
 }
 
 func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
@@ -457,8 +509,10 @@ func immediateDirectoryEntries(prefix string, files []postgres.FileEntry) []*cor
 	}
 	byPath := map[string]*corev1.TreeEntry{}
 	for _, file := range files {
-		rel := strings.TrimPrefix(file.Path, prefix)
-		rel = strings.TrimPrefix(rel, "/")
+		rel, ok := relativeDirectoryPath(prefix, file.Path)
+		if !ok {
+			continue
+		}
 		if rel == "" {
 			byPath[file.Path] = treeEntryFromFile(file)
 			continue
@@ -491,6 +545,22 @@ func immediateDirectoryEntries(prefix string, files []postgres.FileEntry) []*cor
 		out = append(out, byPath[p])
 	}
 	return out
+}
+
+func relativeDirectoryPath(prefix, filePath string) (string, bool) {
+	if prefix == "/" {
+		if !strings.HasPrefix(filePath, "/") {
+			return "", false
+		}
+		return strings.TrimPrefix(filePath, "/"), true
+	}
+	if filePath == prefix {
+		return "", true
+	}
+	if !strings.HasPrefix(filePath, prefix+"/") {
+		return "", false
+	}
+	return strings.TrimPrefix(filePath, prefix+"/"), true
 }
 
 func directoryTreeIDFromEntries(entries []postgres.TreeEntry) string {
@@ -537,8 +607,10 @@ func immediateDirectoryEntriesNoTree(prefix string, files []postgres.FileEntry) 
 	}
 	byPath := map[string]*corev1.TreeEntry{}
 	for _, file := range files {
-		rel := strings.TrimPrefix(file.Path, prefix)
-		rel = strings.TrimPrefix(rel, "/")
+		rel, ok := relativeDirectoryPath(prefix, file.Path)
+		if !ok {
+			continue
+		}
 		if rel == "" {
 			byPath[file.Path] = treeEntryFromFile(file)
 			continue
