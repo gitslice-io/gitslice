@@ -29,6 +29,7 @@ The web MVP may use only the currently implemented public services:
 
 ```text
 FakeAccountService.Login
+FakeAccountService.ApproveSignup
 
 RepositoryService.ResolvePath
 RepositoryService.ListDirectory
@@ -58,6 +59,7 @@ unbound method paths such as:
 
 ```text
 POST /gitslice.core.v1.FakeAccountService/Login
+POST /gitslice.core.v1.FakeAccountService/ApproveSignup
 POST /gitslice.core.v1.SliceService/ListSlices
 POST /gitslice.core.v1.ChangesetService/GetChangeset
 ```
@@ -66,6 +68,10 @@ The gateway forwards into the existing gRPC server, so the same auth interceptor
 and service behavior apply to CLI and web callers. Browser clients served from a
 different origin can use `GITSLICE_HTTP_ALLOWED_ORIGIN` or
 `--http-allowed-origin` to enable CORS for local development.
+
+The repository's current `web/` directory implements only the signup approval
+page from this design. It is a static browser app and is not mounted by the Go
+server.
 
 ### 1.1 Explicit Non-Scope
 
@@ -526,6 +532,13 @@ The first auth flow is development-only:
 2. The HTTP gateway calls `FakeAccountService.Login`.
 3. The app attaches the returned bearer token to subsequent requests.
 4. Logout clears the local token.
+
+The CLI signup approval page is also a development-only web surface. It is a
+static browser page under `web/` that reads `username`, `callback_url`, and
+`state` query parameters, calls
+`FakeAccountService.ApproveSignup` through the generated HTTP JSON gateway, and
+then redirects the browser to the returned loopback callback URL. The Go server
+does not mount a bespoke signup HTTP handler.
 
 Production OAuth, refresh tokens, session lists, token rotation, and service
 account token management remain later work.

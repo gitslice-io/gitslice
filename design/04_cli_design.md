@@ -85,10 +85,13 @@ gs auth status
 
 `gs auth signup --username <name>` starts a fake browser-approved device flow
 for local development. The CLI starts a temporary localhost callback listener,
-opens or prints the server web approval URL, waits for the browser callback, and
-stores the returned bearer token in the user config. Approval creates the
-personal account and its default `<name>/home` slice. The server web page is a
-prototype approval screen, not a real identity-provider login.
+opens or prints the static web approval URL, waits for the browser callback, and
+stores the returned bearer token in the user config. The approval page calls the
+generated HTTP JSON grpc-gateway endpoint for
+`FakeAccountService.ApproveSignup`; there is no custom signup HTTP handler in
+the Go server. Approval creates the personal account and its default
+`<name>/home` slice. The web page is a prototype approval screen, not a real
+identity-provider login.
 
 `gs auth status` reads the locally configured server and bearer token, validates
 that token with the server's authenticated auth-status RPC, and never prints the
@@ -243,13 +246,16 @@ gs shell --commit <commit-id>
 run from any local directory after `gs auth login`; it does not require a
 Gitslice workspace and does not browse or mutate the local filesystem.
 
-`--slice <account>/<slice>` explicitly attaches the shell to a slice and shows a
-projection of that slice from its account root. For a custom slice that includes
-`/nic/tools`, `ls /` shows `tools/`, and paths outside the included roots are
-rejected even when they are under the same account. When the flag is omitted
-inside a workspace, the shell keeps the existing slice-rooted view for the
-workspace's bound slice. When the flag is omitted outside a workspace, the shell
-first tries to resolve the signed-in user's default personal home slice,
+`--slice <account>/<slice>` explicitly attaches the shell to a slice and keeps
+the canonical global path layout visible. For a custom slice that includes
+`/nic/tools`, `ls /` shows `nic/`, `ls /nic` shows `tools/`, and `pwd` inside
+that folder prints `/nic/tools` rather than remapping it to `/tools`. The shell
+may synthesize ancestor directories needed to navigate to included roots, but
+file reads and mutations outside the included roots are rejected even when they
+are under the same account. When the flag is omitted inside a workspace, the
+shell keeps the existing slice-rooted view for the workspace's bound slice. When
+the flag is omitted outside a workspace, the shell first tries to resolve the
+signed-in user's default personal home slice,
 `<username>/home`. If that slice exists, the shell labels the session with that
 slice and shows the user's account-root folder from `/`, for example `ls` shows
 `nic/` for `nic/home`. Empty home folders are visible from slice metadata even

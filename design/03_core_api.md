@@ -71,6 +71,11 @@ service BlobService {
   rpc UploadBlob(stream UploadBlobRequest) returns (UploadBlobResponse);
 }
 
+service FakeAccountService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc ApproveSignup(ApproveSignupRequest) returns (ApproveSignupResponse);
+}
+
 service AuthService {
   rpc GetAuthStatus(GetAuthStatusRequest) returns (GetAuthStatusResponse);
 }

@@ -787,6 +787,7 @@ func signupApprovalURL(webURL, username, callbackURL, state string) (string, err
 	query := parsed.Query()
 	query.Set("username", username)
 	query.Set("callback_url", callbackURL)
+	query.Set("gateway_url", defaultGatewayURL())
 	query.Set("state", state)
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
@@ -2269,10 +2270,7 @@ func (r Runner) explicitShellScope(ctx context.Context, conn *grpc.ClientConn, s
 	if slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
 		return "", "", false, nil, nil, fmt.Errorf("slice %s/%s has no included paths", ref.Account, ref.Slice)
 	}
-	rootPath, err = canonicalIncludedRoot("/" + ref.Account)
-	if err != nil {
-		return "", "", false, nil, nil, err
-	}
+	rootPath = "/"
 	return rootPath, ref.Account + "/" + ref.Slice, true, nil, slice, nil
 }
 
@@ -2560,10 +2558,17 @@ func (s *serverShell) ls(ctx context.Context, target string) error {
 		return err
 	}
 	list, err := s.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: s.commitID, Path: globalPath, PageSize: 1000})
+	var entries []*corev1.TreeEntry
 	if err != nil {
-		return err
+		if grpcstatus.Code(err) != codes.NotFound {
+			return err
+		}
+		if globalPath != s.root && s.projectionDirectoryEntry(globalPath) == nil {
+			return err
+		}
+	} else {
+		entries = append([]*corev1.TreeEntry(nil), list.Entries...)
 	}
-	entries := append([]*corev1.TreeEntry(nil), list.Entries...)
 	entries = s.projectDirectoryEntries(globalPath, entries)
 	entries = s.withSyntheticDirectoryEntries(globalPath, entries)
 	sort.Slice(entries, func(i, j int) bool {
@@ -2843,7 +2848,7 @@ func (s *serverShell) resolve(value string) (string, error) {
 	default:
 		candidate = strings.TrimRight(s.cwd, "/") + "/" + value
 	}
-	cleaned, err := paths.Canonical(path.Clean(candidate))
+	cleaned, err := cleanShellGlobalPath(candidate)
 	if err != nil {
 		return "", err
 	}
@@ -3755,6 +3760,13 @@ func defaultServerAddr() string {
 
 func defaultWebURL() string {
 	if value := os.Getenv("GITSLICE_WEB_URL"); value != "" {
+		return value
+	}
+	return "http://127.0.0.1:5173"
+}
+
+func defaultGatewayURL() string {
+	if value := os.Getenv("GITSLICE_GATEWAY_URL"); value != "" {
 		return value
 	}
 	if value := os.Getenv("GITSLICE_HTTP_ADDR"); value != "" {

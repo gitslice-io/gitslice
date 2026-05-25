@@ -117,6 +117,126 @@ func (x *LoginResponse) GetSubjectId() string {
 	return ""
 }
 
+type ApproveSignupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	CallbackUrl   string                 `protobuf:"bytes,2,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
+	State         string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApproveSignupRequest) Reset() {
+	*x = ApproveSignupRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApproveSignupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApproveSignupRequest) ProtoMessage() {}
+
+func (x *ApproveSignupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApproveSignupRequest.ProtoReflect.Descriptor instead.
+func (*ApproveSignupRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ApproveSignupRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *ApproveSignupRequest) GetCallbackUrl() string {
+	if x != nil {
+		return x.CallbackUrl
+	}
+	return ""
+}
+
+func (x *ApproveSignupRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+type ApproveSignupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	SubjectId     string                 `protobuf:"bytes,2,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	RedirectUrl   string                 `protobuf:"bytes,3,opt,name=redirect_url,json=redirectUrl,proto3" json:"redirect_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApproveSignupResponse) Reset() {
+	*x = ApproveSignupResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApproveSignupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApproveSignupResponse) ProtoMessage() {}
+
+func (x *ApproveSignupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApproveSignupResponse.ProtoReflect.Descriptor instead.
+func (*ApproveSignupResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ApproveSignupResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *ApproveSignupResponse) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
+func (x *ApproveSignupResponse) GetRedirectUrl() string {
+	if x != nil {
+		return x.RedirectUrl
+	}
+	return ""
+}
+
 type GetAuthStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -125,7 +245,7 @@ type GetAuthStatusRequest struct {
 
 func (x *GetAuthStatusRequest) Reset() {
 	*x = GetAuthStatusRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[2]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -137,7 +257,7 @@ func (x *GetAuthStatusRequest) String() string {
 func (*GetAuthStatusRequest) ProtoMessage() {}
 
 func (x *GetAuthStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[2]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -150,7 +270,7 @@ func (x *GetAuthStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAuthStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetAuthStatusRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{2}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{4}
 }
 
 type GetAuthStatusResponse struct {
@@ -162,7 +282,7 @@ type GetAuthStatusResponse struct {
 
 func (x *GetAuthStatusResponse) Reset() {
 	*x = GetAuthStatusResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[3]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -174,7 +294,7 @@ func (x *GetAuthStatusResponse) String() string {
 func (*GetAuthStatusResponse) ProtoMessage() {}
 
 func (x *GetAuthStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[3]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -187,7 +307,7 @@ func (x *GetAuthStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAuthStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetAuthStatusResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{3}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetAuthStatusResponse) GetSubjectId() string {
@@ -207,13 +327,23 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\rLoginResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1d\n" +
 	"\n" +
-	"subject_id\x18\x02 \x01(\tR\tsubjectId\"\x16\n" +
+	"subject_id\x18\x02 \x01(\tR\tsubjectId\"k\n" +
+	"\x14ApproveSignupRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12!\n" +
+	"\fcallback_url\x18\x02 \x01(\tR\vcallbackUrl\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\"o\n" +
+	"\x15ApproveSignupResponse\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\x02 \x01(\tR\tsubjectId\x12!\n" +
+	"\fredirect_url\x18\x03 \x01(\tR\vredirectUrl\"\x16\n" +
 	"\x14GetAuthStatusRequest\"6\n" +
 	"\x15GetAuthStatusResponse\x12\x1d\n" +
 	"\n" +
-	"subject_id\x18\x01 \x01(\tR\tsubjectId2^\n" +
+	"subject_id\x18\x01 \x01(\tR\tsubjectId2\xc0\x01\n" +
 	"\x12FakeAccountService\x12H\n" +
-	"\x05Login\x12\x1e.gitslice.core.v1.LoginRequest\x1a\x1f.gitslice.core.v1.LoginResponse2o\n" +
+	"\x05Login\x12\x1e.gitslice.core.v1.LoginRequest\x1a\x1f.gitslice.core.v1.LoginResponse\x12`\n" +
+	"\rApproveSignup\x12&.gitslice.core.v1.ApproveSignupRequest\x1a'.gitslice.core.v1.ApproveSignupResponse2o\n" +
 	"\vAuthService\x12`\n" +
 	"\rGetAuthStatus\x12&.gitslice.core.v1.GetAuthStatusRequest\x1a'.gitslice.core.v1.GetAuthStatusResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
 
@@ -229,20 +359,24 @@ func file_proto_core_v1_auth_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_auth_proto_rawDescData
 }
 
-var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*LoginRequest)(nil),          // 0: gitslice.core.v1.LoginRequest
 	(*LoginResponse)(nil),         // 1: gitslice.core.v1.LoginResponse
-	(*GetAuthStatusRequest)(nil),  // 2: gitslice.core.v1.GetAuthStatusRequest
-	(*GetAuthStatusResponse)(nil), // 3: gitslice.core.v1.GetAuthStatusResponse
+	(*ApproveSignupRequest)(nil),  // 2: gitslice.core.v1.ApproveSignupRequest
+	(*ApproveSignupResponse)(nil), // 3: gitslice.core.v1.ApproveSignupResponse
+	(*GetAuthStatusRequest)(nil),  // 4: gitslice.core.v1.GetAuthStatusRequest
+	(*GetAuthStatusResponse)(nil), // 5: gitslice.core.v1.GetAuthStatusResponse
 }
 var file_proto_core_v1_auth_proto_depIdxs = []int32{
 	0, // 0: gitslice.core.v1.FakeAccountService.Login:input_type -> gitslice.core.v1.LoginRequest
-	2, // 1: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
-	1, // 2: gitslice.core.v1.FakeAccountService.Login:output_type -> gitslice.core.v1.LoginResponse
-	3, // 3: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	2, // 1: gitslice.core.v1.FakeAccountService.ApproveSignup:input_type -> gitslice.core.v1.ApproveSignupRequest
+	4, // 2: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
+	1, // 3: gitslice.core.v1.FakeAccountService.Login:output_type -> gitslice.core.v1.LoginResponse
+	3, // 4: gitslice.core.v1.FakeAccountService.ApproveSignup:output_type -> gitslice.core.v1.ApproveSignupResponse
+	5, // 5: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -259,7 +393,7 @@ func file_proto_core_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_auth_proto_rawDesc), len(file_proto_core_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

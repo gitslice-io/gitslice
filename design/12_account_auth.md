@@ -107,19 +107,22 @@ gs auth signup --username nic
 Implementation behavior:
 
 1. the CLI starts a temporary localhost callback listener
-2. the CLI opens or prints a URL under the server web UI at `/signup`
+2. the CLI opens or prints a URL under the static web UI at `/signup`
 3. the web page asks the user to approve signup for the requested username
-4. approval creates or reuses a user subject and personal account
-5. approval creates or reuses the personal account's default `home` slice
-6. approval creates a 24-hour bearer-token session
-7. the web server redirects to the CLI callback URL with the token and subject id
-8. the CLI validates the callback state and stores the token in
+4. the web page calls `FakeAccountService.ApproveSignup` through the generated
+   HTTP JSON grpc-gateway
+5. approval creates or reuses a user subject and personal account
+6. approval creates or reuses the personal account's default `home` slice
+7. approval creates a 24-hour bearer-token session
+8. the web page redirects to the returned CLI callback URL with the token and
+   subject id
+9. the CLI validates the callback state and stores the token in
    `~/.gitslice/config.json`
 
 The signup web page is intentionally simple. It exists to exercise the device
 flow shape without a production identity provider. Callback URLs must point to a
-loopback host so the web server does not redirect bearer tokens to arbitrary
-remote origins.
+loopback host so the gRPC signup service does not issue callback redirects that
+send bearer tokens to arbitrary remote origins.
 
 Username normalization:
 

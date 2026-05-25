@@ -3,6 +3,92 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Signup Through gRPC Gateway
+
+Request:
+
+- fix signup so it is implemented as gRPC API behavior rather than a custom
+  server HTTP handler
+- expose signup approval through grpc-gateway
+- make `web/` the browser app described by the web interface design, scoped to
+  the signup page only
+
+Implemented:
+
+- added `FakeAccountService.ApproveSignup`, returning a token, subject id, and
+  loopback callback redirect URL
+- moved loopback callback URL validation into the gRPC service layer
+- marked `ApproveSignup` as a public gRPC method alongside `Login`
+- regenerated protobuf and grpc-gateway output so browsers can call:
+  `POST /gitslice.core.v1.FakeAccountService/ApproveSignup`
+- removed the bespoke `/signup` and `/signup/approve` HTTP handlers from
+  `server.Run`; the optional HTTP listener now mounts only the generated
+  grpc-gateway
+- replaced the Go `web` package with a static signup web application that calls
+  the generated gateway endpoint and then redirects to the returned CLI callback
+  URL
+- added `make run-web` for serving the static app locally and configured the
+  default signup web URL as `http://127.0.0.1:5173`
+- updated functional signup tests to verify the gateway-only server returns
+  404 for `/signup`, performs approval through the generated API, rejects
+  remote callbacks, and still drives the CLI callback flow
+
+Important decisions and learnings:
+
+- The web app owns browser interaction, but all account creation, home-slice
+  creation, session issuance, and callback redirect construction live behind
+  `FakeAccountService.ApproveSignup`.
+- The gRPC service returns a redirect URL instead of issuing an HTTP redirect
+  itself, which keeps grpc-gateway output JSON-shaped while preserving the
+  CLI's browser callback flow.
+- The static signup app accepts a gateway URL from query string or local storage
+  because the Go server no longer serves the page on the gateway listener.
+
+Verification:
+
+```bash
+gofmt -w service/auth.go server/server.go proto/core/v1/auth.pb.go proto/core/v1/auth_grpc.pb.go proto/core/v1/auth.pb.gw.go internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli ./service ./server ./tests/functional -run 'Test(AuthSignupStoresCallbackToken|SignupWebApproveIssuesToken|CLISignupShellDefaultsToPersonalHome)' -count=1 -v
+```
+
+## 2026-05-24: Explicit Custom Slice Canonical Shell Paths
+
+Request:
+
+- keep explicit custom slice shells account-rooted/canonical, so a slice that
+  includes `/nic4/test2` shows `/nic4/test2` rather than remapping it to `/test2`
+
+Implemented:
+
+- changed explicit `gs shell --slice <account>/<slice>` sessions to root at the
+  repository root `/`
+- kept projection filtering so `ls /` only reveals ancestor folders needed to
+  reach the attached slice's included roots
+- allowed shell navigation through synthesized projection ancestors such as
+  `/nic4`, while keeping reads and mutations bounded to the slice included paths
+- updated functional coverage to prove an explicit custom slice can navigate
+  through `/acme` and displays `/acme/payment/custom`
+
+Important decisions and learnings:
+
+- Explicit slice shells should preserve canonical paths because users need to
+  see and type the same account-rooted paths used by `gs fs`, changesets, and
+  server APIs. The projection should hide unrelated content, not remap the
+  included root.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestServerShellAttachesExplicitSlice -v
+printf 'pwd\nls\ncd nic4\nls\ncd test2\npwd\nquit\n' | go run ./cmd/gs shell --slice nic4/new-slice --no-color
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
 ## 2026-05-24: Sticky Interactive Shell Header
 
 Request:

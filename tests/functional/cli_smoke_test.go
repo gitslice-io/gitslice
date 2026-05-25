@@ -262,9 +262,13 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
 		"pwd",
 		"ls",
+		"cd acme",
+		"pwd",
+		"ls",
 		"cd payment",
 		"ls",
 		"cd custom",
+		"pwd",
 		"cat nested.go",
 		"cat ../explicit.go",
 		"mkdir explicit-dir",
@@ -276,6 +280,9 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 	for _, want := range []string{
 		"server shell: acme/new-slice @",
 		"gs acme/new-slice:/> /",
+		"gs acme/new-slice:/acme> /acme",
+		"gs acme/new-slice:/acme/payment/custom> /acme/payment/custom",
+		"acme/",
 		"payment/",
 		"custom/",
 		"package custom\nconst Nested = true\n",
@@ -408,24 +415,21 @@ func TestCLISliceCRUD(t *testing.T) {
 
 func TestSignupWebApproveIssuesToken(t *testing.T) {
 	ts := startTestServer(t)
-	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-	form := url.Values{
-		"username":     {"signup_user"},
-		"callback_url": {"http://127.0.0.1:45555/callback"},
-		"state":        {"signup-state"},
-	}
-	resp, err := client.PostForm("http://"+ts.httpAddr+"/signup/approve", form)
+	resp, err := http.Get("http://" + ts.httpAddr + "/signup")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusFound {
+	if resp.StatusCode != http.StatusNotFound {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("signup approve status = %d, want 302:\n%s", resp.StatusCode, string(body))
+		t.Fatalf("custom signup page status = %d, want 404 from gateway-only server:\n%s", resp.StatusCode, string(body))
 	}
-	location := resp.Header.Get("Location")
+	signup := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
+		"username":    "signup_user",
+		"callbackUrl": "http://127.0.0.1:45555/callback",
+		"state":       "signup-state",
+	})
+	location, _ := signup["redirectUrl"].(string)
 	redirect, err := url.Parse(location)
 	if err != nil {
 		t.Fatal(err)
@@ -434,12 +438,27 @@ func TestSignupWebApproveIssuesToken(t *testing.T) {
 	if query.Get("state") != "signup-state" {
 		t.Fatalf("redirect state = %q, want signup-state", query.Get("state"))
 	}
-	token := query.Get("token")
+	token, _ := signup["token"].(string)
 	if token == "" {
-		t.Fatalf("redirect did not include token: %s", location)
+		t.Fatalf("signup response did not include token: %#v", signup)
+	}
+	if query.Get("token") != token {
+		t.Fatalf("redirect token = %q, want response token", query.Get("token"))
+	}
+	if subjectID, _ := signup["subjectId"].(string); subjectID != "user_signup_user" {
+		t.Fatalf("response subject_id = %q, want user_signup_user", subjectID)
 	}
 	if query.Get("subject_id") != "user_signup_user" {
 		t.Fatalf("redirect subject_id = %q, want user_signup_user", query.Get("subject_id"))
+	}
+
+	statusCode, _, body := httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
+		"username":    "bad-callback",
+		"callbackUrl": "https://example.com/callback",
+		"state":       "signup-state",
+	})
+	if statusCode != http.StatusBadRequest {
+		t.Fatalf("remote callback signup status = %d, want 400:\n%s", statusCode, string(body))
 	}
 
 	conn := dialTestGRPC(t, ts.addr)
@@ -1562,19 +1581,20 @@ func runCLISignupThroughWeb(t *testing.T, home, dir string, ts *testServer, user
 		t.Fatal(err)
 	}
 	query := parsed.Query()
-	form := url.Values{
-		"username":     {query.Get("username")},
-		"callback_url": {query.Get("callback_url")},
-		"state":        {query.Get("state")},
-	}
-	resp, err := http.PostForm(parsed.Scheme+"://"+parsed.Host+"/signup/approve", form)
+	signup := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
+		"username":    query.Get("username"),
+		"callbackUrl": query.Get("callback_url"),
+		"state":       query.Get("state"),
+	})
+	redirectURL, _ := signup["redirectUrl"].(string)
+	resp, err := http.Get(redirectURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("signup approval flow status = %d, want 200:\n%s", resp.StatusCode, string(body))
+		t.Fatalf("signup callback status = %d, want 200:\n%s", resp.StatusCode, string(body))
 	}
 	if err := <-errCh; err != nil {
 		t.Fatalf("signup failed: %v\nstderr:\n%s", err, stderr.String())

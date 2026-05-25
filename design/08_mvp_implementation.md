@@ -125,7 +125,8 @@ Responsibilities:
 - load users, service accounts, accounts, memberships, and sessions from a local
   fixture or seed table
 - issue development session tokens for `gs auth login`
-- issue fake browser-approved signup sessions for `gs auth signup`
+- issue fake browser-approved signup sessions for `gs auth signup` through
+  `FakeAccountService.ApproveSignup`
 - create the signed-up user's default personal `home` slice
 - validate bearer tokens in a gRPC interceptor
 - expose an authenticated status RPC so clients can verify a saved token

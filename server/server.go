@@ -17,7 +17,6 @@ import (
 	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/service"
-	"github.com/gitslice-io/gitslice/web"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -77,12 +76,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		httpMux := http.NewServeMux()
-		signupHandler := web.NewHandler(db.Auth())
-		httpMux.Handle("/signup", signupHandler)
-		httpMux.Handle("/signup/", signupHandler)
-		httpMux.Handle("/", gatewayHandler)
-		gatewayServer = &http.Server{Handler: withCORS(httpMux, cfg.HTTPAllowedOrigin)}
+		gatewayServer = &http.Server{Handler: withCORS(gatewayHandler, cfg.HTTPAllowedOrigin)}
 	}
 	var gitHTTPServer *http.Server
 	var gitHTTPLis net.Listener
@@ -215,6 +209,7 @@ func authInterceptor(auth *postgres.AuthStore) grpc.UnaryServerInterceptor {
 
 func isPublicMethod(method string) bool {
 	return method == "/gitslice.core.v1.FakeAccountService/Login" ||
+		method == "/gitslice.core.v1.FakeAccountService/ApproveSignup" ||
 		strings.HasPrefix(method, "/grpc.health.v1.Health/")
 }
 
