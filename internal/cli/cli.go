@@ -669,7 +669,15 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runAuthStatus(cmd.Context(), *opts)
 		},
 	}
-	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd)
+	authLogoutCmd := &cobra.Command{
+		Use:   "logout",
+		Short: "Clear saved authentication credentials",
+		Args:  noArgs("gs auth logout [--format text|json] [--json]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAuthLogout(*opts)
+		},
+	}
+	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd, authLogoutCmd)
 
 	workspaceCmd := &cobra.Command{
 		Use:     "workspace",
@@ -1593,6 +1601,52 @@ func (r Runner) runAuthStatus(ctx context.Context, opts commandOptions) error {
 		return err
 	}
 	return r.writeAuthStatus(opts, status)
+}
+
+func (r Runner) runAuthLogout(opts commandOptions) error {
+	path := r.userConfigPath()
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		return err
+	}
+	existed := true
+	if _, err := os.Stat(path); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		existed = false
+	}
+	wasSignedIn := cfg.Token != "" || cfg.SubjectID != ""
+	if existed {
+		cfg.Token = ""
+		cfg.SubjectID = ""
+		if err := r.writeUserConfig(cfg); err != nil {
+			return err
+		}
+	}
+	out := map[string]any{
+		"signed_in":     false,
+		"was_signed_in": wasSignedIn,
+		"config_path":   path,
+	}
+	if cfg.ServerAddr != "" {
+		out["server_addr"] = cfg.ServerAddr
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if wasSignedIn {
+		fmt.Fprintln(r.Stdout, "logged out")
+	} else {
+		fmt.Fprintln(r.Stdout, "already logged out")
+	}
+	if cfg.ServerAddr != "" {
+		fmt.Fprintf(r.Stdout, "server: %s\n", cfg.ServerAddr)
+	}
+	return nil
 }
 
 func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
@@ -5896,6 +5950,12 @@ func (r Runner) runSchema() error {
 				"summary":        "show current authentication status after validating the local token",
 				"writes_stdout":  true,
 				"machine_output": []string{"signed_in", "server_addr", "subject_id", "reason"},
+			},
+			{
+				"use":            "gs auth logout",
+				"summary":        "clear saved authentication credentials",
+				"writes_stdout":  true,
+				"machine_output": []string{"signed_in", "was_signed_in", "server_addr", "config_path"},
 			},
 			{
 				"use":            "gs context",

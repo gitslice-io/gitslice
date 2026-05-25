@@ -58,7 +58,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs version", "gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs version", "gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -282,6 +282,41 @@ func TestAuthStatusReportsInvalidStoredToken(t *testing.T) {
 	}
 	if got.ServerAddr != serverAddr || got.SubjectID != "" || got.Reason != "invalid_token" {
 		t.Fatalf("unexpected auth status for invalid token: %#v", got)
+	}
+}
+
+func TestAuthLogoutClearsTokenAndPreservesLocalConfig(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.writeUserConfig(UserConfig{
+		ServerAddr: "127.0.0.1:50051",
+		Token:      "secret-token",
+		SubjectID:  "user_alice",
+		Aliases:    map[string]string{"who": "version"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.Run(context.Background(), []string{"auth", "logout", "--json"}); err != nil {
+		t.Fatalf("auth logout failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("auth logout output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if out["signed_in"] != false || out["was_signed_in"] != true || out["server_addr"] != "127.0.0.1:50051" {
+		t.Fatalf("unexpected auth logout output: %#v", out)
+	}
+
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token != "" || cfg.SubjectID != "" {
+		t.Fatalf("auth logout did not clear credentials: %#v", cfg)
+	}
+	if cfg.ServerAddr != "127.0.0.1:50051" || cfg.Aliases["who"] != "version" {
+		t.Fatalf("auth logout did not preserve local config: %#v", cfg)
 	}
 }
 
