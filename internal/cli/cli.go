@@ -2535,7 +2535,7 @@ func (s *serverShell) cd(ctx context.Context, target string) error {
 	}
 	entry, err := s.resolveEntry(ctx, globalPath)
 	if err != nil {
-		return err
+		return s.lookupError(err, globalPath)
 	}
 	if entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
 		return fmt.Errorf("%s is not a directory", s.shellPath(globalPath))
@@ -2555,7 +2555,7 @@ func (s *serverShell) ls(ctx context.Context, target string) error {
 		return nil
 	}
 	if err != nil && (grpcstatus.Code(err) != codes.NotFound || globalPath != s.root) {
-		return err
+		return s.lookupError(err, globalPath)
 	}
 	list, err := s.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: s.commitID, Path: globalPath, PageSize: 1000})
 	var entries []*corev1.TreeEntry
@@ -2591,7 +2591,7 @@ func (s *serverShell) cat(ctx context.Context, target string) error {
 	}
 	entry, err := s.resolveEntry(ctx, globalPath)
 	if err != nil {
-		return err
+		return s.lookupError(err, globalPath)
 	}
 	if entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE {
 		return fmt.Errorf("%s is not a file", s.shellPath(globalPath))
@@ -2665,7 +2665,7 @@ func (s *serverShell) stat(ctx context.Context, target string) error {
 	}
 	entry, err := s.resolveEntry(ctx, globalPath)
 	if err != nil {
-		return err
+		return s.lookupError(err, globalPath)
 	}
 	fmt.Fprintf(s.stdout, "path: %s\n", entry.Path)
 	fmt.Fprintf(s.stdout, "shell_path: %s\n", s.shellPath(entry.Path))
@@ -2686,6 +2686,13 @@ func (s *serverShell) stat(ctx context.Context, target string) error {
 		fmt.Fprintf(s.stdout, "blob_id: %s\n", entry.BlobId)
 	}
 	return nil
+}
+
+func (s *serverShell) lookupError(err error, globalPath string) error {
+	if grpcstatus.Code(err) == codes.NotFound {
+		return fmt.Errorf("path not found: %s", s.shellPath(globalPath))
+	}
+	return err
 }
 
 func (s *serverShell) resolveEntry(ctx context.Context, globalPath string) (*corev1.TreeEntry, error) {

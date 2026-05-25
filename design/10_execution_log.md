@@ -3,6 +3,41 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Shell Relative Path Read Coverage
+
+Request:
+
+- clarify whether `gs shell` commands such as `cat test.txt` should resolve
+  relative to the shell's current path
+
+Implemented:
+
+- confirmed shell path resolution already makes relative paths current-directory
+  relative
+- added functional coverage for default home-slice shell relative `cat`,
+  `write`, `mv`, and `rm` after `cd`
+- changed interactive shell lookup failures for `cd`, `ls`, `cat`, and `stat`
+  to include the resolved shell path instead of only surfacing the raw gRPC
+  `NotFound` text
+
+Important decisions and learnings:
+
+- `gs fs` remains absolute-path-only, but `gs shell` is intentionally
+  current-directory based. Better path-not-found text makes it clear which
+  server path the shell attempted to read.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLIFileAndShellMutationsStayInHome -v
+printf 'pwd\nls /nic4/test2\ncd /nic4/test2\npwd\nls\nstat test.txt\ncat test.txt\nquit\n' | ./bin/gs shell --no-color
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
 ## 2026-05-24: Signup Through gRPC Gateway
 
 Request:
