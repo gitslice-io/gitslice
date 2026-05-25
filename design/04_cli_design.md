@@ -205,8 +205,11 @@ gs slice delete <account>/<slice> --yes
 subject is a member. If no `--include` flag is provided, the CLI defaults to
 `/<account>/<slice>`, except the reserved `home` slice default is
 `/<account>`. Repeating `--include` replaces the full included path list for
-create and update. Included paths must be canonical account-rooted paths inside
-the slice account; only `home` slices may include the account root itself.
+create and update. The CLI also accepts comma-separated values in one
+`--include` flag and expands them before calling the API. Included paths must be
+canonical account-rooted paths inside the slice account and must not contain
+commas. Included paths for custom slices must already exist at the current
+global target ref; only `home` slices may include the account root itself.
 
 `gs slice list` lists slices for the given account. If no account is supplied,
 the CLI derives the personal account slug from a signed-up subject such as

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/gitslice-io/gitslice/internal/postgres"
@@ -11,8 +12,9 @@ import (
 )
 
 type SliceService struct {
-	Auth   *postgres.AuthStore
-	Slices *postgres.SliceStore
+	Auth       *postgres.AuthStore
+	Repository *postgres.RepositoryStore
+	Slices     *postgres.SliceStore
 }
 
 func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceRequest) (*corev1.Slice, error) {
@@ -27,7 +29,14 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 	if err := s.Auth.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
 		return nil, grpcError(err)
 	}
-	slice, err := s.Slices.Create(ctx, ref, req.IncludedPaths, req.Visibility)
+	includedPaths, visibility, err := s.Slices.ValidateDefinition(ref, req.IncludedPaths, req.Visibility)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := s.validateIncludedPathsExist(ctx, ref, includedPaths); err != nil {
+		return nil, err
+	}
+	slice, err := s.Slices.Create(ctx, ref, includedPaths, visibility)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -99,7 +108,20 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	if err := s.Auth.EnsureAccountMember(ctx, subjectID, current.Ref.Account); err != nil {
 		return nil, grpcError(err)
 	}
-	definition, err := s.Slices.UpdateDefinition(ctx, req.SliceId, req.ExpectedDefinitionHash, req.Definition)
+	if req.Definition == nil {
+		return nil, status.Error(codes.InvalidArgument, "slice definition is required")
+	}
+	includedPaths, visibility, err := s.Slices.ValidateDefinition(current.Ref, req.Definition.IncludedPaths, req.Definition.Visibility)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := s.validateIncludedPathsExist(ctx, current.Ref, includedPaths); err != nil {
+		return nil, err
+	}
+	definition, err := s.Slices.UpdateDefinition(ctx, req.SliceId, req.ExpectedDefinitionHash, &corev1.SliceDefinition{
+		IncludedPaths: includedPaths,
+		Visibility:    visibility,
+	})
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -122,6 +144,28 @@ func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceR
 		return nil, grpcError(err)
 	}
 	return &corev1.DeleteSliceResponse{SliceId: req.SliceId}, nil
+}
+
+func (s *SliceService) validateIncludedPathsExist(ctx context.Context, ref *corev1.SliceRef, includedPaths []string) error {
+	if s.Repository == nil {
+		return status.Error(codes.Internal, "repository store is not configured")
+	}
+	target, err := s.Repository.GetRef(ctx, postgres.DefaultTargetRef)
+	if err != nil {
+		return grpcError(err)
+	}
+	for _, p := range includedPaths {
+		if ref != nil && ref.Slice == "home" && p == "/"+ref.Account {
+			continue
+		}
+		if _, err := s.Repository.GetEntry(ctx, target.CommitId, p); err != nil {
+			if errors.Is(err, postgres.ErrNotFound) {
+				return status.Errorf(codes.FailedPrecondition, "included path does not exist: %s", p)
+			}
+			return grpcError(err)
+		}
+	}
+	return nil
 }
 
 func normalizeServiceSliceRef(ref *corev1.SliceRef) (*corev1.SliceRef, error) {

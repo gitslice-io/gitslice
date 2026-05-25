@@ -3,6 +3,52 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Comma-Separated Slice Includes
+
+Request:
+
+- explain why `gs shell --slice nic4/test-multi` listed `test2,/` under
+  `/nic4`
+
+Implemented:
+
+- traced the shell projection to a malformed slice definition containing one
+  included path, `/nic4/test2,/nic4/test3`
+- changed `gs slice create` and `gs slice update` to expand comma-separated
+  `--include` values into multiple included paths before calling the API
+- added store-side validation rejecting commas in persisted included paths so
+  non-CLI callers cannot create the ambiguous shape
+- added service-side validation that custom slice included paths exist at the
+  current global target ref before create/update
+- added functional coverage for comma-separated slice create/update includes
+  and nonexistent include-path rejection
+- repaired the local `nic4/test-multi` slice definition to store `/nic4/test2`
+  and `/nic4/test3` as separate included paths
+
+Important decisions and learnings:
+
+- `test2,/` was not a shell rendering bug. It was the canonical projection of a
+  single malformed path where `test2,` was literally the next path segment.
+  The CLI now accepts the common comma-separated input form but the stored model
+  remains a JSON array of canonical paths.
+- Home-slice account roots remain exempt from existence checks because signup
+  can create an empty personal home slice before the account folder contains any
+  files.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/postgres/slice_store.go internal/postgres/store_test.go service/service.go service/slice.go tests/functional/cli_smoke_test.go
+go test ./internal/cli ./internal/postgres ./service
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLISliceCRUD -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+./bin/gs slice update nic4/test-multi --include /nic4/test2,/nic4/test3 --no-color
+printf 'cd /nic4\nls\nquit\n' | ./bin/gs shell --slice nic4/test-multi --no-color
+git diff --check
+```
+
 ## 2026-05-24: Shell Relative Path Read Coverage
 
 Request:

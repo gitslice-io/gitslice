@@ -871,6 +871,10 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 	if err != nil {
 		return err
 	}
+	includedPaths, err = expandSliceIncludedPaths(includedPaths)
+	if err != nil {
+		return err
+	}
 	if len(includedPaths) == 0 {
 		includedPaths = defaultSliceIncludedPaths(ref)
 	}
@@ -1002,6 +1006,10 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 	}
 	nextIncluded := append([]string{}, current.Definition.IncludedPaths...)
 	if includesChanged {
+		includedPaths, err = expandSliceIncludedPaths(includedPaths)
+		if err != nil {
+			return err
+		}
 		nextIncluded = includedPaths
 	}
 	nextVisibility := current.Definition.Visibility
@@ -1114,6 +1122,21 @@ func defaultSliceIncludedPaths(ref *corev1.SliceRef) []string {
 		return []string{"/" + ref.Account}
 	}
 	return []string{"/" + ref.Account + "/" + ref.Slice}
+}
+
+func expandSliceIncludedPaths(values []string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		parts := strings.Split(value, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				return nil, userError("invalid_include", "included path is required", "Pass each included path as --include /account/path, or separate multiple paths with commas.")
+			}
+			out = append(out, part)
+		}
+	}
+	return out, nil
 }
 
 func writeSliceText(w io.Writer, slice *corev1.Slice) error {

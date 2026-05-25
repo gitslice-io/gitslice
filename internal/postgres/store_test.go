@@ -38,6 +38,9 @@ func TestSliceDefinitionValidation(t *testing.T) {
 	if _, _, err := validateSliceDefinition(ref, []string{"/nic"}, "account"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("custom account-root err = %v, want ErrInvalid", err)
 	}
+	if _, _, err := validateSliceDefinition(ref, []string{"/nic/tools,/nic/docs"}, "account"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("comma-separated include err = %v, want ErrInvalid", err)
+	}
 	homeIncluded, _, err := validateSliceDefinition(&corev1.SliceRef{Account: "nic", Slice: "home"}, []string{"/nic"}, "account")
 	if err != nil {
 		t.Fatal(err)

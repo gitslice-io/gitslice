@@ -21,7 +21,7 @@ func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedP
 	if err != nil {
 		return nil, err
 	}
-	includedPaths, visibility, err = validateSliceDefinition(ref, includedPaths, visibility)
+	includedPaths, visibility, err = s.ValidateDefinition(ref, includedPaths, visibility)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +61,10 @@ func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedP
 		return nil, err
 	}
 	return s.Get(ctx, id)
+}
+
+func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string) ([]string, string, error) {
+	return validateSliceDefinition(ref, includedPaths, visibility)
 }
 
 func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
@@ -305,6 +309,9 @@ func canonicalSliceIncludedPath(ref *corev1.SliceRef, value string) (string, err
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", fmt.Errorf("%w: included path is required", ErrInvalid)
+	}
+	if strings.Contains(value, ",") {
+		return "", fmt.Errorf("%w: included path %q must not contain commas; pass each included path separately", ErrInvalid, value)
 	}
 	cleaned, err := paths.Canonical(value)
 	if err != nil {
