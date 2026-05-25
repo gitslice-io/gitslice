@@ -89,13 +89,79 @@ func TestWorkspaceInitHydrateUsesGlobalClientObjectCache(t *testing.T) {
 	if !strings.Contains(first, "hydrated 1 file(s) through cache (0 hit(s), 1 miss(es))") {
 		t.Fatalf("expected first hydrate to miss cache, got:\n%s", first)
 	}
-	assertWorkspaceFile(t, firstWorkspace, "cached.go", "package payment\nconst Cached = true\n")
+	assertWorkspaceFile(t, firstWorkspace, "acme/payment/cached.go", "package payment\nconst Cached = true\n")
 
 	second := runCLI(t, home, secondWorkspace, "workspace", "init", "acme/payment")
 	if !strings.Contains(second, "hydrated 1 file(s) through cache (1 hit(s), 0 miss(es))") {
 		t.Fatalf("expected second hydrate to hit cache, got:\n%s", second)
 	}
-	assertWorkspaceFile(t, secondWorkspace, "cached.go", "package payment\nconst Cached = true\n")
+	assertWorkspaceFile(t, secondWorkspace, "acme/payment/cached.go", "package payment\nconst Cached = true\n")
+}
+
+func TestWorkspaceInitMaterializesCanonicalLayoutAndRequiresEmptyDirectory(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	outsideWorkspace := t.TempDir()
+	workspace := t.TempDir()
+	nonEmptyWorkspace := t.TempDir()
+
+	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "init_user")
+	runCLI(t, home, outsideWorkspace, "fs", "mkdir", "/init-user/hello")
+	runCLI(t, home, outsideWorkspace, "fs", "mkdir", "/init-user/hello/empty")
+	runCLI(t, home, outsideWorkspace, "fs", "write", "/init-user/hello/readme.txt", "--text", "hello workspace\n")
+	runCLI(t, home, outsideWorkspace, "slice", "create", "init-user/hello", "--include", "/init-user/hello")
+
+	initOutput := runCLI(t, home, workspace, "workspace", "init", "init-user/hello")
+	if !strings.Contains(initOutput, "hydrated 1 file(s) through cache") {
+		t.Fatalf("unexpected workspace init output:\n%s", initOutput)
+	}
+	assertWorkspaceFile(t, workspace, "init-user/hello/readme.txt", "hello workspace\n")
+	assertWorkspaceDir(t, workspace, "init-user/hello/empty")
+	status := runCLI(t, home, workspace, "status")
+	if !strings.Contains(status, "status: clean") {
+		t.Fatalf("expected clean canonical workspace after init, got:\n%s", status)
+	}
+
+	writeWorkspaceFile(t, nonEmptyWorkspace, "existing.txt", "do not overwrite\n")
+	_, stderr := runCLIFails(t, home, nonEmptyWorkspace, "workspace", "init", "init-user/hello")
+	if !strings.Contains(stderr, "workspace init requires an empty directory") {
+		t.Fatalf("expected non-empty workspace init rejection, got:\n%s", stderr)
+	}
+
+	nestedEmpty := filepath.Join(workspace, "init-user", "hello", "nested-empty")
+	if err := os.MkdirAll(nestedEmpty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr = runCLIFails(t, home, nestedEmpty, "workspace", "init", "init-user/hello")
+	if !strings.Contains(stderr, "already inside a gitslice workspace") {
+		t.Fatalf("expected nested workspace init rejection, got:\n%s", stderr)
+	}
+}
+
+func TestWorkspaceCommandsWorkFromSubdirectories(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+
+	subdir := filepath.Join(workspace, "acme", "payment", "pkg")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceFile(t, workspace, "acme/payment/pkg/subdir.go", "package pkg\nconst FromSubdir = true\n")
+
+	status := runCLI(t, home, subdir, "status")
+	if !strings.Contains(status, "/acme/payment/pkg/subdir.go") {
+		t.Fatalf("expected subdir status to scan workspace root, got:\n%s", status)
+	}
+	runCLI(t, home, subdir, "cs", "create", "--title", "subdir edit")
+	runCLI(t, home, subdir, "cs", "submit")
+	status = runCLI(t, home, subdir, "status")
+	if !strings.Contains(status, "status: clean") {
+		t.Fatalf("expected clean status from subdir after submit, got:\n%s", status)
+	}
 }
 
 func TestServerShellInspectsServerFilesWithoutLocalFile(t *testing.T) {
@@ -836,7 +902,7 @@ func TestOutsideSliceEditRejected(t *testing.T) {
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "acme/backend/app.go", "package backend\n")
 	_, stderr := runCLIFails(t, home, workspace, "status")
-	if !strings.Contains(stderr, "outside slice") {
+	if !strings.Contains(stderr, "outside the workspace slice") {
 		t.Fatalf("expected outside-slice rejection, got stderr:\n%s", stderr)
 	}
 }
@@ -1164,14 +1230,10 @@ func TestDeleteUpdateConflicts(t *testing.T) {
 			updateWorkspace := t.TempDir()
 			runCLI(t, home, deleteWorkspace, "workspace", "init", "acme/payment")
 			runCLI(t, home, updateWorkspace, "workspace", "init", "acme/payment")
-			copyWorkspaceFile(t, seedWorkspace, deleteWorkspace, "du.go")
-			copyWorkspaceFile(t, seedWorkspace, updateWorkspace, "du.go")
-			copyWorkspaceFile(t, seedWorkspace, deleteWorkspace, ".gs/base_snapshot.json")
-			copyWorkspaceFile(t, seedWorkspace, updateWorkspace, ".gs/base_snapshot.json")
-			if err := os.Remove(filepath.Join(deleteWorkspace, "du.go")); err != nil {
+			if err := os.Remove(filepath.Join(deleteWorkspace, "acme", "payment", "du.go")); err != nil {
 				t.Fatal(err)
 			}
-			writeWorkspaceFile(t, updateWorkspace, "du.go", "package payment\nconst Value = 2\n")
+			writeWorkspaceFile(t, updateWorkspace, "acme/payment/du.go", "package payment\nconst Value = 2\n")
 			runCLI(t, home, deleteWorkspace, "cs", "create", "--title", "delete du")
 			runCLI(t, home, updateWorkspace, "cs", "create", "--title", "update du")
 
@@ -1867,6 +1929,17 @@ func assertWorkspaceFile(t *testing.T, workspace, rel, want string) {
 	}
 }
 
+func assertWorkspaceDir(t *testing.T, workspace, rel string) {
+	t.Helper()
+	info, err := os.Stat(filepath.Join(workspace, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("workspace path %s is not a directory", rel)
+	}
+}
+
 func submittedRefCommitID(t *testing.T, raw string) string {
 	t.Helper()
 	var res struct {
@@ -1879,21 +1952,6 @@ func submittedRefCommitID(t *testing.T, raw string) string {
 		t.Fatalf("submit output missing new_ref_commit_id:\n%s", raw)
 	}
 	return res.NewRefCommitID
-}
-
-func copyWorkspaceFile(t *testing.T, fromWorkspace, toWorkspace, rel string) {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(fromWorkspace, filepath.FromSlash(rel)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	target := filepath.Join(toWorkspace, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(target, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func createImportGitRepo(t *testing.T) string {
