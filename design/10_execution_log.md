@@ -3,6 +3,41 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: Custom Slice RPC E2E Coverage
+
+Request:
+
+- add RPC e2e tests for the custom slice issues previously fixed through CLI
+  workflows
+
+Implemented:
+
+- added direct gRPC functional coverage for `SliceService.CreateSlice` and
+  `UpdateSliceDefinition` custom-slice validation
+- seeded repository directories through gRPC blob/changeset/repository flows so
+  include path existence checks run against real committed server state
+- covered missing include path rejection, raw comma-containing include rejection,
+  multiple include paths passed as repeated RPC fields, and persisted update
+  resolution through `ResolveSlice`
+
+Important decisions and learnings:
+
+- Comma-separated include expansion is intentionally CLI behavior. At the RPC
+  boundary, commas in a single included path remain invalid so non-CLI callers
+  cannot persist the ambiguous custom-slice shape.
+- Shell projection itself is still client-side behavior over repository RPCs,
+  so the added RPC tests focus on the server-side slice definition contract.
+
+Verification:
+
+```bash
+gofmt -w tests/functional/cli_smoke_test.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestSliceServiceCustomSliceRPCValidation -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+```
+
 ## 2026-05-24: Home Shell Projection Isolation
 
 Request:
