@@ -2622,3 +2622,41 @@ git diff --check
 go run ./cmd/gs version
 go run ./cmd/gs version --json=version,go_version,dirty
 ```
+
+## 2026-05-25: User-Defined CLI Aliases
+
+Request:
+
+- continue applying GitHub CLI design learnings by adding a local alias system
+  similar to `gh alias`
+
+Implemented:
+
+- added `gs alias list`, `gs alias set <name> <command>`, and
+  `gs alias delete <name>` with `delete` aliases `remove` and `rm`
+- stored aliases in the existing user config file while preserving auth fields
+  and redacting bearer tokens from config inspection
+- added one-shot top-level alias expansion before Cobra command parsing, so
+  aliases can still use normal flags, JSON output, validation, and errors
+- rejected aliases that shadow built-in commands or built-in command aliases
+- updated `gs schema`, CLI design, and unit tests for listing, setting,
+  expansion, global-flag expansion, deletion, and reserved-name validation
+
+Important decisions and learnings:
+
+- Alias expansion is command-only and intentionally does not execute shell
+  snippets. That keeps behavior portable and avoids turning config into an
+  arbitrary command execution surface.
+- Auth login/signup preserve configured aliases when rewriting server, token,
+  and subject metadata.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+tmp_home=$(mktemp -d); gomodcache=$(go env GOMODCACHE); gocache=$(go env GOCACHE); HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs alias set who version && HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs who --json=version && HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs alias delete who; rc=$?; rm -rf "$tmp_home"; exit $rc
+```
