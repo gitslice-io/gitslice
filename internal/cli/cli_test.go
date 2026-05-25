@@ -59,7 +59,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	for _, flag := range got.GlobalFlags {
 		globalFlags[flag.Name] = true
 	}
-	for _, want := range []string{"--format", "--json", "--template"} {
+	for _, want := range []string{"--format", "--json", "--jq", "--template"} {
 		if !globalFlags[want] {
 			t.Fatalf("schema missing global flag %q", want)
 		}
@@ -99,6 +99,17 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	}
 	if got.ErrorOutput["stream"] != "stderr" {
 		t.Fatalf("expected stderr error stream, got %#v", got.ErrorOutput["stream"])
+	}
+}
+
+func TestSchemaCommandSupportsStructuredOutputFilters(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"schema", "--jq", `.global_flags[] | select(.name == "--jq") | .description`}); err != nil {
+		t.Fatalf("schema --jq failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(stdout.String()), "filter structured output with a jq expression"; got != want {
+		t.Fatalf("schema jq output = %q, want %q", got, want)
 	}
 }
 
@@ -301,6 +312,56 @@ func TestTemplateOutputRejectsMissingField(t *testing.T) {
 	}
 	if !isUserErrorCode(err, "template_failed") {
 		t.Fatalf("expected template_failed, got %T: %v", err, err)
+	}
+}
+
+func TestJQOutput(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"auth", "status", "--jq", ".reason"}); err != nil {
+		t.Fatalf("auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if got, want := strings.TrimSpace(stdout.String()), "not_logged_in"; got != want {
+		t.Fatalf("jq output = %q, want %q", got, want)
+	}
+}
+
+func TestJQOutputUsesSelectedFields(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"auth", "status", "--json=reason", "--jq", "{reason: .reason}"}); err != nil {
+		t.Fatalf("auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("jq object output is invalid JSON: %v\n%s", err, stdout.String())
+	}
+	if got["reason"] != "not_logged_in" {
+		t.Fatalf("unexpected jq output: %#v", got)
+	}
+}
+
+func TestJQOutputRejectsInvalidExpression(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	err := r.Run(context.Background(), []string{"auth", "status", "--jq", "["})
+	if err == nil {
+		t.Fatal("expected invalid jq error")
+	}
+	if !isUserErrorCode(err, "invalid_jq") {
+		t.Fatalf("expected invalid_jq, got %T: %v", err, err)
+	}
+}
+
+func TestJQAndTemplateAreMutuallyExclusive(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	err := r.Run(context.Background(), []string{"auth", "status", "--jq", ".reason", "--template", "{{.reason}}"})
+	if err == nil {
+		t.Fatal("expected invalid format error")
+	}
+	if !isUserErrorCode(err, "invalid_format") {
+		t.Fatalf("expected invalid_format, got %T: %v", err, err)
 	}
 }
 

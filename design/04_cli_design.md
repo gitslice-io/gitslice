@@ -825,6 +825,7 @@ Output should support stable machine-readable formats:
 gs cs status --format json
 gs status --format json
 gs auth status --json=signed_in,server_addr
+gs auth status --jq .reason
 gs auth status --template '{{.signed_in}} {{.reason}}'
 ```
 
@@ -834,11 +835,13 @@ objects, while diagnostics, progress, and errors stay on stderr. When JSON mode
 is active, errors use the stable `error.code`, `error.message`, optional
 `error.hint`, and `error.retriable` shape from `gs schema`. Field selection,
 using `--json=field,field` projects top-level JSON fields after the command
-builds its normal output. `--template <template>` formats the same structured
-output with Go `text/template` over JSON-shaped field names and can be combined
-with field selection. A `json` template helper serializes nested values for
-commands that expose arrays or objects. JQ-style filters are a later extension;
-scripts should consume documented JSON fields until that flag exists.
+builds its normal output. `--jq <expr>` filters the same JSON-shaped data with
+jq syntax and can be combined with field selection. String, boolean, number,
+and null results are printed as raw scalar lines; object and array results are
+printed as JSON. `--template <template>` formats structured output with Go
+`text/template` over JSON-shaped field names and can also be combined with
+field selection. A `json` template helper serializes nested values for commands
+that expose arrays or objects.
 
 ## 13.1 Help Topics And Exit Codes
 
@@ -859,8 +862,9 @@ need while moving between local workspaces, remote slices, and automation:
 - `environment`: CLI environment variables such as `GS_SERVER_ADDR`,
   `GS_WEB_URL`, `GS_GATEWAY_URL`, `GS_CLIENT_CACHE_DIR`, compatibility
   `GITSLICE_*` aliases, `NO_COLOR`, and `TERM=dumb`
-- `formatting`: text vs JSON output, top-level JSON field selection, template
-  output, stderr diagnostics, JSON error shape, and color controls
+- `formatting`: text vs JSON output, top-level JSON field selection, jq
+  filtering, template output, stderr diagnostics, JSON error shape, and color
+  controls
 - `exit-codes`: stable process exit codes
 - `paths`: canonical account-rooted server paths and workspace materialization
 - `slices`: home slice semantics, custom slice slugs, and one-slice workspace

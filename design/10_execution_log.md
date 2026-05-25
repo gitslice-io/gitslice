@@ -2772,6 +2772,7 @@ go test ./internal/cli
 go test ./...
 go build ./cmd/...
 git diff --check
+go run ./cmd/gs schema --jq '.global_flags[] | select(.name == "--jq") | .description'
 tmp_home=$(mktemp -d)
 trap 'rm -rf "$tmp_home"' EXIT
 gomodcache=$(go env GOMODCACHE)
@@ -2782,4 +2783,47 @@ rc=$?
 set -e
 test "$rc" -eq 1
 printf '%s\n' "$output" | rg '"code": "not_logged_in"'
+```
+
+## 2026-05-25: JQ Output Filtering
+
+Request:
+
+- continue applying GitHub CLI design learnings by adding jq-style structured
+  output filtering similar to `gh --jq`
+
+Implemented:
+
+- added global `--jq <expr>` for commands that expose structured output
+- evaluate jq expressions against the same JSON-shaped fields used by
+  `--json` and `--template`
+- allow `--jq` to compose with `--json=field,field` so top-level projection can
+  happen before jq filtering
+- print string, number, boolean, and null jq results as raw scalar lines, and
+  print object or array results as JSON
+- reject `--jq` and `--template` together to keep formatting behavior
+  unambiguous
+- updated `gs help formatting`, `gs schema`, CLI design docs, and unit tests
+
+Important decisions and learnings:
+
+- The implementation uses `github.com/itchyny/gojq` rather than inventing a
+  partial selector language. It is pinned to `v0.12.17`, which keeps the module
+  on the existing Go 1.22 baseline.
+- `--jq` shares the same JSON-shaped data conversion as templates so scripts
+  see documented snake_case fields rather than Go struct names.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+tmp_home=$(mktemp -d)
+trap 'rm -rf "$tmp_home"' EXIT
+gomodcache=$(go env GOMODCACHE)
+gocache=$(go env GOCACHE)
+HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs auth status --jq .reason
 ```
