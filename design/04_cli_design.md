@@ -49,6 +49,7 @@ Initial command groups:
 ```text
 gs auth ...
 gs context
+gs help ...
 gs workspace ...
 gs slice ...
 gs status
@@ -650,6 +651,52 @@ Output should support stable machine-readable formats:
 gs cs status --format json
 gs status --format json
 ```
+
+`gs help formatting` documents current output rules. Text output is optimized
+for humans. `--json` and `--format json` produce stable command-specific JSON
+objects, while diagnostics, progress, and errors stay on stderr. When JSON mode
+is active, errors use the stable `error.code`, `error.message`, optional
+`error.hint`, and `error.retriable` shape from `gs schema`. Field selection,
+JQ-style filters, and templates are later extensions; scripts should consume
+documented JSON fields until those flags exist.
+
+## 13.1 Help Topics And Exit Codes
+
+`gs help` should support both command help and topic help:
+
+```bash
+gs help auth status
+gs help environment
+gs help formatting
+gs help exit-codes
+gs help paths
+gs help slices
+```
+
+The first topic set is intentionally small and should mirror the concepts users
+need while moving between local workspaces, remote slices, and automation:
+
+- `environment`: CLI environment variables such as `GITSLICE_GRPC_ADDR`,
+  `GITSLICE_WEB_URL`, `GITSLICE_GATEWAY_URL`, `GITSLICE_CLIENT_CACHE_DIR`,
+  `NO_COLOR`, and `TERM=dumb`
+- `formatting`: text vs JSON output, stderr diagnostics, JSON error shape, and
+  color controls
+- `exit-codes`: stable process exit codes
+- `paths`: canonical account-rooted server paths and workspace materialization
+- `slices`: home slice semantics, custom slice slugs, and one-slice workspace
+  binding
+
+Stable exit codes:
+
+```text
+0  success
+1  general command failure
+2  command canceled
+4  authentication missing, invalid, or rejected by the server
+```
+
+The CLI may add command-specific exit codes later, but generic automation should
+be able to rely on these baseline codes.
 
 ## 14. Repository Import And Commit Inspection
 

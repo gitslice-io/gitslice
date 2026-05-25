@@ -37,6 +37,9 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		Commands      []struct {
 			Use string `json:"use"`
 		} `json:"commands"`
+		HelpTopics []struct {
+			Name string `json:"name"`
+		} `json:"help_topics"`
 		ErrorOutput map[string]any `json:"error_output"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
@@ -52,13 +55,75 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	for _, command := range got.Commands {
 		uses[command.Use] = true
 	}
-	for _, want := range []string{"gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>"} {
+	for _, want := range []string{"gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
 	}
+	topics := map[string]bool{}
+	for _, topic := range got.HelpTopics {
+		topics[topic.Name] = true
+	}
+	for _, want := range []string{"environment", "formatting", "exit-codes", "paths", "slices"} {
+		if !topics[want] {
+			t.Fatalf("schema missing help topic %q", want)
+		}
+	}
 	if got.ErrorOutput["stream"] != "stderr" {
 		t.Fatalf("expected stderr error stream, got %#v", got.ErrorOutput["stream"])
+	}
+}
+
+func TestHelpTopics(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{"environment", "GITSLICE_GRPC_ADDR"},
+		{"formatting", "--format json"},
+		{"exit-codes", "4"},
+		{"paths", "account-rooted"},
+		{"slices", "nic/home"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+			if err := r.Run(context.Background(), []string{"help", tc.name}); err != nil {
+				t.Fatalf("help %s failed: %v\nstderr:\n%s", tc.name, err, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), tc.want) {
+				t.Fatalf("help %s missing %q:\n%s", tc.name, tc.want, stdout.String())
+			}
+		})
+	}
+}
+
+func TestHelpCommandStillShowsCommandHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"help", "auth", "status"}); err != nil {
+		t.Fatalf("help auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Show current authentication status") {
+		t.Fatalf("expected command help, got:\n%s", stdout.String())
+	}
+}
+
+func TestExitCodeForError(t *testing.T) {
+	if got := exitCodeForError(nil); got != 0 {
+		t.Fatalf("nil exit code = %d, want 0", got)
+	}
+	if got := exitCodeForError(errors.New("boom")); got != 1 {
+		t.Fatalf("general exit code = %d, want 1", got)
+	}
+	if got := exitCodeForError(context.Canceled); got != 2 {
+		t.Fatalf("canceled exit code = %d, want 2", got)
+	}
+	if got := exitCodeForError(userError("not_logged_in", "not logged in", "")); got != 4 {
+		t.Fatalf("not logged in exit code = %d, want 4", got)
+	}
+	if got := exitCodeForError(status.Error(codes.Unauthenticated, "invalid token")); got != 4 {
+		t.Fatalf("unauthenticated exit code = %d, want 4", got)
 	}
 }
 
