@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/clientcache"
@@ -98,6 +99,7 @@ type workingFile struct {
 type commandOptions struct {
 	Format         string
 	JSONFields     []string
+	Template       string
 	Quiet          bool
 	NonInteractive bool
 	NoColor        bool
@@ -107,7 +109,7 @@ type commandOptions struct {
 }
 
 func (o commandOptions) jsonOutput() bool {
-	return o.Format == "json" || len(o.JSONFields) > 0
+	return o.Format == "json" || len(o.JSONFields) > 0 || o.Template != ""
 }
 
 type commandError struct {
@@ -365,8 +367,14 @@ Use --json=field,field to select top-level fields:
   gs auth status --json=signed_in,server_addr
   gs context --json=server_addr,active_slice
 
+Use --template to format structured command output with Go text/template over
+the same JSON-shaped fields:
+
+  gs auth status --template '{{.signed_in}}'
+  gs context --template '{{.active_slice}} {{.active_slice_source}}'
+
 Diagnostics, progress, and errors are written to stderr. When a command is run
-with --json or --format json, error output has this shape:
+with --json, --format json, or --template, error output has this shape:
 
   {
     "error": {
@@ -378,8 +386,7 @@ with --json or --format json, error output has this shape:
   }
 
 Use --quiet to suppress non-essential text output and --no-color or NO_COLOR to
-disable ANSI color. JQ filters and templates are planned extensions; scripts
-should currently consume the documented JSON fields from gs schema.
+disable ANSI color. Scripts should consume documented JSON fields from gs schema.
 `,
 	},
 	{
@@ -399,8 +406,8 @@ should currently consume the documented JSON fields from gs schema.
 4
   Authentication is missing, invalid, or rejected by the server.
 
-Commands may print additional structured error details on stderr when --json or
---format json is set.
+Commands may print additional structured error details on stderr when --json,
+--format json, or --template is set.
 `,
 	},
 	{
@@ -543,9 +550,9 @@ func aliasExpansionIndex(args []string) int {
 			return i
 		}
 		switch {
-		case arg == "--format" || arg == "--json":
+		case arg == "--format" || arg == "--json" || arg == "--template":
 			i++
-		case strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "--json="):
+		case strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "--json=") || strings.HasPrefix(arg, "--template="):
 		case arg == "--quiet" || arg == "--non-interactive" || arg == "--no-color" || arg == "--verbose" || arg == "--debug" || arg == "--trace":
 		default:
 			return i
@@ -620,6 +627,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	root.PersistentFlags().StringVar(&opts.Format, "format", "text", "output format: text or json")
 	root.PersistentFlags().StringVar(&jsonFlagValue, "json", "", "emit JSON output; optionally select comma-separated fields with --json=field,field")
 	root.PersistentFlags().Lookup("json").NoOptDefVal = "*"
+	root.PersistentFlags().StringVar(&opts.Template, "template", "", "format structured output with a Go template")
 	root.PersistentFlags().BoolVar(&opts.Quiet, "quiet", false, "suppress non-essential text output")
 	root.PersistentFlags().BoolVar(&opts.NonInteractive, "non-interactive", false, "fail instead of prompting for input")
 	root.PersistentFlags().BoolVar(&opts.NoColor, "no-color", false, "disable colorized output")
@@ -5923,6 +5931,7 @@ func (r Runner) runSchema() error {
 		"global_flags": []map[string]any{
 			{"name": "--format", "values": []string{"text", "json"}, "default": "text", "description": "output format"},
 			{"name": "--json", "description": "emit JSON output; optional comma-separated fields use --json=field,field"},
+			{"name": "--template", "description": "format structured output with a Go template over JSON fields"},
 			{"name": "--quiet", "description": "suppress non-essential text output"},
 			{"name": "--non-interactive", "description": "fail instead of prompting for input"},
 			{"name": "--no-color", "description": "disable colorized output"},
@@ -6588,6 +6597,12 @@ func wantsJSON(args []string) bool {
 		if strings.HasPrefix(arg, "--json=") {
 			return true
 		}
+		if arg == "--template" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--template=") {
+			return true
+		}
 		if arg == "--format=json" {
 			return true
 		}
@@ -6721,14 +6736,53 @@ func writeJSON(w io.Writer, v any) error {
 }
 
 func (r Runner) writeJSONOutput(opts commandOptions, v any) error {
-	if len(opts.JSONFields) == 0 {
-		return writeJSON(r.Stdout, v)
+	output := v
+	if len(opts.JSONFields) > 0 {
+		projected, err := selectJSONFields(v, opts.JSONFields)
+		if err != nil {
+			return err
+		}
+		output = projected
 	}
-	projected, err := selectJSONFields(v, opts.JSONFields)
+	if opts.Template != "" {
+		return r.writeTemplateOutput(opts.Template, output)
+	}
+	return writeJSON(r.Stdout, output)
+}
+
+func (r Runner) writeTemplateOutput(rawTemplate string, v any) error {
+	data, err := templateData(v)
 	if err != nil {
 		return err
 	}
-	return writeJSON(r.Stdout, projected)
+	tpl, err := template.New("gs").Option("missingkey=error").Funcs(template.FuncMap{
+		"json": func(v any) (string, error) {
+			data, err := json.Marshal(v)
+			if err != nil {
+				return "", err
+			}
+			return string(data), nil
+		},
+	}).Parse(rawTemplate)
+	if err != nil {
+		return userError("invalid_template", "invalid template: "+err.Error(), "Use Go text/template syntax over fields from gs schema.")
+	}
+	if err := tpl.Execute(r.Stdout, data); err != nil {
+		return userError("template_failed", "template execution failed: "+err.Error(), "Check field names with gs schema or run the command with --json.")
+	}
+	return nil
+}
+
+func templateData(v any) (any, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var out any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func selectJSONFields(v any, fields []string) (map[string]any, error) {
