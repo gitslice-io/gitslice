@@ -216,7 +216,7 @@ func (s *Store) ApplyEdits(ctx context.Context, rootTreeID string, edits []FileE
 				return "", fmt.Errorf("file path is required")
 			}
 			op := batchEdit{parts: parts, op: edit.Op}
-			if edit.Op != "delete" {
+			if edit.Op != "delete" && edit.Op != "mkdir" {
 				if edit.File == nil {
 					return "", fmt.Errorf("file edit for %s requires file metadata", edit.Path)
 				}
@@ -294,10 +294,10 @@ func canApplyEditsInBatch(edits []FileEdit) bool {
 	}
 	paths := make([]string, 0, len(edits))
 	for _, edit := range edits {
-		if edit.Op == "rename" || edit.Op == "mkdir" {
+		if edit.Op == "rename" {
 			return false
 		}
-		if edit.Op != "delete" && edit.File == nil {
+		if edit.Op != "delete" && edit.Op != "mkdir" && edit.File == nil {
 			return false
 		}
 		parts, err := splitPath(edit.Path)
@@ -332,6 +332,14 @@ func (s *Store) applyBatch(ctx context.Context, treeID string, edits []batchEdit
 			switch edit.op {
 			case "delete":
 				node.Entries = removeEntry(node.Entries, name)
+			case "mkdir":
+				existing, ok := findEntry(node.Entries, name)
+				if ok && existing.Kind != "directory" {
+					return "", false, fmt.Errorf("%s is not a directory", name)
+				}
+				if !ok {
+					node.Entries = upsertEntry(node.Entries, Entry{Name: name, Kind: "directory", TreeID: EmptyRootID()})
+				}
 			default:
 				node.Entries = upsertEntry(node.Entries, Entry{
 					Name:        name,

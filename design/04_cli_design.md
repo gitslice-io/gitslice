@@ -319,6 +319,7 @@ gs fs mkdir /nic/notes
 gs fs write /nic/notes/readme.md --text "hello"
 gs fs write /nic/notes/readme.md --stdin
 gs fs touch /nic/notes/empty.txt
+gs fs upload ./notes /nic/notes --recursive
 gs fs mv /nic/notes/readme.md /nic/notes/today.md
 gs fs rm /nic/notes/today.md
 ```
@@ -332,6 +333,14 @@ rejected by server-side changeset validation.
 
 Empty directories are first-class tree entries for these commands. Creating a
 directory does not create a placeholder file.
+
+`gs fs upload <local-path> <absolute-remote-path>` copies a local regular file
+or directory into the signed-in user's home slice. File uploads target the exact
+remote file path. Directory uploads require `--recursive`, map the directory's
+contents under the remote path, preserve empty leaf directories, upload blobs
+with bounded concurrency, and submit the full upload as one changeset instead of
+creating one changeset per file. The default concurrency is chosen from the
+local CPU count and can be overridden with `--concurrency`.
 
 ## 7. Status And Diff
 

@@ -91,6 +91,47 @@ func TestApplyEditsBatchesSharedDirectoryWrites(t *testing.T) {
 	}
 }
 
+func TestApplyEditsBatchesFilesAndEmptyDirectories(t *testing.T) {
+	ctx := context.Background()
+	objects := newMemoryObjectStore()
+	store := New(objects)
+	edits := make([]FileEdit, 0, 110)
+	for i := 0; i < 100; i++ {
+		p := fmt.Sprintf("/acme/payment/bulk/dir-%02d/file-%03d.txt", i%10, i)
+		edits = append(edits, FileEdit{
+			Op:   "upsert",
+			Path: p,
+			File: &FileEntry{Path: p, BlobID: fmt.Sprintf("blob-%03d", i), ContentHash: fmt.Sprintf("sha256:%03d", i), Mode: 0o100644, Size: int64(i)},
+		})
+	}
+	for i := 0; i < 10; i++ {
+		edits = append(edits, FileEdit{Op: "mkdir", Path: fmt.Sprintf("/acme/payment/bulk/empty-%02d", i)})
+	}
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), edits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if objects.putCount() > 20 {
+		t.Fatalf("batched apply wrote %d tree objects, want at most 20", objects.putCount())
+	}
+	files, err := store.ListFiles(ctx, root, "/acme/payment/bulk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 100 {
+		t.Fatalf("files = %d, want 100", len(files))
+	}
+	for i := 0; i < 10; i++ {
+		entry, err := store.GetEntry(ctx, root, fmt.Sprintf("/acme/payment/bulk/empty-%02d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.Kind != "directory" {
+			t.Fatalf("empty dir kind = %q, want directory", entry.Kind)
+		}
+	}
+}
+
 func TestRenameAndDelete(t *testing.T) {
 	ctx := context.Background()
 	store := New(newMemoryObjectStore())
