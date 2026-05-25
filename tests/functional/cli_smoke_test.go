@@ -254,24 +254,31 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "explicit.go", "package payment\nconst ExplicitShell = true\n")
+	writeWorkspaceFile(t, workspace, "custom/nested.go", "package custom\nconst Nested = true\n")
 	runCLI(t, home, workspace, "cs", "create", "--title", "explicit shell seed")
 	runCLI(t, home, workspace, "cs", "submit")
+	runCLI(t, home, outsideWorkspace, "slice", "create", "acme/new-slice", "--include", "/acme/payment/custom")
 
 	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
 		"pwd",
 		"ls",
-		"cat explicit.go",
+		"cd payment",
+		"ls",
+		"cd custom",
+		"cat nested.go",
+		"cat ../explicit.go",
 		"mkdir explicit-dir",
 		"write explicit-dir/from_shell.txt hello explicit slice",
 		"cat explicit-dir/from_shell.txt",
 		"cat /acme/backend/secret.go",
 		"quit",
-	}, "\n")+"\n", "shell", "--slice", "acme/payment")
+	}, "\n")+"\n", "shell", "--slice", "acme/new-slice")
 	for _, want := range []string{
-		"server shell: acme/payment @",
-		"gs acme/payment:/> /",
-		"explicit.go",
-		"package payment\nconst ExplicitShell = true\n",
+		"server shell: acme/new-slice @",
+		"gs acme/new-slice:/> /",
+		"payment/",
+		"custom/",
+		"package custom\nconst Nested = true\n",
 		"ok created @",
 		"ok wrote @",
 		"hello explicit slice",
@@ -282,6 +289,9 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "outside the workspace slice") {
 		t.Fatalf("expected explicit slice boundary error in stderr, got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "/acme/payment/explicit.go") {
+		t.Fatalf("expected custom projection to reject sibling file, got:\n%s", stderr)
 	}
 }
 

@@ -38,6 +38,45 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=d
 git diff --check
 ```
 
+## 2026-05-24: Explicit Custom Slice Projection
+
+Request:
+
+- fix `gs shell --slice` for custom slices so included folders are visible
+
+Implemented:
+
+- changed explicit `gs shell --slice <account>/<slice>` sessions to project the
+  slice from the account root instead of jumping directly into the first
+  included path
+- filtered `ls` results to paths included by the attached slice
+- synthesized ancestor directories for included roots, so a custom slice that
+  includes `/nic/tools` shows `tools/` from shell root even when the user starts
+  at `/`
+- kept reads and shell mutations rejected outside the attached slice included
+  paths
+- added functional coverage for a custom slice that includes a nested directory
+  below the account root
+
+Important decisions and learnings:
+
+- Workspace shells keep their existing slice-rooted view. The projection change
+  applies to explicit `--slice` attachment, where users expect to see the shape
+  of the selected slice rather than be dropped inside one included directory.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestServerShellAttachesExplicitSlice -v
+printf 'pwd\nls\nquit\n' | go run ./cmd/gs shell --slice nic4/new-slice --no-color
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
 ## 2026-05-24: Explicit Shell Slice Attachment
 
 Request:

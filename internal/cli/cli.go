@@ -2173,6 +2173,10 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sli
 	if mutationSlice != nil && !pinnedCommit {
 		mutator = &remoteFileMutator{runner: r, cfg: cfg, conn: conn, slice: mutationSlice}
 	}
+	projectionRoots, err := explicitShellProjectionRoots(sliceRef, mutationSlice)
+	if err != nil {
+		return err
+	}
 	sh := &serverShell{
 		runner:        r,
 		stdout:        r.stdout(),
@@ -2185,6 +2189,7 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sli
 		scope:         scopeLabel,
 		scoped:        workspaceScoped,
 		syntheticDirs: syntheticDirs,
+		projection:    projectionRoots,
 		color:         r.colorEnabled(opts),
 		stickyHeader:  r.stickyShellHeaderEnabled(opts),
 	}
@@ -2264,11 +2269,29 @@ func (r Runner) explicitShellScope(ctx context.Context, conn *grpc.ClientConn, s
 	if slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
 		return "", "", false, nil, nil, fmt.Errorf("slice %s/%s has no included paths", ref.Account, ref.Slice)
 	}
-	rootPath, err = canonicalIncludedRoot(slice.Definition.IncludedPaths[0])
+	rootPath, err = canonicalIncludedRoot("/" + ref.Account)
 	if err != nil {
 		return "", "", false, nil, nil, err
 	}
 	return rootPath, ref.Account + "/" + ref.Slice, true, nil, slice, nil
+}
+
+func explicitShellProjectionRoots(sliceRef string, slice *corev1.Slice) ([]string, error) {
+	if strings.TrimSpace(sliceRef) == "" {
+		return nil, nil
+	}
+	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return nil, nil
+	}
+	roots := make([]string, 0, len(slice.Definition.IncludedPaths))
+	for _, included := range slice.Definition.IncludedPaths {
+		root, err := canonicalIncludedRoot(included)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, root)
+	}
+	return roots, nil
 }
 
 func (r Runner) personalHomeShellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (string, map[string]*corev1.TreeEntry, error) {
@@ -2332,6 +2355,7 @@ type serverShell struct {
 	scope         string
 	scoped        bool
 	syntheticDirs map[string]*corev1.TreeEntry
+	projection    []string
 	color         bool
 	stickyHeader  bool
 	headerActive  bool
@@ -2540,6 +2564,7 @@ func (s *serverShell) ls(ctx context.Context, target string) error {
 		return err
 	}
 	entries := append([]*corev1.TreeEntry(nil), list.Entries...)
+	entries = s.projectDirectoryEntries(globalPath, entries)
 	entries = s.withSyntheticDirectoryEntries(globalPath, entries)
 	sort.Slice(entries, func(i, j int) bool {
 		return s.entryName(entries[i]) < s.entryName(entries[j])
@@ -2665,6 +2690,9 @@ func (s *serverShell) resolveEntry(ctx context.Context, globalPath string) (*cor
 			if entry, ok := s.syntheticDirs[globalPath]; ok {
 				return entry, nil
 			}
+			if entry := s.projectionDirectoryEntry(globalPath); entry != nil {
+				return entry, nil
+			}
 		}
 		return nil, err
 	}
@@ -2697,6 +2725,92 @@ func (s *serverShell) withSyntheticDirectoryEntries(globalPath string, entries [
 	return entries
 }
 
+func (s *serverShell) projectDirectoryEntries(globalPath string, entries []*corev1.TreeEntry) []*corev1.TreeEntry {
+	if len(s.projection) == 0 {
+		return entries
+	}
+	byPath := make(map[string]struct{}, len(entries)+len(s.projection))
+	out := make([]*corev1.TreeEntry, 0, len(entries)+len(s.projection))
+	for _, entry := range entries {
+		if entry == nil || !s.pathInProjection(entry.Path) {
+			continue
+		}
+		out = append(out, entry)
+		byPath[entry.Path] = struct{}{}
+	}
+	for _, root := range s.projection {
+		childPath := projectionChildPath(globalPath, root)
+		if childPath == "" {
+			continue
+		}
+		if _, ok := byPath[childPath]; ok {
+			continue
+		}
+		out = append(out, &corev1.TreeEntry{
+			Path: childPath,
+			Name: path.Base(childPath),
+			Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY,
+		})
+		byPath[childPath] = struct{}{}
+	}
+	return out
+}
+
+func projectionChildPath(parent, includedRoot string) string {
+	parent = strings.TrimRight(parent, "/")
+	if parent == "" {
+		parent = "/"
+	}
+	if parent == includedRoot {
+		return ""
+	}
+	if !paths.Contains(parent, includedRoot) {
+		return ""
+	}
+	rel := strings.TrimPrefix(includedRoot, strings.TrimRight(parent, "/")+"/")
+	if parent == "/" {
+		rel = strings.TrimPrefix(includedRoot, "/")
+	}
+	if rel == "" {
+		return ""
+	}
+	child := strings.Split(rel, "/")[0]
+	if parent == "/" {
+		return "/" + child
+	}
+	return strings.TrimRight(parent, "/") + "/" + child
+}
+
+func (s *serverShell) projectionDirectoryEntry(globalPath string) *corev1.TreeEntry {
+	if len(s.projection) == 0 {
+		return nil
+	}
+	if globalPath == s.root {
+		return &corev1.TreeEntry{Path: globalPath, Name: path.Base(globalPath), Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY}
+	}
+	for _, root := range s.projection {
+		if paths.Contains(globalPath, root) {
+			return &corev1.TreeEntry{Path: globalPath, Name: path.Base(globalPath), Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY}
+		}
+	}
+	return nil
+}
+
+func (s *serverShell) pathInProjection(globalPath string) bool {
+	if len(s.projection) == 0 {
+		return true
+	}
+	if globalPath == s.root {
+		return true
+	}
+	for _, root := range s.projection {
+		if paths.Contains(root, globalPath) || paths.Contains(globalPath, root) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *serverShell) resolve(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || value == "." {
@@ -2714,6 +2828,8 @@ func (s *serverShell) resolve(value string) (string, error) {
 	var candidate string
 	scopeRoot := "/" + s.scope
 	switch {
+	case strings.HasPrefix(value, "/") && (value == s.root || strings.HasPrefix(value, strings.TrimRight(s.root, "/")+"/")):
+		candidate = value
 	case value == scopeRoot || strings.HasPrefix(value, scopeRoot+"/"):
 		candidate = value
 	case strings.HasPrefix(value, "/"):
@@ -2733,6 +2849,9 @@ func (s *serverShell) resolve(value string) (string, error) {
 	}
 	if !paths.Contains(s.root, cleaned) {
 		return "", userError("outside_slice", "path is outside the workspace slice: "+cleaned, "Use paths under "+s.shellPath(s.root)+".")
+	}
+	if !s.pathInProjection(cleaned) {
+		return "", userError("outside_slice", "path is outside the workspace slice: "+cleaned, "Use paths included by "+s.scope+".")
 	}
 	return cleaned, nil
 }
