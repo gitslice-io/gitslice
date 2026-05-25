@@ -586,8 +586,8 @@ gs cs submit
 ```bash
 gs cs create [--title <title>]
 gs cs update
-gs cs submit [changeset-id]
-gs cs status [changeset-id]
+gs cs submit [changeset-id] [--no-watch] [--watch-timeout <duration>]
+gs cs status [changeset-id] [--watch] [--watch-timeout <duration>]
 gs cs show [changeset-id]
 gs cs explain [changeset-id]
 gs cs versions [changeset-id]
@@ -632,10 +632,20 @@ Submit flow:
 1. Refresh workspace metadata.
 2. Confirm current patchset is uploaded.
 3. SubmitChangeset.
-4. If submit succeeds, update local base commit and clear overlay state.
-5. If submit fails, show submit requirement, check, authorization, or conflict
+4. By default, wait for async publish until the changeset reaches submitted
+   status, printing progress to stderr for text output.
+5. If --no-watch is set, return after submit admission with the accepted status
+   and tell the user to run gs cs status --watch <changeset-id>.
+6. If submit succeeds and publish is visible, update local base commit and clear
+   overlay state.
+7. If submit fails, show submit requirement, check, authorization, or conflict
    reason.
 ```
+
+`gs cs status --watch` polls `GetChangeset` until the changeset reaches the
+terminal `submitted` state or the watch timeout expires. This gives scripts and
+humans an explicit way to resume waiting after `gs cs submit --no-watch` or
+after a submit timeout.
 
 Show, versions, and explain flow:
 

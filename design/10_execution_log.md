@@ -2514,3 +2514,42 @@ git diff --check
 go run ./cmd/gs help
 go run ./cmd/gs cfg list --json=config_path
 ```
+
+## 2026-05-25: Changeset Submit Watch Controls
+
+Request:
+
+- continue applying GitHub CLI design learnings by making long-running
+  changeset publish waits explicit and resumable
+
+Implemented:
+
+- added `gs cs submit --no-watch` so scripts can stop after submit admission
+  instead of waiting for async publish
+- added `gs cs status --watch` and `--watch-timeout` so a pending changeset can
+  be followed until it reaches `submitted`
+- kept the existing default `gs cs submit` behavior of waiting for publish, and
+  added progress status lines on stderr for text output
+- updated `gs schema`, CLI design, and CLI e2e coverage for the new flags
+
+Important decisions and learnings:
+
+- Submit remains explicit and server authoritative. The new flags only control
+  the client wait behavior after server admission; they do not bypass submit
+  validation or publish polling.
+- Workspace base snapshots are updated only after the CLI sees the submitted
+  commit. `--no-watch` may return before that point, so users can resume with
+  `gs cs status --watch`.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/cli/cli_smoke_test.go
+go test ./internal/cli
+go test -count=1 ./tests/cli -run TestChangesetStatusWatchAfterNoWatchSubmit -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestChangesetStatusWatchAfterNoWatchSubmit -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc
+go test ./...
+go build ./cmd/...
+git diff --check
+```

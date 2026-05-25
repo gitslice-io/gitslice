@@ -982,6 +982,37 @@ func TestChangesetWorkflowCommandsAndServerDiff(t *testing.T) {
 	}
 }
 
+func TestChangesetStatusWatchAfterNoWatchSubmit(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "watch.go", "package payment\nconst Watch = true\n")
+	createOut := runCLI(t, home, workspace, "cs", "create", "--title", "watch submit", "--json")
+	changesetID, _ := parseChangesetOutput(t, createOut)
+
+	submitOut := runCLI(t, home, workspace, "cs", "submit", "--no-watch", "--json")
+	var submit struct {
+		ChangesetID string `json:"changeset_id"`
+		Status      string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(submitOut), &submit); err != nil {
+		t.Fatalf("submit output is not JSON: %v\n%s", err, submitOut)
+	}
+	if submit.ChangesetID != changesetID {
+		t.Fatalf("submit changed changeset id: %#v want %s", submit, changesetID)
+	}
+	if submit.Status != "pending_publish" && submit.Status != "submitted" {
+		t.Fatalf("unexpected submit status: %#v", submit)
+	}
+
+	status := runCLI(t, home, workspace, "cs", "status", "--watch", "--watch-timeout", "5s", changesetID)
+	if !strings.Contains(status, "status: submitted") {
+		t.Fatalf("cs status --watch did not reach submitted:\n%s", status)
+	}
+}
+
 func TestOutsideSliceEditRejected(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
