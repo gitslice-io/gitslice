@@ -733,30 +733,46 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runChangesetUpdate(cmd.Context(), *opts)
 		},
 	}
+	csSubmitNoWatch := false
+	csSubmitWatchTimeout := "10s"
 	csSubmitCmd := &cobra.Command{
 		Use:   "submit [changeset-id]",
 		Short: "Submit the current changeset",
-		Args:  maxArgs(1, "gs cs submit [changeset-id]"),
+		Args:  maxArgs(1, "gs cs submit [changeset-id] [--no-watch] [--watch-timeout 10s]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {
 				id = args[0]
 			}
-			return r.runChangesetSubmit(cmd.Context(), *opts, id)
+			watchTimeout, err := parsePositiveDurationFlag("watch-timeout", csSubmitWatchTimeout)
+			if err != nil {
+				return err
+			}
+			return r.runChangesetSubmit(cmd.Context(), *opts, id, !csSubmitNoWatch, watchTimeout)
 		},
 	}
+	csSubmitCmd.Flags().BoolVar(&csSubmitNoWatch, "no-watch", csSubmitNoWatch, "return after submit is accepted without waiting for publish")
+	csSubmitCmd.Flags().StringVar(&csSubmitWatchTimeout, "watch-timeout", csSubmitWatchTimeout, "maximum time to wait for publish")
+	csStatusWatch := false
+	csStatusWatchTimeout := "10s"
 	csStatusCmd := &cobra.Command{
 		Use:   "status [changeset-id]",
 		Short: "Show the current changeset status",
-		Args:  maxArgs(1, "gs cs status [changeset-id] [--format text|json] [--json]"),
+		Args:  maxArgs(1, "gs cs status [changeset-id] [--watch] [--watch-timeout 10s] [--format text|json] [--json]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {
 				id = args[0]
 			}
-			return r.runChangesetStatus(cmd.Context(), *opts, id)
+			watchTimeout, err := parsePositiveDurationFlag("watch-timeout", csStatusWatchTimeout)
+			if err != nil {
+				return err
+			}
+			return r.runChangesetStatus(cmd.Context(), *opts, id, csStatusWatch, watchTimeout)
 		},
 	}
+	csStatusCmd.Flags().BoolVar(&csStatusWatch, "watch", csStatusWatch, "wait until the changeset reaches a terminal submitted state")
+	csStatusCmd.Flags().StringVar(&csStatusWatchTimeout, "watch-timeout", csStatusWatchTimeout, "maximum time to wait for status changes")
 	csShowCmd := &cobra.Command{
 		Use:   "show [changeset-id]",
 		Short: "Show changeset details",
@@ -2461,7 +2477,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 	return nil
 }
 
-func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, requestedID string) error {
+func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, requestedID string, watch bool, watchTimeout time.Duration) error {
 	cfg, ws, state, hasWorkspace, changesetID, usingWorkspaceCurrent, err := r.resolveChangesetCommandState(requestedID)
 	if err != nil {
 		return err
@@ -2489,14 +2505,19 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	}
 	commitID := res.CommitId
 	refCommitID := res.NewRefCommitId
-	if refCommitID == "" || res.Status == "pending_publish" {
+	status := res.Status
+	if watch && (refCommitID == "" || res.Status == "pending_publish") {
 		var err error
-		commitID, refCommitID, err = r.waitForChangesetPublished(ctx, conn, cfg, changesetID)
+		commitID, refCommitID, err = r.waitForChangesetPublished(ctx, conn, cfg, changesetID, watchTimeout, !opts.Quiet && !opts.jsonOutput())
 		if err != nil {
 			return err
 		}
+		status = "submitted"
 	}
-	if usingWorkspaceCurrent && hasWorkspace {
+	if status == "" {
+		status = "submitted"
+	}
+	if status == "submitted" && usingWorkspaceCurrent && hasWorkspace {
 		state.BaseCommitID = refCommitID
 		if err := r.writeWorkspaceState(state); err != nil {
 			return err
@@ -2515,27 +2536,37 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			"commit_id":         commitID,
 			"target_ref":        res.TargetRef,
 			"new_ref_commit_id": refCommitID,
-			"status":            "submitted",
+			"status":            status,
 		})
 	}
 	if opts.Quiet {
+		return nil
+	}
+	if status != "submitted" {
+		fmt.Fprintf(r.Stdout, "submit accepted for %s; status: %s\n", changesetID, status)
+		fmt.Fprintf(r.Stdout, "Run gs cs status --watch %s to wait for publish.\n", changesetID)
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", commitID, res.TargetRef)
 	return nil
 }
 
-func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changesetID string) (string, string, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changesetID string, timeout time.Duration, progress bool) (string, string, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	changesetClient := corev1.NewChangesetServiceClient(conn)
 	repoClient := corev1.NewRepositoryServiceClient(conn)
+	lastStatus := ""
 	for {
 		cs, err := changesetClient.GetChangeset(authContext(waitCtx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
 		if err != nil {
 			return "", "", err
+		}
+		if progress && cs.Status != lastStatus {
+			fmt.Fprintf(r.stderr(), "changeset %s status: %s\n", changesetID, cs.Status)
+			lastStatus = cs.Status
 		}
 		if cs.Status == "submitted" && cs.CommitId != "" {
 			ref, err := repoClient.GetRef(authContext(waitCtx, cfg), &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
@@ -3231,7 +3262,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	commitID := res.CommitId
 	refCommitID := res.NewRefCommitId
 	if refCommitID == "" || res.Status == "pending_publish" {
-		commitID, refCommitID, err = m.runner.waitForChangesetPublished(ctx, m.conn, m.cfg, cs.Id)
+		commitID, refCommitID, err = m.runner.waitForChangesetPublished(ctx, m.conn, m.cfg, cs.Id, 10*time.Second, false)
 		if err != nil {
 			return err
 		}
@@ -3391,7 +3422,7 @@ func changedPathsSummary(changed []string) string {
 	return fmt.Sprintf("%d paths", len(changed))
 }
 
-func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, requestedID string) error {
+func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, requestedID string, watch bool, watchTimeout time.Duration) error {
 	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
 	if err != nil {
 		return err
@@ -3401,7 +3432,17 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return err
 	}
 	defer conn.Close()
-	cs, err := corev1.NewChangesetServiceClient(conn).GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	cs, err := changesetClient.GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
+	if err != nil {
+		return err
+	}
+	if watch && cs.Status != "submitted" {
+		if _, _, err := r.waitForChangesetPublished(ctx, conn, cfg, changesetID, watchTimeout, !opts.Quiet && !opts.jsonOutput()); err != nil {
+			return err
+		}
+		cs, err = changesetClient.GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
+	}
 	if err != nil {
 		return err
 	}
@@ -5602,13 +5643,15 @@ func (r Runner) runSchema() error {
 				"use":            "gs cs submit [changeset-id]",
 				"summary":        "submit the current or named changeset through server-side validation",
 				"aliases":        []string{"gs changeset submit [changeset-id]"},
+				"flags":          []string{"--no-watch", "--watch-timeout"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "commit_id", "target_ref", "new_ref_commit_id"},
+				"machine_output": []string{"changeset_id", "commit_id", "target_ref", "new_ref_commit_id", "status"},
 			},
 			{
 				"use":            "gs cs status [changeset-id]",
 				"summary":        "show the current or named changeset status",
 				"aliases":        []string{"gs changeset status [changeset-id]"},
+				"flags":          []string{"--watch", "--watch-timeout"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "patchset_id", "status"},
 			},
@@ -5975,6 +6018,15 @@ func minArgs(want int, usage string) cobra.PositionalArgs {
 		}
 		return userError("invalid_args", fmt.Sprintf("expected at least %d argument(s), got %d", want, len(args)), "Usage: "+usage)
 	}
+}
+
+func parsePositiveDurationFlag(name, value string) (time.Duration, error) {
+	trimmed := strings.TrimSpace(value)
+	duration, err := time.ParseDuration(trimmed)
+	if err != nil || duration <= 0 {
+		return 0, userError("invalid_duration", "invalid --"+name+" duration "+value, "Use a positive duration such as 10s, 2m, or 500ms.")
+	}
+	return duration, nil
 }
 
 func userError(code, message, hint string) error {
