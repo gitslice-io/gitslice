@@ -2827,3 +2827,34 @@ gomodcache=$(go env GOMODCACHE)
 gocache=$(go env GOCACHE)
 HOME="$tmp_home" GOMODCACHE="$gomodcache" GOCACHE="$gocache" go run ./cmd/gs auth status --jq .reason
 ```
+
+## 2026-05-25: Completion Command Discoverability
+
+Request:
+
+- finish the gh-inspired CLI polish series by making the existing shell
+  completion command part of the documented command contract
+
+Implemented:
+
+- added `gs completion <shell>` to `gs schema`
+- documented supported shell completion commands in the CLI design
+- added schema test coverage so completion remains discoverable
+
+Important decisions and learnings:
+
+- Cobra already provides the completion command implementation. This change
+  intentionally avoids wrapping or replacing that behavior; it only makes the
+  generated command visible in the same machine-readable contract as the rest
+  of the CLI.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs schema --jq '.commands[] | select(.use == "gs completion <shell>") | .summary'
+```
