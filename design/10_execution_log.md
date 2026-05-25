@@ -2434,8 +2434,45 @@ Verification:
 ```bash
 gofmt -w internal/cli/cli.go internal/cli/cli_test.go
 go test ./internal/cli
+go test ./...
 go build ./cmd/...
 git diff --check
 go run ./cmd/gs config list --json
 go run ./cmd/gs help environment
+```
+
+## 2026-05-25: RPC Escape Hatch
+
+Request:
+
+- continue applying GitHub CLI design learnings by adding a diagnostic
+  API/RPC escape hatch
+
+Implemented:
+
+- added `gs rpc list` to list generated core RPC methods from linked protobuf
+  descriptors
+- added `gs rpc call <service>/<method>` for unary generated core RPCs with a
+  protojson request body
+- supported saved-token calls by default plus `--server` and
+  `--unauthenticated` overrides for local development diagnostics
+- reused JSON field selection for RPC responses
+- documented the RPC escape hatch and its unary-only scope in the CLI design
+
+Important decisions and learnings:
+
+- The server does not currently enable gRPC reflection, so the first generic
+  RPC implementation uses generated descriptors linked into the CLI.
+- The escape hatch intentionally rejects streaming RPCs; streaming workflows
+  need dedicated command UX for progress, cancellation, and stable output.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs rpc list --json
+go run ./cmd/gs rpc call AuthService/GetAuthStatus --request '{}' --json=subject_id
 ```
