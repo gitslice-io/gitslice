@@ -44,6 +44,73 @@ go build ./cmd/...
 git diff --check
 ```
 
+## 2026-05-25: RPC Functional Coverage For Custom Slices
+
+Request:
+
+- add functional tests for missing custom-slice RPC coverage
+- make sure the local CI-equivalent gates pass
+- move the direct RPC custom-slice tests under `tests/rpc`
+
+Implemented:
+
+- added direct gRPC functional tests for resolving, getting, and listing the
+  seeded `acme/backend` custom slice with multiple included paths
+- extended `RepositoryService.ListDirectoryRequest` with an optional `slice`
+  projection so callers can list only paths included in a custom slice while
+  existing global-tree callers remain unchanged
+- covered workspace state and `ValidateWorkspaceDiff` for custom slices,
+  including acceptance of `/acme/backend` and `/acme/payment/shared` writes and
+  rejection of unrelated `/acme/payment` writes
+- covered direct changeset creation/update/submit through the `acme/backend`
+  slice for a file under the second included path
+- covered slice-projected directory listing so `/acme/payment` shows only
+  `shared/` when listed through the `acme/backend` slice
+- covered blob status before and after upload plus content-hash mismatch
+  validation
+- covered direct `ImportGitRepository` RPC behavior for custom-slice mount
+  containment
+
+Important decisions and learnings:
+
+- The new tests stay at the public gRPC boundary under `tests/rpc` and reuse the
+  RPC package's gRPC-only real server harness rather than asserting store
+  internals directly.
+- Existing RPCs already validate writes against all included paths in a custom
+  slice.
+- The slice-projected listing path reuses the global immutable tree and filters
+  by the slice's included path prefixes; it preserves canonical global paths
+  instead of introducing mount aliases.
+- CI caught that this projection also needed to ignore sibling included paths
+  when listing inside a narrower directory; otherwise listing `/acme/payment`
+  through `acme/backend` could leak an `acme/` ancestor from `/acme/backend`.
+- CI also caught that slice-projected directory listing must accept ancestor
+  directories such as `/acme`; using repository read-path normalization keeps
+  browsing ancestors consistent with the non-slice `ListDirectory` path rules.
+- CI already runs `tests/rpc` in the PostgreSQL-backed e2e job.
+
+Verification:
+
+```bash
+make proto
+gofmt -w service/repository.go service/repository_test.go tests/rpc/rpc_custom_slice_test.go
+GOCACHE=/tmp/gocache go test ./service
+GOCACHE=/tmp/gocache go test ./tests/rpc
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GOCACHE=/tmp/gocache go test -count=1 ./tests/rpc -run TestRPC -v
+GITSLICE_TEST_DATABASE_URL=postgres://gitslice:gitslice@localhost:5432/gitslice_dev?sslmode=disable GOCACHE=/tmp/gocache go test -count=1 ./tests/rpc -run TestRPC -v
+GOCACHE=/tmp/gocache go test ./...
+GOCACHE=/tmp/gocache go build ./cmd/...
+git diff --check
+```
+
+The RPC package compiled successfully without `GITSLICE_TEST_DATABASE_URL`;
+server-backed RPC cases skipped in that mode. The focused real PostgreSQL
+command was blocked by local database authentication for user `nic`; the
+CI-matching `gitslice:gitslice` URL was also rejected by the local PostgreSQL
+server before test code ran. The CI workflow provisions that user in its own
+PostgreSQL service. After rebasing onto `origin/main`, the RPC package compile
+gate, default Go test gate, command build gate, and whitespace check passed.
+
 ## 2026-05-24: Home Slice Upload Command
 
 Request:

@@ -48,6 +48,9 @@ message ListDirectoryRequest {
   string path = 2;
   string cursor = 3;
   int32 page_size = 4;
+  // Optional slice projection. When set, directory entries are filtered to
+  // paths included by this slice while preserving canonical global paths.
+  SliceRef slice = 5;
 }
 
 message ListDirectoryResponse {
