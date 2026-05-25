@@ -2395,7 +2395,47 @@ Verification:
 ```bash
 gofmt -w internal/cli/cli.go internal/cli/cli_test.go
 go test ./internal/cli
+go test ./...
 go build ./cmd/...
 git diff --check
 go run ./cmd/gs auth status --json=signed_in,server_addr
+```
+
+## 2026-05-25: Config Commands And Environment Aliases
+
+Request:
+
+- continue applying GitHub CLI design learnings by making local CLI
+  configuration explicit
+
+Implemented:
+
+- added `gs config list`, `gs config get <key>`, and
+  `gs config set server_addr <addr>`
+- made config inspection redact bearer tokens and expose only `token_present`
+- rejected direct token reads and auth-owned config writes with actionable
+  errors
+- added short `GS_*` aliases for server, web, gateway, HTTP gateway address,
+  and client cache environment overrides while preserving existing
+  `GITSLICE_*` names
+- updated `gs help environment`, `gs schema`, and CLI design docs for config
+  and environment behavior
+
+Important decisions and learnings:
+
+- The config surface should be intentionally narrow until multi-profile auth
+  exists. Directly setting `server_addr` is useful and low risk; token and
+  subject state remain owned by auth commands.
+- `gs config list` and JSON output report only whether a token exists, never the
+  token value itself.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs config list --json
+go run ./cmd/gs help environment
 ```

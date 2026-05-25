@@ -49,6 +49,7 @@ Initial command groups:
 ```text
 gs auth ...
 gs context
+gs config ...
 gs help ...
 gs workspace ...
 gs slice ...
@@ -164,6 +165,43 @@ subdirectory:
   "active_slice": "alice/home",
   "active_slice_source": "workspace"
 }
+```
+
+## 3.3 Config Commands And Environment
+
+```bash
+gs config list
+gs config get server_addr
+gs config get token_present
+gs config set server_addr 127.0.0.1:50051
+```
+
+`gs config` exposes local CLI configuration without exposing secrets. It can
+print the config path, saved server address, saved subject id, and whether a
+token is present. It must never print the bearer token; `gs config get token`
+is rejected with a hint to use `gs auth status` for non-secret auth state.
+
+The initial mutable key is `server_addr`. Authentication-owned fields such as
+`subject_id` and token state are read-only and are updated by `gs auth login` or
+`gs auth signup`.
+
+The CLI supports short `GS_*` environment aliases while preserving existing
+`GITSLICE_*` names for compatibility:
+
+```text
+GS_SERVER_ADDR          preferred server default
+GITSLICE_GRPC_ADDR      compatibility server default
+GITSLICE_SERVER_ADDR    compatibility server default
+GS_WEB_URL              preferred signup web URL default
+GITSLICE_WEB_URL        compatibility signup web URL default
+GS_GATEWAY_URL          preferred signup gateway URL default
+GITSLICE_GATEWAY_URL    compatibility signup gateway URL default
+GS_HTTP_ADDR            compatibility gateway address source
+GITSLICE_HTTP_ADDR      compatibility gateway address source
+GS_CLIENT_CACHE_DIR     preferred client object cache root override
+GITSLICE_CLIENT_CACHE_DIR compatibility cache root override
+NO_COLOR                disable color
+TERM=dumb               disable color and sticky shell headers
 ```
 
 ## 4. Workspace Commands
@@ -678,9 +716,9 @@ gs help slices
 The first topic set is intentionally small and should mirror the concepts users
 need while moving between local workspaces, remote slices, and automation:
 
-- `environment`: CLI environment variables such as `GITSLICE_GRPC_ADDR`,
-  `GITSLICE_WEB_URL`, `GITSLICE_GATEWAY_URL`, `GITSLICE_CLIENT_CACHE_DIR`,
-  `NO_COLOR`, and `TERM=dumb`
+- `environment`: CLI environment variables such as `GS_SERVER_ADDR`,
+  `GS_WEB_URL`, `GS_GATEWAY_URL`, `GS_CLIENT_CACHE_DIR`, compatibility
+  `GITSLICE_*` aliases, `NO_COLOR`, and `TERM=dumb`
 - `formatting`: text vs JSON output, top-level JSON field selection, stderr
   diagnostics, JSON error shape, and color controls
 - `exit-codes`: stable process exit codes

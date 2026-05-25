@@ -322,6 +322,88 @@ func TestContextReportsAuthAndWorkspace(t *testing.T) {
 	}
 }
 
+func TestConfigCommandsListGetSetAndRedactToken(t *testing.T) {
+	home := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: home, Stdout: &stdout, Stderr: &stderr}
+	if err := r.writeUserConfig(UserConfig{
+		ServerAddr: "127.0.0.1:50051",
+		Token:      "secret-token",
+		SubjectID:  "user_alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.Run(context.Background(), []string{"config", "list", "--json"}); err != nil {
+		t.Fatalf("config list failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "secret-token") {
+		t.Fatalf("config list leaked token:\n%s", stdout.String())
+	}
+	var listed configOutput
+	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
+		t.Fatalf("config list output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if listed.ServerAddr != "127.0.0.1:50051" || listed.SubjectID != "user_alice" || !listed.TokenPresent {
+		t.Fatalf("unexpected config list output: %#v", listed)
+	}
+
+	stdout.Reset()
+	if err := r.Run(context.Background(), []string{"config", "get", "server_addr"}); err != nil {
+		t.Fatalf("config get failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "127.0.0.1:50051" {
+		t.Fatalf("unexpected config get output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	if err := r.Run(context.Background(), []string{"config", "set", "server_addr", "127.0.0.1:60000"}); err != nil {
+		t.Fatalf("config set failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerAddr != "127.0.0.1:60000" || cfg.Token != "secret-token" || cfg.SubjectID != "user_alice" {
+		t.Fatalf("config set did not preserve auth fields: %#v", cfg)
+	}
+}
+
+func TestConfigRejectsTokenRead(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.writeUserConfig(UserConfig{Token: "secret-token"}); err != nil {
+		t.Fatal(err)
+	}
+	err := r.Run(context.Background(), []string{"config", "get", "token"})
+	if err == nil {
+		t.Fatal("expected token read to fail")
+	}
+	if !isUserErrorCode(err, "secret_config_key") {
+		t.Fatalf("expected secret_config_key, got %T: %v", err, err)
+	}
+}
+
+func TestEnvironmentAliases(t *testing.T) {
+	t.Setenv("GS_SERVER_ADDR", "127.0.0.1:60001")
+	t.Setenv("GITSLICE_GRPC_ADDR", "127.0.0.1:50051")
+	if got := defaultServerAddr(); got != "127.0.0.1:60001" {
+		t.Fatalf("defaultServerAddr = %q, want GS_SERVER_ADDR", got)
+	}
+
+	t.Setenv("GS_WEB_URL", "http://127.0.0.1:60002")
+	t.Setenv("GITSLICE_WEB_URL", "http://127.0.0.1:5173")
+	if got := defaultWebURL(); got != "http://127.0.0.1:60002" {
+		t.Fatalf("defaultWebURL = %q, want GS_WEB_URL", got)
+	}
+
+	t.Setenv("GS_GATEWAY_URL", "http://127.0.0.1:60003")
+	t.Setenv("GITSLICE_GATEWAY_URL", "http://127.0.0.1:8082")
+	if got := defaultGatewayURL(); got != "http://127.0.0.1:60003" {
+		t.Fatalf("defaultGatewayURL = %q, want GS_GATEWAY_URL", got)
+	}
+}
+
 func TestAuthSignupStoresCallbackToken(t *testing.T) {
 	home := t.TempDir()
 	stdoutReader, stdoutWriter := io.Pipe()
