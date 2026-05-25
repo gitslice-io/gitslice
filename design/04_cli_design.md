@@ -133,6 +133,18 @@ gs workspace root
   draft_patchsets/
 ```
 
+The command must run in an empty directory. If the current directory already
+contains files, directories, Git metadata, or another `.gs` workspace, the CLI
+rejects initialization and asks the user to create a new empty directory. This
+prevents hydration from mixing server state with unrelated local files.
+
+After initialization, workspace-aware commands discover the workspace by walking
+up from the current directory to the nearest parent containing `.gs`. Commands
+such as `gs status`, `gs cs create`, `gs cs submit`, `gs cs status`,
+`gs workspace hydrate`, and workspace-default `gs shell` can run from any
+subdirectory inside the workspace. Local scans and metadata writes still operate
+against the workspace root.
+
 The workspace stores:
 
 - one slice binding
@@ -142,8 +154,12 @@ The workspace stores:
 - local operation log
 - server metadata cache
 
-Files for the bound slice are hydrated during workspace initialization. The CLI
-can initialize the default personal home slice after signup:
+Files and directories for the bound slice are hydrated during workspace
+initialization using canonical account-rooted local paths. For example, a file
+at `/nic/hello/readme.md` in slice `nic/hello` is materialized as
+`nic/hello/readme.md` below the workspace root, and empty directories are
+created as directories. The CLI can initialize the default personal home slice
+after signup:
 
 ```bash
 gs auth signup --username nic

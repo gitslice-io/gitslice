@@ -3,6 +3,47 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-25: Workspace Init Materialization
+
+Request:
+
+- fix `gs workspace init <account>/<slice>` so it materializes local files and
+  directories for custom slices, and reject initialization in non-empty
+  directories
+
+Implemented:
+
+- changed workspace hydration to materialize canonical account-rooted local
+  paths, for example `/nic/hello/readme.md` becomes
+  `nic/hello/readme.md` inside the workspace
+- changed workspace hydration to create local directories as it walks the
+  remote tree, preserving empty directories from the server
+- added an empty-directory guard before workspace initialization writes `.gs`
+  metadata or hydrates files
+- kept relative edit compatibility for existing short workspace paths while
+  teaching workspace scans to recognize canonical local paths
+- changed workspace-aware commands to find `.gs` by walking up from the current
+  directory, so commands such as `gs status` and `gs cs submit` work from
+  workspace subdirectories while still scanning and writing metadata at the
+  workspace root
+- added CLI e2e coverage for custom-slice canonical hydration, empty-directory
+  materialization, clean status after init, non-empty init rejection, nested
+  init rejection, and running workspace commands from a subdirectory
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/cli/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli -run 'TestWorkspaceInit(MaterializesCanonicalLayoutAndRequiresEmptyDirectory|HydrateUsesGlobalClientObjectCache)|TestMinimalCLIJourney' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli -run 'TestWorkspaceCommandsWorkFromSubdirectories' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli -run 'TestOutsideSliceEditRejected|TestDeleteUpdateConflicts' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 -v ./tests/cli ./tests/rpc
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
 ## 2026-05-24: Home Slice Upload Command
 
 Request:

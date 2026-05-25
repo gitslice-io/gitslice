@@ -1221,6 +1221,9 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err != nil {
 		return err
 	}
+	if err := r.requireEmptyWorkspaceInitDir(); err != nil {
+		return err
+	}
 	cache, err := r.objectCache()
 	if err != nil {
 		return err
@@ -1279,6 +1282,22 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	fmt.Fprintf(r.Stdout, "initialized workspace for %s/%s\n", ref.Account, ref.Slice)
 	fmt.Fprintf(r.Stdout, "hydrated %d file(s) through cache (%d hit(s), %d miss(es))\n", hydrated.FileCount, hydrated.CacheHits, hydrated.CacheMisses)
 	return nil
+}
+
+func (r Runner) requireEmptyWorkspaceInitDir() error {
+	if root, err := r.workspaceRoot(); err == nil {
+		return userError("already_in_workspace", "already inside a gitslice workspace: "+root, "Create a new empty directory outside the existing workspace.")
+	} else if !isUserErrorCode(err, "not_in_workspace") {
+		return err
+	}
+	entries, err := os.ReadDir(r.cwd())
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return userError("workspace_not_empty", "workspace init requires an empty directory", "Create a new empty directory and run gs workspace init <account>/<slice> there.")
 }
 
 func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, requested []string) error {
@@ -3436,8 +3455,13 @@ func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn
 		base.Files = map[string]BaseSnapshotFile{}
 	}
 	repo := corev1.NewRepositoryServiceClient(conn)
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return hydrateResult{}, err
+	}
 	hydrator := workspaceHydrator{
 		runner:   r,
+		root:     root,
 		repo:     repo,
 		cache:    cache,
 		ws:       ws,
@@ -3461,6 +3485,7 @@ func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn
 
 type workspaceHydrator struct {
 	runner   Runner
+	root     string
 	repo     corev1.RepositoryServiceClient
 	cache    *clientcache.ObjectCache
 	ws       WorkspaceConfig
@@ -3492,6 +3517,13 @@ func (h *workspaceHydrator) hydratePath(ctx context.Context, globalPath string) 
 }
 
 func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath string) error {
+	rel, err := workspaceRelPath(h.ws, globalPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(rel)), 0o755); err != nil {
+		return err
+	}
 	list, err := h.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 1000})
 	if err != nil {
 		return err
@@ -3523,7 +3555,7 @@ func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeE
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(h.runner.cwd(), filepath.FromSlash(rel))
+	target := filepath.Join(h.root, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
@@ -3622,7 +3654,10 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 	if err != nil {
 		return nil, err
 	}
-	root := r.cwd()
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return nil, err
+	}
 	if len(ws.IncludedPaths) == 0 {
 		return nil, fmt.Errorf("workspace has no included paths")
 	}
@@ -3656,7 +3691,7 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 		if err != nil {
 			return err
 		}
-		globalPath, err := paths.FromWorkspacePath(ws.IncludedPaths[0], rel)
+		globalPath, err := workspaceRelativePathToGlobalPath(ws, rel)
 		if err != nil {
 			return err
 		}
@@ -3774,7 +3809,11 @@ func (r Runner) writeUserConfig(cfg UserConfig) error {
 
 func (r Runner) readWorkspaceConfig() (WorkspaceConfig, error) {
 	var cfg WorkspaceConfig
-	if err := readJSONFile(filepath.Join(r.cwd(), ".gs", "slice.json"), &cfg); err != nil {
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return cfg, err
+	}
+	if err := readJSONFile(filepath.Join(root, ".gs", "slice.json"), &cfg); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return cfg, userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <account>/<slice>.")
 		}
@@ -3793,7 +3832,11 @@ func (r Runner) writeWorkspaceConfig(cfg WorkspaceConfig) error {
 
 func (r Runner) readWorkspaceState() (WorkspaceState, error) {
 	var state WorkspaceState
-	err := readJSONFile(filepath.Join(r.cwd(), ".gs", "state.json"), &state)
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return state, err
+	}
+	err = readJSONFile(filepath.Join(root, ".gs", "state.json"), &state)
 	if errors.Is(err, os.ErrNotExist) {
 		return state, nil
 	}
@@ -3802,7 +3845,11 @@ func (r Runner) readWorkspaceState() (WorkspaceState, error) {
 
 func (r Runner) readBaseSnapshot() (BaseSnapshot, error) {
 	var snapshot BaseSnapshot
-	err := readJSONFile(filepath.Join(r.cwd(), ".gs", "base_snapshot.json"), &snapshot)
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return snapshot, err
+	}
+	err = readJSONFile(filepath.Join(root, ".gs", "base_snapshot.json"), &snapshot)
 	if errors.Is(err, os.ErrNotExist) {
 		snapshot.Files = map[string]BaseSnapshotFile{}
 		return snapshot, nil
@@ -3820,7 +3867,11 @@ func (r Runner) writeBaseSnapshot(snapshot BaseSnapshot) error {
 	if snapshot.Files == nil {
 		snapshot.Files = map[string]BaseSnapshotFile{}
 	}
-	dir := filepath.Join(r.cwd(), ".gs")
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(root, ".gs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -3828,7 +3879,11 @@ func (r Runner) writeBaseSnapshot(snapshot BaseSnapshot) error {
 }
 
 func (r Runner) writeWorkspaceState(state WorkspaceState) error {
-	dir := filepath.Join(r.cwd(), ".gs")
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(root, ".gs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -3918,6 +3973,22 @@ func (r Runner) cwd() string {
 	}
 	dir, _ := os.Getwd()
 	return dir
+}
+
+func (r Runner) workspaceRoot() (string, error) {
+	dir := r.cwd()
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".gs", "slice.json")); err == nil {
+			return dir, nil
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <account>/<slice>.")
+		}
+		dir = parent
+	}
 }
 
 func (r Runner) runSchema() error {
@@ -4198,17 +4269,29 @@ func workspaceInputToGlobalPath(ws WorkspaceConfig, value string) (string, error
 	if value == "" || value == "." {
 		return canonicalIncludedRoot(ws.IncludedPaths[0])
 	}
-	var globalPath string
-	var err error
 	if strings.HasPrefix(value, "/") {
-		if path.Clean(value) == path.Clean(ws.IncludedPaths[0]) {
-			globalPath, err = cleanShellGlobalPath(value)
-		} else {
-			globalPath, err = paths.Canonical(value)
+		globalPath, err := cleanShellGlobalPath(value)
+		if err != nil {
+			return "", err
 		}
-	} else {
-		globalPath, err = paths.FromWorkspacePath(ws.IncludedPaths[0], value)
+		if !paths.InAnyPrefix(ws.IncludedPaths, globalPath) {
+			return "", userError("outside_slice", "path is outside the workspace slice: "+globalPath, "Use a path under the workspace's bound slice.")
+		}
+		return globalPath, nil
 	}
+	return workspaceRelativePathToGlobalPath(ws, value)
+}
+
+func workspaceRelativePathToGlobalPath(ws WorkspaceConfig, value string) (string, error) {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
+	if len(ws.IncludedPaths) == 0 {
+		return "", fmt.Errorf("workspace has no included paths")
+	}
+	canonicalRel, err := cleanShellGlobalPath(value)
+	if err == nil && paths.InAnyPrefix(ws.IncludedPaths, canonicalRel) {
+		return canonicalRel, nil
+	}
+	globalPath, err := paths.FromWorkspacePath(ws.IncludedPaths[0], value)
 	if err != nil {
 		return "", err
 	}
@@ -4219,18 +4302,12 @@ func workspaceInputToGlobalPath(ws WorkspaceConfig, value string) (string, error
 }
 
 func workspaceRelPath(ws WorkspaceConfig, globalPath string) (string, error) {
-	for _, prefix := range ws.IncludedPaths {
-		if !paths.Contains(prefix, globalPath) {
-			continue
-		}
-		trimmedPrefix := strings.TrimRight(prefix, "/")
-		rel := strings.TrimPrefix(globalPath, trimmedPrefix)
-		rel = strings.TrimPrefix(rel, "/")
-		if rel == "" {
-			parts := strings.Split(strings.Trim(globalPath, "/"), "/")
-			rel = parts[len(parts)-1]
-		}
-		return rel, nil
+	cleaned, err := cleanShellGlobalPath(globalPath)
+	if err != nil {
+		return "", err
+	}
+	if paths.InAnyPrefix(ws.IncludedPaths, cleaned) {
+		return strings.TrimPrefix(cleaned, "/"), nil
 	}
 	return "", userError("outside_slice", "path is outside the workspace slice: "+globalPath, "Use a path under the workspace's bound slice.")
 }
@@ -4323,6 +4400,11 @@ func minArgs(want int, usage string) cobra.PositionalArgs {
 
 func userError(code, message, hint string) error {
 	return commandError{Code: code, Message: message, Hint: hint}
+}
+
+func isUserErrorCode(err error, code string) bool {
+	var cmdErr commandError
+	return errors.As(err, &cmdErr) && cmdErr.Code == code
 }
 
 func wantsJSON(args []string) bool {
