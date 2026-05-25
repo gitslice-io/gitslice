@@ -2317,6 +2317,7 @@ Verification:
 ```bash
 gofmt -w internal/cli/cli.go internal/cli/cli_test.go
 go test ./internal/cli
+go test ./...
 go build ./cmd/...
 git diff --check
 go run ./cmd/gs context --json
@@ -2360,4 +2361,41 @@ go build ./cmd/...
 git diff --check
 go run ./cmd/gs help environment
 go run ./cmd/gs help exit-codes
+```
+
+## 2026-05-25: JSON Field Selection
+
+Request:
+
+- continue applying GitHub CLI design learnings with automation-friendly JSON
+  output
+
+Implemented:
+
+- changed the global `--json` flag from a boolean alias into a backward
+  compatible optional-value flag
+- preserved existing `--json` behavior while adding top-level JSON projection
+  through `--json=field,field`
+- added shared JSON field selection for command outputs that already support
+  JSON mode
+- updated `gs help formatting`, `gs schema`, and the CLI design to document
+  field selection
+- added unit tests for selected output fields and unknown field rejection
+
+Important decisions and learnings:
+
+- The initial implementation selects only top-level fields. This matches the
+  stable fields documented in `gs schema` and avoids inventing nested selector
+  syntax before templates or JQ-style filters exist.
+- The flag syntax uses `--json=field,field` so existing `--json` invocations
+  remain unambiguous for commands with positional arguments.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs auth status --json=signed_in,server_addr
 ```

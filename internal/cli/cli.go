@@ -85,6 +85,7 @@ type workingFile struct {
 
 type commandOptions struct {
 	Format         string
+	JSONFields     []string
 	Quiet          bool
 	NonInteractive bool
 	NoColor        bool
@@ -94,7 +95,7 @@ type commandOptions struct {
 }
 
 func (o commandOptions) jsonOutput() bool {
-	return o.Format == "json"
+	return o.Format == "json" || len(o.JSONFields) > 0
 }
 
 type commandError struct {
@@ -308,6 +309,11 @@ Use --json or --format json for stable machine-readable output:
   gs status --json
   gs context --format json
 
+Use --json=field,field to select top-level fields:
+
+  gs auth status --json=signed_in,server_addr
+  gs context --json=server_addr,active_slice
+
 Diagnostics, progress, and errors are written to stderr. When a command is run
 with --json or --format json, error output has this shape:
 
@@ -321,9 +327,8 @@ with --json or --format json, error output has this shape:
   }
 
 Use --quiet to suppress non-essential text output and --no-color or NO_COLOR to
-disable ANSI color. Field selection, jq filters, and templates are planned
-extensions; scripts should currently consume the documented JSON fields from
-gs schema.
+disable ANSI color. JQ filters and templates are planned extensions; scripts
+should currently consume the documented JSON fields from gs schema.
 `,
 	},
 	{
@@ -475,7 +480,7 @@ func (r Runner) authRecoveryHint() string {
 
 func (r Runner) rootCommand() *cobra.Command {
 	opts := &commandOptions{Format: "text"}
-	jsonFlag := false
+	jsonFlagValue := ""
 
 	root := &cobra.Command{
 		Use:           "gs",
@@ -487,8 +492,13 @@ func (r Runner) rootCommand() *cobra.Command {
 			return userError("missing_command", "missing command", "Run gs --help to list available commands.")
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if jsonFlag {
+			if cmd.Root().PersistentFlags().Changed("json") {
 				opts.Format = "json"
+				fields, err := parseJSONFields(jsonFlagValue)
+				if err != nil {
+					return err
+				}
+				opts.JSONFields = fields
 			}
 			if opts.Format != "text" && opts.Format != "json" {
 				return userError("invalid_format", "invalid output format "+opts.Format, "Use --format text, --format json, or --json.")
@@ -497,7 +507,8 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVar(&opts.Format, "format", "text", "output format: text or json")
-	root.PersistentFlags().BoolVar(&jsonFlag, "json", false, "emit JSON output")
+	root.PersistentFlags().StringVar(&jsonFlagValue, "json", "", "emit JSON output; optionally select comma-separated fields with --json=field,field")
+	root.PersistentFlags().Lookup("json").NoOptDefVal = "*"
 	root.PersistentFlags().BoolVar(&opts.Quiet, "quiet", false, "suppress non-essential text output")
 	root.PersistentFlags().BoolVar(&opts.NonInteractive, "non-interactive", false, "fail instead of prompting for input")
 	root.PersistentFlags().BoolVar(&opts.NoColor, "no-color", false, "disable colorized output")
@@ -1081,7 +1092,7 @@ func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAdd
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"server_addr": serverAddr,
 			"subject_id":  res.SubjectId,
 		})
@@ -1159,7 +1170,7 @@ func (r Runner) runAuthSignup(ctx context.Context, opts commandOptions, serverAd
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"server_addr": serverAddr,
 			"subject_id":  result.SubjectID,
 		})
@@ -1290,7 +1301,7 @@ func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
 
 func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) error {
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, status)
+		return r.writeJSONOutput(opts, status)
 	}
 	if opts.Quiet {
 		return nil
@@ -1361,7 +1372,7 @@ func (r Runner) runContext(ctx context.Context, opts commandOptions) error {
 		}
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, out)
+		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
 		return nil
@@ -1434,7 +1445,7 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, sliceToOutput(slice))
+		return r.writeJSONOutput(opts, sliceToOutput(slice))
 	}
 	if opts.Quiet {
 		return nil
@@ -1472,7 +1483,7 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 		out = append(out, sliceToOutput(slice))
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"account": account,
 			"slices":  out,
 		})
@@ -1499,7 +1510,7 @@ func (r Runner) runSliceInfo(ctx context.Context, opts commandOptions, sliceRef 
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, sliceToOutput(slice))
+		return r.writeJSONOutput(opts, sliceToOutput(slice))
 	}
 	if opts.Quiet {
 		return nil
@@ -1514,7 +1525,7 @@ func (r Runner) runSlicePaths(ctx context.Context, opts commandOptions, sliceRef
 	}
 	out := sliceToOutput(slice)
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"ref":            out.Ref,
 			"included_paths": out.IncludedPaths,
 		})
@@ -1574,7 +1585,7 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, sliceToOutput(updated))
+		return r.writeJSONOutput(opts, sliceToOutput(updated))
 	}
 	if opts.Quiet {
 		return nil
@@ -1606,7 +1617,7 @@ func (r Runner) runSliceDelete(ctx context.Context, opts commandOptions, sliceRe
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"slice_id": slice.Id,
 			"ref":      sliceRefLabel(slice.Ref),
 		})
@@ -1775,7 +1786,7 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"workspace":           ref.Account + "/" + ref.Slice,
 			"slice_id":            slice.Id,
 			"base_commit_id":      refRecord.CommitId,
@@ -1833,7 +1844,7 @@ func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, re
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"workspace":           ws.Account + "/" + ws.Slice,
 			"base_commit_id":      baseCommitID,
 			"client_object_cache": cache.Root(),
@@ -1880,7 +1891,7 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 		if output.ChangedPaths == nil {
 			output.ChangedPaths = []string{}
 		}
-		return writeJSON(r.Stdout, output)
+		return r.writeJSONOutput(opts, output)
 	}
 	if opts.Quiet {
 		if output.ChangedPathCount == 0 {
@@ -1936,7 +1947,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 		if err != nil {
 			return err
 		}
-		return writeJSON(r.Stdout, workspaceDiffOutput{
+		return r.writeJSONOutput(opts, workspaceDiffOutput{
 			Workspace:        ws.Account + "/" + ws.Slice,
 			BaseCommitID:     baseCommitID,
 			ChangedPathCount: len(changed),
@@ -2055,7 +2066,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, changesetOutput{
+		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID: cs.Id,
 			PatchsetID:  patchset.Id,
 		})
@@ -2098,7 +2109,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, changesetOutput{
+		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID: state.CurrentChangesetID,
 			PatchsetID:  patchset.Id,
 		})
@@ -2159,7 +2170,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		}
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"changeset_id":      changesetID,
 			"commit_id":         commitID,
 			"target_ref":        res.TargetRef,
@@ -2252,7 +2263,7 @@ func (r Runner) runFSList(ctx context.Context, opts commandOptions, requestedPat
 		for _, entry := range entries {
 			out.Entries = append(out.Entries, fsEntryOutputFromProto(entry))
 		}
-		return writeJSON(r.Stdout, out)
+		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
 		return nil
@@ -2292,7 +2303,7 @@ func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, fsCatOutput{
+		return r.writeJSONOutput(opts, fsCatOutput{
 			Path:        p,
 			Slice:       slice.Ref.Account + "/" + slice.Ref.Slice,
 			CommitID:    commitID,
@@ -3060,7 +3071,7 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		Status:      cs.Status,
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, output)
+		return r.writeJSONOutput(opts, output)
 	}
 	if opts.Quiet {
 		if cs.Status == "submitted" {
@@ -3082,7 +3093,7 @@ func (r Runner) runChangesetShow(ctx context.Context, opts commandOptions, reque
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, cs)
+		return r.writeJSONOutput(opts, cs)
 	}
 	if opts.Quiet {
 		return nil
@@ -3101,7 +3112,7 @@ func (r Runner) runChangesetExplain(ctx context.Context, opts commandOptions, re
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, cs)
+		return r.writeJSONOutput(opts, cs)
 	}
 	if opts.Quiet {
 		return nil
@@ -3120,7 +3131,7 @@ func (r Runner) runChangesetVersions(ctx context.Context, opts commandOptions, r
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, map[string]any{
+		return r.writeJSONOutput(opts, map[string]any{
 			"changeset_id": cs.Id,
 			"patchsets":    cs.Patchsets,
 		})
@@ -3153,7 +3164,7 @@ func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, reque
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, res)
+		return r.writeJSONOutput(opts, res)
 	}
 	if opts.Quiet {
 		return nil
@@ -3195,7 +3206,7 @@ func (r Runner) runChangesetAbandon(ctx context.Context, opts commandOptions, re
 		}
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, changesetOutput{ChangesetID: changesetID, Status: "abandoned"})
+		return r.writeJSONOutput(opts, changesetOutput{ChangesetID: changesetID, Status: "abandoned"})
 	}
 	if opts.Quiet {
 		return nil
@@ -3239,7 +3250,7 @@ func (r Runner) runChangesetList(ctx context.Context, opts commandOptions, slice
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, res)
+		return r.writeJSONOutput(opts, res)
 	}
 	if opts.Quiet {
 		return nil
@@ -3551,7 +3562,7 @@ func (r Runner) runRepoImportGithub(ctx context.Context, opts commandOptions, so
 		if err != nil {
 			return err
 		}
-		return writeJSON(r.Stdout, res)
+		return r.writeJSONOutput(opts, res)
 	}
 	stream, err := client.ImportGitRepositoryStream(authContext(ctx, cfg), req)
 	if err != nil {
@@ -3661,7 +3672,7 @@ func (r Runner) runCommitList(ctx context.Context, opts commandOptions, limit in
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, res)
+		return r.writeJSONOutput(opts, res)
 	}
 	if opts.Quiet {
 		return nil
@@ -3687,7 +3698,7 @@ func (r Runner) runCommitInspect(ctx context.Context, opts commandOptions, commi
 		return err
 	}
 	if opts.jsonOutput() {
-		return writeJSON(r.Stdout, commit)
+		return r.writeJSONOutput(opts, commit)
 	}
 	if opts.Quiet {
 		return nil
@@ -5061,7 +5072,7 @@ func (r Runner) runSchema() error {
 		"schema_version": "v1",
 		"global_flags": []map[string]any{
 			{"name": "--format", "values": []string{"text", "json"}, "default": "text", "description": "output format"},
-			{"name": "--json", "description": "alias for --format json"},
+			{"name": "--json", "description": "emit JSON output; optional comma-separated fields use --json=field,field"},
 			{"name": "--quiet", "description": "suppress non-essential text output"},
 			{"name": "--non-interactive", "description": "fail instead of prompting for input"},
 			{"name": "--no-color", "description": "disable colorized output"},
@@ -5549,6 +5560,9 @@ func wantsJSON(args []string) bool {
 		if arg == "--json" {
 			return true
 		}
+		if strings.HasPrefix(arg, "--json=") {
+			return true
+		}
 		if arg == "--format=json" {
 			return true
 		}
@@ -5557,6 +5571,33 @@ func wantsJSON(args []string) bool {
 		}
 	}
 	return false
+}
+
+func parseJSONFields(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "*" {
+		return nil, nil
+	}
+	fields := strings.Split(raw, ",")
+	out := make([]string, 0, len(fields))
+	seen := map[string]struct{}{}
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			return nil, userError("invalid_json_fields", "empty JSON field selector", "Use --json=field or --json=field,field.")
+		}
+		for _, ch := range field {
+			if !(ch == '_' || ch == '-' || ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z') {
+				return nil, userError("invalid_json_fields", "invalid JSON field selector "+field, "Use field names from gs schema.")
+			}
+		}
+		if _, ok := seen[field]; ok {
+			continue
+		}
+		seen[field] = struct{}{}
+		out = append(out, field)
+	}
+	return out, nil
 }
 
 func classifyError(err error) errorResponse {
@@ -5652,4 +5693,35 @@ func writeJSON(w io.Writer, v any) error {
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
+}
+
+func (r Runner) writeJSONOutput(opts commandOptions, v any) error {
+	if len(opts.JSONFields) == 0 {
+		return writeJSON(r.Stdout, v)
+	}
+	projected, err := selectJSONFields(v, opts.JSONFields)
+	if err != nil {
+		return err
+	}
+	return writeJSON(r.Stdout, projected)
+}
+
+func selectJSONFields(v any, fields []string) (map[string]any, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return nil, userError("invalid_json_fields", "JSON field selection requires an object output", "Run without field selection to inspect the full JSON output.")
+	}
+	out := make(map[string]any, len(fields))
+	for _, field := range fields {
+		value, ok := obj[field]
+		if !ok {
+			return nil, userError("unknown_json_field", "unknown JSON field "+field, "Run the command with --json to inspect available fields or use gs schema.")
+		}
+		out[field] = value
+	}
+	return out, nil
 }

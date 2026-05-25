@@ -176,6 +176,45 @@ func TestAuthStatusReportsStoredLoginWithoutToken(t *testing.T) {
 	}
 }
 
+func TestJSONFieldSelection(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	serverAddr := startFakeAuthStatusServer(t, "secret-token", "user_alice")
+	if err := r.writeUserConfig(UserConfig{
+		ServerAddr: serverAddr,
+		Token:      "secret-token",
+		SubjectID:  "stale_local_subject",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Run(context.Background(), []string{"auth", "status", "--json=signed_in,server_addr"}); err != nil {
+		t.Fatalf("auth status failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("field-selected JSON is invalid: %v\n%s", err, stdout.String())
+	}
+	if len(got) != 2 || got["signed_in"] != true || got["server_addr"] != serverAddr {
+		t.Fatalf("unexpected selected fields: %#v", got)
+	}
+	if _, ok := got["subject_id"]; ok {
+		t.Fatalf("unexpected unselected subject_id field: %#v", got)
+	}
+}
+
+func TestJSONFieldSelectionRejectsUnknownField(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	err := r.Run(context.Background(), []string{"auth", "status", "--json=missing"})
+	if err == nil {
+		t.Fatal("expected unknown field error")
+	}
+	if !isUserErrorCode(err, "unknown_json_field") {
+		t.Fatalf("expected unknown_json_field, got %T: %v", err, err)
+	}
+}
+
 func TestAuthStatusReportsInvalidStoredToken(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
