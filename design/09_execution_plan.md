@@ -225,22 +225,31 @@ The default gate should include:
   predicates
 - gRPC service tests using in-process clients where direct service behavior needs
   tight assertions
-- at least one functional smoke test that starts `gitslice-server` locally and
+- at least one CLI e2e smoke test that starts `gitslice-server` locally and
   runs `gs` against the gRPC API
+- direct RPC e2e tests for server contracts that should not depend on CLI
+  parsing or output formatting
 
-Functional gate:
+E2E gate:
 
 ```bash
-go test ./tests/functional -run TestCLI
+go test ./tests/cli ./tests/rpc -run 'Test(CLI|SliceService)'
 ```
 
-Functional tests must:
+CLI e2e tests must:
 
 - start PostgreSQL and local object storage for the test run
 - start the real `gitslice-server` binary on a random localhost port
 - run the real `gs` binary with an isolated HOME and workspace
 - assert the minimal CLI journey from auth through submit status
 - verify persistence by restarting the server in at least one suite
+
+RPC e2e tests must:
+
+- start PostgreSQL and local object storage for the test run
+- start the real gRPC server on a random localhost port
+- use generated gRPC clients directly
+- assert API contracts that should hold for non-CLI callers
 
 Load gate:
 

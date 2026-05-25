@@ -3,6 +3,540 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-05-24: CLI and RPC E2E Suite Split
+
+Request:
+
+- move the custom-slice RPC e2e test to `tests/rpc`
+- rename the CLI e2e suite from `tests/functional` to `tests/cli`
+
+Implemented:
+
+- moved `tests/functional/cli_smoke_test.go` to
+  `tests/cli/cli_smoke_test.go` and renamed the package to `cli_test`
+- extracted the custom-slice direct gRPC e2e test into
+  `tests/rpc/slice_test.go` with a minimal RPC-only server harness
+- added `make cli` and `make rpc`; kept `make functional` as a compatibility
+  target that runs both suites
+- updated CI's PostgreSQL e2e job to run `./tests/cli ./tests/rpc` instead of
+  the removed `./tests/functional` package
+- updated the agent guide verification command to use `./tests/cli ./tests/rpc`
+
+Important decisions and learnings:
+
+- The RPC suite intentionally starts only the gRPC server listener. It avoids
+  CLI, HTTP gateway, and Git HTTP setup so direct RPC coverage stays scoped to
+  the server contract.
+- Existing older mixed tests remain in `tests/cli` for now because they are
+  tied to CLI setup flows; this split isolates the newly added custom-slice RPC
+  contract test without a larger suite migration.
+
+Verification:
+
+```bash
+gofmt -w tests/cli/cli_smoke_test.go tests/rpc/slice_test.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/rpc -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli -run 'Test(CLISliceCRUD|ServerShellAttachesExplicitSlice|CLISignupShellDefaultsToPersonalHome)' -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
+git diff --check
+```
+
+## 2026-05-24: Custom Slice RPC E2E Coverage
+
+Request:
+
+- add RPC e2e tests for the custom slice issues previously fixed through CLI
+  workflows
+
+Implemented:
+
+- added direct gRPC functional coverage for `SliceService.CreateSlice` and
+  `UpdateSliceDefinition` custom-slice validation
+- seeded repository directories through gRPC blob/changeset/repository flows so
+  include path existence checks run against real committed server state
+- covered missing include path rejection, raw comma-containing include rejection,
+  multiple include paths passed as repeated RPC fields, and persisted update
+  resolution through `ResolveSlice`
+
+Important decisions and learnings:
+
+- Comma-separated include expansion is intentionally CLI behavior. At the RPC
+  boundary, commas in a single included path remain invalid so non-CLI callers
+  cannot persist the ambiguous custom-slice shape.
+- Shell projection itself is still client-side behavior over repository RPCs,
+  so the added RPC tests focus on the server-side slice definition contract.
+
+Verification:
+
+```bash
+gofmt -w tests/cli/cli_smoke_test.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestSliceServiceCustomSliceValidation -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
+```
+
+## 2026-05-24: Home Shell Projection Isolation
+
+Request:
+
+- fix `gs shell` without `--slice` so signing in as `nic5` does not show
+  `nic4/` from `ls /`
+
+Implemented:
+
+- changed implicit personal-home shell sessions to use the signed-in user's home
+  slice included paths as projection roots
+- kept workspace-launched shell behavior slice-rooted for the workspace binding
+- enforced projection boundaries during path resolution for non-workspace home
+  shells, so `cd /other-user` is rejected before server reads
+- added functional coverage that creates data under another signed-up user's
+  home and verifies the current user's default home shell hides and rejects it
+
+Important decisions and learnings:
+
+- Plain `gs shell` outside a workspace already attached to `<user>/home`, but it
+  was still listing the global root because projection filtering was only
+  enabled for explicit `--slice`. The default home shell must be projected too.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLISignupShellDefaultsToPersonalHome -v
+printf 'pwd\nls\ncd /nic4\nquit\n' | ./bin/gs shell --no-color
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Comma-Separated Slice Includes
+
+Request:
+
+- explain why `gs shell --slice nic4/test-multi` listed `test2,/` under
+  `/nic4`
+
+Implemented:
+
+- traced the shell projection to a malformed slice definition containing one
+  included path, `/nic4/test2,/nic4/test3`
+- changed `gs slice create` and `gs slice update` to expand comma-separated
+  `--include` values into multiple included paths before calling the API
+- added store-side validation rejecting commas in persisted included paths so
+  non-CLI callers cannot create the ambiguous shape
+- added service-side validation that custom slice included paths exist at the
+  current global target ref before create/update
+- added functional coverage for comma-separated slice create/update includes
+  and nonexistent include-path rejection
+- repaired the local `nic4/test-multi` slice definition to store `/nic4/test2`
+  and `/nic4/test3` as separate included paths
+
+Important decisions and learnings:
+
+- `test2,/` was not a shell rendering bug. It was the canonical projection of a
+  single malformed path where `test2,` was literally the next path segment.
+  The CLI now accepts the common comma-separated input form but the stored model
+  remains a JSON array of canonical paths.
+- Home-slice account roots remain exempt from existence checks because signup
+  can create an empty personal home slice before the account folder contains any
+  files.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/postgres/slice_store.go internal/postgres/store_test.go service/service.go service/slice.go tests/functional/cli_smoke_test.go
+go test ./internal/cli ./internal/postgres ./service
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLISliceCRUD -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+./bin/gs slice update nic4/test-multi --include /nic4/test2,/nic4/test3 --no-color
+printf 'cd /nic4\nls\nquit\n' | ./bin/gs shell --slice nic4/test-multi --no-color
+git diff --check
+```
+
+## 2026-05-24: Shell Relative Path Read Coverage
+
+Request:
+
+- clarify whether `gs shell` commands such as `cat test.txt` should resolve
+  relative to the shell's current path
+
+Implemented:
+
+- confirmed shell path resolution already makes relative paths current-directory
+  relative
+- added functional coverage for default home-slice shell relative `cat`,
+  `write`, `mv`, and `rm` after `cd`
+- changed interactive shell lookup failures for `cd`, `ls`, `cat`, and `stat`
+  to include the resolved shell path instead of only surfacing the raw gRPC
+  `NotFound` text
+
+Important decisions and learnings:
+
+- `gs fs` remains absolute-path-only, but `gs shell` is intentionally
+  current-directory based. Better path-not-found text makes it clear which
+  server path the shell attempted to read.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLIFileAndShellMutationsStayInHome -v
+printf 'pwd\nls /nic4/test2\ncd /nic4/test2\npwd\nls\nstat test.txt\ncat test.txt\nquit\n' | ./bin/gs shell --no-color
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Signup Through gRPC Gateway
+
+Request:
+
+- fix signup so it is implemented as gRPC API behavior rather than a custom
+  server HTTP handler
+- expose signup approval through grpc-gateway
+- make `web/` the browser app described by the web interface design, scoped to
+  the signup page only
+
+Implemented:
+
+- added `FakeAccountService.ApproveSignup`, returning a token, subject id, and
+  loopback callback redirect URL
+- moved loopback callback URL validation into the gRPC service layer
+- marked `ApproveSignup` as a public gRPC method alongside `Login`
+- regenerated protobuf and grpc-gateway output so browsers can call:
+  `POST /gitslice.core.v1.FakeAccountService/ApproveSignup`
+- removed the bespoke `/signup` and `/signup/approve` HTTP handlers from
+  `server.Run`; the optional HTTP listener now mounts only the generated
+  grpc-gateway
+- replaced the Go `web` package with a static signup web application that calls
+  the generated gateway endpoint and then redirects to the returned CLI callback
+  URL
+- added `make run-web` for serving the static app locally and configured the
+  default signup web URL as `http://127.0.0.1:5173`
+- updated functional signup tests to verify the gateway-only server returns
+  404 for `/signup`, performs approval through the generated API, rejects
+  remote callbacks, and still drives the CLI callback flow
+
+Important decisions and learnings:
+
+- The web app owns browser interaction, but all account creation, home-slice
+  creation, session issuance, and callback redirect construction live behind
+  `FakeAccountService.ApproveSignup`.
+- The gRPC service returns a redirect URL instead of issuing an HTTP redirect
+  itself, which keeps grpc-gateway output JSON-shaped while preserving the
+  CLI's browser callback flow.
+- The static signup app accepts a gateway URL from query string or local storage
+  because the Go server no longer serves the page on the gateway listener.
+
+Verification:
+
+```bash
+gofmt -w service/auth.go server/server.go proto/core/v1/auth.pb.go proto/core/v1/auth_grpc.pb.go proto/core/v1/auth.pb.gw.go internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli ./service ./server ./tests/functional -run 'Test(AuthSignupStoresCallbackToken|SignupWebApproveIssuesToken|CLISignupShellDefaultsToPersonalHome)' -count=1 -v
+node --check web/signup/signup.js
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'Test(SignupWebApproveIssuesToken|CLISignupShellDefaultsToPersonalHome|CLIFileAndShellMutationsStayInHome)' -v
+python3 -m http.server 6173 --bind 127.0.0.1 --directory web
+git diff --check
+```
+
+## 2026-05-24: Explicit Custom Slice Canonical Shell Paths
+
+Request:
+
+- keep explicit custom slice shells account-rooted/canonical, so a slice that
+  includes `/nic4/test2` shows `/nic4/test2` rather than remapping it to `/test2`
+
+Implemented:
+
+- changed explicit `gs shell --slice <account>/<slice>` sessions to root at the
+  repository root `/`
+- kept projection filtering so `ls /` only reveals ancestor folders needed to
+  reach the attached slice's included roots
+- allowed shell navigation through synthesized projection ancestors such as
+  `/nic4`, while keeping reads and mutations bounded to the slice included paths
+- updated functional coverage to prove an explicit custom slice can navigate
+  through `/acme` and displays `/acme/payment/custom`
+
+Important decisions and learnings:
+
+- Explicit slice shells should preserve canonical paths because users need to
+  see and type the same account-rooted paths used by `gs fs`, changesets, and
+  server APIs. The projection should hide unrelated content, not remap the
+  included root.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestServerShellAttachesExplicitSlice -v
+printf 'pwd\nls\ncd nic4\nls\ncd test2\npwd\nquit\n' | go run ./cmd/gs shell --slice nic4/new-slice --no-color
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Sticky Interactive Shell Header
+
+Request:
+
+- anchor shell context such as the attached slice at the top of `gs shell`
+
+Implemented:
+
+- added an interactive terminal-only sticky shell header using ANSI scroll
+  regions
+- pinned attached slice, current commit, mutable/read-only mode, root, and cwd
+  at the top of the shell view
+- refreshed the pinned header before each prompt, so `cd` and mutations keep
+  the displayed cwd and commit current
+- kept non-terminal, piped, test, `--quiet`, and `--no-color` shell output on
+  the existing plain text path
+
+Important decisions and learnings:
+
+- Sticky anchoring is terminal UI behavior, not machine output. It is disabled
+  unless both stdin and stdout are terminal devices to avoid emitting cursor
+  controls into scripts and tests.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestServerShell(AttachesExplicitSlice|RunsOutsideWorkspace|NavigationAndSliceBoundary)' -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Explicit Custom Slice Projection
+
+Request:
+
+- fix `gs shell --slice` for custom slices so included folders are visible
+
+Implemented:
+
+- changed explicit `gs shell --slice <account>/<slice>` sessions to project the
+  slice from the account root instead of jumping directly into the first
+  included path
+- filtered `ls` results to paths included by the attached slice
+- synthesized ancestor directories for included roots, so a custom slice that
+  includes `/nic/tools` shows `tools/` from shell root even when the user starts
+  at `/`
+- kept reads and shell mutations rejected outside the attached slice included
+  paths
+- added functional coverage for a custom slice that includes a nested directory
+  below the account root
+
+Important decisions and learnings:
+
+- Workspace shells keep their existing slice-rooted view. The projection change
+  applies to explicit `--slice` attachment, where users expect to see the shape
+  of the selected slice rather than be dropped inside one included directory.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestServerShellAttachesExplicitSlice -v
+printf 'pwd\nls\nquit\n' | go run ./cmd/gs shell --slice nic4/new-slice --no-color
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Explicit Shell Slice Attachment
+
+Request:
+
+- add support for attaching `gs shell` to a specified slice
+
+Implemented:
+
+- added `gs shell --slice <account>/<slice>`
+- made explicit slice selection override workspace and personal-home shell
+  autodetection
+- made the explicit shell scope slice-rooted, so `/` maps to the selected
+  slice's first included root
+- kept shell mutations enabled for explicit slices when inspecting the current
+  ref, and read-only when `--commit` pins a historical commit
+- added functional coverage for running an explicit-slice shell outside a
+  workspace, reading files, mutating files, and rejecting paths outside the
+  attached slice
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestServerShell(AttachesExplicitSlice|RunsOutsideWorkspace|NavigationAndSliceBoundary)' -v
+go run ./cmd/gs shell --help
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Filesystem CLI Rename
+
+Request:
+
+- rename the shorter remote file command group to `gs fs`
+- add non-interactive `ls` and `cat` commands alongside existing filesystem
+  mutations
+
+Implemented:
+
+- renamed the visible CLI command group from `gs file` to `gs fs`
+- kept `gs file` as a compatibility alias, while help and schema advertise
+  `gs fs`
+- added `gs fs ls [absolute-path]` for listing a home-slice directory or file;
+  omitting the path lists the signed-in user's home root
+- added `gs fs cat <absolute-path>` for printing a home-slice file
+- moved `mkdir`, `write`, `touch`, `mv`, and `rm` under `gs fs`
+- updated CLI and account/auth design docs and functional coverage
+
+Important decisions and learnings:
+
+- Read operations use the same signed-in home-slice boundary as mutations, so
+  `gs fs ls` and `gs fs cat` reject paths outside the user's home root before
+  making path-specific server calls.
+- `gs fs cat --json` returns base64 content to keep JSON output safe for binary
+  file contents.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go tests/functional/cli_smoke_test.go
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLIFileAndShellMutationsStayInHome -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Home File Commands And Mutable Shell
+
+Request:
+
+- make `gs file` always use absolute paths
+- add file and directory mutation operations to `gs shell`
+- improve `gs shell` UX by showing the current path and using color where
+  appropriate
+
+Implemented:
+
+- documented absolute `gs file` commands and mutable shell commands in the CLI
+  design, and documented that home-slice mutations must stay under the
+  signed-in user's home root
+- added `gs file mkdir`, `write`, `touch`, `mv`, and `rm`; each command targets
+  the signed-in user's `<account>/home` slice, requires absolute paths, creates
+  one changeset, submits it, waits for publish, and reports the resulting commit
+- added mutable `mkdir`, `write`, `touch`, `mv`, and `rm` commands to
+  `gs shell`; successful mutations refresh the shell's inspected commit
+- improved shell text output with a header, current-path prompt, colored
+  directories, and `--no-color` / non-terminal behavior that remains uncolored
+- made empty directories first-class tree entries for native reads so `mkdir`
+  and directory moves are visible through `ListDirectory` and shell `ls`
+- added repository store and service entry APIs that preserve directory entries
+  alongside file entries
+- added functional coverage for signup, home-slice creation, absolute
+  `gs file` mutations, shell mutations, directory moves, and home-boundary
+  rejection
+
+Important decisions and learnings:
+
+- `gs file` validates paths before file blob upload so rejected relative or
+  outside-home writes do not create storage side effects.
+- Shell mutations use the same changeset submit path as workspace mutations;
+  they do not bypass validation or write directly to the repository tree.
+- Empty parent directories must be preserved after deleting the last child.
+  The first functional run found that deleting `/file-user/shell/final.txt`
+  made `/file-user/shell` disappear, which broke a follow-up `ls`; treestore
+  delete and batch application now keep explicit empty directory entries.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/treestore/treestore.go
+go test ./internal/treestore ./internal/postgres ./service ./internal/cli
+go test ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'Test(CLIFileAndShellMutationsStayInHome|CLISignupShellDefaultsToPersonalHome)' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLIFileAndShellMutationsStayInHome -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -v
+git diff --check
+```
+
+## 2026-05-24: Slice CLI CRUD
+
+Request:
+
+- add CRUD support for the slice CLI
+
+Implemented:
+
+- extended `SliceService` with `CreateSlice` and `DeleteSlice` RPCs and
+  regenerated Go and grpc-gateway stubs
+- added PostgreSQL slice creation and deletion paths on top of the existing
+  `slices` metadata table
+- added account membership checks to slice create, resolve, get, list, update,
+  and delete paths
+- added canonical included-path validation for slice definitions:
+  - paths must stay under the slice account root
+  - custom slices must include paths below the account root
+  - only `home` slices may include the account root itself
+  - duplicate included paths are collapsed after canonicalization
+- added CLI commands:
+  - `gs slice create <account>/<slice>`
+  - `gs slice list [account]`
+  - `gs slice info <account>/<slice>`
+  - `gs slice paths <account>/<slice>`
+  - `gs slice update <account>/<slice>`
+  - `gs slice delete <account>/<slice> --yes`
+- documented the API and CLI shape in the core API and CLI design docs
+
+Important decisions and learnings:
+
+- Slice definition updates continue to use `definition_hash` as the optimistic
+  concurrency guard. The store computes the next version from the persisted
+  current slice rather than trusting a client-supplied version.
+- Slice deletion is metadata-only and refuses to delete slices referenced by
+  changesets, avoiding dangling authoring slice references.
+- `gs slice list` can default to the signed-up user's personal account when
+  the local subject id has the `user_...` shape; org accounts still need an
+  explicit account argument such as `gs slice list acme`.
+
+Verification:
+
+```bash
+gofmt -w proto/core/v1/slice.pb.go proto/core/v1/slice_grpc.pb.go proto/core/v1/slice.pb.gw.go internal/postgres/helpers.go internal/postgres/errors.go internal/postgres/slice_store.go service/errors.go service/slice.go internal/cli/cli.go tests/functional/cli_smoke_test.go internal/postgres/store_test.go
+go test ./internal/postgres ./service ./internal/cli
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/functional -run 'Test(CLISliceCRUD|SliceDefinitionUpdateConflict|HTTPGatewayLoginAndListSlices)' -v
+git diff --check
+```
+
 ## 2026-05-24: Git HTTP Auth Coverage
 
 Request:
@@ -39,6 +573,54 @@ go test ./internal/gitcompat ./server
 go test ./...
 go build ./cmd/...
 go test -count=1 ./tests/functional -run TestGitHTTPAuthAndUnsupportedOperationMatrix -v
+git diff --check
+```
+
+## 2026-05-24: Signup Home Shell Default
+
+Request:
+
+- make `gs shell` connect to the signed-up user's remote personal home slice
+  when it is run outside a workspace
+- add a functional signup flow test proving that signup creates the home slice
+  and that `gs shell` plus `ls` shows the home folder
+
+Implemented:
+
+- documented the outside-workspace shell default in the CLI and account/auth
+  design docs
+- changed `gs shell` scope selection so outside-workspace shells try to resolve
+  `<username>/home` from the stored signup subject before falling back to the
+  legacy global root behavior
+- added a shell-local synthetic directory entry for the resolved home slice
+  root, so an empty home folder such as `/shell-user` is visible from `ls`
+  before any files exist
+- allowed CLI workspace/shell root handling to accept an account-root included
+  path such as `/shell-user`, while keeping normal file paths validated through
+  the existing canonical path rules
+- added `TestCLISignupShellDefaultsToPersonalHome`, which runs `gs auth signup`
+  through the web approval callback, initializes `shell-user/home`, runs
+  `gs shell` outside any workspace, and verifies `ls` shows `shell-user/`
+
+Important decisions and learnings:
+
+- Empty directories are not first-class tree payloads in the MVP, so the shell
+  displays an empty home folder from slice metadata instead of creating a
+  placeholder file or bypassing the changeset model.
+- Legacy development accounts that do not have a personal home slice still use
+  the global root shell fallback, preserving existing dev-fixture workflows.
+- The home slice included path is account-root shaped (`/<username>`), so CLI
+  root handling needs to distinguish slice roots from file edit paths.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/functional/cli_smoke_test.go
+go test ./internal/cli ./web ./service ./server
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'Test(CLISignupShellDefaultsToPersonalHome|SignupWebApproveIssuesToken|ServerShellRunsOutsideWorkspace)' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestCLISignupShellDefaultsToPersonalHome -v
+go test ./...
+go build ./cmd/...
 git diff --check
 ```
 
@@ -1460,4 +2042,104 @@ Verification:
 
 ```bash
 git diff --check HEAD
+```
+
+## 2026-05-24: Browser-Approved Signup Prototype
+
+Request:
+
+- add `gs auth signup --username=XXX`
+- implement a device-style browser approval flow without a real identity
+  provider
+- add a simple web server under `web/`
+
+Implemented:
+
+- added `gs auth signup --username <name>`
+- the CLI starts a temporary localhost callback listener, builds a `/signup`
+  approval URL, opens the browser when possible, waits for the callback token,
+  validates callback state, and stores the returned token in
+  `~/.gitslice/config.json`
+- added `web.NewHandler` with:
+  - `GET /signup` approval page
+  - `POST /signup/approve` token-issuing approval endpoint
+- mounted the web signup handler on the existing HTTP listener next to the
+  grpc-gateway
+- added `AuthStore.SignupUser`, which creates or reuses a normalized user
+  subject, creates or reuses a personal account, grants admin membership, and
+  issues a 24-hour hashed-token session
+- documented the signup flow in the CLI and account/auth design docs
+
+Important decisions and learnings:
+
+- The approval endpoint only redirects tokens to loopback callback URLs. This
+  keeps the prototype from sending bearer tokens to arbitrary remote origins.
+- Signup is intentionally separate from production identity. The web page is a
+  local-development approval screen, not an OAuth or SSO substitute.
+- Personal account slugs are derived from normalized usernames. Existing
+  non-personal account slugs, such as `acme`, cannot be claimed through signup.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/helpers.go internal/postgres/auth_store.go internal/cli/cli.go internal/cli/cli_test.go server/server.go web/signup.go web/signup_test.go tests/functional/cli_smoke_test.go
+go test ./internal/cli ./web
+go test ./internal/postgres
+go test ./service ./server
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run 'TestSignupWebApproveIssuesToken' -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+Follow-up:
+
+- changed the local development HTTP default from `127.0.0.1:8080` to
+  `127.0.0.1:8082` in both `Makefile` and the CLI signup default because an
+  existing local server commonly occupies `8080`; signup approval URLs should
+  point at the server that hosts `/signup` by default.
+
+## 2026-05-24: Default Personal Home Slice
+
+Request:
+
+- define the home-slice product shape before implementation
+- create a default home slice when a user signs up
+- ensure a personal user can only create files and folders under their home
+  directory, for example `/nic`
+
+Implemented:
+
+- documented that personal signup creates `<username>/home`
+- reserved `home` as the default personal slice slug
+- documented that `<username>/home` includes the account root path
+  `/<username>`, not a nested `/<username>/home` path
+- documented custom personal slices as narrower views under the same account
+  root
+- updated signup storage so `AuthStore.SignupUser` creates or reuses the
+  default `home` slice in the same transaction as subject, account,
+  membership, and session creation
+- extended the functional signup test to resolve `signup-user/home`, verify it
+  includes `/signup-user`, accept an edit under `/signup-user`, and reject an
+  edit under `/alice`
+
+Important decisions and learnings:
+
+- The default home slice is a slice named `home`, but its authorization and
+  path scope are the whole personal account root.
+- No separate write-path validator was needed for signup. Existing workspace
+  diff validation enforces the slice `included_paths` once signup creates the
+  right slice definition.
+- Existing home slices are reused instead of overwritten, preserving future
+  administrative edits to the default slice definition.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/helpers.go internal/postgres/auth_store.go tests/functional/cli_smoke_test.go
+go test ./internal/postgres ./service ./server ./web
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=disable go test -count=1 ./tests/functional -run TestSignupWebApproveIssuesToken -v
+go test ./...
+go build ./cmd/...
+git diff --check
 ```

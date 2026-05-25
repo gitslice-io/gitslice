@@ -48,8 +48,12 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			ObjectStore: objectStore,
 			validator:   validator,
 		},
-		Blob:  &BlobService{Blobs: stores.Blobs, ObjectStore: objectStore},
-		Slice: &SliceService{Auth: stores.Auth, Slices: stores.Slices},
+		Blob: &BlobService{Blobs: stores.Blobs, ObjectStore: objectStore},
+		Slice: &SliceService{
+			Auth:       stores.Auth,
+			Repository: stores.Repository,
+			Slices:     stores.Slices,
+		},
 		Workspace: &WorkspaceService{
 			Auth:        stores.Auth,
 			Repository:  stores.Repository,

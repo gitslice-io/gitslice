@@ -1,6 +1,7 @@
-package functional_test
+package cli_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -245,6 +246,62 @@ func TestServerShellRunsOutsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestServerShellAttachesExplicitSlice(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	outsideWorkspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "explicit.go", "package payment\nconst ExplicitShell = true\n")
+	writeWorkspaceFile(t, workspace, "custom/nested.go", "package custom\nconst Nested = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "explicit shell seed")
+	runCLI(t, home, workspace, "cs", "submit")
+	runCLI(t, home, outsideWorkspace, "slice", "create", "acme/new-slice", "--include", "/acme/payment/custom")
+
+	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
+		"pwd",
+		"ls",
+		"cd acme",
+		"pwd",
+		"ls",
+		"cd payment",
+		"ls",
+		"cd custom",
+		"pwd",
+		"cat nested.go",
+		"cat ../explicit.go",
+		"mkdir explicit-dir",
+		"write explicit-dir/from_shell.txt hello explicit slice",
+		"cat explicit-dir/from_shell.txt",
+		"cat /acme/backend/secret.go",
+		"quit",
+	}, "\n")+"\n", "shell", "--slice", "acme/new-slice")
+	for _, want := range []string{
+		"server shell: acme/new-slice @",
+		"gs acme/new-slice:/> /",
+		"gs acme/new-slice:/acme> /acme",
+		"gs acme/new-slice:/acme/payment/custom> /acme/payment/custom",
+		"acme/",
+		"payment/",
+		"custom/",
+		"package custom\nconst Nested = true\n",
+		"ok created @",
+		"ok wrote @",
+		"hello explicit slice",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("explicit slice shell output missing %q:\n%s", want, stdout)
+		}
+	}
+	if !strings.Contains(stderr, "outside the attached slice") {
+		t.Fatalf("expected explicit slice boundary error in stderr, got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "/acme/payment/explicit.go") {
+		t.Fatalf("expected custom projection to reject sibling file, got:\n%s", stderr)
+	}
+}
+
 func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 	ts := startTestServer(t)
 	statusCode, _, body := httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "", map[string]any{
@@ -296,6 +353,282 @@ func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected acme/payment slice in response: %#v", response)
+}
+
+func TestCLISliceCRUD(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "docs/seed.txt", "docs\n")
+	writeWorkspaceFile(t, workspace, "docs/archive/seed.txt", "archive\n")
+	writeWorkspaceFile(t, workspace, "multi-a/seed.txt", "multi a\n")
+	writeWorkspaceFile(t, workspace, "multi-b/seed.txt", "multi b\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "slice crud seed")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	_, stderr := runCLIFails(t, home, workspace, "slice", "create", "acme/missing", "--include", "/acme/payment/missing")
+	if !strings.Contains(stderr, "included path does not exist: /acme/payment/missing") {
+		t.Fatalf("missing include stderr = %q, want path existence error", stderr)
+	}
+
+	created := runCLI(t, home, workspace, "slice", "create", "acme/docs", "--include", "/acme/payment/docs", "--visibility", "account")
+	for _, want := range []string{"created slice acme/docs", "visibility: account", "/acme/payment/docs"} {
+		if !strings.Contains(created, want) {
+			t.Fatalf("created slice output missing %q:\n%s", want, created)
+		}
+	}
+
+	listed := runCLI(t, home, workspace, "slice", "list", "acme")
+	for _, want := range []string{"slices for account acme:", "acme/payment", "acme/docs", "visibility: account", "included paths: /acme/payment/docs"} {
+		if !strings.Contains(listed, want) {
+			t.Fatalf("slice list output missing %q:\n%s", want, listed)
+		}
+	}
+
+	info := runCLI(t, home, workspace, "slice", "info", "acme/docs")
+	for _, want := range []string{"ref: acme/docs", "id: slice_acme_docs", "definition_hash:"} {
+		if !strings.Contains(info, want) {
+			t.Fatalf("slice info output missing %q:\n%s", want, info)
+		}
+	}
+
+	paths := strings.TrimSpace(runCLI(t, home, workspace, "slice", "paths", "acme/docs"))
+	if paths != "/acme/payment/docs" {
+		t.Fatalf("slice paths = %q, want /acme/payment/docs", paths)
+	}
+
+	runCLI(t, home, workspace, "slice", "create", "acme/multi", "--include", "/acme/payment/multi-a,/acme/payment/multi-b")
+	multiPaths := strings.TrimSpace(runCLI(t, home, workspace, "slice", "paths", "acme/multi"))
+	if multiPaths != "/acme/payment/multi-a\n/acme/payment/multi-b" {
+		t.Fatalf("comma-separated slice paths = %q, want two paths", multiPaths)
+	}
+
+	updated := runCLI(t, home, workspace, "slice", "update", "acme/docs",
+		"--include", "/acme/payment/docs,/acme/payment/docs/archive",
+		"--visibility", "public",
+	)
+	for _, want := range []string{"updated slice acme/docs", "visibility: public", "/acme/payment/docs/archive"} {
+		if !strings.Contains(updated, want) {
+			t.Fatalf("slice update output missing %q:\n%s", want, updated)
+		}
+	}
+
+	_, stderr = runCLIFails(t, home, workspace, "slice", "delete", "acme/docs")
+	if !strings.Contains(stderr, "requires --yes") {
+		t.Fatalf("slice delete without --yes stderr missing confirmation requirement:\n%s", stderr)
+	}
+
+	deleted := runCLI(t, home, workspace, "slice", "delete", "acme/docs", "--yes")
+	if !strings.Contains(deleted, "deleted slice acme/docs") {
+		t.Fatalf("unexpected delete output:\n%s", deleted)
+	}
+	_, stderr = runCLIFails(t, home, workspace, "slice", "info", "acme/docs")
+	if !strings.Contains(stderr, "not found") {
+		t.Fatalf("slice info after delete stderr = %q, want not found", stderr)
+	}
+}
+
+func TestSignupWebApproveIssuesToken(t *testing.T) {
+	ts := startTestServer(t)
+	resp, err := http.Get("http://" + ts.httpAddr + "/signup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("custom signup page status = %d, want 404 from gateway-only server:\n%s", resp.StatusCode, string(body))
+	}
+	signup := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
+		"username":    "signup_user",
+		"callbackUrl": "http://127.0.0.1:45555/callback",
+		"state":       "signup-state",
+	})
+	location, _ := signup["redirectUrl"].(string)
+	redirect, err := url.Parse(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := redirect.Query()
+	if query.Get("state") != "signup-state" {
+		t.Fatalf("redirect state = %q, want signup-state", query.Get("state"))
+	}
+	token, _ := signup["token"].(string)
+	if token == "" {
+		t.Fatalf("signup response did not include token: %#v", signup)
+	}
+	if query.Get("token") != token {
+		t.Fatalf("redirect token = %q, want response token", query.Get("token"))
+	}
+	if subjectID, _ := signup["subjectId"].(string); subjectID != "user_signup_user" {
+		t.Fatalf("response subject_id = %q, want user_signup_user", subjectID)
+	}
+	if query.Get("subject_id") != "user_signup_user" {
+		t.Fatalf("redirect subject_id = %q, want user_signup_user", query.Get("subject_id"))
+	}
+
+	statusCode, _, body := httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
+		"username":    "bad-callback",
+		"callbackUrl": "https://example.com/callback",
+		"state":       "signup-state",
+	})
+	if statusCode != http.StatusBadRequest {
+		t.Fatalf("remote callback signup status = %d, want 400:\n%s", statusCode, string(body))
+	}
+
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(grpcAuthContext(token), &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.SubjectId != "user_signup_user" {
+		t.Fatalf("auth status subject = %q, want user_signup_user", status.SubjectId)
+	}
+
+	ctx := grpcAuthContext(token)
+	homeSlice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(ctx, &corev1.ResolveSliceRequest{
+		Ref: &corev1.SliceRef{Account: "signup-user", Slice: "home"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if homeSlice.Ref.Account != "signup-user" || homeSlice.Ref.Slice != "home" {
+		t.Fatalf("home slice ref = %#v, want signup-user/home", homeSlice.Ref)
+	}
+	if got := homeSlice.Definition.IncludedPaths; len(got) != 1 || got[0] != "/signup-user" {
+		t.Fatalf("home slice included paths = %#v, want [/signup-user]", got)
+	}
+
+	workspaces := corev1.NewWorkspaceServiceClient(conn)
+	_, err = workspaces.ValidateWorkspaceDiff(ctx, &corev1.ValidateWorkspaceDiffRequest{
+		Workspace: &corev1.WorkspaceRef{Id: "signup-user/home"},
+		FileEdits: []*corev1.FileEdit{
+			{Path: "/signup-user/readme.md"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("validate home-path edit: %v", err)
+	}
+	_, err = workspaces.ValidateWorkspaceDiff(ctx, &corev1.ValidateWorkspaceDiffRequest{
+		Workspace: &corev1.WorkspaceRef{Id: "signup-user/home"},
+		FileEdits: []*corev1.FileEdit{
+			{Path: "/alice/readme.md"},
+		},
+	})
+	if grpcstatus.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("outside home-path validation error = %v, want FailedPrecondition", err)
+	}
+}
+
+func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	outsideWorkspace := t.TempDir()
+	homeWorkspace := t.TempDir()
+
+	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "other_user")
+	runCLI(t, home, outsideWorkspace, "fs", "mkdir", "/other-user/docs")
+	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "shell_user")
+	initOutput := runCLI(t, home, homeWorkspace, "workspace", "init", "shell-user/home")
+	if !strings.Contains(initOutput, "initialized workspace for shell-user/home") {
+		t.Fatalf("unexpected home workspace init output:\n%s", initOutput)
+	}
+	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
+		"pwd",
+		"ls",
+		"cd other-user",
+		"cd shell-user",
+		"pwd",
+		"quit",
+	}, "\n")+"\n", "shell")
+	if !strings.Contains(stderr, "path is outside the attached slice: /other-user") {
+		t.Fatalf("expected other-user to be hidden from shell-user home shell, got stderr:\n%s", stderr)
+	}
+	for _, want := range []string{
+		"server shell: shell-user/home @",
+		"shell-user/",
+		"/shell-user",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("signup shell output missing %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "other-user/") {
+		t.Fatalf("shell-user home shell leaked other-user folder:\n%s", stdout)
+	}
+}
+
+func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	dir := t.TempDir()
+
+	runCLISignupThroughWeb(t, home, dir, ts, "file_user")
+	runCLI(t, home, dir, "fs", "mkdir", "/file-user/docs")
+	runCLI(t, home, dir, "fs", "write", "/file-user/docs/readme.md", "--text", "hello from file command\n")
+	runCLI(t, home, dir, "fs", "mv", "/file-user/docs/readme.md", "/file-user/docs/today.md")
+	runCLI(t, home, dir, "fs", "mkdir", "/file-user/empty")
+	runCLI(t, home, dir, "fs", "mv", "/file-user/empty", "/file-user/archive")
+
+	fsList := runCLI(t, home, dir, "fs", "ls", "/file-user")
+	for _, want := range []string{"archive/", "docs/"} {
+		if !strings.Contains(fsList, want) {
+			t.Fatalf("fs ls output missing %q:\n%s", want, fsList)
+		}
+	}
+	fsCat := runCLI(t, home, dir, "fs", "cat", "/file-user/docs/today.md")
+	if fsCat != "hello from file command\n" {
+		t.Fatalf("unexpected fs cat output:\n%s", fsCat)
+	}
+
+	stdout, stderr := runCLIStreamsWithInput(t, home, dir, strings.Join([]string{
+		"ls /file-user",
+		"ls /file-user/docs",
+		"cat /file-user/docs/today.md",
+		"cd /file-user/docs",
+		"pwd",
+		"cat today.md",
+		"cd /file-user",
+		"mkdir /file-user/shell",
+		"cd shell",
+		"write note.txt hello from shell",
+		"mv note.txt final.txt",
+		"cat final.txt",
+		"rm final.txt",
+		"ls /file-user/shell",
+		"quit",
+	}, "\n")+"\n", "shell")
+	if stderr != "" {
+		t.Fatalf("expected empty shell stderr, got:\n%s", stderr)
+	}
+	for _, want := range []string{
+		"archive/",
+		"docs/",
+		"today.md",
+		"hello from file command\n",
+		"gs /file-user/docs> /file-user/docs",
+		"ok created @",
+		"ok wrote @",
+		"ok moved @",
+		"ok removed @",
+		"hello from shell",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("mutation shell output missing %q:\n%s", want, stdout)
+		}
+	}
+
+	_, stderr = runCLIFails(t, home, dir, "fs", "write", "relative.txt", "--text", "no")
+	if !strings.Contains(stderr, "paths must be absolute") {
+		t.Fatalf("expected absolute-path error, got:\n%s", stderr)
+	}
+	_, stderr = runCLIFails(t, home, dir, "fs", "write", "/alice/hack.txt", "--text", "no")
+	if !strings.Contains(stderr, "outside the home slice") {
+		t.Fatalf("expected outside-home error, got:\n%s", stderr)
+	}
 }
 
 func TestHTTPGatewayWriteChangesetFlow(t *testing.T) {
@@ -528,6 +861,14 @@ func TestRepositoryReadAPIs(t *testing.T) {
 
 func TestSliceDefinitionUpdateConflict(t *testing.T) {
 	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "docs/seed.txt", "docs\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "slice definition seed")
+	runCLI(t, home, workspace, "cs", "submit")
+
 	token := loginViaGRPC(t, ts.addr, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
@@ -1144,7 +1485,7 @@ func startTestServer(t *testing.T) *testServer {
 	t.Helper()
 	databaseURL := os.Getenv("GITSLICE_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set GITSLICE_TEST_DATABASE_URL to run the real Postgres functional smoke test")
+		t.Skip("set GITSLICE_TEST_DATABASE_URL to run real Postgres CLI e2e tests")
 	}
 	schema := "gitslice_test_" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", "_")) + "_" + time.Now().Format("150405000000")
 	createSchema(t, databaseURL, schema)
@@ -1244,6 +1585,74 @@ func runCLIResult(home, workspace string, args ...string) (string, error) {
 		return stdout.String(), fmt.Errorf("gs %s failed: %w\nstdout:\n%s\nstderr:\n%s", strings.Join(args, " "), err, stdout.String(), stderr.String())
 	}
 	return stdout.String(), nil
+}
+
+func runCLISignupThroughWeb(t *testing.T, home, dir string, ts *testServer, username string) {
+	t.Helper()
+	stdoutReader, stdoutWriter := io.Pipe()
+	var stderr bytes.Buffer
+	r := cli.Runner{Home: home, Dir: dir, Stdout: stdoutWriter, Stderr: &stderr}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		err := r.Run(ctx, []string{
+			"auth", "signup",
+			"--username", username,
+			"--server", ts.addr,
+			"--web-url", "http://" + ts.httpAddr,
+			"--no-browser",
+		})
+		_ = stdoutWriter.Close()
+		errCh <- err
+	}()
+
+	approvalURL := readSignupApprovalURL(t, stdoutReader)
+	drainDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, stdoutReader)
+		close(drainDone)
+	}()
+	parsed, err := url.Parse(approvalURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	signup := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
+		"username":    query.Get("username"),
+		"callbackUrl": query.Get("callback_url"),
+		"state":       query.Get("state"),
+	})
+	redirectURL, _ := signup["redirectUrl"].(string)
+	resp, err := http.Get(redirectURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("signup callback status = %d, want 200:\n%s", resp.StatusCode, string(body))
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("signup failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	<-drainDone
+}
+
+func readSignupApprovalURL(t *testing.T, r io.Reader) string {
+	t.Helper()
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+			return line
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Fatal("approval URL was not printed")
+	return ""
 }
 
 type testCoreClients struct {
@@ -1639,7 +2048,7 @@ func databaseURLWithSearchPath(t *testing.T, databaseURL, schema string) string 
 	t.Helper()
 	parsed, err := url.Parse(databaseURL)
 	if err != nil || parsed.Scheme == "" {
-		t.Fatalf("GITSLICE_TEST_DATABASE_URL must be a URL connection string for functional tests")
+		t.Fatalf("GITSLICE_TEST_DATABASE_URL must be a URL connection string for CLI e2e tests")
 	}
 	q := parsed.Query()
 	q.Set("search_path", schema)

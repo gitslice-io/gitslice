@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	FakeAccountService_Login_FullMethodName = "/gitslice.core.v1.FakeAccountService/Login"
+	FakeAccountService_Login_FullMethodName         = "/gitslice.core.v1.FakeAccountService/Login"
+	FakeAccountService_ApproveSignup_FullMethodName = "/gitslice.core.v1.FakeAccountService/ApproveSignup"
 )
 
 // FakeAccountServiceClient is the client API for FakeAccountService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type FakeAccountServiceClient interface {
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	ApproveSignup(ctx context.Context, in *ApproveSignupRequest, opts ...grpc.CallOption) (*ApproveSignupResponse, error)
 }
 
 type fakeAccountServiceClient struct {
@@ -46,11 +48,21 @@ func (c *fakeAccountServiceClient) Login(ctx context.Context, in *LoginRequest, 
 	return out, nil
 }
 
+func (c *fakeAccountServiceClient) ApproveSignup(ctx context.Context, in *ApproveSignupRequest, opts ...grpc.CallOption) (*ApproveSignupResponse, error) {
+	out := new(ApproveSignupResponse)
+	err := c.cc.Invoke(ctx, FakeAccountService_ApproveSignup_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FakeAccountServiceServer is the server API for FakeAccountService service.
 // All implementations should embed UnimplementedFakeAccountServiceServer
 // for forward compatibility
 type FakeAccountServiceServer interface {
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
+	ApproveSignup(context.Context, *ApproveSignupRequest) (*ApproveSignupResponse, error)
 }
 
 // UnimplementedFakeAccountServiceServer should be embedded to have forward compatible implementations.
@@ -59,6 +71,9 @@ type UnimplementedFakeAccountServiceServer struct {
 
 func (UnimplementedFakeAccountServiceServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Login not implemented")
+}
+func (UnimplementedFakeAccountServiceServer) ApproveSignup(context.Context, *ApproveSignupRequest) (*ApproveSignupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApproveSignup not implemented")
 }
 
 // UnsafeFakeAccountServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -90,6 +105,24 @@ func _FakeAccountService_Login_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FakeAccountService_ApproveSignup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApproveSignupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FakeAccountServiceServer).ApproveSignup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FakeAccountService_ApproveSignup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FakeAccountServiceServer).ApproveSignup(ctx, req.(*ApproveSignupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FakeAccountService_ServiceDesc is the grpc.ServiceDesc for FakeAccountService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -100,6 +133,10 @@ var FakeAccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Login",
 			Handler:    _FakeAccountService_Login_Handler,
+		},
+		{
+			MethodName: "ApproveSignup",
+			Handler:    _FakeAccountService_ApproveSignup_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

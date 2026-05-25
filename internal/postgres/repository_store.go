@@ -202,6 +202,22 @@ func (s *RepositoryStore) GetFile(ctx context.Context, commitID, p string) (*Fil
 	return s.getFileFromTree(ctx, rootTreeID, p)
 }
 
+func (s *RepositoryStore) GetEntry(ctx context.Context, commitID, p string) (*TreeEntry, error) {
+	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
+	if err != nil {
+		return nil, err
+	}
+	return s.getEntryFromTree(ctx, rootTreeID, p)
+}
+
+func (s *RepositoryStore) ListDirectory(ctx context.Context, commitID, p string) ([]TreeEntry, error) {
+	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
+	if err != nil {
+		return nil, err
+	}
+	return s.listDirectoryFromTree(ctx, rootTreeID, p)
+}
+
 func (s *RepositoryStore) ListFiles(ctx context.Context, commitID, prefix string) ([]FileEntry, error) {
 	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
 	if err != nil {
@@ -244,6 +260,14 @@ func (s *RepositoryStore) getFileAtCommitTx(ctx context.Context, tx *sql.Tx, com
 	return s.getFileFromTree(ctx, rootTreeID, p)
 }
 
+func (s *RepositoryStore) getEntryAtCommitTx(ctx context.Context, tx *sql.Tx, commitID, p string) (*TreeEntry, error) {
+	rootTreeID, err := s.rootTreeIDForCommitTx(ctx, tx, commitID)
+	if err != nil {
+		return nil, err
+	}
+	return s.getEntryFromTree(ctx, rootTreeID, p)
+}
+
 func (s *RepositoryStore) getFileFromTree(ctx context.Context, rootTreeID, p string) (*FileEntry, error) {
 	if s.trees == nil {
 		return nil, fmt.Errorf("tree store is not configured")
@@ -257,6 +281,36 @@ func (s *RepositoryStore) getFileFromTree(ctx context.Context, rootTreeID, p str
 	}
 	file := fileEntryFromTree(*entry)
 	return &file, nil
+}
+
+func (s *RepositoryStore) getEntryFromTree(ctx context.Context, rootTreeID, p string) (*TreeEntry, error) {
+	if s.trees == nil {
+		return nil, fmt.Errorf("tree store is not configured")
+	}
+	entry, err := s.trees.GetEntry(ctx, rootTreeID, p)
+	if errors.Is(err, treestore.ErrNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := treeEntryFromTree(*entry)
+	return &out, nil
+}
+
+func (s *RepositoryStore) listDirectoryFromTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error) {
+	if s.trees == nil {
+		return nil, fmt.Errorf("tree store is not configured")
+	}
+	entries, err := s.trees.ListDirectory(ctx, rootTreeID, p)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TreeEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, treeEntryFromTree(entry))
+	}
+	return out, nil
 }
 
 func (s *RepositoryStore) listFilesFromTree(ctx context.Context, rootTreeID, prefix string) ([]FileEntry, error) {

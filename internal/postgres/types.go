@@ -15,6 +15,17 @@ type FileEntry struct {
 	Size        int64
 }
 
+type TreeEntry struct {
+	Path        string
+	Name        string
+	Kind        string
+	Mode        uint32
+	TreeID      string
+	BlobID      string
+	ContentHash string
+	Size        int64
+}
+
 type PathHead struct {
 	Path             string
 	Exists           bool

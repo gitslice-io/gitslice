@@ -209,6 +209,7 @@ func authInterceptor(auth *postgres.AuthStore) grpc.UnaryServerInterceptor {
 
 func isPublicMethod(method string) bool {
 	return method == "/gitslice.core.v1.FakeAccountService/Login" ||
+		method == "/gitslice.core.v1.FakeAccountService/ApproveSignup" ||
 		strings.HasPrefix(method, "/grpc.health.v1.Health/")
 }
 

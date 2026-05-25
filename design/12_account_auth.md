@@ -11,6 +11,7 @@ tests, CLI workflows, service authorization checks, and Git read compatibility.
 It is intentionally small:
 
 - one fake development login service
+- one fake browser-approved signup flow
 - PostgreSQL-backed accounts, subjects, memberships, and sessions
 - bearer-token authentication for native gRPC and grpc-gateway requests
 - bearer-token or Basic-password authentication for Git smart HTTP reads
@@ -92,7 +93,86 @@ Implementation behavior:
 There is no CLI logout command yet. The schema supports revocation through
 `sessions.revoked_at`, but no user-facing revoke flow exists.
 
-## 5. Auth Status
+## 5. Browser-Approved Signup
+
+The current signup surface is a fake browser approval flow. It does not contact
+a real identity provider.
+
+CLI usage:
+
+```bash
+gs auth signup --username nic
+```
+
+Implementation behavior:
+
+1. the CLI starts a temporary localhost callback listener
+2. the CLI opens or prints a URL under the static web UI at `/signup`
+3. the web page asks the user to approve signup for the requested username
+4. the web page calls `FakeAccountService.ApproveSignup` through the generated
+   HTTP JSON grpc-gateway
+5. approval creates or reuses a user subject and personal account
+6. approval creates or reuses the personal account's default `home` slice
+7. approval creates a 24-hour bearer-token session
+8. the web page redirects to the returned CLI callback URL with the token and
+   subject id
+9. the CLI validates the callback state and stores the token in
+   `~/.gitslice/config.json`
+
+The signup web page is intentionally simple. It exists to exercise the device
+flow shape without a production identity provider. Callback URLs must point to a
+loopback host so the gRPC signup service does not issue callback redirects that
+send bearer tokens to arbitrary remote origins.
+
+Username normalization:
+
+- usernames are lowercased
+- underscores are converted to hyphens for the account slug
+- the user subject id is `user_<username>` with hyphens converted to underscores
+- the personal account id is `acct_<username>` with hyphens converted to
+  underscores
+- the personal account slug is the normalized username
+- the signed-up subject is added as `admin` on that personal account
+- the default slice is `<username>/home`
+
+Existing organization slugs, such as `acme`, cannot be claimed through this fake
+signup flow.
+
+## 5.1 Home Slice and Slice Slugs
+
+Every signed-up personal account owns a default home slice:
+
+```text
+nic/home
+```
+
+The slice slug is always `home`. The included path is the user's account root:
+
+```text
+nic/home -> /nic
+```
+
+This is deliberate. The home slice represents the user's personal source root,
+not a nested `/nic/home` folder. Existing changeset validation then limits files
+created through `nic/home` to `/nic`.
+
+Outside a workspace, `gs shell` resolves the signed-in user's `home` slice when
+it exists and labels the shell with that slice. The empty account-root folder is
+visible from slice metadata, so a newly signed-up user can run `gs shell` and
+see `nic/` from `ls` before creating any files.
+
+`gs fs` and mutating `gs shell` commands use the same personal home slice as
+their authoring slice. Paths must resolve under the home slice included path,
+for example `/nic`. Client-side checks reject absolute paths outside that root
+before submit, and the changeset service revalidates the same path containment
+against the `nic/home` slice definition.
+
+Custom personal slices may use other URL-safe slugs such as `tools`,
+`dotfiles`, or `blog`, but their included paths must stay under `/nic`.
+Organization slices use the same `<account>/<slice-slug>` identity shape, such
+as `acme/payment`, and may include paths under their owning account root.
+
+## 6. Auth Status
 
 The current authenticated status surface is `AuthService.GetAuthStatus`.
 
@@ -119,7 +199,7 @@ JSON output exposes only non-secret fields:
 }
 ```
 
-## 6. Native Request Authentication
+## 7. Native Request Authentication
 
 The gRPC server installs unary and stream auth interceptors.
 
@@ -148,7 +228,7 @@ fails as unauthenticated.
 The grpc-gateway forwards the `Authorization` HTTP header into gRPC metadata, so
 JSON/HTTP callers use the same bearer token path.
 
-## 7. Git HTTP Authentication
+## 8. Git HTTP Authentication
 
 The Git smart HTTP compatibility layer authenticates independently from the gRPC
 interceptor because it is a plain HTTP handler.
@@ -166,7 +246,7 @@ The current Git layer supports clone and fetch through projected repositories.
 Push is explicitly rejected by the MVP Git layer after authentication and slice
 authorization.
 
-## 8. Authorization Today
+## 9. Authorization Today
 
 Authorization is currently account-membership based and incomplete by design.
 
@@ -190,7 +270,7 @@ account boundaries, but it is not a complete access-control system. Repository
 read authorization and role-specific write authorization need tightening before
 the model is suitable for production use.
 
-## 9. Subject Propagation And Audit Fields
+## 10. Subject Propagation And Audit Fields
 
 Authenticated subject ids flow through service methods and are stored on
 user-visible writes:
@@ -203,19 +283,20 @@ user-visible writes:
 The server does not trust local CLI state for the subject id. The subject comes
 from the validated bearer token on each server request.
 
-## 10. Current Invariants
+## 11. Current Invariants
 
 - Raw bearer tokens are never stored in PostgreSQL.
 - Native service methods are authenticated by default unless explicitly listed
   as public.
 - The CLI token is global user config, not workspace metadata.
+- Signup approval only redirects tokens to loopback callback URLs.
 - Workspaces still bind to exactly one slice; auth does not change that model.
 - Account membership is the current coarse authorization boundary where checks
   are implemented.
 - Git compatibility is an authenticated projection layer, not the source of
   truth for identity or authorization.
 
-## 11. Known Gaps
+## 12. Known Gaps
 
 - no production identity provider
 - no refresh-token lifecycle

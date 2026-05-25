@@ -10,7 +10,10 @@ TEST_DATABASE_URL ?= $(DATABASE_URL)
 OBJECT_STORE_ROOT ?= $(TMP_DIR)/object-store
 GIT_CACHE_ROOT ?= $(TMP_DIR)/git-cache
 GRPC_ADDR ?= 127.0.0.1:50051
-HTTP_ADDR ?= 127.0.0.1:8080
+HTTP_ADDR ?= 127.0.0.1:8082
+HTTP_ALLOWED_ORIGIN ?= http://127.0.0.1:5173
+WEB_HOST ?= 127.0.0.1
+WEB_PORT ?= 5173
 GIT_HTTP_ADDR ?= 127.0.0.1:8081
 LOAD_WORKERS ?= 8
 LOAD_STATUS_ITERATIONS ?= 4
@@ -21,7 +24,7 @@ PROTO_FILES := $(wildcard proto/core/v1/*.proto)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deps fmt test build check install dev-install run-server server functional load proto clean
+.PHONY: help deps fmt test build check install dev-install run-server run-web server cli rpc functional load proto clean
 
 help: ## Show available targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -56,14 +59,23 @@ run-server: ## Run the local server with PostgreSQL and filesystem object storag
 	GITSLICE_OBJECT_STORE_ROOT="$(OBJECT_STORE_ROOT)" \
 	GITSLICE_GRPC_ADDR="$(GRPC_ADDR)" \
 	GITSLICE_HTTP_ADDR="$(HTTP_ADDR)" \
+	GITSLICE_HTTP_ALLOWED_ORIGIN="$(HTTP_ALLOWED_ORIGIN)" \
 	GITSLICE_GIT_HTTP_ADDR="$(GIT_HTTP_ADDR)" \
 	GITSLICE_GIT_CACHE_ROOT="$(GIT_CACHE_ROOT)" \
 	$(GO) run ./cmd/gitslice-server
 
+run-web: ## Serve the static web app locally.
+	cd web && python3 -m http.server "$(WEB_PORT)" --bind "$(WEB_HOST)"
+
 server: run-server ## Alias for run-server.
 
-functional: ## Run real-Postgres functional tests.
-	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 ./tests/functional -v
+cli: ## Run real-Postgres CLI e2e tests.
+	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 ./tests/cli -v
+
+rpc: ## Run real-Postgres RPC e2e tests.
+	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 ./tests/rpc -v
+
+functional: cli rpc ## Run real-Postgres CLI and RPC e2e tests.
 
 load: ## Run opt-in load tests against local PostgreSQL.
 	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" \

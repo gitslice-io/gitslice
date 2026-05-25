@@ -71,15 +71,22 @@ service BlobService {
   rpc UploadBlob(stream UploadBlobRequest) returns (UploadBlobResponse);
 }
 
+service FakeAccountService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc ApproveSignup(ApproveSignupRequest) returns (ApproveSignupResponse);
+}
+
 service AuthService {
   rpc GetAuthStatus(GetAuthStatusRequest) returns (GetAuthStatusResponse);
 }
 
 service SliceService {
+  rpc CreateSlice(CreateSliceRequest) returns (Slice);
   rpc ResolveSlice(ResolveSliceRequest) returns (Slice);
   rpc GetSlice(GetSliceRequest) returns (Slice);
   rpc ListSlices(ListSlicesRequest) returns (ListSlicesResponse);
   rpc UpdateSliceDefinition(UpdateSliceDefinitionRequest) returns (SliceDefinition);
+  rpc DeleteSlice(DeleteSliceRequest) returns (DeleteSliceResponse);
 }
 
 service ChangesetService {

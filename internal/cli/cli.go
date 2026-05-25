@@ -3,19 +3,26 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/clientcache"
+	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
@@ -145,6 +152,60 @@ type hydrateResult struct {
 	CacheMisses int `json:"cache_misses"`
 }
 
+type sliceOutput struct {
+	ID             string   `json:"id"`
+	Ref            string   `json:"ref"`
+	Account        string   `json:"account"`
+	Slice          string   `json:"slice"`
+	Version        int64    `json:"version"`
+	Visibility     string   `json:"visibility"`
+	IncludedPaths  []string `json:"included_paths"`
+	DefinitionHash string   `json:"definition_hash"`
+}
+
+type fileMutationOutput struct {
+	Operation      string   `json:"operation"`
+	Slice          string   `json:"slice"`
+	CommitID       string   `json:"commit_id"`
+	NewRefCommitID string   `json:"new_ref_commit_id"`
+	ChangedPaths   []string `json:"changed_paths"`
+}
+
+type fsListOutput struct {
+	Path     string          `json:"path"`
+	Slice    string          `json:"slice"`
+	CommitID string          `json:"commit_id"`
+	Entries  []fsEntryOutput `json:"entries"`
+}
+
+type fsEntryOutput struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Mode        uint32 `json:"mode,omitempty"`
+	Size        int64  `json:"size,omitempty"`
+	TreeID      string `json:"tree_id,omitempty"`
+	BlobID      string `json:"blob_id,omitempty"`
+	ContentHash string `json:"content_hash,omitempty"`
+}
+
+type fsCatOutput struct {
+	Path        string `json:"path"`
+	Slice       string `json:"slice"`
+	CommitID    string `json:"commit_id"`
+	ContentHash string `json:"content_hash,omitempty"`
+	DataBase64  string `json:"data_base64"`
+}
+
+const (
+	ansiReset = "\x1b[0m"
+	ansiDim   = "\x1b[2m"
+	ansiBlue  = "\x1b[34m"
+	ansiCyan  = "\x1b[36m"
+	ansiGreen = "\x1b[32m"
+	ansiRed   = "\x1b[31m"
+)
+
 func Main(args []string, stdout, stderr io.Writer) int {
 	r := Runner{Stdout: stdout, Stderr: stderr, Stdin: os.Stdin}
 	if err := r.Run(context.Background(), args); err != nil {
@@ -217,6 +278,22 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	loginCmd.Flags().StringVar(&loginServer, "server", loginServer, "server gRPC address")
 	loginCmd.Flags().StringVar(&loginDevUser, "dev-user", loginDevUser, "development user")
+	signupServer := defaultServerAddr()
+	signupWebURL := defaultWebURL()
+	signupUsername := ""
+	signupNoBrowser := false
+	signupCmd := &cobra.Command{
+		Use:   "signup",
+		Short: "Sign up through the browser approval flow",
+		Args:  noArgs("gs auth signup --username name [--server addr] [--web-url url]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAuthSignup(cmd.Context(), *opts, signupServer, signupWebURL, signupUsername, !signupNoBrowser)
+		},
+	}
+	signupCmd.Flags().StringVar(&signupUsername, "username", signupUsername, "username to create or sign in")
+	signupCmd.Flags().StringVar(&signupServer, "server", signupServer, "server gRPC address to store after signup")
+	signupCmd.Flags().StringVar(&signupWebURL, "web-url", signupWebURL, "server web signup base URL")
+	signupCmd.Flags().BoolVar(&signupNoBrowser, "no-browser", signupNoBrowser, "print the approval URL without opening a browser")
 	authStatusCmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show current authentication status",
@@ -225,7 +302,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runAuthStatus(cmd.Context(), *opts)
 		},
 	}
-	authCmd.AddCommand(loginCmd, authStatusCmd)
+	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd)
 
 	workspaceCmd := &cobra.Command{
 		Use:   "workspace",
@@ -301,6 +378,94 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd)
 
+	fsCmd := &cobra.Command{
+		Use:     "fs",
+		Aliases: []string{"file"},
+		Short:   "Read and mutate files in the signed-in home slice",
+		RunE:    requireSubcommand("fs"),
+	}
+	fsLsCmd := &cobra.Command{
+		Use:   "ls [absolute-path]",
+		Short: "List a remote directory or file",
+		Args:  maxArgs(1, "gs fs ls [/account/path]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := ""
+			if len(args) > 0 {
+				p = args[0]
+			}
+			return r.runFSList(cmd.Context(), *opts, p)
+		},
+	}
+	fsCatCmd := &cobra.Command{
+		Use:   "cat <absolute-path>",
+		Short: "Print a remote file",
+		Args:  exactArgs(1, "gs fs cat /account/path"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runFSCat(cmd.Context(), *opts, args[0])
+		},
+	}
+	fsMkdirCmd := &cobra.Command{
+		Use:   "mkdir <absolute-path>",
+		Short: "Create a remote directory",
+		Args:  exactArgs(1, "gs fs mkdir /account/path"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runFileMkdir(cmd.Context(), *opts, args[0])
+		},
+	}
+	fsTouchCmd := &cobra.Command{
+		Use:   "touch <absolute-path>",
+		Short: "Create an empty remote file",
+		Args:  exactArgs(1, "gs fs touch /account/path"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runFileWrite(cmd.Context(), *opts, args[0], nil)
+		},
+	}
+	fsWriteText := ""
+	fsWriteStdin := false
+	fsWriteCmd := &cobra.Command{
+		Use:   "write <absolute-path> (--text text|--stdin)",
+		Short: "Create or replace a remote file",
+		Args:  exactArgs(1, "gs fs write /account/path --text text"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if fsWriteStdin && fsWriteText != "" {
+				return userError("invalid_args", "use --text or --stdin, not both", "Run gs fs write /account/path --text text.")
+			}
+			if !fsWriteStdin && fsWriteText == "" {
+				return userError("invalid_args", "file content is required", "Pass --text text or --stdin.")
+			}
+			var data []byte
+			if fsWriteStdin {
+				var err error
+				data, err = io.ReadAll(r.stdin())
+				if err != nil {
+					return err
+				}
+			} else {
+				data = []byte(fsWriteText)
+			}
+			return r.runFileWrite(cmd.Context(), *opts, args[0], data)
+		},
+	}
+	fsWriteCmd.Flags().StringVar(&fsWriteText, "text", fsWriteText, "file content")
+	fsWriteCmd.Flags().BoolVar(&fsWriteStdin, "stdin", fsWriteStdin, "read file content from stdin")
+	fsMvCmd := &cobra.Command{
+		Use:   "mv <absolute-old-path> <absolute-new-path>",
+		Short: "Rename or move a remote file or directory",
+		Args:  exactArgs(2, "gs fs mv /account/old /account/new"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runFileMove(cmd.Context(), *opts, args[0], args[1])
+		},
+	}
+	fsRmCmd := &cobra.Command{
+		Use:   "rm <absolute-path>",
+		Short: "Delete a remote file or directory",
+		Args:  exactArgs(1, "gs fs rm /account/path"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runFileRemove(cmd.Context(), *opts, args[0])
+		},
+	}
+	fsCmd.AddCommand(fsLsCmd, fsCatCmd, fsMkdirCmd, fsTouchCmd, fsWriteCmd, fsMvCmd, fsRmCmd)
+
 	repoCmd := &cobra.Command{
 		Use:   "repo",
 		Short: "Manage imported repositories",
@@ -364,15 +529,17 @@ func (r Runner) rootCommand() *cobra.Command {
 	commitCmd.AddCommand(commitListCmd, commitInspectCmd)
 
 	shellCommit := ""
+	shellSlice := ""
 	shellCmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Browse server-side files",
-		Args:  noArgs("gs shell [--commit commit-id]"),
+		Args:  noArgs("gs shell [--slice account/slice] [--commit commit-id]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runShell(cmd.Context(), *opts, shellCommit)
+			return r.runShell(cmd.Context(), *opts, shellCommit, shellSlice)
 		},
 	}
 	shellCmd.Flags().StringVar(&shellCommit, "commit", shellCommit, "native commit id to inspect; defaults to refs/global/main")
+	shellCmd.Flags().StringVar(&shellSlice, "slice", shellSlice, "slice to attach, defaults to workspace slice or personal home slice")
 
 	schemaCmd := &cobra.Command{
 		Use:   "schema",
@@ -385,13 +552,76 @@ func (r Runner) rootCommand() *cobra.Command {
 
 	sliceCmd := &cobra.Command{
 		Use:   "slice",
-		Short: "Slice commands are not available in the MVP CLI",
+		Short: "Manage slices",
+		RunE:  requireSubcommand("slice"),
+	}
+	sliceCreateVisibility := "account"
+	var sliceCreateIncludes []string
+	sliceCreateCmd := &cobra.Command{
+		Use:   "create <account>/<slice>",
+		Short: "Create a slice",
+		Args:  exactArgs(1, "gs slice create <account>/<slice> [--include /account/path] [--visibility account|public]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return userError("unsupported_command", "multi-slice workspace commands are not supported", "Use gs workspace init <account>/<slice>.")
+			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility)
 		},
 	}
+	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateIncludes, "include", nil, "included global path; repeat for multiple paths")
+	sliceCreateCmd.Flags().StringVar(&sliceCreateVisibility, "visibility", sliceCreateVisibility, "slice visibility: account or public")
+	sliceListCmd := &cobra.Command{
+		Use:   "list [account]",
+		Short: "List slices in an account",
+		Args:  maxArgs(1, "gs slice list [account]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			account := ""
+			if len(args) > 0 {
+				account = args[0]
+			}
+			return r.runSliceList(cmd.Context(), *opts, account)
+		},
+	}
+	sliceInfoCmd := &cobra.Command{
+		Use:   "info <account>/<slice>",
+		Short: "Show slice metadata",
+		Args:  exactArgs(1, "gs slice info <account>/<slice>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSliceInfo(cmd.Context(), *opts, args[0])
+		},
+	}
+	slicePathsCmd := &cobra.Command{
+		Use:   "paths <account>/<slice>",
+		Short: "Show slice included paths",
+		Args:  exactArgs(1, "gs slice paths <account>/<slice>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSlicePaths(cmd.Context(), *opts, args[0])
+		},
+	}
+	sliceUpdateVisibility := ""
+	var sliceUpdateIncludes []string
+	sliceUpdateCmd := &cobra.Command{
+		Use:   "update <account>/<slice>",
+		Short: "Update slice included paths or visibility",
+		Args:  exactArgs(1, "gs slice update <account>/<slice> [--include /account/path] [--visibility account|public]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			visibilityChanged := cmd.Flags().Changed("visibility")
+			includesChanged := cmd.Flags().Changed("include")
+			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged)
+		},
+	}
+	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateIncludes, "include", nil, "replacement included global path; repeat for multiple paths")
+	sliceUpdateCmd.Flags().StringVar(&sliceUpdateVisibility, "visibility", sliceUpdateVisibility, "slice visibility: account or public")
+	sliceDeleteYes := false
+	sliceDeleteCmd := &cobra.Command{
+		Use:   "delete <account>/<slice>",
+		Short: "Delete a slice",
+		Args:  exactArgs(1, "gs slice delete <account>/<slice> --yes"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSliceDelete(cmd.Context(), *opts, args[0], sliceDeleteYes)
+		},
+	}
+	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
+	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -420,6 +650,160 @@ func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAdd
 	}
 	fmt.Fprintf(r.Stdout, "logged in as %s\n", res.SubjectId)
 	return nil
+}
+
+func (r Runner) runAuthSignup(ctx context.Context, opts commandOptions, serverAddr, webURL, username string, openBrowser bool) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return userError("invalid_args", "username is required", "Run gs auth signup --username <name>.")
+	}
+	callbackLis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	defer callbackLis.Close()
+
+	state, err := objectid.RandomID("signupstate")
+	if err != nil {
+		return err
+	}
+	callbackURL := "http://" + callbackLis.Addr().String() + "/callback"
+	approvalURL, err := signupApprovalURL(webURL, username, callbackURL, state)
+	if err != nil {
+		return err
+	}
+
+	resultCh := make(chan signupCallbackResult, 1)
+	callbackServer := &http.Server{Handler: signupCallbackHandler(state, resultCh)}
+	go func() {
+		if err := callbackServer.Serve(callbackLis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			select {
+			case resultCh <- signupCallbackResult{Error: err.Error()}:
+			default:
+			}
+		}
+	}()
+	defer callbackServer.Shutdown(context.Background())
+
+	promptWriter := r.stdout()
+	if opts.jsonOutput() {
+		promptWriter = r.stderr()
+	}
+	if !opts.Quiet || !openBrowser {
+		fmt.Fprintln(promptWriter, "Open this URL to approve signup:")
+		fmt.Fprintln(promptWriter, approvalURL)
+	}
+	if openBrowser {
+		if err := openBrowserURL(approvalURL); err != nil && !opts.Quiet {
+			fmt.Fprintf(r.stderr(), "could not open browser automatically: %v\n", err)
+		}
+	}
+	if !opts.Quiet {
+		fmt.Fprintln(promptWriter, "Waiting for browser approval...")
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	var result signupCallbackResult
+	select {
+	case result = <-resultCh:
+	case <-waitCtx.Done():
+		return waitCtx.Err()
+	}
+	if result.Error != "" {
+		return userError("signup_failed", result.Error, "Try gs auth signup again.")
+	}
+	cfg := UserConfig{ServerAddr: serverAddr, Token: result.Token, SubjectID: result.SubjectID}
+	if err := r.writeUserConfig(cfg); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, map[string]any{
+			"server_addr": serverAddr,
+			"subject_id":  result.SubjectID,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "signed up as %s\n", result.SubjectID)
+	return nil
+}
+
+type signupCallbackResult struct {
+	Token     string
+	SubjectID string
+	Error     string
+}
+
+func signupCallbackHandler(expectedState string, resultCh chan<- signupCallbackResult) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/callback" {
+			http.NotFound(w, req)
+			return
+		}
+		values := req.URL.Query()
+		if values.Get("state") != expectedState {
+			http.Error(w, "invalid signup state", http.StatusBadRequest)
+			return
+		}
+		result := signupCallbackResult{
+			Token:     values.Get("token"),
+			SubjectID: values.Get("subject_id"),
+			Error:     values.Get("error"),
+		}
+		if result.Error == "" && (result.Token == "" || result.SubjectID == "") {
+			result.Error = "signup callback did not include token and subject_id"
+		}
+		if result.Error == "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintln(w, "<!doctype html><title>Gitslice Signup Complete</title><p>Signup complete. Return to your terminal.</p>")
+		} else {
+			http.Error(w, result.Error, http.StatusBadRequest)
+		}
+		select {
+		case resultCh <- result:
+		default:
+		}
+	})
+}
+
+func signupApprovalURL(webURL, username, callbackURL, state string) (string, error) {
+	webURL = strings.TrimSpace(webURL)
+	if webURL == "" {
+		webURL = defaultWebURL()
+	}
+	if !strings.Contains(webURL, "://") {
+		webURL = "http://" + webURL
+	}
+	parsed, err := url.Parse(webURL)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("web-url must use http or https")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/signup"
+	query := parsed.Query()
+	query.Set("username", username)
+	query.Set("callback_url", callbackURL)
+	query.Set("gateway_url", defaultGatewayURL())
+	query.Set("state", state)
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+func openBrowserURL(rawURL string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", rawURL)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
+	default:
+		cmd = exec.Command("xdg-open", rawURL)
+	}
+	return cmd.Start()
 }
 
 func (r Runner) runAuthStatus(ctx context.Context, opts commandOptions) error {
@@ -480,6 +864,321 @@ func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) er
 	}
 	fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
 	return nil
+}
+
+func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string) error {
+	ref, err := parseSliceRef(sliceRef)
+	if err != nil {
+		return err
+	}
+	includedPaths, err = expandSliceIncludedPaths(includedPaths)
+	if err != nil {
+		return err
+	}
+	if len(includedPaths) == 0 {
+		includedPaths = defaultSliceIncludedPaths(ref)
+	}
+	_, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	slice, err := corev1.NewSliceServiceClient(conn).CreateSlice(callCtx, &corev1.CreateSliceRequest{
+		Ref:           ref,
+		IncludedPaths: includedPaths,
+		Visibility:    visibility,
+	})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, sliceToOutput(slice))
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "created slice %s\n", sliceRefLabel(slice.Ref))
+	return writeSliceText(r.Stdout, slice)
+}
+
+func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account string) error {
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if strings.TrimSpace(account) == "" {
+		account, err = r.defaultSliceAccount(callCtx, cfg, conn)
+		if err != nil {
+			return err
+		}
+	} else {
+		account, err = normalizeCLISlug(account, "account")
+		if err != nil {
+			return err
+		}
+	}
+	res, err := corev1.NewSliceServiceClient(conn).ListSlices(callCtx, &corev1.ListSlicesRequest{
+		Account:  account,
+		PageSize: 1000,
+	})
+	if err != nil {
+		return err
+	}
+	out := make([]sliceOutput, 0, len(res.Slices))
+	for _, slice := range res.Slices {
+		out = append(out, sliceToOutput(slice))
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, map[string]any{
+			"account": account,
+			"slices":  out,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if len(out) == 0 {
+		fmt.Fprintf(r.Stdout, "no slices found for account %s\n", account)
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "slices for account %s:\n", account)
+	for _, slice := range out {
+		fmt.Fprintf(r.Stdout, "  %s\n", slice.Ref)
+		fmt.Fprintf(r.Stdout, "    visibility: %s\n", slice.Visibility)
+		fmt.Fprintf(r.Stdout, "    included paths: %s\n", strings.Join(slice.IncludedPaths, ", "))
+	}
+	return nil
+}
+
+func (r Runner) runSliceInfo(ctx context.Context, opts commandOptions, sliceRef string) error {
+	slice, err := r.resolveSlice(ctx, sliceRef)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, sliceToOutput(slice))
+	}
+	if opts.Quiet {
+		return nil
+	}
+	return writeSliceText(r.Stdout, slice)
+}
+
+func (r Runner) runSlicePaths(ctx context.Context, opts commandOptions, sliceRef string) error {
+	slice, err := r.resolveSlice(ctx, sliceRef)
+	if err != nil {
+		return err
+	}
+	out := sliceToOutput(slice)
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, map[string]any{
+			"ref":            out.Ref,
+			"included_paths": out.IncludedPaths,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	for _, p := range out.IncludedPaths {
+		fmt.Fprintln(r.Stdout, p)
+	}
+	return nil
+}
+
+func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool) error {
+	if !includesChanged && !visibilityChanged {
+		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, or both.")
+	}
+	ref, err := parseSliceRef(sliceRef)
+	if err != nil {
+		return err
+	}
+	_, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client := corev1.NewSliceServiceClient(conn)
+	current, err := client.ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		return err
+	}
+	nextIncluded := append([]string{}, current.Definition.IncludedPaths...)
+	if includesChanged {
+		includedPaths, err = expandSliceIncludedPaths(includedPaths)
+		if err != nil {
+			return err
+		}
+		nextIncluded = includedPaths
+	}
+	nextVisibility := current.Definition.Visibility
+	if visibilityChanged {
+		nextVisibility = visibility
+	}
+	_, err = client.UpdateSliceDefinition(callCtx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                current.Id,
+		ExpectedDefinitionHash: current.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths: nextIncluded,
+			Visibility:    nextVisibility,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	updated, err := client.ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, sliceToOutput(updated))
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
+	return writeSliceText(r.Stdout, updated)
+}
+
+func (r Runner) runSliceDelete(ctx context.Context, opts commandOptions, sliceRef string, yes bool) error {
+	if !yes {
+		return userError("confirmation_required", "slice deletion requires --yes", "Run gs slice delete "+sliceRef+" --yes to confirm.")
+	}
+	ref, err := parseSliceRef(sliceRef)
+	if err != nil {
+		return err
+	}
+	_, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client := corev1.NewSliceServiceClient(conn)
+	slice, err := client.ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		return err
+	}
+	_, err = client.DeleteSlice(callCtx, &corev1.DeleteSliceRequest{SliceId: slice.Id})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, map[string]any{
+			"slice_id": slice.Id,
+			"ref":      sliceRefLabel(slice.Ref),
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "deleted slice %s\n", sliceRefLabel(slice.Ref))
+	return nil
+}
+
+func (r Runner) resolveSlice(ctx context.Context, sliceRef string) (*corev1.Slice, error) {
+	ref, err := parseSliceRef(sliceRef)
+	if err != nil {
+		return nil, err
+	}
+	_, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	return corev1.NewSliceServiceClient(conn).ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
+}
+
+func (r Runner) authenticatedConn(ctx context.Context) (UserConfig, *grpc.ClientConn, context.Context, error) {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return UserConfig{}, nil, nil, err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return UserConfig{}, nil, nil, err
+	}
+	return cfg, conn, authContext(ctx, cfg), nil
+}
+
+func (r Runner) defaultSliceAccount(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (string, error) {
+	subjectID := cfg.SubjectID
+	if subjectID == "" {
+		status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
+		if err != nil {
+			return "", err
+		}
+		subjectID = status.SubjectId
+	}
+	account, ok := personalAccountSlugFromSubjectID(subjectID)
+	if !ok {
+		return "", userError("account_required", "account is required", "Run gs slice list <account>.")
+	}
+	return account, nil
+}
+
+func defaultSliceIncludedPaths(ref *corev1.SliceRef) []string {
+	if ref != nil && ref.Slice == "home" {
+		return []string{"/" + ref.Account}
+	}
+	return []string{"/" + ref.Account + "/" + ref.Slice}
+}
+
+func expandSliceIncludedPaths(values []string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		parts := strings.Split(value, ",")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				return nil, userError("invalid_include", "included path is required", "Pass each included path as --include /account/path, or separate multiple paths with commas.")
+			}
+			out = append(out, part)
+		}
+	}
+	return out, nil
+}
+
+func writeSliceText(w io.Writer, slice *corev1.Slice) error {
+	out := sliceToOutput(slice)
+	fmt.Fprintf(w, "ref: %s\n", out.Ref)
+	fmt.Fprintf(w, "id: %s\n", out.ID)
+	fmt.Fprintf(w, "version: %d\n", out.Version)
+	fmt.Fprintf(w, "visibility: %s\n", out.Visibility)
+	fmt.Fprintf(w, "definition_hash: %s\n", out.DefinitionHash)
+	fmt.Fprintln(w, "included_paths:")
+	for _, p := range out.IncludedPaths {
+		fmt.Fprintf(w, "  %s\n", p)
+	}
+	return nil
+}
+
+func sliceToOutput(slice *corev1.Slice) sliceOutput {
+	if slice == nil {
+		return sliceOutput{}
+	}
+	out := sliceOutput{
+		ID:             slice.Id,
+		DefinitionHash: slice.DefinitionHash,
+	}
+	if slice.Ref != nil {
+		out.Account = slice.Ref.Account
+		out.Slice = slice.Ref.Slice
+		out.Ref = sliceRefLabel(slice.Ref)
+	}
+	if slice.Definition != nil {
+		out.Version = slice.Definition.Version
+		out.Visibility = slice.Definition.Visibility
+		out.IncludedPaths = append([]string{}, slice.Definition.IncludedPaths...)
+	}
+	return out
+}
+
+func sliceRefLabel(ref *corev1.SliceRef) string {
+	if ref == nil {
+		return ""
+	}
+	return ref.Account + "/" + ref.Slice
 }
 
 func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, sliceRef string) error {
@@ -820,6 +1519,418 @@ func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.Client
 	}
 }
 
+func (r Runner) runFSList(ctx context.Context, opts commandOptions, requestedPath string) error {
+	cfg, conn, slice, repo, commitID, err := r.homeFSReadScope(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	root, err := homeSliceRoot(slice)
+	if err != nil {
+		return err
+	}
+	p := strings.TrimSpace(requestedPath)
+	if p == "" {
+		p = root
+	}
+	p, err = normalizeHomePath(slice, p, true)
+	if err != nil {
+		return err
+	}
+	callCtx := authContext(ctx, cfg)
+	var entries []*corev1.TreeEntry
+	resolved, err := repo.ResolvePath(callCtx, &corev1.ResolvePathRequest{CommitId: commitID, Path: p})
+	if err != nil {
+		if grpcstatus.Code(err) != codes.NotFound || p != root {
+			return err
+		}
+		entries = []*corev1.TreeEntry{}
+	} else if resolved.Entry != nil && resolved.Entry.Kind == corev1.EntryKind_ENTRY_KIND_FILE {
+		entries = []*corev1.TreeEntry{resolved.Entry}
+	} else {
+		list, err := repo.ListDirectory(callCtx, &corev1.ListDirectoryRequest{CommitId: commitID, Path: p, PageSize: 1000})
+		if err != nil {
+			return err
+		}
+		entries = append(entries, list.Entries...)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return fsEntryName(entries[i]) < fsEntryName(entries[j])
+	})
+	if opts.jsonOutput() {
+		out := fsListOutput{
+			Path:     p,
+			Slice:    slice.Ref.Account + "/" + slice.Ref.Slice,
+			CommitID: commitID,
+			Entries:  make([]fsEntryOutput, 0, len(entries)),
+		}
+		for _, entry := range entries {
+			out.Entries = append(out.Entries, fsEntryOutputFromProto(entry))
+		}
+		return writeJSON(r.Stdout, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	color := r.colorEnabled(opts)
+	for _, entry := range entries {
+		name := fsEntryName(entry)
+		if entry.Kind == corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+			name += "/"
+			name = colorize(color, ansiBlue, name)
+		}
+		fmt.Fprintln(r.Stdout, name)
+	}
+	return nil
+}
+
+func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath string) error {
+	cfg, conn, slice, repo, commitID, err := r.homeFSReadScope(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	p, err := normalizeHomePath(slice, requestedPath, true)
+	if err != nil {
+		return err
+	}
+	callCtx := authContext(ctx, cfg)
+	resolved, err := repo.ResolvePath(callCtx, &corev1.ResolvePathRequest{CommitId: commitID, Path: p})
+	if err != nil {
+		return err
+	}
+	if resolved.Entry == nil || resolved.Entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE {
+		return fmt.Errorf("%s is not a file", p)
+	}
+	read, err := repo.ReadFile(callCtx, &corev1.ReadFileRequest{CommitId: commitID, Path: p})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return writeJSON(r.Stdout, fsCatOutput{
+			Path:        p,
+			Slice:       slice.Ref.Account + "/" + slice.Ref.Slice,
+			CommitID:    commitID,
+			ContentHash: read.ContentHash,
+			DataBase64:  base64.StdEncoding.EncodeToString(read.Data),
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	_, err = r.stdout().Write(read.Data)
+	return err
+}
+
+func (r Runner) homeFSReadScope(ctx context.Context) (UserConfig, *grpc.ClientConn, *corev1.Slice, corev1.RepositoryServiceClient, string, error) {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return UserConfig{}, nil, nil, nil, "", err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return UserConfig{}, nil, nil, nil, "", err
+	}
+	callCtx := authContext(ctx, cfg)
+	slice, err := r.personalHomeSlice(callCtx, cfg, conn)
+	if err != nil {
+		conn.Close()
+		return UserConfig{}, nil, nil, nil, "", err
+	}
+	repo := corev1.NewRepositoryServiceClient(conn)
+	ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		conn.Close()
+		return UserConfig{}, nil, nil, nil, "", err
+	}
+	return cfg, conn, slice, repo, ref.CommitId, nil
+}
+
+func (r Runner) runFileMkdir(ctx context.Context, opts commandOptions, p string) error {
+	return r.runHomeFileMutation(ctx, opts, "mkdir", []*corev1.FileEdit{{Op: "mkdir", Path: p}})
+}
+
+func (r Runner) runFileWrite(ctx context.Context, opts commandOptions, p string, data []byte) error {
+	cfg, conn, mutator, err := r.homeFileMutator(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	cleaned, err := normalizeMutationPath(mutator.slice, p)
+	if err != nil {
+		return err
+	}
+	edit, err := r.uploadFileEdit(authContext(ctx, cfg), conn, cleaned, data)
+	if err != nil {
+		return err
+	}
+	return mutator.apply(ctx, opts, "write", []*corev1.FileEdit{edit})
+}
+
+func (r Runner) runFileMove(ctx context.Context, opts commandOptions, oldPath, newPath string) error {
+	return r.runHomeFileMutation(ctx, opts, "mv", []*corev1.FileEdit{{Op: "rename", OldPath: oldPath, Path: newPath}})
+}
+
+func (r Runner) runFileRemove(ctx context.Context, opts commandOptions, p string) error {
+	return r.runHomeFileMutation(ctx, opts, "rm", []*corev1.FileEdit{{Op: "delete", Path: p}})
+}
+
+func (r Runner) runHomeFileMutation(ctx context.Context, opts commandOptions, operation string, edits []*corev1.FileEdit) error {
+	_, conn, mutator, err := r.homeFileMutator(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return mutator.apply(ctx, opts, operation, edits)
+}
+
+func (r Runner) homeFileMutator(ctx context.Context) (UserConfig, *grpc.ClientConn, *remoteFileMutator, error) {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return UserConfig{}, nil, nil, err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return UserConfig{}, nil, nil, err
+	}
+	slice, err := r.personalHomeSlice(authContext(ctx, cfg), cfg, conn)
+	if err != nil {
+		conn.Close()
+		return UserConfig{}, nil, nil, err
+	}
+	return cfg, conn, &remoteFileMutator{runner: r, cfg: cfg, conn: conn, slice: slice}, nil
+}
+
+func (r Runner) personalHomeSlice(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (*corev1.Slice, error) {
+	subjectID := cfg.SubjectID
+	if subjectID == "" {
+		status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
+		if err != nil {
+			return nil, err
+		}
+		subjectID = status.SubjectId
+	}
+	accountSlug, ok := personalAccountSlugFromSubjectID(subjectID)
+	if !ok {
+		return nil, userError("no_home_slice", "signed-in subject does not have a personal home slice", "Run gs auth signup --username <name>.")
+	}
+	slice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(ctx, &corev1.ResolveSliceRequest{
+		Ref: &corev1.SliceRef{Account: accountSlug, Slice: "home"},
+	})
+	if err != nil {
+		if grpcstatus.Code(err) == codes.NotFound || grpcstatus.Code(err) == codes.PermissionDenied {
+			return nil, userError("no_home_slice", "personal home slice was not found for "+accountSlug, "Run gs auth signup --username "+accountSlug+".")
+		}
+		return nil, err
+	}
+	return slice, nil
+}
+
+func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, p string, data []byte) (*corev1.FileEdit, error) {
+	upload, err := corev1.NewBlobServiceClient(conn).UploadBlob(ctx, &corev1.UploadBlobRequest{Data: data})
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.FileEdit{
+		Op:          "upsert",
+		Path:        p,
+		BlobId:      upload.BlobId,
+		ContentHash: upload.ContentHash,
+		Mode:        0o100644,
+	}, nil
+}
+
+type remoteFileMutator struct {
+	runner Runner
+	cfg    UserConfig
+	conn   *grpc.ClientConn
+	slice  *corev1.Slice
+}
+
+func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, operation string, edits []*corev1.FileEdit) error {
+	if len(edits) == 0 {
+		return userError("empty_mutation", "no file edits to apply", "Pass at least one file path.")
+	}
+	changed, err := normalizeMutationEdits(m.slice, edits)
+	if err != nil {
+		return err
+	}
+	callCtx := authContext(ctx, m.cfg)
+	repoClient := corev1.NewRepositoryServiceClient(m.conn)
+	ref, err := repoClient.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		return err
+	}
+	changesetClient := corev1.NewChangesetServiceClient(m.conn)
+	title := "file " + operation + " " + strings.Join(changed, " ")
+	if len(title) > 180 {
+		title = title[:180]
+	}
+	cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: m.slice.Ref,
+		TargetRef:      postgres.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          title,
+	})
+	if err != nil {
+		return err
+	}
+	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits:    edits,
+	})
+	if err != nil {
+		return err
+	}
+	res, err := changesetClient.SubmitChangeset(callCtx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: patchset.Id,
+	})
+	if err != nil {
+		return err
+	}
+	commitID := res.CommitId
+	refCommitID := res.NewRefCommitId
+	if refCommitID == "" || res.Status == "pending_publish" {
+		commitID, refCommitID, err = m.runner.waitForChangesetPublished(ctx, m.conn, m.cfg, cs.Id)
+		if err != nil {
+			return err
+		}
+	}
+	output := fileMutationOutput{
+		Operation:      operation,
+		Slice:          m.slice.Ref.Account + "/" + m.slice.Ref.Slice,
+		CommitID:       commitID,
+		NewRefCommitID: refCommitID,
+		ChangedPaths:   changed,
+	}
+	if opts.jsonOutput() {
+		return writeJSON(m.runner.stdout(), output)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(m.runner.stdout(), "%s %s in %s at %s\n", operationPastTense(operation), strings.Join(changed, ", "), output.Slice, shortID(refCommitID))
+	return nil
+}
+
+func normalizeMutationEdits(slice *corev1.Slice, edits []*corev1.FileEdit) ([]string, error) {
+	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return nil, fmt.Errorf("authoring slice has no included paths")
+	}
+	changedSet := map[string]struct{}{}
+	for _, edit := range edits {
+		if edit == nil {
+			return nil, fmt.Errorf("file edit is nil")
+		}
+		var err error
+		if edit.Path != "" {
+			edit.Path, err = normalizeMutationPath(slice, edit.Path)
+			if err != nil {
+				return nil, err
+			}
+			changedSet[edit.Path] = struct{}{}
+		}
+		if edit.OldPath != "" {
+			edit.OldPath, err = normalizeMutationPath(slice, edit.OldPath)
+			if err != nil {
+				return nil, err
+			}
+			changedSet[edit.OldPath] = struct{}{}
+		}
+	}
+	changed := make([]string, 0, len(changedSet))
+	for p := range changedSet {
+		changed = append(changed, p)
+	}
+	sort.Strings(changed)
+	return changed, nil
+}
+
+func normalizeMutationPath(slice *corev1.Slice, value string) (string, error) {
+	return normalizeHomePath(slice, value, false)
+}
+
+func normalizeHomePath(slice *corev1.Slice, value string, allowRoot bool) (string, error) {
+	if !strings.HasPrefix(strings.TrimSpace(value), "/") {
+		account := "account"
+		if slice != nil && slice.Ref != nil && slice.Ref.Account != "" {
+			account = slice.Ref.Account
+		}
+		return "", userError("invalid_path", "gs fs paths must be absolute: "+value, "Use an absolute path such as /"+account+"/notes/readme.md.")
+	}
+	cleaned, err := cleanShellGlobalPath(value)
+	if err != nil {
+		return "", err
+	}
+	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return "", fmt.Errorf("home slice has no included paths")
+	}
+	for _, prefix := range slice.Definition.IncludedPaths {
+		root, err := cleanShellGlobalPath(prefix)
+		if err != nil {
+			return "", err
+		}
+		if !paths.Contains(root, cleaned) {
+			continue
+		}
+		if cleaned == root && !allowRoot {
+			return "", userError("invalid_path", "cannot mutate the home root: "+cleaned, "Choose a path under "+root+".")
+		}
+		return cleaned, nil
+	}
+	return "", userError("outside_home", "path is outside the home slice: "+cleaned, "Use a path under "+strings.TrimRight(slice.Definition.IncludedPaths[0], "/")+".")
+}
+
+func homeSliceRoot(slice *corev1.Slice) (string, error) {
+	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return "", fmt.Errorf("home slice has no included paths")
+	}
+	return cleanShellGlobalPath(slice.Definition.IncludedPaths[0])
+}
+
+func fsEntryName(entry *corev1.TreeEntry) string {
+	if entry == nil {
+		return ""
+	}
+	if entry.Name != "" {
+		return entry.Name
+	}
+	return path.Base(entry.Path)
+}
+
+func fsEntryOutputFromProto(entry *corev1.TreeEntry) fsEntryOutput {
+	if entry == nil {
+		return fsEntryOutput{}
+	}
+	return fsEntryOutput{
+		Path:        entry.Path,
+		Name:        fsEntryName(entry),
+		Kind:        entryKindName(entry.Kind),
+		Mode:        entry.Mode,
+		Size:        entry.Size,
+		TreeID:      entry.TreeId,
+		BlobID:      entry.BlobId,
+		ContentHash: entry.ContentHash,
+	}
+}
+
+func operationPastTense(operation string) string {
+	switch operation {
+	case "mkdir":
+		return "created"
+	case "write":
+		return "wrote"
+	case "mv":
+		return "moved"
+	case "rm":
+		return "removed"
+	default:
+		return operation
+	}
+}
+
 func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions) error {
 	cfg, _, state, err := r.loadLocalState()
 	if err != nil {
@@ -1055,15 +2166,11 @@ func (r Runner) runCommitInspect(ctx context.Context, opts commandOptions, commi
 	return nil
 }
 
-func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID string) error {
+func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sliceRef string) error {
 	if opts.jsonOutput() {
 		return userError("unsupported_format", "gs shell only supports text output", "Run gs shell without --json or --format json.")
 	}
 	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	rootPath, scopeLabel, workspaceScoped, err := r.shellScope()
 	if err != nil {
 		return err
 	}
@@ -1073,7 +2180,12 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 	}
 	defer conn.Close()
 	callCtx := authContext(ctx, cfg)
+	rootPath, scopeLabel, workspaceScoped, syntheticDirs, mutationSlice, err := r.shellScope(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
 	repo := corev1.NewRepositoryServiceClient(conn)
+	pinnedCommit := commitID != ""
 	if commitID == "" {
 		ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
 		if err != nil {
@@ -1081,24 +2193,38 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 		}
 		commitID = ref.CommitId
 	}
+	var mutator *remoteFileMutator
+	if mutationSlice != nil && !pinnedCommit {
+		mutator = &remoteFileMutator{runner: r, cfg: cfg, conn: conn, slice: mutationSlice}
+	}
+	projectionRoots, err := shellProjectionRoots(sliceRef, mutationSlice, workspaceScoped)
+	if err != nil {
+		return err
+	}
 	sh := &serverShell{
-		runner:   r,
-		stdout:   r.stdout(),
-		stderr:   r.stderr(),
-		repo:     repo,
-		root:     rootPath,
-		cwd:      rootPath,
-		commitID: commitID,
-		scope:    scopeLabel,
-		scoped:   workspaceScoped,
+		runner:        r,
+		stdout:        r.stdout(),
+		stderr:        r.stderr(),
+		repo:          repo,
+		mutator:       mutator,
+		root:          rootPath,
+		cwd:           rootPath,
+		commitID:      commitID,
+		scope:         scopeLabel,
+		scoped:        workspaceScoped,
+		syntheticDirs: syntheticDirs,
+		projection:    projectionRoots,
+		color:         r.colorEnabled(opts),
+		stickyHeader:  r.stickyShellHeaderEnabled(opts),
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(sh.stdout, "server shell: %s @ %s\n", scopeLabel, shortID(commitID))
-		fmt.Fprintln(sh.stdout, "type help for commands")
+		sh.printHeader()
+		defer sh.restoreHeader()
 	}
 	scanner := bufio.NewScanner(r.stdin())
 	for {
 		if !opts.Quiet {
+			sh.refreshHeader()
 			fmt.Fprint(sh.stdout, sh.prompt())
 		}
 		if !scanner.Scan() {
@@ -1106,7 +2232,7 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 		}
 		done, err := sh.exec(callCtx, scanner.Text())
 		if err != nil {
-			fmt.Fprintf(sh.stderr, "error: %v\n", err)
+			fmt.Fprintf(sh.stderr, "%s: %v\n", sh.colorize(ansiRed, "error"), err)
 			continue
 		}
 		if done {
@@ -1116,35 +2242,144 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID stri
 	return scanner.Err()
 }
 
-func (r Runner) shellScope() (rootPath, scopeLabel string, workspaceScoped bool, err error) {
+func (r Runner) shellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceRef string) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
+	if strings.TrimSpace(sliceRef) != "" {
+		return r.explicitShellScope(ctx, conn, sliceRef)
+	}
 	ws, err := r.readWorkspaceConfig()
 	if err != nil {
 		var cmdErr commandError
 		if errors.As(err, &cmdErr) && cmdErr.Code == "not_in_workspace" {
-			return "/", "/", false, nil
+			scopeLabel, syntheticDirs, err := r.personalHomeShellScope(ctx, cfg, conn)
+			if err != nil {
+				return "", "", false, nil, nil, err
+			}
+			if scopeLabel != "" {
+				slice, err := r.personalHomeSlice(ctx, cfg, conn)
+				if err != nil {
+					return "", "", false, nil, nil, err
+				}
+				return "/", scopeLabel, false, syntheticDirs, slice, nil
+			}
+			return "/", "/", false, nil, nil, nil
 		}
-		return "", "", false, err
+		return "", "", false, nil, nil, err
 	}
 	if len(ws.IncludedPaths) == 0 {
-		return "", "", false, fmt.Errorf("workspace has no included paths")
+		return "", "", false, nil, nil, fmt.Errorf("workspace has no included paths")
 	}
-	rootPath, err = paths.Canonical(ws.IncludedPaths[0])
+	rootPath, err = canonicalIncludedRoot(ws.IncludedPaths[0])
 	if err != nil {
-		return "", "", false, err
+		return "", "", false, nil, nil, err
 	}
-	return rootPath, ws.Account + "/" + ws.Slice, true, nil
+	slice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(ctx, &corev1.ResolveSliceRequest{
+		Ref: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+	})
+	if err != nil {
+		return "", "", false, nil, nil, err
+	}
+	return rootPath, ws.Account + "/" + ws.Slice, true, nil, slice, nil
+}
+
+func (r Runner) explicitShellScope(ctx context.Context, conn *grpc.ClientConn, sliceRef string) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
+	ref, err := parseSliceRef(sliceRef)
+	if err != nil {
+		return "", "", false, nil, nil, err
+	}
+	slice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		return "", "", false, nil, nil, err
+	}
+	if slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return "", "", false, nil, nil, fmt.Errorf("slice %s/%s has no included paths", ref.Account, ref.Slice)
+	}
+	rootPath = "/"
+	return rootPath, ref.Account + "/" + ref.Slice, true, nil, slice, nil
+}
+
+func shellProjectionRoots(sliceRef string, slice *corev1.Slice, workspaceScoped bool) ([]string, error) {
+	if strings.TrimSpace(sliceRef) == "" && workspaceScoped {
+		return nil, nil
+	}
+	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
+		return nil, nil
+	}
+	roots := make([]string, 0, len(slice.Definition.IncludedPaths))
+	for _, included := range slice.Definition.IncludedPaths {
+		root, err := canonicalIncludedRoot(included)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, root)
+	}
+	return roots, nil
+}
+
+func (r Runner) personalHomeShellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (string, map[string]*corev1.TreeEntry, error) {
+	slice, err := r.personalHomeSlice(ctx, cfg, conn)
+	if err != nil {
+		var cmdErr commandError
+		if errors.As(err, &cmdErr) && cmdErr.Code == "no_home_slice" {
+			return "", nil, nil
+		}
+		return "", nil, err
+	}
+	accountSlug := slice.Ref.Account
+	homeRoot := "/" + accountSlug
+	if slice.Definition != nil && len(slice.Definition.IncludedPaths) > 0 {
+		root, err := cleanShellGlobalPath(slice.Definition.IncludedPaths[0])
+		if err != nil {
+			return "", nil, err
+		}
+		homeRoot = root
+	}
+	return accountSlug + "/home", map[string]*corev1.TreeEntry{
+		homeRoot: &corev1.TreeEntry{
+			Path: homeRoot,
+			Name: path.Base(homeRoot),
+			Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY,
+		},
+	}, nil
+}
+
+func personalAccountSlugFromSubjectID(subjectID string) (string, bool) {
+	if !strings.HasPrefix(subjectID, "user_") {
+		return "", false
+	}
+	slug := strings.TrimPrefix(subjectID, "user_")
+	if slug == "" {
+		return "", false
+	}
+	return strings.ReplaceAll(slug, "_", "-"), true
+}
+
+func canonicalIncludedRoot(value string) (string, error) {
+	cleaned, err := cleanShellGlobalPath(value)
+	if err != nil {
+		return "", err
+	}
+	if cleaned == "/" {
+		return "", fmt.Errorf("workspace included path must not be repository root")
+	}
+	return cleaned, nil
 }
 
 type serverShell struct {
-	runner   Runner
-	stdout   io.Writer
-	stderr   io.Writer
-	repo     corev1.RepositoryServiceClient
-	root     string
-	cwd      string
-	commitID string
-	scope    string
-	scoped   bool
+	runner        Runner
+	stdout        io.Writer
+	stderr        io.Writer
+	repo          corev1.RepositoryServiceClient
+	mutator       *remoteFileMutator
+	root          string
+	cwd           string
+	commitID      string
+	scope         string
+	scoped        bool
+	syntheticDirs map[string]*corev1.TreeEntry
+	projection    []string
+	color         bool
+	stickyHeader  bool
+	headerActive  bool
 }
 
 func (s *serverShell) exec(ctx context.Context, line string) (bool, error) {
@@ -1195,10 +2430,103 @@ func (s *serverShell) exec(ctx context.Context, line string) (bool, error) {
 			return false, fmt.Errorf("usage: stat <path>")
 		}
 		return false, s.stat(ctx, fields[1])
+	case "mkdir":
+		if len(fields) != 2 {
+			return false, fmt.Errorf("usage: mkdir <path>")
+		}
+		p, err := s.resolve(fields[1])
+		if err != nil {
+			return false, err
+		}
+		return false, s.mutate(ctx, "mkdir", []*corev1.FileEdit{{Op: "mkdir", Path: p}})
+	case "touch":
+		if len(fields) != 2 {
+			return false, fmt.Errorf("usage: touch <file>")
+		}
+		return false, s.write(ctx, fields[1], nil)
+	case "write":
+		if len(fields) < 3 {
+			return false, fmt.Errorf("usage: write <file> <text>")
+		}
+		return false, s.write(ctx, fields[1], []byte(strings.Join(fields[2:], " ")))
+	case "mv":
+		if len(fields) != 3 {
+			return false, fmt.Errorf("usage: mv <old-path> <new-path>")
+		}
+		oldPath, err := s.resolve(fields[1])
+		if err != nil {
+			return false, err
+		}
+		newPath, err := s.resolve(fields[2])
+		if err != nil {
+			return false, err
+		}
+		return false, s.mutate(ctx, "mv", []*corev1.FileEdit{{Op: "rename", OldPath: oldPath, Path: newPath}})
+	case "rm":
+		if len(fields) != 2 {
+			return false, fmt.Errorf("usage: rm <path>")
+		}
+		p, err := s.resolve(fields[1])
+		if err != nil {
+			return false, err
+		}
+		return false, s.mutate(ctx, "rm", []*corev1.FileEdit{{Op: "delete", Path: p}})
 	default:
 		return false, fmt.Errorf("unknown command %q", fields[0])
 	}
 	return false, nil
+}
+
+func (s *serverShell) printHeader() {
+	if s.stickyHeader {
+		s.headerActive = true
+		fmt.Fprint(s.stdout, "\x1b[2J\x1b[H")
+		s.refreshHeader()
+		fmt.Fprint(s.stdout, "\x1b[4;r\x1b[4;1H")
+		return
+	}
+	fmt.Fprintf(s.stdout, "%s: %s @ %s\n", s.colorize(ansiGreen, "server shell"), s.scope, shortID(s.commitID))
+	fmt.Fprintf(s.stdout, "%s: %s\n", s.colorize(ansiDim, "cwd"), s.shellPath(s.cwd))
+	fmt.Fprintln(s.stdout, s.colorize(ansiDim, "type help for commands"))
+}
+
+func (s *serverShell) refreshHeader() {
+	if !s.stickyHeader || !s.headerActive {
+		return
+	}
+	mode := "read-only"
+	if s.mutator != nil {
+		mode = "mutable"
+	}
+	scopeLabel := s.scope
+	if scopeLabel == "/" {
+		scopeLabel = "global root"
+	}
+	fmt.Fprint(s.stdout, "\x1b[s")
+	fmt.Fprint(s.stdout, "\x1b[r")
+	fmt.Fprint(s.stdout, "\x1b[1;1H\x1b[2K")
+	fmt.Fprintf(s.stdout, "%s  %s %s  %s %s  %s %s\n",
+		s.colorize(ansiGreen, "Gitslice shell"),
+		s.colorize(ansiDim, "slice:"), scopeLabel,
+		s.colorize(ansiDim, "commit:"), shortID(s.commitID),
+		s.colorize(ansiDim, "mode:"), mode)
+	fmt.Fprint(s.stdout, "\x1b[2K")
+	fmt.Fprintf(s.stdout, "%s %s  %s %s  %s\n",
+		s.colorize(ansiDim, "cwd:"), s.shellPath(s.cwd),
+		s.colorize(ansiDim, "root:"), s.shellPath(s.root),
+		s.colorize(ansiDim, "help: type help, exit to quit"))
+	fmt.Fprint(s.stdout, "\x1b[2K")
+	fmt.Fprintln(s.stdout, s.colorize(ansiDim, strings.Repeat("-", 72)))
+	fmt.Fprint(s.stdout, "\x1b[4;r")
+	fmt.Fprint(s.stdout, "\x1b[u")
+}
+
+func (s *serverShell) restoreHeader() {
+	if !s.stickyHeader || !s.headerActive {
+		return
+	}
+	fmt.Fprint(s.stdout, "\x1b[r\n")
+	s.headerActive = false
 }
 
 func (s *serverShell) printHelp() {
@@ -1208,6 +2536,12 @@ func (s *serverShell) printHelp() {
 	fmt.Fprintln(s.stdout, "  cd [path]        change server directory")
 	fmt.Fprintln(s.stdout, "  cat <file>       print a server file")
 	fmt.Fprintln(s.stdout, "  stat <path>      inspect server file or directory metadata")
+	fmt.Fprintln(s.stdout, "  mkdir <path>     create a server directory")
+	fmt.Fprintln(s.stdout, "  write <file> <text>")
+	fmt.Fprintln(s.stdout, "                   create or replace a server file")
+	fmt.Fprintln(s.stdout, "  touch <file>     create an empty server file")
+	fmt.Fprintln(s.stdout, "  mv <old> <new>   rename or move a server file or directory")
+	fmt.Fprintln(s.stdout, "  rm <path>        delete a server file or directory")
 	fmt.Fprintln(s.stdout, "  ref              print inspected commit id")
 	fmt.Fprintln(s.stdout, "  help             show this help")
 	fmt.Fprintln(s.stdout, "  exit, quit       leave the shell")
@@ -1224,7 +2558,7 @@ func (s *serverShell) cd(ctx context.Context, target string) error {
 	}
 	entry, err := s.resolveEntry(ctx, globalPath)
 	if err != nil {
-		return err
+		return s.lookupError(err, globalPath)
 	}
 	if entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
 		return fmt.Errorf("%s is not a directory", s.shellPath(globalPath))
@@ -1244,20 +2578,29 @@ func (s *serverShell) ls(ctx context.Context, target string) error {
 		return nil
 	}
 	if err != nil && (grpcstatus.Code(err) != codes.NotFound || globalPath != s.root) {
-		return err
+		return s.lookupError(err, globalPath)
 	}
 	list, err := s.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: s.commitID, Path: globalPath, PageSize: 1000})
+	var entries []*corev1.TreeEntry
 	if err != nil {
-		return err
+		if grpcstatus.Code(err) != codes.NotFound {
+			return err
+		}
+		if globalPath != s.root && s.projectionDirectoryEntry(globalPath) == nil {
+			return err
+		}
+	} else {
+		entries = append([]*corev1.TreeEntry(nil), list.Entries...)
 	}
-	entries := append([]*corev1.TreeEntry(nil), list.Entries...)
+	entries = s.projectDirectoryEntries(globalPath, entries)
+	entries = s.withSyntheticDirectoryEntries(globalPath, entries)
 	sort.Slice(entries, func(i, j int) bool {
 		return s.entryName(entries[i]) < s.entryName(entries[j])
 	})
 	for _, entry := range entries {
 		name := s.entryName(entry)
 		if entry.Kind == corev1.EntryKind_ENTRY_KIND_DIRECTORY {
-			name += "/"
+			name = s.colorize(ansiBlue, name+"/")
 		}
 		fmt.Fprintln(s.stdout, name)
 	}
@@ -1271,7 +2614,7 @@ func (s *serverShell) cat(ctx context.Context, target string) error {
 	}
 	entry, err := s.resolveEntry(ctx, globalPath)
 	if err != nil {
-		return err
+		return s.lookupError(err, globalPath)
 	}
 	if entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE {
 		return fmt.Errorf("%s is not a file", s.shellPath(globalPath))
@@ -1286,6 +2629,46 @@ func (s *serverShell) cat(ctx context.Context, target string) error {
 	if len(read.Data) == 0 || read.Data[len(read.Data)-1] != '\n' {
 		fmt.Fprintln(s.stdout)
 	}
+	return nil
+}
+
+func (s *serverShell) write(ctx context.Context, target string, data []byte) error {
+	p, err := s.resolve(target)
+	if err != nil {
+		return err
+	}
+	if s.mutator == nil {
+		return fmt.Errorf("mutations are unavailable in this shell scope")
+	}
+	cleaned, err := normalizeMutationPath(s.mutator.slice, p)
+	if err != nil {
+		return err
+	}
+	edit, err := s.runner.uploadFileEdit(authContext(ctx, s.mutator.cfg), s.mutator.conn, cleaned, data)
+	if err != nil {
+		return err
+	}
+	return s.mutate(ctx, "write", []*corev1.FileEdit{edit})
+}
+
+func (s *serverShell) mutate(ctx context.Context, operation string, edits []*corev1.FileEdit) error {
+	if s.mutator == nil {
+		return fmt.Errorf("mutations are unavailable in this shell scope")
+	}
+	var captured strings.Builder
+	originalStdout := s.mutator.runner.Stdout
+	s.mutator.runner.Stdout = &captured
+	err := s.mutator.apply(ctx, commandOptions{Quiet: true}, operation, edits)
+	s.mutator.runner.Stdout = originalStdout
+	if err != nil {
+		return err
+	}
+	ref, err := s.repo.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		return err
+	}
+	s.commitID = ref.CommitId
+	fmt.Fprintf(s.stdout, "%s %s @ %s\n", s.colorize(ansiGreen, "ok"), operationPastTense(operation), shortID(s.commitID))
 	return nil
 }
 
@@ -1305,7 +2688,7 @@ func (s *serverShell) stat(ctx context.Context, target string) error {
 	}
 	entry, err := s.resolveEntry(ctx, globalPath)
 	if err != nil {
-		return err
+		return s.lookupError(err, globalPath)
 	}
 	fmt.Fprintf(s.stdout, "path: %s\n", entry.Path)
 	fmt.Fprintf(s.stdout, "shell_path: %s\n", s.shellPath(entry.Path))
@@ -1328,9 +2711,24 @@ func (s *serverShell) stat(ctx context.Context, target string) error {
 	return nil
 }
 
+func (s *serverShell) lookupError(err error, globalPath string) error {
+	if grpcstatus.Code(err) == codes.NotFound {
+		return fmt.Errorf("path not found: %s", s.shellPath(globalPath))
+	}
+	return err
+}
+
 func (s *serverShell) resolveEntry(ctx context.Context, globalPath string) (*corev1.TreeEntry, error) {
 	resolved, err := s.repo.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: s.commitID, Path: globalPath})
 	if err != nil {
+		if grpcstatus.Code(err) == codes.NotFound {
+			if entry, ok := s.syntheticDirs[globalPath]; ok {
+				return entry, nil
+			}
+			if entry := s.projectionDirectoryEntry(globalPath); entry != nil {
+				return entry, nil
+			}
+		}
 		return nil, err
 	}
 	if resolved.Entry == nil {
@@ -1339,51 +2737,168 @@ func (s *serverShell) resolveEntry(ctx context.Context, globalPath string) (*cor
 	return resolved.Entry, nil
 }
 
+func (s *serverShell) withSyntheticDirectoryEntries(globalPath string, entries []*corev1.TreeEntry) []*corev1.TreeEntry {
+	if len(s.syntheticDirs) == 0 {
+		return entries
+	}
+	byPath := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry != nil {
+			byPath[entry.Path] = struct{}{}
+		}
+	}
+	for p, entry := range s.syntheticDirs {
+		if entry == nil || path.Dir(p) != globalPath {
+			continue
+		}
+		if _, ok := byPath[p]; ok {
+			continue
+		}
+		entries = append(entries, entry)
+		byPath[p] = struct{}{}
+	}
+	return entries
+}
+
+func (s *serverShell) projectDirectoryEntries(globalPath string, entries []*corev1.TreeEntry) []*corev1.TreeEntry {
+	if len(s.projection) == 0 {
+		return entries
+	}
+	byPath := make(map[string]struct{}, len(entries)+len(s.projection))
+	out := make([]*corev1.TreeEntry, 0, len(entries)+len(s.projection))
+	for _, entry := range entries {
+		if entry == nil || !s.pathInProjection(entry.Path) {
+			continue
+		}
+		out = append(out, entry)
+		byPath[entry.Path] = struct{}{}
+	}
+	for _, root := range s.projection {
+		childPath := projectionChildPath(globalPath, root)
+		if childPath == "" {
+			continue
+		}
+		if _, ok := byPath[childPath]; ok {
+			continue
+		}
+		out = append(out, &corev1.TreeEntry{
+			Path: childPath,
+			Name: path.Base(childPath),
+			Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY,
+		})
+		byPath[childPath] = struct{}{}
+	}
+	return out
+}
+
+func projectionChildPath(parent, includedRoot string) string {
+	parent = strings.TrimRight(parent, "/")
+	if parent == "" {
+		parent = "/"
+	}
+	if parent == includedRoot {
+		return ""
+	}
+	if !paths.Contains(parent, includedRoot) {
+		return ""
+	}
+	rel := strings.TrimPrefix(includedRoot, strings.TrimRight(parent, "/")+"/")
+	if parent == "/" {
+		rel = strings.TrimPrefix(includedRoot, "/")
+	}
+	if rel == "" {
+		return ""
+	}
+	child := strings.Split(rel, "/")[0]
+	if parent == "/" {
+		return "/" + child
+	}
+	return strings.TrimRight(parent, "/") + "/" + child
+}
+
+func (s *serverShell) projectionDirectoryEntry(globalPath string) *corev1.TreeEntry {
+	if len(s.projection) == 0 {
+		return nil
+	}
+	if globalPath == s.root {
+		return &corev1.TreeEntry{Path: globalPath, Name: path.Base(globalPath), Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY}
+	}
+	for _, root := range s.projection {
+		if paths.Contains(globalPath, root) {
+			return &corev1.TreeEntry{Path: globalPath, Name: path.Base(globalPath), Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY}
+		}
+	}
+	return nil
+}
+
+func (s *serverShell) pathInProjection(globalPath string) bool {
+	if len(s.projection) == 0 {
+		return true
+	}
+	if globalPath == s.root {
+		return true
+	}
+	for _, root := range s.projection {
+		if paths.Contains(root, globalPath) || paths.Contains(globalPath, root) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *serverShell) resolve(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || value == "." {
 		return s.cwd, nil
 	}
+	var candidate string
 	if !s.scoped {
-		var candidate string
 		if strings.HasPrefix(value, "/") {
 			candidate = value
 		} else {
 			candidate = strings.TrimRight(s.cwd, "/") + "/" + value
 		}
-		return cleanShellGlobalPath(candidate)
-	}
-	var candidate string
-	scopeRoot := "/" + s.scope
-	switch {
-	case value == scopeRoot || strings.HasPrefix(value, scopeRoot+"/"):
-		candidate = value
-	case strings.HasPrefix(value, "/"):
-		segments := strings.Split(strings.Trim(value, "/"), "/")
-		scopeSegments := strings.Split(s.scope, "/")
-		if len(segments) >= 2 && len(scopeSegments) > 0 && segments[0] == scopeSegments[0] {
+	} else {
+		scopeRoot := "/" + s.scope
+		switch {
+		case strings.HasPrefix(value, "/") && (value == s.root || strings.HasPrefix(value, strings.TrimRight(s.root, "/")+"/")):
 			candidate = value
-		} else {
-			candidate = strings.TrimRight(s.root, "/") + "/" + strings.TrimPrefix(value, "/")
+		case value == scopeRoot || strings.HasPrefix(value, scopeRoot+"/"):
+			candidate = value
+		case strings.HasPrefix(value, "/"):
+			segments := strings.Split(strings.Trim(value, "/"), "/")
+			scopeSegments := strings.Split(s.scope, "/")
+			if len(segments) >= 2 && len(scopeSegments) > 0 && segments[0] == scopeSegments[0] {
+				candidate = value
+			} else {
+				candidate = strings.TrimRight(s.root, "/") + "/" + strings.TrimPrefix(value, "/")
+			}
+		default:
+			candidate = strings.TrimRight(s.cwd, "/") + "/" + value
 		}
-	default:
-		candidate = strings.TrimRight(s.cwd, "/") + "/" + value
 	}
-	cleaned, err := paths.Canonical(path.Clean(candidate))
+	cleaned, err := cleanShellGlobalPath(candidate)
 	if err != nil {
 		return "", err
 	}
 	if !paths.Contains(s.root, cleaned) {
 		return "", userError("outside_slice", "path is outside the workspace slice: "+cleaned, "Use paths under "+s.shellPath(s.root)+".")
 	}
+	if !s.pathInProjection(cleaned) {
+		scopeKind := "workspace slice"
+		if s.root == "/" {
+			scopeKind = "attached slice"
+		}
+		return "", userError("outside_slice", "path is outside the "+scopeKind+": "+cleaned, "Use paths included by "+s.scope+".")
+	}
 	return cleaned, nil
 }
 
 func (s *serverShell) prompt() string {
 	if !s.scoped {
-		return fmt.Sprintf("gs %s> ", s.shellPath(s.cwd))
+		return fmt.Sprintf("%s %s> ", s.colorize(ansiDim, "gs"), s.colorize(ansiCyan, s.shellPath(s.cwd)))
 	}
-	return fmt.Sprintf("gs %s:%s> ", s.scope, s.shellPath(s.cwd))
+	return fmt.Sprintf("%s %s:%s> ", s.colorize(ansiDim, "gs"), s.colorize(ansiGreen, s.scope), s.colorize(ansiCyan, s.shellPath(s.cwd)))
 }
 
 func (s *serverShell) shellPath(globalPath string) string {
@@ -1424,6 +2939,17 @@ func (s *serverShell) entryName(entry *corev1.TreeEntry) string {
 		return entry.Name
 	}
 	return path.Base(entry.Path)
+}
+
+func (s *serverShell) colorize(code, value string) string {
+	return colorize(s.color, code, value)
+}
+
+func colorize(enabled bool, code, value string) string {
+	if !enabled {
+		return value
+	}
+	return code + value + ansiReset
 }
 
 func entryKindName(kind corev1.EntryKind) string {
@@ -1875,6 +3401,32 @@ func (r Runner) stderr() io.Writer {
 	return os.Stderr
 }
 
+func (r Runner) colorEnabled(opts commandOptions) bool {
+	if opts.NoColor || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	return isTerminal(r.stdout())
+}
+
+func (r Runner) stickyShellHeaderEnabled(opts commandOptions) bool {
+	if opts.NoColor || opts.Quiet || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	return isTerminal(r.stdout()) && isTerminal(r.stdin())
+}
+
+func isTerminal(w any) bool {
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
 func (r Runner) objectCache() (*clientcache.ObjectCache, error) {
 	root := os.Getenv("GITSLICE_CLIENT_CACHE_DIR")
 	if root == "" {
@@ -1931,6 +3483,13 @@ func (r Runner) runSchema() error {
 				"machine_output": []string{"server_addr", "subject_id"},
 			},
 			{
+				"use":            "gs auth signup --username <name>",
+				"summary":        "sign up through the browser approval flow",
+				"flags":          []string{"--username", "--server", "--web-url", "--no-browser"},
+				"writes_stdout":  true,
+				"machine_output": []string{"server_addr", "subject_id"},
+			},
+			{
 				"use":            "gs auth status",
 				"summary":        "show current authentication status after validating the local token",
 				"writes_stdout":  true,
@@ -1955,6 +3514,51 @@ func (r Runner) runSchema() error {
 				"summary":        "show workspace changes against the local base snapshot",
 				"writes_stdout":  true,
 				"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "changeset_id", "patchset_id"},
+			},
+			{
+				"use":            "gs slice create <account>/<slice>",
+				"summary":        "create a slice",
+				"args":           []string{"account/slice"},
+				"flags":          []string{"--include", "--visibility"},
+				"writes_stdout":  true,
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+			},
+			{
+				"use":            "gs slice list [account]",
+				"summary":        "list slices in an account",
+				"args":           []string{"account"},
+				"writes_stdout":  true,
+				"machine_output": []string{"account", "slices"},
+			},
+			{
+				"use":            "gs slice info <account>/<slice>",
+				"summary":        "show slice metadata",
+				"args":           []string{"account/slice"},
+				"writes_stdout":  true,
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+			},
+			{
+				"use":            "gs slice paths <account>/<slice>",
+				"summary":        "show slice included paths",
+				"args":           []string{"account/slice"},
+				"writes_stdout":  true,
+				"machine_output": []string{"ref", "included_paths"},
+			},
+			{
+				"use":            "gs slice update <account>/<slice>",
+				"summary":        "update slice included paths or visibility",
+				"args":           []string{"account/slice"},
+				"flags":          []string{"--include", "--visibility"},
+				"writes_stdout":  true,
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+			},
+			{
+				"use":            "gs slice delete <account>/<slice>",
+				"summary":        "delete a slice",
+				"args":           []string{"account/slice"},
+				"flags":          []string{"--yes"},
+				"writes_stdout":  true,
+				"machine_output": []string{"slice_id", "ref"},
 			},
 			{
 				"use":            "gs cs create",
@@ -1982,6 +3586,56 @@ func (r Runner) runSchema() error {
 				"machine_output": []string{"changeset_id", "patchset_id", "status"},
 			},
 			{
+				"use":            "gs fs ls [absolute-path]",
+				"summary":        "list a remote directory or file under the signed-in home slice",
+				"args":           []string{"absolute-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"path", "slice", "commit_id", "entries"},
+			},
+			{
+				"use":            "gs fs cat <absolute-path>",
+				"summary":        "print a remote file under the signed-in home slice",
+				"args":           []string{"absolute-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"path", "slice", "commit_id", "content_hash", "data_base64"},
+			},
+			{
+				"use":            "gs fs mkdir <absolute-path>",
+				"summary":        "create a remote directory under the signed-in home slice",
+				"args":           []string{"absolute-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
+			},
+			{
+				"use":            "gs fs write <absolute-path> (--text text|--stdin)",
+				"summary":        "create or replace a remote file under the signed-in home slice",
+				"args":           []string{"absolute-path"},
+				"flags":          []string{"--text", "--stdin"},
+				"writes_stdout":  true,
+				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
+			},
+			{
+				"use":            "gs fs touch <absolute-path>",
+				"summary":        "create an empty remote file under the signed-in home slice",
+				"args":           []string{"absolute-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
+			},
+			{
+				"use":            "gs fs mv <absolute-old-path> <absolute-new-path>",
+				"summary":        "rename or move a remote file or directory under the signed-in home slice",
+				"args":           []string{"absolute-old-path", "absolute-new-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
+			},
+			{
+				"use":            "gs fs rm <absolute-path>",
+				"summary":        "delete a remote file or directory under the signed-in home slice",
+				"args":           []string{"absolute-path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
+			},
+			{
 				"use":            "gs repo import github <owner/repo-or-url>",
 				"summary":        "import a GitHub repository under a mounted path",
 				"flags":          []string{"--mount", "--slice", "--mode", "--deep", "--max-commits", "--resume"},
@@ -2005,7 +3659,7 @@ func (r Runner) runSchema() error {
 			{
 				"use":           "gs shell",
 				"summary":       "browse server-side files",
-				"flags":         []string{"--commit"},
+				"flags":         []string{"--commit", "--slice"},
 				"writes_stdout": true,
 			},
 			{
@@ -2033,7 +3687,36 @@ func parseSliceRef(value string) (*corev1.SliceRef, error) {
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return nil, userError("invalid_slice_ref", "slice must be account/slice", "Pass a slice reference such as acme/payment.")
 	}
-	return &corev1.SliceRef{Account: parts[0], Slice: parts[1]}, nil
+	account, err := normalizeCLISlug(parts[0], "account")
+	if err != nil {
+		return nil, err
+	}
+	slug, err := normalizeCLISlug(parts[1], "slice")
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.SliceRef{Account: account, Slice: slug}, nil
+}
+
+func normalizeCLISlug(value, name string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, "_", "-")
+	if value == "" {
+		return "", userError("invalid_slug", name+" is required", "Use lower-case letters, numbers, '-' or '_'.")
+	}
+	if len(value) > 63 {
+		return "", userError("invalid_slug", name+" must be 63 characters or fewer", "Use a shorter "+name+".")
+	}
+	if strings.HasPrefix(value, "-") || strings.HasSuffix(value, "-") {
+		return "", userError("invalid_slug", name+" must not start or end with '-'", "Use lower-case letters, numbers, '-' or '_'.")
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return "", userError("invalid_slug", name+" may contain only letters, numbers, '-' or '_'", "Use lower-case letters, numbers, '-' or '_'.")
+	}
+	return value, nil
 }
 
 func workspaceRef(ws WorkspaceConfig) *corev1.WorkspaceRef {
@@ -2042,16 +3725,20 @@ func workspaceRef(ws WorkspaceConfig) *corev1.WorkspaceRef {
 
 func workspaceInputToGlobalPath(ws WorkspaceConfig, value string) (string, error) {
 	value = strings.TrimSpace(value)
+	if len(ws.IncludedPaths) == 0 {
+		return "", fmt.Errorf("workspace has no included paths")
+	}
 	if value == "" || value == "." {
-		if len(ws.IncludedPaths) == 0 {
-			return "", fmt.Errorf("workspace has no included paths")
-		}
-		return paths.Canonical(ws.IncludedPaths[0])
+		return canonicalIncludedRoot(ws.IncludedPaths[0])
 	}
 	var globalPath string
 	var err error
 	if strings.HasPrefix(value, "/") {
-		globalPath, err = paths.Canonical(value)
+		if path.Clean(value) == path.Clean(ws.IncludedPaths[0]) {
+			globalPath, err = cleanShellGlobalPath(value)
+		} else {
+			globalPath, err = paths.Canonical(value)
+		}
 	} else {
 		globalPath, err = paths.FromWorkspacePath(ws.IncludedPaths[0], value)
 	}
@@ -2104,6 +3791,26 @@ func defaultServerAddr() string {
 	return "127.0.0.1:50051"
 }
 
+func defaultWebURL() string {
+	if value := os.Getenv("GITSLICE_WEB_URL"); value != "" {
+		return value
+	}
+	return "http://127.0.0.1:5173"
+}
+
+func defaultGatewayURL() string {
+	if value := os.Getenv("GITSLICE_GATEWAY_URL"); value != "" {
+		return value
+	}
+	if value := os.Getenv("GITSLICE_HTTP_ADDR"); value != "" {
+		if strings.Contains(value, "://") {
+			return value
+		}
+		return "http://" + value
+	}
+	return "http://127.0.0.1:8082"
+}
+
 func requireSubcommand(name string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		_ = cmd.Help()
@@ -2126,6 +3833,15 @@ func exactArgs(want int, usage string) cobra.PositionalArgs {
 			return nil
 		}
 		return userError("invalid_args", fmt.Sprintf("expected %d argument(s), got %d", want, len(args)), "Usage: "+usage)
+	}
+}
+
+func maxArgs(max int, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) <= max {
+			return nil
+		}
+		return userError("invalid_args", fmt.Sprintf("expected at most %d argument(s), got %d", max, len(args)), "Usage: "+usage)
 	}
 }
 

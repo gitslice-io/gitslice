@@ -52,7 +52,7 @@ gs workspace ...
 gs slice ...
 gs status
 gs diff
-gs file ...
+gs fs ...
 gs cs ...
 gs repo ...
 gs commit ...
@@ -79,8 +79,19 @@ model can represent the operation cleanly.
 
 ```bash
 gs auth login --server <grpc-addr> --dev-user <name>
+gs auth signup --username <name>
 gs auth status
 ```
+
+`gs auth signup --username <name>` starts a fake browser-approved device flow
+for local development. The CLI starts a temporary localhost callback listener,
+opens or prints the static web approval URL, waits for the browser callback, and
+stores the returned bearer token in the user config. The approval page calls the
+generated HTTP JSON grpc-gateway endpoint for
+`FakeAccountService.ApproveSignup`; there is no custom signup HTTP handler in
+the Go server. Approval creates the personal account and its default
+`<name>/home` slice. The web page is a prototype approval screen, not a real
+identity-provider login.
 
 `gs auth status` reads the locally configured server and bearer token, validates
 that token with the server's authenticated auth-status RPC, and never prints the
@@ -101,6 +112,7 @@ command reports `"signed_in": false` and may include a non-secret `reason`.
 
 ```bash
 gs workspace init <account>/<slice>
+gs workspace init <username>/home
 gs workspace status
 gs workspace sync
 gs workspace hydrate <path>
@@ -131,8 +143,20 @@ The workspace stores:
 - server metadata cache
 
 Files for the bound slice are hydrated during workspace initialization. The CLI
-should preserve canonical account-rooted paths inside the workspace. Creating
-another workspace is the supported way to work on another slice.
+can initialize the default personal home slice after signup:
+
+```bash
+gs auth signup --username nic
+gs workspace init nic/home
+```
+
+The `home` slice slug is reserved for the default personal slice. Its included
+path is the user's account root, for example `nic/home` covers `/nic`. Custom
+personal slice slugs such as `tools` or `dotfiles` may cover narrower paths
+inside `/nic`, but not paths under another account.
+
+The CLI should preserve canonical account-rooted paths inside the workspace.
+Creating another workspace is the supported way to work on another slice.
 
 The client also has a global object cache outside any workspace:
 
@@ -169,10 +193,30 @@ the global client cache, not reread from the workspace path.
 ## 5. Slice Commands
 
 ```bash
-gs slice list
+gs slice create <account>/<slice> [--include /account/path] [--visibility account|public]
+gs slice list [account]
 gs slice info <account>/<slice>
 gs slice paths <account>/<slice>
+gs slice update <account>/<slice> [--include /account/path] [--visibility account|public]
+gs slice delete <account>/<slice> --yes
 ```
+
+`gs slice create` creates a native slice under an account where the signed-in
+subject is a member. If no `--include` flag is provided, the CLI defaults to
+`/<account>/<slice>`, except the reserved `home` slice default is
+`/<account>`. Repeating `--include` replaces the full included path list for
+create and update. The CLI also accepts comma-separated values in one
+`--include` flag and expands them before calling the API. Included paths must be
+canonical account-rooted paths inside the slice account and must not contain
+commas. Included paths for custom slices must already exist at the current
+global target ref; only `home` slices may include the account root itself.
+
+`gs slice list` lists slices for the given account. If no account is supplied,
+the CLI derives the personal account slug from a signed-up subject such as
+`user_nic`.
+
+`gs slice delete` is metadata-only and requires `--yes`. Deleting a slice with
+existing changesets is rejected by the server.
 
 `gs workspace init <account>/<slice>` binds the workspace to one slice:
 
@@ -197,6 +241,7 @@ user needs `acme/payment` and `acme/frontend`, they create two workspaces.
 
 ```bash
 gs shell
+gs shell --slice <account>/<slice>
 gs shell --commit <commit-id>
 ```
 
@@ -204,13 +249,29 @@ gs shell --commit <commit-id>
 run from any local directory after `gs auth login`; it does not require a
 Gitslice workspace and does not browse or mutate the local filesystem.
 
-When launched inside a workspace, the shell keeps the existing slice-rooted
-view: `/` means the workspace's bound slice root. When launched outside a
-workspace, `/` means the global repository root and paths such as
+`--slice <account>/<slice>` explicitly attaches the shell to a slice and keeps
+the canonical global path layout visible. For a custom slice that includes
+`/nic/tools`, `ls /` shows `nic/`, `ls /nic` shows `tools/`, and `pwd` inside
+that folder prints `/nic/tools` rather than remapping it to `/tools`. The shell
+may synthesize ancestor directories needed to navigate to included roots, but
+file reads and mutations outside the included roots are rejected even when they
+are under the same account. When the flag is omitted inside a workspace, the
+shell keeps the existing slice-rooted view for the workspace's bound slice. When
+the flag is omitted outside a workspace, the shell first tries to resolve the
+signed-in user's default personal home slice,
+`<username>/home`. If that slice exists, the shell labels the session with that
+slice and shows the user's account-root folder from `/`, for example `ls` shows
+`nic/` for `nic/home`. The home shell is still a slice projection: other
+account roots are filtered from listings and rejected on navigation or file
+operations. Empty home folders are visible from slice metadata even before the
+user has created files. Legacy development accounts without a personal home
+slice fall back to the global repository root, where paths such as
 `/acme/payment/app.go` are interpreted directly.
 
 By default, the shell reads the latest `refs/global/main` commit from the
-server. `--commit` pins inspection to a specific native commit.
+server. `--commit` pins inspection to a specific native commit. A pinned shell
+remains read-only even when `--slice` or a workspace provides an authoring
+slice.
 
 Initial commands:
 
@@ -220,6 +281,11 @@ ls [path]        list a server directory
 cd [path]        change server directory
 cat <file>       print a server file
 stat <path>      inspect server file or directory metadata
+mkdir <path>     create a server directory
+write <path> ... create or replace a server file
+touch <path>     create an empty server file
+mv <old> <new>   rename or move a server file or directory
+rm <path>        delete a server file or directory
 ref              print inspected commit id
 help             show shell commands
 exit, quit       leave the shell
@@ -229,10 +295,43 @@ Paths inside the shell are slice-rooted only when the shell is launched from a
 workspace. In that mode, a full canonical path such as `/acme/payment/app.go` is
 also accepted when it is inside the bound slice, and attempts to leave the bound
 slice are rejected locally before issuing server reads. Outside a workspace,
-paths are global repository paths.
+paths are global repository paths, with the personal home folder synthesized
+from the resolved home slice when present.
 
-The shell is read-only in the MVP. Local editing still happens in the hydrated
-workspace and is validated through `gs status`, `gs cs create`, and submit.
+The shell supports small server-side mutations against the current slice scope.
+Each mutation creates a single changeset, updates it with one file edit, submits
+it, waits for publish, and advances the shell to the new commit. Mutations are
+disabled when the shell has fallen back to the legacy global root because there
+is no authoring slice to validate against.
+
+Shell prompts should show the current scope and current path. On interactive
+terminals, the shell may pin a compact status header at the top of the screen
+with the attached slice, current commit, mode, root, and current path. Color and
+terminal-control output are disabled by `--no-color`, `--quiet`, JSON mode,
+non-terminal writers, and test/piped usage so scripted output stays stable.
+
+## 6.1 Absolute Filesystem Commands
+
+```bash
+gs fs ls /nic
+gs fs cat /nic/notes/readme.md
+gs fs mkdir /nic/notes
+gs fs write /nic/notes/readme.md --text "hello"
+gs fs write /nic/notes/readme.md --stdin
+gs fs touch /nic/notes/empty.txt
+gs fs mv /nic/notes/readme.md /nic/notes/today.md
+gs fs rm /nic/notes/today.md
+```
+
+`gs fs` commands use absolute global paths when a path is provided. They are
+intended for small remote reads and edits in the signed-in user's personal home
+slice. For username `nic`, every `gs fs` operation must stay under `/nic`;
+attempts to read or mutate `/alice`, `/acme`, or any other account root are
+rejected before issuing server calls that need the path, and mutations are also
+rejected by server-side changeset validation.
+
+Empty directories are first-class tree entries for these commands. Creating a
+directory does not create a placeholder file.
 
 ## 7. Status And Diff
 

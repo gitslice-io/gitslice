@@ -19,20 +19,24 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
+	SliceService_CreateSlice_FullMethodName           = "/gitslice.core.v1.SliceService/CreateSlice"
 	SliceService_ResolveSlice_FullMethodName          = "/gitslice.core.v1.SliceService/ResolveSlice"
 	SliceService_GetSlice_FullMethodName              = "/gitslice.core.v1.SliceService/GetSlice"
 	SliceService_ListSlices_FullMethodName            = "/gitslice.core.v1.SliceService/ListSlices"
 	SliceService_UpdateSliceDefinition_FullMethodName = "/gitslice.core.v1.SliceService/UpdateSliceDefinition"
+	SliceService_DeleteSlice_FullMethodName           = "/gitslice.core.v1.SliceService/DeleteSlice"
 )
 
 // SliceServiceClient is the client API for SliceService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SliceServiceClient interface {
+	CreateSlice(ctx context.Context, in *CreateSliceRequest, opts ...grpc.CallOption) (*Slice, error)
 	ResolveSlice(ctx context.Context, in *ResolveSliceRequest, opts ...grpc.CallOption) (*Slice, error)
 	GetSlice(ctx context.Context, in *GetSliceRequest, opts ...grpc.CallOption) (*Slice, error)
 	ListSlices(ctx context.Context, in *ListSlicesRequest, opts ...grpc.CallOption) (*ListSlicesResponse, error)
 	UpdateSliceDefinition(ctx context.Context, in *UpdateSliceDefinitionRequest, opts ...grpc.CallOption) (*SliceDefinition, error)
+	DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error)
 }
 
 type sliceServiceClient struct {
@@ -41,6 +45,15 @@ type sliceServiceClient struct {
 
 func NewSliceServiceClient(cc grpc.ClientConnInterface) SliceServiceClient {
 	return &sliceServiceClient{cc}
+}
+
+func (c *sliceServiceClient) CreateSlice(ctx context.Context, in *CreateSliceRequest, opts ...grpc.CallOption) (*Slice, error) {
+	out := new(Slice)
+	err := c.cc.Invoke(ctx, SliceService_CreateSlice_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *sliceServiceClient) ResolveSlice(ctx context.Context, in *ResolveSliceRequest, opts ...grpc.CallOption) (*Slice, error) {
@@ -79,20 +92,34 @@ func (c *sliceServiceClient) UpdateSliceDefinition(ctx context.Context, in *Upda
 	return out, nil
 }
 
+func (c *sliceServiceClient) DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error) {
+	out := new(DeleteSliceResponse)
+	err := c.cc.Invoke(ctx, SliceService_DeleteSlice_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SliceServiceServer is the server API for SliceService service.
 // All implementations should embed UnimplementedSliceServiceServer
 // for forward compatibility
 type SliceServiceServer interface {
+	CreateSlice(context.Context, *CreateSliceRequest) (*Slice, error)
 	ResolveSlice(context.Context, *ResolveSliceRequest) (*Slice, error)
 	GetSlice(context.Context, *GetSliceRequest) (*Slice, error)
 	ListSlices(context.Context, *ListSlicesRequest) (*ListSlicesResponse, error)
 	UpdateSliceDefinition(context.Context, *UpdateSliceDefinitionRequest) (*SliceDefinition, error)
+	DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error)
 }
 
 // UnimplementedSliceServiceServer should be embedded to have forward compatible implementations.
 type UnimplementedSliceServiceServer struct {
 }
 
+func (UnimplementedSliceServiceServer) CreateSlice(context.Context, *CreateSliceRequest) (*Slice, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateSlice not implemented")
+}
 func (UnimplementedSliceServiceServer) ResolveSlice(context.Context, *ResolveSliceRequest) (*Slice, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveSlice not implemented")
 }
@@ -105,6 +132,9 @@ func (UnimplementedSliceServiceServer) ListSlices(context.Context, *ListSlicesRe
 func (UnimplementedSliceServiceServer) UpdateSliceDefinition(context.Context, *UpdateSliceDefinitionRequest) (*SliceDefinition, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateSliceDefinition not implemented")
 }
+func (UnimplementedSliceServiceServer) DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteSlice not implemented")
+}
 
 // UnsafeSliceServiceServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to SliceServiceServer will
@@ -115,6 +145,24 @@ type UnsafeSliceServiceServer interface {
 
 func RegisterSliceServiceServer(s grpc.ServiceRegistrar, srv SliceServiceServer) {
 	s.RegisterService(&SliceService_ServiceDesc, srv)
+}
+
+func _SliceService_CreateSlice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSliceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).CreateSlice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_CreateSlice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).CreateSlice(ctx, req.(*CreateSliceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _SliceService_ResolveSlice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -189,6 +237,24 @@ func _SliceService_UpdateSliceDefinition_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_DeleteSlice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSliceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).DeleteSlice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_DeleteSlice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).DeleteSlice(ctx, req.(*DeleteSliceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SliceService_ServiceDesc is the grpc.ServiceDesc for SliceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -196,6 +262,10 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "gitslice.core.v1.SliceService",
 	HandlerType: (*SliceServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateSlice",
+			Handler:    _SliceService_CreateSlice_Handler,
+		},
 		{
 			MethodName: "ResolveSlice",
 			Handler:    _SliceService_ResolveSlice_Handler,
@@ -211,6 +281,10 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateSliceDefinition",
 			Handler:    _SliceService_UpdateSliceDefinition_Handler,
+		},
+		{
+			MethodName: "DeleteSlice",
+			Handler:    _SliceService_DeleteSlice_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

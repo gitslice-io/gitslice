@@ -171,7 +171,7 @@ func (v diffValidator) pathBase(ctx context.Context, baseCommitID, p string) (*c
 		Check:            "entry_fingerprint",
 		EntryFingerprint: postgres.MissingEntryFingerprint(),
 	}
-	entry, err := v.Repository.GetFile(ctx, baseCommitID, p)
+	entry, err := v.Repository.GetEntry(ctx, baseCommitID, p)
 	if errors.Is(err, postgres.ErrNotFound) {
 		return base, nil
 	}
@@ -179,11 +179,25 @@ func (v diffValidator) pathBase(ctx context.Context, baseCommitID, p string) (*c
 		return nil, grpcError(err)
 	}
 	base.Exists = true
-	base.EntryKind = "file"
-	base.Mode = entry.Mode
-	base.BlobId = entry.BlobID
-	base.ContentHash = entry.ContentHash
-	base.EntryFingerprint = postgres.FileEntryFingerprint(*entry)
+	base.EntryKind = entry.Kind
+	switch entry.Kind {
+	case "file":
+		base.Mode = entry.Mode
+		base.BlobId = entry.BlobID
+		base.ContentHash = entry.ContentHash
+		base.EntryFingerprint = postgres.FileEntryFingerprint(postgres.FileEntry{
+			Path:        entry.Path,
+			BlobID:      entry.BlobID,
+			ContentHash: entry.ContentHash,
+			Mode:        entry.Mode,
+			Size:        entry.Size,
+		})
+	case "directory":
+		base.TreeId = entry.TreeID
+		base.EntryFingerprint = postgres.DirectoryEntryFingerprint(entry.TreeID)
+	default:
+		base.EntryFingerprint = postgres.MissingEntryFingerprint()
+	}
 	return base, nil
 }
 
@@ -194,6 +208,13 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 	out := *edit
 	if out.Op == "" {
 		out.Op = "upsert"
+	}
+	switch out.Op {
+	case "add", "update":
+		out.Op = "upsert"
+	case "upsert", "delete", "rename", "mkdir":
+	default:
+		return nil, fmt.Errorf("unsupported file edit op %q", out.Op)
 	}
 	if out.Path != "" {
 		p, err := paths.Canonical(out.Path)
@@ -209,10 +230,10 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 		}
 		out.OldPath = p
 	}
-	if requireBlob && out.Op != "delete" && out.Op != "rename" && out.BlobId == "" {
+	if requireBlob && out.Op != "delete" && out.Op != "rename" && out.Op != "mkdir" && out.BlobId == "" {
 		return nil, fmt.Errorf("blob id is required for %s edit on %s", out.Op, out.Path)
 	}
-	if out.Mode == 0 && out.Op != "delete" {
+	if out.Mode == 0 && out.Op != "delete" && out.Op != "mkdir" {
 		out.Mode = 0o100644
 	}
 	return &out, nil
