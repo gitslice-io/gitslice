@@ -2284,3 +2284,40 @@ go build ./cmd/...
 git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
 ```
+
+## 2026-05-25: CLI Context And Auth Recovery
+
+Request:
+
+- start applying GitHub CLI design learnings to `gs`, PR by PR
+
+Implemented:
+
+- added `gs context` to show resolved cwd, config path, server, auth state,
+  nearest workspace, and active slice
+- made `gs context` validate auth status without exposing bearer tokens
+- converted unauthenticated RPC failures into stable CLI errors with recovery
+  hints that point users to `gs auth status` and, when possible, a
+  username-specific `gs auth signup --username <name>`
+- documented context precedence and invalid-token recovery in the CLI design
+
+Important decisions and learnings:
+
+- Context is the right first CLI UX foundation because later formatting,
+  config, RPC, and watch commands need users to understand which server,
+  workspace, and slice a command will target.
+- `gs context` reports the workspace found by walking up from the current
+  directory, matching the subdirectory behavior required for workspace-aware
+  commands.
+- Invalid tokens are a common local-dev failure after server/database resets,
+  so raw `Unauthenticated` RPC errors should become actionable CLI errors.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go
+go test ./internal/cli
+go build ./cmd/...
+git diff --check
+go run ./cmd/gs context --json
+```
