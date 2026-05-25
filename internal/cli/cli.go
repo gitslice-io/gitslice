@@ -181,6 +181,13 @@ type contextWorkspaceOutput struct {
 	CurrentPatchsetID  string   `json:"current_patchset_id,omitempty"`
 }
 
+type configOutput struct {
+	ConfigPath   string `json:"config_path"`
+	ServerAddr   string `json:"server_addr,omitempty"`
+	SubjectID    string `json:"subject_id,omitempty"`
+	TokenPresent bool   `json:"token_present"`
+}
+
 type hydrateResult struct {
 	FileCount   int `json:"file_count"`
 	CacheHits   int `json:"cache_hits"`
@@ -272,23 +279,32 @@ var cliHelpTopics = []helpTopic{
 		Summary: "Environment variables used by gs",
 		Body: `Environment
 
-GITSLICE_GRPC_ADDR
+GS_SERVER_ADDR
   Default gRPC server address for commands that accept --server.
 
-GITSLICE_SERVER_ADDR
-  Compatibility alias for GITSLICE_GRPC_ADDR when GITSLICE_GRPC_ADDR is unset.
+GITSLICE_GRPC_ADDR, GITSLICE_SERVER_ADDR
+  Compatibility aliases for GS_SERVER_ADDR when GS_SERVER_ADDR is unset.
 
-GITSLICE_WEB_URL
+GS_WEB_URL
   Default browser approval base URL for gs auth signup.
 
-GITSLICE_GATEWAY_URL
+GITSLICE_WEB_URL
+  Compatibility alias for GS_WEB_URL when GS_WEB_URL is unset.
+
+GS_GATEWAY_URL
   Default HTTP JSON gateway URL used by the signup approval page.
 
-GITSLICE_HTTP_ADDR
-  Compatibility source for the default gateway URL when GITSLICE_GATEWAY_URL is unset.
+GITSLICE_GATEWAY_URL
+  Compatibility alias for GS_GATEWAY_URL when GS_GATEWAY_URL is unset.
+
+GS_HTTP_ADDR, GITSLICE_HTTP_ADDR
+  Compatibility sources for the default gateway URL when no gateway URL is set.
+
+GS_CLIENT_CACHE_DIR
+  Override the shared local content-addressed object cache root.
 
 GITSLICE_CLIENT_CACHE_DIR
-  Override the shared local content-addressed object cache root.
+  Compatibility alias for GS_CLIENT_CACHE_DIR when GS_CLIENT_CACHE_DIR is unset.
 
 NO_COLOR
   Disable ANSI color output.
@@ -599,6 +615,36 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runContext(cmd.Context(), *opts)
 		},
 	}
+	configCmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage local CLI configuration",
+		RunE:  requireSubcommand("config"),
+	}
+	configListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List local CLI configuration",
+		Args:  noArgs("gs config list"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runConfigList(*opts)
+		},
+	}
+	configGetCmd := &cobra.Command{
+		Use:   "get <key>",
+		Short: "Get one local CLI configuration value",
+		Args:  exactArgs(1, "gs config get <key>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runConfigGet(*opts, args[0])
+		},
+	}
+	configSetCmd := &cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Set one local CLI configuration value",
+		Args:  exactArgs(2, "gs config set <key> <value>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runConfigSet(*opts, args[0], args[1])
+		},
+	}
+	configCmd.AddCommand(configListCmd, configGetCmd, configSetCmd)
 	diffNameOnly := false
 	diffStat := false
 	diffFrom := ""
@@ -1011,7 +1057,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, configCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -1417,6 +1463,108 @@ func (r Runner) writeContextText(out contextOutput) error {
 		fmt.Fprintf(r.Stdout, "active_slice: %s (%s)\n", out.ActiveSlice, out.ActiveSliceSource)
 	}
 	return nil
+}
+
+func (r Runner) runConfigList(opts commandOptions) error {
+	out, err := r.configOutput()
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "config_path: %s\n", out.ConfigPath)
+	if out.ServerAddr != "" {
+		fmt.Fprintf(r.Stdout, "server_addr: %s\n", out.ServerAddr)
+	}
+	if out.SubjectID != "" {
+		fmt.Fprintf(r.Stdout, "subject_id: %s\n", out.SubjectID)
+	}
+	fmt.Fprintf(r.Stdout, "token_present: %t\n", out.TokenPresent)
+	return nil
+}
+
+func (r Runner) runConfigGet(opts commandOptions, key string) error {
+	out, err := r.configOutput()
+	if err != nil {
+		return err
+	}
+	key = strings.TrimSpace(key)
+	var value any
+	switch key {
+	case "config_path":
+		value = out.ConfigPath
+	case "server_addr":
+		value = out.ServerAddr
+	case "subject_id":
+		value = out.SubjectID
+	case "token_present":
+		value = out.TokenPresent
+	case "token":
+		return userError("secret_config_key", "token is secret and cannot be printed", "Run gs auth status to inspect auth state without exposing the token.")
+	default:
+		return userError("unknown_config_key", "unknown config key "+key, "Supported keys: config_path, server_addr, subject_id, token_present.")
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{key: value})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "%v\n", value)
+	return nil
+}
+
+func (r Runner) runConfigSet(opts commandOptions, key, value string) error {
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return userError("invalid_config_value", "config value cannot be empty", "Pass a non-empty value.")
+	}
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		return err
+	}
+	switch key {
+	case "server_addr":
+		cfg.ServerAddr = value
+	case "subject_id", "token", "token_present", "config_path":
+		return userError("readonly_config_key", "config key "+key+" is read-only", "Use gs auth login or gs auth signup to update authentication state.")
+	default:
+		return userError("unknown_config_key", "unknown config key "+key, "Only server_addr can be set directly.")
+	}
+	if err := r.writeUserConfig(cfg); err != nil {
+		return err
+	}
+	out := configOutputFromUserConfig(r.userConfigPath(), cfg)
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "set %s\n", key)
+	return nil
+}
+
+func (r Runner) configOutput() (configOutput, error) {
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		return configOutput{}, err
+	}
+	return configOutputFromUserConfig(r.userConfigPath(), cfg), nil
+}
+
+func configOutputFromUserConfig(configPath string, cfg UserConfig) configOutput {
+	return configOutput{
+		ConfigPath:   configPath,
+		ServerAddr:   cfg.ServerAddr,
+		SubjectID:    cfg.SubjectID,
+		TokenPresent: cfg.Token != "",
+	}
 }
 
 func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string) error {
@@ -4863,15 +5011,29 @@ func (r Runner) loadLocalState() (UserConfig, WorkspaceConfig, WorkspaceState, e
 }
 
 func (r Runner) readUserConfig() (UserConfig, error) {
-	var cfg UserConfig
-	if err := readJSONFile(r.userConfigPath(), &cfg); err != nil {
+	if _, err := os.Stat(r.userConfigPath()); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return cfg, userError("not_logged_in", "not logged in", "Run gs auth login.")
+			return UserConfig{}, userError("not_logged_in", "not logged in", "Run gs auth login.")
 		}
+		return UserConfig{}, err
+	}
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
 		return cfg, err
 	}
 	if cfg.ServerAddr == "" || cfg.Token == "" {
 		return cfg, userError("invalid_user_config", "invalid user config", "Run gs auth login again.")
+	}
+	return cfg, nil
+}
+
+func (r Runner) readPartialUserConfig() (UserConfig, error) {
+	var cfg UserConfig
+	if err := readJSONFile(r.userConfigPath(), &cfg); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return cfg, nil
+		}
+		return cfg, err
 	}
 	return cfg, nil
 }
@@ -5018,7 +5180,10 @@ func isTerminal(w any) bool {
 }
 
 func (r Runner) objectCache() (*clientcache.ObjectCache, error) {
-	root := os.Getenv("GITSLICE_CLIENT_CACHE_DIR")
+	root := os.Getenv("GS_CLIENT_CACHE_DIR")
+	if root == "" {
+		root = os.Getenv("GITSLICE_CLIENT_CACHE_DIR")
+	}
 	if root == "" {
 		root = r.defaultObjectCacheRoot()
 	}
@@ -5106,6 +5271,26 @@ func (r Runner) runSchema() error {
 				"summary":        "show resolved server, auth, workspace, and active slice context",
 				"writes_stdout":  true,
 				"machine_output": []string{"cwd", "config_path", "server_addr", "signed_in", "subject_id", "auth_reason", "workspace", "active_slice", "active_slice_source"},
+			},
+			{
+				"use":            "gs config list",
+				"summary":        "list local CLI configuration without exposing secrets",
+				"writes_stdout":  true,
+				"machine_output": []string{"config_path", "server_addr", "subject_id", "token_present"},
+			},
+			{
+				"use":            "gs config get <key>",
+				"summary":        "get one local CLI configuration value",
+				"args":           []string{"key"},
+				"writes_stdout":  true,
+				"machine_output": []string{"<key>"},
+			},
+			{
+				"use":            "gs config set <key> <value>",
+				"summary":        "set one local CLI configuration value",
+				"args":           []string{"key", "value"},
+				"writes_stdout":  true,
+				"machine_output": []string{"config_path", "server_addr", "subject_id", "token_present"},
 			},
 			{
 				"use":            "gs workspace init <account>/<slice>",
@@ -5474,6 +5659,9 @@ func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 }
 
 func defaultServerAddr() string {
+	if value := os.Getenv("GS_SERVER_ADDR"); value != "" {
+		return value
+	}
 	if value := os.Getenv("GITSLICE_GRPC_ADDR"); value != "" {
 		return value
 	}
@@ -5484,6 +5672,9 @@ func defaultServerAddr() string {
 }
 
 func defaultWebURL() string {
+	if value := os.Getenv("GS_WEB_URL"); value != "" {
+		return value
+	}
 	if value := os.Getenv("GITSLICE_WEB_URL"); value != "" {
 		return value
 	}
@@ -5491,8 +5682,17 @@ func defaultWebURL() string {
 }
 
 func defaultGatewayURL() string {
+	if value := os.Getenv("GS_GATEWAY_URL"); value != "" {
+		return value
+	}
 	if value := os.Getenv("GITSLICE_GATEWAY_URL"); value != "" {
 		return value
+	}
+	if value := os.Getenv("GS_HTTP_ADDR"); value != "" {
+		if strings.Contains(value, "://") {
+			return value
+		}
+		return "http://" + value
 	}
 	if value := os.Getenv("GITSLICE_HTTP_ADDR"); value != "" {
 		if strings.Contains(value, "://") {
