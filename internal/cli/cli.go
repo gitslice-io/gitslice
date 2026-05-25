@@ -30,6 +30,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"github.com/itchyny/gojq"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -99,6 +100,7 @@ type workingFile struct {
 type commandOptions struct {
 	Format         string
 	JSONFields     []string
+	JQ             string
 	Template       string
 	Quiet          bool
 	NonInteractive bool
@@ -109,7 +111,7 @@ type commandOptions struct {
 }
 
 func (o commandOptions) jsonOutput() bool {
-	return o.Format == "json" || len(o.JSONFields) > 0 || o.Template != ""
+	return o.Format == "json" || len(o.JSONFields) > 0 || o.JQ != "" || o.Template != ""
 }
 
 type commandError struct {
@@ -373,6 +375,11 @@ Use --json=field,field to select top-level fields:
   gs auth status --json=signed_in,server_addr
   gs context --json=server_addr,active_slice
 
+Use --jq to filter structured command output with jq syntax:
+
+  gs auth status --jq .reason
+  gs context --jq '{slice: .active_slice, source: .active_slice_source}'
+
 Use --template to format structured command output with Go text/template over
 the same JSON-shaped fields:
 
@@ -380,7 +387,7 @@ the same JSON-shaped fields:
   gs context --template '{{.active_slice}} {{.active_slice_source}}'
 
 Diagnostics, progress, and errors are written to stderr. When a command is run
-with --json, --format json, or --template, error output has this shape:
+with --json, --format json, --jq, or --template, error output has this shape:
 
   {
     "error": {
@@ -413,7 +420,7 @@ disable ANSI color. Scripts should consume documented JSON fields from gs schema
   Authentication is missing, invalid, or rejected by the server.
 
 Commands may print additional structured error details on stderr when --json,
---format json, or --template is set.
+--format json, --jq, or --template is set.
 `,
 	},
 	{
@@ -556,9 +563,9 @@ func aliasExpansionIndex(args []string) int {
 			return i
 		}
 		switch {
-		case arg == "--format" || arg == "--json" || arg == "--template":
+		case arg == "--format" || arg == "--json" || arg == "--jq" || arg == "--template":
 			i++
-		case strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "--json=") || strings.HasPrefix(arg, "--template="):
+		case strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "--json=") || strings.HasPrefix(arg, "--jq=") || strings.HasPrefix(arg, "--template="):
 		case arg == "--quiet" || arg == "--non-interactive" || arg == "--no-color" || arg == "--verbose" || arg == "--debug" || arg == "--trace":
 		default:
 			return i
@@ -627,12 +634,16 @@ func (r Runner) rootCommand() *cobra.Command {
 			if opts.Format != "text" && opts.Format != "json" {
 				return userError("invalid_format", "invalid output format "+opts.Format, "Use --format text, --format json, or --json.")
 			}
+			if opts.JQ != "" && opts.Template != "" {
+				return userError("invalid_format", "cannot use --jq and --template together", "Use --jq to filter JSON or --template to format output.")
+			}
 			return nil
 		},
 	}
 	root.PersistentFlags().StringVar(&opts.Format, "format", "text", "output format: text or json")
 	root.PersistentFlags().StringVar(&jsonFlagValue, "json", "", "emit JSON output; optionally select comma-separated fields with --json=field,field")
 	root.PersistentFlags().Lookup("json").NoOptDefVal = "*"
+	root.PersistentFlags().StringVar(&opts.JQ, "jq", "", "filter structured output with a jq expression")
 	root.PersistentFlags().StringVar(&opts.Template, "template", "", "format structured output with a Go template")
 	root.PersistentFlags().BoolVar(&opts.Quiet, "quiet", false, "suppress non-essential text output")
 	root.PersistentFlags().BoolVar(&opts.NonInteractive, "non-interactive", false, "fail instead of prompting for input")
@@ -1217,7 +1228,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		Short: "Print the machine-readable CLI schema",
 		Args:  noArgs("gs schema"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSchema()
+			return r.runSchema(*opts)
 		},
 	}
 
@@ -5976,12 +5987,13 @@ func cliVersionInfo() versionOutput {
 	return out
 }
 
-func (r Runner) runSchema() error {
-	return writeJSON(r.Stdout, map[string]any{
+func (r Runner) runSchema(opts commandOptions) error {
+	return r.writeJSONOutput(opts, map[string]any{
 		"schema_version": "v1",
 		"global_flags": []map[string]any{
 			{"name": "--format", "values": []string{"text", "json"}, "default": "text", "description": "output format"},
 			{"name": "--json", "description": "emit JSON output; optional comma-separated fields use --json=field,field"},
+			{"name": "--jq", "description": "filter structured output with a jq expression"},
 			{"name": "--template", "description": "format structured output with a Go template over JSON fields"},
 			{"name": "--quiet", "description": "suppress non-essential text output"},
 			{"name": "--non-interactive", "description": "fail instead of prompting for input"},
@@ -6654,6 +6666,12 @@ func wantsJSON(args []string) bool {
 		if strings.HasPrefix(arg, "--json=") {
 			return true
 		}
+		if arg == "--jq" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--jq=") {
+			return true
+		}
 		if arg == "--template" {
 			return true
 		}
@@ -6801,10 +6819,61 @@ func (r Runner) writeJSONOutput(opts commandOptions, v any) error {
 		}
 		output = projected
 	}
+	if opts.JQ != "" {
+		return r.writeJQOutput(opts.JQ, output)
+	}
 	if opts.Template != "" {
 		return r.writeTemplateOutput(opts.Template, output)
 	}
 	return writeJSON(r.Stdout, output)
+}
+
+func (r Runner) writeJQOutput(rawQuery string, v any) error {
+	data, err := templateData(v)
+	if err != nil {
+		return err
+	}
+	query, err := gojq.Parse(rawQuery)
+	if err != nil {
+		return userError("invalid_jq", "invalid jq expression: "+err.Error(), "Use jq syntax over fields from gs schema.")
+	}
+	iter := query.Run(data)
+	for {
+		value, ok := iter.Next()
+		if !ok {
+			return nil
+		}
+		if err, ok := value.(error); ok {
+			return userError("jq_failed", "jq execution failed: "+err.Error(), "Check field names and value types, or run the command with --json.")
+		}
+		if err := writeJQValue(r.Stdout, value); err != nil {
+			return err
+		}
+	}
+}
+
+func writeJQValue(w io.Writer, value any) error {
+	switch v := value.(type) {
+	case string:
+		_, err := fmt.Fprintln(w, v)
+		return err
+	case nil:
+		_, err := fmt.Fprintln(w, "null")
+		return err
+	case bool:
+		_, err := fmt.Fprintln(w, v)
+		return err
+	case float64:
+		_, err := fmt.Fprintln(w, v)
+		return err
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(w, string(data))
+		return err
+	}
 }
 
 func (r Runner) writeTemplateOutput(rawTemplate string, v any) error {
