@@ -3147,6 +3147,54 @@ git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
 ```
 
+## 2026-05-26: Multi-User RPC Load Simulation
+
+Request:
+
+- run a realistic load/simulation test with multiple users against the RPC
+  endpoint, find bugs, and fix them
+
+Implemented:
+
+- added `TestLoadRPCMultiUserPersonalAccounts` under `tests/load`
+- the load test signs up many users through `FakeAccountService.ApproveSignup`,
+  verifies each personal home slice, seeds each home with a project directory,
+  creates an account-owned custom slice, checks cross-account isolation, writes
+  files through the custom slice, verifies `ReadFile`, `ListDirectory`, and
+  slice-scoped `ListCommits`, then runs storage integrity verification
+- changed custom-slice directory projection to walk projected tree entries
+  instead of only projected files, preserving empty directories in projected
+  `ListDirectory` responses
+- fixed directory path-head refresh during publish so directory fingerprints
+  are updated to the actual committed tree after file changes below them
+- updated integrity verification to understand both file and directory
+  path-head rows
+- added a non-load PostgreSQL regression test for repeated `mkdir` on an
+  existing directory after a file was created below it
+
+Important decisions and learnings:
+
+- the multi-user RPC simulation first exposed that custom slice projections hid
+  empty directories because the projection was built from `ListFiles`
+- after fixing projection, the same simulation exposed a stale directory
+  path-head bug: a submitted `mkdir` reserved the directory as empty, but
+  publish did not refresh the directory fingerprint after adding children
+- path-head refresh now includes changed paths and their ancestors after each
+  published commit; deleted paths update matching descendant path-head rows as
+  deleted to avoid stale subtree heads
+
+Verification:
+
+```bash
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_RPC_USERS=6 GITSLICE_LOAD_RPC_OPS_PER_USER=3 go test -count=1 -tags load ./tests/load -run TestLoadRPCMultiUserPersonalAccounts -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres -run 'TestStorageRefreshesDirectoryPathHeadsAfterPublish|TestStorageIntegrityVerifierPassesAfterPublish' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_RPC_USERS=16 GITSLICE_LOAD_RPC_OPS_PER_USER=5 go test -count=1 -tags load ./tests/load -run TestLoadRPCMultiUserPersonalAccounts -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres ./tests/rpc ./tests/cli -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 GITSLICE_LOAD_RPC_USERS=8 GITSLICE_LOAD_RPC_OPS_PER_USER=4 go test -count=1 -tags load ./tests/load -v
+```
+
 ## 2026-05-26: Collation-Stable History Prefix Filters
 
 Request:

@@ -303,13 +303,9 @@ func (d *DB) verifyPathHeadsAgainstCurrentRef(ctx context.Context, addFinding fu
 	if err != nil {
 		return 0, err
 	}
-	files, err := d.repository.ListFiles(ctx, ref.CommitId, "/")
-	if err != nil {
+	entriesByPath := map[string]TreeEntry{}
+	if err := d.collectCurrentTreeEntries(ctx, ref.CommitId, "/", entriesByPath); err != nil {
 		return 0, err
-	}
-	filesByPath := make(map[string]FileEntry, len(files))
-	for _, file := range files {
-		filesByPath[file.Path] = file
 	}
 
 	rows, err := d.db.QueryContext(ctx, `
@@ -335,29 +331,52 @@ func (d *DB) verifyPathHeadsAgainstCurrentRef(ctx context.Context, addFinding fu
 		return 0, err
 	}
 
-	for path, file := range filesByPath {
+	for path, entry := range entriesByPath {
 		head, ok := heads[path]
 		if !ok {
-			addFinding("path_head_missing", fmt.Sprintf("current file %s has no path_head", path))
+			addFinding("path_head_missing", fmt.Sprintf("current path %s has no path_head", path))
 			continue
 		}
 		if !head.Exists {
-			addFinding("path_head_false_missing", fmt.Sprintf("current file %s has a deleted path_head", path))
+			addFinding("path_head_false_missing", fmt.Sprintf("current path %s has a deleted path_head", path))
 			continue
 		}
-		if got, want := head.EntryFingerprint, FileEntryFingerprint(file); got != want {
+		if got, want := head.EntryFingerprint, pathHeadFromTreeEntry(entry).EntryFingerprint; got != want {
 			addFinding("path_head_fingerprint_mismatch", fmt.Sprintf("path %s fingerprint %s, want %s", path, got, want))
+		}
+		if entry.Kind == "file" && (head.BlobID != entry.BlobID || head.ContentHash != entry.ContentHash || head.Mode != entry.Mode || head.Size != entry.Size) {
+			addFinding("path_head_file_metadata_mismatch", fmt.Sprintf("path %s metadata mismatch", path))
+		}
+		if entry.Kind == "directory" && (head.BlobID != "" || head.ContentHash != "" || head.Mode != 0 || head.Size != 0) {
+			addFinding("path_head_directory_metadata_present", fmt.Sprintf("directory path_head %s has file metadata", path))
 		}
 	}
 	for path, head := range heads {
 		if !head.Exists {
 			continue
 		}
-		if _, ok := filesByPath[path]; !ok {
-			addFinding("path_head_stale", fmt.Sprintf("path_head %s exists but current ref has no file", path))
+		if _, ok := entriesByPath[path]; !ok {
+			addFinding("path_head_stale", fmt.Sprintf("path_head %s exists but current ref has no path", path))
 		}
 	}
 	return count, nil
+}
+
+func (d *DB) collectCurrentTreeEntries(ctx context.Context, commitID, p string, out map[string]TreeEntry) error {
+	entries, err := d.repository.ListDirectory(ctx, commitID, p)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		out[entry.Path] = entry
+		if entry.Kind != "directory" {
+			continue
+		}
+		if err := d.collectCurrentTreeEntries(ctx, commitID, entry.Path, out); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func scanPathHead(row scanner) (PathHead, error) {
@@ -379,11 +398,6 @@ func scanPathHead(row scanner) (PathHead, error) {
 	}
 	if size.Valid {
 		head.Size = size.Int64
-	}
-	if head.Exists {
-		if head.BlobID == "" || head.ContentHash == "" || head.Mode == 0 {
-			return PathHead{}, fmt.Errorf("path_head %s exists with incomplete metadata", head.Path)
-		}
 	}
 	if strings.TrimSpace(head.Path) == "" {
 		return PathHead{}, fmt.Errorf("path_head has empty path")

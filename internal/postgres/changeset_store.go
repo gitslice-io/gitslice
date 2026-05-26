@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -530,6 +532,9 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		if err := insertCommitChangedPathsTx(ctx, tx, targetRef, commitID, patchset.ChangedPaths, now); err != nil {
 			return 0, err
 		}
+		if err := s.refreshPathHeadsForCommitTx(ctx, tx, commitID, row.ChangesetID, row.PatchsetID, patchset.ChangedPaths); err != nil {
+			return 0, err
+		}
 		if err := s.applyEntityHistoryTx(ctx, tx, targetRef, baseCommitID, commitID, patchset.FileEdits, now); err != nil {
 			return 0, err
 		}
@@ -591,6 +596,42 @@ func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, comm
 		}
 	}
 	return nil
+}
+
+func (s *ChangesetStore) refreshPathHeadsForCommitTx(ctx context.Context, tx *sql.Tx, commitID, changesetID, patchsetID string, changedPaths []string) error {
+	for _, p := range pathHeadRefreshPaths(changedPaths) {
+		entry, err := s.repository.getEntryAtCommitTx(ctx, tx, commitID, p)
+		if errors.Is(err, ErrNotFound) {
+			if err := markPathHeadDeletedRecursiveTx(ctx, tx, p, changesetID, patchsetID); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(*entry), changesetID, patchsetID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pathHeadRefreshPaths(changedPaths []string) []string {
+	seen := map[string]struct{}{}
+	for _, p := range changedPaths {
+		p = strings.TrimRight(p, "/")
+		for p != "" && p != "/" && p != "." {
+			seen[p] = struct{}{}
+			p = path.Dir(p)
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *ChangesetStore) applyEntityHistoryTx(ctx context.Context, tx *sql.Tx, targetRef, baseCommitID, commitID string, edits []*corev1.FileEdit, committedAt time.Time) error {
@@ -1263,6 +1304,46 @@ func upsertPathHeadTx(ctx context.Context, tx *sql.Tx, head PathHead, changesetI
 		    updated_at = now()
 	`, head.Path, head.Exists, head.EntryFingerprint, blobID, contentHash, mode, size, acceptedChangesetID, acceptedPatchsetID)
 	return err
+}
+
+func markPathHeadDeletedRecursiveTx(ctx context.Context, tx *sql.Tx, p, changesetID, patchsetID string) error {
+	var acceptedChangesetID, acceptedPatchsetID any
+	if changesetID != "" {
+		acceptedChangesetID = changesetID
+	}
+	if patchsetID != "" {
+		acceptedPatchsetID = patchsetID
+	}
+	_, err := tx.ExecContext(ctx, `
+		update path_heads
+		set exists = false,
+		    entry_fingerprint = $1,
+		    blob_id = null,
+		    content_hash = null,
+		    mode = null,
+		    size = null,
+		    accepted_changeset_id = $2,
+		    accepted_patchset_id = $3,
+		    updated_at = now()
+		where path = $4 or path like $5
+		escape '\'
+	`, MissingEntryFingerprint(), acceptedChangesetID, acceptedPatchsetID, p, pathHeadLikePrefix(p))
+	if err != nil {
+		return err
+	}
+	return upsertPathHeadTx(ctx, tx, PathHead{
+		Path:             p,
+		Exists:           false,
+		EntryFingerprint: MissingEntryFingerprint(),
+	}, changesetID, patchsetID)
+}
+
+func pathHeadLikePrefix(p string) string {
+	prefix := strings.TrimRight(p, "/") + "/"
+	prefix = strings.ReplaceAll(prefix, `\`, `\\`)
+	prefix = strings.ReplaceAll(prefix, `%`, `\%`)
+	prefix = strings.ReplaceAll(prefix, `_`, `\_`)
+	return prefix + "%"
 }
 
 func insertInitialPathHeadTx(ctx context.Context, tx *sql.Tx, head PathHead, changesetID, patchsetID string) error {

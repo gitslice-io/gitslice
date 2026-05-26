@@ -131,10 +131,10 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 // Authorization is checked against the slice account before resolving the slice
 // definition. The requested path is normalized with repositoryReadPath so
 // ancestor directories such as "/" and "/acme" remain browsable; the slice
-// definition's included paths are validated separately by sliceProjectedFiles.
-// The returned entries are synthesized from files reachable through the slice
-// because a custom slice may include multiple disjoint prefixes that do not map
-// to one contiguous tree node.
+// definition's included paths are validated separately by sliceProjectedEntries.
+// The returned entries are synthesized from tree entries reachable through the
+// slice because a custom slice may include multiple disjoint prefixes that do
+// not map to one contiguous tree node.
 func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID string, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
 	if req.Slice.Account == "" || req.Slice.Slice == "" {
 		return nil, status.Error(codes.InvalidArgument, "slice ref is required")
@@ -150,34 +150,30 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	files, err := s.sliceProjectedFiles(ctx, slice, req.CommitId)
+	entries, err := s.sliceProjectedEntries(ctx, slice, req.CommitId)
 	if err != nil {
 		return nil, err
 	}
-	return &corev1.ListDirectoryResponse{Entries: immediateDirectoryEntries(p, files)}, nil
+	return &corev1.ListDirectoryResponse{Entries: immediateProjectedDirectoryEntries(p, entries)}, nil
 }
 
-// sliceProjectedFiles returns the file set visible through a slice at a commit.
+// sliceProjectedEntries returns the tree entries visible through a slice at a
+// commit.
 //
 // Each included path is normalized with repositoryReadPath so home slices can
-// project an account root such as /nic. Files can appear under more than one
+// project an account root such as /nic. Entries can appear under more than one
 // included path if definitions overlap, so results are keyed by full repository
-// path before sorting. Keeping this helper file-based lets listSliceDirectory
-// project disjoint custom slices without depending on the physical tree shape
-// below a single root.
-func (s *RepositoryService) sliceProjectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]storage.FileEntry, error) {
-	byPath := map[string]storage.FileEntry{}
+// path before sorting. Walking tree entries rather than only files preserves
+// empty directories in custom-slice projections.
+func (s *RepositoryService) sliceProjectedEntries(ctx context.Context, slice *corev1.Slice, commitID string) ([]storage.TreeEntry, error) {
+	byPath := map[string]storage.TreeEntry{}
 	for _, prefix := range slice.Definition.IncludedPaths {
 		canonical, err := repositoryReadPath(prefix)
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
-		files, err := s.Repository.ListFiles(ctx, commitID, canonical)
-		if err != nil {
-			return nil, grpcError(err)
-		}
-		for _, file := range files {
-			byPath[file.Path] = file
+		if err := s.collectProjectedEntries(ctx, commitID, canonical, byPath); err != nil {
+			return nil, err
 		}
 	}
 	paths := make([]string, 0, len(byPath))
@@ -185,11 +181,39 @@ func (s *RepositoryService) sliceProjectedFiles(ctx context.Context, slice *core
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	out := make([]storage.FileEntry, 0, len(paths))
+	out := make([]storage.TreeEntry, 0, len(paths))
 	for _, p := range paths {
 		out = append(out, byPath[p])
 	}
 	return out, nil
+}
+
+func (s *RepositoryService) collectProjectedEntries(ctx context.Context, commitID, p string, byPath map[string]storage.TreeEntry) error {
+	entry, err := s.Repository.GetEntry(ctx, commitID, p)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return grpcError(err)
+	}
+	byPath[entry.Path] = *entry
+	if entry.Kind != "directory" {
+		return nil
+	}
+	children, err := s.Repository.ListDirectory(ctx, commitID, entry.Path)
+	if err != nil {
+		return grpcError(err)
+	}
+	for _, child := range children {
+		byPath[child.Path] = child
+		if child.Kind != "directory" {
+			continue
+		}
+		if err := s.collectProjectedEntries(ctx, commitID, child.Path, byPath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
@@ -747,6 +771,61 @@ func immediateDirectoryEntries(prefix string, files []storage.FileEntry) []*core
 	return out
 }
 
+// immediateProjectedDirectoryEntries reconstructs direct child entries for
+// prefix from a projected tree-entry list. Unlike the file-only projection
+// helper, this preserves empty directories that are explicitly present in the
+// repository tree.
+func immediateProjectedDirectoryEntries(prefix string, entries []storage.TreeEntry) []*corev1.TreeEntry {
+	prefix = strings.TrimRight(prefix, "/")
+	if prefix == "" {
+		prefix = "/"
+	}
+	byPath := map[string]*corev1.TreeEntry{}
+	for _, entry := range entries {
+		rel, ok := relativeDirectoryPath(prefix, entry.Path)
+		if !ok {
+			continue
+		}
+		if rel == "" {
+			if entry.Kind != "directory" {
+				byPath[entry.Path] = treeEntryFromRepositoryEntry(entry)
+			}
+			continue
+		}
+		parts := strings.Split(rel, "/")
+		childPath := strings.TrimRight(prefix, "/") + "/" + parts[0]
+		if prefix == "/" {
+			childPath = "/" + parts[0]
+		}
+		if len(parts) == 1 {
+			child := entry
+			if child.Kind == "directory" {
+				child.TreeID = projectedDirectoryTreeID(childPath, entries)
+			}
+			byPath[childPath] = treeEntryFromRepositoryEntry(child)
+			continue
+		}
+		if _, ok := byPath[childPath]; !ok {
+			byPath[childPath] = &corev1.TreeEntry{
+				Path:   childPath,
+				Name:   parts[0],
+				Kind:   corev1.EntryKind_ENTRY_KIND_DIRECTORY,
+				TreeId: projectedDirectoryTreeID(childPath, entries),
+			}
+		}
+	}
+	paths := make([]string, 0, len(byPath))
+	for p := range byPath {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	out := make([]*corev1.TreeEntry, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, byPath[p])
+	}
+	return out
+}
+
 // relativeDirectoryPath returns filePath relative to prefix when filePath is
 // exactly prefix or is contained below prefix.
 //
@@ -769,6 +848,77 @@ func relativeDirectoryPath(prefix, filePath string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimPrefix(filePath, prefix+"/"), true
+}
+
+func projectedDirectoryTreeID(prefix string, entries []storage.TreeEntry) string {
+	uiEntries := immediateProjectedDirectoryEntriesNoTree(prefix, entries)
+	idEntries := make([]objectid.TreeEntry, 0, len(uiEntries))
+	for _, entry := range uiEntries {
+		idEntries = append(idEntries, objectid.TreeEntry{
+			Name:        entry.Name,
+			Kind:        projectedObjectKind(entry.Kind),
+			Mode:        entry.Mode,
+			BlobID:      entry.BlobId,
+			Size:        entry.Size,
+			ContentHash: entry.ContentHash,
+		})
+	}
+	return objectid.TreeID(idEntries)
+}
+
+func immediateProjectedDirectoryEntriesNoTree(prefix string, entries []storage.TreeEntry) []*corev1.TreeEntry {
+	prefix = strings.TrimRight(prefix, "/")
+	if prefix == "" {
+		prefix = "/"
+	}
+	byPath := map[string]*corev1.TreeEntry{}
+	for _, entry := range entries {
+		rel, ok := relativeDirectoryPath(prefix, entry.Path)
+		if !ok {
+			continue
+		}
+		if rel == "" {
+			if entry.Kind != "directory" {
+				byPath[entry.Path] = treeEntryFromRepositoryEntry(entry)
+			}
+			continue
+		}
+		parts := strings.Split(rel, "/")
+		childPath := strings.TrimRight(prefix, "/") + "/" + parts[0]
+		if prefix == "/" {
+			childPath = "/" + parts[0]
+		}
+		if len(parts) == 1 {
+			byPath[childPath] = treeEntryFromRepositoryEntry(entry)
+			continue
+		}
+		if _, ok := byPath[childPath]; !ok {
+			byPath[childPath] = &corev1.TreeEntry{Path: childPath, Name: parts[0], Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY}
+		}
+	}
+	paths := make([]string, 0, len(byPath))
+	for p := range byPath {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	out := make([]*corev1.TreeEntry, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, byPath[p])
+	}
+	return out
+}
+
+func projectedObjectKind(kind corev1.EntryKind) string {
+	switch kind {
+	case corev1.EntryKind_ENTRY_KIND_FILE:
+		return "file"
+	case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
+		return "directory"
+	case corev1.EntryKind_ENTRY_KIND_SYMLINK:
+		return "symlink"
+	default:
+		return "unspecified"
+	}
 }
 
 func directoryTreeIDFromEntries(entries []storage.TreeEntry) string {
