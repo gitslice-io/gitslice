@@ -8,14 +8,14 @@ import (
 	"strings"
 
 	"github.com/gitslice-io/gitslice/internal/authctx"
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type FakeAccountService struct {
-	Auth *postgres.AuthStore
+	Auth storage.AuthStore
 }
 
 type AuthService struct{}

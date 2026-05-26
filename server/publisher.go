@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 )
 
 const defaultPublishInterval = 25 * time.Millisecond
 
-func runPublisher(ctx context.Context, changesets *postgres.ChangesetStore, batchSize int, interval time.Duration) {
+func runPublisher(ctx context.Context, changesets storage.ChangesetStore, batchSize int, interval time.Duration) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {

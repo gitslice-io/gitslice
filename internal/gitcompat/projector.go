@@ -16,7 +16,7 @@ import (
 
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
@@ -25,9 +25,9 @@ type ObjectStore interface {
 }
 
 type Projector struct {
-	auth        *postgres.AuthStore
-	repository  *postgres.RepositoryStore
-	slices      *postgres.SliceStore
+	auth        storage.AuthStore
+	repository  storage.RepositoryStore
+	slices      storage.SliceStore
 	objectStore ObjectStore
 	cacheRoot   string
 
@@ -36,9 +36,9 @@ type Projector struct {
 }
 
 type ProjectorStores struct {
-	Auth       *postgres.AuthStore
-	Repository *postgres.RepositoryStore
-	Slices     *postgres.SliceStore
+	Auth       storage.AuthStore
+	Repository storage.RepositoryStore
+	Slices     storage.SliceStore
 }
 
 type Projection struct {
@@ -87,7 +87,7 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	if err != nil {
 		return "", nil, err
 	}
-	ref, err := p.repository.GetRef(ctx, postgres.DefaultTargetRef)
+	ref, err := p.repository.GetRef(ctx, storage.DefaultTargetRef)
 	if err != nil {
 		return "", nil, err
 	}
@@ -184,8 +184,8 @@ func (p *Projector) rebuild(ctx context.Context, repoPath string, slice *corev1.
 	return writeProjection(repoPath, projection)
 }
 
-func (p *Projector) projectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]postgres.FileEntry, error) {
-	byPath := map[string]postgres.FileEntry{}
+func (p *Projector) projectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]storage.FileEntry, error) {
+	byPath := map[string]storage.FileEntry{}
 	for _, prefix := range slice.Definition.IncludedPaths {
 		canonical, err := paths.Canonical(prefix)
 		if err != nil {
@@ -199,7 +199,7 @@ func (p *Projector) projectedFiles(ctx context.Context, slice *corev1.Slice, com
 			byPath[file.Path] = file
 		}
 	}
-	out := make([]postgres.FileEntry, 0, len(byPath))
+	out := make([]storage.FileEntry, 0, len(byPath))
 	for _, file := range byPath {
 		out = append(out, file)
 	}
@@ -207,7 +207,7 @@ func (p *Projector) projectedFiles(ctx context.Context, slice *corev1.Slice, com
 	return out, nil
 }
 
-func (p *Projector) writeFile(ctx context.Context, worktree string, file postgres.FileEntry) error {
+func (p *Projector) writeFile(ctx context.Context, worktree string, file storage.FileEntry) error {
 	rel := strings.TrimPrefix(file.Path, "/")
 	target := filepath.Join(worktree, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

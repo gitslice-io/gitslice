@@ -6,14 +6,14 @@ import (
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type BlobService struct {
-	Blobs       *postgres.BlobStore
+	Blobs       storage.BlobStore
 	ObjectStore ObjectStore
 }
 

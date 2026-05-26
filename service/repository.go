@@ -18,18 +18,18 @@ import (
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type RepositoryService struct {
-	Auth        *postgres.AuthStore
-	Blobs       *postgres.BlobStore
-	Changesets  *postgres.ChangesetStore
-	Repository  *postgres.RepositoryStore
-	Slices      *postgres.SliceStore
+	Auth        storage.AuthStore
+	Blobs       storage.BlobStore
+	Changesets  storage.ChangesetStore
+	Repository  storage.RepositoryStore
+	Slices      storage.SliceStore
 	ObjectStore ObjectStore
 	validator   diffValidator
 }
@@ -41,7 +41,7 @@ func (s *RepositoryService) ResolvePath(ctx context.Context, req *corev1.Resolve
 	return resolvePath(ctx, s.Repository, req)
 }
 
-func resolvePath(ctx context.Context, repository *postgres.RepositoryStore, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
+func resolvePath(ctx context.Context, repository storage.RepositoryStore, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
 	p, err := repositoryReadPath(req.Path)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -62,7 +62,7 @@ func resolvePath(ctx context.Context, repository *postgres.RepositoryStore, req 
 		}}, nil
 	}
 	entry, err := repository.GetEntry(ctx, req.CommitId, p)
-	if errors.Is(err, postgres.ErrNotFound) {
+	if errors.Is(err, storage.ErrNotFound) {
 		return nil, status.Error(codes.NotFound, "path not found")
 	}
 	if err != nil {
@@ -165,8 +165,8 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 // path before sorting. Keeping this helper file-based lets listSliceDirectory
 // project disjoint custom slices without depending on the physical tree shape
 // below a single root.
-func (s *RepositoryService) sliceProjectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]postgres.FileEntry, error) {
-	byPath := map[string]postgres.FileEntry{}
+func (s *RepositoryService) sliceProjectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]storage.FileEntry, error) {
+	byPath := map[string]storage.FileEntry{}
 	for _, prefix := range slice.Definition.IncludedPaths {
 		canonical, err := repositoryReadPath(prefix)
 		if err != nil {
@@ -185,7 +185,7 @@ func (s *RepositoryService) sliceProjectedFiles(ctx context.Context, slice *core
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	out := make([]postgres.FileEntry, 0, len(paths))
+	out := make([]storage.FileEntry, 0, len(paths))
 	for _, p := range paths {
 		out = append(out, byPath[p])
 	}
@@ -199,7 +199,7 @@ func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRe
 	return readFile(ctx, s.Repository, s.ObjectStore, req)
 }
 
-func readFile(ctx context.Context, repository *postgres.RepositoryStore, objectStore ObjectStore, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
+func readFile(ctx context.Context, repository storage.RepositoryStore, objectStore ObjectStore, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
 	p, err := paths.Canonical(req.Path)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -240,7 +240,7 @@ func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCom
 	if err != nil {
 		return nil, err
 	}
-	page := &postgres.CommitListPage{}
+	page := &storage.CommitListPage{}
 	if filters.filtered && len(filters.prefixes) == 0 && len(filters.entityRefs) == 0 {
 		page.Commits = nil
 	} else if len(filters.entityRefs) > 0 && filters.includePrefixesWithEntities {
@@ -260,7 +260,7 @@ func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCom
 
 type listCommitFilters struct {
 	prefixes                    []string
-	entityRefs                  []postgres.HistoryEntityRef
+	entityRefs                  []storage.HistoryEntityRef
 	includePrefixesWithEntities bool
 	filtered                    bool
 }
@@ -336,7 +336,7 @@ func intersectPathPrefixes(pathFilter string, prefixes []string) []string {
 	return out
 }
 
-func (s *RepositoryService) historyEntityRefsForPathPrefixes(ctx context.Context, refName, pathFilter string, prefixes []string) ([]postgres.HistoryEntityRef, bool, error) {
+func (s *RepositoryService) historyEntityRefsForPathPrefixes(ctx context.Context, refName, pathFilter string, prefixes []string) ([]storage.HistoryEntityRef, bool, error) {
 	entities, err := s.Repository.CurrentPathEntitiesByPrefixes(ctx, refName, prefixes)
 	if err != nil {
 		return nil, false, grpcError(err)
@@ -351,7 +351,7 @@ func (s *RepositoryService) historyEntityRefsForPathPrefixes(ctx context.Context
 	}
 	entities = append(entities, ancestorEntities...)
 	seen := map[string]struct{}{}
-	out := make([]postgres.HistoryEntityRef, 0, len(entities))
+	out := make([]storage.HistoryEntityRef, 0, len(entities))
 	for _, entity := range entities {
 		if entity.AccountID == "" || entity.EntityID == "" {
 			continue
@@ -361,7 +361,7 @@ func (s *RepositoryService) historyEntityRefsForPathPrefixes(ctx context.Context
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, postgres.HistoryEntityRef{AccountID: entity.AccountID, EntityID: entity.EntityID})
+		out = append(out, storage.HistoryEntityRef{AccountID: entity.AccountID, EntityID: entity.EntityID})
 	}
 	includePrefixes := true
 	for _, entity := range exactEntities {
@@ -404,7 +404,7 @@ func (s *RepositoryService) GetRef(ctx context.Context, req *corev1.GetRefReques
 	}
 	refName := req.RefName
 	if refName == "" {
-		refName = postgres.DefaultTargetRef
+		refName = storage.DefaultTargetRef
 	}
 	ref, err := s.Repository.GetRef(ctx, refName)
 	if err != nil {
@@ -458,7 +458,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	}
 	targetRef := req.TargetRef
 	if targetRef == "" {
-		targetRef = postgres.DefaultTargetRef
+		targetRef = storage.DefaultTargetRef
 	}
 	source := normalizeGitHubSource(req.Source)
 	if source == "" {
@@ -506,7 +506,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 		TargetRef: targetRef,
 	}
 	var importID string
-	completed := map[string]postgres.GitImportedCommitRecord{}
+	completed := map[string]storage.GitImportedCommitRecord{}
 	if req.Resume {
 		record, err := s.Repository.GetOrCreateGitImport(ctx, subjectID, source, mountPath, slice.Ref, slice.Id, targetRef, mode, len(gitCommits))
 		if err != nil {
@@ -657,7 +657,7 @@ func emitImportProgress(progress func(*corev1.ImportGitRepositoryProgress) error
 	return progress(event)
 }
 
-func treeEntryFromFile(entry postgres.FileEntry) *corev1.TreeEntry {
+func treeEntryFromFile(entry storage.FileEntry) *corev1.TreeEntry {
 	return &corev1.TreeEntry{
 		Path:        entry.Path,
 		Name:        path.Base(entry.Path),
@@ -669,7 +669,7 @@ func treeEntryFromFile(entry postgres.FileEntry) *corev1.TreeEntry {
 	}
 }
 
-func treeEntryFromRepositoryEntry(entry postgres.TreeEntry) *corev1.TreeEntry {
+func treeEntryFromRepositoryEntry(entry storage.TreeEntry) *corev1.TreeEntry {
 	kind := corev1.EntryKind_ENTRY_KIND_UNSPECIFIED
 	switch entry.Kind {
 	case "file":
@@ -702,7 +702,7 @@ func treeEntryFromRepositoryEntry(entry postgres.TreeEntry) *corev1.TreeEntry {
 // directory entry for the first remaining path segment. Directory TreeIds are
 // computed from the same projected file list so clients get stable IDs for the
 // visible projection rather than IDs from the unfiltered global tree.
-func immediateDirectoryEntries(prefix string, files []postgres.FileEntry) []*corev1.TreeEntry {
+func immediateDirectoryEntries(prefix string, files []storage.FileEntry) []*corev1.TreeEntry {
 	prefix = strings.TrimRight(prefix, "/")
 	if prefix == "" {
 		prefix = "/"
@@ -771,7 +771,7 @@ func relativeDirectoryPath(prefix, filePath string) (string, bool) {
 	return strings.TrimPrefix(filePath, prefix+"/"), true
 }
 
-func directoryTreeIDFromEntries(entries []postgres.TreeEntry) string {
+func directoryTreeIDFromEntries(entries []storage.TreeEntry) string {
 	idEntries := make([]objectid.TreeEntry, 0, len(entries))
 	for _, entry := range entries {
 		idEntries = append(idEntries, objectid.TreeEntry{
@@ -790,7 +790,7 @@ func directoryTreeIDFromEntries(entries []postgres.TreeEntry) string {
 // directoryTreeID computes a projection-local tree ID for a synthesized
 // directory. The ID is based only on entries visible through the current slice
 // projection, not on hidden global-tree siblings.
-func directoryTreeID(prefix string, files []postgres.FileEntry) string {
+func directoryTreeID(prefix string, files []storage.FileEntry) string {
 	entries := immediateDirectoryEntriesWithoutIDs(prefix, files)
 	return objectid.TreeID(entries)
 }
@@ -799,7 +799,7 @@ func directoryTreeID(prefix string, files []postgres.FileEntry) string {
 // ID calculation while avoiding recursive TreeId population. That prevents a
 // synthesized directory's ID from depending on itself through nested helper
 // calls.
-func immediateDirectoryEntriesWithoutIDs(prefix string, files []postgres.FileEntry) []objectid.TreeEntry {
+func immediateDirectoryEntriesWithoutIDs(prefix string, files []storage.FileEntry) []objectid.TreeEntry {
 	uiEntries := immediateDirectoryEntriesNoTree(prefix, files)
 	entries := make([]objectid.TreeEntry, 0, len(uiEntries))
 	for _, entry := range uiEntries {
@@ -819,7 +819,7 @@ func immediateDirectoryEntriesWithoutIDs(prefix string, files []postgres.FileEnt
 // while calculating directory TreeIds. It must keep the same filtering and
 // direct-child rules as immediateDirectoryEntries, but it intentionally leaves
 // synthesized directory TreeId fields empty.
-func immediateDirectoryEntriesNoTree(prefix string, files []postgres.FileEntry) []*corev1.TreeEntry {
+func immediateDirectoryEntriesNoTree(prefix string, files []storage.FileEntry) []*corev1.TreeEntry {
 	prefix = strings.TrimRight(prefix, "/")
 	if prefix == "" {
 		prefix = "/"
@@ -1365,7 +1365,7 @@ func (s *RepositoryService) waitForImportPublished(ctx context.Context, changese
 		if cs.Status == "submitted" && cs.CommitId != "" {
 			return cs.CommitId, nil
 		}
-		if _, err := s.Changesets.PublishPending(ctx, 128); err != nil && !errors.Is(err, postgres.ErrConflict) {
+		if _, err := s.Changesets.PublishPending(ctx, 128); err != nil && !errors.Is(err, storage.ErrConflict) {
 			return "", err
 		}
 		if time.Now().After(deadline) {

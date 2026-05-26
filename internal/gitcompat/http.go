@@ -13,15 +13,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 )
 
 type Handler struct {
-	auth      *postgres.AuthStore
+	auth      storage.AuthStore
 	projector *Projector
 }
 
-func NewHandler(auth *postgres.AuthStore, projector *Projector) *Handler {
+func NewHandler(auth storage.AuthStore, projector *Projector) *Handler {
 	return &Handler{auth: auth, projector: projector}
 }
 
@@ -60,7 +60,7 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (string, er
 		token = basicPassword(r.Header.Get("Authorization"))
 	}
 	if token == "" {
-		return "", postgres.ErrUnauthenticated
+		return "", storage.ErrUnauthenticated
 	}
 	subject, err := h.auth.SubjectForToken(ctx, token)
 	if err != nil {
@@ -188,11 +188,11 @@ func splitCGIResponse(out []byte) (string, []byte, bool) {
 
 func writeGitError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, postgres.ErrUnauthenticated):
+	case errors.Is(err, storage.ErrUnauthenticated):
 		http.Error(w, "authentication required", http.StatusUnauthorized)
-	case errors.Is(err, postgres.ErrUnauthorized):
+	case errors.Is(err, storage.ErrUnauthorized):
 		http.Error(w, "permission denied", http.StatusForbidden)
-	case errors.Is(err, postgres.ErrNotFound):
+	case errors.Is(err, storage.ErrNotFound):
 		http.NotFound(w, nil)
 	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)

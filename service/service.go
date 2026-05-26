@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 )
 
 type ObjectStore interface {
@@ -24,11 +24,11 @@ type Handlers struct {
 }
 
 type Stores struct {
-	Auth       *postgres.AuthStore
-	Blobs      *postgres.BlobStore
-	Changesets *postgres.ChangesetStore
-	Repository *postgres.RepositoryStore
-	Slices     *postgres.SliceStore
+	Auth       storage.AuthStore
+	Blobs      storage.BlobStore
+	Changesets storage.ChangesetStore
+	Repository storage.RepositoryStore
+	Slices     storage.SliceStore
 }
 
 func New(stores Stores, objectStore ObjectStore) *Handlers {
