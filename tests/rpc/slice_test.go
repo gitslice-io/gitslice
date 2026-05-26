@@ -218,6 +218,148 @@ func TestChangesetServiceListAndDiff(t *testing.T) {
 	}
 }
 
+func TestRPCAuthenticationBoundary(t *testing.T) {
+	ts := startRPCServer(t)
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+
+	fakeAccounts := corev1.NewFakeAccountServiceClient(conn)
+	login, err := fakeAccounts.Login(context.Background(), &corev1.LoginRequest{DevUser: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if login.Token == "" || login.SubjectId != "user_alice" {
+		t.Fatalf("unexpected public login response: %#v", login)
+	}
+
+	signup, err := fakeAccounts.ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "public-boundary",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signup.Token == "" || signup.SubjectId != "user_public_boundary" {
+		t.Fatalf("unexpected public signup response: %#v", signup)
+	}
+
+	health, err := healthv1.NewHealthClient(conn).Check(context.Background(), &healthv1.HealthCheckRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Status != healthv1.HealthCheckResponse_SERVING {
+		t.Fatalf("unexpected health status: %#v", health)
+	}
+
+	_, err = corev1.NewAuthServiceClient(conn).GetAuthStatus(context.Background(), &corev1.GetAuthStatusRequest{})
+	assertGRPCCode(t, err, codes.Unauthenticated)
+	_, err = corev1.NewSliceServiceClient(conn).ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "acme"})
+	assertGRPCCode(t, err, codes.Unauthenticated)
+}
+
+func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T) {
+	ts := startRPCServer(t)
+	aliceToken := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+
+	aliceCtx := grpcAuthContext(aliceToken)
+	clients := newTestCoreClients(conn)
+	changesetID, patchsetID := createDirectPatchset(t, aliceCtx, clients, "/acme/payment/authz_member.go", "package payment\nconst Authz = true\n", "membership authz")
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "outsider-authz",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsiderCtx := grpcAuthContext(signup.Token)
+
+	slices := corev1.NewSliceServiceClient(conn)
+	_, err = slices.ResolveSlice(outsiderCtx, &corev1.ResolveSliceRequest{
+		Ref: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = slices.ListSlices(outsiderCtx, &corev1.ListSlicesRequest{Account: "acme"})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+
+	workspace := corev1.NewWorkspaceServiceClient(conn)
+	_, err = workspace.GetWorkspaceState(outsiderCtx, &corev1.GetWorkspaceStateRequest{
+		Workspace: &corev1.WorkspaceRef{Id: "acme/payment"},
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = workspace.ValidateWorkspaceDiff(outsiderCtx, &corev1.ValidateWorkspaceDiffRequest{
+		Workspace: &corev1.WorkspaceRef{Id: "acme/payment"},
+		FileEdits: []*corev1.FileEdit{{
+			Op:   "upsert",
+			Path: "/acme/payment/unauthorized.go",
+		}},
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+
+	_, err = clients.repository.ListDirectory(outsiderCtx, &corev1.ListDirectoryRequest{
+		Path:  "/acme/payment",
+		Slice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.repository.ListCommits(outsiderCtx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Slice:   &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		Limit:   10,
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.repository.ImportGitRepository(outsiderCtx, &corev1.ImportGitRepositoryRequest{
+		Source:         "/unused/source",
+		MountPath:      "/acme/payment/imported/unauthorized",
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		Mode:           "shallow",
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+
+	_, err = clients.changeset.CreateChangeset(outsiderCtx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		Title:          "unauthorized create",
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.changeset.GetChangeset(outsiderCtx, &corev1.GetChangesetRequest{ChangesetId: changesetID})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.changeset.ListChangesets(outsiderCtx, &corev1.ListChangesetsRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.changeset.DiffChangeset(outsiderCtx, &corev1.DiffChangesetRequest{ChangesetId: changesetID})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.changeset.UpdateChangeset(outsiderCtx, &corev1.UpdateChangesetRequest{
+		ChangesetId: changesetID,
+		FileEdits: []*corev1.FileEdit{{
+			Op:   "delete",
+			Path: "/acme/payment/authz_member.go",
+		}},
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.changeset.SubmitChangeset(outsiderCtx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               changesetID,
+		ExpectedCurrentPatchsetId: patchsetID,
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.changeset.AbandonChangeset(outsiderCtx, &corev1.AbandonChangesetRequest{ChangesetId: changesetID})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+
+	if _, err := clients.changeset.SubmitChangeset(aliceCtx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               changesetID,
+		ExpectedCurrentPatchsetId: patchsetID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	submitted := waitForSubmittedChangeset(t, aliceCtx, clients.changeset, changesetID)
+	if submitted.CommitId == "" {
+		t.Fatalf("authorized submit did not publish commit: %#v", submitted)
+	}
+}
+
 type testRPCServer struct {
 	addr        string
 	ctx         context.Context
@@ -319,6 +461,13 @@ func loginViaGRPC(t *testing.T, addr, devUser string) string {
 
 func grpcAuthContext(token string) context.Context {
 	return metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer "+token)
+}
+
+func assertGRPCCode(t *testing.T, err error, want codes.Code) {
+	t.Helper()
+	if grpcstatus.Code(err) != want {
+		t.Fatalf("grpc code = %v, want %v; err=%v", grpcstatus.Code(err), want, err)
+	}
 }
 
 func createDirectPatchset(t *testing.T, ctx context.Context, clients testCoreClients, path, content, title string) (string, string) {

@@ -52,14 +52,11 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 }
 
 func (s *ChangesetService) GetChangeset(ctx context.Context, req *corev1.GetChangesetRequest) (*corev1.Changeset, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
 		return nil, err
 	}
-	cs, err := s.Changesets.Get(ctx, req.ChangesetId)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	return cs, nil
+	return s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
 }
 
 func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListChangesetsRequest) (*corev1.ListChangesetsResponse, error) {
@@ -85,15 +82,9 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.Changesets.Get(ctx, req.ChangesetId)
+	cs, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
 	if err != nil {
-		return nil, grpcError(err)
-	}
-	if cs.AuthoringSlice == nil {
-		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
-	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, cs.AuthoringSlice.Account); err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	toSelector := req.Patchset
 	if toSelector == "" {
@@ -149,9 +140,9 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.Changesets.Get(ctx, req.ChangesetId)
+	cs, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
 	if err != nil {
@@ -313,7 +304,11 @@ func (s *ChangesetService) readContentHash(ctx context.Context, contentHash stri
 }
 
 func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.SubmitChangesetRequest) (*corev1.SubmitChangesetResponse, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId); err != nil {
 		return nil, err
 	}
 	res, err := s.Changesets.Submit(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId)
@@ -324,13 +319,31 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 }
 
 func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.AbandonChangesetRequest) (*corev1.Empty, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId); err != nil {
 		return nil, err
 	}
 	if err := s.Changesets.Abandon(ctx, req.ChangesetId); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.Empty{}, nil
+}
+
+func (s *ChangesetService) getAuthorizedChangeset(ctx context.Context, subjectID, changesetID string) (*corev1.Changeset, error) {
+	cs, err := s.Changesets.Get(ctx, changesetID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if cs.AuthoringSlice == nil {
+		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
+	}
+	if err := s.Auth.EnsureAccountMember(ctx, subjectID, cs.AuthoringSlice.Account); err != nil {
+		return nil, grpcError(err)
+	}
+	return cs, nil
 }
 
 func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slice, baseCommitID string, edits []*corev1.FileEdit, requireBlob bool) (*corev1.ValidateWorkspaceDiffResponse, error) {

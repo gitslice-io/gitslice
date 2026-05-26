@@ -44,7 +44,7 @@ first-class concepts that Git does not own:
 
 ## 3. Command Groups
 
-Initial command groups:
+Current implemented command groups:
 
 ```text
 gs auth ...
@@ -64,14 +64,15 @@ gs repo ...
 gs commit ...
 gs shell
 gs version
-gs op ...
-gs log ...
-gs config ...
+gs completion ...
+gs schema
 ```
 
 Later command groups:
 
 ```text
+gs op ...
+gs log ...
 gs split
 gs squash
 gs rebase
@@ -354,25 +355,28 @@ automation and help renderers can discover it without scraping root help text.
 ```bash
 gs workspace init <slice|account/slice>
 gs workspace init <username>/home
-gs workspace status
-gs workspace sync
 gs workspace hydrate <path>
-gs workspace dehydrate <path>
-gs workspace root
 ```
+
+The current MVP implements `workspace init` and `workspace hydrate`. Top-level
+`gs status`, `gs diff`, and `gs cs ...` commands discover the workspace by
+walking up from the current directory. Workspace-specific `status`, `sync`,
+`dehydrate`, and `root` subcommands remain planned command aliases or helpers,
+not part of the current implemented CLI surface.
 
 `gs workspace init <slice|account/slice>` creates local workspace metadata:
 
 ```text
 .gs/
-  config.json
   slice.json
   state.json
-  cache/
-  overlay/
-  op_log/
-  draft_patchsets/
+  base_snapshot.json
 ```
+
+Authentication state is not written under `.gs/`. The bearer token and saved
+subject id live in the user-level config file, currently
+`~/.gitslice/config.json`, and functional tests assert that workspace metadata
+does not contain the bearer token.
 
 The command must run in an empty directory. If the current directory already
 contains files, directories, Git metadata, or another `.gs` workspace, the CLI
