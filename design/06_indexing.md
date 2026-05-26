@@ -71,7 +71,7 @@ Metadata database indexes:
 - submit requirement provenance
 - changed paths
 - patchset read/write sets
-- path history
+- path history and entity-aware move history
 - projection cache registry
 - index freshness and provenance
 - outbox events and worker checkpoints
@@ -160,6 +160,17 @@ path_history_index(
   path,
   commit_id,
   parent_commit_ids[],
+  change_kind,
+  committed_at
+)
+
+entity_history_index(
+  account_id,
+  entity_id,
+  target_ref,
+  commit_id,
+  path,
+  old_path,
   change_kind,
   committed_at
 )
@@ -255,7 +266,11 @@ the current target-ref head before publishing.
 ### 3.5 Path History
 
 Maps paths to commits that touched those paths. Rename handling can start as
-path-based and later add richer rename detection.
+path-based, but move-preserving history requires an entity-aware index keyed by
+stable file and directory identity. Explicit native rename operations are
+authoritative lineage. Delete/add inference and Git import rename detection are
+secondary inputs that must record their source and ambiguity status. See
+[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
 ### 3.6 Slice Projection
 

@@ -199,11 +199,24 @@ message GetCommitRequest {
 message ListCommitsRequest {
   string ref_name = 1;
   int32 limit = 2;
+  string path = 3;
+  SliceRef slice = 4;
+  string page_token = 5;
+  bool follow_moves = 6;
 }
 
 message ListCommitsResponse {
   repeated Commit commits = 1;
+  string next_page_token = 2;
 }
+
+When `path` is set, `ListCommits` returns path-filtered history. If
+`follow_moves` is true, the server follows stable file and directory entity
+identity across explicit moves and unambiguous inferred moves. Literal
+path-only history is available with `follow_moves = false`. Slice-scoped
+queries must not leak old or new paths outside the caller's visible projection.
+The entity and move model is specified in
+[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
 message GetRefRequest {
   string ref_name = 1;
@@ -471,6 +484,10 @@ message FileEdit {
   string content_hash = 5;
   uint32 mode = 6;
 }
+
+For `op = "rename"`, `old_path` and `path` describe a move of the same logical
+entity. The server records the move as authoritative lineage and validates both
+paths during submit.
 
 message PathCoverage {
   string path = 1;
