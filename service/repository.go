@@ -71,6 +71,13 @@ func resolvePath(ctx context.Context, repository *postgres.RepositoryStore, req 
 	return &corev1.ResolvePathResponse{Entry: treeEntryFromRepositoryEntry(*entry)}, nil
 }
 
+// repositoryReadPath normalizes paths used by repository browsing APIs.
+//
+// This intentionally accepts "/" and account-level ancestors such as "/acme".
+// Repository directory reads can browse through ancestors that are not valid
+// file mutation targets. Do not replace this with paths.Canonical: that helper
+// enforces account/slice depth and is appropriate for committed file paths,
+// workspace edits, and slice included paths, not for directory navigation.
 func repositoryReadPath(p string) (string, error) {
 	p = strings.TrimSpace(strings.ReplaceAll(p, "\\", "/"))
 	if p == "" {
@@ -86,6 +93,15 @@ func repositoryReadPath(p string) (string, error) {
 	return cleaned, nil
 }
 
+// ListDirectory lists direct children at a repository path.
+//
+// Without req.Slice, this is a normal global-tree directory read backed by the
+// immutable tree stored for the requested commit. With req.Slice, the response
+// is a slice projection: callers still ask for canonical repository paths, but
+// the service hides files and directories outside the requested slice's
+// included paths. The projected form is what the web app and shell-like
+// clients use to browse a custom slice without seeing unrelated repository
+// folders.
 func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -110,6 +126,15 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 	return &corev1.ListDirectoryResponse{Entries: out}, nil
 }
 
+// listSliceDirectory implements ListDirectory's optional slice projection.
+//
+// Authorization is checked against the slice account before resolving the slice
+// definition. The requested path is normalized with repositoryReadPath so
+// ancestor directories such as "/" and "/acme" remain browsable; the slice
+// definition's included paths are validated separately by sliceProjectedFiles.
+// The returned entries are synthesized from files reachable through the slice
+// because a custom slice may include multiple disjoint prefixes that do not map
+// to one contiguous tree node.
 func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID string, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
 	if req.Slice.Account == "" || req.Slice.Slice == "" {
 		return nil, status.Error(codes.InvalidArgument, "slice ref is required")
@@ -132,6 +157,14 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	return &corev1.ListDirectoryResponse{Entries: immediateDirectoryEntries(p, files)}, nil
 }
 
+// sliceProjectedFiles returns the file set visible through a slice at a commit.
+//
+// Each included path is resolved with the stricter canonical path helper
+// because included paths are persisted slice-definition paths, not navigation
+// paths. Files can appear under more than one included path if definitions
+// overlap, so results are keyed by full repository path before sorting. Keeping
+// this helper file-based lets listSliceDirectory project disjoint custom slices
+// without depending on the physical tree shape below a single root.
 func (s *RepositoryService) sliceProjectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]postgres.FileEntry, error) {
 	byPath := map[string]postgres.FileEntry{}
 	for _, prefix := range slice.Definition.IncludedPaths {
@@ -502,6 +535,17 @@ func treeEntryFromRepositoryEntry(entry postgres.TreeEntry) *corev1.TreeEntry {
 	}
 }
 
+// immediateDirectoryEntries reconstructs direct child entries for prefix from a
+// projected file list.
+//
+// The input is already scoped to the selected slice, but it may contain files
+// under sibling prefixes, for example "/acme/backend/..." and
+// "/acme/payment/shared/...". When listing "/acme/payment", sibling files must
+// be ignored rather than treated as relative paths. Files exactly at the
+// requested prefix are returned as files; deeper descendants synthesize a
+// directory entry for the first remaining path segment. Directory TreeIds are
+// computed from the same projected file list so clients get stable IDs for the
+// visible projection rather than IDs from the unfiltered global tree.
 func immediateDirectoryEntries(prefix string, files []postgres.FileEntry) []*corev1.TreeEntry {
 	prefix = strings.TrimRight(prefix, "/")
 	if prefix == "" {
@@ -547,6 +591,14 @@ func immediateDirectoryEntries(prefix string, files []postgres.FileEntry) []*cor
 	return out
 }
 
+// relativeDirectoryPath returns filePath relative to prefix when filePath is
+// exactly prefix or is contained below prefix.
+//
+// The boolean is the containment result. This is stricter than strings.TrimPrefix:
+// "/acme/backend/a.go" is not inside "/acme/payment", even though a blind trim
+// would leave the original absolute path and later make it look like an "acme"
+// child. The root path is handled specially because every absolute repository
+// path is below "/".
 func relativeDirectoryPath(prefix, filePath string) (string, bool) {
 	if prefix == "/" {
 		if !strings.HasPrefix(filePath, "/") {
@@ -579,11 +631,18 @@ func directoryTreeIDFromEntries(entries []postgres.TreeEntry) string {
 	return objectid.TreeID(idEntries)
 }
 
+// directoryTreeID computes a projection-local tree ID for a synthesized
+// directory. The ID is based only on entries visible through the current slice
+// projection, not on hidden global-tree siblings.
 func directoryTreeID(prefix string, files []postgres.FileEntry) string {
 	entries := immediateDirectoryEntriesWithoutIDs(prefix, files)
 	return objectid.TreeID(entries)
 }
 
+// immediateDirectoryEntriesWithoutIDs mirrors immediateDirectoryEntries for tree
+// ID calculation while avoiding recursive TreeId population. That prevents a
+// synthesized directory's ID from depending on itself through nested helper
+// calls.
 func immediateDirectoryEntriesWithoutIDs(prefix string, files []postgres.FileEntry) []objectid.TreeEntry {
 	uiEntries := immediateDirectoryEntriesNoTree(prefix, files)
 	entries := make([]objectid.TreeEntry, 0, len(uiEntries))
@@ -600,6 +659,10 @@ func immediateDirectoryEntriesWithoutIDs(prefix string, files []postgres.FileEnt
 	return entries
 }
 
+// immediateDirectoryEntriesNoTree is the non-recursive entry builder used only
+// while calculating directory TreeIds. It must keep the same filtering and
+// direct-child rules as immediateDirectoryEntries, but it intentionally leaves
+// synthesized directory TreeId fields empty.
 func immediateDirectoryEntriesNoTree(prefix string, files []postgres.FileEntry) []*corev1.TreeEntry {
 	prefix = strings.TrimRight(prefix, "/")
 	if prefix == "" {
