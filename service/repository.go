@@ -236,17 +236,21 @@ func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCom
 	if err != nil {
 		return nil, err
 	}
-	prefixes, filtered, err := s.listCommitPathPrefixes(ctx, subjectID, req)
+	filters, err := s.listCommitFilters(ctx, subjectID, req)
 	if err != nil {
 		return nil, err
 	}
 	page := &postgres.CommitListPage{}
-	if filtered && len(prefixes) == 0 {
+	if filters.filtered && len(filters.prefixes) == 0 && len(filters.entityRefs) == 0 {
 		page.Commits = nil
-	} else if len(prefixes) == 0 {
+	} else if len(filters.entityRefs) > 0 && filters.includePrefixesWithEntities {
+		page, err = s.Repository.ListCommitPageByEntityRefsOrPathPrefixes(ctx, req.RefName, filters.entityRefs, filters.prefixes, int(req.Limit), req.PageToken)
+	} else if len(filters.entityRefs) > 0 {
+		page, err = s.Repository.ListCommitPageByEntityRefs(ctx, req.RefName, filters.entityRefs, int(req.Limit), req.PageToken)
+	} else if len(filters.prefixes) == 0 {
 		page, err = s.Repository.ListCommitPage(ctx, req.RefName, int(req.Limit), req.PageToken)
 	} else {
-		page, err = s.Repository.ListCommitPageByPathPrefixes(ctx, req.RefName, prefixes, int(req.Limit), req.PageToken)
+		page, err = s.Repository.ListCommitPageByPathPrefixes(ctx, req.RefName, filters.prefixes, int(req.Limit), req.PageToken)
 	}
 	if err != nil {
 		return nil, grpcError(err)
@@ -254,43 +258,66 @@ func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCom
 	return &corev1.ListCommitsResponse{Commits: page.Commits, NextPageToken: page.NextPageToken}, nil
 }
 
-func (s *RepositoryService) listCommitPathPrefixes(ctx context.Context, subjectID string, req *corev1.ListCommitsRequest) ([]string, bool, error) {
+type listCommitFilters struct {
+	prefixes                    []string
+	entityRefs                  []postgres.HistoryEntityRef
+	includePrefixesWithEntities bool
+	filtered                    bool
+}
+
+func (s *RepositoryService) listCommitFilters(ctx context.Context, subjectID string, req *corev1.ListCommitsRequest) (listCommitFilters, error) {
 	var prefixes []string
 	filtered := false
 	if req.Slice != nil {
 		filtered = true
 		if req.Slice.Account == "" || req.Slice.Slice == "" {
-			return nil, false, status.Error(codes.InvalidArgument, "slice ref is required")
+			return listCommitFilters{}, status.Error(codes.InvalidArgument, "slice ref is required")
 		}
 		if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.Slice.Account); err != nil {
-			return nil, false, grpcError(err)
+			return listCommitFilters{}, grpcError(err)
 		}
 		slice, err := s.Slices.Resolve(ctx, req.Slice)
 		if err != nil {
-			return nil, false, grpcError(err)
+			return listCommitFilters{}, grpcError(err)
 		}
 		for _, included := range slice.Definition.IncludedPaths {
 			prefix, err := repositoryReadPath(included)
 			if err != nil {
-				return nil, false, status.Error(codes.InvalidArgument, err.Error())
+				return listCommitFilters{}, status.Error(codes.InvalidArgument, err.Error())
 			}
 			prefixes = append(prefixes, prefix)
 		}
 	}
-	if strings.TrimSpace(req.Path) == "" {
-		return prefixes, filtered, nil
+	pathFilter := strings.TrimSpace(req.Path)
+	if pathFilter == "" {
+		return listCommitFilters{prefixes: prefixes, filtered: filtered}, nil
 	}
-	p, err := repositoryReadPath(req.Path)
+	p, err := repositoryReadPath(pathFilter)
 	if err != nil {
-		return nil, false, status.Error(codes.InvalidArgument, err.Error())
+		return listCommitFilters{}, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if len(prefixes) == 0 {
 		if p == "/" {
-			return nil, filtered, nil
+			return listCommitFilters{filtered: filtered}, nil
 		}
-		return []string{p}, true, nil
+		prefixes = []string{p}
+	} else {
+		prefixes = intersectPathPrefixes(p, prefixes)
 	}
-	return intersectPathPrefixes(p, prefixes), true, nil
+	filters := listCommitFilters{prefixes: prefixes, filtered: true}
+	if p == "/" || (req.FollowMoves != nil && !req.GetFollowMoves()) || len(prefixes) == 0 {
+		return filters, nil
+	}
+	refs, includePrefixes, err := s.historyEntityRefsForPathPrefixes(ctx, req.RefName, p, prefixes)
+	if err != nil {
+		return listCommitFilters{}, err
+	}
+	if len(refs) == 0 {
+		return filters, nil
+	}
+	filters.entityRefs = refs
+	filters.includePrefixesWithEntities = includePrefixes
+	return filters, nil
 }
 
 func intersectPathPrefixes(pathFilter string, prefixes []string) []string {
@@ -305,6 +332,59 @@ func intersectPathPrefixes(pathFilter string, prefixes []string) []string {
 		case repositoryPathContains(prefix, pathFilter):
 			out = append(out, pathFilter)
 		}
+	}
+	return out
+}
+
+func (s *RepositoryService) historyEntityRefsForPathPrefixes(ctx context.Context, refName, pathFilter string, prefixes []string) ([]postgres.HistoryEntityRef, bool, error) {
+	entities, err := s.Repository.CurrentPathEntitiesByPrefixes(ctx, refName, prefixes)
+	if err != nil {
+		return nil, false, grpcError(err)
+	}
+	exactEntities, err := s.Repository.CurrentPathEntitiesByPaths(ctx, refName, []string{pathFilter})
+	if err != nil {
+		return nil, false, grpcError(err)
+	}
+	ancestorEntities, err := s.Repository.CurrentPathEntitiesByPaths(ctx, refName, ancestorRepositoryPaths(pathFilter))
+	if err != nil {
+		return nil, false, grpcError(err)
+	}
+	entities = append(entities, ancestorEntities...)
+	seen := map[string]struct{}{}
+	out := make([]postgres.HistoryEntityRef, 0, len(entities))
+	for _, entity := range entities {
+		if entity.AccountID == "" || entity.EntityID == "" {
+			continue
+		}
+		key := entity.AccountID + "\x00" + entity.EntityID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, postgres.HistoryEntityRef{AccountID: entity.AccountID, EntityID: entity.EntityID})
+	}
+	includePrefixes := true
+	for _, entity := range exactEntities {
+		if entity.Path == pathFilter && entity.Kind == "file" {
+			includePrefixes = false
+			break
+		}
+	}
+	return out, includePrefixes, nil
+}
+
+func ancestorRepositoryPaths(p string) []string {
+	p = strings.TrimRight(p, "/")
+	if p == "" || p == "/" {
+		return nil
+	}
+	segments := strings.Split(strings.Trim(p, "/"), "/")
+	if len(segments) <= 1 {
+		return nil
+	}
+	out := make([]string, 0, len(segments)-1)
+	for i := 1; i < len(segments); i++ {
+		out = append(out, "/"+strings.Join(segments[:i], "/"))
 	}
 	return out
 }

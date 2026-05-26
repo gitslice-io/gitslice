@@ -309,6 +309,18 @@ fs_entities(
   primary key(account_id, entity_id)
 )
 
+current_path_entities(
+  target_ref references refs(name),
+  path,
+  account_id,
+  entity_id,
+  kind,
+  content_hash,
+  mode,
+  updated_at,
+  primary key(target_ref, path)
+)
+
 commit_entity_changes(
   target_ref,
   commit_id references commits(id),
@@ -333,9 +345,11 @@ definition was created later than those commits.
 Paged path-history reads use an opaque cursor derived from the last returned
 `(committed_at, commit_id)` pair.
 
-`fs_entities` and `commit_entity_changes` extend that path index with stable
-file and directory identity so move-following history can cross explicit
-renames and unambiguous inferred moves.
+`fs_entities`, `current_path_entities`, and `commit_entity_changes` extend that
+path index with stable file and directory identity so move-following history can
+cross explicit renames and unambiguous inferred moves. `current_path_entities`
+is the lookup table that resolves a current path to the entity ids whose
+history should be followed.
 
 object-store tree node:
   key = trees/sha256/{prefix}/{tree_hash}.json

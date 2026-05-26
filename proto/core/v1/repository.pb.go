@@ -590,7 +590,9 @@ type ListCommitsRequest struct {
 	// intersection.
 	Slice *SliceRef `protobuf:"bytes,4,opt,name=slice,proto3" json:"slice,omitempty"`
 	// Optional opaque cursor returned by a previous ListCommitsResponse.
-	PageToken     string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	PageToken string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// Optional move-following behavior. If unset, path history follows moves.
+	FollowMoves   *bool `protobuf:"varint,6,opt,name=follow_moves,json=followMoves,proto3,oneof" json:"follow_moves,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -658,6 +660,13 @@ func (x *ListCommitsRequest) GetPageToken() string {
 		return x.PageToken
 	}
 	return ""
+}
+
+func (x *ListCommitsRequest) GetFollowMoves() bool {
+	if x != nil && x.FollowMoves != nil {
+		return *x.FollowMoves
+	}
+	return false
 }
 
 type ListCommitsResponse struct {
@@ -1140,14 +1149,16 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\x06offset\x18\x02 \x01(\x03R\x06offset\x12!\n" +
 	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash\"/\n" +
 	"\x10GetCommitRequest\x12\x1b\n" +
-	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\"\xaa\x01\n" +
+	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\"\xe3\x01\n" +
 	"\x12ListCommitsRequest\x12\x19\n" +
 	"\bref_name\x18\x01 \x01(\tR\arefName\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x12\n" +
 	"\x04path\x18\x03 \x01(\tR\x04path\x120\n" +
 	"\x05slice\x18\x04 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x05 \x01(\tR\tpageToken\"q\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\x12&\n" +
+	"\ffollow_moves\x18\x06 \x01(\bH\x00R\vfollowMoves\x88\x01\x01B\x0f\n" +
+	"\r_follow_moves\"q\n" +
 	"\x13ListCommitsResponse\x122\n" +
 	"\acommits\x18\x01 \x03(\v2\x18.gitslice.core.v1.CommitR\acommits\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"*\n" +
@@ -1267,6 +1278,7 @@ func file_proto_core_v1_repository_proto_init() {
 		return
 	}
 	file_proto_core_v1_common_proto_init()
+	file_proto_core_v1_repository_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

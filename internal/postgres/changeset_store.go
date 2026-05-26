@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
@@ -17,6 +18,26 @@ type ChangesetStore struct {
 	trees      *treestore.Store
 	repository *RepositoryStore
 	slices     *SliceStore
+}
+
+type pathEntity struct {
+	Path        string
+	AccountID   string
+	EntityID    string
+	Kind        string
+	ContentHash string
+	Mode        uint32
+}
+
+type entityChange struct {
+	Entity      pathEntity
+	Path        string
+	OldPath     string
+	ChangeKind  string
+	Source      string
+	Confidence  int
+	ContentHash string
+	Mode        uint32
 }
 
 func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
@@ -465,6 +486,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		if err != nil {
 			return 0, err
 		}
+		baseCommitID := currentCommitID
 		treeEdits, err := treeEditsFromPatchsetTx(ctx, tx, patchset.FileEdits)
 		if err != nil {
 			return 0, err
@@ -506,6 +528,9 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 			return 0, err
 		}
 		if err := insertCommitChangedPathsTx(ctx, tx, targetRef, commitID, patchset.ChangedPaths, now); err != nil {
+			return 0, err
+		}
+		if err := s.applyEntityHistoryTx(ctx, tx, targetRef, baseCommitID, commitID, patchset.FileEdits, now); err != nil {
 			return 0, err
 		}
 		_, err = tx.ExecContext(ctx, `
@@ -566,6 +591,396 @@ func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, comm
 		}
 	}
 	return nil
+}
+
+func (s *ChangesetStore) applyEntityHistoryTx(ctx context.Context, tx *sql.Tx, targetRef, baseCommitID, commitID string, edits []*corev1.FileEdit, committedAt time.Time) error {
+	inferredMoves, err := s.inferExactMovesTx(ctx, tx, targetRef, baseCommitID, edits)
+	if err != nil {
+		return err
+	}
+	matchedOld := map[string]struct{}{}
+	matchedNew := map[string]struct{}{}
+	for _, move := range inferredMoves {
+		matchedOld[move.OldPath] = struct{}{}
+		matchedNew[move.Path] = struct{}{}
+		if err := s.moveEntityTx(ctx, tx, targetRef, move.Entity, move.OldPath, move.Path, commitID, committedAt, "exact_content_match", move.ContentHash, move.Mode); err != nil {
+			return err
+		}
+	}
+	for _, edit := range edits {
+		switch edit.Op {
+		case "rename":
+			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.OldPath)
+			if err != nil {
+				return err
+			}
+			if entity == nil {
+				return ErrConflict
+			}
+			if err := s.moveEntityTx(ctx, tx, targetRef, *entity, edit.OldPath, edit.Path, commitID, committedAt, "explicit", entity.ContentHash, entity.Mode); err != nil {
+				return err
+			}
+		case "mkdir":
+			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			if err != nil {
+				return err
+			}
+			if entity != nil {
+				continue
+			}
+			created, err := s.createEntityTx(ctx, tx, commitID, edit.Path, "directory", "", 0)
+			if err != nil {
+				return err
+			}
+			if err := upsertCurrentPathEntityTx(ctx, tx, targetRef, *created); err != nil {
+				return err
+			}
+			if err := insertEntityChangeTx(ctx, tx, targetRef, commitID, entityChange{Entity: *created, Path: edit.Path, ChangeKind: "added", Source: "explicit", Confidence: 100}, committedAt); err != nil {
+				return err
+			}
+		case "delete":
+			if _, ok := matchedOld[edit.Path]; ok {
+				continue
+			}
+			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			if err != nil {
+				return err
+			}
+			if entity == nil {
+				continue
+			}
+			if err := deleteCurrentPathEntityTx(ctx, tx, targetRef, edit.Path, entity.Kind == "directory"); err != nil {
+				return err
+			}
+			if err := markEntityDeletedTx(ctx, tx, *entity, commitID); err != nil {
+				return err
+			}
+			if err := insertEntityChangeTx(ctx, tx, targetRef, commitID, entityChange{Entity: *entity, Path: edit.Path, ChangeKind: "deleted", Source: "explicit", Confidence: 100, ContentHash: entity.ContentHash, Mode: entity.Mode}, committedAt); err != nil {
+				return err
+			}
+		default:
+			if _, ok := matchedNew[edit.Path]; ok {
+				continue
+			}
+			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			if err != nil {
+				return err
+			}
+			changeKind := "modified"
+			var current pathEntity
+			if entity == nil {
+				changeKind = "added"
+				created, err := s.createEntityTx(ctx, tx, commitID, edit.Path, "file", edit.ContentHash, edit.Mode)
+				if err != nil {
+					return err
+				}
+				current = *created
+			} else {
+				current = *entity
+				current.ContentHash = edit.ContentHash
+				current.Mode = edit.Mode
+			}
+			if err := upsertCurrentPathEntityTx(ctx, tx, targetRef, current); err != nil {
+				return err
+			}
+			if err := insertEntityChangeTx(ctx, tx, targetRef, commitID, entityChange{Entity: current, Path: edit.Path, ChangeKind: changeKind, Source: "explicit", Confidence: 100, ContentHash: edit.ContentHash, Mode: edit.Mode}, committedAt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+type inferredMove struct {
+	OldPath     string
+	Path        string
+	Entity      pathEntity
+	ContentHash string
+	Mode        uint32
+}
+
+func (s *ChangesetStore) inferExactMovesTx(ctx context.Context, tx *sql.Tx, targetRef, baseCommitID string, edits []*corev1.FileEdit) ([]inferredMove, error) {
+	type deleteCandidate struct {
+		path   string
+		entity pathEntity
+	}
+	type upsertCandidate struct {
+		path        string
+		contentHash string
+		mode        uint32
+	}
+	deletesByKey := map[string][]deleteCandidate{}
+	upsertsByKey := map[string][]upsertCandidate{}
+	for _, edit := range edits {
+		switch edit.Op {
+		case "delete":
+			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			if err != nil {
+				return nil, err
+			}
+			if entity == nil || entity.Kind != "file" || entity.ContentHash == "" {
+				continue
+			}
+			key := exactMoveKey(entity.ContentHash, entity.Mode)
+			deletesByKey[key] = append(deletesByKey[key], deleteCandidate{path: edit.Path, entity: *entity})
+		case "upsert", "add", "update":
+			if edit.ContentHash == "" {
+				continue
+			}
+			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			if err != nil {
+				return nil, err
+			}
+			if entity != nil {
+				continue
+			}
+			mode := edit.Mode
+			if mode == 0 {
+				mode = 0o100644
+			}
+			key := exactMoveKey(edit.ContentHash, mode)
+			upsertsByKey[key] = append(upsertsByKey[key], upsertCandidate{path: edit.Path, contentHash: edit.ContentHash, mode: mode})
+		}
+	}
+	var out []inferredMove
+	for key, deletes := range deletesByKey {
+		upserts := upsertsByKey[key]
+		if len(deletes) != 1 || len(upserts) != 1 {
+			continue
+		}
+		out = append(out, inferredMove{
+			OldPath:     deletes[0].path,
+			Path:        upserts[0].path,
+			Entity:      deletes[0].entity,
+			ContentHash: upserts[0].contentHash,
+			Mode:        upserts[0].mode,
+		})
+	}
+	return out, nil
+}
+
+func exactMoveKey(contentHash string, mode uint32) string {
+	return contentHash + "\x00" + fmt.Sprint(mode)
+}
+
+func (s *ChangesetStore) moveEntityTx(ctx context.Context, tx *sql.Tx, targetRef string, entity pathEntity, oldPath, newPath, commitID string, committedAt time.Time, source, contentHash string, mode uint32) error {
+	entity.Path = newPath
+	if contentHash != "" {
+		entity.ContentHash = contentHash
+	}
+	if mode != 0 {
+		entity.Mode = mode
+	}
+	if err := moveCurrentPathEntityTx(ctx, tx, targetRef, oldPath, newPath, entity); err != nil {
+		return err
+	}
+	return insertEntityChangeTx(ctx, tx, targetRef, commitID, entityChange{
+		Entity:      entity,
+		Path:        newPath,
+		OldPath:     oldPath,
+		ChangeKind:  "moved",
+		Source:      source,
+		Confidence:  100,
+		ContentHash: entity.ContentHash,
+		Mode:        entity.Mode,
+	}, committedAt)
+}
+
+func (s *ChangesetStore) ensurePathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, baseCommitID, p string) (*pathEntity, error) {
+	entity, err := getCurrentPathEntityTx(ctx, tx, targetRef, p)
+	if err == nil {
+		return entity, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	entry, err := s.repository.getEntryAtCommitTx(ctx, tx, baseCommitID, p)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	kind := entry.Kind
+	contentHash := ""
+	mode := uint32(0)
+	if kind == "file" {
+		contentHash = entry.ContentHash
+		mode = entry.Mode
+	}
+	entity, err = s.createEntityTx(ctx, tx, "", p, kind, contentHash, mode)
+	if err != nil {
+		return nil, err
+	}
+	if err := upsertCurrentPathEntityTx(ctx, tx, targetRef, *entity); err != nil {
+		return nil, err
+	}
+	return entity, nil
+}
+
+func (s *ChangesetStore) createEntityTx(ctx context.Context, tx *sql.Tx, commitID, p, kind, contentHash string, mode uint32) (*pathEntity, error) {
+	accountID, err := accountIDForPathTx(ctx, tx, p)
+	if err != nil {
+		return nil, err
+	}
+	entityID, err := objectid.RandomID("ent")
+	if err != nil {
+		return nil, err
+	}
+	var created any
+	if commitID != "" {
+		created = commitID
+	}
+	_, err = tx.ExecContext(ctx, `
+		insert into fs_entities(account_id, entity_id, kind, created_commit_id)
+		values ($1, $2, $3, $4)
+		on conflict do nothing
+	`, accountID, entityID, kind, created)
+	if err != nil {
+		return nil, err
+	}
+	return &pathEntity{Path: p, AccountID: accountID, EntityID: entityID, Kind: kind, ContentHash: contentHash, Mode: mode}, nil
+}
+
+func accountIDForPathTx(ctx context.Context, tx *sql.Tx, p string) (string, error) {
+	trimmed := strings.Trim(p, "/")
+	if trimmed == "" {
+		return "", ErrInvalid
+	}
+	slug := strings.Split(trimmed, "/")[0]
+	var accountID string
+	err := tx.QueryRowContext(ctx, `
+		select id
+		from accounts
+		where slug = $1
+	`, slug).Scan(&accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return accountID, err
+}
+
+func getCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, p string) (*pathEntity, error) {
+	var entity pathEntity
+	var contentHash sql.NullString
+	var mode sql.NullInt64
+	err := tx.QueryRowContext(ctx, `
+		select path, account_id, entity_id, kind, content_hash, mode
+		from current_path_entities
+		where target_ref = $1 and path = $2
+	`, targetRef, p).Scan(&entity.Path, &entity.AccountID, &entity.EntityID, &entity.Kind, &contentHash, &mode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	entity.ContentHash = contentHash.String
+	if mode.Valid && mode.Int64 > 0 {
+		entity.Mode = uint32(mode.Int64)
+	}
+	return &entity, nil
+}
+
+func upsertCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef string, entity pathEntity) error {
+	var mode any
+	if entity.Mode != 0 {
+		mode = int(entity.Mode)
+	}
+	var contentHash any
+	if entity.ContentHash != "" {
+		contentHash = entity.ContentHash
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into current_path_entities(target_ref, path, account_id, entity_id, kind, content_hash, mode, updated_at)
+		values ($1, $2, $3, $4, $5, $6, $7, now())
+		on conflict (target_ref, path) do update
+		set account_id = excluded.account_id,
+		    entity_id = excluded.entity_id,
+		    kind = excluded.kind,
+		    content_hash = excluded.content_hash,
+		    mode = excluded.mode,
+		    updated_at = now()
+	`, targetRef, entity.Path, entity.AccountID, entity.EntityID, entity.Kind, contentHash, mode)
+	return err
+}
+
+func deleteCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, p string, recursive bool) error {
+	if recursive {
+		_, err := tx.ExecContext(ctx, `
+			delete from current_path_entities
+			where target_ref = $1
+			  and (path = $2 or (path >= $3 and path < $4))
+		`, targetRef, p, strings.TrimRight(p, "/")+"/", strings.TrimRight(p, "/")+"0")
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `
+		delete from current_path_entities
+		where target_ref = $1 and path = $2
+	`, targetRef, p)
+	return err
+}
+
+func moveCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, oldPath, newPath string, entity pathEntity) error {
+	if entity.Kind == "directory" {
+		_, err := tx.ExecContext(ctx, `
+			update current_path_entities
+			set path = $2 || substring(path from length($3) + 1),
+			    updated_at = now()
+			where target_ref = $1
+			  and path <> $3
+			  and path >= $4
+			  and path < $5
+		`, targetRef, newPath, oldPath, strings.TrimRight(oldPath, "/")+"/", strings.TrimRight(oldPath, "/")+"0")
+		if err != nil {
+			return err
+		}
+	}
+	if err := deleteCurrentPathEntityTx(ctx, tx, targetRef, oldPath, false); err != nil {
+		return err
+	}
+	return upsertCurrentPathEntityTx(ctx, tx, targetRef, entity)
+}
+
+func markEntityDeletedTx(ctx context.Context, tx *sql.Tx, entity pathEntity, commitID string) error {
+	_, err := tx.ExecContext(ctx, `
+		update fs_entities
+		set deleted_commit_id = $3
+		where account_id = $1 and entity_id = $2
+	`, entity.AccountID, entity.EntityID, commitID)
+	return err
+}
+
+func insertEntityChangeTx(ctx context.Context, tx *sql.Tx, targetRef, commitID string, change entityChange, committedAt time.Time) error {
+	source := change.Source
+	if source == "" {
+		source = "explicit"
+	}
+	confidence := change.Confidence
+	if confidence == 0 {
+		confidence = 100
+	}
+	var oldPath any
+	if change.OldPath != "" {
+		oldPath = change.OldPath
+	}
+	var contentHash any
+	if change.ContentHash != "" {
+		contentHash = change.ContentHash
+	}
+	var mode any
+	if change.Mode != 0 {
+		mode = int(change.Mode)
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into commit_entity_changes(
+			target_ref, commit_id, account_id, entity_id, kind, path, old_path,
+			change_kind, source, confidence, content_hash, mode, committed_at
+		)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		on conflict do nothing
+	`, targetRef, commitID, change.Entity.AccountID, change.Entity.EntityID, change.Entity.Kind, change.Path, oldPath, change.ChangeKind, source, confidence, contentHash, mode, committedAt)
+	return err
 }
 
 func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {

@@ -26,6 +26,20 @@ type CommitListPage struct {
 	NextPageToken string
 }
 
+type HistoryEntityRef struct {
+	AccountID string
+	EntityID  string
+}
+
+type CurrentPathEntity struct {
+	Path        string
+	AccountID   string
+	EntityID    string
+	Kind        string
+	ContentHash string
+	Mode        uint32
+}
+
 type commitPageCursor struct {
 	CommitID    string `json:"commit_id"`
 	CommittedAt string `json:"committed_at"`
@@ -320,6 +334,256 @@ func (s *RepositoryStore) ListCommitPageByPathPrefixes(ctx context.Context, refN
 	return &CommitListPage{Commits: commits, NextPageToken: nextToken}, nil
 }
 
+func (s *RepositoryStore) ListCommitPageByEntityRefs(ctx context.Context, refName string, refs []HistoryEntityRef, limit int, pageToken string) (*CommitListPage, error) {
+	if refName == "" {
+		refName = DefaultTargetRef
+	}
+	limit = normalizeCommitListLimit(limit)
+	cursor, err := decodeCommitPageToken(pageToken)
+	if err != nil {
+		return nil, err
+	}
+	refs = normalizeHistoryEntityRefs(refs)
+	if len(refs) == 0 {
+		return &CommitListPage{}, nil
+	}
+	where, args := commitEntityRefWhere(refName, refs)
+	cursorWhere := ""
+	if cursor != nil {
+		committedAt, err := cursor.committedAt()
+		if err != nil {
+			return nil, err
+		}
+		committedAtArg := len(args) + 1
+		commitIDArg := len(args) + 2
+		cursorWhere = fmt.Sprintf("where hits.committed_at < $%d or (hits.committed_at = $%d and hits.commit_id < $%d)", committedAtArg, committedAtArg, commitIDArg)
+		args = append(args, committedAt, cursor.CommitID)
+	}
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, `
+		select c.id, c.parent_ids, c.root_tree_id, coalesce(c.author_subject_id, ''),
+		       c.message, c.created_at, c.changed_paths, hits.committed_at
+		from (
+			select ce.commit_id, max(ce.committed_at) as committed_at
+			from commit_entity_changes ce
+			where `+where+`
+			group by ce.commit_id
+		) hits
+		join commits c on c.id = hits.commit_id
+		`+cursorWhere+`
+		order by hits.committed_at desc, c.id desc
+		limit $`+fmt.Sprint(len(args))+`
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type commitHit struct {
+		commit      *corev1.Commit
+		committedAt time.Time
+	}
+	hits := make([]commitHit, 0, limit+1)
+	for rows.Next() {
+		commit, committedAt, err := scanCommitHitRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		hits = append(hits, commitHit{commit: commit, committedAt: committedAt})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	nextToken := ""
+	if len(hits) > limit {
+		var err error
+		nextToken, err = encodeCommitPageToken(hits[limit-1].commit.Id, hits[limit-1].committedAt)
+		if err != nil {
+			return nil, err
+		}
+		hits = hits[:limit]
+	}
+	commits := make([]*corev1.Commit, 0, len(hits))
+	for _, hit := range hits {
+		commits = append(commits, hit.commit)
+	}
+	return &CommitListPage{Commits: commits, NextPageToken: nextToken}, nil
+}
+
+func (s *RepositoryStore) ListCommitPageByEntityRefsOrPathPrefixes(ctx context.Context, refName string, refs []HistoryEntityRef, prefixes []string, limit int, pageToken string) (*CommitListPage, error) {
+	if refName == "" {
+		refName = DefaultTargetRef
+	}
+	refs = normalizeHistoryEntityRefs(refs)
+	prefixes = normalizeCommitPathPrefixes(prefixes)
+	if len(refs) == 0 {
+		return s.ListCommitPageByPathPrefixes(ctx, refName, prefixes, limit, pageToken)
+	}
+	if len(prefixes) == 0 {
+		return s.ListCommitPageByEntityRefs(ctx, refName, refs, limit, pageToken)
+	}
+	limit = normalizeCommitListLimit(limit)
+	cursor, err := decodeCommitPageToken(pageToken)
+	if err != nil {
+		return nil, err
+	}
+	entityWhere, args := commitEntityRefWhere(refName, refs)
+	pathWhere, pathArgs := commitPathPrefixWhere(refName, prefixes)
+	pathOffset := len(args)
+	pathWhere = shiftPostgresPlaceholders(pathWhere, pathOffset)
+	args = append(args, pathArgs...)
+	cursorWhere := ""
+	if cursor != nil {
+		committedAt, err := cursor.committedAt()
+		if err != nil {
+			return nil, err
+		}
+		committedAtArg := len(args) + 1
+		commitIDArg := len(args) + 2
+		cursorWhere = fmt.Sprintf("where hits.committed_at < $%d or (hits.committed_at = $%d and hits.commit_id < $%d)", committedAtArg, committedAtArg, commitIDArg)
+		args = append(args, committedAt, cursor.CommitID)
+	}
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, `
+		select c.id, c.parent_ids, c.root_tree_id, coalesce(c.author_subject_id, ''),
+		       c.message, c.created_at, c.changed_paths, hits.committed_at
+		from (
+			select source.commit_id, max(source.committed_at) as committed_at
+			from (
+				select ce.commit_id, ce.committed_at
+				from commit_entity_changes ce
+				where `+entityWhere+`
+				union all
+				select cp.commit_id, cp.committed_at
+				from commit_changed_paths cp
+				where `+pathWhere+`
+			) source
+			group by source.commit_id
+		) hits
+		join commits c on c.id = hits.commit_id
+		`+cursorWhere+`
+		order by hits.committed_at desc, c.id desc
+		limit $`+fmt.Sprint(len(args))+`
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type commitHit struct {
+		commit      *corev1.Commit
+		committedAt time.Time
+	}
+	hits := make([]commitHit, 0, limit+1)
+	for rows.Next() {
+		commit, committedAt, err := scanCommitHitRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		hits = append(hits, commitHit{commit: commit, committedAt: committedAt})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	nextToken := ""
+	if len(hits) > limit {
+		var err error
+		nextToken, err = encodeCommitPageToken(hits[limit-1].commit.Id, hits[limit-1].committedAt)
+		if err != nil {
+			return nil, err
+		}
+		hits = hits[:limit]
+	}
+	commits := make([]*corev1.Commit, 0, len(hits))
+	for _, hit := range hits {
+		commits = append(commits, hit.commit)
+	}
+	return &CommitListPage{Commits: commits, NextPageToken: nextToken}, nil
+}
+
+func (s *RepositoryStore) CurrentPathEntitiesByPrefixes(ctx context.Context, refName string, prefixes []string) ([]CurrentPathEntity, error) {
+	if refName == "" {
+		refName = DefaultTargetRef
+	}
+	prefixes = normalizeCommitPathPrefixes(prefixes)
+	if len(prefixes) == 0 {
+		return nil, nil
+	}
+	where, args := currentPathEntityPrefixWhere(refName, prefixes)
+	rows, err := s.db.QueryContext(ctx, `
+		select path, account_id, entity_id, kind, coalesce(content_hash, ''), coalesce(mode, 0)
+		from current_path_entities cpe
+		where `+where+`
+		order by path
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CurrentPathEntity
+	for rows.Next() {
+		var entity CurrentPathEntity
+		var mode int
+		if err := rows.Scan(&entity.Path, &entity.AccountID, &entity.EntityID, &entity.Kind, &entity.ContentHash, &mode); err != nil {
+			return nil, err
+		}
+		if mode > 0 {
+			entity.Mode = uint32(mode)
+		}
+		out = append(out, entity)
+	}
+	return out, rows.Err()
+}
+
+func (s *RepositoryStore) CurrentPathEntitiesByPaths(ctx context.Context, refName string, paths []string) ([]CurrentPathEntity, error) {
+	if refName == "" {
+		refName = DefaultTargetRef
+	}
+	seen := map[string]struct{}{}
+	ordered := make([]string, 0, len(paths))
+	for _, p := range paths {
+		p = strings.TrimRight(p, "/")
+		if p == "" {
+			p = "/"
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		ordered = append(ordered, p)
+	}
+	if len(ordered) == 0 {
+		return nil, nil
+	}
+	args := []any{refName}
+	placeholders := make([]string, 0, len(ordered))
+	for _, p := range ordered {
+		args = append(args, p)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select path, account_id, entity_id, kind, coalesce(content_hash, ''), coalesce(mode, 0)
+		from current_path_entities
+		where target_ref = $1 and path in (`+strings.Join(placeholders, ", ")+`)
+		order by path
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CurrentPathEntity
+	for rows.Next() {
+		var entity CurrentPathEntity
+		var mode int
+		if err := rows.Scan(&entity.Path, &entity.AccountID, &entity.EntityID, &entity.Kind, &entity.ContentHash, &mode); err != nil {
+			return nil, err
+		}
+		if mode > 0 {
+			entity.Mode = uint32(mode)
+		}
+		out = append(out, entity)
+	}
+	return out, rows.Err()
+}
+
 func scanCommitRow(rows *sql.Rows) (*corev1.Commit, error) {
 	var commit corev1.Commit
 	var parentJSON, changedJSON []byte
@@ -449,6 +713,82 @@ func commitPathPrefixWhere(refName string, prefixes []string) (string, []any) {
 		args = append(args, prefix, strings.TrimRight(prefix, "/")+"/", strings.TrimRight(prefix, "/")+"0")
 	}
 	return "cp.target_ref = $1 and (" + strings.Join(clauses, " or ") + ")", args
+}
+
+func currentPathEntityPrefixWhere(refName string, prefixes []string) (string, []any) {
+	args := []any{refName}
+	clauses := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		if prefix == "/" {
+			clauses = append(clauses, "true")
+			continue
+		}
+		exact := len(args) + 1
+		lower := len(args) + 2
+		upper := len(args) + 3
+		clauses = append(clauses, fmt.Sprintf("(cpe.path = $%d or (cpe.path >= $%d and cpe.path < $%d))", exact, lower, upper))
+		args = append(args, prefix, strings.TrimRight(prefix, "/")+"/", strings.TrimRight(prefix, "/")+"0")
+	}
+	return "cpe.target_ref = $1 and (" + strings.Join(clauses, " or ") + ")", args
+}
+
+func normalizeHistoryEntityRefs(refs []HistoryEntityRef) []HistoryEntityRef {
+	seen := map[string]struct{}{}
+	out := make([]HistoryEntityRef, 0, len(refs))
+	for _, ref := range refs {
+		ref.AccountID = strings.TrimSpace(ref.AccountID)
+		ref.EntityID = strings.TrimSpace(ref.EntityID)
+		if ref.AccountID == "" || ref.EntityID == "" {
+			continue
+		}
+		key := ref.AccountID + "\x00" + ref.EntityID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, ref)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].AccountID == out[j].AccountID {
+			return out[i].EntityID < out[j].EntityID
+		}
+		return out[i].AccountID < out[j].AccountID
+	})
+	return out
+}
+
+func commitEntityRefWhere(refName string, refs []HistoryEntityRef) (string, []any) {
+	args := []any{refName}
+	clauses := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		accountArg := len(args) + 1
+		entityArg := len(args) + 2
+		clauses = append(clauses, fmt.Sprintf("(ce.account_id = $%d and ce.entity_id = $%d)", accountArg, entityArg))
+		args = append(args, ref.AccountID, ref.EntityID)
+	}
+	return "ce.target_ref = $1 and (" + strings.Join(clauses, " or ") + ")", args
+}
+
+func shiftPostgresPlaceholders(query string, offset int) string {
+	if offset == 0 {
+		return query
+	}
+	var b strings.Builder
+	for i := 0; i < len(query); i++ {
+		if query[i] != '$' || i+1 >= len(query) || query[i+1] < '0' || query[i+1] > '9' {
+			b.WriteByte(query[i])
+			continue
+		}
+		j := i + 1
+		n := 0
+		for j < len(query) && query[j] >= '0' && query[j] <= '9' {
+			n = n*10 + int(query[j]-'0')
+			j++
+		}
+		b.WriteString(fmt.Sprintf("$%d", n+offset))
+		i = j - 1
+	}
+	return b.String()
 }
 
 func (s *RepositoryStore) GetFile(ctx context.Context, commitID, p string) (*FileEntry, error) {

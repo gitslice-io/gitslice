@@ -665,6 +665,14 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 	if fsCat != "hello from file command\n" {
 		t.Fatalf("unexpected fs cat output:\n%s", fsCat)
 	}
+	followHistory := runCLI(t, home, dir, "commit", "list", "/file-user/docs/today.md")
+	if !strings.Contains(followHistory, "file write /file-user/docs/readme.md") || !strings.Contains(followHistory, "file mv") {
+		t.Fatalf("follow-moves commit history missing write or move:\n%s", followHistory)
+	}
+	literalHistory := runCLI(t, home, dir, "commit", "list", "/file-user/docs/today.md", "--no-follow-moves")
+	if strings.Contains(literalHistory, "file write /file-user/docs/readme.md") || !strings.Contains(literalHistory, "file mv") {
+		t.Fatalf("literal commit history should include move but not pre-move write:\n%s", literalHistory)
+	}
 
 	stdout, stderr := runCLIStreamsWithInput(t, home, dir, strings.Join([]string{
 		"ls /file-user",

@@ -86,6 +86,8 @@ message ListCommitsRequest {
   SliceRef slice = 4;
   // Optional opaque cursor returned by a previous ListCommitsResponse.
   string page_token = 5;
+  // Optional move-following behavior. If unset, path history follows moves.
+  optional bool follow_moves = 6;
 }
 
 message ListCommitsResponse {

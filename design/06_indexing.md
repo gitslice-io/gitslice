@@ -175,6 +175,15 @@ entity_history_index(
   committed_at
 )
 
+current_path_entity_index(
+  target_ref,
+  path,
+  account_id,
+  entity_id,
+  kind,
+  indexed_at
+)
+
 projection_manifest(
   slice_id,
   slice_definition_hash,
