@@ -1188,15 +1188,30 @@ func (r Runner) rootCommand() *cobra.Command {
 		RunE:    requireSubcommand("commit"),
 	}
 	commitLimit := 20
+	commitPath := ""
+	commitSlice := ""
+	commitPageToken := ""
+	commitNoFollowMoves := false
 	commitListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List native commits from a ref",
-		Args:  noArgs("gs commit list [--limit 20]"),
+		Args:  maxArgs(1, "gs commit list [path] [--slice slice|account/slice] [--limit 20]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runCommitList(cmd.Context(), *opts, commitLimit)
+			pathFilter := commitPath
+			if len(args) == 1 {
+				if strings.TrimSpace(pathFilter) != "" {
+					return userError("invalid_args", "path was provided twice", "Pass either gs commit list <path> or gs commit list --path <path>.")
+				}
+				pathFilter = args[0]
+			}
+			return r.runCommitList(cmd.Context(), *opts, commitLimit, pathFilter, commitSlice, commitPageToken, commitNoFollowMoves)
 		},
 	}
 	commitListCmd.Flags().IntVar(&commitLimit, "limit", commitLimit, "maximum commits to list")
+	commitListCmd.Flags().StringVar(&commitPath, "path", commitPath, "absolute file or directory path to filter commits")
+	commitListCmd.Flags().StringVar(&commitSlice, "slice", commitSlice, "slice to filter commits, defaults to all slices")
+	commitListCmd.Flags().StringVar(&commitPageToken, "page-token", commitPageToken, "opaque pagination token from a previous commit list")
+	commitListCmd.Flags().BoolVar(&commitNoFollowMoves, "no-follow-moves", commitNoFollowMoves, "show literal path history without following moves")
 	commitInspectCmd := &cobra.Command{
 		Use:   "inspect <commit-id>",
 		Short: "Inspect a native commit",
@@ -4514,7 +4529,7 @@ func (r *importProgressReporter) shouldPrintCommitLine(event *corev1.ImportGitRe
 	return false
 }
 
-func (r Runner) runCommitList(ctx context.Context, opts commandOptions, limit int) error {
+func (r Runner) runCommitList(ctx context.Context, opts commandOptions, limit int, pathFilter, sliceRef, pageToken string, noFollowMoves bool) error {
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
@@ -4524,10 +4539,25 @@ func (r Runner) runCommitList(ctx context.Context, opts commandOptions, limit in
 		return err
 	}
 	defer conn.Close()
-	res, err := corev1.NewRepositoryServiceClient(conn).ListCommits(authContext(ctx, cfg), &corev1.ListCommitsRequest{
-		RefName: postgres.DefaultTargetRef,
-		Limit:   int32(limit),
-	})
+	callCtx := authContext(ctx, cfg)
+	req := &corev1.ListCommitsRequest{
+		RefName:   postgres.DefaultTargetRef,
+		Limit:     int32(limit),
+		Path:      pathFilter,
+		PageToken: pageToken,
+	}
+	if noFollowMoves {
+		followMoves := false
+		req.FollowMoves = &followMoves
+	}
+	if strings.TrimSpace(sliceRef) != "" {
+		ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+		if err != nil {
+			return err
+		}
+		req.Slice = ref
+	}
+	res, err := corev1.NewRepositoryServiceClient(conn).ListCommits(callCtx, req)
 	if err != nil {
 		return err
 	}
@@ -4539,6 +4569,9 @@ func (r Runner) runCommitList(ctx context.Context, opts commandOptions, limit in
 	}
 	for _, commit := range res.Commits {
 		fmt.Fprintf(r.Stdout, "%s %s\n", commit.Id, commit.Message)
+	}
+	if res.NextPageToken != "" {
+		fmt.Fprintf(r.Stdout, "next_page_token: %s\n", res.NextPageToken)
 	}
 	return nil
 }
@@ -6582,12 +6615,13 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"source", "mount_path", "mode", "target_ref", "final_commit_id", "commits"},
 			},
 			{
-				"use":            "gs commit list",
-				"summary":        "list native commits from the main ref",
-				"aliases":        []string{"gs commits list"},
-				"flags":          []string{"--limit"},
+				"use":            "gs commit list [path]",
+				"summary":        "list native commits from the main ref, optionally filtered by path or slice",
+				"aliases":        []string{"gs commits list [path]"},
+				"args":           []string{"path"},
+				"flags":          []string{"--limit", "--path", "--slice", "--page-token", "--no-follow-moves"},
 				"writes_stdout":  true,
-				"machine_output": []string{"commits"},
+				"machine_output": []string{"commits", "next_page_token"},
 			},
 			{
 				"use":            "gs commit inspect <commit-id>",

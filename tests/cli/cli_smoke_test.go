@@ -446,6 +446,10 @@ func TestCLISliceCRUD(t *testing.T) {
 			t.Fatalf("created slice output missing %q:\n%s", want, created)
 		}
 	}
+	docsHistory := runCLI(t, home, workspace, "commit", "list", "--slice", "acme/docs")
+	if !strings.Contains(docsHistory, "slice crud seed") {
+		t.Fatalf("docs slice commit history missing seed commit:\n%s", docsHistory)
+	}
 
 	listed := runCLI(t, home, workspace, "slice", "list", "acme")
 	for _, want := range []string{"slices for account acme:", "acme/payment", "acme/docs", "visibility: account", "included paths: /acme/payment/docs"} {
@@ -660,6 +664,14 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 	fsCat := runCLI(t, home, dir, "fs", "cat", "/file-user/docs/today.md")
 	if fsCat != "hello from file command\n" {
 		t.Fatalf("unexpected fs cat output:\n%s", fsCat)
+	}
+	followHistory := runCLI(t, home, dir, "commit", "list", "/file-user/docs/today.md")
+	if !strings.Contains(followHistory, "file write /file-user/docs/readme.md") || !strings.Contains(followHistory, "file mv") {
+		t.Fatalf("follow-moves commit history missing write or move:\n%s", followHistory)
+	}
+	literalHistory := runCLI(t, home, dir, "commit", "list", "/file-user/docs/today.md", "--no-follow-moves")
+	if strings.Contains(literalHistory, "file write /file-user/docs/readme.md") || !strings.Contains(literalHistory, "file mv") {
+		t.Fatalf("literal commit history should include move but not pre-move write:\n%s", literalHistory)
 	}
 
 	stdout, stderr := runCLIStreamsWithInput(t, home, dir, strings.Join([]string{
@@ -1695,6 +1707,40 @@ func TestGitHubImportDeepListAndInspectCommits(t *testing.T) {
 		if !strings.Contains(list, want) {
 			t.Fatalf("commit list missing %q:\n%s", want, list)
 		}
+	}
+	libList := runCLI(t, home, workspace, "commit", "list", "--path", "/acme/payment/imported/deep/lib")
+	if !strings.Contains(libList, "second commit") || strings.Contains(libList, "first commit") || strings.Contains(libList, "third commit") {
+		t.Fatalf("path-filtered lib history is wrong:\n%s", libList)
+	}
+	readmeList := runCLI(t, home, workspace, "commit", "list", "/acme/payment/imported/deep/README.md")
+	if !strings.Contains(readmeList, "first commit") || !strings.Contains(readmeList, "third commit") || strings.Contains(readmeList, "second commit") {
+		t.Fatalf("path-filtered README history is wrong:\n%s", readmeList)
+	}
+	firstPageRaw := runCLI(t, home, workspace, "commit", "list", "/acme/payment/imported/deep/README.md", "--limit", "1", "--json")
+	var firstPage struct {
+		Commits []struct {
+			Message string `json:"message"`
+		} `json:"commits"`
+		NextPageToken string `json:"next_page_token"`
+	}
+	if err := json.Unmarshal([]byte(firstPageRaw), &firstPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(firstPage.Commits) != 1 || firstPage.Commits[0].Message != "third commit" || firstPage.NextPageToken == "" {
+		t.Fatalf("unexpected first commit page: %#v raw=%s", firstPage, firstPageRaw)
+	}
+	secondPageRaw := runCLI(t, home, workspace, "commit", "list", "/acme/payment/imported/deep/README.md", "--limit", "1", "--page-token", firstPage.NextPageToken, "--json")
+	var secondPage struct {
+		Commits []struct {
+			Message string `json:"message"`
+		} `json:"commits"`
+		NextPageToken string `json:"next_page_token"`
+	}
+	if err := json.Unmarshal([]byte(secondPageRaw), &secondPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(secondPage.Commits) != 1 || secondPage.Commits[0].Message != "first commit" || secondPage.NextPageToken != "" {
+		t.Fatalf("unexpected second commit page: %#v raw=%s", secondPage, secondPageRaw)
 	}
 	inspect := runCLI(t, home, workspace, "commit", "inspect", imported.Commits[1].NativeCommitID)
 	if !strings.Contains(inspect, "message: second commit") ||

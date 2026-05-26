@@ -3041,3 +3041,139 @@ git diff --check
 go test ./...
 go build ./cmd/...
 ```
+
+## 2026-05-26: Indexed Commit History Filters
+
+Request:
+
+- make directory/file commit history efficient with a better index
+- ensure the list-commits API supports custom slices, including slices created
+  after relevant commits already exist
+
+Implemented:
+
+- added `commit_changed_paths` as the operational path-history index keyed by
+  target ref, commit id, path, change kind, and committed time
+- populated the index during publish and backfilled it from existing commit
+  changed-path payloads in migration
+- extended `RepositoryService.ListCommits` with optional `path` and `slice`
+  filters; slice filtering resolves the slice's current included paths and
+  queries the index rather than relying on commit-time coverage
+- added opaque cursor pagination to `RepositoryService.ListCommits` and
+  `gs commit list --page-token`
+- extended `gs commit list` with `[path]`, `--path`, `--slice`, and
+  `--page-token`
+- fixed server-side slice directory projection for home slices whose included
+  path is an account root such as `/nic`
+- documented the API, storage index, CLI behavior, and slice-history rule
+
+Important decisions and learnings:
+
+- Slice history remains a projection of the current slice definition over the
+  global commit graph. A custom slice can therefore show history for paths that
+  existed before the slice was created.
+- Combining `path` and `slice` is an intersection, not a union. If the requested
+  path is outside the slice's included prefixes, the result is empty.
+- Filtered commit-history pagination uses the indexed `(committed_at,
+  commit_id)` ordering. Unfiltered history still follows the ref's first-parent
+  chain and uses the same opaque token shape.
+- RPC coverage now exercises the consistency invariant for a personal custom
+  slice publish: the custom slice sees the submitted commit, the prior home
+  commit does not, and when home observes the latest ref the directory entry and
+  file content are visible together.
+- CLI bare slice refs still resolve against the signed-in account. Org slices
+  should be passed as `account/slice`, such as `acme/docs`.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/repository_store.go internal/postgres/changeset_store.go service/repository.go internal/cli/cli.go internal/cli/cli_test.go tests/cli/cli_smoke_test.go tests/rpc/rpc_custom_slice_test.go
+go test ./internal/postgres ./service ./internal/cli ./tests/rpc ./tests/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCListCommitsSupportsPathAndCustomSlice -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestGitHubImportDeepListAndInspectCommits -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCCustomSlicePublishIsConsistentWhenHomeObserves -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+## 2026-05-26: Entity-Aware Move-Following Commit History
+
+Request:
+
+- implement move-preserving commit history with comprehensive RPC and CLI e2e
+  tests
+
+Implemented:
+
+- added optional `ListCommitsRequest.follow_moves`, defaulting path history to
+  move-following behavior while preserving literal path history with
+  `follow_moves = false`
+- added entity-history metadata tables for stable file/directory identity,
+  current path-to-entity resolution, and per-commit entity changes
+- populated entity history during publish for adds, modifications, deletes,
+  explicit renames, directory renames, and unambiguous exact delete/add moves
+- made path-filtered commit listing follow entity lineage and ancestor
+  directory move events when enabled
+- added `gs commit list --no-follow-moves`
+- added RPC e2e coverage for explicit file moves, exact inferred moves,
+  ancestor directory moves, custom-slice move history, ambiguous exact matches,
+  and delete/recreate at the same path
+- added CLI e2e coverage for `gs fs mv` history with and without
+  `--no-follow-moves`
+
+Important decisions and learnings:
+
+- explicit native rename operations remain authoritative lineage
+- exact delete/add move inference is intentionally conservative and skipped
+  when one-to-many or many-to-one content matches would be ambiguous
+- delete/recreate at the same path creates a new entity, so default
+  move-following history does not attach the prior deleted entity
+- directory moves update current descendant path mappings but record one
+  directory move event; file history includes ancestor directory entities so it
+  can show the directory move without expanding every child into a change row
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/repository_store.go internal/postgres/changeset_store.go service/repository.go internal/cli/cli.go tests/rpc/commit_history_test.go tests/cli/cli_smoke_test.go
+go test ./internal/postgres ./service ./internal/cli ./tests/rpc ./tests/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run 'TestRPCCommitHistory' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run 'TestCLIFileAndShellMutationsStayInHome|TestGitHubImportDeepListAndInspectCommits' -v
+go test ./...
+go build ./cmd/...
+git diff --check
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
+```
+
+## 2026-05-26: Collation-Stable History Prefix Filters
+
+Request:
+
+- fix PostgreSQL e2e CI failure in custom-slice commit history
+
+Implemented:
+
+- replaced lexicographic prefix bounds like `path >= prefix || '/'` and
+  `path < prefix || '0'` with explicit prefix comparisons
+- applied the same collation-stable predicate to current entity path scans,
+  recursive entity deletes, and directory move updates
+
+Important decisions and learnings:
+
+- GitHub Actions exposed a database collation difference where the previous
+  `/` to `0` lexical range could miss descendants even though it passed
+  locally. Prefix checks must not rely on locale-specific text ordering.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/repository_store.go internal/postgres/changeset_store.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCListCommitsSupportsPathAndCustomSlice -v
+go test ./...
+go build ./cmd/...
+git diff --check
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
+```

@@ -199,10 +199,16 @@ message GetCommitRequest {
 message ListCommitsRequest {
   string ref_name = 1;
   int32 limit = 2;
+  // Optional account-rooted file or directory path filter.
   string path = 3;
+  // Optional slice projection. When set, commits are filtered to paths included
+  // by the slice's current definition. If path is also set, the server returns
+  // commits in the path/slice intersection.
   SliceRef slice = 4;
+  // Optional opaque cursor returned by a previous ListCommitsResponse.
   string page_token = 5;
-  bool follow_moves = 6;
+  // Optional move-following behavior. If unset, path history follows moves.
+  optional bool follow_moves = 6;
 }
 
 message ListCommitsResponse {
