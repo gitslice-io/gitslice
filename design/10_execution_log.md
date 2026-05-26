@@ -3221,3 +3221,54 @@ go build ./cmd/...
 git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
 ```
+
+## 2026-05-26: Auth Boundary Doc Audit and Functional Tests
+
+Request:
+
+- check inconsistencies between design docs and implementation, then add
+  missing critical functional tests
+
+Implemented:
+
+- tightened `ChangesetService` authorization so `GetChangeset`,
+  `DiffChangeset`, `UpdateChangeset`, `SubmitChangeset`, and
+  `AbandonChangeset` all require membership in the changeset's authoring
+  account
+- added RPC functional coverage for unauthenticated/public method boundaries:
+  fake login, fake signup approval, and health remain public, while normal core
+  services reject unauthenticated requests
+- added RPC functional coverage proving a signed-up non-member cannot resolve
+  or list another account's slices, use slice-scoped repository reads/history,
+  import into another account's slice, or mutate another account's changeset
+- added CLI functional coverage that workspace initialization writes only
+  current workspace metadata under `.gs/` and does not store the bearer token in
+  workspace metadata
+- updated the CLI design doc to reflect the current command groups, workspace
+  metadata files, and implemented workspace subcommands
+- updated the auth current-state doc to list `ApproveSignup` as public and to
+  describe the enforced changeset membership boundary
+
+Important decisions and learnings:
+
+- the previous implementation protected changeset create/list/diff but left
+  update, submit, and abandon as authenticated-only paths; this contradicted
+  the documented account-membership boundary for changeset writes
+- changeset read access through `GetChangeset` is now aligned with list/diff by
+  requiring membership in the authoring account, avoiding path and metadata
+  leakage for known changeset ids
+- workspace auth state remains user-global config, not workspace metadata; the
+  docs now describe the actual `.gs/slice.json`, `.gs/state.json`, and
+  `.gs/base_snapshot.json` layout
+
+Verification:
+
+```bash
+gofmt -w service/changeset.go tests/rpc/slice_test.go tests/cli/cli_smoke_test.go
+go test ./service ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run 'TestRPCAuthenticationBoundary|TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestWorkspaceInitMaterializesCanonicalLayoutAndRequiresEmptyDirectory -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
+```

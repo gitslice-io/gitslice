@@ -215,6 +215,7 @@ The gRPC server installs unary and stream auth interceptors.
 Public methods:
 
 - `FakeAccountService.Login`
+- `FakeAccountService.ApproveSignup`
 - gRPC health checks
 
 All other native methods require metadata:
@@ -263,7 +264,8 @@ Implemented membership checks include:
 
 - resolving and listing slices by account
 - workspace state and workspace diff validation
-- changeset creation and submit setup for an authoring slice
+- changeset create, list, get, diff, update, submit, and abandon through the
+  changeset's authoring slice account
 - repository import into an authoring slice
 - Git projection and push rejection paths
 

@@ -115,6 +115,7 @@ func TestWorkspaceInitMaterializesCanonicalLayoutAndRequiresEmptyDirectory(t *te
 	if !strings.Contains(initOutput, "hydrated 1 file(s) through cache") {
 		t.Fatalf("unexpected workspace init output:\n%s", initOutput)
 	}
+	assertWorkspaceMetadataDoesNotContainToken(t, workspace, readToken(t, home))
 	assertWorkspaceFile(t, workspace, "init-user/hello/readme.txt", "hello workspace\n")
 	assertWorkspaceDir(t, workspace, "init-user/hello/empty")
 	status := runCLI(t, home, workspace, "status")
@@ -2267,6 +2268,37 @@ func readToken(t *testing.T, home string) string {
 		t.Fatal("empty token in CLI config")
 	}
 	return cfg.Token
+}
+
+func assertWorkspaceMetadataDoesNotContainToken(t *testing.T, workspace, token string) {
+	t.Helper()
+	if token == "" {
+		t.Fatal("test setup produced empty token")
+	}
+	for _, rel := range []string{".gs/slice.json", ".gs/state.json", ".gs/base_snapshot.json"} {
+		if _, err := os.Stat(filepath.Join(workspace, rel)); err != nil {
+			t.Fatalf("expected workspace metadata %s: %v", rel, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workspace, ".gs", "config.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("workspace must not store auth config in .gs/config.json; stat err=%v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(workspace, ".gs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(workspace, ".gs", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(data, []byte(token)) {
+			t.Fatalf("workspace metadata %s contains bearer token", entry.Name())
+		}
+	}
 }
 
 func readJSONFile(path string, v any) error {
