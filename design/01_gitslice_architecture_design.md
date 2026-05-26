@@ -31,6 +31,7 @@ Companion documents:
 - [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
 - [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
 - [09_execution_plan.md](09_execution_plan.md): implementation phases and workflow validation
+- [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md): stable file and directory identity, move detection, and history across renames
 
 Gitslice is designed to support:
 
@@ -152,6 +153,11 @@ identity/
 
 This removes path aliasing from the core model and keeps Git projection,
 authorization, diffs, review, and local workspaces easier to reason about.
+
+Paths are canonical locations, not stable object identity. Files, directories,
+and symlinks need stable entity ids so history can follow moves and renames
+without treating the current path as the object's identity. See
+[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
 ### 2.4 Changesets Are The Write Model
 

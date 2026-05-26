@@ -6,6 +6,8 @@ in [00_product.md](00_product.md), the top-level architecture is in
 gRPC API surface is in [03_core_api.md](03_core_api.md), and derived indexes are
 covered in [06_indexing.md](06_indexing.md). Conflict resolution and batched
 submit are covered in [07_conflict_resolution.md](07_conflict_resolution.md).
+Stable file and directory identity for move-preserving history is covered in
+[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
 ## 1. Storage Goals
 
@@ -45,6 +47,11 @@ Native ids should include an algorithm/version prefix, for example
 must include a domain separator such as `gitslice.tree.v1` so blob, tree, and
 commit ids cannot collide across object kinds even if their payload bytes happen
 to match.
+
+Stable file and directory entity ids are different from these content-addressed
+storage ids. Entity ids are opaque logical ids used to follow history across
+moves, while blob, tree, and commit ids identify immutable content-addressed
+objects.
 
 PostgreSQL may store rows and indexes around these objects, but those rows do
 not assign durable object identity. Git-compatible object ids are separate
@@ -291,9 +298,32 @@ commit_changed_paths(
   primary key(target_ref, commit_id, path)
 )
 
+fs_entities(
+  account_id references accounts(id),
+  entity_id,
+  kind,
+  created_commit_id references commits(id),
+  deleted_commit_id references commits(id),
+  created_at,
+  primary key(account_id, entity_id)
+)
+
+commit_entity_changes(
+  target_ref,
+  commit_id references commits(id),
+  account_id,
+  entity_id,
+  path,
+  old_path,
+  change_kind,
+  content_hash,
+  mode,
+  committed_at
+)
+
 object-store tree node:
   key = trees/sha256/{prefix}/{tree_hash}.json
-  id = hash(gitslice.tree.v1, canonical tree entries)
+  id = hash(gitslice.tree.v1 or later format version, canonical tree entries)
   entries[] = ordered child names and file/directory metadata
 
 blobs(
@@ -1241,18 +1271,19 @@ derived from `blob_id` or the same content hash.
 
 ```text
 Tree:
-  id              # tree_id = hash(gitslice.tree.v1, canonical tree entries)
+  id              # tree_id = hash(gitslice.tree.v1 or later, canonical tree entries)
   entries_or_chunks[]
 ```
 
 Trees are immutable and content-addressed. Identical canonical directory
-contents produce the same `tree_id`.
+contents produce the same `tree_id` within the same tree format version.
 
 ### 6.3 Tree Entry
 
 ```text
 TreeEntry:
   name
+  entity_id
   kind
   mode
   tree_id
@@ -1269,6 +1300,11 @@ file
 directory
 symlink
 ```
+
+`entity_id` is the stable identity of the logical file, directory, or symlink.
+It is not derived from the path and must remain stable across moves. The full
+move-history model is defined in
+[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
 ### 6.4 Commit
 
@@ -1350,13 +1386,15 @@ This ordering is used for:
 
 ### 7.3 Tree Hash Inputs
 
-`tree_id` is computed from a canonical encoding of the tree object:
+`tree_id` is computed from a canonical encoding of the tree object. The
+entity-aware tree format includes `entity_id` in the hash input:
 
 ```text
 tree_id = hash(
-  "gitslice.tree.v1",
+  "gitslice.tree.v2",
   ordered entries:
     name
+    entity_id
     entry kind
     mode
     blob_id or child_tree_id
@@ -1440,6 +1478,9 @@ renamed directory's child tree because the child tree hash is independent of the
 directory's name.
 
 Path-based indexes still need to update affected path records after a rename.
+Entity-aware history indexes must also record that the same entity moved from
+`old_path` to `new_path`, so path-filtered history can follow the rename when
+requested.
 
 ## 8. Replication Architecture
 

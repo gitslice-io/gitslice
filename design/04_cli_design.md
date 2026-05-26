@@ -967,12 +967,21 @@ Commit inspection commands:
 
 ```bash
 gs commit list --limit 20
+gs commit list [path] --limit 20 --slice <slice> --page-token <token>
+gs commit list [path] --no-follow-moves
 gs commit inspect <native-commit-id>
 ```
 
 These commands are intentionally native. They list and inspect Gitslice commits,
 not Git object ids. The import response maps imported Git commit ids to native
 commit ids for follow-up inspection.
+
+When a path is supplied, `gs commit list` should follow stable file and
+directory identity across moves by default. `--no-follow-moves` requests
+literal path history. Slice-scoped history must respect the attached or
+specified slice and must not reveal old or new paths outside the user's visible
+projection. See
+[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
 ## 15. Backend Requirements
 

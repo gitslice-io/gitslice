@@ -3007,3 +3007,37 @@ go test ./...
 go build ./cmd/...
 git diff --check
 ```
+
+## 2026-05-25: File Identity And Move History Design
+
+Request:
+
+- document how Gitslice should detect file moves and preserve commit history
+  when files or directories move
+
+Implemented:
+
+- added a dedicated file identity and move-history design document
+- cross-linked the design from architecture, storage, API, CLI, and indexing
+  docs
+- documented stable account-scoped entity ids, explicit move events, exact
+  delete/add inference, similarity inference, directory move handling, sharding
+  considerations, migration steps, and test coverage expectations
+
+Important decisions and learnings:
+
+- paths should remain canonical locations, not durable object identity
+- stable file and directory entity ids should be the source of truth for
+  history continuity across moves
+- explicit native rename operations should be authoritative; inferred moves are
+  fallback metadata and must record source and ambiguity
+- random opaque entity ids are preferable to path-derived ids for sharding, but
+  the account boundary remains the primary ownership and authorization scope
+
+Verification:
+
+```bash
+git diff --check
+go test ./...
+go build ./cmd/...
+```
