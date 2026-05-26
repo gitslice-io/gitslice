@@ -3177,3 +3177,47 @@ git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
 ```
+
+## 2026-05-26: Storage Interfaces for Service Unit Tests
+
+Request:
+
+- introduce storage interfaces for PostgreSQL storage implementations so
+  services can be unit-tested against in-memory storage
+
+Implemented:
+
+- added `internal/storage` capability interfaces for auth, blob metadata,
+  changesets, repository reads/history, and slices
+- moved shared storage errors, type shapes, constants, and entry fingerprint
+  helpers behind the storage boundary
+- kept `internal/postgres` as the production implementation by aliasing shared
+  types/errors and adding compile-time interface assertions
+- refactored gRPC services, server auth/publisher wiring, and the Git
+  projection layer to depend on storage interfaces instead of concrete
+  PostgreSQL store structs
+- added `internal/storage/memory`, a shared in-memory implementation of the
+  metadata interfaces plus an in-memory object store for service tests
+- added service unit tests that exercise signup/auth, blob upload/status,
+  slice validation, workspace state, changeset validation/submission/publish,
+  repository reads, and directory listing through the in-memory implementation
+
+Important decisions and learnings:
+
+- the in-memory implementation mirrors PostgreSQL's separate store objects
+  rather than using one monolithic struct, because stores intentionally share
+  method names such as `Create`, `Get`, and `List` with different signatures
+- services should continue using high-level capability interfaces; SQL
+  migrations, transaction details, and PostgreSQL-only helpers stay inside
+  `internal/postgres`
+
+Verification:
+
+```bash
+gofmt -w internal/storage/*.go internal/storage/memory/*.go internal/postgres/errors.go internal/postgres/types.go internal/postgres/repository_store.go internal/postgres/interfaces.go service/*.go server/server.go server/publisher.go internal/gitcompat/*.go service/memory_service_test.go design/02_storage.md design/10_execution_log.md
+go test ./internal/gitcompat ./internal/storage/... ./service ./server ./internal/postgres
+go test ./...
+go build ./cmd/...
+git diff --check
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
+```

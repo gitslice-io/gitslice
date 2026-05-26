@@ -12,25 +12,25 @@ import (
 	"github.com/gitslice-io/gitslice/internal/diffutil"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type ChangesetService struct {
-	Auth        *postgres.AuthStore
-	Blobs       *postgres.BlobStore
-	Changesets  *postgres.ChangesetStore
-	Repository  *postgres.RepositoryStore
-	Slices      *postgres.SliceStore
+	Auth        storage.AuthStore
+	Blobs       storage.BlobStore
+	Changesets  storage.ChangesetStore
+	Repository  storage.RepositoryStore
+	Slices      storage.SliceStore
 	ObjectStore ObjectStore
 	validator   diffValidator
 }
 
 type diffValidator struct {
-	Repository *postgres.RepositoryStore
-	Slices     *postgres.SliceStore
+	Repository storage.RepositoryStore
+	Slices     storage.SliceStore
 }
 
 func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
@@ -267,7 +267,7 @@ func (s *ChangesetService) patchsetFile(ctx context.Context, patchset *corev1.Pa
 
 func (s *ChangesetService) baseFile(ctx context.Context, commitID, p string) (diffutil.File, error) {
 	entry, err := s.Repository.GetFile(ctx, commitID, p)
-	if errors.Is(err, postgres.ErrNotFound) {
+	if errors.Is(err, storage.ErrNotFound) {
 		return diffutil.File{Path: p}, nil
 	}
 	if err != nil {
@@ -388,10 +388,10 @@ func (v diffValidator) pathBase(ctx context.Context, baseCommitID, p string) (*c
 		Path:             p,
 		BaseCommitId:     baseCommitID,
 		Check:            "entry_fingerprint",
-		EntryFingerprint: postgres.MissingEntryFingerprint(),
+		EntryFingerprint: storage.MissingEntryFingerprint(),
 	}
 	entry, err := v.Repository.GetEntry(ctx, baseCommitID, p)
-	if errors.Is(err, postgres.ErrNotFound) {
+	if errors.Is(err, storage.ErrNotFound) {
 		return base, nil
 	}
 	if err != nil {
@@ -404,7 +404,7 @@ func (v diffValidator) pathBase(ctx context.Context, baseCommitID, p string) (*c
 		base.Mode = entry.Mode
 		base.BlobId = entry.BlobID
 		base.ContentHash = entry.ContentHash
-		base.EntryFingerprint = postgres.FileEntryFingerprint(postgres.FileEntry{
+		base.EntryFingerprint = storage.FileEntryFingerprint(storage.FileEntry{
 			Path:        entry.Path,
 			BlobID:      entry.BlobID,
 			ContentHash: entry.ContentHash,
@@ -413,9 +413,9 @@ func (v diffValidator) pathBase(ctx context.Context, baseCommitID, p string) (*c
 		})
 	case "directory":
 		base.TreeId = entry.TreeID
-		base.EntryFingerprint = postgres.DirectoryEntryFingerprint(entry.TreeID)
+		base.EntryFingerprint = storage.DirectoryEntryFingerprint(entry.TreeID)
 	default:
-		base.EntryFingerprint = postgres.MissingEntryFingerprint()
+		base.EntryFingerprint = storage.MissingEntryFingerprint()
 	}
 	return base, nil
 }

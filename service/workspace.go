@@ -6,16 +6,16 @@ import (
 	"strings"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type WorkspaceService struct {
-	Auth        *postgres.AuthStore
-	Repository  *postgres.RepositoryStore
-	Slices      *postgres.SliceStore
+	Auth        storage.AuthStore
+	Repository  storage.RepositoryStore
+	Slices      storage.SliceStore
 	ObjectStore ObjectStore
 	validator   diffValidator
 }
@@ -36,7 +36,7 @@ func (s *WorkspaceService) GetWorkspaceState(ctx context.Context, req *corev1.Ge
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	target, err := s.Repository.GetRef(ctx, postgres.DefaultTargetRef)
+	target, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -59,7 +59,7 @@ func (s *WorkspaceService) HydratePaths(ctx context.Context, req *corev1.Hydrate
 	if len(req.Paths) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one path is required")
 	}
-	target, err := s.Repository.GetRef(ctx, postgres.DefaultTargetRef)
+	target, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -92,7 +92,7 @@ func (s *WorkspaceService) ValidateWorkspaceDiff(ctx context.Context, req *corev
 	}
 	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {
-		target, err := s.Repository.GetRef(ctx, postgres.DefaultTargetRef)
+		target, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef)
 		if err != nil {
 			return nil, grpcError(err)
 		}

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
@@ -104,7 +104,7 @@ func TestGitDeltaEditsReadsOnlyChangedPaths(t *testing.T) {
 }
 
 func TestImmediateDirectoryEntriesFiltersFilesOutsidePrefix(t *testing.T) {
-	files := []postgres.FileEntry{
+	files := []storage.FileEntry{
 		{Path: "/acme/backend/server.go", Mode: 0o100644},
 		{Path: "/acme/payment/shared/code.go", Mode: 0o100644},
 	}

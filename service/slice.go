@@ -5,16 +5,16 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type SliceService struct {
-	Auth       *postgres.AuthStore
-	Repository *postgres.RepositoryStore
-	Slices     *postgres.SliceStore
+	Auth       storage.AuthStore
+	Repository storage.RepositoryStore
+	Slices     storage.SliceStore
 }
 
 func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceRequest) (*corev1.Slice, error) {
@@ -150,7 +150,7 @@ func (s *SliceService) validateIncludedPathsExist(ctx context.Context, ref *core
 	if s.Repository == nil {
 		return status.Error(codes.Internal, "repository store is not configured")
 	}
-	target, err := s.Repository.GetRef(ctx, postgres.DefaultTargetRef)
+	target, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef)
 	if err != nil {
 		return grpcError(err)
 	}
@@ -159,7 +159,7 @@ func (s *SliceService) validateIncludedPathsExist(ctx context.Context, ref *core
 			continue
 		}
 		if _, err := s.Repository.GetEntry(ctx, target.CommitId, p); err != nil {
-			if errors.Is(err, postgres.ErrNotFound) {
+			if errors.Is(err, storage.ErrNotFound) {
 				return status.Errorf(codes.FailedPrecondition, "included path does not exist: %s", p)
 			}
 			return grpcError(err)

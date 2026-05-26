@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
@@ -21,24 +22,11 @@ type RepositoryStore struct {
 	trees *treestore.Store
 }
 
-type CommitListPage struct {
-	Commits       []*corev1.Commit
-	NextPageToken string
-}
+type CommitListPage = storage.CommitListPage
 
-type HistoryEntityRef struct {
-	AccountID string
-	EntityID  string
-}
+type HistoryEntityRef = storage.HistoryEntityRef
 
-type CurrentPathEntity struct {
-	Path        string
-	AccountID   string
-	EntityID    string
-	Kind        string
-	ContentHash string
-	Mode        uint32
-}
+type CurrentPathEntity = storage.CurrentPathEntity
 
 type commitPageCursor struct {
 	CommitID    string `json:"commit_id"`

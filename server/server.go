@@ -14,6 +14,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/service"
@@ -143,7 +144,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func NewGRPCServer(auth *postgres.AuthStore, handlers *service.Handlers) *grpc.Server {
+func NewGRPCServer(auth storage.AuthStore, handlers *service.Handlers) *grpc.Server {
 	grpcServer := grpc.NewServer(
 		grpc.UnaryInterceptor(authInterceptor(auth)),
 		grpc.StreamInterceptor(authStreamInterceptor(auth)),
@@ -161,7 +162,7 @@ func NewGRPCServer(auth *postgres.AuthStore, handlers *service.Handlers) *grpc.S
 	return grpcServer
 }
 
-func authStreamInterceptor(auth *postgres.AuthStore) grpc.StreamServerInterceptor {
+func authStreamInterceptor(auth storage.AuthStore) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if isPublicMethod(info.FullMethod) {
 			return handler(srv, stream)
@@ -190,7 +191,7 @@ func (s *contextServerStream) Context() context.Context {
 	return s.ctx
 }
 
-func authInterceptor(auth *postgres.AuthStore) grpc.UnaryServerInterceptor {
+func authInterceptor(auth storage.AuthStore) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if isPublicMethod(info.FullMethod) {
 			return handler(ctx, req)
@@ -235,7 +236,7 @@ func bearerToken(ctx context.Context) (string, error) {
 }
 
 func grpcAuthError(err error) error {
-	if errors.Is(err, postgres.ErrUnauthenticated) {
+	if errors.Is(err, storage.ErrUnauthenticated) {
 		return status.Error(codes.Unauthenticated, err.Error())
 	}
 	return status.Error(codes.Internal, fmt.Sprintf("auth lookup failed: %v", err))

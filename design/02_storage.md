@@ -204,6 +204,13 @@ For the MVP, these capabilities come from PostgreSQL transactions, row locks,
 unique constraints, partial indexes, and transaction-scoped advisory locks where
 they simplify sequencer leases.
 
+Runtime services depend on narrow Go storage interfaces in `internal/storage`
+rather than concrete PostgreSQL store structs. PostgreSQL remains the production
+metadata source of truth, and the `internal/postgres` stores are the production
+implementation of those interfaces. Tests may use an in-memory implementation
+of the same interfaces when they need fast service-level coverage without a
+database process.
+
 Derived indexes:
 
 ```text
@@ -733,6 +740,17 @@ The storage layer exposes an internal capability interface to higher-level
 services such as the changeset service, Git gateway, submit service, and index
 workers. It is not the public product API; public clients use the gRPC API
 defined in [03_core_api.md](03_core_api.md).
+
+In the Go implementation this boundary is split by capability:
+
+- auth store
+- blob metadata store
+- changeset store
+- repository/read store
+- slice store
+
+Services should consume these capability interfaces, not concrete PostgreSQL
+types. Storage-specific helpers and migrations remain in `internal/postgres`.
 
 The interface should be narrow and source-of-truth oriented. A proto-shaped
 contract:

@@ -1,40 +1,16 @@
 package postgres
 
-const DefaultTargetRef = "refs/global/main"
+import "github.com/gitslice-io/gitslice/internal/storage"
 
-type Subject struct {
-	ID          string
-	DisplayName string
-}
+const DefaultTargetRef = storage.DefaultTargetRef
 
-type FileEntry struct {
-	Path        string
-	BlobID      string
-	ContentHash string
-	Mode        uint32
-	Size        int64
-}
+type Subject = storage.Subject
 
-type TreeEntry struct {
-	Path        string
-	Name        string
-	Kind        string
-	Mode        uint32
-	TreeID      string
-	BlobID      string
-	ContentHash string
-	Size        int64
-}
+type FileEntry = storage.FileEntry
 
-type PathHead struct {
-	Path             string
-	Exists           bool
-	EntryFingerprint string
-	BlobID           string
-	ContentHash      string
-	Mode             uint32
-	Size             int64
-}
+type TreeEntry = storage.TreeEntry
+
+type PathHead = storage.PathHead
 
 type pendingPublishRow struct {
 	ID          string
@@ -43,31 +19,9 @@ type pendingPublishRow struct {
 	TargetRef   string
 }
 
-type GitImportRecord struct {
-	ID                  string
-	SubjectID           string
-	Source              string
-	MountPath           string
-	AuthoringAccount    string
-	AuthoringSlice      string
-	AuthoringSliceID    string
-	TargetRef           string
-	Mode                string
-	Status              string
-	TotalCommits        int
-	ImportedCount       int
-	LastGitCommitID     string
-	FinalNativeCommitID string
-}
+type GitImportRecord = storage.GitImportRecord
 
-type GitImportedCommitRecord struct {
-	ImportID         string
-	GitCommitID      string
-	NativeCommitID   string
-	Message          string
-	Position         int
-	ChangedPathCount int
-}
+type GitImportedCommitRecord = storage.GitImportedCommitRecord
 
 type scanner interface {
 	Scan(dest ...any) error

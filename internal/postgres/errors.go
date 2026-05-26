@@ -1,11 +1,11 @@
 package postgres
 
-import "errors"
+import "github.com/gitslice-io/gitslice/internal/storage"
 
 var (
-	ErrConflict        = errors.New("conflict")
-	ErrInvalid         = errors.New("invalid")
-	ErrNotFound        = errors.New("not found")
-	ErrUnauthenticated = errors.New("unauthenticated")
-	ErrUnauthorized    = errors.New("unauthorized")
+	ErrConflict        = storage.ErrConflict
+	ErrInvalid         = storage.ErrInvalid
+	ErrNotFound        = storage.ErrNotFound
+	ErrUnauthenticated = storage.ErrUnauthenticated
+	ErrUnauthorized    = storage.ErrUnauthorized
 )
