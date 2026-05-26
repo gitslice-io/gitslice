@@ -784,6 +784,45 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_local_dev?sslmode=d
 go test ./...
 go build ./cmd/...
 git diff --check
+make dev-install
+```
+
+## 2026-05-25: Bare Slice Refs For Signed-In Users
+
+Request:
+
+- allow signed-in users to omit the account prefix for slice refs such as
+  `--slice home` or `gs workspace init tools`
+
+Implemented:
+
+- added a shared CLI slice-ref resolver that keeps canonical `account/slice`
+  refs and expands bare slice slugs to the signed-in account
+- applied the resolver to workspace init, slice create/info/paths/update/delete,
+  shell `--slice`, changeset list `--slice`, and repository import `--slice`
+- kept filesystem paths, shell paths, `--include`, and `--mount` as
+  account-rooted path inputs rather than slice refs
+- updated CLI help/schema and CLI design docs to use
+  `<slice|account/slice>` for slice-ref inputs
+- added unit coverage for bare slice resolution and CLI smoke coverage for
+  signup home workflows using bare `home`
+
+Important decisions and learnings:
+
+- This stays CLI-only sugar. The protobuf API continues to receive explicit
+  `SliceRef{account, slice}` values.
+- Bare refs require a signed-in account from local subject metadata or the auth
+  status RPC. If the account cannot be determined, the CLI rejects the bare ref
+  and asks the user to pass `account/slice`.
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go tests/cli/cli_smoke_test.go
+go test ./internal/cli ./tests/cli
+go test ./...
+go build ./cmd/...
+git diff --check
 ```
 
 The focused functional command skipped locally because

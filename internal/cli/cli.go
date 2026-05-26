@@ -453,9 +453,13 @@ directory. Absolute paths are still canonical server paths.
 		Body: `Slices
 
 A slice is a named view over one or more account-rooted server path prefixes.
-Slice references use:
+Slice references use the canonical form:
 
   <account>/<slice>
+
+When the CLI is signed in, commands that accept slice references also accept a
+bare slice slug and expand it to the signed-in account. For user nic, home
+means nic/home.
 
 The reserved home slice is created by signup:
 
@@ -721,9 +725,9 @@ func (r Runner) rootCommand() *cobra.Command {
 		RunE:    requireSubcommand("workspace"),
 	}
 	workspaceInitCmd := &cobra.Command{
-		Use:   "init <account>/<slice>",
+		Use:   "init <slice|account/slice>",
 		Short: "Bind the current directory to a slice",
-		Args:  exactArgs(1, "gs workspace init <account>/<slice>"),
+		Args:  exactArgs(1, "gs workspace init <slice|account/slice>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
 		},
@@ -1026,7 +1030,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	csListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List changesets for a slice",
-		Args:  noArgs("gs cs list [--slice account/slice] [--status status]"),
+		Args:  noArgs("gs cs list [--slice slice|account/slice] [--status status]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runChangesetList(cmd.Context(), *opts, csListSlice, csListStatus, csListLimit)
 		},
@@ -1159,7 +1163,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	importGithubCmd := &cobra.Command{
 		Use:   "github <owner/repo-or-url>",
 		Short: "Import a GitHub repository under a mounted path",
-		Args:  exactArgs(1, "gs repo import github <owner/repo-or-url> --mount /acme/payment/vendor/repo [--slice acme/payment] [--mode shallow|deep]"),
+		Args:  exactArgs(1, "gs repo import github <owner/repo-or-url> --mount /acme/payment/vendor/repo [--slice payment|acme/payment] [--mode shallow|deep]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := importMode
 			if importDeep {
@@ -1208,7 +1212,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	shellCmd := &cobra.Command{
 		Use:   "shell",
 		Short: "Browse server-side files",
-		Args:  noArgs("gs shell [--slice account/slice] [--commit commit-id]"),
+		Args:  noArgs("gs shell [--slice slice|account/slice] [--commit commit-id]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runShell(cmd.Context(), *opts, shellCommit, shellSlice)
 		},
@@ -1243,9 +1247,9 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceCreateVisibility := "account"
 	var sliceCreateIncludes []string
 	sliceCreateCmd := &cobra.Command{
-		Use:   "create <account>/<slice>",
+		Use:   "create <slice|account/slice>",
 		Short: "Create a slice",
-		Args:  exactArgs(1, "gs slice create <account>/<slice> [--include /account/path] [--visibility account|public]"),
+		Args:  exactArgs(1, "gs slice create <slice|account/slice> [--include /account/path] [--visibility account|public]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility)
 		},
@@ -1265,17 +1269,17 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 	sliceInfoCmd := &cobra.Command{
-		Use:   "info <account>/<slice>",
+		Use:   "info <slice|account/slice>",
 		Short: "Show slice metadata",
-		Args:  exactArgs(1, "gs slice info <account>/<slice>"),
+		Args:  exactArgs(1, "gs slice info <slice|account/slice>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceInfo(cmd.Context(), *opts, args[0])
 		},
 	}
 	slicePathsCmd := &cobra.Command{
-		Use:   "paths <account>/<slice>",
+		Use:   "paths <slice|account/slice>",
 		Short: "Show slice included paths",
-		Args:  exactArgs(1, "gs slice paths <account>/<slice>"),
+		Args:  exactArgs(1, "gs slice paths <slice|account/slice>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSlicePaths(cmd.Context(), *opts, args[0])
 		},
@@ -1283,9 +1287,9 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceUpdateVisibility := ""
 	var sliceUpdateIncludes []string
 	sliceUpdateCmd := &cobra.Command{
-		Use:   "update <account>/<slice>",
+		Use:   "update <slice|account/slice>",
 		Short: "Update slice included paths or visibility",
-		Args:  exactArgs(1, "gs slice update <account>/<slice> [--include /account/path] [--visibility account|public]"),
+		Args:  exactArgs(1, "gs slice update <slice|account/slice> [--include /account/path] [--visibility account|public]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			visibilityChanged := cmd.Flags().Changed("visibility")
 			includesChanged := cmd.Flags().Changed("include")
@@ -1296,9 +1300,9 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceUpdateCmd.Flags().StringVar(&sliceUpdateVisibility, "visibility", sliceUpdateVisibility, "slice visibility: account or public")
 	sliceDeleteYes := false
 	sliceDeleteCmd := &cobra.Command{
-		Use:   "delete <account>/<slice>",
+		Use:   "delete <slice|account/slice>",
 		Short: "Delete a slice",
-		Args:  exactArgs(1, "gs slice delete <account>/<slice> --yes"),
+		Args:  exactArgs(1, "gs slice delete <slice|account/slice> --yes"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceDelete(cmd.Context(), *opts, args[0], sliceDeleteYes)
 		},
@@ -2246,22 +2250,22 @@ func findGeneratedRPCMethod(selector string) (protoreflect.MethodDescriptor, err
 }
 
 func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string) error {
-	ref, err := parseSliceRef(sliceRef)
+	includedPaths, err := expandSliceIncludedPaths(includedPaths)
 	if err != nil {
 		return err
 	}
-	includedPaths, err = expandSliceIncludedPaths(includedPaths)
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
 	if err != nil {
 		return err
 	}
 	if len(includedPaths) == 0 {
 		includedPaths = defaultSliceIncludedPaths(ref)
 	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 	slice, err := corev1.NewSliceServiceClient(conn).CreateSlice(callCtx, &corev1.CreateSliceRequest{
 		Ref:           ref,
 		IncludedPaths: includedPaths,
@@ -2369,15 +2373,15 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 	if !includesChanged && !visibilityChanged {
 		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, or both.")
 	}
-	ref, err := parseSliceRef(sliceRef)
-	if err != nil {
-		return err
-	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
 	client := corev1.NewSliceServiceClient(conn)
 	current, err := client.ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
 	if err != nil {
@@ -2424,15 +2428,15 @@ func (r Runner) runSliceDelete(ctx context.Context, opts commandOptions, sliceRe
 	if !yes {
 		return userError("confirmation_required", "slice deletion requires --yes", "Run gs slice delete "+sliceRef+" --yes to confirm.")
 	}
-	ref, err := parseSliceRef(sliceRef)
-	if err != nil {
-		return err
-	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
 	client := corev1.NewSliceServiceClient(conn)
 	slice, err := client.ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
 	if err != nil {
@@ -2456,15 +2460,15 @@ func (r Runner) runSliceDelete(ctx context.Context, opts commandOptions, sliceRe
 }
 
 func (r Runner) resolveSlice(ctx context.Context, sliceRef string) (*corev1.Slice, error) {
-	ref, err := parseSliceRef(sliceRef)
-	if err != nil {
-		return nil, err
-	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return nil, err
+	}
 	return corev1.NewSliceServiceClient(conn).ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
 }
 
@@ -2483,6 +2487,9 @@ func (r Runner) authenticatedConn(ctx context.Context) (UserConfig, *grpc.Client
 func (r Runner) defaultSliceAccount(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (string, error) {
 	subjectID := cfg.SubjectID
 	if subjectID == "" {
+		if conn == nil {
+			return "", userError("account_required", "account is required", "Run gs slice list <account>.")
+		}
 		status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
 		if err != nil {
 			return "", err
@@ -2572,16 +2579,16 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err != nil {
 		return err
 	}
-	ref, err := parseSliceRef(sliceRef)
-	if err != nil {
-		return err
-	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 	callCtx := authContext(ctx, cfg)
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
 	slice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
 	if err != nil {
 		return err
@@ -2641,7 +2648,7 @@ func (r Runner) requireEmptyWorkspaceInitDir() error {
 	if len(entries) == 0 {
 		return nil
 	}
-	return userError("workspace_not_empty", "workspace init requires an empty directory", "Create a new empty directory and run gs workspace init <account>/<slice> there.")
+	return userError("workspace_not_empty", "workspace init requires an empty directory", "Create a new empty directory and run gs workspace init <slice|account/slice> there.")
 }
 
 func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, requested []string) error {
@@ -2663,7 +2670,7 @@ func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, re
 		baseCommitID = ws.BaseCommitID
 	}
 	if baseCommitID == "" {
-		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs workspace init <account>/<slice> again.")
+		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs workspace init <slice|account/slice> again.")
 	}
 	hydrated, err := r.hydrateWorkspacePaths(authContext(ctx, cfg), conn, ws, baseCommitID, requested, cache)
 	if err != nil {
@@ -2761,7 +2768,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 		baseCommitID = ws.BaseCommitID
 	}
 	if baseCommitID == "" {
-		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs workspace init <account>/<slice> again.")
+		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs workspace init <slice|account/slice> again.")
 	}
 	edits, current, err := r.snapshotEdits(ctx, nil, cfg, ws, false)
 	if err != nil {
@@ -4071,9 +4078,15 @@ func (r Runner) runChangesetList(ctx context.Context, opts commandOptions, slice
 	if err != nil {
 		return err
 	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
 	var ref *corev1.SliceRef
 	if strings.TrimSpace(sliceRef) != "" {
-		ref, err = parseSliceRef(sliceRef)
+		ref, err = r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
 		if err != nil {
 			return err
 		}
@@ -4081,18 +4094,13 @@ func (r Runner) runChangesetList(ctx context.Context, opts commandOptions, slice
 		ws, err := r.readWorkspaceConfig()
 		if err != nil {
 			if isUserErrorCode(err, "not_in_workspace") {
-				return userError("missing_slice", "changeset list needs a slice outside a workspace", "Run gs cs list --slice <account>/<slice>.")
+				return userError("missing_slice", "changeset list needs a slice outside a workspace", "Run gs cs list --slice <slice|account/slice>.")
 			}
 			return err
 		}
 		ref = &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	res, err := corev1.NewChangesetServiceClient(conn).ListChangesets(authContext(ctx, cfg), &corev1.ListChangesetsRequest{
+	res, err := corev1.NewChangesetServiceClient(conn).ListChangesets(callCtx, &corev1.ListChangesetsRequest{
 		AuthoringSlice: ref,
 		Status:         strings.TrimSpace(statusFilter),
 		Limit:          int32(limit),
@@ -4386,10 +4394,6 @@ func (r Runner) runRepoImportGithub(ctx context.Context, opts commandOptions, so
 		}
 		sliceRef = ws.Account + "/" + ws.Slice
 	}
-	ref, err := parseSliceRef(sliceRef)
-	if err != nil {
-		return err
-	}
 	if maxCommits < 0 {
 		return userError("invalid_max_commits", "max commits must be non-negative", "Use --max-commits 0 for no limit.")
 	}
@@ -4398,6 +4402,11 @@ func (r Runner) runRepoImportGithub(ctx context.Context, opts commandOptions, so
 		return err
 	}
 	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
 	req := &corev1.ImportGitRepositoryRequest{
 		Source:         source,
 		MountPath:      mountPath,
@@ -4409,13 +4418,13 @@ func (r Runner) runRepoImportGithub(ctx context.Context, opts commandOptions, so
 	}
 	client := corev1.NewRepositoryServiceClient(conn)
 	if opts.jsonOutput() {
-		res, err := client.ImportGitRepository(authContext(ctx, cfg), req)
+		res, err := client.ImportGitRepository(callCtx, req)
 		if err != nil {
 			return err
 		}
 		return r.writeJSONOutput(opts, res)
 	}
-	stream, err := client.ImportGitRepositoryStream(authContext(ctx, cfg), req)
+	stream, err := client.ImportGitRepositoryStream(callCtx, req)
 	if err != nil {
 		return err
 	}
@@ -4685,7 +4694,7 @@ func (s *serverShell) runLineEditor(ctx context.Context) error {
 
 func (r Runner) shellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceRef string) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
 	if strings.TrimSpace(sliceRef) != "" {
-		return r.explicitShellScope(ctx, conn, sliceRef)
+		return r.explicitShellScope(ctx, cfg, conn, sliceRef)
 	}
 	ws, err := r.readWorkspaceConfig()
 	if err != nil {
@@ -4722,8 +4731,8 @@ func (r Runner) shellScope(ctx context.Context, cfg UserConfig, conn *grpc.Clien
 	return rootPath, ws.Account + "/" + ws.Slice, true, nil, slice, nil
 }
 
-func (r Runner) explicitShellScope(ctx context.Context, conn *grpc.ClientConn, sliceRef string) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
-	ref, err := parseSliceRef(sliceRef)
+func (r Runner) explicitShellScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceRef string) (rootPath, scopeLabel string, workspaceScoped bool, syntheticDirs map[string]*corev1.TreeEntry, mutationSlice *corev1.Slice, err error) {
+	ref, err := r.resolveSliceRefInput(ctx, cfg, conn, sliceRef)
 	if err != nil {
 		return "", "", false, nil, nil, err
 	}
@@ -5992,7 +6001,7 @@ func (r Runner) readWorkspaceConfig() (WorkspaceConfig, error) {
 	}
 	if err := readJSONFile(filepath.Join(root, ".gs", "slice.json"), &cfg); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return cfg, userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <account>/<slice>.")
+			return cfg, userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <slice|account/slice>.")
 		}
 		return cfg, err
 	}
@@ -6168,7 +6177,7 @@ func (r Runner) workspaceRoot() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <account>/<slice>.")
+			return "", userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <slice|account/slice>.")
 		}
 		dir = parent
 	}
@@ -6350,10 +6359,10 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"url"},
 			},
 			{
-				"use":            "gs workspace init <account>/<slice>",
+				"use":            "gs workspace init <slice|account/slice>",
 				"summary":        "bind the current directory to one slice and hydrate its files",
-				"aliases":        []string{"gs ws init <account>/<slice>"},
-				"args":           []string{"account/slice"},
+				"aliases":        []string{"gs ws init <slice|account/slice>"},
+				"args":           []string{"slice|account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"workspace", "slice_id", "base_commit_id", "client_object_cache", "hydrated"},
 			},
@@ -6380,10 +6389,10 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"workspace", "base_commit_id", "changed_path_count", "changed_paths", "diff"},
 			},
 			{
-				"use":            "gs slice create <account>/<slice>",
+				"use":            "gs slice create <slice|account/slice>",
 				"summary":        "create a slice",
-				"aliases":        []string{"gs slices create <account>/<slice>"},
-				"args":           []string{"account/slice"},
+				"aliases":        []string{"gs slices create <slice|account/slice>"},
+				"args":           []string{"slice|account/slice"},
 				"flags":          []string{"--include", "--visibility"},
 				"writes_stdout":  true,
 				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
@@ -6397,35 +6406,35 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"account", "slices"},
 			},
 			{
-				"use":            "gs slice info <account>/<slice>",
+				"use":            "gs slice info <slice|account/slice>",
 				"summary":        "show slice metadata",
-				"aliases":        []string{"gs slices info <account>/<slice>"},
-				"args":           []string{"account/slice"},
+				"aliases":        []string{"gs slices info <slice|account/slice>"},
+				"args":           []string{"slice|account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
 			},
 			{
-				"use":            "gs slice paths <account>/<slice>",
+				"use":            "gs slice paths <slice|account/slice>",
 				"summary":        "show slice included paths",
-				"aliases":        []string{"gs slices paths <account>/<slice>"},
-				"args":           []string{"account/slice"},
+				"aliases":        []string{"gs slices paths <slice|account/slice>"},
+				"args":           []string{"slice|account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"ref", "included_paths"},
 			},
 			{
-				"use":            "gs slice update <account>/<slice>",
+				"use":            "gs slice update <slice|account/slice>",
 				"summary":        "update slice included paths or visibility",
-				"aliases":        []string{"gs slices update <account>/<slice>"},
-				"args":           []string{"account/slice"},
+				"aliases":        []string{"gs slices update <slice|account/slice>"},
+				"args":           []string{"slice|account/slice"},
 				"flags":          []string{"--include", "--visibility"},
 				"writes_stdout":  true,
 				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
 			},
 			{
-				"use":            "gs slice delete <account>/<slice>",
+				"use":            "gs slice delete <slice|account/slice>",
 				"summary":        "delete a slice",
-				"aliases":        []string{"gs slices delete <account>/<slice>"},
-				"args":           []string{"account/slice"},
+				"aliases":        []string{"gs slices delete <slice|account/slice>"},
+				"args":           []string{"slice|account/slice"},
 				"flags":          []string{"--yes"},
 				"writes_stdout":  true,
 				"machine_output": []string{"slice_id", "ref"},
@@ -6646,6 +6655,7 @@ func cliHelpTopicSchema() []map[string]string {
 }
 
 func parseSliceRef(value string) (*corev1.SliceRef, error) {
+	value = strings.TrimSpace(value)
 	parts := strings.Split(value, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return nil, userError("invalid_slice_ref", "slice must be account/slice", "Pass a slice reference such as acme/payment.")
@@ -6656,6 +6666,26 @@ func parseSliceRef(value string) (*corev1.SliceRef, error) {
 	}
 	slug, err := normalizeCLISlug(parts[1], "slice")
 	if err != nil {
+		return nil, err
+	}
+	return &corev1.SliceRef{Account: account, Slice: slug}, nil
+}
+
+func (r Runner) resolveSliceRefInput(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, value string) (*corev1.SliceRef, error) {
+	value = strings.TrimSpace(value)
+	if strings.Contains(value, "/") {
+		return parseSliceRef(value)
+	}
+	slug, err := normalizeCLISlug(value, "slice")
+	if err != nil {
+		return nil, err
+	}
+	account, err := r.defaultSliceAccount(ctx, cfg, conn)
+	if err != nil {
+		var cmdErr commandError
+		if errors.As(err, &cmdErr) && cmdErr.Code == "account_required" {
+			return nil, userError("account_required", "account is required for bare slice ref "+slug, "Use account/slice or run gs auth status to check the signed-in account.")
+		}
 		return nil, err
 	}
 	return &corev1.SliceRef{Account: account, Slice: slug}, nil
@@ -6984,7 +7014,7 @@ func classifyError(err error) errorResponse {
 		body.Hint = "Run gs auth login."
 	case strings.Contains(msg, "not in a gitslice workspace"):
 		body.Code = "not_in_workspace"
-		body.Hint = "Run gs workspace init <account>/<slice>."
+		body.Hint = "Run gs workspace init <slice|account/slice>."
 	case strings.Contains(msg, "outside slice"):
 		body.Code = "outside_slice"
 	case strings.Contains(msg, "FailedPrecondition"), strings.Contains(strings.ToLower(msg), "conflict"):

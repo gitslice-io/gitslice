@@ -188,11 +188,17 @@ flags on individual commands can override those defaults.
 Context resolution precedence for slice-aware commands should be:
 
 ```text
-1. command flag such as --slice <account>/<slice>
+1. command flag such as --slice <slice|account/slice>
 2. current workspace slice found by walking up to .gs/slice.json
 3. future GS_SLICE environment override
 4. signed-in user's personal <account>/home slice
 ```
+
+Commands that accept a slice reference should accept both the canonical
+`<account>/<slice>` form and a bare `<slice>` slug. The bare form is CLI-only
+sugar and expands to the signed-in account, for example `--slice tools` becomes
+`nic/tools` for user `nic`. If the CLI cannot determine a signed-in account,
+bare slice refs are rejected with a hint to pass `account/slice`.
 
 The command should be diagnostic and scriptable. It validates the saved auth
 token when possible, reports invalid-token and unavailable-server state without
@@ -346,7 +352,7 @@ automation and help renderers can discover it without scraping root help text.
 ## 4. Workspace Commands
 
 ```bash
-gs workspace init <account>/<slice>
+gs workspace init <slice|account/slice>
 gs workspace init <username>/home
 gs workspace status
 gs workspace sync
@@ -355,7 +361,7 @@ gs workspace dehydrate <path>
 gs workspace root
 ```
 
-`gs workspace init <account>/<slice>` creates local workspace metadata:
+`gs workspace init <slice|account/slice>` creates local workspace metadata:
 
 ```text
 .gs/
@@ -444,20 +450,21 @@ the global client cache, not reread from the workspace path.
 ## 5. Slice Commands
 
 ```bash
-gs slice create <account>/<slice> [--include /account/path] [--visibility account|public]
+gs slice create <slice|account/slice> [--include /account/path] [--visibility account|public]
 gs slice list [account]
-gs slice info <account>/<slice>
-gs slice paths <account>/<slice>
-gs slice update <account>/<slice> [--include /account/path] [--visibility account|public]
-gs slice delete <account>/<slice> --yes
+gs slice info <slice|account/slice>
+gs slice paths <slice|account/slice>
+gs slice update <slice|account/slice> [--include /account/path] [--visibility account|public]
+gs slice delete <slice|account/slice> --yes
 ```
 
 `gs slice create` creates a native slice under an account where the signed-in
-subject is a member. If no `--include` flag is provided, the CLI defaults to
-`/<account>/<slice>`, except the reserved `home` slice default is
-`/<account>`. Repeating `--include` replaces the full included path list for
-create and update. The CLI also accepts comma-separated values in one
-`--include` flag and expands them before calling the API. Included paths must be
+subject is a member. A bare slice slug creates the slice under the signed-in
+account. If no `--include` flag is provided, the CLI defaults to
+`/<account>/<slice>`, except the reserved `home` slice default is `/<account>`.
+Repeating `--include` replaces the full included path list for create and
+update. The CLI also accepts comma-separated values in one `--include` flag and
+expands them before calling the API. Included paths must be
 canonical account-rooted paths inside the slice account and must not contain
 commas. Included paths for custom slices must already exist at the current
 global target ref; only `home` slices may include the account root itself.
@@ -469,7 +476,7 @@ the CLI derives the personal account slug from a signed-up subject such as
 `gs slice delete` is metadata-only and requires `--yes`. Deleting a slice with
 existing changesets is rejected by the server.
 
-`gs workspace init <account>/<slice>` binds the workspace to one slice:
+`gs workspace init <slice|account/slice>` binds the workspace to one slice:
 
 ```text
 1. ResolveSlice through the core API.
@@ -492,7 +499,7 @@ user needs `acme/payment` and `acme/frontend`, they create two workspaces.
 
 ```bash
 gs shell
-gs shell --slice <account>/<slice>
+gs shell --slice <slice|account/slice>
 gs shell --commit <commit-id>
 ```
 
@@ -500,7 +507,7 @@ gs shell --commit <commit-id>
 run from any local directory after `gs auth login`; it does not require a
 Gitslice workspace and does not browse or mutate the local filesystem.
 
-`--slice <account>/<slice>` explicitly attaches the shell to a slice and keeps
+`--slice <slice|account/slice>` explicitly attaches the shell to a slice and keeps
 the canonical global path layout visible. For a custom slice that includes
 `/nic/tools`, `ls /` shows `nic/`, `ls /nic` shows `tools/`, and `pwd` inside
 that folder prints `/nic/tools` rather than remapping it to `/tools`. The shell
@@ -686,7 +693,7 @@ gs cs diff [changeset-id] --patchset <patchset>
 gs cs diff [changeset-id] --from <patchset> --to <patchset>
 gs cs diff [changeset-id] --name-only
 gs cs diff [changeset-id] --stat
-gs cs list [--slice <account>/<slice>] [--status <status>] [--limit <n>]
+gs cs list [--slice <slice|account/slice>] [--status <status>] [--limit <n>]
 gs cs abandon [changeset-id] [--reason <reason>]
 ```
 
@@ -909,12 +916,12 @@ The MVP CLI supports importing a GitHub repository into a mounted Gitslice path:
 ```bash
 gs repo import github <owner/repo-or-url> \
   --mount /acme/payment/vendor/lib \
-  --slice acme/payment \
+  --slice payment \
   --mode shallow
 
 gs repo import github <owner/repo-or-url> \
   --mount /acme/payment/vendor/lib \
-  --slice acme/payment \
+  --slice payment \
   --mode deep \
   --max-commits 100
 ```
