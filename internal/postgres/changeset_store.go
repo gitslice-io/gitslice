@@ -505,6 +505,9 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		if err != nil {
 			return 0, err
 		}
+		if err := insertCommitChangedPathsTx(ctx, tx, targetRef, commitID, patchset.ChangedPaths, now); err != nil {
+			return 0, err
+		}
 		_, err = tx.ExecContext(ctx, `
 			update pending_publish
 			set status = 'published', commit_id = $1, updated_at = now(), published_at = now()
@@ -550,6 +553,19 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		return 0, err
 	}
 	return published, nil
+}
+
+func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, commitID string, changedPaths []string, committedAt time.Time) error {
+	for _, p := range changedPaths {
+		if _, err := tx.ExecContext(ctx, `
+			insert into commit_changed_paths(target_ref, commit_id, path, committed_at)
+			values ($1, $2, $3, $4)
+			on conflict do nothing
+		`, targetRef, commitID, p, committedAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {

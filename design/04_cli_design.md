@@ -966,13 +966,31 @@ import complete
 Commit inspection commands:
 
 ```bash
-gs commit list --limit 20
+gs commit list [absolute-path] --limit 20
+gs commit list --path /acme/payment/api --limit 20
+gs commit list --slice backend --limit 20
+gs commit list --slice acme/backend --path /acme/payment/shared
+gs commit list --path /acme/payment/api --limit 20 --page-token <token>
 gs commit inspect <native-commit-id>
 ```
 
 These commands are intentionally native. They list and inspect Gitslice commits,
 not Git object ids. The import response maps imported Git commit ids to native
 commit ids for follow-up inspection.
+
+`gs commit list` reads server-side commit history. Without filters, it walks the
+main native ref. With `--path` or a positional path, the server uses the
+changed-path index to return only commits that touched that file or directory.
+With `--slice`, the server resolves the slice's current included paths and
+returns commits that touched any included prefix. Signed-in users may pass a
+bare slice slug for slices under their signed-in account; org slices can be
+passed as `account/slice`. Combining `--slice` and `--path` returns the
+intersection, so a path outside the slice produces no commits.
+
+If more commits are available, the human output prints `next_page_token:
+<token>` after the commit lines, and JSON output includes `next_page_token`.
+Pass that value back with `--page-token` while keeping the same path/slice
+filters to fetch the next page.
 
 ## 15. Backend Requirements
 

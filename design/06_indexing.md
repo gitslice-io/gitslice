@@ -257,6 +257,12 @@ the current target-ref head before publishing.
 Maps paths to commits that touched those paths. Rename handling can start as
 path-based and later add richer rename detection.
 
+The MVP stores this as `commit_changed_paths(target_ref, commit_id, path,
+change_kind, committed_at)`. Directory history is a prefix query over canonical
+paths, and slice history resolves the slice's current included path prefixes
+before querying the same index. Cursor pagination uses the ordered
+`(committed_at, commit_id)` pair from the last returned index hit.
+
 ### 3.6 Slice Projection
 
 Projection indexes cache deterministic slice projections:

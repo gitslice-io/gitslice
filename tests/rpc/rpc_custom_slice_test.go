@@ -225,6 +225,192 @@ func TestRPCListDirectoryCanUseCustomSliceProjection(t *testing.T) {
 	assertEntryNameSet(t, backendAccount.Entries, "backend", "payment")
 }
 
+func TestRPCListCommitsSupportsPathAndCustomSlice(t *testing.T) {
+	ts := startRPCServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	privateCommit := submitRPCFile(t, ctx, clients, "payment", "/acme/payment/history/private.go", "package history\nconst Private = true\n")
+	sharedCommit := submitRPCFile(t, ctx, clients, "payment", "/acme/payment/history/shared/shared.go", "package shared\nconst Shared = true\n")
+	backendCommit := submitRPCFile(t, ctx, clients, "backend", "/acme/backend/history/backend.go", "package backend\nconst Backend = true\n")
+
+	if _, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
+		Ref:           &corev1.SliceRef{Account: "acme", Slice: "history"},
+		IncludedPaths: []string{"/acme/payment/history/shared", "/acme/backend/history"},
+		Visibility:    "account",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pathHistory, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Path:    "/acme/payment/history/shared",
+		Limit:   20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCommitSetIncludes(t, pathHistory.Commits, sharedCommit)
+	assertCommitSetExcludes(t, pathHistory.Commits, privateCommit, backendCommit)
+
+	sliceHistory, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Slice:   &corev1.SliceRef{Account: "acme", Slice: "history"},
+		Limit:   20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCommitSetIncludes(t, sliceHistory.Commits, sharedCommit, backendCommit)
+	assertCommitSetExcludes(t, sliceHistory.Commits, privateCommit)
+
+	allFirstPage, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Limit:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCommitIDs(t, allFirstPage.Commits, backendCommit)
+	if allFirstPage.NextPageToken == "" {
+		t.Fatalf("unfiltered first page missing next token: %#v", allFirstPage)
+	}
+	allSecondPage, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
+		RefName:   postgres.DefaultTargetRef,
+		Limit:     1,
+		PageToken: allFirstPage.NextPageToken,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCommitIDs(t, allSecondPage.Commits, sharedCommit)
+	if allSecondPage.NextPageToken == "" {
+		t.Fatalf("unfiltered second page missing next token: %#v", allSecondPage)
+	}
+
+	sliceFirstPage, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Slice:   &corev1.SliceRef{Account: "acme", Slice: "history"},
+		Limit:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCommitIDs(t, sliceFirstPage.Commits, backendCommit)
+	if sliceFirstPage.NextPageToken == "" {
+		t.Fatalf("slice first page missing next token: %#v", sliceFirstPage)
+	}
+	sliceSecondPage, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
+		RefName:   postgres.DefaultTargetRef,
+		Slice:     &corev1.SliceRef{Account: "acme", Slice: "history"},
+		Limit:     1,
+		PageToken: sliceFirstPage.NextPageToken,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCommitIDs(t, sliceSecondPage.Commits, sharedCommit)
+	if sliceSecondPage.NextPageToken != "" {
+		t.Fatalf("slice second page next token = %q, want empty", sliceSecondPage.NextPageToken)
+	}
+
+	intersected, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Path:    "/acme/payment/history/private.go",
+		Slice:   &corev1.SliceRef{Account: "acme", Slice: "history"},
+		Limit:   20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(intersected.Commits) != 0 {
+		t.Fatalf("path outside slice returned commits: %#v", commitIDs(intersected.Commits))
+	}
+}
+
+func TestRPCCustomSlicePublishIsConsistentWhenHomeObserves(t *testing.T) {
+	ts := startRPCServer(t)
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "history-home",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := grpcAuthContext(signup.Token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	submitRPCFileInSlice(t, ctx, clients, "history-home", "home", "/history-home/project/existing.txt", "seed\n")
+	homeBefore, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
+		Ref:           &corev1.SliceRef{Account: "history-home", Slice: "project"},
+		IncludedPaths: []string{"/history-home/project"},
+		Visibility:    "account",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	customCommit := submitRPCFileInSlice(t, ctx, clients, "history-home", "project", "/history-home/project/value.txt", "custom v1\n")
+	customList, err := clients.repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: customCommit,
+		Path:     "/history-home/project",
+		Slice:    &corev1.SliceRef{Account: "history-home", Slice: "project"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEntryNameSet(t, customList.Entries, "existing.txt", "value.txt")
+
+	staleHomeList, err := clients.repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: homeBefore.CommitId,
+		Path:     "/history-home/project",
+		Slice:    &corev1.SliceRef{Account: "history-home", Slice: "home"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEntryNameSet(t, staleHomeList.Entries, "existing.txt")
+
+	homeAfter, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if homeAfter.CommitId != customCommit {
+		t.Fatalf("home observed commit %s, want custom publish commit %s", homeAfter.CommitId, customCommit)
+	}
+	latestHomeList, err := clients.repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: homeAfter.CommitId,
+		Path:     "/history-home/project",
+		Slice:    &corev1.SliceRef{Account: "history-home", Slice: "home"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEntryNameSet(t, latestHomeList.Entries, "existing.txt", "value.txt")
+	read, err := clients.repository.ReadFile(ctx, &corev1.ReadFileRequest{
+		CommitId: homeAfter.CommitId,
+		Path:     "/history-home/project/value.txt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(read.Data) != "custom v1\n" {
+		t.Fatalf("home read data = %q, want custom content", string(read.Data))
+	}
+}
+
 func TestRPCChangesetRejectsCustomSliceOutsidePath(t *testing.T) {
 	ts := startRPCServer(t)
 	token := loginViaGRPC(t, ts.addr, "alice")
@@ -414,6 +600,11 @@ func resolveTestSlice(t *testing.T, ctx context.Context, slices corev1.SliceServ
 
 func submitRPCFile(t *testing.T, ctx context.Context, clients testCoreClients, sliceName, path, content string) string {
 	t.Helper()
+	return submitRPCFileInSlice(t, ctx, clients, "acme", sliceName, path, content)
+}
+
+func submitRPCFileInSlice(t *testing.T, ctx context.Context, clients testCoreClients, account, sliceName, path, content string) string {
+	t.Helper()
 	ref, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +614,7 @@ func submitRPCFile(t *testing.T, ctx context.Context, clients testCoreClients, s
 		t.Fatal(err)
 	}
 	cs, err := clients.changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
-		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: sliceName},
+		AuthoringSlice: &corev1.SliceRef{Account: account, Slice: sliceName},
 		TargetRef:      postgres.DefaultTargetRef,
 		BaseCommitId:   ref.CommitId,
 		Title:          "seed " + path,
@@ -503,4 +694,57 @@ func assertPathCoverage(t *testing.T, coverage []*corev1.PathCoverage, path stri
 		}
 	}
 	t.Fatalf("coverage for %s not found in %#v", path, coverage)
+}
+
+func assertCommitSetIncludes(t *testing.T, commits []*corev1.Commit, wantIDs ...string) {
+	t.Helper()
+	got := commitIDSet(commits)
+	for _, want := range wantIDs {
+		if !got[want] {
+			t.Fatalf("commit history missing %s; got %#v", want, commitIDs(commits))
+		}
+	}
+}
+
+func assertCommitSetExcludes(t *testing.T, commits []*corev1.Commit, rejectedIDs ...string) {
+	t.Helper()
+	got := commitIDSet(commits)
+	for _, rejected := range rejectedIDs {
+		if got[rejected] {
+			t.Fatalf("commit history included %s; got %#v", rejected, commitIDs(commits))
+		}
+	}
+}
+
+func assertCommitIDs(t *testing.T, commits []*corev1.Commit, wantIDs ...string) {
+	t.Helper()
+	got := commitIDs(commits)
+	if len(got) != len(wantIDs) {
+		t.Fatalf("commit ids = %#v, want %#v", got, wantIDs)
+	}
+	for i, want := range wantIDs {
+		if got[i] != want {
+			t.Fatalf("commit ids = %#v, want %#v", got, wantIDs)
+		}
+	}
+}
+
+func commitIDSet(commits []*corev1.Commit) map[string]bool {
+	out := make(map[string]bool, len(commits))
+	for _, commit := range commits {
+		if commit != nil {
+			out[commit.Id] = true
+		}
+	}
+	return out
+}
+
+func commitIDs(commits []*corev1.Commit) []string {
+	out := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		if commit != nil {
+			out = append(out, commit.Id)
+		}
+	}
+	return out
 }

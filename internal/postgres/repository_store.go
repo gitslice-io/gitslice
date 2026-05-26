@@ -3,8 +3,12 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
@@ -15,6 +19,16 @@ import (
 type RepositoryStore struct {
 	db    *sql.DB
 	trees *treestore.Store
+}
+
+type CommitListPage struct {
+	Commits       []*corev1.Commit
+	NextPageToken string
+}
+
+type commitPageCursor struct {
+	CommitID    string `json:"commit_id"`
+	CommittedAt string `json:"committed_at"`
 }
 
 func (s *RepositoryStore) GetRef(ctx context.Context, name string) (*corev1.Ref, error) {
@@ -164,19 +178,31 @@ func (s *RepositoryStore) GetCommit(ctx context.Context, commitID string) (*core
 }
 
 func (s *RepositoryStore) ListCommits(ctx context.Context, refName string, limit int) ([]*corev1.Commit, error) {
+	page, err := s.ListCommitPage(ctx, refName, limit, "")
+	if err != nil {
+		return nil, err
+	}
+	return page.Commits, nil
+}
+
+func (s *RepositoryStore) ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*CommitListPage, error) {
 	if refName == "" {
 		refName = DefaultTargetRef
 	}
-	if limit <= 0 || limit > 500 {
-		limit = 50
+	limit = normalizeCommitListLimit(limit)
+	cursor, err := decodeCommitPageToken(pageToken)
+	if err != nil {
+		return nil, err
 	}
 	ref, err := s.GetRef(ctx, refName)
 	if err != nil {
 		return nil, err
 	}
-	commits := make([]*corev1.Commit, 0, limit)
+	commits := make([]*corev1.Commit, 0, limit+1)
 	seen := map[string]struct{}{}
-	for commitID := ref.CommitId; commitID != "" && len(commits) < limit; {
+	collecting := cursor == nil
+	foundCursor := cursor == nil
+	for commitID := ref.CommitId; commitID != "" && len(commits) < limit+1; {
 		if _, ok := seen[commitID]; ok {
 			break
 		}
@@ -185,13 +211,244 @@ func (s *RepositoryStore) ListCommits(ctx context.Context, refName string, limit
 		if err != nil {
 			return nil, err
 		}
-		commits = append(commits, commit)
+		if collecting {
+			commits = append(commits, commit)
+		} else if commit.Id == cursor.CommitID {
+			collecting = true
+			foundCursor = true
+		}
 		if len(commit.ParentIds) == 0 {
 			break
 		}
 		commitID = commit.ParentIds[0]
 	}
-	return commits, nil
+	if !foundCursor {
+		return nil, fmt.Errorf("%w: page token is not in ref history", ErrInvalid)
+	}
+	nextToken := ""
+	if len(commits) > limit {
+		var err error
+		nextToken, err = commitPageTokenForCommit(commits[limit-1])
+		if err != nil {
+			return nil, err
+		}
+		commits = commits[:limit]
+	}
+	return &CommitListPage{Commits: commits, NextPageToken: nextToken}, nil
+}
+
+func (s *RepositoryStore) ListCommitsByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int) ([]*corev1.Commit, error) {
+	page, err := s.ListCommitPageByPathPrefixes(ctx, refName, prefixes, limit, "")
+	if err != nil {
+		return nil, err
+	}
+	return page.Commits, nil
+}
+
+func (s *RepositoryStore) ListCommitPageByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int, pageToken string) (*CommitListPage, error) {
+	if refName == "" {
+		refName = DefaultTargetRef
+	}
+	limit = normalizeCommitListLimit(limit)
+	cursor, err := decodeCommitPageToken(pageToken)
+	if err != nil {
+		return nil, err
+	}
+	prefixes = normalizeCommitPathPrefixes(prefixes)
+	if len(prefixes) == 0 {
+		return s.ListCommitPage(ctx, refName, limit, pageToken)
+	}
+	where, args := commitPathPrefixWhere(refName, prefixes)
+	cursorWhere := ""
+	if cursor != nil {
+		committedAt, err := cursor.committedAt()
+		if err != nil {
+			return nil, err
+		}
+		committedAtArg := len(args) + 1
+		commitIDArg := len(args) + 2
+		cursorWhere = fmt.Sprintf("where hits.committed_at < $%d or (hits.committed_at = $%d and hits.commit_id < $%d)", committedAtArg, committedAtArg, commitIDArg)
+		args = append(args, committedAt, cursor.CommitID)
+	}
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, `
+		select c.id, c.parent_ids, c.root_tree_id, coalesce(c.author_subject_id, ''),
+		       c.message, c.created_at, c.changed_paths, hits.committed_at
+		from (
+			select cp.commit_id, max(cp.committed_at) as committed_at
+			from commit_changed_paths cp
+			where `+where+`
+			group by cp.commit_id
+		) hits
+		join commits c on c.id = hits.commit_id
+		`+cursorWhere+`
+		order by hits.committed_at desc, c.id desc
+		limit $`+fmt.Sprint(len(args))+`
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type commitHit struct {
+		commit      *corev1.Commit
+		committedAt time.Time
+	}
+	hits := make([]commitHit, 0, limit+1)
+	for rows.Next() {
+		commit, committedAt, err := scanCommitHitRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		hits = append(hits, commitHit{commit: commit, committedAt: committedAt})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	nextToken := ""
+	if len(hits) > limit {
+		var err error
+		nextToken, err = encodeCommitPageToken(hits[limit-1].commit.Id, hits[limit-1].committedAt)
+		if err != nil {
+			return nil, err
+		}
+		hits = hits[:limit]
+	}
+	commits := make([]*corev1.Commit, 0, len(hits))
+	for _, hit := range hits {
+		commits = append(commits, hit.commit)
+	}
+	return &CommitListPage{Commits: commits, NextPageToken: nextToken}, nil
+}
+
+func scanCommitRow(rows *sql.Rows) (*corev1.Commit, error) {
+	var commit corev1.Commit
+	var parentJSON, changedJSON []byte
+	var createdAt time.Time
+	if err := rows.Scan(&commit.Id, &parentJSON, &commit.RootTreeId, &commit.Author, &commit.Message, &createdAt, &changedJSON); err != nil {
+		return nil, err
+	}
+	commit.CreatedAt = formatTime(createdAt)
+	if err := decodeJSON(parentJSON, &commit.ParentIds); err != nil {
+		return nil, err
+	}
+	if err := decodeJSON(changedJSON, &commit.ChangedPaths); err != nil {
+		return nil, err
+	}
+	return &commit, nil
+}
+
+func scanCommitHitRow(rows *sql.Rows) (*corev1.Commit, time.Time, error) {
+	var commit corev1.Commit
+	var parentJSON, changedJSON []byte
+	var createdAt, committedAt time.Time
+	if err := rows.Scan(&commit.Id, &parentJSON, &commit.RootTreeId, &commit.Author, &commit.Message, &createdAt, &changedJSON, &committedAt); err != nil {
+		return nil, time.Time{}, err
+	}
+	commit.CreatedAt = formatTime(createdAt)
+	if err := decodeJSON(parentJSON, &commit.ParentIds); err != nil {
+		return nil, time.Time{}, err
+	}
+	if err := decodeJSON(changedJSON, &commit.ChangedPaths); err != nil {
+		return nil, time.Time{}, err
+	}
+	return &commit, committedAt, nil
+}
+
+func normalizeCommitListLimit(limit int) int {
+	if limit <= 0 || limit > 500 {
+		return 50
+	}
+	return limit
+}
+
+func commitPageTokenForCommit(commit *corev1.Commit) (string, error) {
+	if commit == nil || commit.Id == "" {
+		return "", fmt.Errorf("%w: commit page token cannot be built from empty commit", ErrInvalid)
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, commit.CreatedAt)
+	if err != nil {
+		return "", fmt.Errorf("%w: invalid commit timestamp: %v", ErrInvalid, err)
+	}
+	return encodeCommitPageToken(commit.Id, createdAt)
+}
+
+func encodeCommitPageToken(commitID string, committedAt time.Time) (string, error) {
+	if strings.TrimSpace(commitID) == "" || committedAt.IsZero() {
+		return "", fmt.Errorf("%w: invalid commit page cursor", ErrInvalid)
+	}
+	raw, err := json.Marshal(commitPageCursor{
+		CommitID:    commitID,
+		CommittedAt: committedAt.UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func decodeCommitPageToken(token string) (*commitPageCursor, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid page token", ErrInvalid)
+	}
+	var cursor commitPageCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return nil, fmt.Errorf("%w: invalid page token", ErrInvalid)
+	}
+	if strings.TrimSpace(cursor.CommitID) == "" || strings.TrimSpace(cursor.CommittedAt) == "" {
+		return nil, fmt.Errorf("%w: invalid page token", ErrInvalid)
+	}
+	if _, err := cursor.committedAt(); err != nil {
+		return nil, err
+	}
+	return &cursor, nil
+}
+
+func (c commitPageCursor) committedAt() (time.Time, error) {
+	committedAt, err := time.Parse(time.RFC3339Nano, c.CommittedAt)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: invalid page token", ErrInvalid)
+	}
+	return committedAt, nil
+}
+
+func normalizeCommitPathPrefixes(prefixes []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		prefix = strings.TrimRight(prefix, "/")
+		if prefix == "" {
+			prefix = "/"
+		}
+		if _, ok := seen[prefix]; ok {
+			continue
+		}
+		seen[prefix] = struct{}{}
+		out = append(out, prefix)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func commitPathPrefixWhere(refName string, prefixes []string) (string, []any) {
+	args := []any{refName}
+	clauses := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		if prefix == "/" {
+			clauses = append(clauses, "true")
+			continue
+		}
+		exact := len(args) + 1
+		lower := len(args) + 2
+		upper := len(args) + 3
+		clauses = append(clauses, fmt.Sprintf("(cp.path = $%d or (cp.path >= $%d and cp.path < $%d))", exact, lower, upper))
+		args = append(args, prefix, strings.TrimRight(prefix, "/")+"/", strings.TrimRight(prefix, "/")+"0")
+	}
+	return "cp.target_ref = $1 and (" + strings.Join(clauses, " or ") + ")", args
 }
 
 func (s *RepositoryStore) GetFile(ctx context.Context, commitID, p string) (*FileEntry, error) {
