@@ -159,16 +159,16 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 
 // sliceProjectedFiles returns the file set visible through a slice at a commit.
 //
-// Each included path is resolved with the stricter canonical path helper
-// because included paths are persisted slice-definition paths, not navigation
-// paths. Files can appear under more than one included path if definitions
-// overlap, so results are keyed by full repository path before sorting. Keeping
-// this helper file-based lets listSliceDirectory project disjoint custom slices
-// without depending on the physical tree shape below a single root.
+// Each included path is normalized with repositoryReadPath so home slices can
+// project an account root such as /nic. Files can appear under more than one
+// included path if definitions overlap, so results are keyed by full repository
+// path before sorting. Keeping this helper file-based lets listSliceDirectory
+// project disjoint custom slices without depending on the physical tree shape
+// below a single root.
 func (s *RepositoryService) sliceProjectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]postgres.FileEntry, error) {
 	byPath := map[string]postgres.FileEntry{}
 	for _, prefix := range slice.Definition.IncludedPaths {
-		canonical, err := paths.Canonical(prefix)
+		canonical, err := repositoryReadPath(prefix)
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
@@ -232,14 +232,90 @@ func (s *RepositoryService) GetCommit(ctx context.Context, req *corev1.GetCommit
 }
 
 func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCommitsRequest) (*corev1.ListCommitsResponse, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
 		return nil, err
 	}
-	commits, err := s.Repository.ListCommits(ctx, req.RefName, int(req.Limit))
+	prefixes, filtered, err := s.listCommitPathPrefixes(ctx, subjectID, req)
+	if err != nil {
+		return nil, err
+	}
+	page := &postgres.CommitListPage{}
+	if filtered && len(prefixes) == 0 {
+		page.Commits = nil
+	} else if len(prefixes) == 0 {
+		page, err = s.Repository.ListCommitPage(ctx, req.RefName, int(req.Limit), req.PageToken)
+	} else {
+		page, err = s.Repository.ListCommitPageByPathPrefixes(ctx, req.RefName, prefixes, int(req.Limit), req.PageToken)
+	}
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.ListCommitsResponse{Commits: commits}, nil
+	return &corev1.ListCommitsResponse{Commits: page.Commits, NextPageToken: page.NextPageToken}, nil
+}
+
+func (s *RepositoryService) listCommitPathPrefixes(ctx context.Context, subjectID string, req *corev1.ListCommitsRequest) ([]string, bool, error) {
+	var prefixes []string
+	filtered := false
+	if req.Slice != nil {
+		filtered = true
+		if req.Slice.Account == "" || req.Slice.Slice == "" {
+			return nil, false, status.Error(codes.InvalidArgument, "slice ref is required")
+		}
+		if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.Slice.Account); err != nil {
+			return nil, false, grpcError(err)
+		}
+		slice, err := s.Slices.Resolve(ctx, req.Slice)
+		if err != nil {
+			return nil, false, grpcError(err)
+		}
+		for _, included := range slice.Definition.IncludedPaths {
+			prefix, err := repositoryReadPath(included)
+			if err != nil {
+				return nil, false, status.Error(codes.InvalidArgument, err.Error())
+			}
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	if strings.TrimSpace(req.Path) == "" {
+		return prefixes, filtered, nil
+	}
+	p, err := repositoryReadPath(req.Path)
+	if err != nil {
+		return nil, false, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if len(prefixes) == 0 {
+		if p == "/" {
+			return nil, filtered, nil
+		}
+		return []string{p}, true, nil
+	}
+	return intersectPathPrefixes(p, prefixes), true, nil
+}
+
+func intersectPathPrefixes(pathFilter string, prefixes []string) []string {
+	if pathFilter == "/" {
+		return prefixes
+	}
+	out := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		switch {
+		case repositoryPathContains(pathFilter, prefix):
+			out = append(out, prefix)
+		case repositoryPathContains(prefix, pathFilter):
+			out = append(out, pathFilter)
+		}
+	}
+	return out
+}
+
+func repositoryPathContains(prefix, p string) bool {
+	if prefix == "/" {
+		return true
+	}
+	prefix = strings.TrimRight(prefix, "/")
+	p = strings.TrimRight(p, "/")
+	return p == prefix || strings.HasPrefix(p, prefix+"/")
 }
 
 func (s *RepositoryService) GetRef(ctx context.Context, req *corev1.GetRefRequest) (*corev1.Ref, error) {

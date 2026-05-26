@@ -579,6 +579,11 @@ This is intentional. The slice answers the question:
 What is the history of the paths this slice currently includes?
 ```
 
+The implementation should answer this through a changed-path index keyed by
+target ref and path prefix. It must not assume a custom slice existed when the
+commit was created; resolving the slice's current included paths and querying
+the index is the source of truth for default projected history.
+
 For audit and debugging, the system may also support pinned historical
 projection:
 

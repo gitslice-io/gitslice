@@ -82,7 +82,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		"gs status":               "gs st",
 		"gs slice list [account]": "gs slices list [account]",
 		"gs repo import github <owner/repo-or-url>": "gs repository import github <owner/repo-or-url>",
-		"gs commit list": "gs commits list",
+		"gs commit list [path]":                     "gs commits list [path]",
 	} {
 		if !stringSliceContains(aliases[use], wantAlias) {
 			t.Fatalf("schema aliases for %q missing %q: %#v", use, wantAlias, aliases[use])

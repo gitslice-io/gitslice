@@ -272,6 +272,12 @@ authoritative lineage. Delete/add inference and Git import rename detection are
 secondary inputs that must record their source and ambiguity status. See
 [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
+The MVP stores this as `commit_changed_paths(target_ref, commit_id, path,
+change_kind, committed_at)`. Directory history is a prefix query over canonical
+paths, and slice history resolves the slice's current included path prefixes
+before querying the same index. Cursor pagination uses the ordered
+`(committed_at, commit_id)` pair from the last returned index hit.
+
 ### 3.6 Slice Projection
 
 Projection indexes cache deterministic slice projections:

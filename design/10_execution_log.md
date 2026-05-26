@@ -3041,3 +3041,59 @@ git diff --check
 go test ./...
 go build ./cmd/...
 ```
+
+## 2026-05-26: Indexed Commit History Filters
+
+Request:
+
+- make directory/file commit history efficient with a better index
+- ensure the list-commits API supports custom slices, including slices created
+  after relevant commits already exist
+
+Implemented:
+
+- added `commit_changed_paths` as the operational path-history index keyed by
+  target ref, commit id, path, change kind, and committed time
+- populated the index during publish and backfilled it from existing commit
+  changed-path payloads in migration
+- extended `RepositoryService.ListCommits` with optional `path` and `slice`
+  filters; slice filtering resolves the slice's current included paths and
+  queries the index rather than relying on commit-time coverage
+- added opaque cursor pagination to `RepositoryService.ListCommits` and
+  `gs commit list --page-token`
+- extended `gs commit list` with `[path]`, `--path`, `--slice`, and
+  `--page-token`
+- fixed server-side slice directory projection for home slices whose included
+  path is an account root such as `/nic`
+- documented the API, storage index, CLI behavior, and slice-history rule
+
+Important decisions and learnings:
+
+- Slice history remains a projection of the current slice definition over the
+  global commit graph. A custom slice can therefore show history for paths that
+  existed before the slice was created.
+- Combining `path` and `slice` is an intersection, not a union. If the requested
+  path is outside the slice's included prefixes, the result is empty.
+- Filtered commit-history pagination uses the indexed `(committed_at,
+  commit_id)` ordering. Unfiltered history still follows the ref's first-parent
+  chain and uses the same opaque token shape.
+- RPC coverage now exercises the consistency invariant for a personal custom
+  slice publish: the custom slice sees the submitted commit, the prior home
+  commit does not, and when home observes the latest ref the directory entry and
+  file content are visible together.
+- CLI bare slice refs still resolve against the signed-in account. Org slices
+  should be passed as `account/slice`, such as `acme/docs`.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/repository_store.go internal/postgres/changeset_store.go service/repository.go internal/cli/cli.go internal/cli/cli_test.go tests/cli/cli_smoke_test.go tests/rpc/rpc_custom_slice_test.go
+go test ./internal/postgres ./service ./internal/cli ./tests/rpc ./tests/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCListCommitsSupportsPathAndCustomSlice -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestGitHubImportDeepListAndInspectCommits -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCCustomSlicePublishIsConsistentWhenHomeObserves -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```

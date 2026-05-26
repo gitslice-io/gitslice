@@ -295,6 +295,7 @@ commit_changed_paths(
   commit_id references commits(id),
   path,
   change_kind,
+  committed_at,
   primary key(target_ref, commit_id, path)
 )
 
@@ -320,6 +321,21 @@ commit_entity_changes(
   mode,
   committed_at
 )
+
+`commit_changed_paths` is an operational path-history index. It is populated
+when accepted native commits are published and backfilled from `commits` during
+migration. API calls such as `RepositoryService.ListCommits(path, slice)` use it
+to answer file, directory, and custom-slice history without scanning every
+commit's JSON changed-path payload. Slice history is still definition-driven:
+the server resolves the slice's current included paths and queries matching
+changed paths, so a custom slice can include past commits even when the slice
+definition was created later than those commits.
+Paged path-history reads use an opaque cursor derived from the last returned
+`(committed_at, commit_id)` pair.
+
+`fs_entities` and `commit_entity_changes` extend that path index with stable
+file and directory identity so move-following history can cross explicit
+renames and unambiguous inferred moves.
 
 object-store tree node:
   key = trees/sha256/{prefix}/{tree_hash}.json
@@ -590,8 +606,8 @@ Critical lookup indexes:
 
 ```text
 commit_parents(parent_commit_id)
-commit_changed_paths(target_ref, path, commit_id)
-commit_changed_paths(path, commit_id)
+commit_changed_paths(target_ref, path, committed_at, commit_id)
+commit_changed_paths(path, committed_at, commit_id)
 blobs(state, expires_at)
 blobs(content_hash)
 slice_included_paths(account_id, path_prefix, prefix_end)
