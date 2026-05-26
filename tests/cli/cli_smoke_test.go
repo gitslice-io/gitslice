@@ -599,9 +599,13 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "other_user")
 	runCLI(t, home, outsideWorkspace, "fs", "mkdir", "/other-user/docs")
 	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "shell_user")
-	initOutput := runCLI(t, home, homeWorkspace, "workspace", "init", "shell-user/home")
+	initOutput := runCLI(t, home, homeWorkspace, "workspace", "init", "home")
 	if !strings.Contains(initOutput, "initialized workspace for shell-user/home") {
 		t.Fatalf("unexpected home workspace init output:\n%s", initOutput)
+	}
+	paths := strings.TrimSpace(runCLI(t, home, outsideWorkspace, "slice", "paths", "home"))
+	if paths != "/shell-user" {
+		t.Fatalf("bare slice paths = %q, want /shell-user", paths)
 	}
 	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
 		"pwd",
@@ -625,6 +629,13 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 	}
 	if strings.Contains(stdout, "other-user/") {
 		t.Fatalf("shell-user home shell leaked other-user folder:\n%s", stdout)
+	}
+	explicit, explicitStderr := runCLIStreamsWithInput(t, home, outsideWorkspace, "pwd\nquit\n", "shell", "--slice", "home")
+	if explicitStderr != "" {
+		t.Fatalf("expected empty explicit bare-slice shell stderr, got:\n%s", explicitStderr)
+	}
+	if !strings.Contains(explicit, "server shell: shell-user/home @") || !strings.Contains(explicit, "/") {
+		t.Fatalf("explicit bare-slice shell output missing home scope:\n%s", explicit)
 	}
 }
 

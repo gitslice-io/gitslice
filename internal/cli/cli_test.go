@@ -76,13 +76,13 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		}
 	}
 	for use, wantAlias := range map[string]string{
-		"gs context":                                "gs ctx",
-		"gs config list":                            "gs cfg list",
-		"gs workspace init <account>/<slice>":       "gs ws init <account>/<slice>",
-		"gs status":                                 "gs st",
-		"gs slice list [account]":                   "gs slices list [account]",
+		"gs context":     "gs ctx",
+		"gs config list": "gs cfg list",
+		"gs workspace init <slice|account/slice>": "gs ws init <slice|account/slice>",
+		"gs status":               "gs st",
+		"gs slice list [account]": "gs slices list [account]",
 		"gs repo import github <owner/repo-or-url>": "gs repository import github <owner/repo-or-url>",
-		"gs commit list":                            "gs commits list",
+		"gs commit list": "gs commits list",
 	} {
 		if !stringSliceContains(aliases[use], wantAlias) {
 			t.Fatalf("schema aliases for %q missing %q: %#v", use, wantAlias, aliases[use])
@@ -921,6 +921,39 @@ func TestInvalidFormatReturnsStructuredCommandError(t *testing.T) {
 	}
 	if cmdErr.Code != "invalid_format" {
 		t.Fatalf("unexpected error code %q", cmdErr.Code)
+	}
+}
+
+func TestResolveSliceRefInputAcceptsBareSignedInSlice(t *testing.T) {
+	r := Runner{}
+	ref, err := r.resolveSliceRefInput(context.Background(), UserConfig{SubjectID: "user_alice"}, nil, "Payment_API")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.Account != "alice" || ref.Slice != "payment-api" {
+		t.Fatalf("unexpected bare slice ref: %#v", ref)
+	}
+
+	explicit, err := r.resolveSliceRefInput(context.Background(), UserConfig{SubjectID: "user_alice"}, nil, "acme/Payment_API")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicit.Account != "acme" || explicit.Slice != "payment-api" {
+		t.Fatalf("unexpected explicit slice ref: %#v", explicit)
+	}
+}
+
+func TestResolveSliceRefInputRejectsBareSliceWithoutAccount(t *testing.T) {
+	r := Runner{}
+	_, err := r.resolveSliceRefInput(context.Background(), UserConfig{}, nil, "payment")
+	if err == nil {
+		t.Fatal("expected account_required error")
+	}
+	if !isUserErrorCode(err, "account_required") {
+		t.Fatalf("expected account_required, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "account/slice") || !strings.Contains(err.Error(), "gs auth status") {
+		t.Fatalf("expected bare slice recovery hint, got:\n%v", err)
 	}
 }
 
