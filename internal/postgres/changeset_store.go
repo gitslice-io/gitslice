@@ -910,8 +910,8 @@ func deleteCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, p str
 		_, err := tx.ExecContext(ctx, `
 			delete from current_path_entities
 			where target_ref = $1
-			  and (path = $2 or (path >= $3 and path < $4))
-		`, targetRef, p, strings.TrimRight(p, "/")+"/", strings.TrimRight(p, "/")+"0")
+			  and (path = $2 or left(path, length($3)) = $3)
+		`, targetRef, p, strings.TrimRight(p, "/")+"/")
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `
@@ -929,9 +929,8 @@ func moveCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, oldPath
 			    updated_at = now()
 			where target_ref = $1
 			  and path <> $3
-			  and path >= $4
-			  and path < $5
-		`, targetRef, newPath, oldPath, strings.TrimRight(oldPath, "/")+"/", strings.TrimRight(oldPath, "/")+"0")
+			  and left(path, length($4)) = $4
+		`, targetRef, newPath, oldPath, strings.TrimRight(oldPath, "/")+"/")
 		if err != nil {
 			return err
 		}

@@ -3146,3 +3146,34 @@ go build ./cmd/...
 git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
 ```
+
+## 2026-05-26: Collation-Stable History Prefix Filters
+
+Request:
+
+- fix PostgreSQL e2e CI failure in custom-slice commit history
+
+Implemented:
+
+- replaced lexicographic prefix bounds like `path >= prefix || '/'` and
+  `path < prefix || '0'` with explicit prefix comparisons
+- applied the same collation-stable predicate to current entity path scans,
+  recursive entity deletes, and directory move updates
+
+Important decisions and learnings:
+
+- GitHub Actions exposed a database collation difference where the previous
+  `/` to `0` lexical range could miss descendants even though it passed
+  locally. Prefix checks must not rely on locale-specific text ordering.
+
+Verification:
+
+```bash
+gofmt -w internal/postgres/repository_store.go internal/postgres/changeset_store.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCListCommitsSupportsPathAndCustomSlice -v
+go test ./...
+go build ./cmd/...
+git diff --check
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
+```
