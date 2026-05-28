@@ -189,6 +189,51 @@ func TestStorageRefreshesDirectoryPathHeadsAfterPublish(t *testing.T) {
 	}
 }
 
+func TestStorageRefreshesRenamedDirectoryDescendantPathHeads(t *testing.T) {
+	ctx, store, objectStore := newPostgresTestStoreWithObjects(t)
+	base := getTestRef(t, ctx, store)
+	firstBlobID, firstHash := upsertTestBlobObject(t, ctx, store, objectStore, "package payment\nconst A = 1\n")
+	secondBlobID, secondHash := upsertTestBlobObject(t, ctx, store, objectStore, "package payment\nconst B = 1\n")
+	seed := createDraftPatchsetWithEdits(t, ctx, store, base.CommitId, []*corev1.FileEdit{
+		{Op: "mkdir", Path: "/acme/payment/src"},
+		{Op: "mkdir", Path: "/acme/payment/src/nested"},
+		{Op: "upsert", Path: "/acme/payment/src/a.go", BlobId: firstBlobID, ContentHash: firstHash, Mode: 0o100644},
+		{Op: "upsert", Path: "/acme/payment/src/nested/b.go", BlobId: secondBlobID, ContentHash: secondHash, Mode: 0o100644},
+	})
+	if _, err := store.Changesets().Submit(ctx, seed.ChangesetId, seed.Id); err != nil {
+		t.Fatal(err)
+	}
+	if published, err := store.Changesets().PublishPending(ctx, 10); err != nil {
+		t.Fatal(err)
+	} else if published != 1 {
+		t.Fatalf("published = %d, want 1", published)
+	}
+
+	base = getTestRef(t, ctx, store)
+	move := createDraftPatchsetWithEdits(t, ctx, store, base.CommitId, []*corev1.FileEdit{{
+		Op:      "rename",
+		OldPath: "/acme/payment/src",
+		Path:    "/acme/payment/moved",
+	}})
+	if _, err := store.Changesets().Submit(ctx, move.ChangesetId, move.Id); err != nil {
+		t.Fatal(err)
+	}
+	if published, err := store.Changesets().PublishPending(ctx, 10); err != nil {
+		t.Fatal(err)
+	} else if published != 1 {
+		t.Fatalf("published = %d, want 1", published)
+	}
+
+	ref := getTestRef(t, ctx, store)
+	if _, err := store.Repository().GetFile(ctx, ref.CommitId, "/acme/payment/moved/nested/b.go"); err != nil {
+		t.Fatalf("moved file not readable: %v", err)
+	}
+	report, err := store.VerifyIntegrity(ctx, objectStore)
+	if err != nil || !report.OK() {
+		t.Fatalf("integrity after directory rename failed: err=%v report=%#v", err, report)
+	}
+}
+
 func TestStorageIntegrityVerifierPassesAfterPublish(t *testing.T) {
 	ctx, store, objectStore := newPostgresTestStoreWithObjects(t)
 	base := getTestRef(t, ctx, store)

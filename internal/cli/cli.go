@@ -29,6 +29,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/rpclimits"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/itchyny/gojq"
 	"github.com/peterh/liner"
@@ -912,11 +913,11 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 	csSubmitNoWatch := false
-	csSubmitWatchTimeout := "10s"
+	csSubmitWatchTimeout := "5m"
 	csSubmitCmd := &cobra.Command{
 		Use:   "submit [changeset-id]",
 		Short: "Submit the current changeset",
-		Args:  maxArgs(1, "gs cs submit [changeset-id] [--no-watch] [--watch-timeout 10s]"),
+		Args:  maxArgs(1, "gs cs submit [changeset-id] [--no-watch] [--watch-timeout 5m]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {
@@ -932,11 +933,11 @@ func (r Runner) rootCommand() *cobra.Command {
 	csSubmitCmd.Flags().BoolVar(&csSubmitNoWatch, "no-watch", csSubmitNoWatch, "return after submit is accepted without waiting for publish")
 	csSubmitCmd.Flags().StringVar(&csSubmitWatchTimeout, "watch-timeout", csSubmitWatchTimeout, "maximum time to wait for publish")
 	csStatusWatch := false
-	csStatusWatchTimeout := "10s"
+	csStatusWatchTimeout := "5m"
 	csStatusCmd := &cobra.Command{
 		Use:   "status [changeset-id]",
 		Short: "Show the current changeset status",
-		Args:  maxArgs(1, "gs cs status [changeset-id] [--watch] [--watch-timeout 10s] [--format text|json] [--json]"),
+		Args:  maxArgs(1, "gs cs status [changeset-id] [--watch] [--watch-timeout 5m] [--format text|json] [--json]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {
@@ -3107,11 +3108,11 @@ func (r Runner) runFSList(ctx context.Context, opts commandOptions, requestedPat
 	} else if resolved.Entry != nil && resolved.Entry.Kind == corev1.EntryKind_ENTRY_KIND_FILE {
 		entries = []*corev1.TreeEntry{resolved.Entry}
 	} else {
-		list, err := repo.ListDirectory(callCtx, &corev1.ListDirectoryRequest{CommitId: commitID, Path: p, PageSize: 1000})
+		listEntries, err := listDirectoryAll(callCtx, repo, &corev1.ListDirectoryRequest{CommitId: commitID, Path: p, PageSize: 1000})
 		if err != nil {
 			return err
 		}
-		entries = append(entries, list.Entries...)
+		entries = append(entries, listEntries...)
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		return fsEntryName(entries[i]) < fsEntryName(entries[j])
@@ -3179,6 +3180,28 @@ func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath
 	}
 	_, err = r.stdout().Write(read.Data)
 	return err
+}
+
+func listDirectoryAll(ctx context.Context, repo corev1.RepositoryServiceClient, req *corev1.ListDirectoryRequest) ([]*corev1.TreeEntry, error) {
+	if req == nil {
+		req = &corev1.ListDirectoryRequest{}
+	}
+	pageReq := *req
+	var entries []*corev1.TreeEntry
+	for {
+		page, err := repo.ListDirectory(ctx, &pageReq)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, page.Entries...)
+		if strings.TrimSpace(page.NextCursor) == "" {
+			return entries, nil
+		}
+		if page.NextCursor == pageReq.Cursor {
+			return nil, fmt.Errorf("directory pagination did not advance for %s", pageReq.Path)
+		}
+		pageReq.Cursor = page.NextCursor
+	}
 }
 
 func (r Runner) homeFSReadScope(ctx context.Context) (UserConfig, *grpc.ClientConn, *corev1.Slice, corev1.RepositoryServiceClient, string, error) {
@@ -3754,7 +3777,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	commitID := res.CommitId
 	refCommitID := res.NewRefCommitId
 	if refCommitID == "" || res.Status == "pending_publish" {
-		commitID, refCommitID, err = m.runner.waitForChangesetPublished(ctx, m.conn, m.cfg, cs.Id, 10*time.Second, false)
+		commitID, refCommitID, err = m.runner.waitForChangesetPublished(ctx, m.conn, m.cfg, cs.Id, mutationPublishTimeout(len(edits)), false)
 		if err != nil {
 			return err
 		}
@@ -3774,6 +3797,17 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	}
 	fmt.Fprintf(m.runner.stdout(), "%s %s in %s at %s\n", operationPastTense(operation), changedPathsSummary(changed), output.Slice, shortID(refCommitID))
 	return nil
+}
+
+func mutationPublishTimeout(editCount int) time.Duration {
+	timeout := 2 * time.Minute
+	if editCount > 0 {
+		timeout += time.Duration(editCount/100) * time.Second
+	}
+	if timeout > 15*time.Minute {
+		return 15 * time.Minute
+	}
+	return timeout
 }
 
 func normalizeMutationEdits(slice *corev1.Slice, edits []*corev1.FileEdit) ([]string, error) {
@@ -5262,8 +5296,8 @@ func (s *serverShell) ls(ctx context.Context, target string) error {
 }
 
 func (s *serverShell) directoryEntries(ctx context.Context, globalPath string) ([]*corev1.TreeEntry, error) {
-	list, err := s.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: s.commitID, Path: globalPath, PageSize: 1000})
 	var entries []*corev1.TreeEntry
+	listEntries, err := listDirectoryAll(ctx, s.repo, &corev1.ListDirectoryRequest{CommitId: s.commitID, Path: globalPath, PageSize: 1000})
 	if err != nil {
 		if grpcstatus.Code(err) != codes.NotFound {
 			return nil, err
@@ -5272,7 +5306,7 @@ func (s *serverShell) directoryEntries(ctx context.Context, globalPath string) (
 			return nil, err
 		}
 	} else {
-		entries = append([]*corev1.TreeEntry(nil), list.Entries...)
+		entries = append([]*corev1.TreeEntry(nil), listEntries...)
 	}
 	entries = s.projectDirectoryEntries(globalPath, entries)
 	entries = s.withSyntheticDirectoryEntries(globalPath, entries)
@@ -5729,11 +5763,11 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 	if err := os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(rel)), 0o755); err != nil {
 		return err
 	}
-	list, err := h.repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 1000})
+	entries, err := listDirectoryAll(ctx, h.repo, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 1000})
 	if err != nil {
 		return err
 	}
-	for _, entry := range list.Entries {
+	for _, entry := range entries {
 		if entry == nil {
 			continue
 		}
@@ -6810,6 +6844,10 @@ func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	defer cancel()
 	return grpc.DialContext(ctx, addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
+			grpc.MaxCallSendMsgSize(rpclimits.MaxUnaryMessageBytes),
+		),
 		grpc.WithBlock(),
 	)
 }

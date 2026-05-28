@@ -358,6 +358,54 @@ func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T)
 	if submitted.CommitId == "" {
 		t.Fatalf("authorized submit did not publish commit: %#v", submitted)
 	}
+	if _, err := clients.repository.GetCommit(aliceCtx, &corev1.GetCommitRequest{
+		CommitId: submitted.CommitId,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = clients.repository.ListDirectory(outsiderCtx, &corev1.ListDirectoryRequest{
+		CommitId: submitted.CommitId,
+		Path:     "/acme/payment",
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.repository.GetCommit(outsiderCtx, &corev1.GetCommitRequest{
+		CommitId: submitted.CommitId,
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.repository.ListCommits(outsiderCtx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Path:    "/acme/payment",
+		Limit:   10,
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	outsiderHistory, err := clients.repository.ListCommits(outsiderCtx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCommitSetExcludes(t, outsiderHistory.Commits, submitted.CommitId)
+	_, err = clients.repository.ResolvePath(outsiderCtx, &corev1.ResolvePathRequest{
+		CommitId: submitted.CommitId,
+		Path:     "/acme/payment/authz_member.go",
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.repository.ReadFile(outsiderCtx, &corev1.ReadFileRequest{
+		CommitId: submitted.CommitId,
+		Path:     "/acme/payment/authz_member.go",
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	rootList, err := clients.repository.ListDirectory(outsiderCtx, &corev1.ListDirectoryRequest{
+		CommitId: submitted.CommitId,
+		Path:     "/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if treeEntriesContainName(rootList.Entries, "acme") {
+		t.Fatalf("outsider root listing leaked acme account: %#v", rootList.Entries)
+	}
 }
 
 type testRPCServer struct {
@@ -617,6 +665,15 @@ func waitForHealth(t *testing.T, addr string) {
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func treeEntriesContainName(entries []*corev1.TreeEntry, want string) bool {
+	for _, entry := range entries {
+		if entry != nil && entry.Name == want {
 			return true
 		}
 	}

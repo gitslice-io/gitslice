@@ -14,6 +14,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/rpclimits"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
@@ -146,6 +147,8 @@ func Run(ctx context.Context, cfg Config) error {
 
 func NewGRPCServer(auth storage.AuthStore, handlers *service.Handlers) *grpc.Server {
 	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
+		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.UnaryInterceptor(authInterceptor(auth)),
 		grpc.StreamInterceptor(authStreamInterceptor(auth)),
 	)

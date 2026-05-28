@@ -3320,3 +3320,153 @@ go test ./...
 go build ./cmd/...
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
 ```
+
+## 2026-05-26: Large Directory, Large File, and History Load Hardening
+
+Request:
+
+- add broader load coverage for large directories, large files, and large
+  numbers of commits, and use it to find as many bugs as possible
+
+Implemented:
+
+- added load tests for:
+  - paginated listing of large directories through both global repository reads
+    and custom-slice projections
+  - large binary upload, commit, full read, and ranged read
+  - many sequential commits plus path/slice-scoped commit-history pagination
+- added `ListDirectory` server-side pagination with cursor support, and updated
+  CLI directory callers to follow all pages
+- raised unary gRPC send/receive limits for the server, HTTP gateway upstream
+  dial, CLI dial, and load-test clients to support larger file payloads
+- extended CLI and test publish waits for large mutation batches so successful
+  large publishes are not reported as client-side timeouts
+- reduced PostgreSQL path-head refresh work during publish by refreshing only
+  paths that still need recomputation after patchset validation/reservation
+- added a fast path for custom-slice directory listing when the requested
+  directory is already contained by a slice included path
+- added coverage for large directory rename integrity so subtree path heads are
+  verified after moving a directory with many descendants
+- rejected negative `ReadFile` offsets and lengths at the repository service
+  boundary
+- fixed CLI upload test tree-count verification to follow directory pagination
+  when a remote directory has more than one page of children
+
+Important bugs and learnings:
+
+- `ListDirectory` accepted pagination fields but returned the full result set
+  and never advanced `next_cursor`; large directories would force clients to
+  consume one unbounded response
+- CLI file, shell, and workspace hydration paths assumed one directory page, so
+  they would silently miss entries once server-side pagination was enforced
+- larger file reads/writes could hit default unary gRPC message limits unless
+  the limit was applied consistently on server, gateway, CLI, and test clients
+- a 5,000-file publish initially stayed `pending_publish` past the old timeout;
+  the main server-side cost was redundant path-head refresh for every changed
+  file even though file path heads had already been reserved during submit
+- projected custom-slice directory pagination originally rebuilt the full
+  projection on every page, making large projected listings much slower than
+  global listings
+- directory rename publish refreshed the moved directory path but not descendant
+  path heads under the new prefix, leaving integrity findings for the moved
+  subtree
+- a 64 MiB file payload exceeded a 64 MiB unary RPC cap after protobuf framing;
+  the shared unary limit now leaves headroom for exact 64 MiB file payloads
+- an 11,000-entry directory publish completed successfully but needed about
+  2m36s, so the publish wait formula was too aggressive for larger mutation
+  batches
+- negative `ReadFile` ranges were not rejected consistently by all object-store
+  implementations; validation now happens before calling the object store
+
+Verification:
+
+```bash
+gofmt -w internal/rpclimits/limits.go server/server.go server/gateway.go internal/cli/cli.go service/repository.go service/memory_service_test.go internal/postgres/changeset_store.go internal/postgres/store_test.go tests/load/load_test.go tests/cli/cli_smoke_test.go
+go test ./service -run 'TestRepositoryReadFileRejectsNegativeRange|TestRepositoryListDirectoryPaginationUsesCursor' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres -run 'TestStorageRefreshesRenamedDirectoryDescendantPathHeads|TestStorageRefreshesDirectoryPathHeadsAfterPublish|TestStorageIntegrityVerifierPassesAfterPublish' -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres ./tests/rpc ./tests/cli -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 GITSLICE_LOAD_RPC_USERS=8 GITSLICE_LOAD_RPC_OPS_PER_USER=4 GITSLICE_LOAD_LARGE_DIR_FILES=800 GITSLICE_LOAD_LARGE_DIR_EMPTY_DIRS=100 GITSLICE_LOAD_MANY_COMMITS=80 GITSLICE_LOAD_MANY_COMMITS_PAGE_SIZE=23 GITSLICE_LOAD_LARGE_FILE_BYTES=8388608 go test -count=1 -tags load ./tests/load -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_LARGE_DIR_FILES=5000 GITSLICE_LOAD_LARGE_DIR_EMPTY_DIRS=500 GITSLICE_LOAD_LARGE_DIR_PAGE_SIZE=251 go test -count=1 -tags load ./tests/load -run TestLoadLargeDirectoryPaginationAndProjection -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_LARGE_DIR_FILES=10000 GITSLICE_LOAD_LARGE_DIR_EMPTY_DIRS=1000 GITSLICE_LOAD_LARGE_DIR_PAGE_SIZE=499 go test -count=1 -tags load ./tests/load -run TestLoadLargeDirectoryPaginationAndProjection -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_RENAME_DIR_FILES=800 GITSLICE_LOAD_RENAME_DIR_EMPTY_DIRS=100 go test -count=1 -tags load ./tests/load -run TestLoadLargeDirectoryRenameIntegrity -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_LARGE_FILE_BYTES=50331648 go test -count=1 -tags load ./tests/load -run TestLoadLargeFileUploadCommitAndRead -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_LARGE_FILE_BYTES=67108864 go test -count=1 -tags load ./tests/load -run TestLoadLargeFileUploadCommitAndRead -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_MANY_COMMITS=1000 GITSLICE_LOAD_MANY_COMMITS_PAGE_SIZE=113 go test -count=1 -tags load ./tests/load -run TestLoadManySequentialCommitsAndHistoryPagination -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_UPLOAD_TEST_FILES=5000 go test -count=1 ./tests/cli -run TestCLIUploadLargeDirectory -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_UPLOAD_TEST_FILES=10000 go test -count=1 ./tests/cli -run TestCLIUploadLargeDirectory -v
+```
+
+Observed stress results:
+
+- 5,000 files plus 500 empty directories published in about 43s; global and
+  slice-projected listing each returned 5,500 entries across 22 pages
+- 10,000 files plus 1,000 empty directories published in about 2m36s; global
+  and slice-projected listing each returned 11,000 entries across 23 pages
+- 800-file plus 100-empty-directory rename published in about 207ms after the
+  seed publish, and integrity passed with moved descendant path heads present
+- 64 MiB binary upload/commit/read passed after raising the unary message cap;
+  full read was about 90ms and ranged 64 KiB read was under 1ms locally
+- 1,000 sequential commits on one file published at about 31 commits/s; path and
+  custom-slice scoped history returned 1,000 commits across 9 pages
+- 10,000-file CLI upload completed in about 21s
+
+## 2026-05-27: Additional Load and Auth Bug Hunt
+
+Request:
+
+- keep looking for bugs after the large-directory, large-file, and many-commit
+  stress runs
+
+Implemented:
+
+- tightened changeset edit validation so malformed rename/content edit shapes
+  are rejected before submit
+- hydrated and validated content-edit blob metadata from the blob store instead
+  of trusting client-supplied content hashes
+- enforced account membership for global path-based repository reads
+  (`ResolvePath`, `ListDirectory`, and `ReadFile`) when a request is not scoped
+  through a slice projection
+- enforced account membership for commit-history reads by filtering unscoped
+  `ListCommits` through the caller's readable account prefixes, checking raw
+  path filters, and validating direct `GetCommit` reads against changed paths
+- filtered root directory listings to only show accounts readable by the signed
+  in user
+- raised the default watch timeout for `gs cs submit` and `gs cs status --watch`
+  from 10s to 5m, matching observed large-publish durations better than the old
+  fixed default
+
+Important bugs and learnings:
+
+- malformed file edits could reach patchset validation without clear required
+  field checks; rename edits now require both paths and non-rename edits reject
+  stray old paths
+- content edits could carry a mismatched or missing content hash even though the
+  blob id was authoritative; the service now fetches blob metadata and rejects
+  mismatches
+- slice-scoped repository reads were membership protected, but raw global path
+  reads could still expose another account's directories and files to a signed
+  in non-member
+- direct commit inspect and raw path commit-history queries had the same
+  boundary issue; the service now uses membership data before returning commit
+  metadata or changed paths
+- root directory listing needed a separate filter because `/` has no account
+  prefix to authorize directly
+- the 10s generic changeset watch default was far lower than the observed 2m36s
+  publish time for an 11,000-entry directory, even after the upload path had a
+  scaled timeout
+
+Verification:
+
+```bash
+gofmt -w internal/rpclimits/limits.go server/server.go server/gateway.go internal/cli/cli.go service/repository.go service/memory_service_test.go service/changeset.go service/service.go internal/postgres/changeset_store.go internal/postgres/store_test.go tests/load/load_test.go tests/cli/cli_smoke_test.go tests/rpc/slice_test.go
+go test ./service -run 'TestChangesetUpdateRejectsMalformedFileEdits|TestChangesetUpdateValidatesAndHydratesBlobContentHash' -v
+go test ./service -run 'TestServicesRunAgainstInMemoryStorage|TestRepositoryListDirectoryPaginationUsesCursor|TestRepositoryReadFileRejectsNegativeRange' -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes -v
+go test ./...
+go build ./cmd/...
+git diff --check
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres ./tests/rpc ./tests/cli -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 GITSLICE_LOAD_RPC_USERS=8 GITSLICE_LOAD_RPC_OPS_PER_USER=4 GITSLICE_LOAD_LARGE_DIR_FILES=800 GITSLICE_LOAD_LARGE_DIR_EMPTY_DIRS=100 GITSLICE_LOAD_RENAME_DIR_FILES=400 GITSLICE_LOAD_RENAME_DIR_EMPTY_DIRS=50 GITSLICE_LOAD_MANY_COMMITS=80 GITSLICE_LOAD_MANY_COMMITS_PAGE_SIZE=23 GITSLICE_LOAD_LARGE_FILE_BYTES=8388608 go test -count=1 -tags load ./tests/load -v
+```

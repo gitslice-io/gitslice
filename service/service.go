@@ -33,6 +33,7 @@ type Stores struct {
 
 func New(stores Stores, objectStore ObjectStore) *Handlers {
 	validator := diffValidator{
+		Blobs:      stores.Blobs,
 		Repository: stores.Repository,
 		Slices:     stores.Slices,
 	}

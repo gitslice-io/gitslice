@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/internal/storage/memory"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestServicesRunAgainstInMemoryStorage(t *testing.T) {
@@ -365,6 +368,182 @@ func TestSimpleServiceMethodsUseInMemoryStorage(t *testing.T) {
 	}
 	if recorded.OperationId == "" {
 		t.Fatalf("empty operation id")
+	}
+}
+
+func TestRepositoryListDirectoryPaginationUsesCursor(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	data := []byte("page\n")
+	hash := objectid.RawContentHash(data)
+	mem.PutObject(filesystem.BlobKey(hash), data)
+	files := make([]storage.FileEntry, 0, 7)
+	for i := range 7 {
+		files = append(files, storage.FileEntry{
+			Path:        fmt.Sprintf("/acme/page/file_%02d.txt", i),
+			BlobID:      objectid.BlobID(data),
+			ContentHash: hash,
+			Mode:        0o100644,
+			Size:        int64(len(data)),
+		})
+	}
+	mem.PutCommitWithFiles("commit_page", files, nil)
+
+	first, err := handlers.Repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: "commit_page",
+		Path:     "/acme/page",
+		PageSize: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Entries) != 3 || first.NextCursor == "" {
+		t.Fatalf("first page = %#v cursor=%q, want 3 entries and next cursor", first.Entries, first.NextCursor)
+	}
+	second, err := handlers.Repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: "commit_page",
+		Path:     "/acme/page",
+		PageSize: 3,
+		Cursor:   first.NextCursor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Entries) != 3 || second.NextCursor == "" {
+		t.Fatalf("second page = %#v cursor=%q, want 3 entries and next cursor", second.Entries, second.NextCursor)
+	}
+	third, err := handlers.Repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: "commit_page",
+		Path:     "/acme/page",
+		PageSize: 3,
+		Cursor:   second.NextCursor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(third.Entries) != 1 || third.NextCursor != "" {
+		t.Fatalf("third page = %#v cursor=%q, want final single entry", third.Entries, third.NextCursor)
+	}
+	if first.Entries[0].Name != "file_00.txt" || third.Entries[0].Name != "file_06.txt" {
+		t.Fatalf("unexpected page ordering: first=%#v third=%#v", first.Entries, third.Entries)
+	}
+}
+
+func TestRepositoryReadFileRejectsNegativeRange(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	data := []byte("range\n")
+	hash := objectid.RawContentHash(data)
+	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutCommitWithFiles("commit_range", []storage.FileEntry{{
+		Path:        "/acme/range.txt",
+		BlobID:      objectid.BlobID(data),
+		ContentHash: hash,
+		Mode:        0o100644,
+		Size:        int64(len(data)),
+	}}, nil)
+
+	for _, req := range []*corev1.ReadFileRequest{
+		{CommitId: "commit_range", Path: "/acme/range.txt", Offset: -1},
+		{CommitId: "commit_range", Path: "/acme/range.txt", Length: -1},
+	} {
+		_, err := handlers.Repository.ReadFile(ctx, req)
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("ReadFile(%#v) error = %v, want InvalidArgument", req, err)
+		}
+	}
+}
+
+func TestChangesetUpdateRejectsMalformedFileEdits(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		edit *corev1.FileEdit
+	}{
+		{name: "empty delete path", edit: &corev1.FileEdit{Op: "delete"}},
+		{name: "empty mkdir path", edit: &corev1.FileEdit{Op: "mkdir"}},
+		{name: "rename missing old path", edit: &corev1.FileEdit{Op: "rename", Path: "/acme/new.txt"}},
+		{name: "rename missing new path", edit: &corev1.FileEdit{Op: "rename", OldPath: "/acme/old.txt"}},
+		{name: "rename same path", edit: &corev1.FileEdit{Op: "rename", OldPath: "/acme/same.txt", Path: "/acme/same.txt"}},
+		{name: "old path on upsert", edit: &corev1.FileEdit{Op: "upsert", OldPath: "/acme/old.txt", Path: "/acme/new.txt", BlobId: "blob_missing"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cs, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+				AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "home"},
+				TargetRef:      storage.DefaultTargetRef,
+				BaseCommitId:   ref.CommitId,
+				Title:          tc.name,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+				ChangesetId:  cs.Id,
+				BaseCommitId: ref.CommitId,
+				FileEdits:    []*corev1.FileEdit{tc.edit},
+			})
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("UpdateChangeset error = %v, want InvalidArgument", err)
+			}
+		})
+	}
+}
+
+func TestChangesetUpdateValidatesAndHydratesBlobContentHash(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploaded, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("blob metadata\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "home"},
+		TargetRef:      storage.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "blob metadata",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        "/acme/wrong-hash.txt",
+			BlobId:      uploaded.BlobId,
+			ContentHash: "sha256:not-the-uploaded-bytes",
+			Mode:        0o100644,
+		}},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("UpdateChangeset wrong hash error = %v, want InvalidArgument", err)
+	}
+	patchset, err := handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:     "upsert",
+			Path:   "/acme/hydrated-hash.txt",
+			BlobId: uploaded.BlobId,
+			Mode:   0o100644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := patchset.FileEdits[0].ContentHash; got != uploaded.ContentHash {
+		t.Fatalf("patchset content hash = %q, want %q", got, uploaded.ContentHash)
 	}
 }
 

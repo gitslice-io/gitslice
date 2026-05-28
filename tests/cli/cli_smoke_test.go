@@ -2236,24 +2236,33 @@ func uploadTestFileCount(t *testing.T) int {
 
 func countRemoteTree(t *testing.T, ctx context.Context, repo corev1.RepositoryServiceClient, commitID, p string) (int, int) {
 	t.Helper()
-	list, err := repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: commitID, Path: p, PageSize: 1000})
-	if err != nil {
-		t.Fatal(err)
-	}
 	files := 0
 	dirs := 0
-	for _, entry := range list.Entries {
-		switch entry.Kind {
-		case corev1.EntryKind_ENTRY_KIND_FILE:
-			files++
-		case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
-			dirs++
-			childFiles, childDirs := countRemoteTree(t, ctx, repo, commitID, entry.Path)
-			files += childFiles
-			dirs += childDirs
+	cursor := ""
+	for {
+		list, err := repo.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: commitID, Path: p, PageSize: 1000, Cursor: cursor})
+		if err != nil {
+			t.Fatal(err)
 		}
+		for _, entry := range list.Entries {
+			switch entry.Kind {
+			case corev1.EntryKind_ENTRY_KIND_FILE:
+				files++
+			case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
+				dirs++
+				childFiles, childDirs := countRemoteTree(t, ctx, repo, commitID, entry.Path)
+				files += childFiles
+				dirs += childDirs
+			}
+		}
+		if list.NextCursor == "" {
+			return files, dirs
+		}
+		if list.NextCursor == cursor {
+			t.Fatalf("directory cursor did not advance for %s", p)
+		}
+		cursor = list.NextCursor
 	}
-	return files, dirs
 }
 
 func readToken(t *testing.T, home string) string {
