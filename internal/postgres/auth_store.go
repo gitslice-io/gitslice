@@ -155,6 +155,29 @@ func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountS
 	return nil
 }
 
+func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select a.slug
+		from account_memberships m
+		join accounts a on a.id = m.account_id
+		where m.subject_id = $1
+		order by a.slug
+	`, subjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		out = append(out, slug)
+	}
+	return out, rows.Err()
+}
+
 func newSession(subjectID string) (token, sessionID, hashedToken string, expiresAt time.Time, err error) {
 	token, err = objectid.RandomID("devtok")
 	if err != nil {

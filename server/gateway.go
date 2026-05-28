@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/rpclimits"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
@@ -14,7 +15,13 @@ import (
 
 func NewHTTPGateway(ctx context.Context, grpcEndpoint string) (http.Handler, error) {
 	mux := runtime.NewServeMux(runtime.WithIncomingHeaderMatcher(gatewayHeaderMatcher))
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
+			grpc.MaxCallSendMsgSize(rpclimits.MaxUnaryMessageBytes),
+		),
+	}
 	registerHandlers := []func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error{
 		corev1.RegisterFakeAccountServiceHandlerFromEndpoint,
 		corev1.RegisterAuthServiceHandlerFromEndpoint,

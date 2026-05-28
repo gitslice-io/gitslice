@@ -29,6 +29,7 @@ type ChangesetService struct {
 }
 
 type diffValidator struct {
+	Blobs      storage.BlobStore
 	Repository storage.RepositoryStore
 	Slices     storage.SliceStore
 }
@@ -353,6 +354,11 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
+		if requireBlob {
+			if err := v.hydrateBlobMetadata(ctx, normalized); err != nil {
+				return nil, err
+			}
+		}
 		*edit = *normalized
 		for _, p := range editPaths(edit) {
 			if !paths.InAnyPrefix(slice.Definition.IncludedPaths, p) {
@@ -394,6 +400,21 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		ReadSet:   readSet,
 		WriteSet:  writeSet,
 	}, nil
+}
+
+func (v diffValidator) hydrateBlobMetadata(ctx context.Context, edit *corev1.FileEdit) error {
+	if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.Op == "mkdir" {
+		return nil
+	}
+	blob, err := v.Blobs.GetByID(ctx, edit.BlobId)
+	if err != nil {
+		return grpcError(err)
+	}
+	if edit.ContentHash != "" && edit.ContentHash != blob.ContentHash {
+		return status.Errorf(codes.InvalidArgument, "content hash does not match blob %s", edit.BlobId)
+	}
+	edit.ContentHash = blob.ContentHash
+	return nil
 }
 
 func (v diffValidator) pathBase(ctx context.Context, baseCommitID, p string) (*corev1.PathBase, error) {
@@ -448,6 +469,18 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 	default:
 		return nil, fmt.Errorf("unsupported file edit op %q", out.Op)
 	}
+	if out.Op == "rename" {
+		if out.OldPath == "" {
+			return nil, fmt.Errorf("old path is required for rename edit")
+		}
+		if out.Path == "" {
+			return nil, fmt.Errorf("path is required for rename edit")
+		}
+	} else if out.Path == "" {
+		return nil, fmt.Errorf("path is required for %s edit", out.Op)
+	} else if out.OldPath != "" {
+		return nil, fmt.Errorf("old path is only supported for rename edits")
+	}
 	if out.Path != "" {
 		p, err := paths.Canonical(out.Path)
 		if err != nil {
@@ -461,6 +494,9 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 			return nil, err
 		}
 		out.OldPath = p
+	}
+	if out.Op == "rename" && out.Path == out.OldPath {
+		return nil, fmt.Errorf("rename source and destination must differ")
 	}
 	if requireBlob && out.Op != "delete" && out.Op != "rename" && out.Op != "mkdir" && out.BlobId == "" {
 		return nil, fmt.Errorf("blob id is required for %s edit on %s", out.Op, out.Path)

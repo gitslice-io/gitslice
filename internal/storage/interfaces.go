@@ -11,6 +11,7 @@ type AuthStore interface {
 	SignupUser(ctx context.Context, username string) (string, string, error)
 	SubjectForToken(ctx context.Context, token string) (*Subject, error)
 	EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error
+	ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error)
 }
 
 type BlobStore interface {

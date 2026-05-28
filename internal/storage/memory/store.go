@@ -299,6 +299,21 @@ func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountS
 	return nil
 }
 
+func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	memberships := s.b.accountMembers[subjectID]
+	if len(memberships) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(memberships))
+	for slug := range memberships {
+		out = append(out, slug)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 func (s *BlobStore) Upsert(ctx context.Context, blobID, contentHash string, size int64, storageLocation string) error {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

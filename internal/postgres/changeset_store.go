@@ -532,7 +532,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		if err := insertCommitChangedPathsTx(ctx, tx, targetRef, commitID, patchset.ChangedPaths, now); err != nil {
 			return 0, err
 		}
-		if err := s.refreshPathHeadsForCommitTx(ctx, tx, commitID, row.ChangesetID, row.PatchsetID, patchset.ChangedPaths); err != nil {
+		if err := s.refreshPathHeadsForPatchsetTx(ctx, tx, commitID, row.ChangesetID, row.PatchsetID, patchset.FileEdits); err != nil {
 			return 0, err
 		}
 		if err := s.applyEntityHistoryTx(ctx, tx, targetRef, baseCommitID, commitID, patchset.FileEdits, now); err != nil {
@@ -598,17 +598,32 @@ func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, comm
 	return nil
 }
 
-func (s *ChangesetStore) refreshPathHeadsForCommitTx(ctx context.Context, tx *sql.Tx, commitID, changesetID, patchsetID string, changedPaths []string) error {
-	for _, p := range pathHeadRefreshPaths(changedPaths) {
-		entry, err := s.repository.getEntryAtCommitTx(ctx, tx, commitID, p)
+type pathHeadRefreshTarget struct {
+	Path      string
+	Recursive bool
+}
+
+func (s *ChangesetStore) refreshPathHeadsForPatchsetTx(ctx context.Context, tx *sql.Tx, commitID, changesetID, patchsetID string, edits []*corev1.FileEdit) error {
+	rootTreeID, err := s.repository.rootTreeIDForCommitTx(ctx, tx, commitID)
+	if err != nil {
+		return err
+	}
+	for _, target := range pathHeadRefreshTargetsForEdits(edits) {
+		entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, target.Path)
 		if errors.Is(err, ErrNotFound) {
-			if err := markPathHeadDeletedRecursiveTx(ctx, tx, p, changesetID, patchsetID); err != nil {
+			if err := markPathHeadDeletedRecursiveTx(ctx, tx, target.Path, changesetID, patchsetID); err != nil {
 				return err
 			}
 			continue
 		}
 		if err != nil {
 			return err
+		}
+		if target.Recursive && entry.Kind == "directory" {
+			if err := s.refreshPathHeadSubtreeTx(ctx, tx, rootTreeID, *entry, changesetID, patchsetID); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(*entry), changesetID, patchsetID); err != nil {
 			return err
@@ -617,21 +632,64 @@ func (s *ChangesetStore) refreshPathHeadsForCommitTx(ctx context.Context, tx *sq
 	return nil
 }
 
-func pathHeadRefreshPaths(changedPaths []string) []string {
-	seen := map[string]struct{}{}
-	for _, p := range changedPaths {
-		p = strings.TrimRight(p, "/")
-		for p != "" && p != "/" && p != "." {
-			seen[p] = struct{}{}
-			p = path.Dir(p)
+func (s *ChangesetStore) refreshPathHeadSubtreeTx(ctx context.Context, tx *sql.Tx, rootTreeID string, entry TreeEntry, changesetID, patchsetID string) error {
+	if err := upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(entry), changesetID, patchsetID); err != nil {
+		return err
+	}
+	if entry.Kind != "directory" {
+		return nil
+	}
+	children, err := s.repository.listDirectoryFromTree(ctx, rootTreeID, entry.Path)
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		if err := s.refreshPathHeadSubtreeTx(ctx, tx, rootTreeID, child, changesetID, patchsetID); err != nil {
+			return err
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
+	return nil
+}
+
+func pathHeadRefreshTargetsForEdits(edits []*corev1.FileEdit) []pathHeadRefreshTarget {
+	seen := map[string]bool{}
+	for _, edit := range edits {
+		if edit == nil {
+			continue
+		}
+		switch edit.Op {
+		case "mkdir":
+			addPathHeadRefreshPath(seen, edit.Path, false, true)
+		case "delete":
+			addPathHeadRefreshPath(seen, edit.Path, true, true)
+		case "rename":
+			addPathHeadRefreshPath(seen, edit.OldPath, true, true)
+			addPathHeadRefreshPath(seen, edit.Path, true, true)
+		default:
+			addPathHeadRefreshPath(seen, edit.Path, false, false)
+		}
 	}
-	sort.Strings(out)
+	out := make([]pathHeadRefreshTarget, 0, len(seen))
+	for p, recursive := range seen {
+		out = append(out, pathHeadRefreshTarget{Path: p, Recursive: recursive})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+func addPathHeadRefreshPath(seen map[string]bool, p string, recursiveSelf, includeSelf bool) {
+	p = strings.TrimRight(p, "/")
+	if p == "" || p == "/" || p == "." {
+		return
+	}
+	if includeSelf {
+		seen[p] = seen[p] || recursiveSelf
+	}
+	for parent := path.Dir(p); parent != "" && parent != "/" && parent != "."; parent = path.Dir(parent) {
+		if _, ok := seen[parent]; !ok {
+			seen[parent] = false
+		}
+	}
 }
 
 func (s *ChangesetStore) applyEntityHistoryTx(ctx context.Context, tx *sql.Tx, targetRef, baseCommitID, commitID string, edits []*corev1.FileEdit, committedAt time.Time) error {

@@ -35,9 +35,19 @@ type RepositoryService struct {
 }
 
 func (s *RepositoryService) ResolvePath(ctx context.Context, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
 		return nil, err
 	}
+	p, err := repositoryReadPath(req.Path)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
+		return nil, err
+	}
+	req = cloneResolvePathRequest(req)
+	req.Path = p
 	return resolvePath(ctx, s.Repository, req)
 }
 
@@ -115,15 +125,25 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
+		return nil, err
+	}
 	entries, err := s.Repository.ListDirectory(ctx, req.CommitId, p)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if p == "/" {
+		entries, err = s.filterReadableRootEntries(ctx, subjectID, entries)
+		if err != nil {
+			return nil, err
+		}
 	}
 	out := make([]*corev1.TreeEntry, 0, len(entries))
 	for _, entry := range entries {
 		out = append(out, treeEntryFromRepositoryEntry(entry))
 	}
-	return &corev1.ListDirectoryResponse{Entries: out}, nil
+	page, nextCursor := paginateDirectoryEntries(out, req.PageSize, req.Cursor)
+	return &corev1.ListDirectoryResponse{Entries: page, NextCursor: nextCursor}, nil
 }
 
 // listSliceDirectory implements ListDirectory's optional slice projection.
@@ -150,11 +170,55 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	if direct, ok, err := s.sliceContainedDirectoryEntries(ctx, slice, req.CommitId, p); ok || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		page, nextCursor := paginateDirectoryEntries(direct, req.PageSize, req.Cursor)
+		return &corev1.ListDirectoryResponse{Entries: page, NextCursor: nextCursor}, nil
+	}
 	entries, err := s.sliceProjectedEntries(ctx, slice, req.CommitId)
 	if err != nil {
 		return nil, err
 	}
-	return &corev1.ListDirectoryResponse{Entries: immediateProjectedDirectoryEntries(p, entries)}, nil
+	projected := immediateProjectedDirectoryEntries(p, entries)
+	page, nextCursor := paginateDirectoryEntries(projected, req.PageSize, req.Cursor)
+	return &corev1.ListDirectoryResponse{Entries: page, NextCursor: nextCursor}, nil
+}
+
+func (s *RepositoryService) sliceContainedDirectoryEntries(ctx context.Context, slice *corev1.Slice, commitID, p string) ([]*corev1.TreeEntry, bool, error) {
+	byPath := map[string]*corev1.TreeEntry{}
+	matched := false
+	for _, prefix := range slice.Definition.IncludedPaths {
+		canonical, err := repositoryReadPath(prefix)
+		if err != nil {
+			return nil, false, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if !repositoryPathContains(canonical, p) {
+			continue
+		}
+		matched = true
+		entries, err := s.Repository.ListDirectory(ctx, commitID, p)
+		if err != nil {
+			return nil, true, grpcError(err)
+		}
+		for _, entry := range entries {
+			byPath[entry.Path] = treeEntryFromRepositoryEntry(entry)
+		}
+	}
+	if !matched {
+		return nil, false, nil
+	}
+	paths := make([]string, 0, len(byPath))
+	for p := range byPath {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	out := make([]*corev1.TreeEntry, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, byPath[p])
+	}
+	return out, true, nil
 }
 
 // sliceProjectedEntries returns the tree entries visible through a slice at a
@@ -217,16 +281,128 @@ func (s *RepositoryService) collectProjectedEntries(ctx context.Context, commitI
 }
 
 func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
 		return nil, err
 	}
+	p, err := paths.Canonical(req.Path)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
+		return nil, err
+	}
+	req = cloneReadFileRequest(req)
+	req.Path = p
 	return readFile(ctx, s.Repository, s.ObjectStore, req)
+}
+
+func (s *RepositoryService) ensureRepositoryPathRead(ctx context.Context, subjectID, p string) error {
+	account := accountSlugForRepositoryPath(p)
+	if account == "" {
+		return nil
+	}
+	if err := s.Auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
+		return grpcError(err)
+	}
+	return nil
+}
+
+func (s *RepositoryService) readableAccountPrefixes(ctx context.Context, subjectID string) ([]string, error) {
+	slugs, err := s.Auth.ListSubjectAccountSlugs(ctx, subjectID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	prefixes := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		slug = strings.TrimSpace(slug)
+		if slug == "" {
+			continue
+		}
+		prefixes = append(prefixes, "/"+slug)
+	}
+	return prefixes, nil
+}
+
+func (s *RepositoryService) ensureCommitRead(ctx context.Context, subjectID string, commit *corev1.Commit) error {
+	if commit == nil || len(commit.ChangedPaths) == 0 {
+		return nil
+	}
+	accounts := map[string]struct{}{}
+	for _, changed := range commit.ChangedPaths {
+		p, err := repositoryReadPath(changed)
+		if err != nil {
+			return status.Error(codes.Internal, "commit contains invalid changed path")
+		}
+		account := accountSlugForRepositoryPath(p)
+		if account != "" {
+			accounts[account] = struct{}{}
+		}
+	}
+	if len(accounts) == 0 {
+		return status.Error(codes.PermissionDenied, "commit is not readable")
+	}
+	for account := range accounts {
+		if err := s.Auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
+			return grpcError(err)
+		}
+	}
+	return nil
+}
+
+func (s *RepositoryService) filterReadableRootEntries(ctx context.Context, subjectID string, entries []storage.TreeEntry) ([]storage.TreeEntry, error) {
+	out := make([]storage.TreeEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Kind != "directory" || entry.Name == "" {
+			continue
+		}
+		err := s.Auth.EnsureAccountMember(ctx, subjectID, entry.Name)
+		if err == nil {
+			out = append(out, entry)
+			continue
+		}
+		if errors.Is(err, storage.ErrUnauthorized) || errors.Is(err, storage.ErrNotFound) {
+			continue
+		}
+		return nil, grpcError(err)
+	}
+	return out, nil
+}
+
+func accountSlugForRepositoryPath(p string) string {
+	trimmed := strings.Trim(p, "/")
+	if trimmed == "" {
+		return ""
+	}
+	return strings.Split(trimmed, "/")[0]
+}
+
+func cloneResolvePathRequest(req *corev1.ResolvePathRequest) *corev1.ResolvePathRequest {
+	if req == nil {
+		return &corev1.ResolvePathRequest{}
+	}
+	out := *req
+	return &out
+}
+
+func cloneReadFileRequest(req *corev1.ReadFileRequest) *corev1.ReadFileRequest {
+	if req == nil {
+		return &corev1.ReadFileRequest{}
+	}
+	out := *req
+	return &out
 }
 
 func readFile(ctx context.Context, repository storage.RepositoryStore, objectStore ObjectStore, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
 	p, err := paths.Canonical(req.Path)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if req.Offset < 0 {
+		return nil, status.Error(codes.InvalidArgument, "offset must be non-negative")
+	}
+	if req.Length < 0 {
+		return nil, status.Error(codes.InvalidArgument, "length must be non-negative")
 	}
 	entry, err := repository.GetFile(ctx, req.CommitId, p)
 	if err != nil {
@@ -245,12 +421,16 @@ func readFile(ctx context.Context, repository storage.RepositoryStore, objectSto
 }
 
 func (s *RepositoryService) GetCommit(ctx context.Context, req *corev1.GetCommitRequest) (*corev1.Commit, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
 		return nil, err
 	}
 	commit, err := s.Repository.GetCommit(ctx, req.CommitId)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if err := s.ensureCommitRead(ctx, subjectID, commit); err != nil {
+		return nil, err
 	}
 	return commit, nil
 }
@@ -314,6 +494,13 @@ func (s *RepositoryService) listCommitFilters(ctx context.Context, subjectID str
 	}
 	pathFilter := strings.TrimSpace(req.Path)
 	if pathFilter == "" {
+		if len(prefixes) == 0 {
+			accountPrefixes, err := s.readableAccountPrefixes(ctx, subjectID)
+			if err != nil {
+				return listCommitFilters{}, err
+			}
+			return listCommitFilters{prefixes: accountPrefixes, filtered: true}, nil
+		}
 		return listCommitFilters{prefixes: prefixes, filtered: filtered}, nil
 	}
 	p, err := repositoryReadPath(pathFilter)
@@ -322,7 +509,14 @@ func (s *RepositoryService) listCommitFilters(ctx context.Context, subjectID str
 	}
 	if len(prefixes) == 0 {
 		if p == "/" {
-			return listCommitFilters{filtered: filtered}, nil
+			accountPrefixes, err := s.readableAccountPrefixes(ctx, subjectID)
+			if err != nil {
+				return listCommitFilters{}, err
+			}
+			return listCommitFilters{prefixes: accountPrefixes, filtered: true}, nil
+		}
+		if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
+			return listCommitFilters{}, err
 		}
 		prefixes = []string{p}
 	} else {
@@ -824,6 +1018,41 @@ func immediateProjectedDirectoryEntries(prefix string, entries []storage.TreeEnt
 		out = append(out, byPath[p])
 	}
 	return out
+}
+
+func paginateDirectoryEntries(entries []*corev1.TreeEntry, pageSize int32, cursor string) ([]*corev1.TreeEntry, string) {
+	entries = append([]*corev1.TreeEntry(nil), entries...)
+	sort.SliceStable(entries, func(i, j int) bool {
+		leftName, rightName := entries[i].Name, entries[j].Name
+		if leftName == rightName {
+			return entries[i].Path < entries[j].Path
+		}
+		return leftName < rightName
+	})
+	start := 0
+	cursor = strings.TrimSpace(cursor)
+	if cursor != "" {
+		for start < len(entries) && directoryEntryCursorCompare(entries[start], cursor) <= 0 {
+			start++
+		}
+	}
+	entries = entries[start:]
+	if pageSize <= 0 || int(pageSize) >= len(entries) {
+		return entries, ""
+	}
+	limit := int(pageSize)
+	nextCursor := entries[limit-1].Name
+	if nextCursor == "" {
+		nextCursor = entries[limit-1].Path
+	}
+	return entries[:limit], nextCursor
+}
+
+func directoryEntryCursorCompare(entry *corev1.TreeEntry, cursor string) int {
+	if strings.Contains(cursor, "/") {
+		return strings.Compare(entry.Path, cursor)
+	}
+	return strings.Compare(entry.Name, cursor)
 }
 
 // relativeDirectoryPath returns filePath relative to prefix when filePath is
