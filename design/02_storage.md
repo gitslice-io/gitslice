@@ -48,6 +48,12 @@ must include a domain separator such as `gitslice.tree.v1` so blob, tree, and
 commit ids cannot collide across object kinds even if their payload bytes happen
 to match.
 
+Human interfaces may abbreviate native ids for display, for example showing the
+first 12 hex characters of a commit id. Abbreviations are presentation and
+lookup conveniences only. Storage continues to persist the full canonical
+`sha256:<hex>` id, and any short-id lookup must resolve back to exactly one
+canonical id before reading an object.
+
 Stable file and directory entity ids are different from these content-addressed
 storage ids. Entity ids are opaque logical ids used to follow history across
 moves, while blob, tree, and commit ids identify immutable content-addressed

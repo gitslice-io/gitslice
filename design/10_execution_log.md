@@ -3147,6 +3147,51 @@ git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
 ```
 
+## 2026-05-30: Commit Short-ID UX and Resolution Design
+
+Request:
+
+- design how `gs commit list` should display short commit ids and how short
+  commit id inputs should resolve to full native commit ids
+
+Implemented:
+
+- merged the commit short-id design into existing source-of-truth documents:
+  storage identity in [02_storage.md](02_storage.md), API shape in
+  [03_core_api.md](03_core_api.md), CLI behavior in
+  [04_cli_design.md](04_cli_design.md), database/index strategy in
+  [06_indexing.md](06_indexing.md), auth/privacy constraints in
+  [12_account_auth.md](12_account_auth.md), and move-following interaction in
+  [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md)
+- removed the standalone draft so the design stays folded into the relevant
+  existing documents
+- refined the CLI design so Git-familiar top-level commands are canonical
+  replacements, not permanent aliases: `gs log` replaces `gs commit list`,
+  `gs show` replaces `gs commit inspect`, commit diff moves under `gs diff`,
+  `gs init` replaces `gs workspace init`, and `gs import github` replaces
+  `gs repo import github`
+
+Important decisions and learnings:
+
+- full `sha256:<64hex>` ids remain canonical storage and API identities, while
+  human list views should default to short ids
+- short ids should resolve server-side, not only in the CLI, so account
+  membership, target ref, path filters, slice projection, and move-following
+  history are applied consistently
+- prefix resolution should reuse the existing `commits` table plus
+  `commit_changed_paths` and entity-history indexes; a small
+  `commits(id text_pattern_ops)` index is enough for the first implementation
+- ambiguity must be computed only within the caller's visible scope so
+  unauthorized commits do not leak through error messages
+- compatibility commands should be hidden and later removed after canonical
+  commands exist, rather than keeping duplicate command groups in root help
+
+Verification:
+
+```bash
+git diff --check
+```
+
 ## 2026-05-26: Multi-User RPC Load Simulation
 
 Request:
