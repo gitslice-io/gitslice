@@ -3170,6 +3170,10 @@ Implemented:
   `gs show` replaces `gs commit inspect`, commit diff moves under `gs diff`,
   `gs init` replaces `gs workspace init`, and `gs import github` replaces
   `gs repo import github`
+- expanded the `gs log` UX design with default slice/home/all scope resolution,
+  Git-style `-- <path>` handling, compact and medium text formats, pagination
+  hints, JSON response shape, follow-move semantics, and explicit differences
+  from Git
 
 Important decisions and learnings:
 
@@ -3185,6 +3189,9 @@ Important decisions and learnings:
   unauthorized commits do not leak through error messages
 - compatibility commands should be hidden and later removed after canonical
   commands exist, rather than keeping duplicate command groups in root help
+- `gs log` should feel like `git log` in a workspace by defaulting to the
+  workspace slice, while still using canonical account-rooted paths and native
+  published commits under the hood
 
 Verification:
 

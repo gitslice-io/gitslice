@@ -1085,28 +1085,137 @@ visible scope, the CLI should show the ambiguous candidates with short ids and a
 hint to use a longer prefix. Candidate lists must not include commits outside
 the caller's authorized account, path, or slice scope.
 
-`gs log` reads server-side commit history. Without filters, it walks the
-main native ref. With `--path` or a positional path, the server uses the
-changed-path index to return only commits that touched that file or directory.
-With `--slice`, the server resolves the slice's current included paths and
-returns commits that touched any included prefix. Signed-in users may pass a
-bare slice slug for slices under their signed-in account; org slices can be
-passed as `account/slice`. Combining `--slice` and `--path` returns the
-intersection, so a path outside the slice produces no commits.
+`gs log` reads server-side commit history from the native target ref. The
+default target ref is `refs/global/main`; future ref selection should use
+`--ref <ref>`, not positional revision syntax.
 
-If more commits are available, the human output prints `next_page_token:
-<token>` after the commit lines, and JSON output includes `next_page_token`.
-Pass that value back with `--page-token` while keeping the same path/slice
-filters to fetch the next page.
+Scope resolution should make `gs log` feel like running `git log` inside a
+repository while preserving Gitslice's account and slice model:
 
-`gs log` should accept Git's `-- <path>` separator, and inside a workspace the
-path may be relative to the workspace root. When a path is supplied, `gs log`
-follows stable file and directory identity across moves by default. `--follow`
-is accepted for Git familiarity and is the default for a single path.
-`--no-follow-moves` requests literal path-index history. Slice-scoped history
+```text
+1. --slice <slice|account/slice>
+2. nearest workspace slice
+3. signed-in user's personal home slice
+4. --all to list all readable account history
+```
+
+Inside a workspace, plain `gs log` therefore shows history visible through the
+workspace's slice. Outside a workspace, plain `gs log` shows the signed-in
+user's home-slice history. `--all` is the explicit escape hatch for account-wide
+or multi-account history the user can read.
+
+Path filters should support both Gitslice-native flags and Git's `--` path
+separator:
+
+```bash
+gs log -- /acme/payment/api
+gs log -- ./internal/api
+gs log --path /acme/payment/api
+gs log --slice backend -- /acme/payment/shared
+```
+
+Inside a workspace, relative paths are resolved against the workspace root and
+then converted to canonical account-rooted paths. Outside a workspace, relative
+paths are rejected with a hint to pass an absolute account-rooted path. Help and
+examples should prefer `gs log -- <path>` because it is familiar to Git users
+and avoids ambiguity with future revision selectors.
+
+With a path filter, the server uses the changed-path index to return only
+commits that touched that file or directory. With `--slice`, the server resolves
+the slice's current included paths and returns commits that touched any included
+prefix. Combining `--slice` and `--path` returns the intersection, so a path
+outside the slice produces an empty log rather than falling back to broader
+history.
+
+The default human output should be compact and scannable:
+
+```text
+14e085c8afbf  file write /test-user/folder1/folder1-1/hello.txt
+87ecd8bb3549  file mkdir /test-user/folder1/folder1-2
+a3c11219b759  file mkdir /test-user/folder1/folder1-1
+```
+
+This is equivalent to Git's `--oneline` style and is the default because
+Gitslice commit messages often encode file operations. `--oneline` should be
+accepted as an explicit no-op for Git familiarity. `--full` changes only the id
+display, not the layout:
+
+```text
+sha256:14e085c8afbf800239e8b6e064e4f8488ca85ca311c72d1c562a14e90f2aad76  file write /test-user/folder1/folder1-1/hello.txt
+```
+
+`gs log --format medium` can provide a more Git-like block layout:
+
+```text
+commit 14e085c8afbf
+Author: user_test
+Date:   2026-05-30 10:12:03 -0700
+
+    file write /test-user/folder1/folder1-1/hello.txt
+```
+
+Additional display flags should map to familiar Git behavior:
+
+```bash
+gs log --name-only -- /acme/payment/api
+gs log --stat -- /acme/payment/api
+gs log -p -- /acme/payment/api
+```
+
+`--name-only` can be implemented from commit `changed_paths`. `--stat` and `-p`
+depend on server-side commit diff support and may be added after
+`gs diff <commit>` is implemented. Until then, the CLI should return a stable
+unsupported-option error instead of silently ignoring those flags.
+
+If more commits are available, human output prints an actionable pagination
+hint after the commit lines:
+
+```text
+next_page_token: eyJjb21taXRfaWQiOi...
+hint: Run gs log --page-token eyJjb21taXRfaWQiOi... with the same filters.
+```
+
+JSON output includes both the commits and the resolved query scope:
+
+```json
+{
+  "scope": {
+    "ref_name": "refs/global/main",
+    "slice": {"account": "test-user", "slice": "home"},
+    "path": "/test-user/folder1",
+    "follow_moves": true
+  },
+  "commits": [
+    {
+      "id": "sha256:14e085c8afbf800239e8b6e064e4f8488ca85ca311c72d1c562a14e90f2aad76",
+      "short_id": "14e085c8afbf",
+      "author": "user_test",
+      "created_at": "2026-05-30T17:12:03Z",
+      "message": "file write /test-user/folder1/folder1-1/hello.txt",
+      "changed_paths": ["/test-user/folder1/folder1-1/hello.txt"]
+    }
+  ],
+  "next_page_token": ""
+}
+```
+
+When a single path is supplied, `gs log` follows stable file and directory
+identity across moves by default. `--follow` is accepted for Git familiarity and
+is the default for a single path. `--no-follow-moves` requests literal
+path-index history. `--follow` without exactly one path should return an
+invalid-argument error with a hint to pass `-- <path>`. Slice-scoped history
 must respect the attached or specified slice and must not reveal old or new
 paths outside the user's visible projection. See
 [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
+
+Intentional differences from Git:
+
+- `gs log` does not create or inspect local commits; it reads published native
+  Gitslice commits.
+- positional revision ranges such as `main..topic` are not part of the MVP;
+  commit comparison belongs to `gs diff <a> <b>`.
+- path output should remain canonical account-rooted in JSON. Human text may
+  add a future `--relative` mode, but canonical paths are the stable default.
 
 `gs show <commit>` prints commit metadata and defaults to a Git-like commit
 detail view. `--stat`, `--name-only`, and `-p` select summary, path-only, and
