@@ -59,6 +59,7 @@ service RepositoryService {
   rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
   rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
   rpc GetCommit(GetCommitRequest) returns (Commit);
+  rpc ResolveCommit(ResolveCommitRequest) returns (ResolveCommitResponse);
   rpc ListCommits(ListCommitsRequest) returns (ListCommitsResponse);
   rpc GetRef(GetRefRequest) returns (Ref);
   rpc ImportGitRepository(ImportGitRepositoryRequest) returns (ImportGitRepositoryResponse);
@@ -193,7 +194,29 @@ message ReadFileResponse {
 }
 
 message GetCommitRequest {
+  // Canonical full native commit id.
   string commit_id = 1;
+}
+
+message ResolveCommitRequest {
+  // Full id, sha256-prefixed short id, or bare short id.
+  string commit_id = 1;
+  // Optional target ref. Defaults to refs/global/main.
+  string ref_name = 2;
+  // Optional account-rooted file or directory path filter.
+  string path = 3;
+  // Optional slice projection. If path is also set, the server resolves within
+  // the path/slice intersection.
+  SliceRef slice = 4;
+  // Optional move-following behavior. If unset, path history follows moves.
+  optional bool follow_moves = 5;
+}
+
+message ResolveCommitResponse {
+  Commit commit = 1;
+  // Normalized prefix that matched the returned commit, for example
+  // sha256:14e085c8afbf.
+  string matched_prefix = 2;
 }
 
 message ListCommitsRequest {
@@ -215,6 +238,7 @@ message ListCommitsResponse {
   repeated Commit commits = 1;
   string next_page_token = 2;
 }
+```
 
 When `path` is set, `ListCommits` returns path-filtered history. If
 `follow_moves` is true, the server follows stable file and directory entity
@@ -224,6 +248,25 @@ queries must not leak old or new paths outside the caller's visible projection.
 The entity and move model is specified in
 [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
+`GetCommit` is an exact lookup API and should require a canonical full native
+commit id. Human-facing clients that accept abbreviated ids should call
+`ResolveCommit` first. `ResolveCommit` normalizes these accepted input forms:
+
+```text
+sha256:<64hex>       full canonical id
+sha256:<hex-prefix>  prefixed canonical id
+<hex-prefix>         bare short id
+```
+
+The minimum accepted prefix length is 8 hex characters. Human CLI display should
+default to 12 hex characters, but the resolver must still handle collisions.
+Resolution is scoped by the same target ref, path, slice, account membership,
+and move-following rules as `ListCommits`. It must decide uniqueness only within
+the caller's visible commit set. A full id can use the `commits.id` primary key
+for lookup, but the service still verifies that the returned commit is readable
+before returning metadata or changed paths.
+
+```proto
 message GetRefRequest {
   string ref_name = 1;
 }
@@ -681,7 +724,8 @@ Core APIs should use canonical gRPC status codes:
 - `INVALID_ARGUMENT` for malformed paths, invalid refs, or invalid request shape
 - `NOT_FOUND` for missing slices, commits, refs, blobs, or changesets
 - `PERMISSION_DENIED` for authorization failures
-- `FAILED_PRECONDITION` for submit requirement, coverage, or stale patchset failures
+- `FAILED_PRECONDITION` for submit requirement, coverage, stale patchset, or
+  ambiguous commit-prefix failures
 - `ABORTED` for CAS failures and retryable submit races
 - `RESOURCE_EXHAUSTED` for page-size, blob-size, or quota limits
 - `INTERNAL` for invariant violations
@@ -696,6 +740,7 @@ SUBMIT_REQUIREMENTS_CHANGED
 REF_CAS_FAILED
 PATCHSET_STALE
 MISSING_BLOB
+COMMIT_PREFIX_AMBIGUOUS
 ```
 
 ## 5. Gateway Notes

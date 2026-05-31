@@ -435,6 +435,52 @@ func (s *RepositoryService) GetCommit(ctx context.Context, req *corev1.GetCommit
 	return commit, nil
 }
 
+func (s *RepositoryService) ResolveCommit(ctx context.Context, req *corev1.ResolveCommitRequest) (*corev1.ResolveCommitResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	idPrefix, matchedPrefix, err := normalizeCommitIDPrefix(req.CommitId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	filters, err := s.listCommitFilters(ctx, subjectID, &corev1.ListCommitsRequest{
+		RefName:     req.RefName,
+		Path:        req.Path,
+		Slice:       req.Slice,
+		FollowMoves: req.FollowMoves,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if filters.filtered && len(filters.prefixes) == 0 && len(filters.entityRefs) == 0 {
+		return nil, status.Error(codes.NotFound, "commit not found")
+	}
+	candidates, err := s.Repository.ResolveCommitCandidates(ctx, storage.CommitResolveFilter{
+		RefName:                     req.RefName,
+		IDPrefix:                    idPrefix,
+		PathPrefixes:                filters.prefixes,
+		EntityRefs:                  filters.entityRefs,
+		IncludePrefixesWithEntities: filters.includePrefixesWithEntities,
+		Limit:                       4,
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	switch len(candidates) {
+	case 0:
+		return nil, status.Error(codes.NotFound, "commit not found")
+	case 1:
+		return &corev1.ResolveCommitResponse{Commit: candidates[0], MatchedPrefix: matchedPrefix}, nil
+	default:
+		ids := make([]string, 0, len(candidates))
+		for _, commit := range candidates {
+			ids = append(ids, shortCommitIDForMessage(commit.Id))
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "COMMIT_PREFIX_AMBIGUOUS: commit prefix %s matched multiple commits: %s", matchedPrefix, strings.Join(ids, ", "))
+	}
+}
+
 func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCommitsRequest) (*corev1.ListCommitsResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -614,6 +660,39 @@ func repositoryPathContains(prefix, p string) bool {
 	prefix = strings.TrimRight(prefix, "/")
 	p = strings.TrimRight(p, "/")
 	return p == prefix || strings.HasPrefix(p, prefix+"/")
+}
+
+func normalizeCommitIDPrefix(value string) (idPrefix string, matchedPrefix string, err error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "", "", fmt.Errorf("commit id is required")
+	}
+	hexPart := value
+	if strings.HasPrefix(value, "sha256:") {
+		hexPart = strings.TrimPrefix(value, "sha256:")
+	}
+	if len(hexPart) < 8 {
+		return "", "", fmt.Errorf("commit id prefix must be at least 8 hex characters")
+	}
+	if len(hexPart) > 64 {
+		return "", "", fmt.Errorf("commit id prefix must be at most 64 hex characters")
+	}
+	for _, r := range hexPart {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			continue
+		}
+		return "", "", fmt.Errorf("commit id prefix must contain only hex characters")
+	}
+	prefix := "sha256:" + hexPart
+	return prefix, prefix, nil
+}
+
+func shortCommitIDForMessage(id string) string {
+	id = strings.TrimPrefix(id, "sha256:")
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
 }
 
 func (s *RepositoryService) GetRef(ctx context.Context, req *corev1.GetRefRequest) (*corev1.Ref, error) {

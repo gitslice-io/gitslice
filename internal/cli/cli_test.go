@@ -70,19 +70,17 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs version", "gs completion <shell>", "gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account/slice>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
 	}
 	for use, wantAlias := range map[string]string{
-		"gs context":     "gs ctx",
-		"gs config list": "gs cfg list",
-		"gs workspace init <slice|account/slice>": "gs ws init <slice|account/slice>",
+		"gs context":              "gs ctx",
+		"gs config list":          "gs cfg list",
 		"gs status":               "gs st",
 		"gs slice list [account]": "gs slices list [account]",
 		"gs repo import github <owner/repo-or-url>": "gs repository import github <owner/repo-or-url>",
-		"gs commit list [path]":                     "gs commits list [path]",
 	} {
 		if !stringSliceContains(aliases[use], wantAlias) {
 			t.Fatalf("schema aliases for %q missing %q: %#v", use, wantAlias, aliases[use])

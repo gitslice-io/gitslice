@@ -250,6 +250,7 @@ move-following option.
 
 ```text
 ListCommits(ref_name, path, slice, follow_moves, limit, page_token)
+ResolveCommit(commit_id_or_prefix, ref_name, path, slice, follow_moves)
 ```
 
 When `path` is present:
@@ -271,6 +272,13 @@ to request literal path history. Following entity history from a missing path
 requires either a commit selector where the path did exist or an explicit
 entity id.
 
+Short commit id resolution should use the same history scope. For example,
+`ResolveCommit` with a path and `follow_moves = true` should search the entity
+history plus ancestor directory move events before deciding whether the prefix
+is unique. With `follow_moves = false`, it should search only literal path
+history. This keeps `gs show <short-id>` and `gs diff <short-id>` aligned with
+the list the user just saw.
+
 ## 6. Slice Visibility
 
 Slices are projections over the global account-rooted tree. Entity history must
@@ -286,6 +294,11 @@ For a path history query scoped to a slice:
 
 If an entity moves out of a slice, the history query may show a terminal move
 event but should not reveal the private destination path unless authorized.
+
+The same visibility rule applies to commit prefix ambiguity. A short id that
+matches one visible commit and one hidden commit should resolve to the visible
+commit; the hidden commit must not turn the result into an ambiguity error or
+appear in candidate details.
 
 ## 7. Sharding And ID Shape
 
@@ -349,9 +362,9 @@ Required RPC tests:
 
 Required CLI tests:
 
-- `gs fs mv` followed by `gs commit list <new-path>` shows older file commits
+- `gs fs mv` followed by `gs log -- <new-path>` shows older file commits
 - `gs shell mv` has the same history behavior
-- `gs commit list --no-follow-moves <path>` shows literal path history
+- `gs log --no-follow-moves -- <path>` shows literal path history
 - unauthorized old or new paths are redacted in human and JSON output
 
 Required import tests:

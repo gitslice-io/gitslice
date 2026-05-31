@@ -219,6 +219,7 @@ Initial required indexes:
 - changed paths
 - patchset read/write sets
 - path history
+- commit id prefix resolution
 - slice projection
 - build graph
 - test graph
@@ -287,7 +288,61 @@ paths, and slice history resolves the slice's current included path prefixes
 before querying the same index. Cursor pagination uses the ordered
 `(committed_at, commit_id)` pair from the last returned index hit.
 
-### 3.6 Slice Projection
+### 3.6 Commit ID Prefix Resolution
+
+Human-facing commit commands should be able to resolve short commit id prefixes
+to canonical native commit ids without scanning all history on the client.
+Resolution is a read-side convenience over the canonical `commits.id`; it does
+not create a second id namespace.
+
+Canonical ids remain full `sha256:<hex>` strings. The database should support
+prefix matching on those canonical ids:
+
+```sql
+create index if not exists idx_commits_id_prefix
+on commits (id text_pattern_ops);
+```
+
+Exact lookup continues to use the `commits.id` primary key. Prefix lookup should
+be scoped through the caller's visible history before deciding whether a prefix
+is unique. For path and slice history, the resolver should reuse
+`commit_changed_paths` and the same prefix predicates as `ListCommits`:
+
+```sql
+select c.id,
+       c.parent_ids,
+       c.root_tree_id,
+       coalesce(c.author_subject_id, '') as author_subject_id,
+       c.message,
+       c.created_at,
+       c.changed_paths,
+       max(cp.committed_at) as committed_at
+from commit_changed_paths cp
+join commits c on c.id = cp.commit_id
+where cp.target_ref = $1
+  and c.id like $2 || '%'
+  and (
+    cp.path = $3
+    or left(cp.path, length($4)) = $4
+  )
+group by c.id
+order by committed_at desc, c.id desc
+limit 2;
+```
+
+The resolver should fetch only enough candidates to prove uniqueness or
+ambiguity. A `limit 2` query is enough for server logic; a small larger limit
+can support friendlier CLI ambiguity messages. For default unfiltered CLI
+resolution, the path prefixes should be the signed-in subject's readable
+account roots, for example `/nic` or `/acme`.
+
+Move-following prefix resolution should reuse the entity-history indexes from
+[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md):
+resolve the current path to entity refs, query commits by those refs, add the
+same `c.id like $prefix || '%'` predicate, and de-duplicate before deciding
+ambiguity.
+
+### 3.7 Slice Projection
 
 Projection indexes cache deterministic slice projections:
 
@@ -299,7 +354,7 @@ Projection indexes cache deterministic slice projections:
 Projection caches can be invalidated or lazily rebuilt when slice definitions or
 commits change.
 
-### 3.7 Build And Test Graphs
+### 3.8 Build And Test Graphs
 
 Build and test indexes support affected target calculation and required check
 selection.

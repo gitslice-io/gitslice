@@ -11,6 +11,7 @@ service RepositoryService {
   rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
   rpc GetCommit(GetCommitRequest) returns (Commit);
+  rpc ResolveCommit(ResolveCommitRequest) returns (ResolveCommitResponse);
   rpc ListCommits(ListCommitsRequest) returns (ListCommitsResponse);
   rpc GetRef(GetRefRequest) returns (Ref);
   rpc ImportGitRepository(ImportGitRepositoryRequest) returns (ImportGitRepositoryResponse);
@@ -73,6 +74,26 @@ message ReadFileResponse {
 
 message GetCommitRequest {
   string commit_id = 1;
+}
+
+message ResolveCommitRequest {
+  // Full id, sha256-prefixed short id, or bare short id.
+  string commit_id = 1;
+  string ref_name = 2;
+  // Optional account-rooted file or directory path filter.
+  string path = 3;
+  // Optional slice projection. If path is also set, the server resolves within
+  // the path/slice intersection.
+  SliceRef slice = 4;
+  // Optional move-following behavior. If unset, path history follows moves.
+  optional bool follow_moves = 5;
+}
+
+message ResolveCommitResponse {
+  Commit commit = 1;
+  // Normalized prefix that matched the returned commit, for example
+  // sha256:14e085c8afbf.
+  string matched_prefix = 2;
 }
 
 message ListCommitsRequest {

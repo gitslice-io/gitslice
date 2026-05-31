@@ -614,6 +614,44 @@ func (s *RepositoryStore) GetCommit(ctx context.Context, commitID string) (*core
 	return cloneCommit(commit), nil
 }
 
+func (s *RepositoryStore) ResolveCommitCandidates(ctx context.Context, filter storage.CommitResolveFilter) ([]*corev1.Commit, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	idPrefix := strings.TrimSpace(filter.IDPrefix)
+	if idPrefix == "" {
+		return nil, storage.ErrInvalid
+	}
+	limit := filter.Limit
+	if limit <= 0 || limit > 20 {
+		limit = 2
+	}
+	prefixes := normalizePathPrefixes(filter.PathPrefixes)
+	refSet := map[string]struct{}{}
+	for _, ref := range filter.EntityRefs {
+		ref.AccountID = strings.TrimSpace(ref.AccountID)
+		ref.EntityID = strings.TrimSpace(ref.EntityID)
+		if ref.AccountID == "" || ref.EntityID == "" {
+			continue
+		}
+		refSet[ref.AccountID+"\x00"+ref.EntityID] = struct{}{}
+	}
+	commits := make([]*corev1.Commit, 0, limit)
+	for _, commit := range s.b.commits {
+		if commit.Id == "mem_root" || !strings.HasPrefix(commit.Id, idPrefix) {
+			continue
+		}
+		if !commitMatchesResolveFilter(s.b, commit, prefixes, refSet, filter.IncludePrefixesWithEntities) {
+			continue
+		}
+		commits = append(commits, cloneCommit(commit))
+	}
+	sortCommits(commits)
+	if len(commits) > limit {
+		commits = commits[:limit]
+	}
+	return commits, nil
+}
+
 func (s *RepositoryStore) ListCommits(ctx context.Context, refName string, limit int) ([]*corev1.Commit, error) {
 	page, err := s.ListCommitPage(ctx, refName, limit, "")
 	if err != nil {
@@ -1024,6 +1062,47 @@ func pathContains(prefix, p string) bool {
 	prefix = strings.TrimRight(prefix, "/")
 	p = strings.TrimRight(p, "/")
 	return p == prefix || strings.HasPrefix(p, prefix+"/")
+}
+
+func normalizePathPrefixes(prefixes []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		prefix = strings.TrimRight(strings.TrimSpace(prefix), "/")
+		if prefix == "" {
+			prefix = "/"
+		}
+		if _, ok := seen[prefix]; ok {
+			continue
+		}
+		seen[prefix] = struct{}{}
+		out = append(out, prefix)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func commitMatchesResolveFilter(b *backend, commit *corev1.Commit, prefixes []string, entityRefs map[string]struct{}, includePrefixesWithEntities bool) bool {
+	if len(prefixes) == 0 && len(entityRefs) == 0 {
+		return true
+	}
+	if includePrefixesWithEntities || len(entityRefs) == 0 {
+		for _, changed := range commit.ChangedPaths {
+			for _, prefix := range prefixes {
+				if pathContains(prefix, changed) {
+					return true
+				}
+			}
+		}
+	}
+	for _, changed := range commit.ChangedPaths {
+		for _, ref := range b.entityChanges[changed] {
+			if _, ok := entityRefs[ref.AccountID+"\x00"+ref.EntityID]; ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hasDescendant(files map[string]storage.FileEntry, prefix string) bool {

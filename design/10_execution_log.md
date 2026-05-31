@@ -3147,6 +3147,113 @@ git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
 ```
 
+## 2026-05-30: Commit Short-ID UX Implementation
+
+Request:
+
+- implement the commit short-id UX and resolution design, and add color to
+  human-readable CLI output
+
+Implemented:
+
+- added `RepositoryService.ResolveCommit` to the protobuf API and generated
+  Go/gRPC/grpc-gateway bindings
+- added a PostgreSQL `commits.id text_pattern_ops` prefix index and repository
+  storage methods that resolve commit-id prefixes within the same ref, path,
+  slice, and move-following filters used by `ListCommits`
+- added the in-memory storage implementation for the same prefix-resolution
+  interface so service tests keep exercising the storage abstraction
+- added server-side validation for accepted commit id input forms:
+  `sha256:<full>`, `sha256:<prefix>`, and bare hex prefixes with an 8 hex
+  character minimum
+- added `gs log`, `gs show`, and commit-aware `gs diff <commit> [commit]`
+  support; human log output now shows 12-character bare hex short ids by
+  default, while JSON includes both `id` and `short_id`
+- removed the old `gs commit list` and `gs commit inspect` compatibility
+  commands after adding `gs log` and `gs show`, so the CLI has only one
+  advertised commit-history workflow
+- added top-level `gs init <slice|account/slice>` as the canonical workspace
+  initialization command and hid `gs workspace init` from help/schema output
+- added terminal color for human commit ids, paths, shell/diff labels, and
+  unified diff additions/deletions while preserving `--no-color`, `NO_COLOR`,
+  and machine-readable output behavior
+
+Important decisions and learnings:
+
+- prefix resolution is authoritative on the server, not in the CLI; the CLI
+  calls `ResolveCommit` before `show` and commit diff
+- default `gs log` scope follows the documented resolution order: explicit
+  `--slice`, nearest workspace slice, then signed-in personal home slice;
+  `--all` is the explicit broad-history escape hatch
+- commit diff is client-side for now and reads changed paths from the resolved
+  commit plus file contents from the repository service; broader server-side
+  commit diff indexing can replace this later without changing the CLI shape
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/cli/cli.go internal/postgres/repository_store.go internal/storage/interfaces.go internal/storage/memory/store.go service/repository.go tests/rpc/rpc_custom_slice_test.go tests/cli/cli_smoke_test.go
+go test ./internal/cli ./service ./internal/postgres ./internal/storage/memory
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCListCommitsSupportsPathAndCustomSlice -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestGitHubImportDeepListAndInspectCommits -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+## 2026-05-30: Commit Short-ID UX and Resolution Design
+
+Request:
+
+- design how `gs commit list` should display short commit ids and how short
+  commit id inputs should resolve to full native commit ids
+
+Implemented:
+
+- merged the commit short-id design into existing source-of-truth documents:
+  storage identity in [02_storage.md](02_storage.md), API shape in
+  [03_core_api.md](03_core_api.md), CLI behavior in
+  [04_cli_design.md](04_cli_design.md), database/index strategy in
+  [06_indexing.md](06_indexing.md), auth/privacy constraints in
+  [12_account_auth.md](12_account_auth.md), and move-following interaction in
+  [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md)
+- removed the standalone draft so the design stays folded into the relevant
+  existing documents
+- refined the CLI design so Git-familiar top-level commands are canonical
+  replacements, not permanent aliases: `gs log` replaces `gs commit list`,
+  `gs show` replaces `gs commit inspect`, commit diff moves under `gs diff`,
+  `gs init` replaces `gs workspace init`, and `gs import github` replaces
+  `gs repo import github`
+- expanded the `gs log` UX design with default slice/home/all scope resolution,
+  Git-style `-- <path>` handling, compact and medium text formats, pagination
+  hints, JSON response shape, follow-move semantics, and explicit differences
+  from Git
+
+Important decisions and learnings:
+
+- full `sha256:<64hex>` ids remain canonical storage and API identities, while
+  human list views should default to short ids
+- short ids should resolve server-side, not only in the CLI, so account
+  membership, target ref, path filters, slice projection, and move-following
+  history are applied consistently
+- prefix resolution should reuse the existing `commits` table plus
+  `commit_changed_paths` and entity-history indexes; a small
+  `commits(id text_pattern_ops)` index is enough for the first implementation
+- ambiguity must be computed only within the caller's visible scope so
+  unauthorized commits do not leak through error messages
+- compatibility commands should be hidden and later removed after canonical
+  commands exist, rather than keeping duplicate command groups in root help
+- `gs log` should feel like `git log` in a workspace by defaulting to the
+  workspace slice, while still using canonical account-rooted paths and native
+  published commits under the hood
+
+Verification:
+
+```bash
+git diff --check
+```
+
 ## 2026-05-26: Multi-User RPC Load Simulation
 
 Request:

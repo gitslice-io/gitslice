@@ -281,6 +281,13 @@ account boundaries, but it is not a complete access-control system. Repository
 read authorization and role-specific write authorization need tightening before
 the model is suitable for production use.
 
+Short commit id resolution is a repository read surface. When added, it must be
+scoped before uniqueness is decided: the server should search only commits
+visible through the caller's target ref, account memberships, path filter, and
+slice projection. Ambiguity and not-found errors must not reveal candidate ids
+or commit existence outside that visible scope. Possession of a full native
+commit id is not authorization to read that commit's metadata or changed paths.
+
 ## 10. Subject Propagation And Audit Fields
 
 Authenticated subject ids flow through service methods and are stored on
@@ -315,5 +322,6 @@ from the validated bearer token on each server request.
 - no account or membership administration API
 - no role-specific authorization enforcement beyond storing `role`
 - incomplete path/read authorization on repository and blob APIs
+- no implemented auth-aware short commit id resolver yet
 - no per-slice or per-path ACLs
 - no audit event stream beyond persisted author fields

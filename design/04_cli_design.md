@@ -58,21 +58,25 @@ gs workspace ...
 gs slice ...
 gs status
 gs diff
+gs log ...
+gs show ...
 gs fs ...
 gs cs ...
 gs repo ...
-gs commit ...
 gs shell
 gs version
 gs completion ...
 gs schema
 ```
 
-Later command groups:
+Target canonical command groups:
 
 ```text
-gs op ...
 gs log ...
+gs show ...
+gs init
+gs import ...
+gs op ...
 gs split
 gs squash
 gs rebase
@@ -80,27 +84,60 @@ gs describe
 gs resolve
 ```
 
-The later commands should be added when the underlying changeset and patchset
-model can represent the operation cleanly.
+The target CLI should prefer a small Git-familiar surface over permanent
+parallel command groups. Native noun-heavy commands can remain only when they
+represent Gitslice concepts that do not map cleanly to a Git-familiar top-level
+verb. Commands that only duplicate a clearer top-level command should be
+removed rather than kept as permanent aliases.
 
-Command names should stay stable, explicit, and discoverable. The CLI may also
-offer short aliases for commands that are frequently typed or whose noun has a
-natural singular/plural variant:
+Canonical replacements:
 
 ```text
-gs workspace ...  alias: gs ws ...
-gs status         alias: gs st
-gs context        alias: gs ctx
-gs config ...     alias: gs cfg ...
-gs slice ...      alias: gs slices ...
-gs repo ...       alias: gs repository ...
-gs commit ...     alias: gs commits ...
-gs cs ...         alias: gs changeset ...
-gs fs ...         compatibility alias: gs file ...
+gs workspace init <slice>        -> gs init <slice>
+gs commit list [path]            -> gs log [-- <path>]
+gs commit inspect <commit>       -> gs show <commit>
+gs commit diff <commit>          -> gs diff <commit>
+gs commit diff <a> <b>           -> gs diff <a> <b>
+gs repo import github ...        -> gs import github ...
 ```
 
-Help and schema output should advertise the canonical command first and list
-aliases as secondary metadata. Root help should include a compact, end-to-end
+Commands to keep because they represent Gitslice concepts that Git does not
+model directly:
+
+```text
+gs auth ...
+gs context
+gs config ...
+gs alias ...
+gs rpc ...
+gs browse
+gs help ...
+gs slice ...
+gs status
+gs diff
+gs fs ...
+gs cs ...
+gs shell
+gs version
+gs completion ...
+gs schema
+```
+
+Removed compatibility commands:
+
+```text
+gs commit list
+gs commit inspect
+gs commit diff
+```
+
+These commands were replaced by `gs log`, `gs show`, and commit-aware `gs diff`.
+They should not be retained as hidden aliases because they add a second mental
+model for the same workflow.
+
+Help and schema output should advertise the canonical command first. Hidden
+compatibility commands should not appear in root help and should be marked as
+deprecated in schema output. Root help should include a compact, end-to-end
 workflow example so a new user can move from signup to shell, file upload,
 workspace initialization, status, changeset creation, diff, and submit:
 
@@ -108,7 +145,7 @@ workspace initialization, status, changeset creation, diff, and submit:
 gs auth signup --username nic
 gs shell
 gs fs upload ./notes /nic/notes --recursive
-gs workspace init nic/home
+gs init nic/home
 gs status
 gs cs create --title "update notes"
 gs cs diff
@@ -353,18 +390,21 @@ automation and help renderers can discover it without scraping root help text.
 ## 4. Workspace Commands
 
 ```bash
-gs workspace init <slice|account/slice>
-gs workspace init <username>/home
+gs init <slice|account/slice>
+gs init <username>/home
 gs workspace hydrate <path>
 ```
 
-The current MVP implements `workspace init` and `workspace hydrate`. Top-level
-`gs status`, `gs diff`, and `gs cs ...` commands discover the workspace by
-walking up from the current directory. Workspace-specific `status`, `sync`,
-`dehydrate`, and `root` subcommands remain planned command aliases or helpers,
-not part of the current implemented CLI surface.
+The current MVP implements `gs init` and `workspace hydrate`. The canonical
+workspace creation command is `gs init`, matching Git's familiar entry point.
+`gs workspace init` is hidden compatibility only. Top-level `gs status`,
+`gs diff`, and `gs cs ...` commands discover the workspace by walking up from
+the current directory.
+Workspace-specific `status`, `sync`, `dehydrate`, and `root` subcommands remain
+planned command aliases or helpers, not part of the current implemented CLI
+surface.
 
-`gs workspace init <slice|account/slice>` creates local workspace metadata:
+`gs init <slice|account/slice>` creates local workspace metadata:
 
 ```text
 .gs/
@@ -408,7 +448,7 @@ after signup:
 
 ```bash
 gs auth signup --username nic
-gs workspace init nic/home
+gs init nic/home
 ```
 
 The `home` slice slug is reserved for the default personal slice. Its included
@@ -434,8 +474,8 @@ workspace for the same local user. The default root is the user's local cache
 area; `GITSLICE_CLIENT_CACHE_DIR` can override it for tests or isolated agent
 runs. Workspace metadata may reference content hashes, but cached bytes are not
 workspace-private. `gs status`, `gs cs create`, `gs cs update`,
-`gs workspace hydrate`, and `gs workspace init` all write discovered file bytes
-through this cache.
+`gs workspace hydrate`, and `gs init` all write discovered file bytes through
+this cache.
 
 Hydration is cache-first:
 
@@ -480,7 +520,7 @@ the CLI derives the personal account slug from a signed-up subject such as
 `gs slice delete` is metadata-only and requires `--yes`. Deleting a slice with
 existing changesets is rejected by the server.
 
-`gs workspace init <slice|account/slice>` binds the workspace to one slice:
+`gs init <slice|account/slice>` binds the workspace to one slice:
 
 ```text
 1. ResolveSlice through the core API.
@@ -799,7 +839,7 @@ gs op restore <op>
 The operation log is local workspace metadata. It records CLI operations that
 change workspace state:
 
-- workspace init and slice binding creation
+- `gs init` and slice binding creation
 - hydration/dehydration
 - snapshot creation
 - changeset create/update
@@ -837,8 +877,8 @@ expected/current fingerprints when available. The detailed conflict model is in
 The CLI should eventually support structured changeset and file selectors:
 
 ```bash
-gs log -r 'mine() & open()'
 gs cs list -r 'touches(/acme/payment/**)'
+gs cs list -r 'mine() & open()'
 gs diff -f '/acme/payment/**/*.go'
 ```
 
@@ -918,6 +958,17 @@ be able to rely on these baseline codes.
 The MVP CLI supports importing a GitHub repository into a mounted Gitslice path:
 
 ```bash
+gs import github <owner/repo-or-url> \
+  --mount /acme/payment/vendor/lib \
+  --slice payment \
+  --mode shallow
+
+gs import github <owner/repo-or-url> \
+  --mount /acme/payment/vendor/lib \
+  --slice payment \
+  --mode deep \
+  --max-commits 100
+
 gs repo import github <owner/repo-or-url> \
   --mount /acme/payment/vendor/lib \
   --slice payment \
@@ -930,6 +981,8 @@ gs repo import github <owner/repo-or-url> \
   --max-commits 100
 ```
 
+`gs import github` is the target canonical command. `gs repo import github`
+should become a hidden compatibility command after `gs import` exists.
 `owner/repo` is resolved to `https://github.com/owner/repo.git`. Tests may pass
 a local Git repository path through the same command so functional coverage does
 not depend on external network access.
@@ -967,43 +1020,203 @@ import complete
 
 `--json` keeps stdout stable and returns only the final import response.
 
-Commit inspection commands:
+Commit inspection commands should use Git-familiar top-level verbs:
 
 ```bash
-gs commit list --limit 20
-gs commit list [absolute-path] --limit 20
-gs commit list --path /acme/payment/api --limit 20
-gs commit list --slice backend --limit 20
-gs commit list --slice acme/backend --path /acme/payment/shared
-gs commit list --path /acme/payment/api --limit 20 --page-token <token>
-gs commit list [path] --no-follow-moves
-gs commit inspect <native-commit-id>
+gs log --limit 20
+gs log -- /acme/payment/api
+gs log --path /acme/payment/api --limit 20
+gs log --slice backend --limit 20
+gs log --slice acme/backend --path /acme/payment/shared
+gs log --path /acme/payment/api --limit 20 --page-token <token>
+gs log --follow -- /acme/payment/api/file.go
+gs log --no-follow-moves -- /acme/payment/api/file.go
+gs log --full -- /acme/payment/api
+gs show <native-commit-id-or-prefix>
+gs show --stat <native-commit-id-or-prefix>
+gs show --name-only <native-commit-id-or-prefix>
+gs show -p <native-commit-id-or-prefix>
+gs diff <native-commit-id-or-prefix>
+gs diff <old-native-commit-id-or-prefix> <new-native-commit-id-or-prefix>
+gs diff <native-commit-id-or-prefix> -- /acme/payment/api/file.go
 ```
 
-These commands are intentionally native. They list and inspect Gitslice commits,
-not Git object ids. The import response maps imported Git commit ids to native
-commit ids for follow-up inspection.
+These commands are intentionally native even though their names are Git-like.
+They list, show, and diff Gitslice commits, not Git object ids. The import
+response maps imported Git commit ids to native commit ids for follow-up
+inspection. The old `gs commit list`, `gs commit inspect`, and `gs commit diff`
+compatibility commands are removed; examples and tests should use `gs log`,
+`gs show`, and `gs diff`.
 
-`gs commit list` reads server-side commit history. Without filters, it walks the
-main native ref. With `--path` or a positional path, the server uses the
-changed-path index to return only commits that touched that file or directory.
-With `--slice`, the server resolves the slice's current included paths and
-returns commits that touched any included prefix. Signed-in users may pass a
-bare slice slug for slices under their signed-in account; org slices can be
-passed as `account/slice`. Combining `--slice` and `--path` returns the
-intersection, so a path outside the slice produces no commits.
+Native commit ids are content-addressed and canonical in the API, for example
+`sha256:14e085c8afbf800239e8b6e064e4f8488ca85ca311c72d1c562a14e90f2aad76`.
+That full form is too noisy for normal list output, so human `gs log` output
+should show short ids by default:
 
-If more commits are available, the human output prints `next_page_token:
-<token>` after the commit lines, and JSON output includes `next_page_token`.
-Pass that value back with `--page-token` while keeping the same path/slice
-filters to fetch the next page.
+```text
+14e085c8afbf  file write /test-user/folder1/folder1-1/hello.txt
+87ecd8bb3549  file mkdir /test-user/folder1/folder1-2
+a3c11219b759  file mkdir /test-user/folder1/folder1-1
+```
 
-When a path is supplied, `gs commit list` follows stable file and directory
-identity across moves by default. `--no-follow-moves` requests literal
-path-index history. Slice-scoped history must respect the attached or specified
-slice and must not reveal old or new paths outside the user's visible
-projection. See
+The default display length is 12 hex characters. `--full` prints canonical ids.
+`--json` always includes the full `id` and may include `short_id`; scripts
+should not have to reconstruct canonical ids from display text.
+
+Commands that take commit ids should accept a full id, a `sha256:`-prefixed
+short id, or a bare hex prefix:
+
+```bash
+gs show sha256:14e085c8afbf800239e8b6e064e4f8488ca85ca311c72d1c562a14e90f2aad76
+gs show sha256:14e085c8afbf
+gs show 14e085c8afbf
+gs diff 14e085c8afbf
+```
+
+The CLI may normalize bare prefixes before calling the server, but the server
+resolver is authoritative. Prefixes shorter than 8 hex characters should be
+rejected with a clear error. If a prefix matches multiple commits in the current
+visible scope, the CLI should show the ambiguous candidates with short ids and a
+hint to use a longer prefix. Candidate lists must not include commits outside
+the caller's authorized account, path, or slice scope.
+
+`gs log` reads server-side commit history from the native target ref. The
+default target ref is `refs/global/main`; future ref selection should use
+`--ref <ref>`, not positional revision syntax.
+
+Scope resolution should make `gs log` feel like running `git log` inside a
+repository while preserving Gitslice's account and slice model:
+
+```text
+1. --slice <slice|account/slice>
+2. nearest workspace slice
+3. signed-in user's personal home slice
+4. --all to list all readable account history
+```
+
+Inside a workspace, plain `gs log` therefore shows history visible through the
+workspace's slice. Outside a workspace, plain `gs log` shows the signed-in
+user's home-slice history. `--all` is the explicit escape hatch for account-wide
+or multi-account history the user can read.
+
+Path filters should support both Gitslice-native flags and Git's `--` path
+separator:
+
+```bash
+gs log -- /acme/payment/api
+gs log -- ./internal/api
+gs log --path /acme/payment/api
+gs log --slice backend -- /acme/payment/shared
+```
+
+Inside a workspace, relative paths are resolved against the workspace root and
+then converted to canonical account-rooted paths. Outside a workspace, relative
+paths are rejected with a hint to pass an absolute account-rooted path. Help and
+examples should prefer `gs log -- <path>` because it is familiar to Git users
+and avoids ambiguity with future revision selectors.
+
+With a path filter, the server uses the changed-path index to return only
+commits that touched that file or directory. With `--slice`, the server resolves
+the slice's current included paths and returns commits that touched any included
+prefix. Combining `--slice` and `--path` returns the intersection, so a path
+outside the slice produces an empty log rather than falling back to broader
+history.
+
+The default human output should be compact and scannable:
+
+```text
+14e085c8afbf  file write /test-user/folder1/folder1-1/hello.txt
+87ecd8bb3549  file mkdir /test-user/folder1/folder1-2
+a3c11219b759  file mkdir /test-user/folder1/folder1-1
+```
+
+This is equivalent to Git's `--oneline` style and is the default because
+Gitslice commit messages often encode file operations. `--oneline` should be
+accepted as an explicit no-op for Git familiarity. `--full` changes only the id
+display, not the layout:
+
+```text
+sha256:14e085c8afbf800239e8b6e064e4f8488ca85ca311c72d1c562a14e90f2aad76  file write /test-user/folder1/folder1-1/hello.txt
+```
+
+`gs log --format medium` can provide a more Git-like block layout:
+
+```text
+commit 14e085c8afbf
+Author: user_test
+Date:   2026-05-30 10:12:03 -0700
+
+    file write /test-user/folder1/folder1-1/hello.txt
+```
+
+Additional display flags should map to familiar Git behavior:
+
+```bash
+gs log --name-only -- /acme/payment/api
+gs log --stat -- /acme/payment/api
+gs log -p -- /acme/payment/api
+```
+
+`--name-only` can be implemented from commit `changed_paths`. `--stat` and `-p`
+depend on server-side commit diff support and may be added after
+`gs diff <commit>` is implemented. Until then, the CLI should return a stable
+unsupported-option error instead of silently ignoring those flags.
+
+If more commits are available, human output prints an actionable pagination
+hint after the commit lines:
+
+```text
+next_page_token: eyJjb21taXRfaWQiOi...
+hint: Run gs log --page-token eyJjb21taXRfaWQiOi... with the same filters.
+```
+
+JSON output includes both the commits and the resolved query scope:
+
+```json
+{
+  "scope": {
+    "ref_name": "refs/global/main",
+    "slice": {"account": "test-user", "slice": "home"},
+    "path": "/test-user/folder1",
+    "follow_moves": true
+  },
+  "commits": [
+    {
+      "id": "sha256:14e085c8afbf800239e8b6e064e4f8488ca85ca311c72d1c562a14e90f2aad76",
+      "short_id": "14e085c8afbf",
+      "author": "user_test",
+      "created_at": "2026-05-30T17:12:03Z",
+      "message": "file write /test-user/folder1/folder1-1/hello.txt",
+      "changed_paths": ["/test-user/folder1/folder1-1/hello.txt"]
+    }
+  ],
+  "next_page_token": ""
+}
+```
+
+When a single path is supplied, `gs log` follows stable file and directory
+identity across moves by default. `--follow` is accepted for Git familiarity and
+is the default for a single path. `--no-follow-moves` requests literal
+path-index history. `--follow` without exactly one path should return an
+invalid-argument error with a hint to pass `-- <path>`. Slice-scoped history
+must respect the attached or specified slice and must not reveal old or new
+paths outside the user's visible projection. See
 [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
+
+Intentional differences from Git:
+
+- `gs log` does not create or inspect local commits; it reads published native
+  Gitslice commits.
+- positional revision ranges such as `main..topic` are not part of the MVP;
+  commit comparison belongs to `gs diff <a> <b>`.
+- path output should remain canonical account-rooted in JSON. Human text may
+  add a future `--relative` mode, but canonical paths are the stable default.
+
+`gs show <commit>` prints commit metadata and defaults to a Git-like commit
+detail view. `--stat`, `--name-only`, and `-p` select summary, path-only, and
+patch output. `gs diff <commit>` diffs the resolved commit against its first
+parent by default. `gs diff <a> <b>` diffs two resolved commits. `--name-only`
+and `--stat` should mirror the formatting used by changeset diffs.
 
 ## 15. Backend Requirements
 
@@ -1014,6 +1227,7 @@ The CLI needs these backend capabilities:
 - `RepositoryService.ListDirectory`
 - `RepositoryService.ReadFile`
 - `RepositoryService.GetCommit`
+- `RepositoryService.ResolveCommit`
 - `RepositoryService.ListCommits`
 - `RepositoryService.ImportGitRepository`
 - `RepositoryService.ImportGitRepositoryStream`

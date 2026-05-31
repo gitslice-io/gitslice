@@ -35,6 +35,15 @@ type CommitListPage struct {
 	NextPageToken string
 }
 
+type CommitResolveFilter struct {
+	RefName                     string
+	IDPrefix                    string
+	PathPrefixes                []string
+	EntityRefs                  []HistoryEntityRef
+	IncludePrefixesWithEntities bool
+	Limit                       int
+}
+
 type RepositoryStore interface {
 	GetRef(ctx context.Context, name string) (*corev1.Ref, error)
 	GetOrCreateGitImport(ctx context.Context, subjectID, source, mountPath string, sliceRef *corev1.SliceRef, sliceID, targetRef, mode string, totalCommits int) (*GitImportRecord, error)
@@ -43,6 +52,7 @@ type RepositoryStore interface {
 	RecordGitImportCommit(ctx context.Context, importID, gitCommitID, nativeCommitID, message string, position, changedPathCount int) error
 	CompleteGitImport(ctx context.Context, importID, finalNativeCommitID string) error
 	GetCommit(ctx context.Context, commitID string) (*corev1.Commit, error)
+	ResolveCommitCandidates(ctx context.Context, filter CommitResolveFilter) ([]*corev1.Commit, error)
 	ListCommits(ctx context.Context, refName string, limit int) ([]*corev1.Commit, error)
 	ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*CommitListPage, error)
 	ListCommitsByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int) ([]*corev1.Commit, error)
