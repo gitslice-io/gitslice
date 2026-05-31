@@ -447,7 +447,7 @@ func TestCLISliceCRUD(t *testing.T) {
 			t.Fatalf("created slice output missing %q:\n%s", want, created)
 		}
 	}
-	docsHistory := runCLI(t, home, workspace, "commit", "list", "--slice", "acme/docs")
+	docsHistory := runCLI(t, home, workspace, "log", "--slice", "acme/docs")
 	if !strings.Contains(docsHistory, "slice crud seed") {
 		t.Fatalf("docs slice commit history missing seed commit:\n%s", docsHistory)
 	}
@@ -666,11 +666,11 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 	if fsCat != "hello from file command\n" {
 		t.Fatalf("unexpected fs cat output:\n%s", fsCat)
 	}
-	followHistory := runCLI(t, home, dir, "commit", "list", "/file-user/docs/today.md")
+	followHistory := runCLI(t, home, dir, "log", "--", "/file-user/docs/today.md")
 	if !strings.Contains(followHistory, "file write /file-user/docs/readme.md") || !strings.Contains(followHistory, "file mv") {
 		t.Fatalf("follow-moves commit history missing write or move:\n%s", followHistory)
 	}
-	literalHistory := runCLI(t, home, dir, "commit", "list", "/file-user/docs/today.md", "--no-follow-moves")
+	literalHistory := runCLI(t, home, dir, "log", "--no-follow-moves", "--", "/file-user/docs/today.md")
 	if strings.Contains(literalHistory, "file write /file-user/docs/readme.md") || !strings.Contains(literalHistory, "file mv") {
 		t.Fatalf("literal commit history should include move but not pre-move write:\n%s", literalHistory)
 	}
@@ -1639,8 +1639,8 @@ func TestGitHubImportShallow(t *testing.T) {
 	if imported.Commits[0].Message != "third commit" {
 		t.Fatalf("shallow import message = %q, want third commit", imported.Commits[0].Message)
 	}
-	inspect := runCLI(t, home, workspace, "commit", "inspect", imported.FinalCommitID)
-	if !strings.Contains(inspect, "message: third commit") ||
+	inspect := runCLI(t, home, workspace, "show", imported.FinalCommitID)
+	if !strings.Contains(inspect, "third commit") ||
 		!strings.Contains(inspect, "/acme/payment/imported/shallow/README.md") {
 		t.Fatalf("unexpected inspect output:\n%s", inspect)
 	}
