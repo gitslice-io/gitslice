@@ -726,32 +726,63 @@ gs cs submit
 ```bash
 gs cs create [--title <title>]
 gs cs update
-gs cs submit [changeset-id] [--no-watch] [--watch-timeout <duration>]
-gs cs status [changeset-id] [--watch] [--watch-timeout <duration>]
-gs cs show [changeset-id]
-gs cs explain [changeset-id]
-gs cs versions [changeset-id]
-gs cs patchsets [changeset-id]
-gs cs diff [changeset-id]
-gs cs diff [changeset-id] --patchset <patchset>
-gs cs diff [changeset-id] --from <patchset> --to <patchset>
-gs cs diff [changeset-id] --name-only
-gs cs diff [changeset-id] --stat
+gs cs submit [changeset] [--no-watch] [--watch-timeout <duration>]
+gs cs status [changeset] [--watch] [--watch-timeout <duration>]
+gs cs show [changeset]
+gs cs explain [changeset]
+gs cs versions [changeset]
+gs cs patchsets [changeset]
+gs cs diff [changeset]
+gs cs diff [changeset] --patchset <patchset>
+gs cs diff [changeset] --from <patchset> --to <patchset>
+gs cs diff [changeset] --name-only
+gs cs diff [changeset] --stat
 gs cs list [--slice <slice|account/slice>] [--status <status>] [--limit <n>]
-gs cs abandon [changeset-id] [--reason <reason>]
+gs cs abandon [changeset] [--reason <reason>]
+```
+
+User-facing changeset selectors use the shareable handle
+`<account>/<slice>@<number>`, for example `acme/payment@42`. This handle is the
+default text output, the value copied into chat or review links, and the
+advertised argument form for commands. Inside a workspace, the CLI may also
+accept `@42` as shorthand for the workspace's bound slice; outside a workspace,
+commands must require the fully qualified handle or an explicit `--slice`.
+
+Patchsets are normally selected by number within a changeset. `gs cs versions`
+should print `1`, `2 current`, and so on, not raw `ps_...` ids. When a patchset
+must be shared without surrounding changeset context, the exact selector is
+`<changeset-handle>.<patchset-number>`, for example `acme/payment@42.2`.
+
+Canonical `cs_...` and `ps_...` ids remain API/storage identifiers and may be
+accepted for backward compatibility or debugging, but they should not appear in
+normal text output, help examples, hints, web labels, or Git gateway messages.
+Structured output should expose the handle as the primary field and may include
+canonical ids for scripts and diagnostics.
+
+Default text output should look like:
+
+```text
+created changeset acme/payment@42 patchset 1
+
+changeset: acme/payment@42
+patchsets:
+  1 changed=1
+  2 current changed=1
 ```
 
 Create flow:
 
 ```text
 1. Load the workspace's bound slice.
-2. Snapshot local changes into file edits.
-3. Reject the command if any file edit is outside the bound slice.
-4. Upload missing blobs.
-5. CreateChangeset.
-6. UpdateChangeset to create patchset 1.
-7. Store changeset id in local workspace state.
-8. Record local operation log entry.
+2. If the workspace already has an active draft or pending changeset, stop and
+   tell the user to run `gs cs update` to create a new patchset instead.
+3. Snapshot local changes into file edits.
+4. Reject the command if any file edit is outside the bound slice.
+5. Upload missing blobs.
+6. CreateChangeset.
+7. UpdateChangeset to create patchset 1.
+8. Store canonical changeset id and shareable handle in local workspace state.
+9. Record local operation log entry.
 ```
 
 Update flow:
@@ -761,8 +792,8 @@ Update flow:
 2. Verify every file edit is still inside the workspace's bound slice and the
    changeset's authoring slice.
 3. Upload missing blobs.
-4. UpdateChangeset with expected current patchset id.
-5. Store returned patchset id.
+4. UpdateChangeset with the expected-current-patchset concurrency token.
+5. Store returned canonical patchset id and display the patchset number.
 6. Record local operation log entry.
 ```
 
@@ -775,7 +806,7 @@ Submit flow:
 4. By default, wait for async publish until the changeset reaches submitted
    status, printing progress to stderr for text output.
 5. If --no-watch is set, return after submit admission with the accepted status
-   and tell the user to run gs cs status --watch <changeset-id>.
+   and tell the user to run `gs cs status --watch <changeset-handle>`.
 6. If submit succeeds and publish is visible, update local base commit and clear
    overlay state.
 7. If submit fails, show submit requirement, check, authorization, or conflict
@@ -790,10 +821,11 @@ after a submit timeout.
 Show, versions, and explain flow:
 
 ```text
-1. If no changeset id is supplied, read the current workspace changeset id.
-2. Fetch the changeset through ChangesetService.GetChangeset.
+1. If no changeset selector is supplied, read the current workspace changeset.
+2. Resolve the selector to a full shareable handle or canonical id, then fetch
+   the changeset through ChangesetService.GetChangeset.
 3. `show` prints metadata, affected paths, and patchsets.
-4. `versions`/`patchsets` prints patchset numbers, ids, and changed paths.
+4. `versions`/`patchsets` prints patchset numbers and changed paths.
 5. `explain` prints the current patchset's submit requirements, read set,
    write set, and path-base fingerprints.
 ```
@@ -801,10 +833,10 @@ Show, versions, and explain flow:
 Server-side diff flow:
 
 ```text
-1. Resolve the current or supplied changeset id.
+1. Resolve the current or supplied changeset selector.
 2. Call ChangesetService.DiffChangeset.
 3. With --patchset, compare that patchset against its base commit.
-4. With --from/--to, compare two patchsets by id or patchset number.
+4. With --from/--to, compare two patchsets by number or exact patchset handle.
 5. With --name-only or --stat, use the server-returned changed path list
    instead of rendering unified diff text.
 ```
@@ -884,8 +916,10 @@ gs diff -f '/acme/payment/**/*.go'
 
 Initial implementation can keep selectors simple:
 
-- changeset id
-- patchset id
+- changeset handle, for example `acme/payment@42`
+- workspace-relative changeset shorthand, for example `@42`
+- patchset number within a changeset
+- exact patchset handle, for example `acme/payment@42.2`
 - slice id
 - path prefix
 - current workspace

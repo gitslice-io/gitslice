@@ -235,9 +235,15 @@ Workspace
 Changeset
 : The unit of review and submission. It contains immutable patchsets, review
   state, authorization requirements, submit requirements, and submit status.
+  User-facing surfaces identify changesets by a shareable handle of the form
+  `account/slice@number`, for example `acme/payment@42`; raw storage ids are
+  internal/debug identifiers.
 
 Patchset
-: An immutable version of a changeset's proposed file edits.
+: An immutable version of a changeset's proposed file edits. User-facing
+  patchset references are patchset numbers within a changeset; a standalone
+  exact-version reference appends the number to the changeset handle, for
+  example `acme/payment@42.2`.
 
 Submit settings
 : Slice-level settings that define required approvals and checks for changes

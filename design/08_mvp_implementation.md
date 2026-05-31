@@ -426,7 +426,8 @@ gs cs create
   -> upload only server-missing blobs from the global client object cache
   -> CreateChangeset
   -> UpdateChangeset with patchset 1
-  -> record current changeset id locally
+  -> record canonical current changeset id locally
+  -> show the shareable changeset handle, for example acme/payment@42
 
 gs cs submit
   -> SubmitChangeset

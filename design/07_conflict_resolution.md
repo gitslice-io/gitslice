@@ -301,7 +301,7 @@ Useful indexes:
 
 Submit must always revalidate from source-of-truth state or from indexes proven
 fresh for the exact target-ref head, slice definition hash, path lock state, and
-patchset id.
+canonical patchset identity.
 
 ## 10. Storage Requirements
 

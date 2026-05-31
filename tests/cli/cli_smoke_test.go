@@ -942,20 +942,29 @@ func TestChangesetWorkflowCommandsAndServerDiff(t *testing.T) {
 	}
 
 	createOut := runCLI(t, home, workspace, "cs", "create", "--title", "workflow commands", "--json")
-	changesetID, firstPatchsetID := parseChangesetOutput(t, createOut)
+	_, firstPatchsetID, changesetHandle, _ := parseChangesetOutput(t, createOut)
+	_, createAgainErr := runCLIFails(t, home, workspace, "cs", "create", "--title", "accidental duplicate")
+	if !strings.Contains(createAgainErr, "workspace already has draft changeset "+changesetHandle) ||
+		!strings.Contains(createAgainErr, "Run gs cs update to add a new patchset") {
+		t.Fatalf("duplicate create did not prompt update:\n%s", createAgainErr)
+	}
 	show := runCLI(t, home, workspace, "cs", "show")
-	for _, want := range []string{changesetID, "title: workflow commands", "patchsets:", "/acme/payment/workflow.go"} {
+	for _, want := range []string{changesetHandle, "title: workflow commands", "patchsets:", "/acme/payment/workflow.go"} {
 		if !strings.Contains(show, want) {
 			t.Fatalf("cs show missing %q:\n%s", want, show)
 		}
 	}
 	list := runCLI(t, home, workspace, "cs", "list", "--status", "draft")
-	if !strings.Contains(list, changesetID) || !strings.Contains(list, "workflow commands") {
+	if !strings.Contains(list, changesetHandle) || !strings.Contains(list, "workflow commands") {
 		t.Fatalf("cs list missing changeset:\n%s", list)
 	}
 	versions := runCLI(t, home, workspace, "cs", "versions")
-	if !strings.Contains(versions, "1 "+firstPatchsetID) {
+	if !strings.Contains(versions, "1 current changed=1") || strings.Contains(versions, firstPatchsetID) {
 		t.Fatalf("cs versions missing first patchset:\n%s", versions)
+	}
+	versions = runCLI(t, home, workspace, "cs", "versions", strings.TrimPrefix(changesetHandle, "acme/payment"))
+	if !strings.Contains(versions, "1 current changed=1") {
+		t.Fatalf("cs versions shorthand missing first patchset:\n%s", versions)
 	}
 	firstDiff := runCLI(t, home, workspace, "cs", "diff", "--patchset", "1")
 	if !strings.Contains(firstDiff, "+const Version = 1") {
@@ -964,12 +973,12 @@ func TestChangesetWorkflowCommandsAndServerDiff(t *testing.T) {
 
 	writeWorkspaceFile(t, workspace, "workflow.go", "package payment\nconst Version = 2\n")
 	updateOut := runCLI(t, home, workspace, "cs", "update", "--json")
-	_, secondPatchsetID := parseChangesetOutput(t, updateOut)
-	versions = runCLI(t, home, workspace, "cs", "patchsets", changesetID)
-	if !strings.Contains(versions, "2 "+secondPatchsetID) {
+	_, secondPatchsetID, _, _ := parseChangesetOutput(t, updateOut)
+	versions = runCLI(t, home, workspace, "cs", "patchsets", changesetHandle)
+	if !strings.Contains(versions, "2 current changed=1") || strings.Contains(versions, secondPatchsetID) {
 		t.Fatalf("cs patchsets missing second patchset:\n%s", versions)
 	}
-	between := runCLI(t, home, workspace, "cs", "diff", changesetID, "--from", "1", "--to", "2")
+	between := runCLI(t, home, workspace, "cs", "diff", changesetHandle, "--from", "1", "--to", "2")
 	for _, want := range []string{"-const Version = 1", "+const Version = 2"} {
 		if !strings.Contains(between, want) {
 			t.Fatalf("server patchset diff missing %q:\n%s", want, between)
@@ -985,22 +994,22 @@ func TestChangesetWorkflowCommandsAndServerDiff(t *testing.T) {
 			t.Fatalf("cs explain missing %q:\n%s", want, explain)
 		}
 	}
-	status := runCLI(t, home, workspace, "cs", "status", changesetID)
+	status := runCLI(t, home, workspace, "cs", "status", changesetHandle)
 	if !strings.Contains(status, "status: draft") {
 		t.Fatalf("cs status <id> missing draft status:\n%s", status)
 	}
 
-	runCLI(t, home, workspace, "cs", "submit", changesetID)
-	status = runCLI(t, home, workspace, "cs", "status", changesetID)
+	runCLI(t, home, workspace, "cs", "submit", changesetHandle)
+	status = runCLI(t, home, workspace, "cs", "status", changesetHandle)
 	if !strings.Contains(status, "status: submitted") {
 		t.Fatalf("cs status <id> missing submitted status:\n%s", status)
 	}
 
 	writeWorkspaceFile(t, workspace, "abandon.go", "package payment\nconst Abandon = true\n")
 	abandonOut := runCLI(t, home, workspace, "cs", "create", "--title", "abandon workflow", "--json")
-	abandonID, _ := parseChangesetOutput(t, abandonOut)
+	_, _, abandonHandle, _ := parseChangesetOutput(t, abandonOut)
 	runCLI(t, home, workspace, "cs", "abandon", "--reason", "test cleanup")
-	status = runCLI(t, home, workspace, "cs", "status", abandonID)
+	status = runCLI(t, home, workspace, "cs", "status", abandonHandle)
 	if !strings.Contains(status, "status: abandoned") {
 		t.Fatalf("cs abandon did not mark changeset abandoned:\n%s", status)
 	}
@@ -1014,7 +1023,7 @@ func TestChangesetStatusWatchAfterNoWatchSubmit(t *testing.T) {
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "watch.go", "package payment\nconst Watch = true\n")
 	createOut := runCLI(t, home, workspace, "cs", "create", "--title", "watch submit", "--json")
-	changesetID, _ := parseChangesetOutput(t, createOut)
+	changesetID, _, changesetHandle, _ := parseChangesetOutput(t, createOut)
 
 	submitOut := runCLI(t, home, workspace, "cs", "submit", "--no-watch", "--json")
 	var submit struct {
@@ -1031,7 +1040,7 @@ func TestChangesetStatusWatchAfterNoWatchSubmit(t *testing.T) {
 		t.Fatalf("unexpected submit status: %#v", submit)
 	}
 
-	status := runCLI(t, home, workspace, "cs", "status", "--watch", "--watch-timeout", "5s", changesetID)
+	status := runCLI(t, home, workspace, "cs", "status", "--watch", "--watch-timeout", "5s", changesetHandle)
 	if !strings.Contains(status, "status: submitted") {
 		t.Fatalf("cs status --watch did not reach submitted:\n%s", status)
 	}
@@ -2164,19 +2173,24 @@ func submittedRefCommitID(t *testing.T, raw string) string {
 	return res.NewRefCommitID
 }
 
-func parseChangesetOutput(t *testing.T, raw string) (string, string) {
+func parseChangesetOutput(t *testing.T, raw string) (string, string, string, int64) {
 	t.Helper()
 	var res struct {
-		ChangesetID string `json:"changeset_id"`
-		PatchsetID  string `json:"patchset_id"`
+		ChangesetID     string `json:"changeset_id"`
+		PatchsetID      string `json:"patchset_id"`
+		ChangesetHandle string `json:"changeset_handle"`
+		PatchsetNumber  int64  `json:"patchset_number"`
 	}
 	if err := json.Unmarshal([]byte(raw), &res); err != nil {
 		t.Fatalf("changeset output is not JSON: %v\n%s", err, raw)
 	}
-	if res.ChangesetID == "" || res.PatchsetID == "" {
-		t.Fatalf("changeset output missing ids:\n%s", raw)
+	if res.ChangesetID == "" || res.PatchsetID == "" || res.ChangesetHandle == "" || res.PatchsetNumber == 0 {
+		t.Fatalf("changeset output missing ids or handle:\n%s", raw)
 	}
-	return res.ChangesetID, res.PatchsetID
+	if strings.Contains(res.ChangesetHandle, "!") || !strings.Contains(res.ChangesetHandle, "@") {
+		t.Fatalf("changeset handle is not shell-safe: %q", res.ChangesetHandle)
+	}
+	return res.ChangesetID, res.PatchsetID, res.ChangesetHandle, res.PatchsetNumber
 }
 
 func createImportGitRepo(t *testing.T) string {

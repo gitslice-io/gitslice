@@ -75,6 +75,9 @@ func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListC
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	for _, cs := range changesets {
+		storage.PopulateChangesetHandles(cs)
+	}
 	return &corev1.ListChangesetsResponse{Changesets: changesets}, nil
 }
 
@@ -128,11 +131,14 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 		fromID = fromPatchset.Id
 	}
 	return &corev1.DiffChangesetResponse{
-		ChangesetId:    cs.Id,
-		FromPatchsetId: fromID,
-		ToPatchsetId:   toPatchset.Id,
-		ChangedPaths:   paths,
-		Diff:           out.String(),
+		ChangesetId:        cs.Id,
+		FromPatchsetId:     fromID,
+		ToPatchsetId:       toPatchset.Id,
+		ChangedPaths:       paths,
+		Diff:               out.String(),
+		ChangesetHandle:    cs.Handle,
+		FromPatchsetHandle: patchsetHandle(fromPatchset),
+		ToPatchsetHandle:   patchsetHandle(toPatchset),
 	}, nil
 }
 
@@ -168,9 +174,12 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		ReadSet:            validation.ReadSet,
 		WriteSet:           validation.WriteSet,
 	}
-	patchset, err = s.Changesets.AddPatchset(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId, patchset)
+	patchset, err = s.Changesets.AddPatchset(ctx, cs.Id, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if patchset.Handle == "" && cs.Handle != "" {
+		patchset.Handle = storage.PatchsetHandle(cs.AuthoringSlice, cs.Number, patchset.Number)
 	}
 	return patchset, nil
 }
@@ -194,12 +203,30 @@ func selectChangesetPatchset(cs *corev1.Changeset, selector string) (*corev1.Pat
 		}
 		return nil, status.Errorf(codes.NotFound, "patchset number %d not found", n)
 	}
+	if account, sliceName, changesetNumber, n, ok := storage.ParsePatchsetHandle(selector); ok {
+		if cs.AuthoringSlice == nil || account != cs.AuthoringSlice.Account || sliceName != cs.AuthoringSlice.Slice || changesetNumber != cs.Number {
+			return nil, status.Errorf(codes.NotFound, "patchset %s not found", selector)
+		}
+		for _, patchset := range cs.Patchsets {
+			if patchset.Number == n {
+				return patchset, nil
+			}
+		}
+		return nil, status.Errorf(codes.NotFound, "patchset %s not found", selector)
+	}
 	for _, patchset := range cs.Patchsets {
 		if patchset.Id == selector {
 			return patchset, nil
 		}
 	}
 	return nil, status.Errorf(codes.NotFound, "patchset %s not found", selector)
+}
+
+func patchsetHandle(patchset *corev1.Patchset) string {
+	if patchset == nil {
+		return ""
+	}
+	return patchset.Handle
 }
 
 func changedPathsForDiff(from, to *corev1.Patchset) []string {
@@ -309,12 +336,16 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId); err != nil {
+	cs, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
+	if err != nil {
 		return nil, err
 	}
-	res, err := s.Changesets.Submit(ctx, req.ChangesetId, req.ExpectedCurrentPatchsetId)
+	res, err := s.Changesets.Submit(ctx, cs.Id, req.ExpectedCurrentPatchsetId)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if res.ChangesetHandle == "" {
+		res.ChangesetHandle = cs.Handle
 	}
 	return res, nil
 }
@@ -324,10 +355,11 @@ func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.Aba
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId); err != nil {
+	cs, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
+	if err != nil {
 		return nil, err
 	}
-	if err := s.Changesets.Abandon(ctx, req.ChangesetId); err != nil {
+	if err := s.Changesets.Abandon(ctx, cs.Id); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.Empty{}, nil
@@ -344,6 +376,7 @@ func (s *ChangesetService) getAuthorizedChangeset(ctx context.Context, subjectID
 	if err := s.Auth.EnsureAccountMember(ctx, subjectID, cs.AuthoringSlice.Account); err != nil {
 		return nil, grpcError(err)
 	}
+	storage.PopulateChangesetHandles(cs)
 	return cs, nil
 }
 

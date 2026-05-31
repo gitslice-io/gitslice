@@ -137,14 +137,16 @@ refs/accounts/{account}/branches/{branch}
 Changeset patchsets can be addressed with refs:
 
 ```text
-refs/changes/{changeset_id}/{patchset_number}
+refs/changes/{account}/{slice}/{changeset_number}/{patchset_number}
 ```
 
 These refs make it possible to integrate with Git tooling, CI systems, and
 review systems without making changesets ordinary branches.
 
 `refs/changes/new` can be supported as a Git push alias that asks the server to
-allocate a new changeset id.
+allocate a new changeset id and per-authoring-slice changeset number. User
+messages should report the resulting shareable handle, for example
+`acme/payment@42`, rather than the raw storage id.
 
 ### 3.3 Projected Git Refs
 
@@ -441,6 +443,7 @@ Changeset and patchset metadata:
 changesets(
   id primary key,
   authoring_slice_id references slices(id),
+  number bigint,
   author_subject_id references subjects(id),
   target_ref,
   base_commit_id,
@@ -450,8 +453,15 @@ changesets(
   title,
   description,
   created_at,
-  updated_at
+  updated_at,
+  unique(authoring_slice_id, number)
 )
+
+The shareable changeset handle is derived from the authoring slice ref and
+`changesets.number` as `account/slice@number`. Store the canonical id and the
+numeric sequence separately; do not make user-facing text depend on the raw id.
+Changeset numbers are allocated transactionally per authoring slice and are
+never reused, including after abandon/delete-style lifecycle changes.
 
 patchsets(
   id primary key,
@@ -625,6 +635,7 @@ blobs.content_hash unique
 slices(account_id, slug) unique
 slice_definitions(slice_id, version) unique
 slice_definitions.definition_hash unique
+changesets(authoring_slice_id, number) unique
 patchsets(changeset_id, number) unique
 index_outbox.idempotency_key unique
 ```

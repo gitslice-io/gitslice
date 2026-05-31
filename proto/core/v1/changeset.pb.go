@@ -38,6 +38,8 @@ type Changeset struct {
 	SubmitRequirements    *SubmitRequirements    `protobuf:"bytes,13,opt,name=submit_requirements,json=submitRequirements,proto3" json:"submit_requirements,omitempty"`
 	CommitId              string                 `protobuf:"bytes,14,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
 	PendingPublishId      string                 `protobuf:"bytes,15,opt,name=pending_publish_id,json=pendingPublishId,proto3" json:"pending_publish_id,omitempty"`
+	Number                int64                  `protobuf:"varint,16,opt,name=number,proto3" json:"number,omitempty"`
+	Handle                string                 `protobuf:"bytes,17,opt,name=handle,proto3" json:"handle,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -177,6 +179,20 @@ func (x *Changeset) GetPendingPublishId() string {
 	return ""
 }
 
+func (x *Changeset) GetNumber() int64 {
+	if x != nil {
+		return x.Number
+	}
+	return 0
+}
+
+func (x *Changeset) GetHandle() string {
+	if x != nil {
+		return x.Handle
+	}
+	return ""
+}
+
 type Patchset struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -192,6 +208,7 @@ type Patchset struct {
 	PathBases          []*PathBase            `protobuf:"bytes,11,rep,name=path_bases,json=pathBases,proto3" json:"path_bases,omitempty"`
 	ReadSet            []*PathSetEntry        `protobuf:"bytes,12,rep,name=read_set,json=readSet,proto3" json:"read_set,omitempty"`
 	WriteSet           []*PathSetEntry        `protobuf:"bytes,13,rep,name=write_set,json=writeSet,proto3" json:"write_set,omitempty"`
+	Handle             string                 `protobuf:"bytes,14,opt,name=handle,proto3" json:"handle,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -315,6 +332,13 @@ func (x *Patchset) GetWriteSet() []*PathSetEntry {
 		return x.WriteSet
 	}
 	return nil
+}
+
+func (x *Patchset) GetHandle() string {
+	if x != nil {
+		return x.Handle
+	}
+	return ""
 }
 
 type FileEdit struct {
@@ -932,8 +956,8 @@ func (x *ListChangesetsResponse) GetChangesets() []*Changeset {
 type DiffChangesetRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ChangesetId string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
-	// patchset, from_patchset, and to_patchset accept either a patchset id or a
-	// patchset number encoded as a string.
+	// patchset, from_patchset, and to_patchset accept a patchset number encoded as
+	// a string, an exact patchset handle, or a canonical patchset id.
 	Patchset      string `protobuf:"bytes,2,opt,name=patchset,proto3" json:"patchset,omitempty"`
 	FromPatchset  string `protobuf:"bytes,3,opt,name=from_patchset,json=fromPatchset,proto3" json:"from_patchset,omitempty"`
 	ToPatchset    string `protobuf:"bytes,4,opt,name=to_patchset,json=toPatchset,proto3" json:"to_patchset,omitempty"`
@@ -1000,14 +1024,17 @@ func (x *DiffChangesetRequest) GetToPatchset() string {
 }
 
 type DiffChangesetResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	ChangesetId    string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
-	FromPatchsetId string                 `protobuf:"bytes,2,opt,name=from_patchset_id,json=fromPatchsetId,proto3" json:"from_patchset_id,omitempty"`
-	ToPatchsetId   string                 `protobuf:"bytes,3,opt,name=to_patchset_id,json=toPatchsetId,proto3" json:"to_patchset_id,omitempty"`
-	ChangedPaths   []string               `protobuf:"bytes,4,rep,name=changed_paths,json=changedPaths,proto3" json:"changed_paths,omitempty"`
-	Diff           string                 `protobuf:"bytes,5,opt,name=diff,proto3" json:"diff,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	ChangesetId        string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
+	FromPatchsetId     string                 `protobuf:"bytes,2,opt,name=from_patchset_id,json=fromPatchsetId,proto3" json:"from_patchset_id,omitempty"`
+	ToPatchsetId       string                 `protobuf:"bytes,3,opt,name=to_patchset_id,json=toPatchsetId,proto3" json:"to_patchset_id,omitempty"`
+	ChangedPaths       []string               `protobuf:"bytes,4,rep,name=changed_paths,json=changedPaths,proto3" json:"changed_paths,omitempty"`
+	Diff               string                 `protobuf:"bytes,5,opt,name=diff,proto3" json:"diff,omitempty"`
+	ChangesetHandle    string                 `protobuf:"bytes,6,opt,name=changeset_handle,json=changesetHandle,proto3" json:"changeset_handle,omitempty"`
+	FromPatchsetHandle string                 `protobuf:"bytes,7,opt,name=from_patchset_handle,json=fromPatchsetHandle,proto3" json:"from_patchset_handle,omitempty"`
+	ToPatchsetHandle   string                 `protobuf:"bytes,8,opt,name=to_patchset_handle,json=toPatchsetHandle,proto3" json:"to_patchset_handle,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *DiffChangesetResponse) Reset() {
@@ -1071,6 +1098,27 @@ func (x *DiffChangesetResponse) GetChangedPaths() []string {
 func (x *DiffChangesetResponse) GetDiff() string {
 	if x != nil {
 		return x.Diff
+	}
+	return ""
+}
+
+func (x *DiffChangesetResponse) GetChangesetHandle() string {
+	if x != nil {
+		return x.ChangesetHandle
+	}
+	return ""
+}
+
+func (x *DiffChangesetResponse) GetFromPatchsetHandle() string {
+	if x != nil {
+		return x.FromPatchsetHandle
+	}
+	return ""
+}
+
+func (x *DiffChangesetResponse) GetToPatchsetHandle() string {
+	if x != nil {
+		return x.ToPatchsetHandle
 	}
 	return ""
 }
@@ -1202,6 +1250,7 @@ type SubmitChangesetResponse struct {
 	NewRefCommitId   string                 `protobuf:"bytes,3,opt,name=new_ref_commit_id,json=newRefCommitId,proto3" json:"new_ref_commit_id,omitempty"`
 	Status           string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
 	PendingPublishId string                 `protobuf:"bytes,5,opt,name=pending_publish_id,json=pendingPublishId,proto3" json:"pending_publish_id,omitempty"`
+	ChangesetHandle  string                 `protobuf:"bytes,6,opt,name=changeset_handle,json=changesetHandle,proto3" json:"changeset_handle,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1271,6 +1320,13 @@ func (x *SubmitChangesetResponse) GetPendingPublishId() string {
 	return ""
 }
 
+func (x *SubmitChangesetResponse) GetChangesetHandle() string {
+	if x != nil {
+		return x.ChangesetHandle
+	}
+	return ""
+}
+
 type AbandonChangesetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ChangesetId   string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
@@ -1327,7 +1383,7 @@ var File_proto_core_v1_changeset_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\n" +
-	"\x1dproto/core/v1/changeset.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xf8\x04\n" +
+	"\x1dproto/core/v1/changeset.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xa8\x05\n" +
 	"\tChangeset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12C\n" +
 	"\x0fauthoring_slice\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x16\n" +
@@ -1345,7 +1401,9 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x0eaffected_paths\x18\f \x03(\tR\raffectedPaths\x12U\n" +
 	"\x13submit_requirements\x18\r \x01(\v2$.gitslice.core.v1.SubmitRequirementsR\x12submitRequirements\x12\x1b\n" +
 	"\tcommit_id\x18\x0e \x01(\tR\bcommitId\x12,\n" +
-	"\x12pending_publish_id\x18\x0f \x01(\tR\x10pendingPublishId\"\xd8\x04\n" +
+	"\x12pending_publish_id\x18\x0f \x01(\tR\x10pendingPublishId\x12\x16\n" +
+	"\x06number\x18\x10 \x01(\x03R\x06number\x12\x16\n" +
+	"\x06handle\x18\x11 \x01(\tR\x06handle\"\xf0\x04\n" +
 	"\bPatchset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x16\n" +
@@ -1363,7 +1421,8 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\n" +
 	"path_bases\x18\v \x03(\v2\x1a.gitslice.core.v1.PathBaseR\tpathBases\x129\n" +
 	"\bread_set\x18\f \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\areadSet\x12;\n" +
-	"\twrite_set\x18\r \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\bwriteSet\"\x99\x01\n" +
+	"\twrite_set\x18\r \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\bwriteSet\x12\x16\n" +
+	"\x06handle\x18\x0e \x01(\tR\x06handle\"\x99\x01\n" +
 	"\bFileEdit\x12\x0e\n" +
 	"\x02op\x18\x01 \x01(\tR\x02op\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x19\n" +
@@ -1419,13 +1478,16 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\bpatchset\x18\x02 \x01(\tR\bpatchset\x12#\n" +
 	"\rfrom_patchset\x18\x03 \x01(\tR\ffromPatchset\x12\x1f\n" +
 	"\vto_patchset\x18\x04 \x01(\tR\n" +
-	"toPatchset\"\xc3\x01\n" +
+	"toPatchset\"\xce\x02\n" +
 	"\x15DiffChangesetResponse\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12(\n" +
 	"\x10from_patchset_id\x18\x02 \x01(\tR\x0efromPatchsetId\x12$\n" +
 	"\x0eto_patchset_id\x18\x03 \x01(\tR\ftoPatchsetId\x12#\n" +
 	"\rchanged_paths\x18\x04 \x03(\tR\fchangedPaths\x12\x12\n" +
-	"\x04diff\x18\x05 \x01(\tR\x04diff\"\xdd\x01\n" +
+	"\x04diff\x18\x05 \x01(\tR\x04diff\x12)\n" +
+	"\x10changeset_handle\x18\x06 \x01(\tR\x0fchangesetHandle\x120\n" +
+	"\x14from_patchset_handle\x18\a \x01(\tR\x12fromPatchsetHandle\x12,\n" +
+	"\x12to_patchset_handle\x18\b \x01(\tR\x10toPatchsetHandle\"\xdd\x01\n" +
 	"\x16UpdateChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12?\n" +
 	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\x12$\n" +
@@ -1434,14 +1496,15 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"file_edits\x18\x04 \x03(\v2\x1a.gitslice.core.v1.FileEditR\tfileEdits\"|\n" +
 	"\x16SubmitChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12?\n" +
-	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\"\xc6\x01\n" +
+	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\"\xf1\x01\n" +
 	"\x17SubmitChangesetResponse\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x1d\n" +
 	"\n" +
 	"target_ref\x18\x02 \x01(\tR\ttargetRef\x12)\n" +
 	"\x11new_ref_commit_id\x18\x03 \x01(\tR\x0enewRefCommitId\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12,\n" +
-	"\x12pending_publish_id\x18\x05 \x01(\tR\x10pendingPublishId\"T\n" +
+	"\x12pending_publish_id\x18\x05 \x01(\tR\x10pendingPublishId\x12)\n" +
+	"\x10changeset_handle\x18\x06 \x01(\tR\x0fchangesetHandle\"T\n" +
 	"\x17AbandonChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason2\xa0\x05\n" +

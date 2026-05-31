@@ -3577,3 +3577,109 @@ git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./internal/postgres ./tests/rpc ./tests/cli -v
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 GITSLICE_LOAD_RPC_USERS=8 GITSLICE_LOAD_RPC_OPS_PER_USER=4 GITSLICE_LOAD_LARGE_DIR_FILES=800 GITSLICE_LOAD_LARGE_DIR_EMPTY_DIRS=100 GITSLICE_LOAD_RENAME_DIR_FILES=400 GITSLICE_LOAD_RENAME_DIR_EMPTY_DIRS=50 GITSLICE_LOAD_MANY_COMMITS=80 GITSLICE_LOAD_MANY_COMMITS_PAGE_SIZE=23 GITSLICE_LOAD_LARGE_FILE_BYTES=8388608 go test -count=1 -tags load ./tests/load -v
 ```
+
+## 2026-05-31: Shareable Changeset Handles
+
+Request:
+
+- replace long user-visible changeset and patchset ids in the changeset workflow
+  with a shareable form suitable for people to copy between tools
+
+Decisions:
+
+- standardized the human-facing changeset selector as
+  `account/slice!changeset_number`, for example `acme/payment!42`
+- kept canonical `cs_...` and `ps_...` ids as storage/API/debug identifiers, but
+  removed them from normal CLI, web, help, hint, and Git gateway surfaces
+- scoped patchsets by changeset number in normal output and defined
+  `account/slice!changeset_number@patchset_number` for standalone exact-version
+  references
+- added a per-authoring-slice changeset number to the storage/API design so the
+  handle can be stable and allocated transactionally without depending on random
+  id length
+- implemented the handle through protobuf responses, PostgreSQL storage,
+  in-memory storage, service selector resolution, CLI text/JSON outputs, and
+  workspace local state
+- added migration `0005_changeset_numbers.sql` to backfill and enforce
+  per-authoring-slice changeset numbers; new numbers are allocated while holding
+  the slice row lock to avoid duplicate handles under concurrent creates
+- colorized `gs cs versions` text output using the existing terminal-aware color
+  helpers: patchset numbers are yellow, current markers are green, and changed
+  paths are blue
+
+Verification:
+
+```bash
+rg -n 'Changeset id|changeset-id|patchset-id|CS123|refs/changes/\{changeset_id\}|\[cs_| cs_| ps_|raw `cs_|raw `ps_' design -g'*.md'
+git diff -- design/00_product.md design/01_gitslice_architecture_design.md design/02_storage.md design/03_core_api.md design/04_cli_design.md design/05_git_compatibility.md design/07_conflict_resolution.md design/08_mvp_implementation.md design/11_web_interface_design.md design/10_execution_log.md
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false proto/core/v1/*.proto
+protoc --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative --grpc-gateway_opt=generate_unbound_methods=true proto/core/v1/*.proto
+gofmt -w internal/storage/changeset_handle.go internal/postgres/changeset_store.go internal/storage/memory/store.go service/changeset.go internal/cli/cli.go tests/cli/cli_smoke_test.go
+go test ./internal/storage/... ./internal/postgres ./service ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run 'TestChangesetWorkflowCommandsAndServerDiff|TestChangesetStatusWatchAfterNoWatchSubmit' -v
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
+git diff --check
+```
+
+## 2026-05-31: Shell-Safe Changeset Handles
+
+Request:
+
+- fix the shareable changeset handle after `alice/first-one!4` triggered shell
+  history expansion and turned into multiple CLI arguments
+
+Decisions:
+
+- changed the canonical user-facing changeset handle to
+  `account/slice@changeset_number`, for example `acme/payment@42`
+- changed the exact patchset handle to
+  `account/slice@changeset_number.patchset_number`, for example
+  `acme/payment@42.2`
+- kept the previous `!` syntax parseable for compatibility with quoted handles
+  and local workspace state created by earlier builds, but all normal output now
+  emits only the shell-safe `@`/`.` form
+- updated workspace-relative shorthand from `!42` to `@42`
+
+Verification:
+
+```bash
+gofmt -w internal/storage/changeset_handle.go internal/storage/changeset_handle_test.go service/changeset.go internal/cli/cli.go tests/cli/cli_smoke_test.go
+go test ./internal/storage/... ./internal/cli
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestChangesetWorkflowCommandsAndServerDiff -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+## 2026-05-31: Guard Duplicate Workspace Changeset Create
+
+Request:
+
+- warn when `gs cs create` is run in a workspace that is already associated
+  with a changeset, and direct the user to `gs cs update` when they are trying
+  to update the current changeset
+
+Decisions:
+
+- `gs cs create` now checks the workspace's current changeset before
+  snapshotting or uploading edits
+- active draft changesets are rejected with a hint to run `gs cs update` to
+  create a new patchset
+- pending changesets are also rejected so the user can inspect or wait for the
+  existing workflow before creating another changeset
+- submitted and abandoned changesets do not block a new create, preserving the
+  normal submit-edit-create-next workflow while the CLI still stores the last
+  changeset in local workspace state
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go tests/cli/cli_smoke_test.go
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestChangesetWorkflowCommandsAndServerDiff -v
+go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
