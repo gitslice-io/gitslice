@@ -174,7 +174,7 @@ The landing page is a supported-action launcher, not an activity dashboard.
 | [Browse Source] [List Slices] [New Changeset]   |
 |                                                |
 | Open Changeset                                 |
-| Changeset id: [cs_...] [Open]                  |
+| Changeset: [acme/payment@42________] [Open]    |
 +------------------------------------------------+
 ```
 
@@ -317,7 +317,7 @@ Because there is no changeset list endpoint, `/changesets` is a lookup page.
 ```text
 +----------------------------------------------------------+
 | Open Changeset                                           |
-| Changeset id: [cs_...] [Open]                            |
+| Changeset: [acme/payment@42__________________] [Open]    |
 |                                                          |
 | [Create Changeset]                                       |
 +----------------------------------------------------------+
@@ -363,14 +363,14 @@ only guarantees file-edit metadata, not staged blob contents.
 
 Do not include "request review" or reviewer selection.
 
-### 3.9 Changeset Detail (`/changesets/{id}`)
+### 3.9 Changeset Detail (`/changesets/{account}/{slice}/{number}`)
 
 Shows the data returned by `ChangesetService.GetChangeset` and exposes supported
 mutations.
 
 ```text
 +----------------------------------------------------------+
-| cs_123  Fix payment app                     status: draft |
+| acme/payment@42  Fix payment app            status: draft |
 | author: user_alice  slice: acme/payment  target: main    |
 | base: cmt_abc                                             |
 +----------------------------------------------------------+
@@ -395,8 +395,10 @@ mutations.
 
 Supported behavior:
 
-- Display id, title, description, author, authoring slice, target ref, base
-  commit, status, current patchset id/number, commit id, and pending publish id.
+- Display handle, title, description, author, authoring slice, target ref, base
+  commit, status, current patchset number, commit id, and pending publish id.
+- Keep canonical changeset and patchset ids available only in debug/details JSON,
+  not as the primary visible label.
 - Display each patchset's changed paths, file edits, coverage, path bases, read
   set, write set, and raw submit requirement ids.
 - Poll `GetChangeset` while status is `pending_publish`.

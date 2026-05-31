@@ -424,6 +424,8 @@ message WorkspaceState {
   string base_commit_id = 4;
   string current_changeset_id = 5;
   string current_patchset_id = 6;
+  string current_changeset_handle = 7;
+  string current_patchset_handle = 8;
 }
 
 message SliceBinding {
@@ -481,6 +483,8 @@ message WorkspaceOperation {
   repeated string affected_paths = 7;
   string changeset_id = 8;
   string patchset_id = 9;
+  string changeset_handle = 10;
+  string patchset_handle = 11;
 }
 
 message RecordWorkspaceOperationRequest {
@@ -492,6 +496,7 @@ message RecordWorkspaceOperationResponse {
 }
 
 message Changeset {
+  // Canonical internal/API id. Human-facing clients should display handle.
   string id = 1;
   SliceRef authoring_slice = 2;
   string author = 3;
@@ -507,9 +512,15 @@ message Changeset {
   SubmitRequirements submit_requirements = 13;
   string commit_id = 14;
   string pending_publish_id = 15;
+  // Monotonic number allocated within authoring_slice.
+  int64 number = 16;
+  // Shareable user-facing selector, for example "acme/payment@42".
+  string handle = 17;
 }
 
 message Patchset {
+  // Canonical internal/API id. Human-facing clients should display number or
+  // handle, not this raw id.
   string id = 1;
   string changeset_id = 2;
   int64 number = 3;
@@ -523,6 +534,8 @@ message Patchset {
   repeated PathBase path_bases = 11;
   repeated PathSetEntry read_set = 12;
   repeated PathSetEntry write_set = 13;
+  // Shareable exact-version selector, for example "acme/payment@42.2".
+  string handle = 14;
 }
 
 message FileEdit {
@@ -591,6 +604,9 @@ message CreateChangesetRequest {
 }
 
 message GetChangesetRequest {
+  // Accepts either a canonical changeset id or a full shareable handle such as
+  // "acme/payment@42". Workspace-relative forms are resolved by clients before
+  // calling the API.
   string changeset_id = 1;
 }
 
@@ -605,10 +621,12 @@ message ListChangesetsResponse {
 }
 
 message DiffChangesetRequest {
+  // Accepts either a canonical changeset id or a full shareable handle.
   string changeset_id = 1;
-  // patchset, from_patchset, and to_patchset accept either a patchset id or a
-  // patchset number encoded as a string. Empty patchset/to_patchset means the
-  // changeset's current patchset.
+  // patchset, from_patchset, and to_patchset accept a patchset number encoded as
+  // a string, a standalone exact-version handle like "acme/payment@42.2", or a
+  // canonical patchset id for debugging/backward compatibility. Empty
+  // patchset/to_patchset means the changeset's current patchset.
   string patchset = 2;
   string from_patchset = 3;
   string to_patchset = 4;
@@ -620,10 +638,16 @@ message DiffChangesetResponse {
   string to_patchset_id = 3;
   repeated string changed_paths = 4;
   string diff = 5;
+  string changeset_handle = 6;
+  string from_patchset_handle = 7;
+  string to_patchset_handle = 8;
 }
 
 message UpdateChangesetRequest {
+  // Accepts either a canonical changeset id or a full shareable handle.
   string changeset_id = 1;
+  // Concurrency token from the current Changeset/Patchset response. This is not
+  // a user-facing selector.
   string expected_current_patchset_id = 2;
   string base_commit_id = 3;
   // Every edit must be contained by the changeset's authoring slice.
@@ -631,7 +655,10 @@ message UpdateChangesetRequest {
 }
 
 message SubmitChangesetRequest {
+  // Accepts either a canonical changeset id or a full shareable handle.
   string changeset_id = 1;
+  // Concurrency token from the current Changeset/Patchset response. This is not
+  // a user-facing selector.
   string expected_current_patchset_id = 2;
 }
 
@@ -641,9 +668,11 @@ message SubmitChangesetResponse {
   string new_ref_commit_id = 3;
   string status = 4;
   string pending_publish_id = 5;
+  string changeset_handle = 6;
 }
 
 message AbandonChangesetRequest {
+  // Accepts either a canonical changeset id or a full shareable handle.
   string changeset_id = 1;
   string reason = 2;
 }
@@ -655,6 +684,15 @@ passed path-head CAS admission but has not yet been published to the target ref.
 In that state `commit_id` and `new_ref_commit_id` may be empty. Clients that
 need root-visible state should poll `GetChangeset` until `status = "submitted"`
 and then read the target ref.
+
+Changeset APIs retain canonical `id` and `patchset_id` fields for storage,
+idempotency, and concurrency tokens, but user-facing clients should display and
+accept shareable handles. The stable changeset handle is
+`account/slice@changeset_number`; the stable exact patchset handle is
+`account/slice@changeset_number.patchset_number`. CLI and web clients may accept
+workspace-relative shorthands such as `@42`, but must expand them before calling
+the API. JSON responses should include both the handle and canonical id when an
+object may be copied into another command.
 
 ## 3. Internal Commit API
 

@@ -32,6 +32,8 @@ message Changeset {
   SubmitRequirements submit_requirements = 13;
   string commit_id = 14;
   string pending_publish_id = 15;
+  int64 number = 16;
+  string handle = 17;
 }
 
 message Patchset {
@@ -48,6 +50,7 @@ message Patchset {
   repeated PathBase path_bases = 11;
   repeated PathSetEntry read_set = 12;
   repeated PathSetEntry write_set = 13;
+  string handle = 14;
 }
 
 message FileEdit {
@@ -115,8 +118,8 @@ message ListChangesetsResponse {
 
 message DiffChangesetRequest {
   string changeset_id = 1;
-  // patchset, from_patchset, and to_patchset accept either a patchset id or a
-  // patchset number encoded as a string.
+  // patchset, from_patchset, and to_patchset accept a patchset number encoded as
+  // a string, an exact patchset handle, or a canonical patchset id.
   string patchset = 2;
   string from_patchset = 3;
   string to_patchset = 4;
@@ -128,6 +131,9 @@ message DiffChangesetResponse {
   string to_patchset_id = 3;
   repeated string changed_paths = 4;
   string diff = 5;
+  string changeset_handle = 6;
+  string from_patchset_handle = 7;
+  string to_patchset_handle = 8;
 }
 
 message UpdateChangesetRequest {
@@ -148,6 +154,7 @@ message SubmitChangesetResponse {
   string new_ref_commit_id = 3;
   string status = 4;
   string pending_publish_id = 5;
+  string changeset_handle = 6;
 }
 
 message AbandonChangesetRequest {

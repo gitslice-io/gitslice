@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
@@ -70,37 +71,56 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 	if err != nil {
 		return nil, err
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err := lockSliceForChangesetNumber(ctx, tx, slice.Id); err != nil {
+		return nil, err
+	}
+	number, err := nextChangesetNumberTx(ctx, tx, slice.Id)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
-	_, err = s.db.ExecContext(ctx, `
-		insert into changesets(
-			id, authoring_account, authoring_slice, authoring_slice_id, author_subject_id,
-			target_ref, base_commit_id, title, description, status, affected_paths,
-			current_patchset_number, created_at, updated_at
-		)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, 0, $11, $11)
-	`, id, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, slice.Id, subjectID,
+	_, err = tx.ExecContext(ctx, `
+			insert into changesets(
+				id, number, authoring_account, authoring_slice, authoring_slice_id, author_subject_id,
+				target_ref, base_commit_id, title, description, status, affected_paths,
+				current_patchset_number, created_at, updated_at
+			)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, 0, $12, $12)
+		`, id, number, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, slice.Id, subjectID,
 		targetRef, baseCommitID, req.Title, req.Description, empty, now)
 	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, id)
 }
 
 func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.Changeset, error) {
+	changesetID, err := s.resolveChangesetSelector(ctx, changesetID)
+	if err != nil {
+		return nil, err
+	}
 	var cs corev1.Changeset
 	var account, slice, currentPatchsetID, commitID, pendingPublishID sql.NullString
 	var affectedJSON []byte
-	err := s.db.QueryRowContext(ctx, `
-		select c.id, c.authoring_account, c.authoring_slice, c.author_subject_id, c.target_ref,
-		       c.base_commit_id, c.title, c.description, c.status, c.affected_paths,
-		       coalesce(c.current_patchset_number, 0), c.current_patchset_id,
-		       c.commit_id, p.id
-		from changesets c
-		left join pending_publish p on p.changeset_id = c.id
-		where c.id = $1
-	`, changesetID).Scan(&cs.Id, &account, &slice, &cs.Author, &cs.TargetRef,
+	err = s.db.QueryRowContext(ctx, `
+			select c.id, c.authoring_account, c.authoring_slice, c.author_subject_id, c.target_ref,
+			       c.base_commit_id, c.title, c.description, c.status, c.affected_paths,
+			       coalesce(c.current_patchset_number, 0), c.current_patchset_id,
+			       c.commit_id, p.id, c.number
+			from changesets c
+			left join pending_publish p on p.changeset_id = c.id
+			where c.id = $1
+		`, changesetID).Scan(&cs.Id, &account, &slice, &cs.Author, &cs.TargetRef,
 		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
-		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID)
+		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID, &cs.Number)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -127,6 +147,7 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 		return nil, err
 	}
 	cs.Patchsets = patchsets
+	storage.PopulateChangesetHandles(&cs)
 	cs.SubmitRequirements = &corev1.SubmitRequirements{}
 	return &cs, nil
 }
@@ -200,6 +221,50 @@ func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsReq
 	return out, nil
 }
 
+func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector string) (string, error) {
+	account, sliceName, number, ok := storage.ParseChangesetHandle(selector)
+	if !ok {
+		return selector, nil
+	}
+	var id string
+	err := s.db.QueryRowContext(ctx, `
+		select id
+		from changesets
+		where authoring_account = $1 and authoring_slice = $2 and number = $3
+	`, account, sliceName, number).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func lockSliceForChangesetNumber(ctx context.Context, tx *sql.Tx, sliceID string) error {
+	var id string
+	err := tx.QueryRowContext(ctx, `
+		select id
+		from slices
+		where id = $1
+		for update
+	`, sliceID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func nextChangesetNumberTx(ctx context.Context, tx *sql.Tx, sliceID string) (int64, error) {
+	var number int64
+	err := tx.QueryRowContext(ctx, `
+		select coalesce(max(number), 0) + 1
+		from changesets
+		where authoring_slice_id = $1
+	`, sliceID).Scan(&number)
+	return number, err
+}
+
 func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -209,12 +274,15 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	var currentPatchsetID sql.NullString
 	var currentNumber int64
 	var status string
+	var account, sliceName string
+	var changesetNumber int64
 	err = tx.QueryRowContext(ctx, `
-		select current_patchset_id, coalesce(current_patchset_number, 0), status
-		from changesets
-		where id = $1
-		for update
-	`, changesetID).Scan(&currentPatchsetID, &currentNumber, &status)
+			select current_patchset_id, coalesce(current_patchset_number, 0), status,
+			       authoring_account, authoring_slice, number
+			from changesets
+			where id = $1
+			for update
+		`, changesetID).Scan(&currentPatchsetID, &currentNumber, &status, &account, &sliceName, &changesetNumber)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -234,6 +302,7 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	patchset.Id = patchsetID
 	patchset.ChangesetId = changesetID
 	patchset.Number = currentNumber + 1
+	patchset.Handle = storage.PatchsetHandle(&corev1.SliceRef{Account: account, Slice: sliceName}, changesetNumber, patchset.Number)
 	createdAt := time.Now().UTC()
 	patchset.CreatedAt = formatTime(createdAt)
 	fileEditsJSON, err := encodeJSON(patchset.FileEdits)
@@ -302,16 +371,19 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 		BaseCommitID      string
 		Author            string
 		Title             string
+		Account           string
+		Slice             string
+		Number            int64
 		CommitID          sql.NullString
 	}
 	err = tx.QueryRowContext(ctx, `
-		select id, status, coalesce(current_patchset_id, ''), target_ref,
-		       base_commit_id, author_subject_id, title, commit_id
-		from changesets
-		where id = $1
-		for update
-	`, changesetID).Scan(&cs.ID, &cs.Status, &cs.CurrentPatchsetID, &cs.TargetRef,
-		&cs.BaseCommitID, &cs.Author, &cs.Title, &cs.CommitID)
+			select id, status, coalesce(current_patchset_id, ''), target_ref,
+			       base_commit_id, author_subject_id, title, authoring_account, authoring_slice, number, commit_id
+			from changesets
+			where id = $1
+			for update
+		`, changesetID).Scan(&cs.ID, &cs.Status, &cs.CurrentPatchsetID, &cs.TargetRef,
+		&cs.BaseCommitID, &cs.Author, &cs.Title, &cs.Account, &cs.Slice, &cs.Number, &cs.CommitID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -321,8 +393,9 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	if cs.Status == "abandoned" {
 		return nil, ErrConflict
 	}
+	handle := storage.ChangesetHandle(&corev1.SliceRef{Account: cs.Account, Slice: cs.Slice}, cs.Number)
 	if cs.Status == "submitted" && cs.CommitID.Valid {
-		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitID.String, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitID.String, Status: "submitted"}, nil
+		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitID.String, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitID.String, Status: "submitted", ChangesetHandle: handle}, nil
 	}
 	if cs.Status == "pending_publish" {
 		var pendingID string
@@ -330,9 +403,9 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 			select id
 			from pending_publish
 			where changeset_id = $1 and status = 'pending'
-		`, cs.ID).Scan(&pendingID)
+			`, cs.ID).Scan(&pendingID)
 		if err == nil {
-			return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID}, nil
+			return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID, ChangesetHandle: handle}, nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
@@ -391,7 +464,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID}, nil
+	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID, ChangesetHandle: handle}, nil
 }
 
 func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, error) {
@@ -465,16 +538,19 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 	updatedBy := "publisher"
 	for _, row := range batch {
 		var cs struct {
-			Author string
-			Title  string
-			Status string
+			Author  string
+			Title   string
+			Status  string
+			Account string
+			Slice   string
+			Number  int64
 		}
 		err := tx.QueryRowContext(ctx, `
-			select author_subject_id, title, status
-			from changesets
-			where id = $1
-			for update
-		`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Status)
+				select author_subject_id, title, status, authoring_account, authoring_slice, number
+				from changesets
+				where id = $1
+				for update
+			`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Status, &cs.Account, &cs.Slice, &cs.Number)
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, ErrNotFound
 		}
@@ -503,7 +579,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		now := baseTime.Add(time.Duration(published) * time.Microsecond)
 		message := cs.Title
 		if message == "" {
-			message = "Submit " + row.ChangesetID
+			message = "Submit " + storage.ChangesetHandle(&corev1.SliceRef{Account: cs.Account, Slice: cs.Slice}, cs.Number)
 		}
 		commitID := objectid.CommitID(objectid.CommitObject{
 			ParentIDs:    []string{currentCommitID},

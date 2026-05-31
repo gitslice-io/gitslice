@@ -215,6 +215,35 @@ func (b *backend) nextIDLocked(prefix string) string {
 	return fmt.Sprintf("%s_%d", prefix, b.next)
 }
 
+func (b *backend) nextChangesetNumberLocked(sliceID string) int64 {
+	var max int64
+	for _, cs := range b.changesets {
+		if cs == nil {
+			continue
+		}
+		if b.sliceRefs[sliceRefKey(cs.AuthoringSlice)] == sliceID && cs.Number > max {
+			max = cs.Number
+		}
+	}
+	return max + 1
+}
+
+func (b *backend) resolveChangesetSelectorLocked(selector string) string {
+	account, sliceName, number, ok := storage.ParseChangesetHandle(selector)
+	if !ok {
+		return ""
+	}
+	for id, cs := range b.changesets {
+		if cs == nil || cs.AuthoringSlice == nil {
+			continue
+		}
+		if cs.AuthoringSlice.Account == account && cs.AuthoringSlice.Slice == sliceName && cs.Number == number {
+			return id
+		}
+	}
+	return ""
+}
+
 func (s *ObjectStore) Put(ctx context.Context, key string, r io.Reader) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -371,15 +400,19 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 		baseCommitID = ref.CommitId
 	}
 	id := s.b.nextIDLocked("cs")
+	number := s.b.nextChangesetNumberLocked(sliceID)
+	ref := cloneSliceRef(req.AuthoringSlice)
 	cs := &corev1.Changeset{
 		Id:             id,
-		AuthoringSlice: cloneSliceRef(req.AuthoringSlice),
+		AuthoringSlice: ref,
 		Author:         subjectID,
 		TargetRef:      targetRef,
 		BaseCommitId:   baseCommitID,
-		Status:         "open",
+		Status:         "draft",
 		Title:          req.Title,
+		Number:         number,
 	}
+	storage.PopulateChangesetHandles(cs)
 	s.b.changesets[id] = cloneChangeset(cs)
 	return cloneChangeset(cs), nil
 }
@@ -387,11 +420,16 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.Changeset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
+		changesetID = resolved
+	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
 		return nil, storage.ErrNotFound
 	}
-	return cloneChangeset(cs), nil
+	out := cloneChangeset(cs)
+	storage.PopulateChangesetHandles(out)
+	return out, nil
 }
 
 func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error) {
@@ -405,7 +443,9 @@ func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsReq
 		if req.Status != "" && cs.Status != req.Status {
 			continue
 		}
-		out = append(out, cloneChangeset(cs))
+		clone := cloneChangeset(cs)
+		storage.PopulateChangesetHandles(clone)
+		out = append(out, clone)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })
 	return out, nil
@@ -425,8 +465,10 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	next.Id = s.b.nextIDLocked("ps")
 	next.ChangesetId = changesetID
 	next.Number = int64(len(cs.Patchsets) + 1)
+	next.Handle = storage.PatchsetHandle(cs.AuthoringSlice, cs.Number, next.Number)
 	cs.Patchsets = append(cs.Patchsets, next)
 	cs.CurrentPatchsetId = next.Id
+	cs.CurrentPatchsetNumber = next.Number
 	return clonePatchset(next), nil
 }
 
@@ -441,7 +483,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 		return nil, storage.ErrConflict
 	}
 	cs.Status = "pending_publish"
-	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id}, nil
+	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id, ChangesetHandle: cs.Handle}, nil
 }
 
 func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, error) {

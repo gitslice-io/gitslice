@@ -270,14 +270,16 @@ and is awaiting validation and submit.
 Changeset patchsets can be addressed with refs:
 
 ```text
-refs/changes/{changeset_id}/{patchset_number}
+refs/changes/{account}/{slice}/{changeset_number}/{patchset_number}
 ```
 
 These refs make it possible to integrate with Git tooling, CI systems, and
 review systems without making changesets ordinary branches.
 
 `refs/changes/new` can be supported as a Git push alias that asks the server to
-allocate a new changeset id.
+allocate a new changeset id and per-slice changeset number. Push status,
+validation messages, and review URLs should report the resulting shareable
+handle such as `acme/payment@42`, not the raw `cs_...` id.
 
 ## 10. Validation Rules For Git Push
 

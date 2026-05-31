@@ -66,15 +66,17 @@ func (x *WorkspaceRef) GetId() string {
 }
 
 type WorkspaceState struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	Ref                *WorkspaceRef          `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
-	Slice              *SliceBinding          `protobuf:"bytes,2,opt,name=slice,proto3" json:"slice,omitempty"`
-	HydratedPaths      []string               `protobuf:"bytes,3,rep,name=hydrated_paths,json=hydratedPaths,proto3" json:"hydrated_paths,omitempty"`
-	BaseCommitId       string                 `protobuf:"bytes,4,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
-	CurrentChangesetId string                 `protobuf:"bytes,5,opt,name=current_changeset_id,json=currentChangesetId,proto3" json:"current_changeset_id,omitempty"`
-	CurrentPatchsetId  string                 `protobuf:"bytes,6,opt,name=current_patchset_id,json=currentPatchsetId,proto3" json:"current_patchset_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	Ref                    *WorkspaceRef          `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	Slice                  *SliceBinding          `protobuf:"bytes,2,opt,name=slice,proto3" json:"slice,omitempty"`
+	HydratedPaths          []string               `protobuf:"bytes,3,rep,name=hydrated_paths,json=hydratedPaths,proto3" json:"hydrated_paths,omitempty"`
+	BaseCommitId           string                 `protobuf:"bytes,4,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
+	CurrentChangesetId     string                 `protobuf:"bytes,5,opt,name=current_changeset_id,json=currentChangesetId,proto3" json:"current_changeset_id,omitempty"`
+	CurrentPatchsetId      string                 `protobuf:"bytes,6,opt,name=current_patchset_id,json=currentPatchsetId,proto3" json:"current_patchset_id,omitempty"`
+	CurrentChangesetHandle string                 `protobuf:"bytes,7,opt,name=current_changeset_handle,json=currentChangesetHandle,proto3" json:"current_changeset_handle,omitempty"`
+	CurrentPatchsetHandle  string                 `protobuf:"bytes,8,opt,name=current_patchset_handle,json=currentPatchsetHandle,proto3" json:"current_patchset_handle,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *WorkspaceState) Reset() {
@@ -145,6 +147,20 @@ func (x *WorkspaceState) GetCurrentChangesetId() string {
 func (x *WorkspaceState) GetCurrentPatchsetId() string {
 	if x != nil {
 		return x.CurrentPatchsetId
+	}
+	return ""
+}
+
+func (x *WorkspaceState) GetCurrentChangesetHandle() string {
+	if x != nil {
+		return x.CurrentChangesetHandle
+	}
+	return ""
+}
+
+func (x *WorkspaceState) GetCurrentPatchsetHandle() string {
+	if x != nil {
+		return x.CurrentPatchsetHandle
 	}
 	return ""
 }
@@ -518,18 +534,20 @@ func (x *ValidateWorkspaceDiffResponse) GetWriteSet() []*PathSetEntry {
 }
 
 type WorkspaceOperation struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Workspace     *WorkspaceRef          `protobuf:"bytes,2,opt,name=workspace,proto3" json:"workspace,omitempty"`
-	OperationType string                 `protobuf:"bytes,3,opt,name=operation_type,json=operationType,proto3" json:"operation_type,omitempty"`
-	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
-	CreatedAt     string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Actor         string                 `protobuf:"bytes,6,opt,name=actor,proto3" json:"actor,omitempty"`
-	AffectedPaths []string               `protobuf:"bytes,7,rep,name=affected_paths,json=affectedPaths,proto3" json:"affected_paths,omitempty"`
-	ChangesetId   string                 `protobuf:"bytes,8,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
-	PatchsetId    string                 `protobuf:"bytes,9,opt,name=patchset_id,json=patchsetId,proto3" json:"patchset_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Workspace       *WorkspaceRef          `protobuf:"bytes,2,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	OperationType   string                 `protobuf:"bytes,3,opt,name=operation_type,json=operationType,proto3" json:"operation_type,omitempty"`
+	Description     string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	CreatedAt       string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Actor           string                 `protobuf:"bytes,6,opt,name=actor,proto3" json:"actor,omitempty"`
+	AffectedPaths   []string               `protobuf:"bytes,7,rep,name=affected_paths,json=affectedPaths,proto3" json:"affected_paths,omitempty"`
+	ChangesetId     string                 `protobuf:"bytes,8,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
+	PatchsetId      string                 `protobuf:"bytes,9,opt,name=patchset_id,json=patchsetId,proto3" json:"patchset_id,omitempty"`
+	ChangesetHandle string                 `protobuf:"bytes,10,opt,name=changeset_handle,json=changesetHandle,proto3" json:"changeset_handle,omitempty"`
+	PatchsetHandle  string                 `protobuf:"bytes,11,opt,name=patchset_handle,json=patchsetHandle,proto3" json:"patchset_handle,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *WorkspaceOperation) Reset() {
@@ -621,6 +639,20 @@ func (x *WorkspaceOperation) GetChangesetId() string {
 func (x *WorkspaceOperation) GetPatchsetId() string {
 	if x != nil {
 		return x.PatchsetId
+	}
+	return ""
+}
+
+func (x *WorkspaceOperation) GetChangesetHandle() string {
+	if x != nil {
+		return x.ChangesetHandle
+	}
+	return ""
+}
+
+func (x *WorkspaceOperation) GetPatchsetHandle() string {
+	if x != nil {
+		return x.PatchsetHandle
 	}
 	return ""
 }
@@ -719,14 +751,16 @@ const file_proto_core_v1_workspace_proto_rawDesc = "" +
 	"\n" +
 	"\x1dproto/core/v1/workspace.proto\x12\x10gitslice.core.v1\x1a\x1dproto/core/v1/changeset.proto\x1a\x1aproto/core/v1/common.proto\"\x1e\n" +
 	"\fWorkspaceRef\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xa7\x02\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x99\x03\n" +
 	"\x0eWorkspaceState\x120\n" +
 	"\x03ref\x18\x01 \x01(\v2\x1e.gitslice.core.v1.WorkspaceRefR\x03ref\x124\n" +
 	"\x05slice\x18\x02 \x01(\v2\x1e.gitslice.core.v1.SliceBindingR\x05slice\x12%\n" +
 	"\x0ehydrated_paths\x18\x03 \x03(\tR\rhydratedPaths\x12$\n" +
 	"\x0ebase_commit_id\x18\x04 \x01(\tR\fbaseCommitId\x120\n" +
 	"\x14current_changeset_id\x18\x05 \x01(\tR\x12currentChangesetId\x12.\n" +
-	"\x13current_patchset_id\x18\x06 \x01(\tR\x11currentPatchsetId\"\x8f\x01\n" +
+	"\x13current_patchset_id\x18\x06 \x01(\tR\x11currentPatchsetId\x128\n" +
+	"\x18current_changeset_handle\x18\a \x01(\tR\x16currentChangesetHandle\x126\n" +
+	"\x17current_patchset_handle\x18\b \x01(\tR\x15currentPatchsetHandle\"\x8f\x01\n" +
 	"\fSliceBinding\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x19\n" +
 	"\bslice_id\x18\x02 \x01(\tR\asliceId\x122\n" +
@@ -753,7 +787,7 @@ const file_proto_core_v1_workspace_proto_rawDesc = "" +
 	"\n" +
 	"path_bases\x18\x04 \x03(\v2\x1a.gitslice.core.v1.PathBaseR\tpathBases\x129\n" +
 	"\bread_set\x18\x05 \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\areadSet\x12;\n" +
-	"\twrite_set\x18\x06 \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\bwriteSet\"\xcb\x02\n" +
+	"\twrite_set\x18\x06 \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\bwriteSet\"\x9f\x03\n" +
 	"\x12WorkspaceOperation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
 	"\tworkspace\x18\x02 \x01(\v2\x1e.gitslice.core.v1.WorkspaceRefR\tworkspace\x12%\n" +
@@ -765,7 +799,10 @@ const file_proto_core_v1_workspace_proto_rawDesc = "" +
 	"\x0eaffected_paths\x18\a \x03(\tR\raffectedPaths\x12!\n" +
 	"\fchangeset_id\x18\b \x01(\tR\vchangesetId\x12\x1f\n" +
 	"\vpatchset_id\x18\t \x01(\tR\n" +
-	"patchsetId\"e\n" +
+	"patchsetId\x12)\n" +
+	"\x10changeset_handle\x18\n" +
+	" \x01(\tR\x0fchangesetHandle\x12'\n" +
+	"\x0fpatchset_handle\x18\v \x01(\tR\x0epatchsetHandle\"e\n" +
 	"\x1fRecordWorkspaceOperationRequest\x12B\n" +
 	"\toperation\x18\x01 \x01(\v2$.gitslice.core.v1.WorkspaceOperationR\toperation\"E\n" +
 	" RecordWorkspaceOperationResponse\x12!\n" +

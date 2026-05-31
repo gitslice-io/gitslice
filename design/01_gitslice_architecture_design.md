@@ -813,7 +813,9 @@ multiple changesets into one submission.
 
 ```text
 Changeset:
-  id
+  id                         # canonical internal/API id
+  number                     # monotonically allocated within authoring_slice
+  handle                     # account/slice@number
   author
   authoring_slice
   created_at
@@ -832,6 +834,12 @@ Changeset:
   metadata
 ```
 
+The changeset handle is the normal user-facing identifier. It is derived from
+the authoring slice and the per-slice changeset number, for example
+`acme/payment@42`, and is suitable for CLI arguments, review links, chat, and
+support messages. The canonical `id` remains useful for storage, idempotency,
+and debugging, but clients should not show raw `cs_...` ids in normal workflows.
+
 ### 7.2 Patchsets
 
 A patchset is one immutable revision of the file changes inside a changeset.
@@ -839,7 +847,7 @@ The changeset is the long-lived review and workflow object; patchsets are the
 successive versions of the proposed diff.
 
 ```text
-CS123
+acme/payment@42
   patchset 1: initial diff
   patchset 2: updated after review feedback
   patchset 3: rebased onto a newer target ref
@@ -849,14 +857,21 @@ Each user or agent update to a changeset creates a new patchset instead of
 mutating the previous one. This gives reviews, approvals, checks, conflict
 analysis, and audit logs a stable object to refer to.
 
+Patchsets are user-facing as numbers scoped to their changeset. When a patchset
+must be shared independently of surrounding changeset context, use
+`<changeset-handle>.<patchset-number>`, for example `acme/payment@42.2`.
+Canonical `ps_...` ids are internal/debug identifiers and should not appear in
+normal CLI, web, or Git gateway output.
+
 A patchset is not a Git commit and is not only a textual `.patch` file. It is a
 native representation of a proposed tree change:
 
 ```text
 Patchset:
-  id
-  changeset_id
+  id                         # canonical internal/API id
+  changeset_id               # canonical parent id
   number
+  handle                     # account/slice@changeset_number.patchset_number
   base_commit
   created_at
   author
