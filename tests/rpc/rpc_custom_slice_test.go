@@ -330,6 +330,30 @@ func TestRPCListCommitsSupportsPathAndCustomSlice(t *testing.T) {
 	if len(intersected.Commits) != 0 {
 		t.Fatalf("path outside slice returned commits: %#v", commitIDs(intersected.Commits))
 	}
+
+	shortShared := strings.TrimPrefix(sharedCommit, "sha256:")
+	if len(shortShared) < 12 {
+		t.Fatalf("shared commit id too short for prefix test: %s", sharedCommit)
+	}
+	resolved, err := clients.repository.ResolveCommit(ctx, &corev1.ResolveCommitRequest{
+		CommitId: shortShared[:12],
+		RefName:  postgres.DefaultTargetRef,
+		Path:     "/acme/payment/history/shared",
+		Slice:    &corev1.SliceRef{Account: "acme", Slice: "history"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Commit.GetId() != sharedCommit || resolved.MatchedPrefix != "sha256:"+shortShared[:12] {
+		t.Fatalf("resolved commit = (%s, %s), want (%s, %s)", resolved.Commit.GetId(), resolved.MatchedPrefix, sharedCommit, "sha256:"+shortShared[:12])
+	}
+	_, err = clients.repository.ResolveCommit(ctx, &corev1.ResolveCommitRequest{
+		CommitId: shortShared[:7],
+		RefName:  postgres.DefaultTargetRef,
+	})
+	if grpcstatus.Code(err) != codes.InvalidArgument {
+		t.Fatalf("short prefix error = %v, want InvalidArgument", err)
+	}
 }
 
 func TestRPCCustomSlicePublishIsConsistentWhenHomeObserves(t *testing.T) {

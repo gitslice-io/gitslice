@@ -49,7 +49,7 @@ func TestMinimalCLIJourney(t *testing.T) {
 	if strings.Contains(authStatusJSON, "token") {
 		t.Fatalf("auth status leaked token data:\n%s", authStatusJSON)
 	}
-	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	runCLI(t, home, workspace, "init", "acme/payment")
 	status := runCLI(t, home, workspace, "status")
 	if !strings.Contains(status, "status: clean") {
 		t.Fatalf("expected clean status, got:\n%s", status)
@@ -111,7 +111,7 @@ func TestWorkspaceInitMaterializesCanonicalLayoutAndRequiresEmptyDirectory(t *te
 	runCLI(t, home, outsideWorkspace, "fs", "write", "/init-user/hello/readme.txt", "--text", "hello workspace\n")
 	runCLI(t, home, outsideWorkspace, "slice", "create", "init-user/hello", "--include", "/init-user/hello")
 
-	initOutput := runCLI(t, home, workspace, "workspace", "init", "init-user/hello")
+	initOutput := runCLI(t, home, workspace, "init", "init-user/hello")
 	if !strings.Contains(initOutput, "hydrated 1 file(s) through cache") {
 		t.Fatalf("unexpected workspace init output:\n%s", initOutput)
 	}
@@ -124,7 +124,7 @@ func TestWorkspaceInitMaterializesCanonicalLayoutAndRequiresEmptyDirectory(t *te
 	}
 
 	writeWorkspaceFile(t, nonEmptyWorkspace, "existing.txt", "do not overwrite\n")
-	_, stderr := runCLIFails(t, home, nonEmptyWorkspace, "workspace", "init", "init-user/hello")
+	_, stderr := runCLIFails(t, home, nonEmptyWorkspace, "init", "init-user/hello")
 	if !strings.Contains(stderr, "workspace init requires an empty directory") {
 		t.Fatalf("expected non-empty workspace init rejection, got:\n%s", stderr)
 	}
@@ -133,7 +133,7 @@ func TestWorkspaceInitMaterializesCanonicalLayoutAndRequiresEmptyDirectory(t *te
 	if err := os.MkdirAll(nestedEmpty, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, stderr = runCLIFails(t, home, nestedEmpty, "workspace", "init", "init-user/hello")
+	_, stderr = runCLIFails(t, home, nestedEmpty, "init", "init-user/hello")
 	if !strings.Contains(stderr, "already inside a gitslice workspace") {
 		t.Fatalf("expected nested workspace init rejection, got:\n%s", stderr)
 	}
@@ -604,7 +604,7 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "other_user")
 	runCLI(t, home, outsideWorkspace, "fs", "mkdir", "/other-user/docs")
 	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "shell_user")
-	initOutput := runCLI(t, home, homeWorkspace, "workspace", "init", "home")
+	initOutput := runCLI(t, home, homeWorkspace, "init", "home")
 	if !strings.Contains(initOutput, "initialized workspace for shell-user/home") {
 		t.Fatalf("unexpected home workspace init output:\n%s", initOutput)
 	}
@@ -1703,21 +1703,28 @@ func TestGitHubImportDeepListAndInspectCommits(t *testing.T) {
 			t.Fatalf("commit %d message = %q, want %q", i, imported.Commits[i].Message, want)
 		}
 	}
-	list := runCLI(t, home, workspace, "commit", "list", "--limit", "4")
+	log := runCLI(t, home, workspace, "log", "--all", "--limit", "4")
 	for _, want := range []string{"third commit", "second commit", "first commit"} {
-		if !strings.Contains(list, want) {
-			t.Fatalf("commit list missing %q:\n%s", want, list)
+		if !strings.Contains(log, want) {
+			t.Fatalf("log missing %q:\n%s", want, log)
 		}
 	}
-	libList := runCLI(t, home, workspace, "commit", "list", "--path", "/acme/payment/imported/deep/lib")
+	if strings.Contains(log, "sha256:") {
+		t.Fatalf("log should use short ids by default:\n%s", log)
+	}
+	secondShort := shortCommitPrefixForTest(t, imported.Commits[1].NativeCommitID)
+	if !strings.Contains(log, secondShort+"  second commit") {
+		t.Fatalf("log missing short id %s for second commit:\n%s", secondShort, log)
+	}
+	libList := runCLI(t, home, workspace, "log", "--all", "--path", "/acme/payment/imported/deep/lib")
 	if !strings.Contains(libList, "second commit") || strings.Contains(libList, "first commit") || strings.Contains(libList, "third commit") {
 		t.Fatalf("path-filtered lib history is wrong:\n%s", libList)
 	}
-	readmeList := runCLI(t, home, workspace, "commit", "list", "/acme/payment/imported/deep/README.md")
+	readmeList := runCLI(t, home, workspace, "log", "--all", "--", "/acme/payment/imported/deep/README.md")
 	if !strings.Contains(readmeList, "first commit") || !strings.Contains(readmeList, "third commit") || strings.Contains(readmeList, "second commit") {
 		t.Fatalf("path-filtered README history is wrong:\n%s", readmeList)
 	}
-	firstPageRaw := runCLI(t, home, workspace, "commit", "list", "/acme/payment/imported/deep/README.md", "--limit", "1", "--json")
+	firstPageRaw := runCLI(t, home, workspace, "log", "--all", "--limit", "1", "--json", "--", "/acme/payment/imported/deep/README.md")
 	var firstPage struct {
 		Commits []struct {
 			Message string `json:"message"`
@@ -1730,7 +1737,7 @@ func TestGitHubImportDeepListAndInspectCommits(t *testing.T) {
 	if len(firstPage.Commits) != 1 || firstPage.Commits[0].Message != "third commit" || firstPage.NextPageToken == "" {
 		t.Fatalf("unexpected first commit page: %#v raw=%s", firstPage, firstPageRaw)
 	}
-	secondPageRaw := runCLI(t, home, workspace, "commit", "list", "/acme/payment/imported/deep/README.md", "--limit", "1", "--page-token", firstPage.NextPageToken, "--json")
+	secondPageRaw := runCLI(t, home, workspace, "log", "--all", "--limit", "1", "--page-token", firstPage.NextPageToken, "--json", "--", "/acme/payment/imported/deep/README.md")
 	var secondPage struct {
 		Commits []struct {
 			Message string `json:"message"`
@@ -1743,10 +1750,27 @@ func TestGitHubImportDeepListAndInspectCommits(t *testing.T) {
 	if len(secondPage.Commits) != 1 || secondPage.Commits[0].Message != "first commit" || secondPage.NextPageToken != "" {
 		t.Fatalf("unexpected second commit page: %#v raw=%s", secondPage, secondPageRaw)
 	}
-	inspect := runCLI(t, home, workspace, "commit", "inspect", imported.Commits[1].NativeCommitID)
-	if !strings.Contains(inspect, "message: second commit") ||
-		!strings.Contains(inspect, "/acme/payment/imported/deep/lib/code.go") {
-		t.Fatalf("unexpected second commit inspect output:\n%s", inspect)
+	show := runCLI(t, home, workspace, "show", secondShort)
+	if !strings.Contains(show, "commit "+secondShort) ||
+		!strings.Contains(show, "second commit") ||
+		!strings.Contains(show, "/acme/payment/imported/deep/lib/code.go") {
+		t.Fatalf("unexpected show output for short id %s:\n%s", secondShort, show)
+	}
+	showRaw := runCLI(t, home, workspace, "show", secondShort, "--json")
+	var shown struct {
+		ID      string `json:"id"`
+		ShortID string `json:"short_id"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal([]byte(showRaw), &shown); err != nil {
+		t.Fatal(err)
+	}
+	if shown.ID != imported.Commits[1].NativeCommitID || shown.ShortID != secondShort || shown.Message != "second commit" {
+		t.Fatalf("unexpected show json: %#v raw=%s", shown, showRaw)
+	}
+	diffNameOnly := runCLI(t, home, workspace, "diff", secondShort, "--name-only")
+	if !strings.Contains(diffNameOnly, "/acme/payment/imported/deep/lib/code.go") {
+		t.Fatalf("commit diff --name-only missing changed path:\n%s", diffNameOnly)
 	}
 	cloneDir := cloneSlice(t, ts, token)
 	assertProjectedFile(t, cloneDir, "acme/payment/imported/deep/README.md", "hello v2\n")
@@ -1874,6 +1898,15 @@ func (ts *testServer) restart(t *testing.T) {
 	t.Helper()
 	ts.stop(t)
 	ts.start(t, false)
+}
+
+func shortCommitPrefixForTest(t *testing.T, id string) string {
+	t.Helper()
+	hexPart := strings.TrimPrefix(id, "sha256:")
+	if len(hexPart) < 12 {
+		t.Fatalf("commit id too short for short prefix: %s", id)
+	}
+	return hexPart[:12]
 }
 
 func runCLI(t *testing.T, home, workspace string, args ...string) string {

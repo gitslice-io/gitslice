@@ -260,6 +260,31 @@ type fileMutationOutput struct {
 	ChangedPaths   []string `json:"changed_paths"`
 }
 
+type commitLogOutput struct {
+	Scope         *commitLogScopeOutput `json:"scope,omitempty"`
+	Commits       []commitOutput        `json:"commits"`
+	NextPageToken string                `json:"next_page_token,omitempty"`
+}
+
+type commitLogScopeOutput struct {
+	RefName     string           `json:"ref_name"`
+	Slice       *corev1.SliceRef `json:"slice,omitempty"`
+	Path        string           `json:"path,omitempty"`
+	FollowMoves bool             `json:"follow_moves"`
+	All         bool             `json:"all,omitempty"`
+}
+
+type commitOutput struct {
+	ID           string   `json:"id"`
+	ShortID      string   `json:"short_id"`
+	ParentIDs    []string `json:"parent_ids,omitempty"`
+	RootTreeID   string   `json:"root_tree_id,omitempty"`
+	Author       string   `json:"author,omitempty"`
+	CreatedAt    string   `json:"created_at,omitempty"`
+	Message      string   `json:"message"`
+	ChangedPaths []string `json:"changed_paths,omitempty"`
+}
+
 type fsListOutput struct {
 	Path     string          `json:"path"`
 	Slice    string          `json:"slice"`
@@ -291,6 +316,29 @@ type fsUploadOptions struct {
 	Concurrency int
 }
 
+type commitLogOptions struct {
+	Limit         int
+	Path          string
+	Slice         string
+	PageToken     string
+	NoFollowMoves bool
+	Follow        bool
+	All           bool
+	Full          bool
+	Oneline       bool
+	NameOnly      bool
+	Stat          bool
+	Patch         bool
+	IncludeScope  bool
+}
+
+type commitShowOptions struct {
+	Full     bool
+	NameOnly bool
+	Stat     bool
+	Patch    bool
+}
+
 type localUploadPlan struct {
 	Files           []localUploadFile
 	EmptyRemoteDirs []string
@@ -306,12 +354,13 @@ type localUploadFile struct {
 }
 
 const (
-	ansiReset = "\x1b[0m"
-	ansiDim   = "\x1b[2m"
-	ansiBlue  = "\x1b[34m"
-	ansiCyan  = "\x1b[36m"
-	ansiGreen = "\x1b[32m"
-	ansiRed   = "\x1b[31m"
+	ansiReset  = "\x1b[0m"
+	ansiDim    = "\x1b[2m"
+	ansiBlue   = "\x1b[34m"
+	ansiCyan   = "\x1b[36m"
+	ansiGreen  = "\x1b[32m"
+	ansiRed    = "\x1b[31m"
+	ansiYellow = "\x1b[33m"
 )
 
 type helpTopic struct {
@@ -621,7 +670,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "gs",
 		Short:         "Gitslice native CLI",
-		Example:       "  gs auth signup --username nic\n  gs shell\n  gs fs upload ./notes /nic/notes --recursive\n  gs workspace init nic/home\n  gs status\n  gs cs create --title \"update notes\"\n  gs cs diff\n  gs cs submit",
+		Example:       "  gs auth signup --username nic\n  gs shell\n  gs fs upload ./notes /nic/notes --recursive\n  gs init nic/home\n  gs status\n  gs cs create --title \"update notes\"\n  gs cs diff\n  gs cs submit",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -637,8 +686,8 @@ func (r Runner) rootCommand() *cobra.Command {
 				}
 				opts.JSONFields = fields
 			}
-			if opts.Format != "text" && opts.Format != "json" {
-				return userError("invalid_format", "invalid output format "+opts.Format, "Use --format text, --format json, or --json.")
+			if opts.Format != "text" && opts.Format != "json" && opts.Format != "medium" {
+				return userError("invalid_format", "invalid output format "+opts.Format, "Use --format text, --format json, --format medium where supported, or --json.")
 			}
 			if opts.JQ != "" && opts.Template != "" {
 				return userError("invalid_format", "cannot use --jq and --template together", "Use --jq to filter JSON or --template to format output.")
@@ -646,7 +695,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			return nil
 		},
 	}
-	root.PersistentFlags().StringVar(&opts.Format, "format", "text", "output format: text or json")
+	root.PersistentFlags().StringVar(&opts.Format, "format", "text", "output format: text, json, or command-specific formats such as medium")
 	root.PersistentFlags().StringVar(&jsonFlagValue, "json", "", "emit JSON output; optionally select comma-separated fields with --json=field,field")
 	root.PersistentFlags().Lookup("json").NoOptDefVal = "*"
 	root.PersistentFlags().StringVar(&opts.JQ, "jq", "", "filter structured output with a jq expression")
@@ -718,6 +767,15 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd, authTokenCmd, authLogoutCmd)
 
+	initCmd := &cobra.Command{
+		Use:   "init <slice|account/slice>",
+		Short: "Bind the current directory to a slice",
+		Args:  exactArgs(1, "gs init <slice|account/slice>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
+		},
+	}
+
 	workspaceCmd := &cobra.Command{
 		Use:     "workspace",
 		Aliases: []string{"ws"},
@@ -725,9 +783,10 @@ func (r Runner) rootCommand() *cobra.Command {
 		RunE:    requireSubcommand("workspace"),
 	}
 	workspaceInitCmd := &cobra.Command{
-		Use:   "init <slice|account/slice>",
-		Short: "Bind the current directory to a slice",
-		Args:  exactArgs(1, "gs workspace init <slice|account/slice>"),
+		Use:    "init <slice|account/slice>",
+		Short:  "Bind the current directory to a slice",
+		Hidden: true,
+		Args:   exactArgs(1, "gs workspace init <slice|account/slice>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
 		},
@@ -870,16 +929,92 @@ func (r Runner) rootCommand() *cobra.Command {
 	browseCmd.Flags().StringVar(&browseWebURL, "web-url", browseWebURL, "web UI base URL")
 	browseCmd.Flags().BoolVar(&browsePrint, "print", browsePrint, "print the URL instead of opening a browser")
 
+	logLimit := 20
+	logPath := ""
+	logSlice := ""
+	logPageToken := ""
+	logNoFollowMoves := false
+	logFollow := false
+	logAll := false
+	logFull := false
+	logOneline := false
+	logNameOnly := false
+	logStat := false
+	logPatch := false
+	logCmd := &cobra.Command{
+		Use:   "log [-- <path>]",
+		Short: "List native commits",
+		Args:  maxArgs(1, "gs log [-- <path>] [--slice slice|account/slice] [--limit 20]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pathFilter := logPath
+			if len(args) == 1 {
+				if strings.TrimSpace(pathFilter) != "" {
+					return userError("invalid_args", "path was provided twice", "Pass either gs log -- <path> or gs log --path <path>.")
+				}
+				pathFilter = args[0]
+			}
+			return r.runCommitLog(cmd.Context(), *opts, commitLogOptions{
+				Limit:         logLimit,
+				Path:          pathFilter,
+				Slice:         logSlice,
+				PageToken:     logPageToken,
+				NoFollowMoves: logNoFollowMoves,
+				Follow:        logFollow,
+				All:           logAll,
+				Full:          logFull,
+				Oneline:       logOneline,
+				NameOnly:      logNameOnly,
+				Stat:          logStat,
+				Patch:         logPatch,
+				IncludeScope:  true,
+			})
+		},
+	}
+	logCmd.Flags().IntVar(&logLimit, "limit", logLimit, "maximum commits to list")
+	logCmd.Flags().StringVar(&logPath, "path", logPath, "absolute path, or workspace-relative path inside a workspace")
+	logCmd.Flags().StringVar(&logSlice, "slice", logSlice, "slice to filter commits, defaults to workspace slice or personal home slice")
+	logCmd.Flags().StringVar(&logPageToken, "page-token", logPageToken, "opaque pagination token from a previous log")
+	logCmd.Flags().BoolVar(&logNoFollowMoves, "no-follow-moves", logNoFollowMoves, "show literal path history without following moves")
+	logCmd.Flags().BoolVar(&logFollow, "follow", logFollow, "follow file or directory identity across moves")
+	logCmd.Flags().BoolVar(&logAll, "all", logAll, "list all readable history instead of defaulting to a slice")
+	logCmd.Flags().BoolVar(&logFull, "full", logFull, "show full native commit ids")
+	logCmd.Flags().BoolVar(&logOneline, "oneline", logOneline, "use the default one-line format")
+	logCmd.Flags().BoolVar(&logNameOnly, "name-only", logNameOnly, "show only changed path names under each commit")
+	logCmd.Flags().BoolVar(&logStat, "stat", logStat, "show a compact changed-path summary under each commit")
+	logCmd.Flags().BoolVarP(&logPatch, "patch", "p", logPatch, "show patches for each commit")
+
+	showFull := false
+	showNameOnly := false
+	showStat := false
+	showPatch := false
+	showCmd := &cobra.Command{
+		Use:   "show <commit-id-or-prefix>",
+		Short: "Show a native commit",
+		Args:  exactArgs(1, "gs show <commit-id-or-prefix>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCommitShow(cmd.Context(), *opts, args[0], commitShowOptions{
+				Full:     showFull,
+				NameOnly: showNameOnly,
+				Stat:     showStat,
+				Patch:    showPatch,
+			})
+		},
+	}
+	showCmd.Flags().BoolVar(&showFull, "full", showFull, "show full native commit ids")
+	showCmd.Flags().BoolVar(&showNameOnly, "name-only", showNameOnly, "show only changed path names")
+	showCmd.Flags().BoolVar(&showStat, "stat", showStat, "show a compact changed-path summary")
+	showCmd.Flags().BoolVarP(&showPatch, "patch", "p", showPatch, "show the commit patch")
+
 	diffNameOnly := false
 	diffStat := false
 	diffFrom := ""
 	diffTo := ""
 	diffCmd := &cobra.Command{
-		Use:   "diff",
-		Short: "Show workspace or current changeset diffs",
-		Args:  noArgs("gs diff [--from patchset --to patchset]"),
+		Use:   "diff [commit-id-or-prefix] [commit-id-or-prefix]",
+		Short: "Show workspace, changeset, or commit diffs",
+		Args:  maxArgs(2, "gs diff [commit-id-or-prefix] [commit-id-or-prefix] [--from patchset --to patchset]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runDiff(cmd.Context(), *opts, diffFrom, diffTo, diffNameOnly, diffStat)
+			return r.runDiff(cmd.Context(), *opts, args, diffFrom, diffTo, diffNameOnly, diffStat)
 		},
 	}
 	diffCmd.Flags().StringVar(&diffFrom, "from", diffFrom, "patchset id or number to diff from")
@@ -1181,47 +1316,6 @@ func (r Runner) rootCommand() *cobra.Command {
 	repoImportCmd.AddCommand(importGithubCmd)
 	repoCmd.AddCommand(repoImportCmd)
 
-	commitCmd := &cobra.Command{
-		Use:     "commit",
-		Aliases: []string{"commits"},
-		Short:   "Inspect native commits",
-		RunE:    requireSubcommand("commit"),
-	}
-	commitLimit := 20
-	commitPath := ""
-	commitSlice := ""
-	commitPageToken := ""
-	commitNoFollowMoves := false
-	commitListCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List native commits from a ref",
-		Args:  maxArgs(1, "gs commit list [path] [--slice slice|account/slice] [--limit 20]"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pathFilter := commitPath
-			if len(args) == 1 {
-				if strings.TrimSpace(pathFilter) != "" {
-					return userError("invalid_args", "path was provided twice", "Pass either gs commit list <path> or gs commit list --path <path>.")
-				}
-				pathFilter = args[0]
-			}
-			return r.runCommitList(cmd.Context(), *opts, commitLimit, pathFilter, commitSlice, commitPageToken, commitNoFollowMoves)
-		},
-	}
-	commitListCmd.Flags().IntVar(&commitLimit, "limit", commitLimit, "maximum commits to list")
-	commitListCmd.Flags().StringVar(&commitPath, "path", commitPath, "absolute file or directory path to filter commits")
-	commitListCmd.Flags().StringVar(&commitSlice, "slice", commitSlice, "slice to filter commits, defaults to all slices")
-	commitListCmd.Flags().StringVar(&commitPageToken, "page-token", commitPageToken, "opaque pagination token from a previous commit list")
-	commitListCmd.Flags().BoolVar(&commitNoFollowMoves, "no-follow-moves", commitNoFollowMoves, "show literal path history without following moves")
-	commitInspectCmd := &cobra.Command{
-		Use:   "inspect <commit-id>",
-		Short: "Inspect a native commit",
-		Args:  exactArgs(1, "gs commit inspect <commit-id>"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runCommitInspect(cmd.Context(), *opts, args[0])
-		},
-	}
-	commitCmd.AddCommand(commitListCmd, commitInspectCmd)
-
 	shellCommit := ""
 	shellSlice := ""
 	shellCmd := &cobra.Command{
@@ -1325,7 +1419,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, diffCmd, csCmd, fsCmd, repoCmd, commitCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, initCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, repoCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -2111,8 +2205,8 @@ func validateAliasName(name string) error {
 
 func reservedAliasNames() map[string]bool {
 	names := []string{
-		"alias", "auth", "browse", "commit", "commits", "completion", "config", "cfg", "context", "ctx",
-		"cs", "changeset", "diff", "file", "fs", "help", "repo", "repository", "rpc", "schema",
+		"alias", "auth", "browse", "completion", "config", "cfg", "context", "ctx", "init",
+		"cs", "changeset", "diff", "file", "fs", "help", "log", "repo", "repository", "rpc", "schema", "show",
 		"shell", "slice", "slices", "st", "status", "version", "workspace", "ws",
 	}
 	reserved := make(map[string]bool, len(names))
@@ -2663,7 +2757,7 @@ func (r Runner) requireEmptyWorkspaceInitDir() error {
 	if len(entries) == 0 {
 		return nil
 	}
-	return userError("workspace_not_empty", "workspace init requires an empty directory", "Create a new empty directory and run gs workspace init <slice|account/slice> there.")
+	return userError("workspace_not_empty", "workspace init requires an empty directory", "Create a new empty directory and run gs init <slice|account/slice> there.")
 }
 
 func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, requested []string) error {
@@ -2685,7 +2779,7 @@ func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, re
 		baseCommitID = ws.BaseCommitID
 	}
 	if baseCommitID == "" {
-		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs workspace init <slice|account/slice> again.")
+		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs init <slice|account/slice> again.")
 	}
 	hydrated, err := r.hydrateWorkspacePaths(authContext(ctx, cfg), conn, ws, baseCommitID, requested, cache)
 	if err != nil {
@@ -2759,11 +2853,61 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 	return nil
 }
 
-func (r Runner) runDiff(ctx context.Context, opts commandOptions, from, to string, nameOnly, stat bool) error {
+func (r Runner) runDiff(ctx context.Context, opts commandOptions, commitArgs []string, from, to string, nameOnly, stat bool) error {
+	if len(commitArgs) > 0 {
+		if strings.TrimSpace(from) != "" || strings.TrimSpace(to) != "" {
+			return userError("invalid_args", "commit ids cannot be combined with --from or --to", "Use gs diff <commit> [commit] or gs cs diff --from <patchset> --to <patchset>.")
+		}
+		return r.runCommitDiff(ctx, opts, commitArgs, nameOnly, stat)
+	}
 	if strings.TrimSpace(from) != "" || strings.TrimSpace(to) != "" {
 		return r.runChangesetDiff(ctx, opts, "", "", from, to, nameOnly, stat)
 	}
 	return r.runWorkspaceDiff(ctx, opts, nameOnly, stat)
+}
+
+func (r Runner) runCommitDiff(ctx context.Context, opts commandOptions, commitArgs []string, nameOnly, stat bool) error {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	oldInput := ""
+	newInput := commitArgs[0]
+	if len(commitArgs) == 2 {
+		oldInput = commitArgs[0]
+		newInput = commitArgs[1]
+	}
+	oldCommit, newCommit, changed, diffText, err := r.commitDiff(ctx, cfg, conn, oldInput, newInput)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"from_commit_id": oldCommitID(oldCommit),
+			"to_commit_id":   newCommit.Id,
+			"changed_paths":  changed,
+			"diff":           diffText,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	color := r.colorEnabled(opts)
+	if nameOnly {
+		printPathListColor(r.Stdout, changed, color)
+		return nil
+	}
+	if stat {
+		printPathStatColor(r.Stdout, changed, color)
+		return nil
+	}
+	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(diffText, color))
+	return err
 }
 
 func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameOnly, stat bool) error {
@@ -2783,7 +2927,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 		baseCommitID = ws.BaseCommitID
 	}
 	if baseCommitID == "" {
-		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs workspace init <slice|account/slice> again.")
+		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs init <slice|account/slice> again.")
 	}
 	edits, current, err := r.snapshotEdits(ctx, nil, cfg, ws, false)
 	if err != nil {
@@ -2807,18 +2951,18 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 		return nil
 	}
 	if nameOnly {
-		printPathList(r.Stdout, changed)
+		printPathListColor(r.Stdout, changed, r.colorEnabled(opts))
 		return nil
 	}
 	if stat {
-		printPathStat(r.Stdout, changed)
+		printPathStatColor(r.Stdout, changed, r.colorEnabled(opts))
 		return nil
 	}
 	diffText, err := r.workspaceDiffText(ctx, cfg, base, baseCommitID, current, changed)
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(r.Stdout, diffText)
+	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(diffText, r.colorEnabled(opts)))
 	return err
 }
 
@@ -2853,6 +2997,110 @@ func (r Runner) workspaceDiffText(ctx context.Context, cfg UserConfig, base Base
 		b.WriteString(diffutil.UnifiedFileDiff(oldFile, newFile))
 	}
 	return b.String(), nil
+}
+
+func (r Runner) commitDiffText(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, oldInput, newInput string) (string, error) {
+	_, _, _, diffText, err := r.commitDiff(ctx, cfg, conn, oldInput, newInput)
+	return diffText, err
+}
+
+func (r Runner) commitDiff(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, oldInput, newInput string) (*corev1.Commit, *corev1.Commit, []string, string, error) {
+	repo := corev1.NewRepositoryServiceClient(conn)
+	newCommit, err := r.resolveCommit(ctx, cfg, conn, newInput, nil)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	var oldCommit *corev1.Commit
+	explicitOld := strings.TrimSpace(oldInput) != ""
+	if explicitOld {
+		oldCommit, err = r.resolveCommit(ctx, cfg, conn, oldInput, nil)
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+	} else if len(newCommit.ParentIds) > 0 {
+		oldCommit, err = repo.GetCommit(authContext(ctx, cfg), &corev1.GetCommitRequest{CommitId: newCommit.ParentIds[0]})
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+	}
+	changed := commitChangedPaths(newCommit)
+	if explicitOld {
+		changed = commitDiffChangedPaths(oldCommit, newCommit)
+	}
+	var b strings.Builder
+	for _, p := range changed {
+		oldFile, err := r.commitDiffFile(authContext(ctx, cfg), repo, oldCommit, p)
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+		newFile, err := r.commitDiffFile(authContext(ctx, cfg), repo, newCommit, p)
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+		b.WriteString(diffutil.UnifiedFileDiff(oldFile, newFile))
+	}
+	return oldCommit, newCommit, changed, b.String(), nil
+}
+
+func (r Runner) commitDiffFile(ctx context.Context, repo corev1.RepositoryServiceClient, commit *corev1.Commit, p string) (diffutil.File, error) {
+	if commit == nil || commit.Id == "" {
+		return diffutil.File{Path: p}, nil
+	}
+	read, err := repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: commit.Id, Path: p})
+	if grpcstatus.Code(err) == codes.NotFound {
+		return diffutil.File{Path: p}, nil
+	}
+	if err != nil {
+		return diffutil.File{}, err
+	}
+	return diffutil.File{Path: p, Exists: true, Data: read.Data}, nil
+}
+
+func commitDiffChangedPaths(oldCommit, newCommit *corev1.Commit) []string {
+	seen := map[string]struct{}{}
+	for _, commit := range []*corev1.Commit{oldCommit, newCommit} {
+		if commit == nil {
+			continue
+		}
+		for _, p := range commit.ChangedPaths {
+			if strings.TrimSpace(p) == "" {
+				continue
+			}
+			seen[p] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func commitChangedPaths(commit *corev1.Commit) []string {
+	if commit == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	for _, p := range commit.ChangedPaths {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		seen[p] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func oldCommitID(commit *corev1.Commit) string {
+	if commit == nil {
+		return ""
+	}
+	return commit.Id
 }
 
 func (r Runner) workspaceBaseDiffFile(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, base BaseSnapshot, baseCommitID, p string) (diffutil.File, error) {
@@ -4043,14 +4291,14 @@ func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, reque
 		return nil
 	}
 	if nameOnly {
-		printPathList(r.Stdout, res.ChangedPaths)
+		printPathListColor(r.Stdout, res.ChangedPaths, r.colorEnabled(opts))
 		return nil
 	}
 	if stat {
-		printPathStat(r.Stdout, res.ChangedPaths)
+		printPathStatColor(r.Stdout, res.ChangedPaths, r.colorEnabled(opts))
 		return nil
 	}
-	_, err = io.WriteString(r.Stdout, res.Diff)
+	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(res.Diff, r.colorEnabled(opts)))
 	return err
 }
 
@@ -4529,7 +4777,16 @@ func (r *importProgressReporter) shouldPrintCommitLine(event *corev1.ImportGitRe
 	return false
 }
 
-func (r Runner) runCommitList(ctx context.Context, opts commandOptions, limit int, pathFilter, sliceRef, pageToken string, noFollowMoves bool) error {
+func (r Runner) runCommitLog(ctx context.Context, opts commandOptions, logOpts commitLogOptions) error {
+	if logOpts.Patch || logOpts.Stat {
+		return userError("unsupported_option", "commit log patch/stat output is not supported yet", "Use gs show --name-only <commit> or gs diff <commit>.")
+	}
+	if logOpts.Oneline && opts.Format == "medium" {
+		return userError("invalid_args", "--oneline cannot be combined with --format medium", "Use either gs log --oneline or gs log --format medium.")
+	}
+	if logOpts.All && strings.TrimSpace(logOpts.Slice) != "" {
+		return userError("invalid_args", "--all cannot be combined with --slice", "Use --slice for one slice or --all for broader readable history.")
+	}
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
@@ -4540,43 +4797,65 @@ func (r Runner) runCommitList(ctx context.Context, opts commandOptions, limit in
 	}
 	defer conn.Close()
 	callCtx := authContext(ctx, cfg)
+	pathFilter, err := r.resolveCommitLogPath(logOpts.Path)
+	if err != nil {
+		return err
+	}
+	if logOpts.Follow && strings.TrimSpace(pathFilter) == "" {
+		return userError("invalid_args", "--follow requires exactly one path", "Pass a path with gs log --follow -- <path>.")
+	}
+	scopeSlice, scopeAll, err := r.resolveCommitLogScope(callCtx, cfg, conn, logOpts.Slice, logOpts.All)
+	if err != nil {
+		return err
+	}
 	req := &corev1.ListCommitsRequest{
 		RefName:   postgres.DefaultTargetRef,
-		Limit:     int32(limit),
+		Limit:     int32(logOpts.Limit),
 		Path:      pathFilter,
-		PageToken: pageToken,
+		Slice:     scopeSlice,
+		PageToken: logOpts.PageToken,
 	}
-	if noFollowMoves {
+	if logOpts.NoFollowMoves {
 		followMoves := false
 		req.FollowMoves = &followMoves
-	}
-	if strings.TrimSpace(sliceRef) != "" {
-		ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
-		if err != nil {
-			return err
-		}
-		req.Slice = ref
 	}
 	res, err := corev1.NewRepositoryServiceClient(conn).ListCommits(callCtx, req)
 	if err != nil {
 		return err
 	}
+	output := commitLogOutput{
+		Commits:       commitsToOutput(res.Commits),
+		NextPageToken: res.NextPageToken,
+	}
+	if logOpts.IncludeScope {
+		output.Scope = &commitLogScopeOutput{
+			RefName:     req.RefName,
+			Slice:       scopeSlice,
+			Path:        pathFilter,
+			FollowMoves: req.FollowMoves == nil || req.GetFollowMoves(),
+			All:         scopeAll,
+		}
+	}
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, res)
+		return r.writeJSONOutput(opts, output)
 	}
 	if opts.Quiet {
 		return nil
 	}
-	for _, commit := range res.Commits {
-		fmt.Fprintf(r.Stdout, "%s %s\n", commit.Id, commit.Message)
+	color := r.colorEnabled(opts)
+	if opts.Format == "medium" {
+		printCommitLogMedium(r.Stdout, res.Commits, logOpts.Full, logOpts.NameOnly, color)
+	} else {
+		printCommitLogOneline(r.Stdout, res.Commits, logOpts.Full, logOpts.NameOnly, color)
 	}
 	if res.NextPageToken != "" {
-		fmt.Fprintf(r.Stdout, "next_page_token: %s\n", res.NextPageToken)
+		fmt.Fprintf(r.Stdout, "%s %s\n", colorize(color, ansiDim, "next_page_token:"), res.NextPageToken)
+		fmt.Fprintf(r.Stdout, "%s Run gs log --page-token %s with the same filters.\n", colorize(color, ansiDim, "hint:"), res.NextPageToken)
 	}
 	return nil
 }
 
-func (r Runner) runCommitInspect(ctx context.Context, opts commandOptions, commitID string) error {
+func (r Runner) runCommitShow(ctx context.Context, opts commandOptions, commitID string, showOpts commitShowOptions) error {
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
@@ -4586,31 +4865,210 @@ func (r Runner) runCommitInspect(ctx context.Context, opts commandOptions, commi
 		return err
 	}
 	defer conn.Close()
-	commit, err := corev1.NewRepositoryServiceClient(conn).GetCommit(authContext(ctx, cfg), &corev1.GetCommitRequest{CommitId: commitID})
+	commit, err := r.resolveCommit(ctx, cfg, conn, commitID, nil)
 	if err != nil {
 		return err
 	}
+	out := commitToOutput(commit)
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, commit)
+		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "commit: %s\n", commit.Id)
-	fmt.Fprintf(r.Stdout, "root_tree: %s\n", commit.RootTreeId)
-	fmt.Fprintf(r.Stdout, "author: %s\n", commit.Author)
-	fmt.Fprintf(r.Stdout, "created_at: %s\n", commit.CreatedAt)
-	fmt.Fprintf(r.Stdout, "message: %s\n", commit.Message)
-	if len(commit.ParentIds) > 0 {
-		fmt.Fprintf(r.Stdout, "parents: %s\n", strings.Join(commit.ParentIds, " "))
+	color := r.colorEnabled(opts)
+	if showOpts.NameOnly {
+		printPathListColor(r.Stdout, commit.ChangedPaths, color)
+		return nil
 	}
-	if len(commit.ChangedPaths) > 0 {
-		fmt.Fprintln(r.Stdout, "changed_paths:")
-		for _, p := range commit.ChangedPaths {
-			fmt.Fprintf(r.Stdout, "  %s\n", p)
+	if showOpts.Stat {
+		printPathStatColor(r.Stdout, commit.ChangedPaths, color)
+		return nil
+	}
+	if showOpts.Patch {
+		diffText, err := r.commitDiffText(ctx, cfg, conn, "", commit.Id)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(diffText, color))
+		return err
+	}
+	printCommitDetails(r.Stdout, commit, showOpts.Full, color)
+	return nil
+}
+
+func (r Runner) resolveCommitLogPath(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(raw, "/") {
+		return cleanShellGlobalPath(raw)
+	}
+	ws, err := r.readWorkspaceConfig()
+	if err != nil {
+		if isUserErrorCode(err, "not_in_workspace") {
+			return "", userError("invalid_args", "relative log paths require a workspace", "Pass an absolute account-rooted path such as /account/project or run gs log from inside a workspace.")
+		}
+		return "", err
+	}
+	return workspaceInputToGlobalPath(ws, raw)
+}
+
+func (r Runner) resolveCommitLogScope(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceRef string, all bool) (*corev1.SliceRef, bool, error) {
+	if all {
+		return nil, true, nil
+	}
+	if strings.TrimSpace(sliceRef) != "" {
+		ref, err := r.resolveSliceRefInput(ctx, cfg, conn, sliceRef)
+		return ref, false, err
+	}
+	if ws, err := r.readWorkspaceConfig(); err == nil {
+		return &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, false, nil
+	} else if !isUserErrorCode(err, "not_in_workspace") {
+		return nil, false, err
+	}
+	slice, err := r.personalHomeSlice(ctx, cfg, conn)
+	if err != nil {
+		return nil, false, err
+	}
+	return slice.Ref, false, nil
+}
+
+type commitResolveScope struct {
+	Path        string
+	Slice       *corev1.SliceRef
+	FollowMoves *bool
+}
+
+func (r Runner) resolveCommit(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, input string, scope *commitResolveScope) (*corev1.Commit, error) {
+	req := &corev1.ResolveCommitRequest{
+		CommitId: input,
+		RefName:  postgres.DefaultTargetRef,
+	}
+	if scope != nil {
+		req.Path = scope.Path
+		req.Slice = scope.Slice
+		req.FollowMoves = scope.FollowMoves
+	}
+	res, err := corev1.NewRepositoryServiceClient(conn).ResolveCommit(authContext(ctx, cfg), req)
+	if err != nil {
+		if grpcstatus.Code(err) == codes.InvalidArgument {
+			return nil, userError("invalid_commit_id", grpcstatus.Convert(err).Message(), "Pass a full commit id, sha256:<prefix>, or at least 8 hex characters.")
+		}
+		if grpcstatus.Code(err) == codes.FailedPrecondition && strings.Contains(err.Error(), "COMMIT_PREFIX_AMBIGUOUS") {
+			return nil, userError("ambiguous_commit", grpcstatus.Convert(err).Message(), "Use a longer commit id prefix.")
+		}
+		return nil, err
+	}
+	return res.Commit, nil
+}
+
+func commitsToOutput(commits []*corev1.Commit) []commitOutput {
+	out := make([]commitOutput, 0, len(commits))
+	for _, commit := range commits {
+		out = append(out, commitToOutput(commit))
+	}
+	return out
+}
+
+func commitToOutput(commit *corev1.Commit) commitOutput {
+	if commit == nil {
+		return commitOutput{}
+	}
+	return commitOutput{
+		ID:           commit.Id,
+		ShortID:      shortID(commit.Id),
+		ParentIDs:    append([]string(nil), commit.ParentIds...),
+		RootTreeID:   commit.RootTreeId,
+		Author:       commit.Author,
+		CreatedAt:    commit.CreatedAt,
+		Message:      commit.Message,
+		ChangedPaths: append([]string(nil), commit.ChangedPaths...),
+	}
+}
+
+func printCommitLogOneline(w io.Writer, commits []*corev1.Commit, full, nameOnly, color bool) {
+	for _, commit := range commits {
+		id := displayCommitID(commit.Id, full)
+		fmt.Fprintf(w, "%s  %s\n", colorize(color, ansiYellow, id), commit.Message)
+		if nameOnly {
+			printIndentedPathsColor(w, commit.ChangedPaths, "  ", color)
 		}
 	}
-	return nil
+}
+
+func printCommitLogMedium(w io.Writer, commits []*corev1.Commit, full, nameOnly, color bool) {
+	for i, commit := range commits {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
+		printCommitDetails(w, commit, full, color)
+		if nameOnly && len(commit.ChangedPaths) > 0 {
+			fmt.Fprintln(w)
+			printIndentedPathsColor(w, commit.ChangedPaths, "  ", color)
+		}
+	}
+}
+
+func printCommitDetails(w io.Writer, commit *corev1.Commit, full, color bool) {
+	id := displayCommitID(commit.Id, full)
+	fmt.Fprintf(w, "%s %s\n", colorize(color, ansiDim, "commit"), colorize(color, ansiYellow, id))
+	if len(commit.ParentIds) > 0 {
+		parents := make([]string, 0, len(commit.ParentIds))
+		for _, parent := range commit.ParentIds {
+			parents = append(parents, displayCommitID(parent, full))
+		}
+		fmt.Fprintf(w, "%s %s\n", colorize(color, ansiDim, "Parents:"), strings.Join(parents, " "))
+	}
+	if commit.RootTreeId != "" {
+		fmt.Fprintf(w, "%s %s\n", colorize(color, ansiDim, "Root:"), displayCommitID(commit.RootTreeId, full))
+	}
+	if commit.Author != "" {
+		fmt.Fprintf(w, "%s %s\n", colorize(color, ansiDim, "Author:"), commit.Author)
+	}
+	if commit.CreatedAt != "" {
+		fmt.Fprintf(w, "%s   %s\n", colorize(color, ansiDim, "Date:"), commit.CreatedAt)
+	}
+	if strings.TrimSpace(commit.Message) != "" {
+		fmt.Fprintln(w)
+		for _, line := range strings.Split(commit.Message, "\n") {
+			fmt.Fprintf(w, "    %s\n", line)
+		}
+	}
+	if len(commit.ChangedPaths) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, colorize(color, ansiDim, "Changed paths:"))
+		printIndentedPathsColor(w, commit.ChangedPaths, "  ", color)
+	}
+}
+
+func displayCommitID(id string, full bool) string {
+	if full {
+		return id
+	}
+	return shortID(id)
+}
+
+func printPathListColor(w io.Writer, paths []string, color bool) {
+	for _, p := range paths {
+		fmt.Fprintln(w, colorize(color, ansiBlue, p))
+	}
+}
+
+func printPathStatColor(w io.Writer, paths []string, color bool) {
+	fmt.Fprintf(w, "%d changed path(s)\n", len(paths))
+	printIndentedPathsColor(w, paths, "  ", color)
+}
+
+func printIndentedPathsColor(w io.Writer, paths []string, indent string, color bool) {
+	if len(paths) == 0 {
+		fmt.Fprintln(w, indent+"none")
+		return
+	}
+	for _, p := range paths {
+		fmt.Fprintln(w, indent+colorize(color, ansiBlue, p))
+	}
 }
 
 func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sliceRef string) error {
@@ -5635,6 +6093,33 @@ func colorize(enabled bool, code, value string) string {
 	return code + value + ansiReset
 }
 
+func colorUnifiedDiff(diffText string, enabled bool) string {
+	if !enabled || diffText == "" {
+		return diffText
+	}
+	lines := strings.SplitAfter(diffText, "\n")
+	var b strings.Builder
+	for _, line := range lines {
+		trimmed := strings.TrimSuffix(line, "\n")
+		newline := ""
+		if strings.HasSuffix(line, "\n") {
+			newline = "\n"
+		}
+		switch {
+		case strings.HasPrefix(trimmed, "diff --git") || strings.HasPrefix(trimmed, "index ") || strings.HasPrefix(trimmed, "@@"):
+			b.WriteString(colorize(true, ansiDim, trimmed))
+		case strings.HasPrefix(trimmed, "+++") || strings.HasPrefix(trimmed, "+"):
+			b.WriteString(colorize(true, ansiGreen, trimmed))
+		case strings.HasPrefix(trimmed, "---") || strings.HasPrefix(trimmed, "-"):
+			b.WriteString(colorize(true, ansiRed, trimmed))
+		default:
+			b.WriteString(trimmed)
+		}
+		b.WriteString(newline)
+	}
+	return b.String()
+}
+
 func entryKindName(kind corev1.EntryKind) string {
 	switch kind {
 	case corev1.EntryKind_ENTRY_KIND_FILE:
@@ -6034,7 +6519,7 @@ func (r Runner) readWorkspaceConfig() (WorkspaceConfig, error) {
 	}
 	if err := readJSONFile(filepath.Join(root, ".gs", "slice.json"), &cfg); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return cfg, userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <slice|account/slice>.")
+			return cfg, userError("not_in_workspace", "not in a gitslice workspace", "Run gs init <slice|account/slice>.")
 		}
 		return cfg, err
 	}
@@ -6210,7 +6695,7 @@ func (r Runner) workspaceRoot() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", userError("not_in_workspace", "not in a gitslice workspace", "Run gs workspace init <slice|account/slice>.")
+			return "", userError("not_in_workspace", "not in a gitslice workspace", "Run gs init <slice|account/slice>.")
 		}
 		dir = parent
 	}
@@ -6274,7 +6759,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 	return r.writeJSONOutput(opts, map[string]any{
 		"schema_version": "v1",
 		"global_flags": []map[string]any{
-			{"name": "--format", "values": []string{"text", "json"}, "default": "text", "description": "output format"},
+			{"name": "--format", "values": []string{"text", "json", "medium"}, "default": "text", "description": "output format"},
 			{"name": "--json", "description": "emit JSON output; optional comma-separated fields use --json=field,field"},
 			{"name": "--jq", "description": "filter structured output with a jq expression"},
 			{"name": "--template", "description": "format structured output with a Go template over JSON fields"},
@@ -6392,9 +6877,24 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"url"},
 			},
 			{
-				"use":            "gs workspace init <slice|account/slice>",
+				"use":            "gs log [-- <path>]",
+				"summary":        "list native commits with short ids by default",
+				"args":           []string{"path"},
+				"flags":          []string{"--limit", "--path", "--slice", "--page-token", "--no-follow-moves", "--follow", "--all", "--full", "--oneline", "--name-only", "--stat", "--patch"},
+				"writes_stdout":  true,
+				"machine_output": []string{"scope", "commits", "next_page_token"},
+			},
+			{
+				"use":            "gs show <commit-id-or-prefix>",
+				"summary":        "show a native commit resolved from a full id or short prefix",
+				"args":           []string{"commit-id-or-prefix"},
+				"flags":          []string{"--full", "--name-only", "--stat", "--patch"},
+				"writes_stdout":  true,
+				"machine_output": []string{"id", "short_id", "parent_ids", "root_tree_id", "author", "message", "created_at", "changed_paths"},
+			},
+			{
+				"use":            "gs init <slice|account/slice>",
 				"summary":        "bind the current directory to one slice and hydrate its files",
-				"aliases":        []string{"gs ws init <slice|account/slice>"},
 				"args":           []string{"slice|account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"workspace", "slice_id", "base_commit_id", "client_object_cache", "hydrated"},
@@ -6415,11 +6915,12 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "changeset_id", "patchset_id"},
 			},
 			{
-				"use":            "gs diff",
-				"summary":        "show workspace diff against the local base snapshot, or server-side current changeset diff with --from/--to",
+				"use":            "gs diff [commit-id-or-prefix] [commit-id-or-prefix]",
+				"summary":        "show workspace, changeset, or native commit diffs",
+				"args":           []string{"commit-id-or-prefix"},
 				"flags":          []string{"--from", "--to", "--name-only", "--stat"},
 				"writes_stdout":  true,
-				"machine_output": []string{"workspace", "base_commit_id", "changed_path_count", "changed_paths", "diff"},
+				"machine_output": []string{"workspace", "base_commit_id", "from_commit_id", "to_commit_id", "changed_path_count", "changed_paths", "diff"},
 			},
 			{
 				"use":            "gs slice create <slice|account/slice>",
@@ -6613,23 +7114,6 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"flags":          []string{"--mount", "--slice", "--mode", "--deep", "--max-commits", "--resume"},
 				"writes_stdout":  true,
 				"machine_output": []string{"source", "mount_path", "mode", "target_ref", "final_commit_id", "commits"},
-			},
-			{
-				"use":            "gs commit list [path]",
-				"summary":        "list native commits from the main ref, optionally filtered by path or slice",
-				"aliases":        []string{"gs commits list [path]"},
-				"args":           []string{"path"},
-				"flags":          []string{"--limit", "--path", "--slice", "--page-token", "--no-follow-moves"},
-				"writes_stdout":  true,
-				"machine_output": []string{"commits", "next_page_token"},
-			},
-			{
-				"use":            "gs commit inspect <commit-id>",
-				"summary":        "inspect a native commit",
-				"aliases":        []string{"gs commits inspect <commit-id>"},
-				"args":           []string{"commit-id"},
-				"writes_stdout":  true,
-				"machine_output": []string{"id", "parent_ids", "root_tree_id", "author", "message", "created_at", "changed_paths"},
 			},
 			{
 				"use":           "gs shell",
@@ -7048,7 +7532,7 @@ func classifyError(err error) errorResponse {
 		body.Hint = "Run gs auth login."
 	case strings.Contains(msg, "not in a gitslice workspace"):
 		body.Code = "not_in_workspace"
-		body.Hint = "Run gs workspace init <slice|account/slice>."
+		body.Hint = "Run gs init <slice|account/slice>."
 	case strings.Contains(msg, "outside slice"):
 		body.Code = "outside_slice"
 	case strings.Contains(msg, "FailedPrecondition"), strings.Contains(strings.ToLower(msg), "conflict"):
@@ -7078,6 +7562,7 @@ func sortFileEdits(edits []*corev1.FileEdit) {
 }
 
 func shortID(id string) string {
+	id = strings.TrimPrefix(id, "sha256:")
 	if len(id) <= 12 {
 		return id
 	}

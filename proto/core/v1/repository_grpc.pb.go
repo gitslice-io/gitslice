@@ -23,6 +23,7 @@ const (
 	RepositoryService_ListDirectory_FullMethodName             = "/gitslice.core.v1.RepositoryService/ListDirectory"
 	RepositoryService_ReadFile_FullMethodName                  = "/gitslice.core.v1.RepositoryService/ReadFile"
 	RepositoryService_GetCommit_FullMethodName                 = "/gitslice.core.v1.RepositoryService/GetCommit"
+	RepositoryService_ResolveCommit_FullMethodName             = "/gitslice.core.v1.RepositoryService/ResolveCommit"
 	RepositoryService_ListCommits_FullMethodName               = "/gitslice.core.v1.RepositoryService/ListCommits"
 	RepositoryService_GetRef_FullMethodName                    = "/gitslice.core.v1.RepositoryService/GetRef"
 	RepositoryService_ImportGitRepository_FullMethodName       = "/gitslice.core.v1.RepositoryService/ImportGitRepository"
@@ -37,6 +38,7 @@ type RepositoryServiceClient interface {
 	ListDirectory(ctx context.Context, in *ListDirectoryRequest, opts ...grpc.CallOption) (*ListDirectoryResponse, error)
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error)
 	GetCommit(ctx context.Context, in *GetCommitRequest, opts ...grpc.CallOption) (*Commit, error)
+	ResolveCommit(ctx context.Context, in *ResolveCommitRequest, opts ...grpc.CallOption) (*ResolveCommitResponse, error)
 	ListCommits(ctx context.Context, in *ListCommitsRequest, opts ...grpc.CallOption) (*ListCommitsResponse, error)
 	GetRef(ctx context.Context, in *GetRefRequest, opts ...grpc.CallOption) (*Ref, error)
 	ImportGitRepository(ctx context.Context, in *ImportGitRepositoryRequest, opts ...grpc.CallOption) (*ImportGitRepositoryResponse, error)
@@ -81,6 +83,15 @@ func (c *repositoryServiceClient) ReadFile(ctx context.Context, in *ReadFileRequ
 func (c *repositoryServiceClient) GetCommit(ctx context.Context, in *GetCommitRequest, opts ...grpc.CallOption) (*Commit, error) {
 	out := new(Commit)
 	err := c.cc.Invoke(ctx, RepositoryService_GetCommit_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *repositoryServiceClient) ResolveCommit(ctx context.Context, in *ResolveCommitRequest, opts ...grpc.CallOption) (*ResolveCommitResponse, error) {
+	out := new(ResolveCommitResponse)
+	err := c.cc.Invoke(ctx, RepositoryService_ResolveCommit_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -154,6 +165,7 @@ type RepositoryServiceServer interface {
 	ListDirectory(context.Context, *ListDirectoryRequest) (*ListDirectoryResponse, error)
 	ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error)
 	GetCommit(context.Context, *GetCommitRequest) (*Commit, error)
+	ResolveCommit(context.Context, *ResolveCommitRequest) (*ResolveCommitResponse, error)
 	ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error)
 	GetRef(context.Context, *GetRefRequest) (*Ref, error)
 	ImportGitRepository(context.Context, *ImportGitRepositoryRequest) (*ImportGitRepositoryResponse, error)
@@ -175,6 +187,9 @@ func (UnimplementedRepositoryServiceServer) ReadFile(context.Context, *ReadFileR
 }
 func (UnimplementedRepositoryServiceServer) GetCommit(context.Context, *GetCommitRequest) (*Commit, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCommit not implemented")
+}
+func (UnimplementedRepositoryServiceServer) ResolveCommit(context.Context, *ResolveCommitRequest) (*ResolveCommitResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveCommit not implemented")
 }
 func (UnimplementedRepositoryServiceServer) ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListCommits not implemented")
@@ -268,6 +283,24 @@ func _RepositoryService_GetCommit_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RepositoryServiceServer).GetCommit(ctx, req.(*GetCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RepositoryService_ResolveCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveCommitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RepositoryServiceServer).ResolveCommit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RepositoryService_ResolveCommit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RepositoryServiceServer).ResolveCommit(ctx, req.(*ResolveCommitRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -369,6 +402,10 @@ var RepositoryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCommit",
 			Handler:    _RepositoryService_GetCommit_Handler,
+		},
+		{
+			MethodName: "ResolveCommit",
+			Handler:    _RepositoryService_ResolveCommit_Handler,
 		},
 		{
 			MethodName: "ListCommits",

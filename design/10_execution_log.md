@@ -3147,6 +3147,61 @@ git diff --check
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc ./tests/cli -v
 ```
 
+## 2026-05-30: Commit Short-ID UX Implementation
+
+Request:
+
+- implement the commit short-id UX and resolution design, and add color to
+  human-readable CLI output
+
+Implemented:
+
+- added `RepositoryService.ResolveCommit` to the protobuf API and generated
+  Go/gRPC/grpc-gateway bindings
+- added a PostgreSQL `commits.id text_pattern_ops` prefix index and repository
+  storage methods that resolve commit-id prefixes within the same ref, path,
+  slice, and move-following filters used by `ListCommits`
+- added the in-memory storage implementation for the same prefix-resolution
+  interface so service tests keep exercising the storage abstraction
+- added server-side validation for accepted commit id input forms:
+  `sha256:<full>`, `sha256:<prefix>`, and bare hex prefixes with an 8 hex
+  character minimum
+- added `gs log`, `gs show`, and commit-aware `gs diff <commit> [commit]`
+  support; human log output now shows 12-character bare hex short ids by
+  default, while JSON includes both `id` and `short_id`
+- removed the old `gs commit list` and `gs commit inspect` compatibility
+  commands after adding `gs log` and `gs show`, so the CLI has only one
+  advertised commit-history workflow
+- added top-level `gs init <slice|account/slice>` as the canonical workspace
+  initialization command and hid `gs workspace init` from help/schema output
+- added terminal color for human commit ids, paths, shell/diff labels, and
+  unified diff additions/deletions while preserving `--no-color`, `NO_COLOR`,
+  and machine-readable output behavior
+
+Important decisions and learnings:
+
+- prefix resolution is authoritative on the server, not in the CLI; the CLI
+  calls `ResolveCommit` before `show` and commit diff
+- default `gs log` scope follows the documented resolution order: explicit
+  `--slice`, nearest workspace slice, then signed-in personal home slice;
+  `--all` is the explicit broad-history escape hatch
+- commit diff is client-side for now and reads changed paths from the resolved
+  commit plus file contents from the repository service; broader server-side
+  commit diff indexing can replace this later without changing the CLI shape
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/cli/cli.go internal/postgres/repository_store.go internal/storage/interfaces.go internal/storage/memory/store.go service/repository.go tests/rpc/rpc_custom_slice_test.go tests/cli/cli_smoke_test.go
+go test ./internal/cli ./service ./internal/postgres ./internal/storage/memory
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/rpc -run TestRPCListCommitsSupportsPathAndCustomSlice -v
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestGitHubImportDeepListAndInspectCommits -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
 ## 2026-05-30: Commit Short-ID UX and Resolution Design
 
 Request:

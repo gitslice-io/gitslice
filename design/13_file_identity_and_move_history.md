@@ -276,8 +276,8 @@ Short commit id resolution should use the same history scope. For example,
 `ResolveCommit` with a path and `follow_moves = true` should search the entity
 history plus ancestor directory move events before deciding whether the prefix
 is unique. With `follow_moves = false`, it should search only literal path
-history. This keeps `gs commit inspect <short-id>` and `gs commit diff
-<short-id>` aligned with the list the user just saw.
+history. This keeps `gs show <short-id>` and `gs diff <short-id>` aligned with
+the list the user just saw.
 
 ## 6. Slice Visibility
 
@@ -362,9 +362,9 @@ Required RPC tests:
 
 Required CLI tests:
 
-- `gs fs mv` followed by `gs commit list <new-path>` shows older file commits
+- `gs fs mv` followed by `gs log -- <new-path>` shows older file commits
 - `gs shell mv` has the same history behavior
-- `gs commit list --no-follow-moves <path>` shows literal path history
+- `gs log --no-follow-moves -- <path>` shows literal path history
 - unauthorized old or new paths are redacted in human and JSON output
 
 Required import tests:

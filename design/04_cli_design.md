@@ -58,10 +58,11 @@ gs workspace ...
 gs slice ...
 gs status
 gs diff
+gs log ...
+gs show ...
 gs fs ...
 gs cs ...
 gs repo ...
-gs commit ...
 gs shell
 gs version
 gs completion ...
@@ -84,9 +85,10 @@ gs resolve
 ```
 
 The target CLI should prefer a small Git-familiar surface over permanent
-parallel command groups. Existing native noun-heavy commands can remain during
-migration, but commands that only duplicate a clearer top-level command should
-be hidden from help and eventually removed.
+parallel command groups. Native noun-heavy commands can remain only when they
+represent Gitslice concepts that do not map cleanly to a Git-familiar top-level
+verb. Commands that only duplicate a clearer top-level command should be
+removed rather than kept as permanent aliases.
 
 Canonical replacements:
 
@@ -121,22 +123,17 @@ gs completion ...
 gs schema
 ```
 
-Commands to remove from the advertised surface after replacements are complete:
+Removed compatibility commands:
 
 ```text
-gs workspace init
 gs commit list
 gs commit inspect
 gs commit diff
-gs repo import
 ```
 
-Removal should be staged:
-
-1. add the canonical command
-2. keep the old command as a hidden compatibility command
-3. print a one-line deprecation hint in interactive text mode
-4. remove the old command after tests, docs, and known scripts have moved
+These commands were replaced by `gs log`, `gs show`, and commit-aware `gs diff`.
+They should not be retained as hidden aliases because they add a second mental
+model for the same workflow.
 
 Help and schema output should advertise the canonical command first. Hidden
 compatibility commands should not appear in root help and should be marked as
@@ -395,16 +392,14 @@ automation and help renderers can discover it without scraping root help text.
 ```bash
 gs init <slice|account/slice>
 gs init <username>/home
-gs workspace init <slice|account/slice>
-gs workspace init <username>/home
 gs workspace hydrate <path>
 ```
 
-The current MVP implements `workspace init` and `workspace hydrate`. The target
-canonical workspace creation command is `gs init`, matching Git's familiar
-entry point. `gs workspace init` should become a hidden compatibility command
-after `gs init` exists. Top-level `gs status`, `gs diff`, and `gs cs ...`
-commands discover the workspace by walking up from the current directory.
+The current MVP implements `gs init` and `workspace hydrate`. The canonical
+workspace creation command is `gs init`, matching Git's familiar entry point.
+`gs workspace init` is hidden compatibility only. Top-level `gs status`,
+`gs diff`, and `gs cs ...` commands discover the workspace by walking up from
+the current directory.
 Workspace-specific `status`, `sync`, `dehydrate`, and `root` subcommands remain
 planned command aliases or helpers, not part of the current implemented CLI
 surface.
@@ -1049,9 +1044,9 @@ gs diff <native-commit-id-or-prefix> -- /acme/payment/api/file.go
 These commands are intentionally native even though their names are Git-like.
 They list, show, and diff Gitslice commits, not Git object ids. The import
 response maps imported Git commit ids to native commit ids for follow-up
-inspection. Existing `gs commit list`, `gs commit inspect`, and `gs commit diff`
-commands should move to hidden compatibility status and then be removed after
-the top-level commands are implemented.
+inspection. The old `gs commit list`, `gs commit inspect`, and `gs commit diff`
+compatibility commands are removed; examples and tests should use `gs log`,
+`gs show`, and `gs diff`.
 
 Native commit ids are content-addressed and canonical in the API, for example
 `sha256:14e085c8afbf800239e8b6e064e4f8488ca85ca311c72d1c562a14e90f2aad76`.
