@@ -104,13 +104,24 @@ go build ./cmd/...
 Real PostgreSQL e2e gate:
 
 ```bash
-GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc -v
+cp env.example env.local
+# edit env.local and set GITSLICE_TEST_DATABASE_URL for your machine
+set -a
+. ./env.local
+set +a
+go test -count=1 ./tests/cli ./tests/rpc -v
 ```
+
+The `make cli`, `make rpc`, `make functional`, and `make load` targets load
+`env.local` automatically.
 
 Opt-in load gate:
 
 ```bash
-GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
+set -a
+. ./env.local
+set +a
+GITSLICE_LOAD_WORKERS=8 GITSLICE_LOAD_STATUS_ITERATIONS=4 go test -count=1 -tags load ./tests/load -v
 ```
 
 If a change touches submit, conflict detection, concurrency, storage, or the Git

@@ -825,6 +825,7 @@ go build ./cmd/...
 git diff --check
 ```
 
+
 The focused functional command skipped locally because
 `GITSLICE_TEST_DATABASE_URL` was not set. The default `go test ./...` and
 `go build ./cmd/...` gates passed, and `git diff --check` reported no
@@ -3679,6 +3680,35 @@ Verification:
 gofmt -w internal/cli/cli.go tests/cli/cli_smoke_test.go
 GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli -run TestChangesetWorkflowCommandsAndServerDiff -v
 go test ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+## 2026-05-31: Local Test Environment File
+
+Request:
+
+- move the local `GITSLICE_TEST_DATABASE_URL` value into `env.local`
+- add an example env file and instructions for running tests with `env.local`
+  loaded
+
+Decisions:
+
+- added checked-in `env.example` with `GITSLICE_TEST_DATABASE_URL` and direct
+  shell-loading instructions
+- added ignored `env.local` for machine-local values
+- taught `Makefile` to include `env.local` automatically and require
+  `GITSLICE_TEST_DATABASE_URL` before real-Postgres `cli`, `rpc`,
+  `functional`, and `load` targets
+- updated agent verification instructions to load `env.local` instead of
+  embedding a machine-specific PostgreSQL URL in commands
+
+Verification:
+
+```bash
+make -n cli
+set -a; . ./env.local; set +a; go test -count=1 ./tests/cli ./tests/rpc -v
 go test ./...
 go build ./cmd/...
 git diff --check
