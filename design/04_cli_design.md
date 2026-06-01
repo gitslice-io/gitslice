@@ -931,11 +931,32 @@ Server-side diff flow:
 ```text
 1. Resolve the current or supplied changeset selector.
 2. Call ChangesetService.DiffChangeset.
-3. With --patchset, compare that patchset against its base commit.
+3. With --patchset, compare that patchset against its own base commit.
+   This nearest-base diff is the canonical patchset diff.
 4. With --from/--to, compare two patchsets by number or exact patchset handle.
+   This is a review convenience for patchset-to-patchset deltas, primarily when
+   both patchsets share the same base. It is not the product contract for
+   arbitrary snapshot-to-snapshot diffs across sync base transitions.
 5. With --name-only or --stat, use the server-returned changed path list
    instead of rendering unified diff text.
 ```
+
+Nearest-base diff is intentionally the MVP boundary. For example, if a user
+starts from `base1`, creates patchsets `v1` and `v2`, runs sync onto `base2`,
+and then creates resolved patchset `v4`, each patchset's primary diff is:
+
+```text
+v1: base1 -> v1
+v2: base1 -> v2
+v3 sync: base2 -> v3 sync overlay, including conflict marker files if any
+v4 resolved: base2 -> v4
+```
+
+The CLI and web UI should present that as the default review surface. They
+should not imply that Gitslice supports a complete arbitrary diff such as
+`v2 -> v3 sync` across `base1 -> base2`; remote-only changes introduced by the
+base transition belong to the base history, not to the sync patchset's local
+overlay.
 
 ## 10. Submit Status Commands
 

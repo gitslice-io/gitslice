@@ -308,6 +308,14 @@ v3: sync/rebase patchset onto latest base B with conflicts
 v4: user-resolved patchset on base B
 ```
 
+Patchset review diffs use each patchset's nearest base as the canonical old
+side. In the example above, `v1` and `v2` diff against base `A`, while the sync
+patchset `v3` and resolved patchset `v4` diff against base `B`. This keeps the
+sync patchset focused on the local overlay after rebasing. It does not need to
+carry all remote-only changes from `A` to `B`, and the MVP does not require a
+complete arbitrary diff between any two materialized snapshots across a base
+transition.
+
 A patchset with unresolved sync conflicts is not submittable. Submit admission
 must reject it before path-head CAS and report the unresolved paths. After the
 user edits the workspace and runs `gs cs update`, the CLI validates that the

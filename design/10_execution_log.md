@@ -3353,6 +3353,29 @@ set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cl
 git diff --check
 ```
 
+## 2026-06-01: Nearest-Base Patchset Diff Boundary
+
+Request:
+
+- document that Gitslice only needs to diff a patchset against its nearest base
+  for the sync/conflict MVP, not arbitrary snapshot-to-snapshot comparisons
+
+Decisions:
+
+- made nearest-base diff the canonical patchset review surface:
+  `patchset.base_commit_id -> patchset.file_edits`
+- documented that sync patchsets after a base transition diff against the new
+  synced base, so remote-only changes from the old base to the new base remain
+  part of base history rather than the sync patchset overlay
+- kept `from_patchset`/`to_patchset` documented as a review convenience, not a
+  complete arbitrary snapshot diff contract across different base commits
+
+Verification:
+
+```bash
+git diff --check
+```
+
 ## 2026-05-26: Multi-User RPC Load Simulation
 
 Request:
