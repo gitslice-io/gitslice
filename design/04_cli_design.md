@@ -392,6 +392,8 @@ automation and help renderers can discover it without scraping root help text.
 gs init <slice|account/slice>
 gs init <username>/home
 gs workspace hydrate <path>
+gs sync
+gs workspace sync
 ```
 
 The current MVP implements `gs init` and `workspace hydrate`. The canonical
@@ -401,7 +403,8 @@ workspace creation command is `gs init`, matching Git's familiar entry point.
 the current directory.
 Workspace-specific `status`, `sync`, `dehydrate`, and `root` subcommands remain
 planned command aliases or helpers, not part of the current implemented CLI
-surface.
+surface. The planned `gs sync` command is top-level because it is part of the
+normal workspace loop, with `gs workspace sync` as the explicit namespace alias.
 
 `gs init <slice|account/slice>` creates local workspace metadata:
 
@@ -428,6 +431,71 @@ such as `gs status`, `gs cs create`, `gs cs submit`, `gs cs status`,
 `gs workspace hydrate`, and workspace-default `gs shell` can run from any
 subdirectory inside the workspace. Local scans and metadata writes still operate
 against the workspace root.
+
+### 4.1 Workspace Sync
+
+`gs sync` advances the current workspace to the latest accepted target-ref head
+for the bound slice. It is not only a clean hydration command; when the
+workspace is associated with a draft changeset, sync is a changeset-aware
+rebase operation.
+
+The sync inputs are:
+
+```text
+B: the workspace base snapshot before sync
+L: the current local workspace contents
+R: the latest remote slice projection
+```
+
+For clean paths, sync updates the workspace in place:
+
+- remote changed and local unchanged since `B`: write `R`
+- local changed and remote unchanged since `B`: keep `L`
+- local and remote changed to the same final file: keep that file and mark the
+  path clean on the new base
+- paths removed remotely and unchanged locally: remove the tracked local file
+- new remote paths with no local blocker: create them locally
+
+For conflicting paths, sync still updates the workspace and records an explicit
+conflict state. The exact presentation can vary by file kind, but the
+authoritative state lives under `.gs/` and includes the old base, new base,
+conflicted paths, conflict classes, and local/remote fingerprints. Text files
+may be materialized with conflict markers. Binary, directory/file,
+delete/modify, and untracked-blocker conflicts should preserve local content and
+expose side metadata or side variants so the user can inspect both sides without
+data loss.
+
+If the workspace has an associated draft changeset, `gs sync` creates a new
+patchset on that changeset. The patchset is a sync or rebase snapshot, not a
+plain remote snapshot. It records:
+
+- previous base commit
+- new synced base commit
+- parent patchset
+- cleanly rebased local edits
+- conflicted paths and conflict metadata
+
+This produces an auditable history:
+
+```text
+v1: user patchset on base A
+v2: user patchset on base A
+v3: sync/rebase patchset onto latest base B, possibly with conflicts
+v4: user-resolved patchset on base B
+```
+
+The latest patchset is not submittable while unresolved conflicts remain.
+`gs status`, `gs diff --conflicts`, and `gs resolve` show the conflict set and
+ask the user to resolve files. After editing the workspace, the user runs
+`gs cs update`; if conflict markers or side metadata are resolved, that command
+creates the next normal patchset and clears the conflict state.
+
+If the workspace has local changes but no associated draft changeset,
+interactive `gs sync` should ask whether to create one before syncing. In
+non-interactive mode, it should fail with a hint to run `gs cs create` first or
+pass an explicit future flag once that policy exists. A clean workspace with no
+draft changeset can sync by hydrating `R` and advancing `.gs/state.json` plus
+`.gs/base_snapshot.json`.
 
 The workspace stores:
 
@@ -699,6 +767,13 @@ On most mutating `gs` commands:
 
 The Gitslice unit is a draft patchset, not a local commit.
 
+`gs sync` participates in the same snapshot history. When a draft changeset is
+associated with the workspace, syncing onto a newer target-ref head creates a
+new sync/rebase patchset on that changeset. The patchset may contain unresolved
+conflict metadata, in which case it is a durable intermediate snapshot rather
+than a submittable patchset. A later `gs cs update` after user resolution creates
+the next normal patchset on the synced base.
+
 Correctness must not depend on a file watcher. The CLI may keep a local changed
 path index for speed, but every mutating command must be able to reconcile that
 index against the filesystem and server state before creating or updating a
@@ -905,6 +980,14 @@ gs diff --conflicts
 The CLI should avoid Git's interrupted-operation model. A rebase or submit can
 produce a patchset with conflict metadata. The user can inspect and resolve it,
 then run `gs cs update`.
+
+`gs sync` is the primary workspace rebase entry point. It should update the
+workspace to the latest remote base even when conflicts exist, create a
+sync/rebase patchset on the associated changeset, and leave the user with
+explicit local conflicts to resolve. The conflict state is not hidden process
+state; it is recorded in `.gs/` and in the latest patchset. Until that conflict
+state is cleared by a follow-up `gs cs update`, `gs cs submit` must reject the
+changeset with a conflict-specific hint.
 
 When the server reports a stale path base, the CLI should show the path and the
 expected/current fingerprints when available. The detailed conflict model is in

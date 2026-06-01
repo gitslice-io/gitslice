@@ -3773,3 +3773,31 @@ go test ./...
 go build ./cmd/...
 git diff --check
 ```
+
+## 2026-06-01: Changeset-Aware Workspace Sync Design
+
+Request:
+
+- document `gs sync` as a workspace update that still proceeds when conflicts
+  exist, records the sync in changeset patchset history, and asks the user to
+  resolve conflicts before updating the changeset again
+
+Decisions:
+
+- defined planned `gs sync` and `gs workspace sync` in the CLI design as a
+  changeset-aware rebase operation, not just a clean hydration command
+- specified the three sync inputs: previous base snapshot, local workspace
+  contents, and latest remote slice projection
+- documented that sync updates non-conflicting paths, materializes explicit
+  local conflicts, and records authoritative conflict metadata under `.gs/`
+- documented that an associated draft changeset receives a sync/rebase patchset
+  such as `v3`, followed by a normal resolved patchset such as `v4` after
+  `gs cs update`
+- extended the conflict-resolution design to require unresolved sync-conflict
+  patchsets to be non-submittable until the conflict state is cleared
+
+Verification:
+
+```bash
+git diff --check
+```

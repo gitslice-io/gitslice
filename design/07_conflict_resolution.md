@@ -267,6 +267,57 @@ Approvals are invalidated only when:
 - submit requirements change (definition hash or path lock set hash)
 - the authoring slice definition changes
 
+## 7.2 Workspace Sync And Rebase Patchsets
+
+`gs sync` rebases the current workspace and its associated draft changeset onto
+the latest accepted target-ref head. It must be allowed to update the workspace
+even when conflicts exist, because the user needs the latest remote context in
+order to resolve those conflicts.
+
+The sync operation compares three states:
+
+```text
+B: the workspace base snapshot before sync
+L: the current local workspace contents
+R: the latest remote slice projection
+```
+
+The merge result is written back to the workspace. Non-conflicting remote
+updates are applied, non-conflicting local edits are preserved, and conflicting
+paths are materialized as explicit local conflicts. The workspace conflict
+record must include enough information to reproduce the decision:
+
+- old base commit `B`
+- new base commit `R`
+- path
+- conflict class
+- local fingerprint or tombstone
+- remote fingerprint or tombstone
+- base fingerprint or tombstone when available
+- any side-variant blob ids needed for inspection or recovery
+
+If a draft changeset is associated with the workspace, sync creates a new
+patchset on that changeset. This patchset represents a rebase attempt onto the
+new base, not a plain snapshot of the remote tree. It records the cleanly
+rebased edits plus conflict metadata. For example:
+
+```text
+v1: user patchset on base A
+v2: user patchset on base A
+v3: sync/rebase patchset onto latest base B with conflicts
+v4: user-resolved patchset on base B
+```
+
+A patchset with unresolved sync conflicts is not submittable. Submit admission
+must reject it before path-head CAS and report the unresolved paths. After the
+user edits the workspace and runs `gs cs update`, the CLI validates that the
+conflict markers or side metadata have been resolved, creates the next patchset,
+and clears the conflict state.
+
+This keeps conflict resolution auditable without introducing Git's hidden
+interrupted-operation state. The durable changeset history shows both the rebase
+attempt and the user-authored resolution.
+
 ## 8. Interaction With Overlapping Slices
 
 Overlapping slices do not duplicate files. They project the same global path.
