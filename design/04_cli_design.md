@@ -62,7 +62,7 @@ gs log ...
 gs show ...
 gs fs ...
 gs cs ...
-gs repo ...
+gs import ...
 gs shell
 gs version
 gs completion ...
@@ -98,7 +98,6 @@ gs commit list [path]            -> gs log [-- <path>]
 gs commit inspect <commit>       -> gs show <commit>
 gs commit diff <commit>          -> gs diff <commit>
 gs commit diff <a> <b>           -> gs diff <a> <b>
-gs repo import github ...        -> gs import github ...
 ```
 
 Commands to keep because they represent Gitslice concepts that Git does not
@@ -996,37 +995,27 @@ be able to rely on these baseline codes.
 
 ## 14. Repository Import And Commit Inspection
 
-The MVP CLI supports importing a GitHub repository into a mounted Gitslice path:
+The MVP CLI supports importing a Git repository into a mounted Gitslice path:
 
 ```bash
-gs import github <owner/repo-or-url> \
+gs import <source> \
   --mount /acme/payment/vendor/lib \
   --slice payment \
   --mode shallow
 
-gs import github <owner/repo-or-url> \
-  --mount /acme/payment/vendor/lib \
-  --slice payment \
-  --mode deep \
-  --max-commits 100
-
-gs repo import github <owner/repo-or-url> \
-  --mount /acme/payment/vendor/lib \
-  --slice payment \
-  --mode shallow
-
-gs repo import github <owner/repo-or-url> \
+gs import <source> \
   --mount /acme/payment/vendor/lib \
   --slice payment \
   --mode deep \
   --max-commits 100
 ```
 
-`gs import github` is the target canonical command. `gs repo import github`
-should become a hidden compatibility command after `gs import` exists.
-`owner/repo` is resolved to `https://github.com/owner/repo.git`. Tests may pass
-a local Git repository path through the same command so functional coverage does
-not depend on external network access.
+`gs import` is the canonical command. The import source determines the protocol:
+URLs with schemes, SSH sources such as `git@host:owner/repo.git`, and local
+absolute or relative paths are passed through as provided. `owner/repo` shorthand
+is resolved to `https://github.com/owner/repo.git`. Tests may pass a local Git
+repository path through the same command so functional coverage does not depend
+on external network access.
 
 Import modes:
 

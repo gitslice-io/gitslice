@@ -112,6 +112,35 @@ server before test code ran. The CI workflow provisions that user in its own
 PostgreSQL service. After rebasing onto `origin/main`, the RPC package compile
 gate, default Go test gate, command build gate, and whitespace check passed.
 
+## 2026-06-01: Canonical Top-Level Import Command
+
+Request:
+
+- replace the legacy import command shape with `gs import <source>` so the CLI
+  infers Git protocol/source type from the provided source instead of requiring
+  a GitHub subcommand
+
+Decisions:
+
+- removed the legacy `gs repo import github` command group from CLI wiring and
+  the machine-readable schema
+- added `gs import <source>` as the only import command while reusing the
+  existing import RPC and server-side source normalization
+- documented that URL schemes, SSH Git sources, and local paths pass through as
+  provided, while `owner/repo` shorthand resolves to GitHub
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go tests/cli/cli_smoke_test.go
+GOCACHE=/tmp/gocache go test ./internal/cli
+GOCACHE=/tmp/gocache go run ./cmd/gs help import
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli -run TestGitImport -v
+GOCACHE=/tmp/gocache go test ./...
+GOCACHE=/tmp/gocache go build ./cmd/...
+git diff --check
+```
+
 ## 2026-05-24: Home Slice Upload Command
 
 Request:

@@ -70,9 +70,14 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account/slice>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account/slice>", "gs import <source>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
+		}
+	}
+	for _, removed := range []string{"gs repo import github <owner/repo-or-url>", "gs repository import github <owner/repo-or-url>"} {
+		if uses[removed] {
+			t.Fatalf("schema still includes removed command %q", removed)
 		}
 	}
 	for use, wantAlias := range map[string]string{
@@ -80,7 +85,6 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		"gs config list":          "gs cfg list",
 		"gs status":               "gs st",
 		"gs slice list [account]": "gs slices list [account]",
-		"gs repo import github <owner/repo-or-url>": "gs repository import github <owner/repo-or-url>",
 	} {
 		if !stringSliceContains(aliases[use], wantAlias) {
 			t.Fatalf("schema aliases for %q missing %q: %#v", use, wantAlias, aliases[use])
@@ -97,6 +101,18 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 	}
 	if got.ErrorOutput["stream"] != "stderr" {
 		t.Fatalf("expected stderr error stream, got %#v", got.ErrorOutput["stream"])
+	}
+}
+
+func TestLegacyRepoCommandIsRemoved(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	err := r.Run(context.Background(), []string{"repo", "import", "github", "owner/repo"})
+	if err == nil {
+		t.Fatalf("legacy repo command unexpectedly succeeded")
+	}
+	if !strings.Contains(err.Error(), `unknown command "repo"`) && !strings.Contains(stderr.String(), `unknown command "repo"`) {
+		t.Fatalf("legacy repo command error = %v\nstderr:\n%s", err, stderr.String())
 	}
 }
 
