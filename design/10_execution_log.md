@@ -3321,6 +3321,38 @@ set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cl
 git diff --check
 ```
 
+## 2026-06-01: Workspace Sync Merge Strategies
+
+Request:
+
+- support sync merge strategies and make line-level text auto-merge the default
+
+Decisions:
+
+- added `gs sync --merge line|manual|ours|theirs` and the same flag on
+  `gs workspace sync`
+- made `line` the default because it preserves the normal sync workflow for
+  non-overlapping text edits while falling back to explicit conflicts when
+  edits overlap, files are binary, modes differ, or a side deletes the file
+- kept `manual` as the previous conflict-first behavior for users or agents
+  that want to inspect every divergent same-path edit
+- added `ours` and `theirs` for explicit local-side or remote-side resolution
+  during sync
+- recorded merged paths and the selected merge strategy in structured sync
+  output
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go tests/cli/cli_smoke_test.go
+GOCACHE=/tmp/gocache go test ./internal/cli
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli -run 'TestWorkspaceSync(LineMerges|Records|Rebases|Updates)' -v
+GOCACHE=/tmp/gocache go test ./...
+GOCACHE=/tmp/gocache go build ./cmd/...
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli ./tests/rpc -v
+git diff --check
+```
+
 ## 2026-05-26: Multi-User RPC Load Simulation
 
 Request:

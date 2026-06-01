@@ -455,11 +455,22 @@ For clean paths, sync updates the workspace in place:
 - local changed and remote unchanged since `B`: keep `L`
 - local and remote changed to the same final file: keep that file and mark the
   path clean on the new base
+- local and remote changed different non-overlapping text lines: line-merge by
+  default and keep the merged file as a local edit on the new base
 - paths removed remotely and unchanged locally: remove the tracked local file
 - new remote paths with no local blocker: create them locally
 
-For conflicting paths, sync still updates the workspace and records an explicit
-conflict state. The exact presentation can vary by file kind, but the
+`gs sync` defaults to `--merge line`. Supported sync merge strategies are:
+
+- `line`: attempt deterministic line-level three-way merge for text files, then
+  fall back to explicit conflicts when edits overlap or the file is not safe to
+  line-merge
+- `manual`: skip auto-merge and record same-path divergent changes as conflicts
+- `ours`: keep the local side for same-path divergent changes
+- `theirs`: take the latest remote side for same-path divergent changes
+
+For remaining conflicting paths, sync still updates the workspace and records an
+explicit conflict state. The exact presentation can vary by file kind, but the
 authoritative state lives under `.gs/` and includes the old base, new base,
 conflicted paths, conflict classes, and local/remote fingerprints. Text files
 may be materialized with conflict markers. Binary, directory/file,

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -136,6 +137,7 @@ type commandOptions struct {
 	Verbose        bool
 	Debug          bool
 	Trace          bool
+	SyncMerge      string
 }
 
 func (o commandOptions) jsonOutput() bool {
@@ -194,8 +196,11 @@ type workspaceSyncOutput struct {
 	UpdatedPaths         []string `json:"updated_paths"`
 	LocalPathCount       int      `json:"local_path_count"`
 	LocalPaths           []string `json:"local_paths"`
+	MergedPathCount      int      `json:"merged_path_count"`
+	MergedPaths          []string `json:"merged_paths"`
 	ConflictCount        int      `json:"conflict_count"`
 	ConflictPaths        []string `json:"conflict_paths"`
+	MergeStrategy        string   `json:"merge_strategy"`
 	ChangesetHandle      string   `json:"changeset_handle,omitempty"`
 	PatchsetHandle       string   `json:"patchset_handle,omitempty"`
 	ChangesetID          string   `json:"changeset_id,omitempty"`
@@ -415,6 +420,14 @@ const (
 	ansiGreen  = "\x1b[32m"
 	ansiRed    = "\x1b[31m"
 	ansiYellow = "\x1b[33m"
+)
+
+const (
+	defaultWorkspaceSyncMergeStrategy = "line"
+	workspaceSyncMergeLine            = "line"
+	workspaceSyncMergeManual          = "manual"
+	workspaceSyncMergeOurs            = "ours"
+	workspaceSyncMergeTheirs          = "theirs"
 )
 
 type helpTopic struct {
@@ -718,7 +731,7 @@ func (r Runner) authRecoveryHint() string {
 }
 
 func (r Runner) rootCommand() *cobra.Command {
-	opts := &commandOptions{Format: "text"}
+	opts := &commandOptions{Format: "text", SyncMerge: defaultWorkspaceSyncMergeStrategy}
 	jsonFlagValue := ""
 
 	root := &cobra.Command{
@@ -861,6 +874,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runWorkspaceSync(cmd.Context(), *opts)
 		},
 	}
+	workspaceSyncCmd.Flags().StringVar(&opts.SyncMerge, "merge", defaultWorkspaceSyncMergeStrategy, "merge strategy for same-path changes: line, manual, ours, or theirs")
 	workspaceCmd.AddCommand(workspaceInitCmd, workspaceHydrateCmd, workspaceSyncCmd)
 
 	syncCmd := &cobra.Command{
@@ -871,6 +885,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runWorkspaceSync(cmd.Context(), *opts)
 		},
 	}
+	syncCmd.Flags().StringVar(&opts.SyncMerge, "merge", defaultWorkspaceSyncMergeStrategy, "merge strategy for same-path changes: line, manual, ours, or theirs")
 
 	statusCmd := &cobra.Command{
 		Use:     "status",
@@ -2868,6 +2883,10 @@ func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, re
 }
 
 func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error {
+	mergeStrategy, err := normalizeWorkspaceSyncMergeStrategy(opts.SyncMerge)
+	if err != nil {
+		return err
+	}
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -2922,6 +2941,9 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if err != nil {
 		return err
 	}
+	if err := r.applyWorkspaceSyncMergeStrategy(callCtx, repo, cache, oldBaseCommitID, newBaseCommitID, mergeStrategy, base, current, remoteFiles, &plan); err != nil {
+		return err
+	}
 	for _, p := range plan.RemoteDeletes {
 		if err := removeWorkspaceFile(root, ws, current, p); err != nil {
 			return err
@@ -2929,6 +2951,11 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	}
 	for _, file := range plan.RemoteUpserts {
 		if err := r.writeWorkspaceRemoteFile(callCtx, repo, cache, root, ws, current, newBaseCommitID, file); err != nil {
+			return err
+		}
+	}
+	for _, file := range plan.MergedFiles {
+		if err := r.writeWorkspaceMergedFile(root, ws, current, file); err != nil {
 			return err
 		}
 	}
@@ -2955,8 +2982,11 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		UpdatedPathCount:     len(plan.UpdatedPaths),
 		LocalPaths:           plan.LocalPaths,
 		LocalPathCount:       len(plan.LocalPaths),
+		MergedPaths:          plan.MergedPaths,
+		MergedPathCount:      len(plan.MergedPaths),
 		ConflictPaths:        workspaceConflictPaths(plan.Conflicts),
 		ConflictCount:        len(plan.Conflicts),
+		MergeStrategy:        mergeStrategy,
 	}
 	if oldBaseCommitID == newBaseCommitID && len(plan.UpdatedPaths) == 0 && len(plan.Conflicts) == 0 {
 		output.Status = "up_to_date"
@@ -3018,6 +3048,9 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		if output.LocalPaths == nil {
 			output.LocalPaths = []string{}
 		}
+		if output.MergedPaths == nil {
+			output.MergedPaths = []string{}
+		}
 		if output.ConflictPaths == nil {
 			output.ConflictPaths = []string{}
 		}
@@ -3035,6 +3068,9 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	}
 	if output.LocalPathCount > 0 {
 		fmt.Fprintf(r.Stdout, "preserved %d local path(s)\n", output.LocalPathCount)
+	}
+	if output.MergedPathCount > 0 {
+		fmt.Fprintf(r.Stdout, "merged %d path(s) with %s strategy\n", output.MergedPathCount, output.MergeStrategy)
 	}
 	if output.PatchsetID != "" {
 		fmt.Fprintf(r.Stdout, "created sync patchset %d for %s\n", output.PatchsetNumber, firstNonEmpty(output.ChangesetHandle, output.ChangesetID))
@@ -3126,11 +3162,19 @@ type remoteWorkspaceFile struct {
 	Entry *corev1.TreeEntry
 }
 
+type mergedWorkspaceFile struct {
+	Path string
+	Data []byte
+	Mode uint32
+}
+
 type workspaceSyncPlan struct {
 	RemoteUpserts []remoteWorkspaceFile
 	RemoteDeletes []string
+	MergedFiles   []mergedWorkspaceFile
 	UpdatedPaths  []string
 	LocalPaths    []string
+	MergedPaths   []string
 	Conflicts     []WorkspaceConflict
 }
 
@@ -3197,6 +3241,121 @@ func buildWorkspaceSyncPlan(oldBaseCommitID, newBaseCommitID string, base BaseSn
 		}
 	}
 	return plan
+}
+
+func normalizeWorkspaceSyncMergeStrategy(strategy string) (string, error) {
+	strategy = strings.ToLower(strings.TrimSpace(strategy))
+	if strategy == "" {
+		return defaultWorkspaceSyncMergeStrategy, nil
+	}
+	switch strategy {
+	case workspaceSyncMergeLine, workspaceSyncMergeManual, workspaceSyncMergeOurs, workspaceSyncMergeTheirs:
+		return strategy, nil
+	default:
+		return "", userError("invalid_args", "invalid sync merge strategy "+strategy, "Use --merge line, --merge manual, --merge ours, or --merge theirs.")
+	}
+}
+
+func (r Runner) applyWorkspaceSyncMergeStrategy(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, oldBaseCommitID, newBaseCommitID, strategy string, base BaseSnapshot, current map[string]workingFile, remote map[string]remoteWorkspaceFile, plan *workspaceSyncPlan) error {
+	if len(plan.Conflicts) == 0 {
+		return nil
+	}
+	if strategy == workspaceSyncMergeManual {
+		return nil
+	}
+	remaining := make([]WorkspaceConflict, 0, len(plan.Conflicts))
+	for _, conflict := range plan.Conflicts {
+		switch strategy {
+		case workspaceSyncMergeOurs:
+			continue
+		case workspaceSyncMergeTheirs:
+			remoteFile, remoteOK := remote[conflict.Path]
+			if remoteOK {
+				plan.RemoteUpserts = append(plan.RemoteUpserts, remoteFile)
+			} else {
+				plan.RemoteDeletes = append(plan.RemoteDeletes, conflict.Path)
+			}
+			plan.UpdatedPaths = appendUniqueString(plan.UpdatedPaths, conflict.Path)
+			plan.LocalPaths = removeStringValue(plan.LocalPaths, conflict.Path)
+		case workspaceSyncMergeLine:
+			merged, ok, err := r.tryLineMergeWorkspaceConflict(ctx, repo, cache, oldBaseCommitID, newBaseCommitID, base, current, remote, conflict)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				remaining = append(remaining, conflict)
+				continue
+			}
+			plan.MergedFiles = append(plan.MergedFiles, merged)
+			plan.MergedPaths = appendUniqueString(plan.MergedPaths, conflict.Path)
+		}
+	}
+	plan.Conflicts = remaining
+	sort.Strings(plan.LocalPaths)
+	sort.Strings(plan.UpdatedPaths)
+	sort.Strings(plan.MergedPaths)
+	return nil
+}
+
+func (r Runner) tryLineMergeWorkspaceConflict(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remote map[string]remoteWorkspaceFile, conflict WorkspaceConflict) (mergedWorkspaceFile, bool, error) {
+	baseFile, baseOK := base.Files[conflict.Path]
+	localFile, localOK := current[conflict.Path]
+	remoteFile, remoteOK := remote[conflict.Path]
+	if !baseOK || !localOK || !remoteOK {
+		return mergedWorkspaceFile{}, false, nil
+	}
+	baseMode := normalizedSnapshotMode(baseFile.Mode)
+	localMode := normalizedSnapshotMode(localFile.Mode)
+	remoteMode := normalizedSnapshotMode(remoteFile.Mode)
+	if baseMode != localMode || baseMode != remoteMode {
+		return mergedWorkspaceFile{}, false, nil
+	}
+	baseData, baseExists, err := r.remoteFileBytes(ctx, repo, cache, oldBaseCommitID, baseFile, true)
+	if err != nil {
+		return mergedWorkspaceFile{}, false, err
+	}
+	localData, localExists, err := localWorkspaceFileBytes(localFile, true)
+	if err != nil {
+		return mergedWorkspaceFile{}, false, err
+	}
+	remoteData, remoteExists, err := r.remoteFileBytes(ctx, repo, cache, newBaseCommitID, remoteFile.BaseSnapshotFile, true)
+	if err != nil {
+		return mergedWorkspaceFile{}, false, err
+	}
+	if !baseExists || !localExists || !remoteExists {
+		return mergedWorkspaceFile{}, false, nil
+	}
+	if !isTextConflictSide(baseData, true) || !isTextConflictSide(localData, true) || !isTextConflictSide(remoteData, true) {
+		return mergedWorkspaceFile{}, false, nil
+	}
+	merged, ok := mergeTextLines(baseData, localData, remoteData)
+	if !ok {
+		return mergedWorkspaceFile{}, false, nil
+	}
+	return mergedWorkspaceFile{
+		Path: conflict.Path,
+		Data: merged,
+		Mode: localMode,
+	}, true, nil
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func removeStringValue(values []string, value string) []string {
+	out := values[:0]
+	for _, existing := range values {
+		if existing != value {
+			out = append(out, existing)
+		}
+	}
+	return out
 }
 
 func changedPathsFromSnapshot(base BaseSnapshot, current map[string]workingFile) []string {
@@ -3390,6 +3549,23 @@ func (r Runner) writeWorkspaceRemoteFile(ctx context.Context, repo corev1.Reposi
 	return os.WriteFile(target, data, fileModeFromSnapshot(file.Mode))
 }
 
+func (r Runner) writeWorkspaceMergedFile(root string, ws WorkspaceConfig, current map[string]workingFile, file mergedWorkspaceFile) error {
+	target := ""
+	if local, ok := current[file.Path]; ok && local.AbsPath != "" {
+		target = local.AbsPath
+	} else {
+		rel, err := workspaceRelPath(ws, file.Path)
+		if err != nil {
+			return err
+		}
+		target = filepath.Join(root, filepath.FromSlash(rel))
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(target, file.Data, fileModeFromSnapshot(file.Mode))
+}
+
 func (r Runner) materializeWorkspaceConflict(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remote map[string]remoteWorkspaceFile, conflict WorkspaceConflict) error {
 	baseFile, baseOK := base.Files[conflict.Path]
 	localFile, localOK := current[conflict.Path]
@@ -3490,6 +3666,194 @@ func conflictSideText(label string, data []byte, exists bool) string {
 		text += "\n"
 	}
 	return text
+}
+
+type lineChange struct {
+	baseStart   int
+	baseEnd     int
+	replacement []string
+}
+
+type lineDiffOp struct {
+	kind string
+	line string
+}
+
+func mergeTextLines(baseData, localData, remoteData []byte) ([]byte, bool) {
+	switch {
+	case bytes.Equal(localData, remoteData):
+		return localData, true
+	case bytes.Equal(baseData, localData):
+		return remoteData, true
+	case bytes.Equal(baseData, remoteData):
+		return localData, true
+	}
+	baseLines := splitMergeLines(baseData)
+	localChanges := diffLineChanges(baseLines, splitMergeLines(localData))
+	remoteChanges := diffLineChanges(baseLines, splitMergeLines(remoteData))
+	mergedLines, ok := mergeLineChanges(baseLines, localChanges, remoteChanges)
+	if !ok {
+		return nil, false
+	}
+	return []byte(strings.Join(mergedLines, "")), true
+}
+
+func splitMergeLines(data []byte) []string {
+	if len(data) == 0 {
+		return nil
+	}
+	lines := strings.SplitAfter(string(data), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func diffLineChanges(base, target []string) []lineChange {
+	ops := lcsLineDiff(base, target)
+	changes := []lineChange{}
+	baseIndex := 0
+	active := false
+	current := lineChange{}
+	flush := func() {
+		if !active {
+			return
+		}
+		current.baseEnd = baseIndex
+		changes = append(changes, current)
+		active = false
+		current = lineChange{}
+	}
+	for _, op := range ops {
+		switch op.kind {
+		case "=":
+			flush()
+			baseIndex++
+		case "-":
+			if !active {
+				current = lineChange{baseStart: baseIndex}
+				active = true
+			}
+			baseIndex++
+		case "+":
+			if !active {
+				current = lineChange{baseStart: baseIndex}
+				active = true
+			}
+			current.replacement = append(current.replacement, op.line)
+		}
+	}
+	flush()
+	return changes
+}
+
+func lcsLineDiff(a, b []string) []lineDiffOp {
+	dp := make([][]int, len(a)+1)
+	for i := range dp {
+		dp[i] = make([]int, len(b)+1)
+	}
+	for i := len(a) - 1; i >= 0; i-- {
+		for j := len(b) - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				dp[i][j] = dp[i+1][j+1] + 1
+			} else if dp[i+1][j] >= dp[i][j+1] {
+				dp[i][j] = dp[i+1][j]
+			} else {
+				dp[i][j] = dp[i][j+1]
+			}
+		}
+	}
+	ops := []lineDiffOp{}
+	for i, j := 0, 0; i < len(a) || j < len(b); {
+		switch {
+		case i < len(a) && j < len(b) && a[i] == b[j]:
+			ops = append(ops, lineDiffOp{kind: "=", line: a[i]})
+			i++
+			j++
+		case i < len(a) && (j == len(b) || dp[i+1][j] >= dp[i][j+1]):
+			ops = append(ops, lineDiffOp{kind: "-", line: a[i]})
+			i++
+		case j < len(b):
+			ops = append(ops, lineDiffOp{kind: "+", line: b[j]})
+			j++
+		}
+	}
+	return ops
+}
+
+func mergeLineChanges(base []string, localChanges, remoteChanges []lineChange) ([]string, bool) {
+	out := []string{}
+	baseIndex := 0
+	i, j := 0, 0
+	appendChange := func(change lineChange) bool {
+		if change.baseStart < baseIndex {
+			return false
+		}
+		out = append(out, base[baseIndex:change.baseStart]...)
+		out = append(out, change.replacement...)
+		baseIndex = change.baseEnd
+		return true
+	}
+	for i < len(localChanges) || j < len(remoteChanges) {
+		switch {
+		case i >= len(localChanges):
+			if !appendChange(remoteChanges[j]) {
+				return nil, false
+			}
+			j++
+		case j >= len(remoteChanges):
+			if !appendChange(localChanges[i]) {
+				return nil, false
+			}
+			i++
+		case sameLineChange(localChanges[i], remoteChanges[j]):
+			if !appendChange(localChanges[i]) {
+				return nil, false
+			}
+			i++
+			j++
+		case lineChangeBefore(localChanges[i], remoteChanges[j]):
+			if !appendChange(localChanges[i]) {
+				return nil, false
+			}
+			i++
+		case lineChangeBefore(remoteChanges[j], localChanges[i]):
+			if !appendChange(remoteChanges[j]) {
+				return nil, false
+			}
+			j++
+		default:
+			return nil, false
+		}
+	}
+	out = append(out, base[baseIndex:]...)
+	return out, true
+}
+
+func sameLineChange(a, b lineChange) bool {
+	return a.baseStart == b.baseStart && a.baseEnd == b.baseEnd && stringSlicesEqual(a.replacement, b.replacement)
+}
+
+func lineChangeBefore(a, b lineChange) bool {
+	if a.baseEnd < b.baseStart {
+		return true
+	}
+	if a.baseEnd == b.baseStart {
+		return !(a.baseStart == a.baseEnd && b.baseStart == b.baseEnd)
+	}
+	return false
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func fileModeFromSnapshot(mode uint32) fs.FileMode {
@@ -7931,15 +8295,17 @@ func (r Runner) runSchema(opts commandOptions) error {
 			{
 				"use":            "gs sync",
 				"summary":        "sync the workspace to the latest remote base",
+				"flags":          []string{"--merge"},
 				"writes_stdout":  true,
-				"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "conflict_paths", "changeset_id", "patchset_id"},
+				"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "merged_paths", "conflict_paths", "merge_strategy", "changeset_id", "patchset_id"},
 			},
 			{
 				"use":            "gs workspace sync",
 				"summary":        "sync the workspace to the latest remote base",
 				"aliases":        []string{"gs ws sync"},
+				"flags":          []string{"--merge"},
 				"writes_stdout":  true,
-				"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "conflict_paths", "changeset_id", "patchset_id"},
+				"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "merged_paths", "conflict_paths", "merge_strategy", "changeset_id", "patchset_id"},
 			},
 			{
 				"use":            "gs status",
