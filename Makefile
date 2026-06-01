@@ -1,12 +1,18 @@
 SHELL := /bin/sh
 
+ENV_FILE ?= env.local
+-include $(ENV_FILE)
+
 GO ?= go
 PROTOC ?= protoc
 
 BIN_DIR ?= $(CURDIR)/bin
 TMP_DIR ?= $(CURDIR)/.tmp
-DATABASE_URL ?= postgres://nic@localhost/gitslice_dev?sslmode=disable
-TEST_DATABASE_URL ?= $(DATABASE_URL)
+DATABASE_URL ?= $(GITSLICE_DATABASE_URL)
+ifeq ($(strip $(DATABASE_URL)),)
+DATABASE_URL := postgres://nic@localhost/gitslice_dev?sslmode=disable
+endif
+TEST_DATABASE_URL ?= $(GITSLICE_TEST_DATABASE_URL)
 OBJECT_STORE_ROOT ?= $(TMP_DIR)/object-store
 GIT_CACHE_ROOT ?= $(TMP_DIR)/git-cache
 GRPC_ADDR ?= 127.0.0.1:50051
@@ -24,7 +30,7 @@ PROTO_FILES := $(wildcard proto/core/v1/*.proto)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deps fmt test build check install dev-install run-server run-web server cli rpc functional load proto clean
+.PHONY: help deps fmt test build check install dev-install run-server run-web server require-test-database-url cli rpc functional load proto clean
 
 help: ## Show available targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -69,15 +75,22 @@ run-web: ## Serve the static web app locally.
 
 server: run-server ## Alias for run-server.
 
-cli: ## Run real-Postgres CLI e2e tests.
+require-test-database-url:
+	@if [ -z "$(strip $(TEST_DATABASE_URL))" ]; then \
+		printf '%s\n' "GITSLICE_TEST_DATABASE_URL is required for real-Postgres tests."; \
+		printf '%s\n' "Copy env.example to env.local, set GITSLICE_TEST_DATABASE_URL, then rerun this target."; \
+		exit 1; \
+	fi
+
+cli: require-test-database-url ## Run real-Postgres CLI e2e tests.
 	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 ./tests/cli -v
 
-rpc: ## Run real-Postgres RPC e2e tests.
+rpc: require-test-database-url ## Run real-Postgres RPC e2e tests.
 	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 ./tests/rpc -v
 
 functional: cli rpc ## Run real-Postgres CLI and RPC e2e tests.
 
-load: ## Run opt-in load tests against local PostgreSQL.
+load: require-test-database-url ## Run opt-in load tests against local PostgreSQL.
 	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" \
 	GITSLICE_LOAD_WORKERS="$(LOAD_WORKERS)" \
 	GITSLICE_LOAD_STATUS_ITERATIONS="$(LOAD_STATUS_ITERATIONS)" \
