@@ -70,7 +70,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account/slice>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [absolute-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account/slice>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -170,6 +170,23 @@ func TestHelpCommandStillShowsCommandHelp(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Show current authentication status") {
 		t.Fatalf("expected command help, got:\n%s", stdout.String())
+	}
+}
+
+func TestFSListHelpClarifiesRemoteDefault(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"help", "fs", "ls"}); err != nil {
+		t.Fatalf("help fs ls failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"gs fs ls [remote-path]",
+		"signed-in home slice root",
+		"not the local ~/ directory",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("help fs ls missing %q:\n%s", want, stdout.String())
+		}
 	}
 }
 
