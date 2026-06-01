@@ -3284,6 +3284,43 @@ Verification:
 git diff --check
 ```
 
+## 2026-06-01: Workspace Sync Implementation
+
+Request:
+
+- implement the workspace sync behavior described in the sync-conflict design
+  PR and push the implementation back to that PR branch
+
+Decisions:
+
+- added `gs sync` and `gs workspace sync` as real CLI commands
+- implemented sync as a three-way workspace merge over the previous base
+  snapshot, current local files, and latest remote slice projection
+- clean remote-only changes update the workspace and local base snapshot;
+  local-only changes are preserved across the new base
+- active draft changesets receive a new `sync` patchset after syncing, using the
+  latest remote commit as the patchset base
+- conflicting paths are recorded in `.gs/conflicts.json`, materialized with text
+  conflict markers when possible, and sent to the server as patchset conflict
+  metadata
+- submit now rejects patchsets with unresolved conflict metadata; `gs cs update`
+  clears local conflict state after markers are resolved and creates the next
+  normal patchset
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go service/changeset.go service/memory_service_test.go internal/postgres/changeset_store.go internal/storage/memory/store.go tests/cli/cli_smoke_test.go
+go test ./service ./internal/postgres ./internal/storage/...
+go test ./internal/cli
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli -run TestWorkspaceSync -v
+GOCACHE=/tmp/gocache go test ./...
+GOCACHE=/tmp/gocache go build ./cmd/...
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli ./tests/rpc -v
+git diff --check
+```
+
 ## 2026-05-26: Multi-User RPC Load Simulation
 
 Request:

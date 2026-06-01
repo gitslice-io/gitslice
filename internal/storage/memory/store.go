@@ -482,6 +482,10 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetId != expectedCurrentPatchsetID {
 		return nil, storage.ErrConflict
 	}
+	patchset := currentPatchset(cs)
+	if patchset != nil && len(patchset.Conflicts) > 0 {
+		return nil, fmt.Errorf("%w: unresolved patchset conflicts", storage.ErrConflict)
+	}
 	cs.Status = "pending_publish"
 	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id, ChangesetHandle: cs.Handle}, nil
 }
@@ -1303,6 +1307,7 @@ func clonePatchset(in *corev1.Patchset) *corev1.Patchset {
 	out.PathBases = append([]*corev1.PathBase(nil), in.PathBases...)
 	out.ReadSet = append([]*corev1.PathSetEntry(nil), in.ReadSet...)
 	out.WriteSet = append([]*corev1.PathSetEntry(nil), in.WriteSet...)
+	out.Conflicts = append([]*corev1.PatchsetConflict(nil), in.Conflicts...)
 	return &out
 }
 

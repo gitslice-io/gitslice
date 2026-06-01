@@ -76,6 +76,7 @@ gs log ...
 gs show ...
 gs init
 gs import ...
+gs sync
 gs op ...
 gs split
 gs squash
@@ -396,15 +397,15 @@ gs sync
 gs workspace sync
 ```
 
-The current MVP implements `gs init` and `workspace hydrate`. The canonical
-workspace creation command is `gs init`, matching Git's familiar entry point.
-`gs workspace init` is hidden compatibility only. Top-level `gs status`,
-`gs diff`, and `gs cs ...` commands discover the workspace by walking up from
-the current directory.
-Workspace-specific `status`, `sync`, `dehydrate`, and `root` subcommands remain
-planned command aliases or helpers, not part of the current implemented CLI
-surface. The planned `gs sync` command is top-level because it is part of the
-normal workspace loop, with `gs workspace sync` as the explicit namespace alias.
+The current MVP implements `gs init`, `workspace hydrate`, `gs sync`, and
+`gs workspace sync`. The canonical workspace creation command is `gs init`,
+matching Git's familiar entry point. `gs workspace init` is hidden compatibility
+only. Top-level `gs status`, `gs diff`, and `gs cs ...` commands discover the
+workspace by walking up from the current directory.
+Workspace-specific `status`, `dehydrate`, and `root` subcommands remain planned
+command aliases or helpers, not part of the current implemented CLI surface.
+`gs sync` is top-level because it is part of the normal workspace loop, with
+`gs workspace sync` as the explicit namespace alias.
 
 `gs init <slice|account/slice>` creates local workspace metadata:
 
@@ -413,6 +414,7 @@ normal workspace loop, with `gs workspace sync` as the explicit namespace alias.
   slice.json
   state.json
   base_snapshot.json
+  conflicts.json          # only when sync conflicts are unresolved
 ```
 
 Authentication state is not written under `.gs/`. The bearer token and saved
@@ -485,10 +487,12 @@ v4: user-resolved patchset on base B
 ```
 
 The latest patchset is not submittable while unresolved conflicts remain.
-`gs status`, `gs diff --conflicts`, and `gs resolve` show the conflict set and
-ask the user to resolve files. After editing the workspace, the user runs
+`gs status` shows the conflict set, and text conflicts are materialized with
+local/base/remote conflict markers. After editing the workspace, the user runs
 `gs cs update`; if conflict markers or side metadata are resolved, that command
-creates the next normal patchset and clears the conflict state.
+creates the next normal patchset and clears the conflict state. Future
+conflict-specific commands such as `gs diff --conflicts` and `gs resolve` can
+build on the same `.gs/conflicts.json` and patchset conflict metadata.
 
 If the workspace has local changes but no associated draft changeset,
 interactive `gs sync` should ask whether to create one before syncing. In

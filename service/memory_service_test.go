@@ -100,6 +100,43 @@ func TestServicesRunAgainstInMemoryStorage(t *testing.T) {
 	}
 }
 
+func TestSubmitRejectsPatchsetConflicts(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "home"},
+		TargetRef:      storage.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "conflicted sync",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchset, err := handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		PatchsetKind: "sync",
+		Conflicts: []*corev1.PatchsetConflict{{
+			Path:          "/acme/conflict.txt",
+			ConflictClass: "content",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = handlers.Changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: patchset.Id,
+	})
+	if status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "unresolved patchset conflicts") {
+		t.Fatalf("SubmitChangeset error = %v, want unresolved conflict FailedPrecondition", err)
+	}
+}
+
 func TestSliceServiceUsesInMemoryRepositoryValidation(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
