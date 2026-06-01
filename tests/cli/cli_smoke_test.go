@@ -1637,7 +1637,7 @@ func TestGitCloneProjection(t *testing.T) {
 	}
 }
 
-func TestGitHubImportShallow(t *testing.T) {
+func TestGitImportShallow(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -1645,7 +1645,7 @@ func TestGitHubImportShallow(t *testing.T) {
 	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
 
 	raw := runCLI(t, home, workspace,
-		"repo", "import", "github", sourceRepo,
+		"import", sourceRepo,
 		"--mount", "/acme/payment/imported/shallow",
 		"--slice", "acme/payment",
 		"--mode", "shallow",
@@ -1674,7 +1674,7 @@ func TestGitHubImportShallow(t *testing.T) {
 	}
 }
 
-func TestGitHubImportProgressText(t *testing.T) {
+func TestGitImportProgressText(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -1682,7 +1682,7 @@ func TestGitHubImportProgressText(t *testing.T) {
 	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
 
 	stdout, stderr := runCLIStreams(t, home, workspace,
-		"repo", "import", "github", sourceRepo,
+		"import", sourceRepo,
 		"--mount", "/acme/payment/imported/progress",
 		"--slice", "acme/payment",
 		"--mode", "shallow",
@@ -1698,7 +1698,7 @@ func TestGitHubImportProgressText(t *testing.T) {
 	}
 }
 
-func TestGitHubImportDeepListAndInspectCommits(t *testing.T) {
+func TestGitImportDeepListAndInspectCommits(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -1707,7 +1707,7 @@ func TestGitHubImportDeepListAndInspectCommits(t *testing.T) {
 	token := readToken(t, home)
 
 	raw := runCLI(t, home, workspace,
-		"repo", "import", "github", sourceRepo,
+		"import", sourceRepo,
 		"--mount", "/acme/payment/imported/deep",
 		"--slice", "acme/payment",
 		"--mode", "deep",
@@ -1805,7 +1805,7 @@ func TestGitHubImportDeepListAndInspectCommits(t *testing.T) {
 	assertProjectedFile(t, cloneDir, "acme/payment/imported/deep/lib/code.go", "package lib\nconst Value = 1\n")
 }
 
-func TestGitHubImportDeepMaxCommitsAndResume(t *testing.T) {
+func TestGitImportDeepMaxCommitsAndResume(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
@@ -1813,7 +1813,7 @@ func TestGitHubImportDeepMaxCommitsAndResume(t *testing.T) {
 	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
 
 	raw := runCLI(t, home, workspace,
-		"repo", "import", "github", sourceRepo,
+		"import", sourceRepo,
 		"--mount", "/acme/payment/imported/bounded",
 		"--slice", "acme/payment",
 		"--mode", "deep",
@@ -1838,7 +1838,7 @@ func TestGitHubImportDeepMaxCommitsAndResume(t *testing.T) {
 	}
 
 	stdout, stderr := runCLIStreams(t, home, workspace,
-		"repo", "import", "github", sourceRepo,
+		"import", sourceRepo,
 		"--mount", "/acme/payment/imported/bounded",
 		"--slice", "acme/payment",
 		"--mode", "deep",

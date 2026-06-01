@@ -1297,43 +1297,30 @@ home slice root, for example /nic/notes.`,
 	}
 	fsCmd.AddCommand(fsLsCmd, fsCatCmd, fsMkdirCmd, fsTouchCmd, fsWriteCmd, fsUploadCmd, fsMvCmd, fsRmCmd)
 
-	repoCmd := &cobra.Command{
-		Use:     "repo",
-		Aliases: []string{"repository"},
-		Short:   "Manage imported repositories",
-		RunE:    requireSubcommand("repo"),
-	}
-	repoImportCmd := &cobra.Command{
-		Use:   "import",
-		Short: "Import external repositories",
-		RunE:  requireSubcommand("repo import"),
-	}
 	importMountPath := ""
 	importSlice := ""
 	importMode := "shallow"
 	importDeep := false
 	importMaxCommits := 0
 	importResume := true
-	importGithubCmd := &cobra.Command{
-		Use:   "github <owner/repo-or-url>",
-		Short: "Import a GitHub repository under a mounted path",
-		Args:  exactArgs(1, "gs repo import github <owner/repo-or-url> --mount /acme/payment/vendor/repo [--slice payment|acme/payment] [--mode shallow|deep]"),
+	importCmd := &cobra.Command{
+		Use:   "import <source>",
+		Short: "Import a Git repository under a mounted path",
+		Args:  exactArgs(1, "gs import <source> --mount /acme/payment/vendor/repo [--slice payment|acme/payment] [--mode shallow|deep]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := importMode
 			if importDeep {
 				mode = "deep"
 			}
-			return r.runRepoImportGithub(cmd.Context(), *opts, args[0], importMountPath, importSlice, mode, importMaxCommits, importResume)
+			return r.runImportGitRepository(cmd.Context(), *opts, args[0], importMountPath, importSlice, mode, importMaxCommits, importResume)
 		},
 	}
-	importGithubCmd.Flags().StringVar(&importMountPath, "mount", importMountPath, "absolute Gitslice path where the repository should be mounted")
-	importGithubCmd.Flags().StringVar(&importSlice, "slice", importSlice, "authoring slice, defaults to current workspace slice")
-	importGithubCmd.Flags().StringVar(&importMode, "mode", importMode, "import mode: shallow or deep")
-	importGithubCmd.Flags().BoolVar(&importDeep, "deep", importDeep, "import every reachable Git commit")
-	importGithubCmd.Flags().IntVar(&importMaxCommits, "max-commits", importMaxCommits, "maximum recent commits to import in deep mode")
-	importGithubCmd.Flags().BoolVar(&importResume, "resume", importResume, "resume previously completed commits for the same import")
-	repoImportCmd.AddCommand(importGithubCmd)
-	repoCmd.AddCommand(repoImportCmd)
+	importCmd.Flags().StringVar(&importMountPath, "mount", importMountPath, "absolute Gitslice path where the repository should be mounted")
+	importCmd.Flags().StringVar(&importSlice, "slice", importSlice, "authoring slice, defaults to current workspace slice")
+	importCmd.Flags().StringVar(&importMode, "mode", importMode, "import mode: shallow or deep")
+	importCmd.Flags().BoolVar(&importDeep, "deep", importDeep, "import every reachable Git commit")
+	importCmd.Flags().IntVar(&importMaxCommits, "max-commits", importMaxCommits, "maximum recent commits to import in deep mode")
+	importCmd.Flags().BoolVar(&importResume, "resume", importResume, "resume previously completed commits for the same import")
 
 	shellCommit := ""
 	shellSlice := ""
@@ -1438,7 +1425,7 @@ home slice root, for example /nic/notes.`,
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, initCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, repoCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, initCmd, importCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
 	return root
 }
 
@@ -4886,7 +4873,7 @@ func printIndentedPaths(w io.Writer, paths []string, indent string) {
 	}
 }
 
-func (r Runner) runRepoImportGithub(ctx context.Context, opts commandOptions, source, mountPath, sliceRef, mode string, maxCommits int, resume bool) error {
+func (r Runner) runImportGitRepository(ctx context.Context, opts commandOptions, source, mountPath, sliceRef, mode string, maxCommits int, resume bool) error {
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
@@ -7357,9 +7344,9 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"operation", "slice", "commit_id", "new_ref_commit_id", "changed_paths"},
 			},
 			{
-				"use":            "gs repo import github <owner/repo-or-url>",
-				"summary":        "import a GitHub repository under a mounted path",
-				"aliases":        []string{"gs repository import github <owner/repo-or-url>"},
+				"use":            "gs import <source>",
+				"summary":        "import a Git repository under a mounted path",
+				"args":           []string{"source"},
 				"flags":          []string{"--mount", "--slice", "--mode", "--deep", "--max-commits", "--resume"},
 				"writes_stdout":  true,
 				"machine_output": []string{"source", "mount_path", "mode", "target_ref", "final_commit_id", "commits"},
