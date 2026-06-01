@@ -1194,9 +1194,16 @@ func (r Runner) rootCommand() *cobra.Command {
 		RunE:    requireSubcommand("fs"),
 	}
 	fsLsCmd := &cobra.Command{
-		Use:   "ls [absolute-path]",
-		Short: "List a remote directory or file",
-		Args:  maxArgs(1, "gs fs ls [/account/path]"),
+		Use:   "ls [remote-path]",
+		Short: "List a remote directory or file in the signed-in home slice",
+		Long: `List a remote directory or file in the signed-in home slice.
+
+If no path is provided, gs lists the signed-in home slice root. For user nic,
+that default remote path is /nic, not the local ~/ directory.
+
+When a path is provided it must be an absolute remote path under the signed-in
+home slice root, for example /nic/notes.`,
+		Args: maxArgs(1, "gs fs ls [remote-path]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := ""
 			if len(args) > 0 {
@@ -3409,12 +3416,18 @@ func (r Runner) runFSList(ctx context.Context, opts commandOptions, requestedPat
 		return err
 	}
 	p := strings.TrimSpace(requestedPath)
+	usingDefaultPath := p == ""
 	if p == "" {
 		p = root
 	}
 	p, err = normalizeHomePath(slice, p, true)
 	if err != nil {
 		return err
+	}
+	color := r.colorEnabled(opts)
+	if usingDefaultPath && !opts.jsonOutput() && !opts.Quiet {
+		scope := slice.Ref.Account + "/" + slice.Ref.Slice
+		fmt.Fprintf(r.stderr(), "%s listing %s at %s\n", colorize(color, ansiDim, "remote:"), scope, p)
 	}
 	callCtx := authContext(ctx, cfg)
 	var entries []*corev1.TreeEntry
@@ -3451,7 +3464,6 @@ func (r Runner) runFSList(ctx context.Context, opts commandOptions, requestedPat
 	if opts.Quiet {
 		return nil
 	}
-	color := r.colorEnabled(opts)
 	for _, entry := range entries {
 		name := fsEntryName(entry)
 		if entry.Kind == corev1.EntryKind_ENTRY_KIND_DIRECTORY {
@@ -7287,9 +7299,9 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"changeset_handle", "changeset_id", "status"},
 			},
 			{
-				"use":            "gs fs ls [absolute-path]",
-				"summary":        "list a remote directory or file under the signed-in home slice",
-				"args":           []string{"absolute-path"},
+				"use":            "gs fs ls [remote-path]",
+				"summary":        "list a remote directory or file in the signed-in home slice",
+				"args":           []string{"remote-path"},
 				"writes_stdout":  true,
 				"machine_output": []string{"path", "slice", "commit_id", "entries"},
 			},

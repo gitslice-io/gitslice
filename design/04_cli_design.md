@@ -640,6 +640,13 @@ attempts to read or mutate `/alice`, `/acme`, or any other account root are
 rejected before issuing server calls that need the path, and mutations are also
 rejected by server-side changeset validation.
 
+When `gs fs ls` is run without a path, it lists the signed-in home slice root
+and writes the resolved remote scope to stderr, for example
+`remote: listing nic/home at /nic`. This keeps stdout as the directory listing
+while making clear that `home` means the remote Gitslice home slice root, not
+the local `~/` directory. JSON output omits this human diagnostic and reports
+the resolved path in the `path` field.
+
 Empty directories are first-class tree entries for these commands. Creating a
 directory does not create a placeholder file.
 

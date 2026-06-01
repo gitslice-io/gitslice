@@ -3713,3 +3713,34 @@ go test ./...
 go build ./cmd/...
 git diff --check
 ```
+
+## 2026-06-01: Clarify `gs fs ls` Default Scope
+
+Request:
+
+- reduce confusion when `gs fs ls` is run without a path, because "home" can
+  sound like the local `~/` directory even though `gs fs` lists remote
+  Gitslice files
+
+Decisions:
+
+- kept the useful no-argument default: `gs fs ls` still lists the signed-in
+  home slice root, for example `/nic`
+- changed the user-facing usage and schema wording from `absolute-path` to
+  `remote-path` for `gs fs ls`
+- added command help that explicitly says the default is the remote home slice
+  root, not the local `~/` directory
+- added a human stderr diagnostic for the no-argument text output path, for
+  example `remote: listing nic/home at /nic`, while preserving scriptable
+  stdout and suppressing the diagnostic for JSON output
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go tests/cli/cli_smoke_test.go
+go test ./internal/cli
+set -a; . ./env.local; set +a; go test -count=1 ./tests/cli -run TestCLIFileAndShellMutationsStayInHome -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```

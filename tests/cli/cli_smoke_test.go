@@ -656,11 +656,30 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 	runCLI(t, home, dir, "fs", "mkdir", "/file-user/empty")
 	runCLI(t, home, dir, "fs", "mv", "/file-user/empty", "/file-user/archive")
 
-	fsList := runCLI(t, home, dir, "fs", "ls", "/file-user")
+	fsList, fsListStderr := runCLIStreams(t, home, dir, "fs", "ls", "/file-user")
+	if fsListStderr != "" {
+		t.Fatalf("explicit fs ls should not print a default-path diagnostic, got:\n%s", fsListStderr)
+	}
 	for _, want := range []string{"archive/", "docs/"} {
 		if !strings.Contains(fsList, want) {
 			t.Fatalf("fs ls output missing %q:\n%s", want, fsList)
 		}
+	}
+	defaultFSList, defaultFSListStderr := runCLIStreams(t, home, dir, "fs", "ls")
+	if !strings.Contains(defaultFSListStderr, "remote: listing file-user/home at /file-user") {
+		t.Fatalf("default fs ls stderr should name the remote home root, got:\n%s", defaultFSListStderr)
+	}
+	for _, want := range []string{"archive/", "docs/"} {
+		if !strings.Contains(defaultFSList, want) {
+			t.Fatalf("default fs ls output missing %q:\n%s", want, defaultFSList)
+		}
+	}
+	defaultFSListJSON, defaultFSListJSONStderr := runCLIStreams(t, home, dir, "--json", "fs", "ls")
+	if defaultFSListJSONStderr != "" {
+		t.Fatalf("json fs ls should keep stderr empty, got:\n%s", defaultFSListJSONStderr)
+	}
+	if !strings.Contains(defaultFSListJSON, `"path": "/file-user"`) {
+		t.Fatalf("json fs ls should report the resolved remote path, got:\n%s", defaultFSListJSON)
 	}
 	fsCat := runCLI(t, home, dir, "fs", "cat", "/file-user/docs/today.md")
 	if fsCat != "hello from file command\n" {
