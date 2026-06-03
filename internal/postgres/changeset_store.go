@@ -329,14 +329,18 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	if err != nil {
 		return nil, err
 	}
+	conflictsJSON, err := encodeJSON(patchset.Conflicts)
+	if err != nil {
+		return nil, err
+	}
 	_, err = tx.ExecContext(ctx, `
 		insert into patchsets(
 			id, changeset_id, number, base_commit_id, author_subject_id, file_edits,
-			changed_paths, coverage, path_bases, read_set, write_set, created_at
+			changed_paths, coverage, path_bases, read_set, write_set, conflicts, kind, created_at
 		)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, patchset.Id, changesetID, patchset.Number, patchset.BaseCommitId, patchset.Author,
-		fileEditsJSON, changedJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, createdAt)
+		fileEditsJSON, changedJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON, patchset.Kind, createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -421,6 +425,9 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	patchset, err := getPatchsetTx(ctx, tx, cs.CurrentPatchsetID)
 	if err != nil {
 		return nil, err
+	}
+	if len(patchset.Conflicts) > 0 {
+		return nil, fmt.Errorf("%w: unresolved patchset conflicts", ErrConflict)
 	}
 	var currentCommitID string
 	err = tx.QueryRowContext(ctx, `
@@ -1179,7 +1186,7 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 func (s *ChangesetStore) listPatchsets(ctx context.Context, changesetID string) ([]*corev1.Patchset, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
-		       changed_paths, file_edits, coverage, path_bases, read_set, write_set
+		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind
 		from patchsets
 		where changeset_id = $1
 		order by number
@@ -1202,7 +1209,7 @@ func (s *ChangesetStore) listPatchsets(ctx context.Context, changesetID string) 
 func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.Patchset, error) {
 	row := tx.QueryRowContext(ctx, `
 		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
-		       changed_paths, file_edits, coverage, path_bases, read_set, write_set
+		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind
 		from patchsets
 		where id = $1
 	`, patchsetID)
@@ -1211,11 +1218,11 @@ func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.
 
 func scanPatchset(row scanner) (*corev1.Patchset, error) {
 	var patchset corev1.Patchset
-	var changedJSON, fileEditsJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON []byte
+	var changedJSON, fileEditsJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON []byte
 	var createdAt time.Time
 	err := row.Scan(&patchset.Id, &patchset.ChangesetId, &patchset.Number, &patchset.BaseCommitId,
 		&patchset.Author, &createdAt, &changedJSON, &fileEditsJSON, &coverageJSON,
-		&pathBasesJSON, &readSetJSON, &writeSetJSON)
+		&pathBasesJSON, &readSetJSON, &writeSetJSON, &conflictsJSON, &patchset.Kind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1233,6 +1240,7 @@ func scanPatchset(row scanner) (*corev1.Patchset, error) {
 		{pathBasesJSON, &patchset.PathBases},
 		{readSetJSON, &patchset.ReadSet},
 		{writeSetJSON, &patchset.WriteSet},
+		{conflictsJSON, &patchset.Conflicts},
 	} {
 		if err := decodeJSON(item.raw, item.dst); err != nil {
 			return nil, err

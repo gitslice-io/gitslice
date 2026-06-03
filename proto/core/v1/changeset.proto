@@ -51,6 +51,8 @@ message Patchset {
   repeated PathSetEntry read_set = 12;
   repeated PathSetEntry write_set = 13;
   string handle = 14;
+  repeated PatchsetConflict conflicts = 15;
+  string kind = 16;
 }
 
 message FileEdit {
@@ -79,6 +81,19 @@ message PathBase {
   string symlink_target = 9;
   string entry_fingerprint = 10;
   string check = 11;
+}
+
+message PatchsetConflict {
+  string path = 1;
+  string conflict_class = 2;
+  string old_base_commit_id = 3;
+  string new_base_commit_id = 4;
+  string base_fingerprint = 5;
+  string local_fingerprint = 6;
+  string remote_fingerprint = 7;
+  string base_content_hash = 8;
+  string local_content_hash = 9;
+  string remote_content_hash = 10;
 }
 
 message PathSetEntry {
@@ -141,6 +156,8 @@ message UpdateChangesetRequest {
   string expected_current_patchset_id = 2;
   string base_commit_id = 3;
   repeated FileEdit file_edits = 4;
+  repeated PatchsetConflict conflicts = 5;
+  string patchset_kind = 6;
 }
 
 message SubmitChangesetRequest {

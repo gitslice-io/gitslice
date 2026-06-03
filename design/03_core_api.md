@@ -626,7 +626,11 @@ message DiffChangesetRequest {
   // patchset, from_patchset, and to_patchset accept a patchset number encoded as
   // a string, a standalone exact-version handle like "acme/payment@42.2", or a
   // canonical patchset id for debugging/backward compatibility. Empty
-  // patchset/to_patchset means the changeset's current patchset.
+  // patchset/to_patchset means the changeset's current patchset. When
+  // from_patchset is empty, the response is the canonical nearest-base diff:
+  // selected patchset base_commit_id -> selected patchset materialized edits.
+  // from_patchset/to_patchset comparisons are patchset review conveniences, not
+  // a general arbitrary snapshot diff contract across different base commits.
   string patchset = 2;
   string from_patchset = 3;
   string to_patchset = 4;

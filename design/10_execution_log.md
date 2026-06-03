@@ -3284,6 +3284,98 @@ Verification:
 git diff --check
 ```
 
+## 2026-06-01: Workspace Sync Implementation
+
+Request:
+
+- implement the workspace sync behavior described in the sync-conflict design
+  PR and push the implementation back to that PR branch
+
+Decisions:
+
+- added `gs sync` and `gs workspace sync` as real CLI commands
+- implemented sync as a three-way workspace merge over the previous base
+  snapshot, current local files, and latest remote slice projection
+- clean remote-only changes update the workspace and local base snapshot;
+  local-only changes are preserved across the new base
+- active draft changesets receive a new `sync` patchset after syncing, using the
+  latest remote commit as the patchset base
+- conflicting paths are recorded in `.gs/conflicts.json`, materialized with text
+  conflict markers when possible, and sent to the server as patchset conflict
+  metadata
+- submit now rejects patchsets with unresolved conflict metadata; `gs cs update`
+  clears local conflict state after markers are resolved and creates the next
+  normal patchset
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go service/changeset.go service/memory_service_test.go internal/postgres/changeset_store.go internal/storage/memory/store.go tests/cli/cli_smoke_test.go
+go test ./service ./internal/postgres ./internal/storage/...
+go test ./internal/cli
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli -run TestWorkspaceSync -v
+GOCACHE=/tmp/gocache go test ./...
+GOCACHE=/tmp/gocache go build ./cmd/...
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli ./tests/rpc -v
+git diff --check
+```
+
+## 2026-06-01: Workspace Sync Merge Strategies
+
+Request:
+
+- support sync merge strategies and make line-level text auto-merge the default
+
+Decisions:
+
+- added `gs sync --merge line|manual|ours|theirs` and the same flag on
+  `gs workspace sync`
+- made `line` the default because it preserves the normal sync workflow for
+  non-overlapping text edits while falling back to explicit conflicts when
+  edits overlap, files are binary, modes differ, or a side deletes the file
+- kept `manual` as the previous conflict-first behavior for users or agents
+  that want to inspect every divergent same-path edit
+- added `ours` and `theirs` for explicit local-side or remote-side resolution
+  during sync
+- recorded merged paths and the selected merge strategy in structured sync
+  output
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go tests/cli/cli_smoke_test.go
+GOCACHE=/tmp/gocache go test ./internal/cli
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli -run 'TestWorkspaceSync(LineMerges|Records|Rebases|Updates)' -v
+GOCACHE=/tmp/gocache go test ./...
+GOCACHE=/tmp/gocache go build ./cmd/...
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 ./tests/cli ./tests/rpc -v
+git diff --check
+```
+
+## 2026-06-01: Nearest-Base Patchset Diff Boundary
+
+Request:
+
+- document that Gitslice only needs to diff a patchset against its nearest base
+  for the sync/conflict MVP, not arbitrary snapshot-to-snapshot comparisons
+
+Decisions:
+
+- made nearest-base diff the canonical patchset review surface:
+  `patchset.base_commit_id -> patchset.file_edits`
+- documented that sync patchsets after a base transition diff against the new
+  synced base, so remote-only changes from the old base to the new base remain
+  part of base history rather than the sync patchset overlay
+- kept `from_patchset`/`to_patchset` documented as a review convenience, not a
+  complete arbitrary snapshot diff contract across different base commits
+
+Verification:
+
+```bash
+git diff --check
+```
+
 ## 2026-05-26: Multi-User RPC Load Simulation
 
 Request:
@@ -3771,5 +3863,33 @@ go test ./internal/cli
 set -a; . ./env.local; set +a; go test -count=1 ./tests/cli -run TestCLIFileAndShellMutationsStayInHome -v
 go test ./...
 go build ./cmd/...
+git diff --check
+```
+
+## 2026-06-01: Changeset-Aware Workspace Sync Design
+
+Request:
+
+- document `gs sync` as a workspace update that still proceeds when conflicts
+  exist, records the sync in changeset patchset history, and asks the user to
+  resolve conflicts before updating the changeset again
+
+Decisions:
+
+- defined planned `gs sync` and `gs workspace sync` in the CLI design as a
+  changeset-aware rebase operation, not just a clean hydration command
+- specified the three sync inputs: previous base snapshot, local workspace
+  contents, and latest remote slice projection
+- documented that sync updates non-conflicting paths, materializes explicit
+  local conflicts, and records authoritative conflict metadata under `.gs/`
+- documented that an associated draft changeset receives a sync/rebase patchset
+  such as `v3`, followed by a normal resolved patchset such as `v4` after
+  `gs cs update`
+- extended the conflict-resolution design to require unresolved sync-conflict
+  patchsets to be non-submittable until the conflict state is cleared
+
+Verification:
+
+```bash
 git diff --check
 ```

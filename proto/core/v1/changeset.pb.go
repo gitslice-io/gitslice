@@ -209,6 +209,8 @@ type Patchset struct {
 	ReadSet            []*PathSetEntry        `protobuf:"bytes,12,rep,name=read_set,json=readSet,proto3" json:"read_set,omitempty"`
 	WriteSet           []*PathSetEntry        `protobuf:"bytes,13,rep,name=write_set,json=writeSet,proto3" json:"write_set,omitempty"`
 	Handle             string                 `protobuf:"bytes,14,opt,name=handle,proto3" json:"handle,omitempty"`
+	Conflicts          []*PatchsetConflict    `protobuf:"bytes,15,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
+	Kind               string                 `protobuf:"bytes,16,opt,name=kind,proto3" json:"kind,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -337,6 +339,20 @@ func (x *Patchset) GetWriteSet() []*PathSetEntry {
 func (x *Patchset) GetHandle() string {
 	if x != nil {
 		return x.Handle
+	}
+	return ""
+}
+
+func (x *Patchset) GetConflicts() []*PatchsetConflict {
+	if x != nil {
+		return x.Conflicts
+	}
+	return nil
+}
+
+func (x *Patchset) GetKind() string {
+	if x != nil {
+		return x.Kind
 	}
 	return ""
 }
@@ -601,6 +617,122 @@ func (x *PathBase) GetCheck() string {
 	return ""
 }
 
+type PatchsetConflict struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Path              string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	ConflictClass     string                 `protobuf:"bytes,2,opt,name=conflict_class,json=conflictClass,proto3" json:"conflict_class,omitempty"`
+	OldBaseCommitId   string                 `protobuf:"bytes,3,opt,name=old_base_commit_id,json=oldBaseCommitId,proto3" json:"old_base_commit_id,omitempty"`
+	NewBaseCommitId   string                 `protobuf:"bytes,4,opt,name=new_base_commit_id,json=newBaseCommitId,proto3" json:"new_base_commit_id,omitempty"`
+	BaseFingerprint   string                 `protobuf:"bytes,5,opt,name=base_fingerprint,json=baseFingerprint,proto3" json:"base_fingerprint,omitempty"`
+	LocalFingerprint  string                 `protobuf:"bytes,6,opt,name=local_fingerprint,json=localFingerprint,proto3" json:"local_fingerprint,omitempty"`
+	RemoteFingerprint string                 `protobuf:"bytes,7,opt,name=remote_fingerprint,json=remoteFingerprint,proto3" json:"remote_fingerprint,omitempty"`
+	BaseContentHash   string                 `protobuf:"bytes,8,opt,name=base_content_hash,json=baseContentHash,proto3" json:"base_content_hash,omitempty"`
+	LocalContentHash  string                 `protobuf:"bytes,9,opt,name=local_content_hash,json=localContentHash,proto3" json:"local_content_hash,omitempty"`
+	RemoteContentHash string                 `protobuf:"bytes,10,opt,name=remote_content_hash,json=remoteContentHash,proto3" json:"remote_content_hash,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PatchsetConflict) Reset() {
+	*x = PatchsetConflict{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PatchsetConflict) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatchsetConflict) ProtoMessage() {}
+
+func (x *PatchsetConflict) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatchsetConflict.ProtoReflect.Descriptor instead.
+func (*PatchsetConflict) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *PatchsetConflict) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetConflictClass() string {
+	if x != nil {
+		return x.ConflictClass
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetOldBaseCommitId() string {
+	if x != nil {
+		return x.OldBaseCommitId
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetNewBaseCommitId() string {
+	if x != nil {
+		return x.NewBaseCommitId
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetBaseFingerprint() string {
+	if x != nil {
+		return x.BaseFingerprint
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetLocalFingerprint() string {
+	if x != nil {
+		return x.LocalFingerprint
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetRemoteFingerprint() string {
+	if x != nil {
+		return x.RemoteFingerprint
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetBaseContentHash() string {
+	if x != nil {
+		return x.BaseContentHash
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetLocalContentHash() string {
+	if x != nil {
+		return x.LocalContentHash
+	}
+	return ""
+}
+
+func (x *PatchsetConflict) GetRemoteContentHash() string {
+	if x != nil {
+		return x.RemoteContentHash
+	}
+	return ""
+}
+
 type PathSetEntry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
@@ -611,7 +743,7 @@ type PathSetEntry struct {
 
 func (x *PathSetEntry) Reset() {
 	*x = PathSetEntry{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[5]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -623,7 +755,7 @@ func (x *PathSetEntry) String() string {
 func (*PathSetEntry) ProtoMessage() {}
 
 func (x *PathSetEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[5]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -636,7 +768,7 @@ func (x *PathSetEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PathSetEntry.ProtoReflect.Descriptor instead.
 func (*PathSetEntry) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{5}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PathSetEntry) GetPath() string {
@@ -666,7 +798,7 @@ type SubmitRequirements struct {
 
 func (x *SubmitRequirements) Reset() {
 	*x = SubmitRequirements{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[6]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +810,7 @@ func (x *SubmitRequirements) String() string {
 func (*SubmitRequirements) ProtoMessage() {}
 
 func (x *SubmitRequirements) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[6]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,7 +823,7 @@ func (x *SubmitRequirements) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitRequirements.ProtoReflect.Descriptor instead.
 func (*SubmitRequirements) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{6}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SubmitRequirements) GetRequiredApprovals() []string {
@@ -742,7 +874,7 @@ type CreateChangesetRequest struct {
 
 func (x *CreateChangesetRequest) Reset() {
 	*x = CreateChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[7]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -754,7 +886,7 @@ func (x *CreateChangesetRequest) String() string {
 func (*CreateChangesetRequest) ProtoMessage() {}
 
 func (x *CreateChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[7]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -767,7 +899,7 @@ func (x *CreateChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateChangesetRequest.ProtoReflect.Descriptor instead.
 func (*CreateChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{7}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CreateChangesetRequest) GetAuthoringSlice() *SliceRef {
@@ -814,7 +946,7 @@ type GetChangesetRequest struct {
 
 func (x *GetChangesetRequest) Reset() {
 	*x = GetChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[8]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -826,7 +958,7 @@ func (x *GetChangesetRequest) String() string {
 func (*GetChangesetRequest) ProtoMessage() {}
 
 func (x *GetChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[8]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -839,7 +971,7 @@ func (x *GetChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetChangesetRequest.ProtoReflect.Descriptor instead.
 func (*GetChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetChangesetRequest) GetChangesetId() string {
@@ -860,7 +992,7 @@ type ListChangesetsRequest struct {
 
 func (x *ListChangesetsRequest) Reset() {
 	*x = ListChangesetsRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[9]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -872,7 +1004,7 @@ func (x *ListChangesetsRequest) String() string {
 func (*ListChangesetsRequest) ProtoMessage() {}
 
 func (x *ListChangesetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[9]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -885,7 +1017,7 @@ func (x *ListChangesetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListChangesetsRequest.ProtoReflect.Descriptor instead.
 func (*ListChangesetsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListChangesetsRequest) GetAuthoringSlice() *SliceRef {
@@ -918,7 +1050,7 @@ type ListChangesetsResponse struct {
 
 func (x *ListChangesetsResponse) Reset() {
 	*x = ListChangesetsResponse{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[10]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -930,7 +1062,7 @@ func (x *ListChangesetsResponse) String() string {
 func (*ListChangesetsResponse) ProtoMessage() {}
 
 func (x *ListChangesetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[10]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -943,7 +1075,7 @@ func (x *ListChangesetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListChangesetsResponse.ProtoReflect.Descriptor instead.
 func (*ListChangesetsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{10}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListChangesetsResponse) GetChangesets() []*Changeset {
@@ -967,7 +1099,7 @@ type DiffChangesetRequest struct {
 
 func (x *DiffChangesetRequest) Reset() {
 	*x = DiffChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[11]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -979,7 +1111,7 @@ func (x *DiffChangesetRequest) String() string {
 func (*DiffChangesetRequest) ProtoMessage() {}
 
 func (x *DiffChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[11]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -992,7 +1124,7 @@ func (x *DiffChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffChangesetRequest.ProtoReflect.Descriptor instead.
 func (*DiffChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{11}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DiffChangesetRequest) GetChangesetId() string {
@@ -1039,7 +1171,7 @@ type DiffChangesetResponse struct {
 
 func (x *DiffChangesetResponse) Reset() {
 	*x = DiffChangesetResponse{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[12]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1051,7 +1183,7 @@ func (x *DiffChangesetResponse) String() string {
 func (*DiffChangesetResponse) ProtoMessage() {}
 
 func (x *DiffChangesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[12]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1064,7 +1196,7 @@ func (x *DiffChangesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffChangesetResponse.ProtoReflect.Descriptor instead.
 func (*DiffChangesetResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{12}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DiffChangesetResponse) GetChangesetId() string {
@@ -1129,13 +1261,15 @@ type UpdateChangesetRequest struct {
 	ExpectedCurrentPatchsetId string                 `protobuf:"bytes,2,opt,name=expected_current_patchset_id,json=expectedCurrentPatchsetId,proto3" json:"expected_current_patchset_id,omitempty"`
 	BaseCommitId              string                 `protobuf:"bytes,3,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
 	FileEdits                 []*FileEdit            `protobuf:"bytes,4,rep,name=file_edits,json=fileEdits,proto3" json:"file_edits,omitempty"`
+	Conflicts                 []*PatchsetConflict    `protobuf:"bytes,5,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
+	PatchsetKind              string                 `protobuf:"bytes,6,opt,name=patchset_kind,json=patchsetKind,proto3" json:"patchset_kind,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *UpdateChangesetRequest) Reset() {
 	*x = UpdateChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[13]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1147,7 +1281,7 @@ func (x *UpdateChangesetRequest) String() string {
 func (*UpdateChangesetRequest) ProtoMessage() {}
 
 func (x *UpdateChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[13]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1160,7 +1294,7 @@ func (x *UpdateChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateChangesetRequest.ProtoReflect.Descriptor instead.
 func (*UpdateChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{13}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UpdateChangesetRequest) GetChangesetId() string {
@@ -1191,6 +1325,20 @@ func (x *UpdateChangesetRequest) GetFileEdits() []*FileEdit {
 	return nil
 }
 
+func (x *UpdateChangesetRequest) GetConflicts() []*PatchsetConflict {
+	if x != nil {
+		return x.Conflicts
+	}
+	return nil
+}
+
+func (x *UpdateChangesetRequest) GetPatchsetKind() string {
+	if x != nil {
+		return x.PatchsetKind
+	}
+	return ""
+}
+
 type SubmitChangesetRequest struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
 	ChangesetId               string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
@@ -1201,7 +1349,7 @@ type SubmitChangesetRequest struct {
 
 func (x *SubmitChangesetRequest) Reset() {
 	*x = SubmitChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[14]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1213,7 +1361,7 @@ func (x *SubmitChangesetRequest) String() string {
 func (*SubmitChangesetRequest) ProtoMessage() {}
 
 func (x *SubmitChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[14]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1226,7 +1374,7 @@ func (x *SubmitChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitChangesetRequest.ProtoReflect.Descriptor instead.
 func (*SubmitChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{14}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SubmitChangesetRequest) GetChangesetId() string {
@@ -1257,7 +1405,7 @@ type SubmitChangesetResponse struct {
 
 func (x *SubmitChangesetResponse) Reset() {
 	*x = SubmitChangesetResponse{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[15]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1269,7 +1417,7 @@ func (x *SubmitChangesetResponse) String() string {
 func (*SubmitChangesetResponse) ProtoMessage() {}
 
 func (x *SubmitChangesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[15]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1282,7 +1430,7 @@ func (x *SubmitChangesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitChangesetResponse.ProtoReflect.Descriptor instead.
 func (*SubmitChangesetResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{15}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SubmitChangesetResponse) GetCommitId() string {
@@ -1337,7 +1485,7 @@ type AbandonChangesetRequest struct {
 
 func (x *AbandonChangesetRequest) Reset() {
 	*x = AbandonChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[16]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1349,7 +1497,7 @@ func (x *AbandonChangesetRequest) String() string {
 func (*AbandonChangesetRequest) ProtoMessage() {}
 
 func (x *AbandonChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[16]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1362,7 +1510,7 @@ func (x *AbandonChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbandonChangesetRequest.ProtoReflect.Descriptor instead.
 func (*AbandonChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{16}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AbandonChangesetRequest) GetChangesetId() string {
@@ -1403,7 +1551,7 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\tcommit_id\x18\x0e \x01(\tR\bcommitId\x12,\n" +
 	"\x12pending_publish_id\x18\x0f \x01(\tR\x10pendingPublishId\x12\x16\n" +
 	"\x06number\x18\x10 \x01(\x03R\x06number\x12\x16\n" +
-	"\x06handle\x18\x11 \x01(\tR\x06handle\"\xf0\x04\n" +
+	"\x06handle\x18\x11 \x01(\tR\x06handle\"\xc6\x05\n" +
 	"\bPatchset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x16\n" +
@@ -1422,7 +1570,9 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"path_bases\x18\v \x03(\v2\x1a.gitslice.core.v1.PathBaseR\tpathBases\x129\n" +
 	"\bread_set\x18\f \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\areadSet\x12;\n" +
 	"\twrite_set\x18\r \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\bwriteSet\x12\x16\n" +
-	"\x06handle\x18\x0e \x01(\tR\x06handle\"\x99\x01\n" +
+	"\x06handle\x18\x0e \x01(\tR\x06handle\x12@\n" +
+	"\tconflicts\x18\x0f \x03(\v2\".gitslice.core.v1.PatchsetConflictR\tconflicts\x12\x12\n" +
+	"\x04kind\x18\x10 \x01(\tR\x04kind\"\x99\x01\n" +
 	"\bFileEdit\x12\x0e\n" +
 	"\x02op\x18\x01 \x01(\tR\x02op\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x19\n" +
@@ -1446,7 +1596,19 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x0esymlink_target\x18\t \x01(\tR\rsymlinkTarget\x12+\n" +
 	"\x11entry_fingerprint\x18\n" +
 	" \x01(\tR\x10entryFingerprint\x12\x14\n" +
-	"\x05check\x18\v \x01(\tR\x05check\"@\n" +
+	"\x05check\x18\v \x01(\tR\x05check\"\xb8\x03\n" +
+	"\x10PatchsetConflict\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12%\n" +
+	"\x0econflict_class\x18\x02 \x01(\tR\rconflictClass\x12+\n" +
+	"\x12old_base_commit_id\x18\x03 \x01(\tR\x0foldBaseCommitId\x12+\n" +
+	"\x12new_base_commit_id\x18\x04 \x01(\tR\x0fnewBaseCommitId\x12)\n" +
+	"\x10base_fingerprint\x18\x05 \x01(\tR\x0fbaseFingerprint\x12+\n" +
+	"\x11local_fingerprint\x18\x06 \x01(\tR\x10localFingerprint\x12-\n" +
+	"\x12remote_fingerprint\x18\a \x01(\tR\x11remoteFingerprint\x12*\n" +
+	"\x11base_content_hash\x18\b \x01(\tR\x0fbaseContentHash\x12,\n" +
+	"\x12local_content_hash\x18\t \x01(\tR\x10localContentHash\x12.\n" +
+	"\x13remote_content_hash\x18\n" +
+	" \x01(\tR\x11remoteContentHash\"@\n" +
 	"\fPathSetEntry\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1c\n" +
 	"\trecursive\x18\x02 \x01(\bR\trecursive\"\x8b\x02\n" +
@@ -1487,13 +1649,15 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x04diff\x18\x05 \x01(\tR\x04diff\x12)\n" +
 	"\x10changeset_handle\x18\x06 \x01(\tR\x0fchangesetHandle\x120\n" +
 	"\x14from_patchset_handle\x18\a \x01(\tR\x12fromPatchsetHandle\x12,\n" +
-	"\x12to_patchset_handle\x18\b \x01(\tR\x10toPatchsetHandle\"\xdd\x01\n" +
+	"\x12to_patchset_handle\x18\b \x01(\tR\x10toPatchsetHandle\"\xc4\x02\n" +
 	"\x16UpdateChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12?\n" +
 	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\x12$\n" +
 	"\x0ebase_commit_id\x18\x03 \x01(\tR\fbaseCommitId\x129\n" +
 	"\n" +
-	"file_edits\x18\x04 \x03(\v2\x1a.gitslice.core.v1.FileEditR\tfileEdits\"|\n" +
+	"file_edits\x18\x04 \x03(\v2\x1a.gitslice.core.v1.FileEditR\tfileEdits\x12@\n" +
+	"\tconflicts\x18\x05 \x03(\v2\".gitslice.core.v1.PatchsetConflictR\tconflicts\x12#\n" +
+	"\rpatchset_kind\x18\x06 \x01(\tR\fpatchsetKind\"|\n" +
 	"\x16SubmitChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12?\n" +
 	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\"\xf1\x01\n" +
@@ -1529,61 +1693,64 @@ func file_proto_core_v1_changeset_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_changeset_proto_rawDescData
 }
 
-var file_proto_core_v1_changeset_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_proto_core_v1_changeset_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_proto_core_v1_changeset_proto_goTypes = []any{
 	(*Changeset)(nil),               // 0: gitslice.core.v1.Changeset
 	(*Patchset)(nil),                // 1: gitslice.core.v1.Patchset
 	(*FileEdit)(nil),                // 2: gitslice.core.v1.FileEdit
 	(*PathCoverage)(nil),            // 3: gitslice.core.v1.PathCoverage
 	(*PathBase)(nil),                // 4: gitslice.core.v1.PathBase
-	(*PathSetEntry)(nil),            // 5: gitslice.core.v1.PathSetEntry
-	(*SubmitRequirements)(nil),      // 6: gitslice.core.v1.SubmitRequirements
-	(*CreateChangesetRequest)(nil),  // 7: gitslice.core.v1.CreateChangesetRequest
-	(*GetChangesetRequest)(nil),     // 8: gitslice.core.v1.GetChangesetRequest
-	(*ListChangesetsRequest)(nil),   // 9: gitslice.core.v1.ListChangesetsRequest
-	(*ListChangesetsResponse)(nil),  // 10: gitslice.core.v1.ListChangesetsResponse
-	(*DiffChangesetRequest)(nil),    // 11: gitslice.core.v1.DiffChangesetRequest
-	(*DiffChangesetResponse)(nil),   // 12: gitslice.core.v1.DiffChangesetResponse
-	(*UpdateChangesetRequest)(nil),  // 13: gitslice.core.v1.UpdateChangesetRequest
-	(*SubmitChangesetRequest)(nil),  // 14: gitslice.core.v1.SubmitChangesetRequest
-	(*SubmitChangesetResponse)(nil), // 15: gitslice.core.v1.SubmitChangesetResponse
-	(*AbandonChangesetRequest)(nil), // 16: gitslice.core.v1.AbandonChangesetRequest
-	(*SliceRef)(nil),                // 17: gitslice.core.v1.SliceRef
-	(*Empty)(nil),                   // 18: gitslice.core.v1.Empty
+	(*PatchsetConflict)(nil),        // 5: gitslice.core.v1.PatchsetConflict
+	(*PathSetEntry)(nil),            // 6: gitslice.core.v1.PathSetEntry
+	(*SubmitRequirements)(nil),      // 7: gitslice.core.v1.SubmitRequirements
+	(*CreateChangesetRequest)(nil),  // 8: gitslice.core.v1.CreateChangesetRequest
+	(*GetChangesetRequest)(nil),     // 9: gitslice.core.v1.GetChangesetRequest
+	(*ListChangesetsRequest)(nil),   // 10: gitslice.core.v1.ListChangesetsRequest
+	(*ListChangesetsResponse)(nil),  // 11: gitslice.core.v1.ListChangesetsResponse
+	(*DiffChangesetRequest)(nil),    // 12: gitslice.core.v1.DiffChangesetRequest
+	(*DiffChangesetResponse)(nil),   // 13: gitslice.core.v1.DiffChangesetResponse
+	(*UpdateChangesetRequest)(nil),  // 14: gitslice.core.v1.UpdateChangesetRequest
+	(*SubmitChangesetRequest)(nil),  // 15: gitslice.core.v1.SubmitChangesetRequest
+	(*SubmitChangesetResponse)(nil), // 16: gitslice.core.v1.SubmitChangesetResponse
+	(*AbandonChangesetRequest)(nil), // 17: gitslice.core.v1.AbandonChangesetRequest
+	(*SliceRef)(nil),                // 18: gitslice.core.v1.SliceRef
+	(*Empty)(nil),                   // 19: gitslice.core.v1.Empty
 }
 var file_proto_core_v1_changeset_proto_depIdxs = []int32{
-	17, // 0: gitslice.core.v1.Changeset.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	18, // 0: gitslice.core.v1.Changeset.authoring_slice:type_name -> gitslice.core.v1.SliceRef
 	1,  // 1: gitslice.core.v1.Changeset.patchsets:type_name -> gitslice.core.v1.Patchset
-	6,  // 2: gitslice.core.v1.Changeset.submit_requirements:type_name -> gitslice.core.v1.SubmitRequirements
+	7,  // 2: gitslice.core.v1.Changeset.submit_requirements:type_name -> gitslice.core.v1.SubmitRequirements
 	2,  // 3: gitslice.core.v1.Patchset.file_edits:type_name -> gitslice.core.v1.FileEdit
 	3,  // 4: gitslice.core.v1.Patchset.coverage:type_name -> gitslice.core.v1.PathCoverage
-	6,  // 5: gitslice.core.v1.Patchset.submit_requirements:type_name -> gitslice.core.v1.SubmitRequirements
+	7,  // 5: gitslice.core.v1.Patchset.submit_requirements:type_name -> gitslice.core.v1.SubmitRequirements
 	4,  // 6: gitslice.core.v1.Patchset.path_bases:type_name -> gitslice.core.v1.PathBase
-	5,  // 7: gitslice.core.v1.Patchset.read_set:type_name -> gitslice.core.v1.PathSetEntry
-	5,  // 8: gitslice.core.v1.Patchset.write_set:type_name -> gitslice.core.v1.PathSetEntry
-	17, // 9: gitslice.core.v1.CreateChangesetRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
-	17, // 10: gitslice.core.v1.ListChangesetsRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
-	0,  // 11: gitslice.core.v1.ListChangesetsResponse.changesets:type_name -> gitslice.core.v1.Changeset
-	2,  // 12: gitslice.core.v1.UpdateChangesetRequest.file_edits:type_name -> gitslice.core.v1.FileEdit
-	7,  // 13: gitslice.core.v1.ChangesetService.CreateChangeset:input_type -> gitslice.core.v1.CreateChangesetRequest
-	8,  // 14: gitslice.core.v1.ChangesetService.GetChangeset:input_type -> gitslice.core.v1.GetChangesetRequest
-	9,  // 15: gitslice.core.v1.ChangesetService.ListChangesets:input_type -> gitslice.core.v1.ListChangesetsRequest
-	11, // 16: gitslice.core.v1.ChangesetService.DiffChangeset:input_type -> gitslice.core.v1.DiffChangesetRequest
-	13, // 17: gitslice.core.v1.ChangesetService.UpdateChangeset:input_type -> gitslice.core.v1.UpdateChangesetRequest
-	14, // 18: gitslice.core.v1.ChangesetService.SubmitChangeset:input_type -> gitslice.core.v1.SubmitChangesetRequest
-	16, // 19: gitslice.core.v1.ChangesetService.AbandonChangeset:input_type -> gitslice.core.v1.AbandonChangesetRequest
-	0,  // 20: gitslice.core.v1.ChangesetService.CreateChangeset:output_type -> gitslice.core.v1.Changeset
-	0,  // 21: gitslice.core.v1.ChangesetService.GetChangeset:output_type -> gitslice.core.v1.Changeset
-	10, // 22: gitslice.core.v1.ChangesetService.ListChangesets:output_type -> gitslice.core.v1.ListChangesetsResponse
-	12, // 23: gitslice.core.v1.ChangesetService.DiffChangeset:output_type -> gitslice.core.v1.DiffChangesetResponse
-	1,  // 24: gitslice.core.v1.ChangesetService.UpdateChangeset:output_type -> gitslice.core.v1.Patchset
-	15, // 25: gitslice.core.v1.ChangesetService.SubmitChangeset:output_type -> gitslice.core.v1.SubmitChangesetResponse
-	18, // 26: gitslice.core.v1.ChangesetService.AbandonChangeset:output_type -> gitslice.core.v1.Empty
-	20, // [20:27] is the sub-list for method output_type
-	13, // [13:20] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	6,  // 7: gitslice.core.v1.Patchset.read_set:type_name -> gitslice.core.v1.PathSetEntry
+	6,  // 8: gitslice.core.v1.Patchset.write_set:type_name -> gitslice.core.v1.PathSetEntry
+	5,  // 9: gitslice.core.v1.Patchset.conflicts:type_name -> gitslice.core.v1.PatchsetConflict
+	18, // 10: gitslice.core.v1.CreateChangesetRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	18, // 11: gitslice.core.v1.ListChangesetsRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	0,  // 12: gitslice.core.v1.ListChangesetsResponse.changesets:type_name -> gitslice.core.v1.Changeset
+	2,  // 13: gitslice.core.v1.UpdateChangesetRequest.file_edits:type_name -> gitslice.core.v1.FileEdit
+	5,  // 14: gitslice.core.v1.UpdateChangesetRequest.conflicts:type_name -> gitslice.core.v1.PatchsetConflict
+	8,  // 15: gitslice.core.v1.ChangesetService.CreateChangeset:input_type -> gitslice.core.v1.CreateChangesetRequest
+	9,  // 16: gitslice.core.v1.ChangesetService.GetChangeset:input_type -> gitslice.core.v1.GetChangesetRequest
+	10, // 17: gitslice.core.v1.ChangesetService.ListChangesets:input_type -> gitslice.core.v1.ListChangesetsRequest
+	12, // 18: gitslice.core.v1.ChangesetService.DiffChangeset:input_type -> gitslice.core.v1.DiffChangesetRequest
+	14, // 19: gitslice.core.v1.ChangesetService.UpdateChangeset:input_type -> gitslice.core.v1.UpdateChangesetRequest
+	15, // 20: gitslice.core.v1.ChangesetService.SubmitChangeset:input_type -> gitslice.core.v1.SubmitChangesetRequest
+	17, // 21: gitslice.core.v1.ChangesetService.AbandonChangeset:input_type -> gitslice.core.v1.AbandonChangesetRequest
+	0,  // 22: gitslice.core.v1.ChangesetService.CreateChangeset:output_type -> gitslice.core.v1.Changeset
+	0,  // 23: gitslice.core.v1.ChangesetService.GetChangeset:output_type -> gitslice.core.v1.Changeset
+	11, // 24: gitslice.core.v1.ChangesetService.ListChangesets:output_type -> gitslice.core.v1.ListChangesetsResponse
+	13, // 25: gitslice.core.v1.ChangesetService.DiffChangeset:output_type -> gitslice.core.v1.DiffChangesetResponse
+	1,  // 26: gitslice.core.v1.ChangesetService.UpdateChangeset:output_type -> gitslice.core.v1.Patchset
+	16, // 27: gitslice.core.v1.ChangesetService.SubmitChangeset:output_type -> gitslice.core.v1.SubmitChangesetResponse
+	19, // 28: gitslice.core.v1.ChangesetService.AbandonChangeset:output_type -> gitslice.core.v1.Empty
+	22, // [22:29] is the sub-list for method output_type
+	15, // [15:22] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_changeset_proto_init() }
@@ -1598,7 +1765,7 @@ func file_proto_core_v1_changeset_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_changeset_proto_rawDesc), len(file_proto_core_v1_changeset_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

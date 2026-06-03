@@ -70,7 +70,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account/slice>", "gs import <source>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account/slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -134,6 +134,110 @@ func stringSliceContains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func TestMergeTextLines(t *testing.T) {
+	tests := []struct {
+		name   string
+		base   string
+		local  string
+		remote string
+		want   string
+		ok     bool
+	}{
+		{
+			name:   "non overlapping replacements",
+			base:   "a\nb\nc\n",
+			local:  "a\nlocal b\nc\n",
+			remote: "remote a\nb\nc\n",
+			want:   "remote a\nlocal b\nc\n",
+			ok:     true,
+		},
+		{
+			name:   "adjacent replacements",
+			base:   "a\nb\nc\n",
+			local:  "a\nlocal b\nc\n",
+			remote: "a\nb\nremote c\n",
+			want:   "a\nlocal b\nremote c\n",
+			ok:     true,
+		},
+		{
+			name:   "overlapping replacements conflict",
+			base:   "a\nb\nc\n",
+			local:  "a\nlocal b\nc\n",
+			remote: "a\nremote b\nc\n",
+			ok:     false,
+		},
+		{
+			name:   "same insertion point conflict",
+			base:   "a\nb\n",
+			local:  "a\nlocal\nb\n",
+			remote: "a\nremote\nb\n",
+			ok:     false,
+		},
+		{
+			name:   "identical side edit",
+			base:   "a\nb\n",
+			local:  "a\nshared\nb\n",
+			remote: "a\nshared\nb\n",
+			want:   "a\nshared\nb\n",
+			ok:     true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := mergeTextLines([]byte(tc.base), []byte(tc.local), []byte(tc.remote))
+			if ok != tc.ok {
+				t.Fatalf("merge ok = %v, want %v", ok, tc.ok)
+			}
+			if ok && string(got) != tc.want {
+				t.Fatalf("merged text mismatch:\nwant:\n%s\ngot:\n%s", tc.want, string(got))
+			}
+		})
+	}
+}
+
+func TestApplyWorkspaceSyncMergeStrategies(t *testing.T) {
+	const path = "/acme/payment/strategy.go"
+	t.Run("manual keeps conflicts", func(t *testing.T) {
+		plan := workspaceSyncPlan{
+			LocalPaths: []string{path},
+			Conflicts:  []WorkspaceConflict{{Path: path}},
+		}
+		if err := (Runner{}).applyWorkspaceSyncMergeStrategy(context.Background(), nil, nil, "", "", workspaceSyncMergeManual, BaseSnapshot{}, nil, nil, &plan); err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.Conflicts) != 1 || len(plan.LocalPaths) != 1 {
+			t.Fatalf("manual strategy changed plan unexpectedly: %#v", plan)
+		}
+	})
+	t.Run("ours keeps local side", func(t *testing.T) {
+		plan := workspaceSyncPlan{
+			LocalPaths: []string{path},
+			Conflicts:  []WorkspaceConflict{{Path: path}},
+		}
+		if err := (Runner{}).applyWorkspaceSyncMergeStrategy(context.Background(), nil, nil, "", "", workspaceSyncMergeOurs, BaseSnapshot{}, nil, nil, &plan); err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.Conflicts) != 0 || !stringSliceContains(plan.LocalPaths, path) || len(plan.RemoteUpserts) != 0 {
+			t.Fatalf("ours strategy plan = %#v", plan)
+		}
+	})
+	t.Run("theirs takes remote side", func(t *testing.T) {
+		plan := workspaceSyncPlan{
+			LocalPaths: []string{path},
+			Conflicts:  []WorkspaceConflict{{Path: path}},
+		}
+		remote := map[string]remoteWorkspaceFile{
+			path: {BaseSnapshotFile: BaseSnapshotFile{Path: path}},
+		}
+		if err := (Runner{}).applyWorkspaceSyncMergeStrategy(context.Background(), nil, nil, "", "", workspaceSyncMergeTheirs, BaseSnapshot{}, nil, remote, &plan); err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.Conflicts) != 0 || len(plan.LocalPaths) != 0 || len(plan.RemoteUpserts) != 1 || !stringSliceContains(plan.UpdatedPaths, path) {
+			t.Fatalf("theirs strategy plan = %#v", plan)
+		}
+	})
 }
 
 func TestRootHelpIncludesWorkflowExamples(t *testing.T) {

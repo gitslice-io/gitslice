@@ -173,6 +173,8 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		PathBases:          validation.PathBases,
 		ReadSet:            validation.ReadSet,
 		WriteSet:           validation.WriteSet,
+		Conflicts:          req.Conflicts,
+		Kind:               req.PatchsetKind,
 	}
 	patchset, err = s.Changesets.AddPatchset(ctx, cs.Id, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
