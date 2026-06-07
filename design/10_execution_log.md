@@ -3402,6 +3402,29 @@ gofmt -w tests/load/load_test.go
 set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 -tags load ./tests/load -run TestLoadTwoSliceConcurrentSameFileAppendIntegrity -v
 ```
 
+## 2026-06-07: CI-Friendly Two-Slice Load Default
+
+Request:
+
+- reduce the CI runtime impact of the two-slice same-file load test
+
+Decisions:
+
+- reduced the default operation count for
+  `TestLoadTwoSliceConcurrentSameFileAppendIntegrity` from 1000 to 100
+- wired `GITSLICE_LOAD_TWO_SLICE_EDITS=100` into the GitHub load workflow and
+  `make load`
+- kept the full 1000-edit stress case available with
+  `GITSLICE_LOAD_TWO_SLICE_EDITS=1000`
+
+Verification:
+
+```bash
+gofmt -w tests/load/load_test.go
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 -tags load ./tests/load -run TestLoadTwoSliceConcurrentSameFileAppendIntegrity -v
+git diff --check
+```
+
 ## 2026-05-26: Multi-User RPC Load Simulation
 
 Request:

@@ -390,7 +390,7 @@ func TestLoadTwoSliceConcurrentSameFileAppendIntegrity(t *testing.T) {
 		t.Logf("two_slice_append_seed duration=%s", duration)
 	}
 
-	operations := envInt("GITSLICE_LOAD_TWO_SLICE_EDITS", 1000)
+	operations := envInt("GITSLICE_LOAD_TWO_SLICE_EDITS", 100)
 	maxAttempts := envInt("GITSLICE_LOAD_TWO_SLICE_MAX_ATTEMPTS", operations*4)
 	writers := []twoSliceAppendWriter{
 		{name: "payment-client", slice: &corev1.SliceRef{Account: "acme", Slice: "payment"}, clients: paymentClient},
