@@ -108,6 +108,7 @@ jobs:
       GITSLICE_TEST_DATABASE_URL: postgres://gitslice:gitslice@localhost:5432/gitslice_dev?sslmode=disable
       GITSLICE_LOAD_WORKERS: 8
       GITSLICE_LOAD_STATUS_ITERATIONS: 4
+      GITSLICE_LOAD_TWO_SLICE_EDITS: 100
 
     steps:
       - name: Check out repository

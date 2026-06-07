@@ -23,6 +23,7 @@ WEB_PORT ?= 5173
 GIT_HTTP_ADDR ?= 127.0.0.1:8081
 LOAD_WORKERS ?= 8
 LOAD_STATUS_ITERATIONS ?= 4
+LOAD_TWO_SLICE_EDITS ?= 100
 
 GO_PACKAGES := ./...
 GO_FILES := $(shell find cmd internal server service tests -name '*.go' -type f)
@@ -94,6 +95,7 @@ load: require-test-database-url ## Run opt-in load tests against local PostgreSQ
 	GITSLICE_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" \
 	GITSLICE_LOAD_WORKERS="$(LOAD_WORKERS)" \
 	GITSLICE_LOAD_STATUS_ITERATIONS="$(LOAD_STATUS_ITERATIONS)" \
+	GITSLICE_LOAD_TWO_SLICE_EDITS="$(LOAD_TWO_SLICE_EDITS)" \
 	$(GO) test -count=1 -tags load ./tests/load -v
 
 proto: ## Regenerate protobuf, gRPC, and grpc-gateway Go files.
