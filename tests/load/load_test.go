@@ -344,6 +344,112 @@ func TestLoadHotFilesCreateSubmitProjectionLatency(t *testing.T) {
 	assertLoadIntegrity(t, ctx, db, objectStore)
 }
 
+func TestLoadTwoSliceConcurrentSameFileAppendIntegrity(t *testing.T) {
+	ts := startLoadServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	paymentConn := dialLoadGRPC(t, ts.addr)
+	defer paymentConn.Close()
+	backendConn := dialLoadGRPC(t, ts.addr)
+	defer backendConn.Close()
+	paymentClient := newLoadCoreClients(t, ctx, paymentConn)
+	backendClient := newLoadCoreClients(t, ctx, backendConn)
+
+	db, err := postgres.Open(ctx, databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	objectStore, err := filesystem.New(ts.objectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetTreeStore(treestore.New(objectStore))
+	projector, err := gitcompat.NewProjector(gitcompat.ProjectorStores{
+		Auth:       db.Auth(),
+		Repository: db.Repository(),
+		Slices:     db.Slices(),
+	}, objectStore, filepath.Join(ts.objectRoot, "projection-cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const filePath = "/acme/payment/shared/two_slice_append.txt"
+	const gitPath = "acme/payment/shared/two_slice_append.txt"
+	seedEdit, err := loadUploadFileEdit(paymentClient, filePath, []byte("seed\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, duration, err := submitLoadEdits(paymentClient, &corev1.SliceRef{Account: "acme", Slice: "payment"}, "seed two-slice append file", []*corev1.FileEdit{
+		{Op: "mkdir", Path: "/acme/payment/shared"},
+		seedEdit,
+	}); err != nil {
+		t.Fatal(err)
+	} else {
+		t.Logf("two_slice_append_seed duration=%s", duration)
+	}
+
+	operations := envInt("GITSLICE_LOAD_TWO_SLICE_EDITS", 1000)
+	maxAttempts := envInt("GITSLICE_LOAD_TWO_SLICE_MAX_ATTEMPTS", operations*4)
+	writers := []twoSliceAppendWriter{
+		{name: "payment-client", slice: &corev1.SliceRef{Account: "acme", Slice: "payment"}, clients: paymentClient},
+		{name: "backend-client", slice: &corev1.SliceRef{Account: "acme", Slice: "backend"}, clients: backendClient},
+	}
+
+	var wg sync.WaitGroup
+	durations := make(chan time.Duration, operations)
+	errs := make(chan error, len(writers))
+	attemptCh := make(chan int, operations)
+	start := time.Now()
+	for writerIndex, writer := range writers {
+		wg.Add(1)
+		go func(writerIndex int, writer twoSliceAppendWriter) {
+			defer wg.Done()
+			for operation := writerIndex; operation < operations; operation += len(writers) {
+				label := twoSliceAppendLine(operation, writer.name, writer.slice.Slice)
+				duration, attempts, err := submitTwoSliceAppendWithRetry(writer.clients, writer.slice, filePath, label, maxAttempts)
+				if err != nil {
+					errs <- fmt.Errorf("%s operation %d: %w", writer.name, operation, err)
+					return
+				}
+				durations <- duration
+				attemptCh <- attempts
+			}
+		}(writerIndex, writer)
+	}
+	wg.Wait()
+	close(durations)
+	close(errs)
+	close(attemptCh)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	samples := drainDurations(durations)
+	reportDurations(t, "two_slice_same_file_append_submit", operations, time.Since(start), samples)
+	totalAttempts := 0
+	for attempts := range attemptCh {
+		totalAttempts += attempts
+	}
+	t.Logf("two_slice_same_file_append operations=%d attempts=%d conflicts=%d", operations, totalAttempts, totalAttempts-operations)
+
+	ref, err := paymentClient.repo.GetRef(paymentClient.ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := paymentClient.repo.ReadFile(paymentClient.ctx, &corev1.ReadFileRequest{CommitId: ref.CommitId, Path: filePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTwoSliceAppendContent(t, string(read.Data), operations)
+	hotFiles := []hotFile{{name: "two-slice-append", path: filePath, gitPath: gitPath}}
+	assertFinalProjectionMatchesNative(t, ctx, db.Repository(), objectStore, projector, paymentClient.subjectID, "payment", hotFiles)
+	assertFinalProjectionMatchesNative(t, ctx, db.Repository(), objectStore, projector, paymentClient.subjectID, "backend", hotFiles)
+	assertLoadIntegrity(t, ctx, db, objectStore)
+}
+
 func TestLoadRPCMultiUserPersonalAccounts(t *testing.T) {
 	ts := startLoadServer(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -816,6 +922,12 @@ type hotSubmitResult struct {
 	PendingPublishID string
 }
 
+type twoSliceAppendWriter struct {
+	name    string
+	slice   *corev1.SliceRef
+	clients loadCoreClients
+}
+
 type projectionJob struct {
 	operation   int
 	file        hotFile
@@ -1264,6 +1376,105 @@ func requireEntry(entries []*corev1.TreeEntry, wantPath string, wantKind corev1.
 	}
 	sort.Strings(got)
 	return fmt.Errorf("missing %s:%s from [%s]", wantPath, wantKind, strings.Join(got, ", "))
+}
+
+func submitTwoSliceAppendWithRetry(clients loadCoreClients, sliceRef *corev1.SliceRef, filePath, line string, maxAttempts int) (time.Duration, int, error) {
+	begin := time.Now()
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := submitTwoSliceAppendOnce(clients, sliceRef, filePath, line, attempt)
+		if err == nil {
+			return time.Since(begin), attempt, nil
+		}
+		if !isConflictError(err) {
+			return 0, attempt, err
+		}
+		time.Sleep(time.Duration(attempt%11+1) * time.Millisecond)
+	}
+	return 0, maxAttempts, fmt.Errorf("exhausted %d attempts appending %q through %s/%s", maxAttempts, line, sliceRef.Account, sliceRef.Slice)
+}
+
+func submitTwoSliceAppendOnce(clients loadCoreClients, sliceRef *corev1.SliceRef, filePath, line string, attempt int) error {
+	ref, err := clients.repo.GetRef(clients.ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		return err
+	}
+	read, err := clients.repo.ReadFile(clients.ctx, &corev1.ReadFileRequest{CommitId: ref.CommitId, Path: filePath})
+	if err != nil {
+		return err
+	}
+	current := string(read.Data)
+	if !strings.HasSuffix(current, "\n") {
+		current += "\n"
+	}
+	if strings.Contains(current, line+"\n") {
+		return nil
+	}
+	edit, err := loadUploadFileEdit(clients, filePath, []byte(current+line+"\n"))
+	if err != nil {
+		return err
+	}
+	cs, err := clients.changeset.CreateChangeset(clients.ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: sliceRef,
+		TargetRef:      postgres.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          fmt.Sprintf("two-slice append %s attempt %d", line, attempt),
+	})
+	if err != nil {
+		return err
+	}
+	patchset, err := clients.changeset.UpdateChangeset(clients.ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits:    []*corev1.FileEdit{edit},
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := clients.changeset.SubmitChangeset(clients.ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: patchset.Id,
+	}); err != nil {
+		if isConflictError(err) {
+			_, _ = clients.changeset.AbandonChangeset(clients.ctx, &corev1.AbandonChangesetRequest{ChangesetId: cs.Id})
+		}
+		return err
+	}
+	_, err = waitForRPCSubmittedWithTimeout(clients.ctx, clients.changeset, cs.Id, loadPublishTimeout(1))
+	return err
+}
+
+func twoSliceAppendLine(operation int, clientName, sliceName string) string {
+	return fmt.Sprintf("op=%04d client=%s slice=%s", operation, clientName, sliceName)
+}
+
+func assertTwoSliceAppendContent(t *testing.T, content string, operations int) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	if len(lines) != operations+1 {
+		t.Fatalf("final file line count = %d, want %d", len(lines), operations+1)
+	}
+	if lines[0] != "seed" {
+		t.Fatalf("final file first line = %q, want seed", lines[0])
+	}
+	seen := map[string]struct{}{}
+	for _, line := range lines[1:] {
+		if _, ok := seen[line]; ok {
+			t.Fatalf("duplicate final file line %q", line)
+		}
+		seen[line] = struct{}{}
+	}
+	for operation := 0; operation < operations; operation++ {
+		clientName := "payment-client"
+		sliceName := "payment"
+		if operation%2 == 1 {
+			clientName = "backend-client"
+			sliceName = "backend"
+		}
+		want := twoSliceAppendLine(operation, clientName, sliceName)
+		if _, ok := seen[want]; !ok {
+			t.Fatalf("missing final file line %q", want)
+		}
+	}
 }
 
 func submitHotFileWithRetry(clients loadCoreClients, file hotFile, worker, operation, maxAttempts int) (*hotSubmitResult, int, int, error) {
