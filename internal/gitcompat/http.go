@@ -40,6 +40,12 @@ func NewHandler(auth storage.AuthStore, projector *Projector, blobs BlobAPI, cha
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	operation := gitHTTPOperation(r)
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	defer func() {
+		recordGitHTTPRequest(operation, recorder.status)
+	}()
+	w = recorder
 	account, slice, pathInfo, err := parseGitPath(r.URL.Path)
 	if err != nil {
 		http.NotFound(w, r)
@@ -62,6 +68,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := h.serveBackend(w, r, pathInfo); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusRecorder) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(data)
 }
 
 func (h *Handler) authenticate(ctx context.Context, r *http.Request) (string, error) {
@@ -198,6 +221,17 @@ func parseGitPath(path string) (string, string, string, error) {
 
 func isReceivePack(r *http.Request) bool {
 	return strings.Contains(r.URL.Path, "git-receive-pack") || r.URL.Query().Get("service") == "git-receive-pack"
+}
+
+func gitHTTPOperation(r *http.Request) string {
+	switch {
+	case isReceivePack(r):
+		return "receive-pack"
+	case strings.Contains(r.URL.Path, "git-upload-pack") || r.URL.Query().Get("service") == "git-upload-pack":
+		return "upload-pack"
+	default:
+		return "unknown"
+	}
 }
 
 func bearerToken(header string) string {

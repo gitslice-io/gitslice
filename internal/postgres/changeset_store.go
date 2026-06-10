@@ -482,7 +482,10 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 	return &corev1.ReportCheckResultResponse{ChangesetId: changesetID, PatchsetId: patchsetID, CheckName: checkName, Status: resultStatus}, nil
 }
 
-func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (res *corev1.SubmitChangesetResponse, err error) {
+	defer func() {
+		storage.RecordSubmitResult(err)
+	}()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -631,7 +634,10 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID, ChangesetHandle: handle}, nil
 }
 
-func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, error) {
+func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (published int, err error) {
+	defer func() {
+		storage.RecordPublishBatch(published, err)
+	}()
 	if s.trees == nil {
 		return 0, fmt.Errorf("tree store is not configured")
 	}
@@ -644,7 +650,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, `
-		select id, changeset_id, patchset_id, target_ref
+		select id, changeset_id, patchset_id, target_ref, created_at
 		from pending_publish
 		where status = 'pending'
 		order by sequence
@@ -657,7 +663,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 	var pending []pendingPublishRow
 	for rows.Next() {
 		var row pendingPublishRow
-		if err := rows.Scan(&row.ID, &row.ChangesetID, &row.PatchsetID, &row.TargetRef); err != nil {
+		if err := rows.Scan(&row.ID, &row.ChangesetID, &row.PatchsetID, &row.TargetRef, &row.CreatedAt); err != nil {
 			_ = rows.Close()
 			return 0, err
 		}
@@ -698,7 +704,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		return 0, err
 	}
 	baseTime := time.Now().UTC().Truncate(time.Microsecond)
-	published := 0
+	var publishLatencies []time.Duration
 	updatedBy := "publisher"
 	for _, row := range batch {
 		var cs struct {
@@ -797,6 +803,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		currentCommitID = commitID
 		updatedBy = cs.Author
 		published++
+		publishLatencies = append(publishLatencies, time.Since(row.CreatedAt))
 	}
 	if published == 0 {
 		if err := tx.Commit(); err != nil {
@@ -817,12 +824,26 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		return 0, err
 	}
 	if affected == 0 {
+		storage.RecordRefCASFailure()
 		return 0, ErrConflict
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
+	for _, latency := range publishLatencies {
+		storage.ObservePublishLatency(latency)
+	}
 	return published, nil
+}
+
+func (s *ChangesetStore) PendingPublishDepth(ctx context.Context) (int, error) {
+	var depth int
+	err := s.db.QueryRowContext(ctx, `
+		select count(*)
+		from pending_publish
+		where status = 'pending'
+	`).Scan(&depth)
+	return depth, err
 }
 
 func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, commitID string, changedPaths []string, committedAt time.Time) error {

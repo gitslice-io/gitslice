@@ -30,6 +30,7 @@ type ChangesetStore interface {
 	ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, status string) (*corev1.ReportCheckResultResponse, error)
 	Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error)
 	PublishPending(ctx context.Context, limit int) (int, error)
+	PendingPublishDepth(ctx context.Context) (int, error)
 	Abandon(ctx context.Context, changesetID string) error
 }
 

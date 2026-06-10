@@ -21,6 +21,7 @@ func main() {
 	flag.StringVar(&cfg.DatabaseURL, "database-url", cfg.DatabaseURL, "PostgreSQL connection URL")
 	flag.StringVar(&cfg.ObjectStoreRoot, "object-store-root", cfg.ObjectStoreRoot, "prototype filesystem object store root")
 	flag.BoolVar(&cfg.RunMigrations, "migrate", cfg.RunMigrations, "run PostgreSQL migrations and seed development fixtures")
+	flag.BoolVar(&cfg.DevMode, "dev", cfg.DevMode, "enable development-only diagnostics such as pprof on the HTTP listener")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

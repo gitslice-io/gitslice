@@ -20,6 +20,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -39,6 +40,13 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+// Load latency budgets are intentionally lenient MVP regression guards. By
+// default each reported scenario must keep p95 <= 5000ms. Override all
+// scenarios with GITSLICE_LOAD_BUDGET_P95_MS, or one scenario with
+// GITSLICE_LOAD_BUDGET_<SCENARIO>_P95_MS where SCENARIO is uppercased and
+// non-alphanumeric characters are replaced with underscores.
+const defaultLoadBudgetP95MS = 5000
 
 func TestLoadConcurrentDisjointSubmit(t *testing.T) {
 	ts := startLoadServer(t)
@@ -1516,15 +1524,22 @@ func reportDurations(t *testing.T, name string, operations int, wall time.Durati
 	if len(durations) == 0 {
 		t.Fatalf("%s recorded no durations", name)
 	}
+	p50 := percentile(durations, 0.50)
+	p95 := percentile(durations, 0.95)
+	p99 := percentile(durations, 0.99)
+	p95Budget := loadBudgetP95(name)
 	t.Logf("%s operations=%d wall=%s throughput=%.2f/s p50=%s p95=%s p99=%s",
 		name,
 		operations,
 		wall,
 		float64(operations)/wall.Seconds(),
-		percentile(durations, 0.50),
-		percentile(durations, 0.95),
-		percentile(durations, 0.99),
+		p50,
+		p95,
+		p99,
 	)
+	if p95 > p95Budget {
+		t.Fatalf("%s p95=%s exceeds budget %s; override with GITSLICE_LOAD_BUDGET_P95_MS or %s", name, p95, p95Budget, loadBudgetEnvKey(name))
+	}
 }
 
 func percentile(durations []time.Duration, p float64) time.Duration {
@@ -1545,6 +1560,45 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func loadBudgetP95(name string) time.Duration {
+	if value, ok := envMillis(loadBudgetEnvKey(name)); ok {
+		return value
+	}
+	if value, ok := envMillis("GITSLICE_LOAD_BUDGET_P95_MS"); ok {
+		return value
+	}
+	return time.Duration(defaultLoadBudgetP95MS) * time.Millisecond
+}
+
+func loadBudgetEnvKey(name string) string {
+	var b strings.Builder
+	b.WriteString("GITSLICE_LOAD_BUDGET_")
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(unicode.ToUpper(r))
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	b.WriteString("_P95_MS")
+	return b.String()
+}
+
+func envMillis(key string) (time.Duration, bool) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, false
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, false
+	}
+	return time.Duration(value) * time.Millisecond, true
 }
 
 func minInt(a, b int) int {

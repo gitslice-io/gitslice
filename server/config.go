@@ -19,6 +19,7 @@ type Config struct {
 	PublishBatchSize      int
 	PublishInterval       time.Duration
 	DisableAsyncPublisher bool
+	DevMode               bool
 }
 
 func ConfigFromEnv() Config {
@@ -34,6 +35,7 @@ func ConfigFromEnv() Config {
 		PublishBatchSize:      intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BATCH_SIZE"), 128),
 		PublishInterval:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_INTERVAL_MS"), 25)) * time.Millisecond,
 		DisableAsyncPublisher: os.Getenv("GITSLICE_DISABLE_ASYNC_PUBLISHER") == "1",
+		DevMode:               os.Getenv("GITSLICE_DEV_MODE") == "1",
 	}
 }
 

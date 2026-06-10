@@ -4062,3 +4062,59 @@ git diff --check
 `go test ./...` failed only in existing localhost-binding `internal/cli` tests
 with `listen tcp 127.0.0.1:0: bind: operation not permitted`; the other listed
 commands passed.
+
+## 2026-06-10: Add MVP Observability Floor
+
+Request:
+
+- implement MVP review item 6.4: Prometheus-text metrics, dev-only pprof,
+  request IDs, submit/publish/blob/Git/gRPC instrumentation, enforced load-test
+  latency budgets, and a metrics e2e assertion
+
+Implemented:
+
+- added `internal/metrics`, a stdlib-only in-process registry for counters,
+  gauges, histograms, and Prometheus text rendering
+- exposed `GET /metrics` on the optional HTTP gateway listener; the endpoint
+  remains unavailable when no HTTP listener is configured
+- gated `net/http/pprof` handlers on the same HTTP listener behind
+  `GITSLICE_DEV_MODE=1` or `gitslice-server --dev`
+- added gRPC request ID, metrics, and structured completion/failure logging
+  interceptors for unary and stream RPCs
+- instrumented submit acceptance/rejection by stable blocked-reason category,
+  publish batches, published changesets, ref CAS failures, pending publish queue
+  depth, accepted-to-published publish latency, blob upload count/bytes, and Git
+  HTTP operation/status counts
+- converted load-test p95 latency logs into enforced budgets with a 5000ms
+  default, a global `GITSLICE_LOAD_BUDGET_P95_MS` override, and per-scenario
+  `GITSLICE_LOAD_BUDGET_<SCENARIO>_P95_MS` overrides
+- extended the minimal CLI journey to scrape `/metrics` after submit and assert
+  submit and publish counters are present and nonzero
+
+Important decisions and learnings:
+
+- metrics registration lives in the measured package: storage metrics in
+  `internal/storage`, blob metrics in `service`, Git HTTP metrics in
+  `internal/gitcompat`, and gRPC interceptor metrics in `server`
+- publish latency uses the existing `pending_publish.created_at` column, so no
+  schema migration was needed
+- submit rejection labels intentionally normalize user-facing blocked strings
+  into stable categories: `stale_path_base`, `requirements_changed`,
+  `approvals_missing`, `checks_missing`, `conflict`, and `error`
+- the real Postgres e2e gate was intentionally not run with a database URL in
+  this sandbox; the operator will run it with local Postgres access
+
+Verification:
+
+```bash
+gofmt -w internal/metrics/metrics.go internal/requestid/requestid.go internal/storage/metrics.go internal/storage/interfaces.go internal/postgres/types.go internal/postgres/changeset_store.go internal/storage/memory/store.go service/metrics.go service/blob.go internal/gitcompat/metrics.go internal/gitcompat/http.go server/observability.go server/config.go server/gateway.go server/server.go server/publisher.go cmd/gitslice-server/main.go tests/load/load_test.go tests/cli/cli_smoke_test.go
+go test ./internal/metrics ./internal/storage ./internal/storage/memory ./service ./server ./internal/gitcompat
+go test -tags load ./tests/load -run TestDoesNotExist
+go test ./internal/postgres -run TestDoesNotExist
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed commands passed. The real Postgres CLI/RPC e2e tests did not run
+against a database because `GITSLICE_TEST_DATABASE_URL` was not set.

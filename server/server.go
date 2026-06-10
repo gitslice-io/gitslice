@@ -79,7 +79,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		gatewayServer = &http.Server{Handler: withCORS(gatewayHandler, cfg.HTTPAllowedOrigin)}
+		gatewayServer = &http.Server{Handler: NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg.DevMode)}
 	}
 	var gitHTTPServer *http.Server
 	var gitHTTPLis net.Listener
@@ -150,8 +150,8 @@ func NewGRPCServer(auth storage.AuthStore, handlers *service.Handlers) *grpc.Ser
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
-		grpc.UnaryInterceptor(authInterceptor(auth)),
-		grpc.StreamInterceptor(authStreamInterceptor(auth)),
+		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(auth)),
+		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(auth)),
 	)
 	corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
 	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)

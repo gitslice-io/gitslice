@@ -65,6 +65,10 @@ func TestMinimalCLIJourney(t *testing.T) {
 	if !strings.Contains(csStatus, "status: submitted") {
 		t.Fatalf("expected submitted changeset, got:\n%s", csStatus)
 	}
+	metricsText := httpGet(t, ts.httpAddr, "/metrics")
+	assertMetricPositive(t, metricsText, `gitslice_submit_total{result="accepted",reason="none"}`)
+	assertMetricPositive(t, metricsText, `gitslice_publish_batches_total{result="success"}`)
+	assertMetricPositive(t, metricsText, "gitslice_published_changesets_total")
 	status = runCLI(t, home, workspace, "status")
 	if !strings.Contains(status, "status: clean") {
 		t.Fatalf("expected clean status after submit, got:\n%s", status)
@@ -2772,6 +2776,42 @@ func httpGatewayOptions(t *testing.T, addr, path, origin string) (int, http.Head
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode, resp.Header.Clone()
+}
+
+func httpGet(t *testing.T, addr, path string) string {
+	t.Helper()
+	resp, err := http.Get("http://" + addr + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode >= 300 {
+		t.Fatalf("GET %s returned %d:\n%s", path, resp.StatusCode, string(data))
+	}
+	return string(data)
+}
+
+func assertMetricPositive(t *testing.T, text, series string) {
+	t.Helper()
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != series {
+			continue
+		}
+		value, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			t.Fatalf("metric %s has unparsable value %q", series, fields[1])
+		}
+		if value > 0 {
+			return
+		}
+		t.Fatalf("metric %s = %s, want > 0", series, fields[1])
+	}
+	t.Fatalf("metric %s not found in /metrics output:\n%s", series, text)
 }
 
 func gitHTTPRaw(t *testing.T, addr, path, authorization string) (int, http.Header, []byte) {

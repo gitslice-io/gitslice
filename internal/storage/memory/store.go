@@ -48,9 +48,10 @@ type backend struct {
 	slices    map[string]*corev1.Slice
 	sliceRefs map[string]string
 
-	changesets   map[string]*corev1.Changeset
-	approvals    map[string]map[string]struct{}
-	checkResults map[string]map[string]string
+	changesets        map[string]*corev1.Changeset
+	pendingAcceptedAt map[string]time.Time
+	approvals         map[string]map[string]struct{}
+	checkResults      map[string]map[string]string
 
 	imports         map[string]*storage.GitImportRecord
 	importsByKey    map[string]string
@@ -69,24 +70,25 @@ type ObjectStore struct{ b *backend }
 
 func New() *Stores {
 	b := &backend{
-		subjects:        map[string]storage.Subject{},
-		accountMembers:  map[string]map[string]string{},
-		sessions:        map[string]string{},
-		blobs:           map[string]*corev1.BlobRecord{},
-		objects:         map[string][]byte{},
-		refs:            map[string]*corev1.Ref{},
-		commits:         map[string]*corev1.Commit{},
-		commitFiles:     map[string]map[string]storage.FileEntry{},
-		slices:          map[string]*corev1.Slice{},
-		sliceRefs:       map[string]string{},
-		changesets:      map[string]*corev1.Changeset{},
-		approvals:       map[string]map[string]struct{}{},
-		checkResults:    map[string]map[string]string{},
-		imports:         map[string]*storage.GitImportRecord{},
-		importsByKey:    map[string]string{},
-		importedCommits: map[string][]storage.GitImportedCommitRecord{},
-		entitiesByPath:  map[string]storage.CurrentPathEntity{},
-		entityChanges:   map[string][]storage.HistoryEntityRef{},
+		subjects:          map[string]storage.Subject{},
+		accountMembers:    map[string]map[string]string{},
+		sessions:          map[string]string{},
+		blobs:             map[string]*corev1.BlobRecord{},
+		objects:           map[string][]byte{},
+		refs:              map[string]*corev1.Ref{},
+		commits:           map[string]*corev1.Commit{},
+		commitFiles:       map[string]map[string]storage.FileEntry{},
+		slices:            map[string]*corev1.Slice{},
+		sliceRefs:         map[string]string{},
+		changesets:        map[string]*corev1.Changeset{},
+		pendingAcceptedAt: map[string]time.Time{},
+		approvals:         map[string]map[string]struct{}{},
+		checkResults:      map[string]map[string]string{},
+		imports:           map[string]*storage.GitImportRecord{},
+		importsByKey:      map[string]string{},
+		importedCommits:   map[string][]storage.GitImportedCommitRecord{},
+		entitiesByPath:    map[string]storage.CurrentPathEntity{},
+		entityChanges:     map[string][]storage.HistoryEntityRef{},
 	}
 	root := &corev1.Commit{
 		Id:         "mem_root",
@@ -583,7 +585,10 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 	return &corev1.ReportCheckResultResponse{ChangesetId: changesetID, PatchsetId: patchset.Id, CheckName: checkName, Status: resultStatus}, nil
 }
 
-func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (res *corev1.SubmitChangesetResponse, err error) {
+	defer func() {
+		storage.RecordSubmitResult(err)
+	}()
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	cs := s.b.changesets[changesetID]
@@ -628,16 +633,19 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	}
 	cs.Status = "pending_publish"
 	cs.SubmitBlockedReason = ""
+	s.b.pendingAcceptedAt[cs.Id] = time.Now()
 	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id, ChangesetHandle: cs.Handle}, nil
 }
 
-func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, error) {
+func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (published int, err error) {
+	defer func() {
+		storage.RecordPublishBatch(published, err)
+	}()
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if limit <= 0 {
 		limit = 128
 	}
-	published := 0
 	for _, cs := range sortedChangesets(s.b.changesets) {
 		if published >= limit {
 			break
@@ -688,9 +696,25 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		s.b.putCommitWithFilesLocked(commitID, files, patchset.ChangedPaths, cs.Title)
 		cs.Status = "submitted"
 		cs.CommitId = commitID
+		if acceptedAt, ok := s.b.pendingAcceptedAt[cs.Id]; ok {
+			storage.ObservePublishLatency(time.Since(acceptedAt))
+			delete(s.b.pendingAcceptedAt, cs.Id)
+		}
 		published++
 	}
 	return published, nil
+}
+
+func (s *ChangesetStore) PendingPublishDepth(ctx context.Context) (int, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	depth := 0
+	for _, cs := range s.b.changesets {
+		if cs != nil && cs.Status == "pending_publish" {
+			depth++
+		}
+	}
+	return depth, nil
 }
 
 func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {

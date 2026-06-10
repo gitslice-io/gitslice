@@ -18,6 +18,12 @@ func runPublisher(ctx context.Context, changesets storage.ChangesetStore, batchS
 		case <-ctx.Done():
 			return
 		case <-timer.C:
+			depth, depthErr := changesets.PendingPublishDepth(ctx)
+			if depthErr == nil {
+				storage.SetPendingPublishQueueDepth(depth)
+			} else if ctx.Err() == nil {
+				slog.Warn("pending publish queue depth sample failed", "error", depthErr)
+			}
 			published, err := changesets.PublishPending(ctx, batchSize)
 			if err != nil && ctx.Err() == nil {
 				slog.Warn("pending publish batch failed", "error", err)
