@@ -3997,3 +3997,68 @@ gofmt -w internal/cli/cli.go internal/postgres/auth_store.go internal/postgres/c
 gofmt -w tests/rpc/submit_requirements_test.go && go test ./tests/rpc
 go test ./...
 ```
+
+## 2026-06-10: Implement Minimal Git Push Into Changesets
+
+Request:
+
+- implement MVP review item 6.3 / Phase 6 minimal Git push support:
+  `git push origin HEAD:refs/changes/new` creates a native changeset patchset,
+  `refs/changes/<changeset-number-or-id>` updates an existing changeset, direct
+  protected refs remain rejected, and pushes use the same native validation path
+  as CLI/gRPC changeset updates
+
+Implemented:
+
+- replaced the receive-pack blanket 403 with a smart HTTP receive-pack
+  advertisement and custom report-status response
+- parsed receive-pack pkt-line ref update commands and incoming packfiles
+- indexed incoming packs in a temporary bare repository with the projected bare
+  repo object directory as an alternate, mirroring the existing `git` binary
+  dependency used by projection
+- resolved the current projected synthetic Git commit back to its native commit
+  using `gitslice_projection.json` and required pushed histories to be linear
+  descendants of that projected head
+- converted the cumulative Git diff from projected head to pushed head into
+  canonical global `FileEdit`s, uploaded changed blobs through `BlobService`,
+  and created/updated patchsets through `ChangesetService.UpdateChangeset`
+- rejected multiple ref updates, delete pushes, merge commits, non-descendant
+  histories, and direct protected branch pushes with clear report-status text
+- added CLI e2e coverage for new changeset push, second patchset push,
+  protected branch rejection, unauthorized push rejection, and native submit
+  after Git-originated patchsets
+- added unit coverage for receive-pack parsing, pushed diff conversion, and
+  thin-pack indexing with projected objects as alternates
+
+Important decisions and learnings:
+
+- the receive-pack command's old object id is all-zero for unadvertised
+  `refs/changes/new`, so the push base must be validated by ancestry against
+  the current projected synthetic `refs/heads/main` commit rather than by the
+  command old id
+- Git-originated writes precheck slice containment before creating a new
+  changeset to avoid empty changesets on out-of-slice diffs, but the
+  authoritative validation still runs through `UpdateChangeset`
+- success handles such as `acme/payment@42` are emitted over sideband progress;
+  report-status itself remains protocol-valid with `ok`/`ng` per ref
+- the sandbox denied the default Go cache under `~/Library/Caches/go-build`, so
+  verification used `GOCACHE=/private/tmp/gitslice-go-cache`
+- the requested full `go test ./...` gate cannot complete in this sandbox
+  because existing `internal/cli` tests bind `127.0.0.1:0` and fail with
+  `operation not permitted`; the real Postgres e2e suite was intentionally not
+  run per task constraints
+
+Verification:
+
+```bash
+gofmt -w internal/gitcompat/http.go internal/gitcompat/push.go internal/gitcompat/push_test.go server/server.go tests/cli/cli_smoke_test.go
+GOCACHE=/private/tmp/gitslice-go-cache go test ./internal/gitcompat
+GOCACHE=/private/tmp/gitslice-go-cache go test ./tests/cli
+GOCACHE=/private/tmp/gitslice-go-cache go test ./...
+GOCACHE=/private/tmp/gitslice-go-cache go build ./cmd/...
+git diff --check
+```
+
+`go test ./...` failed only in existing localhost-binding `internal/cli` tests
+with `listen tcp 127.0.0.1:0: bind: operation not permitted`; the other listed
+commands passed.

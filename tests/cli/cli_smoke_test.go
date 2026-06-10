@@ -1780,12 +1780,12 @@ func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 		t.Fatalf("expected receive-pack auth challenge, got %q", got)
 	}
 
-	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, receiveInfoRefs, "Bearer "+token)
-	if statusCode != http.StatusForbidden {
-		t.Fatalf("expected authenticated receive-pack discovery to return 403, got %d:\n%s", statusCode, string(body))
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, receiveInfoRefs, "Bearer "+token)
+	if statusCode != http.StatusOK {
+		t.Fatalf("expected authenticated receive-pack discovery to return 200, got %d:\n%s", statusCode, string(body))
 	}
-	if !strings.Contains(string(body), "git push is not supported") || !strings.Contains(string(body), "native changesets") {
-		t.Fatalf("expected push rejection to direct users to native changesets, got:\n%s", string(body))
+	if !strings.Contains(headers.Get("Content-Type"), "application/x-git-receive-pack-advertisement") {
+		t.Fatalf("expected receive-pack advertisement content type, got %q", headers.Get("Content-Type"))
 	}
 
 	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, "/not-git/acme/payment.git/info/refs?service=git-upload-pack", "Bearer "+token)
@@ -1837,13 +1837,100 @@ func TestGitCloneProjection(t *testing.T) {
 	if string(projectedFetch) != "package payment\nconst GitFetch = true\n" {
 		t.Fatalf("unexpected fetched file contents:\n%s", string(projectedFetch))
 	}
+}
 
-	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/new")
-	if err == nil {
-		t.Fatal("expected git push to be rejected")
+func TestGitPushIntoChangesets(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	token := readToken(t, home)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "git_push_base.go", "package payment\nconst GitPushBase = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "git push base")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	changesets := corev1.NewChangesetServiceClient(conn)
+
+	cloneDir := filepath.Join(t.TempDir(), "payment")
+	gitURL := "http://" + ts.gitAddr + "/git/acme/payment.git"
+	runGit(t, "", "-c", "http.extraHeader=Authorization: Bearer "+token, "clone", gitURL, cloneDir)
+	runGit(t, "", "-C", cloneDir, "config", "user.name", "Git Pusher")
+	runGit(t, "", "-C", cloneDir, "config", "user.email", "git-pusher@example.invalid")
+
+	writeWorkspaceFile(t, cloneDir, "acme/payment/git_push_one.go", "package payment\nconst GitPushOne = true\n")
+	runGit(t, "", "-C", cloneDir, "add", "acme/payment/git_push_one.go")
+	runGit(t, "", "-C", cloneDir, "commit", "-m", "git push first patchset")
+	_, stderr, err := runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/new")
+	if err != nil {
+		t.Fatalf("git push refs/changes/new failed: %v\nstderr:\n%s", err, stderr)
 	}
-	if !strings.Contains(stderr, "403") && !strings.Contains(stderr, "not supported") {
-		t.Fatalf("expected push rejection, got stderr:\n%s", stderr)
+	if !strings.Contains(stderr, "Created changeset acme/payment@") {
+		t.Fatalf("push output missing created changeset handle:\n%s", stderr)
+	}
+	draft := singleDraftChangeset(t, ctx, changesets)
+	if len(draft.Patchsets) != 1 {
+		t.Fatalf("draft patchset count = %d, want 1: %#v", len(draft.Patchsets), draft)
+	}
+	if !containsString(draft.Patchsets[0].ChangedPaths, "/acme/payment/git_push_one.go") {
+		t.Fatalf("first patchset changed paths = %#v", draft.Patchsets[0].ChangedPaths)
+	}
+
+	writeWorkspaceFile(t, cloneDir, "acme/payment/git_push_two.go", "package payment\nconst GitPushTwo = true\n")
+	runGit(t, "", "-C", cloneDir, "add", "acme/payment/git_push_two.go")
+	runGit(t, "", "-C", cloneDir, "commit", "-m", "git push second patchset")
+	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/"+strconv.FormatInt(draft.Number, 10))
+	if err != nil {
+		t.Fatalf("git push existing changeset failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if !strings.Contains(stderr, "Updated changeset "+draft.Handle) {
+		t.Fatalf("push output missing updated changeset handle:\n%s", stderr)
+	}
+	updated, err := changesets.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: draft.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.CurrentPatchsetNumber != 2 || len(updated.Patchsets) != 2 {
+		t.Fatalf("updated changeset patchsets = current %d count %d, want current 2 count 2", updated.CurrentPatchsetNumber, len(updated.Patchsets))
+	}
+	second := updated.Patchsets[1]
+	for _, want := range []string{"/acme/payment/git_push_one.go", "/acme/payment/git_push_two.go"} {
+		if !containsString(second.ChangedPaths, want) {
+			t.Fatalf("second patchset changed paths missing %s: %#v", want, second.ChangedPaths)
+		}
+	}
+
+	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/heads/main")
+	if err == nil {
+		t.Fatal("expected protected branch push to be rejected")
+	}
+	if !strings.Contains(stderr, "protected") && !strings.Contains(stderr, "refs/changes/new") {
+		t.Fatalf("protected branch rejection did not guide to changes refs:\n%s", stderr)
+	}
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "git-push-outsider",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+signup.Token, "push", "origin", "HEAD:refs/changes/new")
+	if err == nil {
+		t.Fatal("expected unauthorized git push to be rejected")
+	}
+	if !strings.Contains(stderr, "403") && !strings.Contains(strings.ToLower(stderr), "permission") {
+		t.Fatalf("unauthorized push did not fail with auth guidance:\n%s", stderr)
+	}
+
+	runCLI(t, home, workspace, "cs", "submit", updated.Handle)
+	submitted := waitForSubmittedChangeset(t, ctx, changesets, updated.Id)
+	if !containsString(submitted.AffectedPaths, "/acme/payment/git_push_two.go") {
+		t.Fatalf("submitted changeset affected paths = %#v", submitted.AffectedPaths)
 	}
 }
 
@@ -2353,6 +2440,22 @@ func waitForSubmittedChangeset(t *testing.T, ctx context.Context, client corev1.
 	}
 	t.Fatalf("changeset %s did not reach submitted status, last=%#v", changesetID, last)
 	return nil
+}
+
+func singleDraftChangeset(t *testing.T, ctx context.Context, client corev1.ChangesetServiceClient) *corev1.Changeset {
+	t.Helper()
+	res, err := client.ListChangesets(ctx, &corev1.ListChangesetsRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		Status:         "draft",
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Changesets) != 1 {
+		t.Fatalf("draft changeset count = %d, want 1: %#v", len(res.Changesets), res.Changesets)
+	}
+	return res.Changesets[0]
 }
 
 func writeWorkspaceFile(t *testing.T, workspace, rel, content string) {

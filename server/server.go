@@ -66,7 +66,8 @@ func Run(ctx context.Context, cfg Config) error {
 		Repository: db.Repository(),
 		Slices:     db.Slices(),
 	}
-	grpcServer := NewGRPCServer(db.Auth(), service.New(stores, objectStore))
+	handlers := service.New(stores, objectStore)
+	grpcServer := NewGRPCServer(db.Auth(), handlers)
 	var gatewayServer *http.Server
 	var gatewayLis net.Listener
 	if cfg.HTTPAddr != "" {
@@ -98,7 +99,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		gitHTTPServer = &http.Server{Handler: gitcompat.NewHandler(db.Auth(), projector)}
+		gitHTTPServer = &http.Server{Handler: gitcompat.NewHandler(db.Auth(), projector, handlers.Blob, handlers.Changeset)}
 	}
 	errCh := make(chan error, 3)
 	go func() {
