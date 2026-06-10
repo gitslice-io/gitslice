@@ -844,7 +844,8 @@ func TestHTTPGatewayWriteChangesetFlow(t *testing.T) {
 
 	content := []byte("package payment\nconst GatewayWrite = true\n")
 	upload := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/UploadBlob", token, map[string]any{
-		"data": base64.StdEncoding.EncodeToString(content),
+		"data":  base64.StdEncoding.EncodeToString(content),
+		"slice": map[string]string{"account": "acme", "slice": "payment"},
 	})
 	blobID, _ := upload["blobId"].(string)
 	contentHash, _ := upload["contentHash"].(string)
@@ -854,6 +855,7 @@ func TestHTTPGatewayWriteChangesetFlow(t *testing.T) {
 
 	blobStatus := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/GetBlobStatus", token, map[string]any{
 		"contentHashes": []string{contentHash, "sha256:missing"},
+		"slice":         map[string]string{"account": "acme", "slice": "payment"},
 	})
 	records, ok := blobStatus["blobs"].([]any)
 	if !ok || len(records) != 2 {

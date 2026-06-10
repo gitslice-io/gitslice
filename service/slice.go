@@ -109,7 +109,7 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := s.validateIncludedPathsExist(ctx, current.Ref, includedPaths); err != nil {
+	if err := s.validateIncludedPathsExist(ctx, current.Ref, addedIncludedPaths(current.Definition, includedPaths)); err != nil {
 		return nil, err
 	}
 	definition, err := s.Slices.UpdateDefinition(ctx, req.SliceId, req.ExpectedDefinitionHash, &corev1.SliceDefinition{
@@ -138,6 +138,25 @@ func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceR
 		return nil, grpcError(err)
 	}
 	return &corev1.DeleteSliceResponse{SliceId: req.SliceId}, nil
+}
+
+// addedIncludedPaths returns the requested included paths that are not already
+// part of the current definition, so updates that keep existing paths (for
+// example visibility-only changes) do not re-require committed content.
+func addedIncludedPaths(current *corev1.SliceDefinition, requested []string) []string {
+	existing := map[string]struct{}{}
+	if current != nil {
+		for _, p := range current.IncludedPaths {
+			existing[p] = struct{}{}
+		}
+	}
+	added := make([]string, 0, len(requested))
+	for _, p := range requested {
+		if _, ok := existing[p]; !ok {
+			added = append(added, p)
+		}
+	}
+	return added
 }
 
 func (s *SliceService) validateIncludedPathsExist(ctx context.Context, ref *corev1.SliceRef, includedPaths []string) error {
