@@ -26,6 +26,8 @@ type ChangesetStore interface {
 	Get(ctx context.Context, changesetID string) (*corev1.Changeset, error)
 	List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error)
 	AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error)
+	Approve(ctx context.Context, changesetID, subjectID string) (*corev1.ApproveChangesetResponse, error)
+	ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, status string) (*corev1.ReportCheckResultResponse, error)
 	Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error)
 	PublishPending(ctx context.Context, limit int) (int, error)
 	Abandon(ctx context.Context, changesetID string) error
@@ -69,8 +71,8 @@ type RepositoryStore interface {
 }
 
 type SliceStore interface {
-	Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string) (*corev1.Slice, error)
-	ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string) ([]string, string, error)
+	Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error)
+	ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error)
 	Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error)
 	Get(ctx context.Context, sliceID string) (*corev1.Slice, error)
 	List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error)

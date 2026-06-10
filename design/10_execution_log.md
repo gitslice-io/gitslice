@@ -3945,3 +3945,55 @@ GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable
 
 The final command failed in this managed sandbox with localhost TCP connection
 errors (`operation not permitted`) for both IPv6 and IPv4 Postgres addresses.
+
+## 2026-06-10: Add Minimal Submit Approvals And Required Checks
+
+Request:
+
+- implement MVP review item 6.2: slice-level submit settings, current-patchset
+  approvals, current-patchset check results, submit-time requirement freshness
+  validation, user-visible blocked reasons, CLI/RPC coverage, and tests
+
+Implemented:
+
+- added `required_approvals` and `required_checks` to slice definitions and
+  slice creation requests
+- included submit settings in slice definition hashes, including the in-memory
+  store hash used by service tests
+- added Postgres columns for persisted slice submit settings, patchset submit
+  requirement snapshots, and changeset submit-blocked reasons
+- added `approvals` keyed by `(changeset_id, patchset_id, subject_id)` and
+  `check_results` keyed by `(changeset_id, patchset_id, check_name)`
+- added `ApproveChangeset` and `ReportCheckResult` RPCs plus `gs cs approve`
+  and `gs cs check <changeset> <check-name> --status pass|fail`
+- made patchset validation populate required approval counts, required checks,
+  and source slice definition hashes
+- made `ChangesetStore.Submit` recheck latest authoring-slice containment,
+  reject requirement hash drift with `requirements changed, refresh the
+  changeset`, require distinct non-author approvals, and require each named
+  check to have a current passing result
+
+Important decisions and learnings:
+
+- approval rows are retained across patchsets, but submit only counts rows for
+  the current patchset, so new patchsets naturally invalidate earlier approvals
+- check results are upserted for the current patchset and only `pass` satisfies
+  a required check; `fail` and missing results have distinct blocked reasons
+- legacy or direct-store patchsets without a recorded definition hash are
+  backfilled from the current slice at patchset creation to preserve the
+  no-requirements behavior
+- `gs cs status` now prints the last submit-blocked reason and current
+  patchset submit requirements so blocked state is visible after the failed
+  submit call
+- the real Postgres e2e gate was intentionally not run in this sandbox because
+  localhost TCP access is blocked and the task explicitly reserved that gate
+  for the operator
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/cli/cli.go internal/postgres/auth_store.go internal/postgres/changeset_store.go internal/postgres/fixture.go internal/postgres/helpers.go internal/postgres/slice_store.go internal/postgres/store_test.go internal/storage/interfaces.go internal/storage/memory/store.go internal/storage/submit_requirements.go internal/storage/submit_requirements_test.go service/changeset.go service/slice.go
+gofmt -w tests/rpc/submit_requirements_test.go && go test ./tests/rpc
+go test ./...
+```

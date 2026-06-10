@@ -90,13 +90,15 @@ func (x *Slice) GetDefinitionHash() string {
 }
 
 type SliceDefinition struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SliceId       string                 `protobuf:"bytes,1,opt,name=slice_id,json=sliceId,proto3" json:"slice_id,omitempty"`
-	Version       int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
-	IncludedPaths []string               `protobuf:"bytes,3,rep,name=included_paths,json=includedPaths,proto3" json:"included_paths,omitempty"`
-	Visibility    string                 `protobuf:"bytes,4,opt,name=visibility,proto3" json:"visibility,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	SliceId           string                 `protobuf:"bytes,1,opt,name=slice_id,json=sliceId,proto3" json:"slice_id,omitempty"`
+	Version           int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	IncludedPaths     []string               `protobuf:"bytes,3,rep,name=included_paths,json=includedPaths,proto3" json:"included_paths,omitempty"`
+	Visibility        string                 `protobuf:"bytes,4,opt,name=visibility,proto3" json:"visibility,omitempty"`
+	RequiredApprovals int32                  `protobuf:"varint,5,opt,name=required_approvals,json=requiredApprovals,proto3" json:"required_approvals,omitempty"`
+	RequiredChecks    []string               `protobuf:"bytes,6,rep,name=required_checks,json=requiredChecks,proto3" json:"required_checks,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SliceDefinition) Reset() {
@@ -157,13 +159,29 @@ func (x *SliceDefinition) GetVisibility() string {
 	return ""
 }
 
+func (x *SliceDefinition) GetRequiredApprovals() int32 {
+	if x != nil {
+		return x.RequiredApprovals
+	}
+	return 0
+}
+
+func (x *SliceDefinition) GetRequiredChecks() []string {
+	if x != nil {
+		return x.RequiredChecks
+	}
+	return nil
+}
+
 type CreateSliceRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ref           *SliceRef              `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
-	IncludedPaths []string               `protobuf:"bytes,2,rep,name=included_paths,json=includedPaths,proto3" json:"included_paths,omitempty"`
-	Visibility    string                 `protobuf:"bytes,3,opt,name=visibility,proto3" json:"visibility,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Ref               *SliceRef              `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	IncludedPaths     []string               `protobuf:"bytes,2,rep,name=included_paths,json=includedPaths,proto3" json:"included_paths,omitempty"`
+	Visibility        string                 `protobuf:"bytes,3,opt,name=visibility,proto3" json:"visibility,omitempty"`
+	RequiredApprovals int32                  `protobuf:"varint,4,opt,name=required_approvals,json=requiredApprovals,proto3" json:"required_approvals,omitempty"`
+	RequiredChecks    []string               `protobuf:"bytes,5,rep,name=required_checks,json=requiredChecks,proto3" json:"required_checks,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CreateSliceRequest) Reset() {
@@ -215,6 +233,20 @@ func (x *CreateSliceRequest) GetVisibility() string {
 		return x.Visibility
 	}
 	return ""
+}
+
+func (x *CreateSliceRequest) GetRequiredApprovals() int32 {
+	if x != nil {
+		return x.RequiredApprovals
+	}
+	return 0
+}
+
+func (x *CreateSliceRequest) GetRequiredChecks() []string {
+	if x != nil {
+		return x.RequiredChecks
+	}
+	return nil
 }
 
 type ResolveSliceRequest struct {
@@ -576,20 +608,24 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\n" +
 	"definition\x18\x03 \x01(\v2!.gitslice.core.v1.SliceDefinitionR\n" +
 	"definition\x12'\n" +
-	"\x0fdefinition_hash\x18\x04 \x01(\tR\x0edefinitionHash\"\x8d\x01\n" +
+	"\x0fdefinition_hash\x18\x04 \x01(\tR\x0edefinitionHash\"\xe5\x01\n" +
 	"\x0fSliceDefinition\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12%\n" +
 	"\x0eincluded_paths\x18\x03 \x03(\tR\rincludedPaths\x12\x1e\n" +
 	"\n" +
 	"visibility\x18\x04 \x01(\tR\n" +
-	"visibility\"\x89\x01\n" +
+	"visibility\x12-\n" +
+	"\x12required_approvals\x18\x05 \x01(\x05R\x11requiredApprovals\x12'\n" +
+	"\x0frequired_checks\x18\x06 \x03(\tR\x0erequiredChecks\"\xe1\x01\n" +
 	"\x12CreateSliceRequest\x12,\n" +
 	"\x03ref\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\x12%\n" +
 	"\x0eincluded_paths\x18\x02 \x03(\tR\rincludedPaths\x12\x1e\n" +
 	"\n" +
 	"visibility\x18\x03 \x01(\tR\n" +
-	"visibility\"C\n" +
+	"visibility\x12-\n" +
+	"\x12required_approvals\x18\x04 \x01(\x05R\x11requiredApprovals\x12'\n" +
+	"\x0frequired_checks\x18\x05 \x03(\tR\x0erequiredChecks\"C\n" +
 	"\x13ResolveSliceRequest\x12,\n" +
 	"\x03ref\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\",\n" +
 	"\x0fGetSliceRequest\x12\x19\n" +

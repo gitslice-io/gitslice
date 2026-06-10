@@ -23,7 +23,7 @@ import (
 
 func TestSliceDefinitionValidation(t *testing.T) {
 	ref := &corev1.SliceRef{Account: "nic", Slice: "tools"}
-	included, visibility, err := validateSliceDefinition(ref, []string{"/nic/tools", "nic/tools"}, "")
+	included, visibility, requiredApprovals, requiredChecks, err := validateSliceDefinition(ref, []string{"/nic/tools", "nic/tools"}, "", 1, []string{"unit", "unit"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,16 +33,22 @@ func TestSliceDefinitionValidation(t *testing.T) {
 	if len(included) != 1 || included[0] != "/nic/tools" {
 		t.Fatalf("included = %#v, want [/nic/tools]", included)
 	}
-	if _, _, err := validateSliceDefinition(ref, []string{"/other/tools"}, "account"); !errors.Is(err, ErrInvalid) {
+	if requiredApprovals != 1 || len(requiredChecks) != 1 || requiredChecks[0] != "unit" {
+		t.Fatalf("submit settings = %d %#v, want 1 [unit]", requiredApprovals, requiredChecks)
+	}
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/other/tools"}, "account", 0, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("outside account err = %v, want ErrInvalid", err)
 	}
-	if _, _, err := validateSliceDefinition(ref, []string{"/nic"}, "account"); !errors.Is(err, ErrInvalid) {
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic"}, "account", 0, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("custom account-root err = %v, want ErrInvalid", err)
 	}
-	if _, _, err := validateSliceDefinition(ref, []string{"/nic/tools,/nic/docs"}, "account"); !errors.Is(err, ErrInvalid) {
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic/tools,/nic/docs"}, "account", 0, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("comma-separated include err = %v, want ErrInvalid", err)
 	}
-	homeIncluded, _, err := validateSliceDefinition(&corev1.SliceRef{Account: "nic", Slice: "home"}, []string{"/nic"}, "account")
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic/tools"}, "account", -1, nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("negative approvals err = %v, want ErrInvalid", err)
+	}
+	homeIncluded, _, _, _, err := validateSliceDefinition(&corev1.SliceRef{Account: "nic", Slice: "home"}, []string{"/nic"}, "account", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

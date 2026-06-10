@@ -92,6 +92,6 @@ func seedSlice(ctx context.Context, tx *sql.Tx, id, slug string, included []stri
 		values ($1, 'acct_acme', $2, 1, $3, 'account', $4, now(), now())
 		on conflict (id) do nothing
 	`
-	_, err = tx.ExecContext(ctx, returnSQL, id, slug, definitionHash(id, 1, included, "account"), includedJSON)
+	_, err = tx.ExecContext(ctx, returnSQL, id, slug, definitionHash(id, 1, included, "account", 0, nil), includedJSON)
 	return err
 }

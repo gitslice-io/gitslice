@@ -114,13 +114,13 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 			select c.id, c.authoring_account, c.authoring_slice, c.author_subject_id, c.target_ref,
 			       c.base_commit_id, c.title, c.description, c.status, c.affected_paths,
 			       coalesce(c.current_patchset_number, 0), c.current_patchset_id,
-			       c.commit_id, p.id, c.number
+			       c.commit_id, p.id, c.number, c.submit_blocked_reason
 			from changesets c
 			left join pending_publish p on p.changeset_id = c.id
 			where c.id = $1
 		`, changesetID).Scan(&cs.Id, &account, &slice, &cs.Author, &cs.TargetRef,
 		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
-		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID, &cs.Number)
+		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID, &cs.Number, &cs.SubmitBlockedReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -148,7 +148,11 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 	}
 	cs.Patchsets = patchsets
 	storage.PopulateChangesetHandles(&cs)
-	cs.SubmitRequirements = &corev1.SubmitRequirements{}
+	if current := currentPatchset(&cs); current != nil {
+		cs.SubmitRequirements = current.SubmitRequirements
+	} else {
+		cs.SubmitRequirements = &corev1.SubmitRequirements{}
+	}
 	return &cs, nil
 }
 
@@ -274,15 +278,15 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	var currentPatchsetID sql.NullString
 	var currentNumber int64
 	var status string
-	var account, sliceName string
+	var account, sliceName, sliceID string
 	var changesetNumber int64
 	err = tx.QueryRowContext(ctx, `
 			select current_patchset_id, coalesce(current_patchset_number, 0), status,
-			       authoring_account, authoring_slice, number
+			       authoring_account, authoring_slice, authoring_slice_id, number
 			from changesets
 			where id = $1
 			for update
-		`, changesetID).Scan(&currentPatchsetID, &currentNumber, &status, &account, &sliceName, &changesetNumber)
+		`, changesetID).Scan(&currentPatchsetID, &currentNumber, &status, &account, &sliceName, &sliceID, &changesetNumber)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -305,6 +309,13 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	patchset.Handle = storage.PatchsetHandle(&corev1.SliceRef{Account: account, Slice: sliceName}, changesetNumber, patchset.Number)
 	createdAt := time.Now().UTC()
 	patchset.CreatedAt = formatTime(createdAt)
+	if patchset.SubmitRequirements == nil || patchset.SubmitRequirements.SourceSliceDefinitionHash == "" {
+		req, err := submitRequirementsForSliceTx(ctx, tx, sliceID)
+		if err != nil {
+			return nil, err
+		}
+		patchset.SubmitRequirements = req
+	}
 	fileEditsJSON, err := encodeJSON(patchset.FileEdits)
 	if err != nil {
 		return nil, err
@@ -333,14 +344,18 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	if err != nil {
 		return nil, err
 	}
+	submitRequirementsJSON, err := encodeJSON(patchset.SubmitRequirements)
+	if err != nil {
+		return nil, err
+	}
 	_, err = tx.ExecContext(ctx, `
 		insert into patchsets(
 			id, changeset_id, number, base_commit_id, author_subject_id, file_edits,
-			changed_paths, coverage, path_bases, read_set, write_set, conflicts, kind, created_at
+			changed_paths, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements, created_at
 		)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 	`, patchset.Id, changesetID, patchset.Number, patchset.BaseCommitId, patchset.Author,
-		fileEditsJSON, changedJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON, patchset.Kind, createdAt)
+		fileEditsJSON, changedJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON, patchset.Kind, submitRequirementsJSON, createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +364,7 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		set current_patchset_id = $1,
 		    current_patchset_number = $2,
 		    affected_paths = $3,
+		    submit_blocked_reason = '',
 		    updated_at = now()
 		where id = $4
 	`, patchset.Id, patchset.Number, changedJSON, changesetID)
@@ -359,6 +375,111 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		return nil, err
 	}
 	return patchset, nil
+}
+
+func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID string) (*corev1.ApproveChangesetResponse, error) {
+	changesetID, err := s.resolveChangesetSelector(ctx, changesetID)
+	if err != nil {
+		return nil, err
+	}
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectID == "" {
+		return nil, fmt.Errorf("%w: subject is required", ErrInvalid)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var patchsetID, status string
+	err = tx.QueryRowContext(ctx, `
+		select coalesce(current_patchset_id, ''), status
+		from changesets
+		where id = $1
+		for update
+	`, changesetID).Scan(&patchsetID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if patchsetID == "" {
+		return nil, fmt.Errorf("%w: changeset has no current patchset", ErrConflict)
+	}
+	if status == "abandoned" || status == "submitted" {
+		return nil, ErrConflict
+	}
+	_, err = tx.ExecContext(ctx, `
+		insert into approvals(changeset_id, patchset_id, subject_id, created_at)
+		values ($1, $2, $3, now())
+		on conflict do nothing
+	`, changesetID, patchsetID, subjectID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &corev1.ApproveChangesetResponse{ChangesetId: changesetID, PatchsetId: patchsetID, SubjectId: subjectID}, nil
+}
+
+func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, resultStatus string) (*corev1.ReportCheckResultResponse, error) {
+	changesetID, err := s.resolveChangesetSelector(ctx, changesetID)
+	if err != nil {
+		return nil, err
+	}
+	subjectID = strings.TrimSpace(subjectID)
+	checkName = strings.TrimSpace(checkName)
+	if subjectID == "" {
+		return nil, fmt.Errorf("%w: subject is required", ErrInvalid)
+	}
+	if checkName == "" {
+		return nil, fmt.Errorf("%w: check name is required", ErrInvalid)
+	}
+	resultStatus, ok := storage.NormalizeCheckStatus(resultStatus)
+	if !ok {
+		return nil, fmt.Errorf("%w: check status must be pass or fail", ErrInvalid)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var patchsetID, changesetStatus string
+	err = tx.QueryRowContext(ctx, `
+		select coalesce(current_patchset_id, ''), status
+		from changesets
+		where id = $1
+		for update
+	`, changesetID).Scan(&patchsetID, &changesetStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if patchsetID == "" {
+		return nil, fmt.Errorf("%w: changeset has no current patchset", ErrConflict)
+	}
+	if changesetStatus == "abandoned" || changesetStatus == "submitted" {
+		return nil, ErrConflict
+	}
+	_, err = tx.ExecContext(ctx, `
+		insert into check_results(changeset_id, patchset_id, check_name, status, reported_by, created_at, updated_at)
+		values ($1, $2, $3, $4, $5, now(), now())
+		on conflict (changeset_id, patchset_id, check_name) do update
+		set status = excluded.status,
+		    reported_by = excluded.reported_by,
+		    updated_at = now()
+	`, changesetID, patchsetID, checkName, resultStatus, subjectID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &corev1.ReportCheckResultResponse{ChangesetId: changesetID, PatchsetId: patchsetID, CheckName: checkName, Status: resultStatus}, nil
 }
 
 func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
@@ -377,17 +498,18 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 		Title             string
 		Account           string
 		Slice             string
+		SliceID           string
 		Number            int64
 		CommitID          sql.NullString
 	}
 	err = tx.QueryRowContext(ctx, `
 			select id, status, coalesce(current_patchset_id, ''), target_ref,
-			       base_commit_id, author_subject_id, title, authoring_account, authoring_slice, number, commit_id
+			       base_commit_id, author_subject_id, title, authoring_account, authoring_slice, authoring_slice_id, number, commit_id
 			from changesets
 			where id = $1
 			for update
 		`, changesetID).Scan(&cs.ID, &cs.Status, &cs.CurrentPatchsetID, &cs.TargetRef,
-		&cs.BaseCommitID, &cs.Author, &cs.Title, &cs.Account, &cs.Slice, &cs.Number, &cs.CommitID)
+		&cs.BaseCommitID, &cs.Author, &cs.Title, &cs.Account, &cs.Slice, &cs.SliceID, &cs.Number, &cs.CommitID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -429,6 +551,36 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	if len(patchset.Conflicts) > 0 {
 		return nil, fmt.Errorf("%w: unresolved patchset conflicts", ErrConflict)
 	}
+	latestReq, latestIncludedPaths, err := submitRequirementsAndIncludedPathsForSliceTx(ctx, tx, cs.SliceID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range patchset.ChangedPaths {
+		if !pathInAnyPrefix(latestIncludedPaths, p) {
+			return nil, blockSubmitTx(ctx, tx, cs.ID, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
+		}
+	}
+	recordedHash := ""
+	if patchset.SubmitRequirements != nil {
+		recordedHash = patchset.SubmitRequirements.SourceSliceDefinitionHash
+	}
+	if recordedHash == "" {
+		recordedHash = latestReq.SourceSliceDefinitionHash
+	}
+	if recordedHash != latestReq.SourceSliceDefinitionHash {
+		return nil, blockSubmitTx(ctx, tx, cs.ID, "requirements changed, refresh the changeset")
+	}
+	approvalSubjects, err := approvalSubjectsTx(ctx, tx, cs.ID, patchset.Id)
+	if err != nil {
+		return nil, err
+	}
+	checkStatuses, err := checkStatusesTx(ctx, tx, cs.ID, patchset.Id)
+	if err != nil {
+		return nil, err
+	}
+	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" {
+		return nil, blockSubmitTx(ctx, tx, cs.ID, reason)
+	}
 	var currentCommitID string
 	err = tx.QueryRowContext(ctx, `
 		select commit_id
@@ -443,7 +595,10 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	}
 	for _, base := range patchset.PathBases {
 		if err := s.validateAcceptedPathBaseTx(ctx, tx, currentCommitID, base); err != nil {
-			return nil, ErrConflict
+			if !errors.Is(err, ErrConflict) {
+				return nil, err
+			}
+			return nil, blockSubmitTx(ctx, tx, cs.ID, "path base conflict, refresh or rebase the changeset")
 		}
 	}
 	if err := applyPathHeadEditsTx(ctx, tx, cs.ID, patchset.Id, patchset.FileEdits); err != nil {
@@ -462,7 +617,9 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	}
 	_, err = tx.ExecContext(ctx, `
 		update changesets
-		set status = 'pending_publish', updated_at = now()
+		set status = 'pending_publish',
+		    submit_blocked_reason = '',
+		    updated_at = now()
 		where id = $1
 	`, cs.ID)
 	if err != nil {
@@ -1183,10 +1340,126 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 	return nil
 }
 
+func submitRequirementsForSliceTx(ctx context.Context, tx *sql.Tx, sliceID string) (*corev1.SubmitRequirements, error) {
+	req, _, err := submitRequirementsAndIncludedPathsForSliceTx(ctx, tx, sliceID)
+	return req, err
+}
+
+func submitRequirementsAndIncludedPathsForSliceTx(ctx context.Context, tx *sql.Tx, sliceID string) (*corev1.SubmitRequirements, []string, error) {
+	var definitionHash string
+	var requiredApprovals int64
+	var includedJSON, requiredChecksJSON []byte
+	err := tx.QueryRowContext(ctx, `
+		select definition_hash, included_paths, required_approvals, required_checks
+		from slices
+		where id = $1
+	`, sliceID).Scan(&definitionHash, &includedJSON, &requiredApprovals, &requiredChecksJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	var included []string
+	if err := decodeJSON(includedJSON, &included); err != nil {
+		return nil, nil, err
+	}
+	var requiredChecks []string
+	if err := decodeJSON(requiredChecksJSON, &requiredChecks); err != nil {
+		return nil, nil, err
+	}
+	return &corev1.SubmitRequirements{
+		RequiredApprovals:         int32(requiredApprovals),
+		RequiredChecks:            requiredChecks,
+		SourceSliceDefinitionHash: definitionHash,
+	}, included, nil
+}
+
+func approvalSubjectsTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `
+		select subject_id
+		from approvals
+		where changeset_id = $1 and patchset_id = $2
+		order by subject_id
+	`, changesetID, patchsetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var subjects []string
+	for rows.Next() {
+		var subjectID string
+		if err := rows.Scan(&subjectID); err != nil {
+			return nil, err
+		}
+		subjects = append(subjects, subjectID)
+	}
+	return subjects, rows.Err()
+}
+
+func checkStatusesTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, `
+		select check_name, status
+		from check_results
+		where changeset_id = $1 and patchset_id = $2
+	`, changesetID, patchsetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	statuses := map[string]string{}
+	for rows.Next() {
+		var checkName, status string
+		if err := rows.Scan(&checkName, &status); err != nil {
+			return nil, err
+		}
+		statuses[checkName] = status
+	}
+	return statuses, rows.Err()
+}
+
+func blockSubmitTx(ctx context.Context, tx *sql.Tx, changesetID, reason string) error {
+	_, err := tx.ExecContext(ctx, `
+		update changesets
+		set submit_blocked_reason = $2,
+		    updated_at = now()
+		where id = $1
+	`, changesetID, reason)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: %s", ErrConflict, reason)
+}
+
+func currentPatchset(cs *corev1.Changeset) *corev1.Patchset {
+	if cs == nil || len(cs.Patchsets) == 0 {
+		return nil
+	}
+	for _, patchset := range cs.Patchsets {
+		if patchset.Id == cs.CurrentPatchsetId {
+			return patchset
+		}
+	}
+	return cs.Patchsets[len(cs.Patchsets)-1]
+}
+
+func pathInAnyPrefix(prefixes []string, p string) bool {
+	for _, prefix := range prefixes {
+		prefix = strings.TrimRight(prefix, "/")
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *ChangesetStore) listPatchsets(ctx context.Context, changesetID string) ([]*corev1.Patchset, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
-		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind
+		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements
 		from patchsets
 		where changeset_id = $1
 		order by number
@@ -1209,7 +1482,7 @@ func (s *ChangesetStore) listPatchsets(ctx context.Context, changesetID string) 
 func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.Patchset, error) {
 	row := tx.QueryRowContext(ctx, `
 		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
-		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind
+		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements
 		from patchsets
 		where id = $1
 	`, patchsetID)
@@ -1218,11 +1491,11 @@ func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.
 
 func scanPatchset(row scanner) (*corev1.Patchset, error) {
 	var patchset corev1.Patchset
-	var changedJSON, fileEditsJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON []byte
+	var changedJSON, fileEditsJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON, submitRequirementsJSON []byte
 	var createdAt time.Time
 	err := row.Scan(&patchset.Id, &patchset.ChangesetId, &patchset.Number, &patchset.BaseCommitId,
 		&patchset.Author, &createdAt, &changedJSON, &fileEditsJSON, &coverageJSON,
-		&pathBasesJSON, &readSetJSON, &writeSetJSON, &conflictsJSON, &patchset.Kind)
+		&pathBasesJSON, &readSetJSON, &writeSetJSON, &conflictsJSON, &patchset.Kind, &submitRequirementsJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1241,12 +1514,15 @@ func scanPatchset(row scanner) (*corev1.Patchset, error) {
 		{readSetJSON, &patchset.ReadSet},
 		{writeSetJSON, &patchset.WriteSet},
 		{conflictsJSON, &patchset.Conflicts},
+		{submitRequirementsJSON, &patchset.SubmitRequirements},
 	} {
 		if err := decodeJSON(item.raw, item.dst); err != nil {
 			return nil, err
 		}
 	}
-	patchset.SubmitRequirements = &corev1.SubmitRequirements{}
+	if patchset.SubmitRequirements == nil {
+		patchset.SubmitRequirements = &corev1.SubmitRequirements{}
+	}
 	return &patchset, nil
 }
 

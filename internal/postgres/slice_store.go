@@ -16,12 +16,12 @@ type SliceStore struct {
 	db *sql.DB
 }
 
-func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string) (*corev1.Slice, error) {
+func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
 	ref, err := normalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}
-	includedPaths, visibility, err = s.ValidateDefinition(ref, includedPaths, visibility)
+	includedPaths, visibility, requiredApprovals, requiredChecks, err = s.ValidateDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 	if err != nil {
 		return nil, err
 	}
@@ -52,19 +52,23 @@ func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedP
 	if err != nil {
 		return nil, err
 	}
-	definitionHash := definitionHash(id, 1, includedPaths, visibility)
+	requiredChecksJSON, err := encodeJSON(requiredChecks)
+	if err != nil {
+		return nil, err
+	}
+	definitionHash := definitionHash(id, 1, includedPaths, visibility, requiredApprovals, requiredChecks)
 	_, err = s.db.ExecContext(ctx, `
-		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
-		values ($1, $2, $3, 1, $4, $5, $6, now(), now())
-	`, id, accountID, ref.Slice, definitionHash, visibility, includedJSON)
+		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, required_approvals, required_checks, created_at, updated_at)
+		values ($1, $2, $3, 1, $4, $5, $6, $7, $8, now(), now())
+	`, id, accountID, ref.Slice, definitionHash, visibility, includedJSON, requiredApprovals, requiredChecksJSON)
 	if err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, id)
 }
 
-func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string) ([]string, string, error) {
-	return validateSliceDefinition(ref, includedPaths, visibility)
+func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
+	return validateSliceDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 }
 
 func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
@@ -74,7 +78,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 	}
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       slices.visibility, slices.included_paths
+		       slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1 and slices.slug = $2
@@ -85,7 +89,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       slices.visibility, slices.included_paths
+		       slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where slices.id = $1
@@ -103,7 +107,7 @@ func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*co
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       slices.visibility, slices.included_paths
+		       slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1
@@ -141,7 +145,7 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash
 	if err != nil {
 		return nil, err
 	}
-	includedPaths, visibility, err := validateSliceDefinition(current.Ref, definition.IncludedPaths, definition.Visibility)
+	includedPaths, visibility, requiredApprovals, requiredChecks, err := validateSliceDefinition(current.Ref, definition.IncludedPaths, definition.Visibility, definition.RequiredApprovals, definition.RequiredChecks)
 	if err != nil {
 		return nil, err
 	}
@@ -150,16 +154,22 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash
 		return nil, err
 	}
 	nextVersion := current.Definition.Version + 1
-	nextHash := definitionHash(sliceID, nextVersion, includedPaths, visibility)
+	requiredChecksJSON, err := encodeJSON(requiredChecks)
+	if err != nil {
+		return nil, err
+	}
+	nextHash := definitionHash(sliceID, nextVersion, includedPaths, visibility, requiredApprovals, requiredChecks)
 	res, err := s.db.ExecContext(ctx, `
 		update slices
 		set version = $1,
 		    definition_hash = $2,
 		    visibility = $3,
 		    included_paths = $4,
+		    required_approvals = $5,
+		    required_checks = $6,
 		    updated_at = now()
-		where id = $5 and definition_hash = $6
-	`, nextVersion, nextHash, visibility, included, sliceID, expectedHash)
+		where id = $7 and definition_hash = $8
+	`, nextVersion, nextHash, visibility, included, requiredApprovals, requiredChecksJSON, sliceID, expectedHash)
 	if err != nil {
 		return nil, err
 	}
@@ -273,9 +283,9 @@ func normalizeSlug(value, name string) (string, error) {
 	return value, nil
 }
 
-func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string) ([]string, string, error) {
+func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
 	if ref == nil {
-		return nil, "", fmt.Errorf("%w: slice ref is required", ErrInvalid)
+		return nil, "", 0, nil, fmt.Errorf("%w: slice ref is required", ErrInvalid)
 	}
 	visibility = strings.TrimSpace(visibility)
 	if visibility == "" {
@@ -284,17 +294,17 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 	switch visibility {
 	case "private", "account", "public":
 	default:
-		return nil, "", fmt.Errorf("%w: visibility must be private, account, or public", ErrInvalid)
+		return nil, "", 0, nil, fmt.Errorf("%w: visibility must be private, account, or public", ErrInvalid)
 	}
 	if len(includedPaths) == 0 {
-		return nil, "", fmt.Errorf("%w: included path is required", ErrInvalid)
+		return nil, "", 0, nil, fmt.Errorf("%w: included path is required", ErrInvalid)
 	}
 	out := make([]string, 0, len(includedPaths))
 	seen := map[string]struct{}{}
 	for _, raw := range includedPaths {
 		cleaned, err := canonicalSliceIncludedPath(ref, raw)
 		if err != nil {
-			return nil, "", err
+			return nil, "", 0, nil, err
 		}
 		if _, ok := seen[cleaned]; ok {
 			continue
@@ -302,7 +312,34 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 		seen[cleaned] = struct{}{}
 		out = append(out, cleaned)
 	}
-	return out, visibility, nil
+	normalizedApprovals, normalizedChecks, err := validateSubmitSettings(requiredApprovals, requiredChecks)
+	if err != nil {
+		return nil, "", 0, nil, err
+	}
+	return out, visibility, normalizedApprovals, normalizedChecks, nil
+}
+
+func validateSubmitSettings(requiredApprovals int32, requiredChecks []string) (int32, []string, error) {
+	if requiredApprovals < 0 {
+		return 0, nil, fmt.Errorf("%w: required approvals must be zero or greater", ErrInvalid)
+	}
+	checks := make([]string, 0, len(requiredChecks))
+	seen := map[string]struct{}{}
+	for _, raw := range requiredChecks {
+		check := strings.TrimSpace(raw)
+		if check == "" {
+			return 0, nil, fmt.Errorf("%w: required check name is required", ErrInvalid)
+		}
+		if strings.Contains(check, ",") {
+			return 0, nil, fmt.Errorf("%w: required check %q must not contain commas; pass each check separately", ErrInvalid, check)
+		}
+		if _, ok := seen[check]; ok {
+			continue
+		}
+		seen[check] = struct{}{}
+		checks = append(checks, check)
+	}
+	return requiredApprovals, checks, nil
 }
 
 func canonicalSliceIncludedPath(ref *corev1.SliceRef, value string) (string, error) {
@@ -354,9 +391,10 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 	var (
 		id, account, slug, definitionHash, visibility string
 		version                                       int64
-		includedJSON                                  []byte
+		requiredApprovals                             int32
+		includedJSON, requiredChecksJSON              []byte
 	)
-	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &visibility, &includedJSON)
+	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -367,15 +405,21 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 	if err := decodeJSON(includedJSON, &included); err != nil {
 		return nil, err
 	}
+	var requiredChecks []string
+	if err := decodeJSON(requiredChecksJSON, &requiredChecks); err != nil {
+		return nil, err
+	}
 	return &corev1.Slice{
 		Id:             id,
 		Ref:            &corev1.SliceRef{Account: account, Slice: slug},
 		DefinitionHash: definitionHash,
 		Definition: &corev1.SliceDefinition{
-			SliceId:       id,
-			Version:       version,
-			IncludedPaths: included,
-			Visibility:    visibility,
+			SliceId:           id,
+			Version:           version,
+			IncludedPaths:     included,
+			Visibility:        visibility,
+			RequiredApprovals: requiredApprovals,
+			RequiredChecks:    requiredChecks,
 		},
 	}, nil
 }

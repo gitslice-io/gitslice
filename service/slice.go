@@ -30,14 +30,14 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 	if err := authorizeAccount(ctx, s.Auth, subjectID, ref.Account, authz.ActionAdmin); err != nil {
 		return nil, err
 	}
-	includedPaths, visibility, err := s.Slices.ValidateDefinition(ref, req.IncludedPaths, req.Visibility)
+	includedPaths, visibility, requiredApprovals, requiredChecks, err := s.Slices.ValidateDefinition(ref, req.IncludedPaths, req.Visibility, req.RequiredApprovals, req.RequiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	if err := s.validateIncludedPathsExist(ctx, ref, includedPaths); err != nil {
 		return nil, err
 	}
-	slice, err := s.Slices.Create(ctx, ref, includedPaths, visibility)
+	slice, err := s.Slices.Create(ctx, ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -105,7 +105,7 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	if req.Definition == nil {
 		return nil, status.Error(codes.InvalidArgument, "slice definition is required")
 	}
-	includedPaths, visibility, err := s.Slices.ValidateDefinition(current.Ref, req.Definition.IncludedPaths, req.Definition.Visibility)
+	includedPaths, visibility, requiredApprovals, requiredChecks, err := s.Slices.ValidateDefinition(current.Ref, req.Definition.IncludedPaths, req.Definition.Visibility, req.Definition.RequiredApprovals, req.Definition.RequiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -113,8 +113,10 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 		return nil, err
 	}
 	definition, err := s.Slices.UpdateDefinition(ctx, req.SliceId, req.ExpectedDefinitionHash, &corev1.SliceDefinition{
-		IncludedPaths: includedPaths,
-		Visibility:    visibility,
+		IncludedPaths:     includedPaths,
+		Visibility:        visibility,
+		RequiredApprovals: requiredApprovals,
+		RequiredChecks:    requiredChecks,
 	})
 	if err != nil {
 		return nil, grpcError(err)

@@ -12,6 +12,8 @@ service ChangesetService {
   rpc ListChangesets(ListChangesetsRequest) returns (ListChangesetsResponse);
   rpc DiffChangeset(DiffChangesetRequest) returns (DiffChangesetResponse);
   rpc UpdateChangeset(UpdateChangesetRequest) returns (Patchset);
+  rpc ApproveChangeset(ApproveChangesetRequest) returns (ApproveChangesetResponse);
+  rpc ReportCheckResult(ReportCheckResultRequest) returns (ReportCheckResultResponse);
   rpc SubmitChangeset(SubmitChangesetRequest) returns (SubmitChangesetResponse);
   rpc AbandonChangeset(AbandonChangesetRequest) returns (Empty);
 }
@@ -34,6 +36,7 @@ message Changeset {
   string pending_publish_id = 15;
   int64 number = 16;
   string handle = 17;
+  string submit_blocked_reason = 18;
 }
 
 message Patchset {
@@ -102,7 +105,7 @@ message PathSetEntry {
 }
 
 message SubmitRequirements {
-  repeated string required_approvals = 1;
+  int32 required_approvals = 1;
   repeated string required_checks = 2;
   repeated string path_lock_ids = 3;
   string source_slice_definition_hash = 4;
@@ -163,6 +166,29 @@ message UpdateChangesetRequest {
 message SubmitChangesetRequest {
   string changeset_id = 1;
   string expected_current_patchset_id = 2;
+}
+
+message ApproveChangesetRequest {
+  string changeset_id = 1;
+}
+
+message ApproveChangesetResponse {
+  string changeset_id = 1;
+  string patchset_id = 2;
+  string subject_id = 3;
+}
+
+message ReportCheckResultRequest {
+  string changeset_id = 1;
+  string check_name = 2;
+  string status = 3;
+}
+
+message ReportCheckResultResponse {
+  string changeset_id = 1;
+  string patchset_id = 2;
+  string check_name = 3;
+  string status = 4;
 }
 
 message SubmitChangesetResponse {

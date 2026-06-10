@@ -97,7 +97,7 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
 		values ($1, $2, 'home', 1, $3, 'account', $4, now(), now())
 		on conflict (account_id, slug) do nothing
-	`, homeSliceID, accountID, definitionHash(homeSliceID, 1, homeIncludedPaths, "account"), homeIncludedJSON); err != nil {
+	`, homeSliceID, accountID, definitionHash(homeSliceID, 1, homeIncludedPaths, "account", 0, nil), homeIncludedJSON); err != nil {
 		return "", "", err
 	}
 

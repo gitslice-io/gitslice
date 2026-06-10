@@ -27,12 +27,16 @@ message SliceDefinition {
   int64 version = 2;
   repeated string included_paths = 3;
   string visibility = 4;
+  int32 required_approvals = 5;
+  repeated string required_checks = 6;
 }
 
 message CreateSliceRequest {
   SliceRef ref = 1;
   repeated string included_paths = 2;
   string visibility = 3;
+  int32 required_approvals = 4;
+  repeated string required_checks = 5;
 }
 
 message ResolveSliceRequest {

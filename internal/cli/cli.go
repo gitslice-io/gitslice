@@ -209,12 +209,14 @@ type workspaceSyncOutput struct {
 }
 
 type changesetOutput struct {
-	ChangesetHandle string `json:"changeset_handle,omitempty"`
-	PatchsetHandle  string `json:"patchset_handle,omitempty"`
-	ChangesetID     string `json:"changeset_id"`
-	PatchsetID      string `json:"patchset_id,omitempty"`
-	PatchsetNumber  int64  `json:"patchset_number,omitempty"`
-	Status          string `json:"status,omitempty"`
+	ChangesetHandle     string                     `json:"changeset_handle,omitempty"`
+	PatchsetHandle      string                     `json:"patchset_handle,omitempty"`
+	ChangesetID         string                     `json:"changeset_id"`
+	PatchsetID          string                     `json:"patchset_id,omitempty"`
+	PatchsetNumber      int64                      `json:"patchset_number,omitempty"`
+	Status              string                     `json:"status,omitempty"`
+	SubmitBlockedReason string                     `json:"submit_blocked_reason,omitempty"`
+	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
 }
 
 type versionOutput struct {
@@ -301,14 +303,16 @@ type hydrateResult struct {
 }
 
 type sliceOutput struct {
-	ID             string   `json:"id"`
-	Ref            string   `json:"ref"`
-	Account        string   `json:"account"`
-	Slice          string   `json:"slice"`
-	Version        int64    `json:"version"`
-	Visibility     string   `json:"visibility"`
-	IncludedPaths  []string `json:"included_paths"`
-	DefinitionHash string   `json:"definition_hash"`
+	ID                string   `json:"id"`
+	Ref               string   `json:"ref"`
+	Account           string   `json:"account"`
+	Slice             string   `json:"slice"`
+	Version           int64    `json:"version"`
+	Visibility        string   `json:"visibility"`
+	IncludedPaths     []string `json:"included_paths"`
+	RequiredApprovals int32    `json:"required_approvals"`
+	RequiredChecks    []string `json:"required_checks"`
+	DefinitionHash    string   `json:"definition_hash"`
 }
 
 type fileMutationOutput struct {
@@ -1231,6 +1235,24 @@ func (r Runner) rootCommand() *cobra.Command {
 	csDiffCmd.Flags().StringVar(&csDiffTo, "to", csDiffTo, "patchset number or handle to diff to")
 	csDiffCmd.Flags().BoolVar(&csDiffNameOnly, "name-only", csDiffNameOnly, "show only changed path names")
 	csDiffCmd.Flags().BoolVar(&csDiffStat, "stat", csDiffStat, "show a compact changed-path summary")
+	csApproveCmd := &cobra.Command{
+		Use:   "approve <changeset>",
+		Short: "Approve the current patchset of a changeset",
+		Args:  exactArgs(1, "gs cs approve <changeset>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetApprove(cmd.Context(), *opts, args[0])
+		},
+	}
+	csCheckStatus := ""
+	csCheckCmd := &cobra.Command{
+		Use:   "check <changeset> <check-name>",
+		Short: "Report a changeset check result",
+		Args:  exactArgs(2, "gs cs check <changeset> <check-name> --status pass|fail"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetCheck(cmd.Context(), *opts, args[0], args[1], csCheckStatus)
+		},
+	}
+	csCheckCmd.Flags().StringVar(&csCheckStatus, "status", csCheckStatus, "check status: pass or fail")
 	csAbandonReason := ""
 	csAbandonCmd := &cobra.Command{
 		Use:   "abandon [changeset]",
@@ -1259,7 +1281,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	csListCmd.Flags().StringVar(&csListSlice, "slice", csListSlice, "authoring slice, defaults to current workspace slice")
 	csListCmd.Flags().StringVar(&csListStatus, "status", csListStatus, "status filter")
 	csListCmd.Flags().IntVar(&csListLimit, "limit", csListLimit, "maximum changesets to list")
-	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csAbandonCmd, csListCmd)
+	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
 
 	fsCmd := &cobra.Command{
 		Use:     "fs",
@@ -1434,17 +1456,21 @@ home slice root, for example /nic/notes.`,
 		RunE:    requireSubcommand("slice"),
 	}
 	sliceCreateVisibility := "account"
+	sliceCreateRequiredApprovals := 0
 	var sliceCreateIncludes []string
+	var sliceCreateRequiredChecks []string
 	sliceCreateCmd := &cobra.Command{
 		Use:   "create <slice|account/slice>",
 		Short: "Create a slice",
-		Args:  exactArgs(1, "gs slice create <slice|account/slice> [--include /account/path] [--visibility private|account|public]"),
+		Args:  exactArgs(1, "gs slice create <slice|account/slice> [--include /account/path] [--visibility private|account|public] [--required-approvals n] [--required-check name]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility)
+			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility, sliceCreateRequiredApprovals, sliceCreateRequiredChecks)
 		},
 	}
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateIncludes, "include", nil, "included global path; repeat for multiple paths")
 	sliceCreateCmd.Flags().StringVar(&sliceCreateVisibility, "visibility", sliceCreateVisibility, "slice visibility: private, account, or public")
+	sliceCreateCmd.Flags().IntVar(&sliceCreateRequiredApprovals, "required-approvals", sliceCreateRequiredApprovals, "distinct non-author approvals required before submit")
+	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateRequiredChecks, "required-check", nil, "check name required to pass before submit; repeat for multiple checks")
 	sliceListCmd := &cobra.Command{
 		Use:   "list [account]",
 		Short: "List slices in an account",
@@ -1474,19 +1500,27 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	sliceUpdateVisibility := ""
+	sliceUpdateRequiredApprovals := 0
+	sliceUpdateClearRequiredChecks := false
 	var sliceUpdateIncludes []string
+	var sliceUpdateRequiredChecks []string
 	sliceUpdateCmd := &cobra.Command{
 		Use:   "update <slice|account/slice>",
-		Short: "Update slice included paths or visibility",
-		Args:  exactArgs(1, "gs slice update <slice|account/slice> [--include /account/path] [--visibility private|account|public]"),
+		Short: "Update slice included paths, visibility, or submit settings",
+		Args:  exactArgs(1, "gs slice update <slice|account/slice> [--include /account/path] [--visibility private|account|public] [--required-approvals n] [--required-check name]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			visibilityChanged := cmd.Flags().Changed("visibility")
 			includesChanged := cmd.Flags().Changed("include")
-			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged)
+			requiredApprovalsChanged := cmd.Flags().Changed("required-approvals")
+			requiredChecksChanged := cmd.Flags().Changed("required-check")
+			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged, sliceUpdateRequiredApprovals, requiredApprovalsChanged, sliceUpdateRequiredChecks, requiredChecksChanged, sliceUpdateClearRequiredChecks)
 		},
 	}
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateIncludes, "include", nil, "replacement included global path; repeat for multiple paths")
 	sliceUpdateCmd.Flags().StringVar(&sliceUpdateVisibility, "visibility", sliceUpdateVisibility, "slice visibility: private, account, or public")
+	sliceUpdateCmd.Flags().IntVar(&sliceUpdateRequiredApprovals, "required-approvals", sliceUpdateRequiredApprovals, "replacement distinct non-author approvals required before submit")
+	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateRequiredChecks, "required-check", nil, "replacement required check name; repeat for multiple checks")
+	sliceUpdateCmd.Flags().BoolVar(&sliceUpdateClearRequiredChecks, "clear-required-checks", sliceUpdateClearRequiredChecks, "remove all required checks")
 	sliceDeleteYes := false
 	sliceDeleteCmd := &cobra.Command{
 		Use:   "delete <slice|account/slice>",
@@ -2440,10 +2474,13 @@ func findGeneratedRPCMethod(selector string) (protoreflect.MethodDescriptor, err
 	return method, nil
 }
 
-func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string) error {
+func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string, requiredApprovals int, requiredChecks []string) error {
 	includedPaths, err := expandSliceIncludedPaths(includedPaths)
 	if err != nil {
 		return err
+	}
+	if requiredApprovals < 0 {
+		return userError("invalid_args", "required approvals must be zero or greater", "Pass --required-approvals 0 or higher.")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
@@ -2458,9 +2495,11 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 		includedPaths = defaultSliceIncludedPaths(ref)
 	}
 	slice, err := corev1.NewSliceServiceClient(conn).CreateSlice(callCtx, &corev1.CreateSliceRequest{
-		Ref:           ref,
-		IncludedPaths: includedPaths,
-		Visibility:    visibility,
+		Ref:               ref,
+		IncludedPaths:     includedPaths,
+		Visibility:        visibility,
+		RequiredApprovals: int32(requiredApprovals),
+		RequiredChecks:    requiredChecks,
 	})
 	if err != nil {
 		return err
@@ -2521,6 +2560,10 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 		fmt.Fprintf(r.Stdout, "  %s\n", slice.Ref)
 		fmt.Fprintf(r.Stdout, "    visibility: %s\n", slice.Visibility)
 		fmt.Fprintf(r.Stdout, "    included paths: %s\n", strings.Join(slice.IncludedPaths, ", "))
+		fmt.Fprintf(r.Stdout, "    required approvals: %d\n", slice.RequiredApprovals)
+		if len(slice.RequiredChecks) > 0 {
+			fmt.Fprintf(r.Stdout, "    required checks: %s\n", strings.Join(slice.RequiredChecks, ", "))
+		}
 	}
 	return nil
 }
@@ -2560,9 +2603,15 @@ func (r Runner) runSlicePaths(ctx context.Context, opts commandOptions, sliceRef
 	return nil
 }
 
-func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool) error {
-	if !includesChanged && !visibilityChanged {
-		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, or both.")
+func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool) error {
+	if requiredChecksChanged && clearRequiredChecks {
+		return userError("invalid_args", "required checks can be replaced or cleared, not both", "Use --required-check or --clear-required-checks.")
+	}
+	if !includesChanged && !visibilityChanged && !requiredApprovalsChanged && !requiredChecksChanged && !clearRequiredChecks {
+		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, --required-approvals, --required-check, or --clear-required-checks.")
+	}
+	if requiredApprovals < 0 {
+		return userError("invalid_args", "required approvals must be zero or greater", "Pass --required-approvals 0 or higher.")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
@@ -2590,12 +2639,24 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 	if visibilityChanged {
 		nextVisibility = visibility
 	}
+	nextRequiredApprovals := current.Definition.RequiredApprovals
+	if requiredApprovalsChanged {
+		nextRequiredApprovals = int32(requiredApprovals)
+	}
+	nextRequiredChecks := append([]string{}, current.Definition.RequiredChecks...)
+	if clearRequiredChecks {
+		nextRequiredChecks = nil
+	} else if requiredChecksChanged {
+		nextRequiredChecks = requiredChecks
+	}
 	_, err = client.UpdateSliceDefinition(callCtx, &corev1.UpdateSliceDefinitionRequest{
 		SliceId:                current.Id,
 		ExpectedDefinitionHash: current.DefinitionHash,
 		Definition: &corev1.SliceDefinition{
-			IncludedPaths: nextIncluded,
-			Visibility:    nextVisibility,
+			IncludedPaths:     nextIncluded,
+			Visibility:        nextVisibility,
+			RequiredApprovals: nextRequiredApprovals,
+			RequiredChecks:    nextRequiredChecks,
 		},
 	})
 	if err != nil {
@@ -2722,6 +2783,12 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 	fmt.Fprintf(w, "id: %s\n", out.ID)
 	fmt.Fprintf(w, "version: %d\n", out.Version)
 	fmt.Fprintf(w, "visibility: %s\n", out.Visibility)
+	fmt.Fprintf(w, "required_approvals: %d\n", out.RequiredApprovals)
+	if len(out.RequiredChecks) > 0 {
+		fmt.Fprintf(w, "required_checks: %s\n", strings.Join(out.RequiredChecks, ", "))
+	} else {
+		fmt.Fprintln(w, "required_checks: none")
+	}
 	fmt.Fprintf(w, "definition_hash: %s\n", out.DefinitionHash)
 	fmt.Fprintln(w, "included_paths:")
 	for _, p := range out.IncludedPaths {
@@ -2747,6 +2814,8 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		out.Version = slice.Definition.Version
 		out.Visibility = slice.Definition.Visibility
 		out.IncludedPaths = append([]string{}, slice.Definition.IncludedPaths...)
+		out.RequiredApprovals = slice.Definition.RequiredApprovals
+		out.RequiredChecks = append([]string{}, slice.Definition.RequiredChecks...)
 	}
 	return out
 }
@@ -4459,6 +4528,61 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	return nil
 }
 
+func (r Runner) runChangesetApprove(ctx context.Context, opts commandOptions, requestedID string) error {
+	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	res, err := corev1.NewChangesetServiceClient(conn).ApproveChangeset(authContext(ctx, cfg), &corev1.ApproveChangesetRequest{ChangesetId: changesetID})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, res)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "approved patchset %s for changeset %s\n", res.PatchsetId, requestedID)
+	return nil
+}
+
+func (r Runner) runChangesetCheck(ctx context.Context, opts commandOptions, requestedID, checkName, resultStatus string) error {
+	if _, ok := storage.NormalizeCheckStatus(resultStatus); !ok {
+		return userError("invalid_args", "check status must be pass or fail", "Pass --status pass or --status fail.")
+	}
+	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	res, err := corev1.NewChangesetServiceClient(conn).ReportCheckResult(authContext(ctx, cfg), &corev1.ReportCheckResultRequest{
+		ChangesetId: changesetID,
+		CheckName:   checkName,
+		Status:      resultStatus,
+	})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, res)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "reported check %s=%s for changeset %s\n", res.CheckName, res.Status, requestedID)
+	return nil
+}
+
 func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changesetID, changesetLabel string, timeout time.Duration, progress bool) (string, string, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -5393,12 +5517,14 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return err
 	}
 	output := changesetOutput{
-		ChangesetHandle: displayChangesetHandle(cs),
-		PatchsetHandle:  displayCurrentPatchsetHandle(cs),
-		ChangesetID:     cs.Id,
-		PatchsetID:      cs.CurrentPatchsetId,
-		PatchsetNumber:  cs.CurrentPatchsetNumber,
-		Status:          cs.Status,
+		ChangesetHandle:     displayChangesetHandle(cs),
+		PatchsetHandle:      displayCurrentPatchsetHandle(cs),
+		ChangesetID:         cs.Id,
+		PatchsetID:          cs.CurrentPatchsetId,
+		PatchsetNumber:      cs.CurrentPatchsetNumber,
+		Status:              cs.Status,
+		SubmitBlockedReason: cs.SubmitBlockedReason,
+		SubmitRequirements:  currentPatchsetSubmitRequirements(cs),
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, output)
@@ -5410,9 +5536,13 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return userError("changeset_not_submitted", "changeset is not submitted", "Run gs cs status without --quiet for details.")
 	}
 	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\n", firstNonEmpty(output.ChangesetHandle, cs.Id), cs.Status)
+	if cs.SubmitBlockedReason != "" {
+		fmt.Fprintf(r.Stdout, "submit_blocked_reason: %s\n", cs.SubmitBlockedReason)
+	}
 	if cs.CurrentPatchsetNumber > 0 {
 		fmt.Fprintf(r.Stdout, "patchset: %d\n", cs.CurrentPatchsetNumber)
 	}
+	printSubmitRequirements(r.Stdout, currentPatchsetSubmitRequirements(cs))
 	return nil
 }
 
@@ -5665,6 +5795,9 @@ func (r Runner) getChangeset(ctx context.Context, cfg UserConfig, changesetID st
 func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	fmt.Fprintf(w, "changeset: %s\n", firstNonEmpty(displayChangesetHandle(cs), cs.Id))
 	fmt.Fprintf(w, "status: %s\n", cs.Status)
+	if cs.SubmitBlockedReason != "" {
+		fmt.Fprintf(w, "submit_blocked_reason: %s\n", cs.SubmitBlockedReason)
+	}
 	if cs.Title != "" {
 		fmt.Fprintf(w, "title: %s\n", cs.Title)
 	}
@@ -5757,7 +5890,9 @@ func printSubmitRequirements(w io.Writer, req *corev1.SubmitRequirements) {
 		fmt.Fprintln(w, "  none")
 		return
 	}
-	printRequirementField(w, "required_approvals", req.RequiredApprovals)
+	if req.RequiredApprovals > 0 {
+		fmt.Fprintf(w, "  required_approvals: %d\n", req.RequiredApprovals)
+	}
 	printRequirementField(w, "required_checks", req.RequiredChecks)
 	printRequirementField(w, "path_lock_ids", req.PathLockIds)
 	if req.SourceSliceDefinitionHash != "" {
@@ -5766,7 +5901,7 @@ func printSubmitRequirements(w io.Writer, req *corev1.SubmitRequirements) {
 	if req.SourcePathLockSetHash != "" {
 		fmt.Fprintf(w, "  source_path_lock_set_hash: %s\n", req.SourcePathLockSetHash)
 	}
-	if len(req.RequiredApprovals) == 0 && len(req.RequiredChecks) == 0 && len(req.PathLockIds) == 0 && req.SourceSliceDefinitionHash == "" && req.SourcePathLockSetHash == "" {
+	if req.RequiredApprovals == 0 && len(req.RequiredChecks) == 0 && len(req.PathLockIds) == 0 && req.SourceSliceDefinitionHash == "" && req.SourcePathLockSetHash == "" {
 		fmt.Fprintln(w, "  none")
 	}
 }
@@ -5788,6 +5923,14 @@ func currentPatchset(cs *corev1.Changeset) *corev1.Patchset {
 		}
 	}
 	return cs.Patchsets[len(cs.Patchsets)-1]
+}
+
+func currentPatchsetSubmitRequirements(cs *corev1.Changeset) *corev1.SubmitRequirements {
+	patchset := currentPatchset(cs)
+	if patchset == nil {
+		return nil
+	}
+	return patchset.SubmitRequirements
 }
 
 func patchsetChangedPaths(patchset *corev1.Patchset) []string {
@@ -8327,9 +8470,9 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"summary":        "create a slice",
 				"aliases":        []string{"gs slices create <slice|account/slice>"},
 				"args":           []string{"slice|account/slice"},
-				"flags":          []string{"--include", "--visibility"},
+				"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-check"},
 				"writes_stdout":  true,
-				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
 			},
 			{
 				"use":            "gs slice list [account]",
@@ -8345,7 +8488,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs slices info <slice|account/slice>"},
 				"args":           []string{"slice|account/slice"},
 				"writes_stdout":  true,
-				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
 			},
 			{
 				"use":            "gs slice paths <slice|account/slice>",
@@ -8357,12 +8500,12 @@ func (r Runner) runSchema(opts commandOptions) error {
 			},
 			{
 				"use":            "gs slice update <slice|account/slice>",
-				"summary":        "update slice included paths or visibility",
+				"summary":        "update slice included paths, visibility, or submit settings",
 				"aliases":        []string{"gs slices update <slice|account/slice>"},
 				"args":           []string{"slice|account/slice"},
-				"flags":          []string{"--include", "--visibility"},
+				"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-check", "--clear-required-checks"},
 				"writes_stdout":  true,
-				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
 			},
 			{
 				"use":            "gs slice delete <slice|account/slice>",
@@ -8402,7 +8545,24 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs changeset status [changeset]"},
 				"flags":          []string{"--watch", "--watch-timeout"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "patchset_number", "changeset_id", "patchset_id", "status"},
+				"machine_output": []string{"changeset_handle", "patchset_number", "changeset_id", "patchset_id", "status", "submit_blocked_reason", "submit_requirements"},
+			},
+			{
+				"use":            "gs cs approve <changeset>",
+				"summary":        "approve the current patchset of a changeset",
+				"aliases":        []string{"gs changeset approve <changeset>"},
+				"args":           []string{"changeset"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "subject_id"},
+			},
+			{
+				"use":            "gs cs check <changeset> <check-name>",
+				"summary":        "report a changeset check result",
+				"aliases":        []string{"gs changeset check <changeset> <check-name>"},
+				"args":           []string{"changeset", "check-name"},
+				"flags":          []string{"--status"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "check_name", "status"},
 			},
 			{
 				"use":            "gs cs show [changeset]",

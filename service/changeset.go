@@ -353,6 +353,38 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	return res, nil
 }
 
+func (s *ChangesetService) ApproveChangeset(ctx context.Context, req *corev1.ApproveChangesetRequest) (*corev1.ApproveChangesetResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.Changesets.Approve(ctx, cs.Id, subjectID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return res, nil
+}
+
+func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.ReportCheckResultRequest) (*corev1.ReportCheckResultResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.Changesets.ReportCheckResult(ctx, cs.Id, subjectID, req.CheckName, req.Status)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return res, nil
+}
+
 func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.AbandonChangesetRequest) (*corev1.Empty, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -461,6 +493,8 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		AffectedPaths: affected,
 		Coverage:      coverage,
 		SubmitRequirements: &corev1.SubmitRequirements{
+			RequiredApprovals:         slice.Definition.RequiredApprovals,
+			RequiredChecks:            append([]string(nil), slice.Definition.RequiredChecks...),
 			SourceSliceDefinitionHash: slice.DefinitionHash,
 		},
 		PathBases: pathBases,
