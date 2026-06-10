@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/storage"
@@ -72,19 +73,19 @@ func (p *Projector) CacheRoot() string {
 }
 
 func (p *Projector) AuthorizeSlice(ctx context.Context, subjectID, account, sliceSlug string) error {
-	if err := p.auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
+	slice, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
+	if err != nil {
 		return err
 	}
-	_, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
-	return err
+	return authz.New(p.auth).Authorize(ctx, subjectID, slice, authz.ActionWrite)
 }
 
 func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account, sliceSlug string) (string, *Projection, error) {
-	if err := p.auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
-		return "", nil, err
-	}
 	slice, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
 	if err != nil {
+		return "", nil, err
+	}
+	if err := authz.New(p.auth).Authorize(ctx, subjectID, slice, authz.ActionRead); err != nil {
 		return "", nil, err
 	}
 	ref, err := p.repository.GetRef(ctx, storage.DefaultTargetRef)

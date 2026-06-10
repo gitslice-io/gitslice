@@ -1701,6 +1701,9 @@ func TestRestartPreservesSubmittedState(t *testing.T) {
 func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 	ts := startTestServer(t)
 	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
 
 	uploadInfoRefs := "/git/acme/payment.git/info/refs?service=git-upload-pack"
 	statusCode, headers, body := gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "")
@@ -1714,6 +1717,42 @@ func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer not-a-token")
 	if statusCode != http.StatusUnauthorized {
 		t.Fatalf("expected invalid token upload-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
+	}
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "git-public-outsider",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+signup.Token)
+	if statusCode != http.StatusForbidden {
+		t.Fatalf("expected account-visible upload-pack discovery for outsider to return 403, got %d:\n%s", statusCode, string(body))
+	}
+
+	slices := corev1.NewSliceServiceClient(conn)
+	payment, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "payment"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                payment.Id,
+		ExpectedDefinitionHash: payment.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths: payment.Definition.IncludedPaths,
+			Visibility:    "public",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+signup.Token)
+	if statusCode != http.StatusOK {
+		t.Fatalf("expected public upload-pack discovery for outsider to return 200, got %d:\n%s", statusCode, string(body))
+	}
+	if got := headers.Get("Content-Type"); !strings.Contains(got, "application/x-git-upload-pack-advertisement") {
+		t.Fatalf("expected public upload-pack advertisement content type, got %q", got)
 	}
 
 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:"+token))
@@ -2265,7 +2304,7 @@ func createDirectPatchset(t *testing.T, ctx context.Context, clients testCoreCli
 	if err != nil {
 		t.Fatal(err)
 	}
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: &corev1.SliceRef{Account: "acme", Slice: "payment"}})
 	if err != nil {
 		t.Fatal(err)
 	}

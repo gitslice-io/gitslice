@@ -1168,7 +1168,7 @@ func TestAttachBlobIDsReusesServerBlobStatus(t *testing.T) {
 		{Op: "upsert", Path: "/acme/payment/b.go", ContentHash: cached.ContentHash},
 	}
 
-	if err := attachBlobIDs(context.Background(), client, cache, edits); err != nil {
+	if err := attachBlobIDs(context.Background(), client, &corev1.SliceRef{Account: "acme", Slice: "payment"}, cache, edits); err != nil {
 		t.Fatal(err)
 	}
 	if client.uploads != 0 {
@@ -1197,7 +1197,7 @@ func TestAttachBlobIDsUploadsEachMissingHashOnceFromCache(t *testing.T) {
 		{Op: "upsert", Path: "/acme/payment/b.go", ContentHash: cached.ContentHash},
 	}
 
-	if err := attachBlobIDs(context.Background(), client, cache, edits); err != nil {
+	if err := attachBlobIDs(context.Background(), client, &corev1.SliceRef{Account: "acme", Slice: "payment"}, cache, edits); err != nil {
 		t.Fatal(err)
 	}
 	if client.uploads != 1 {

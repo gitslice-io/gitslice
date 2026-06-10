@@ -130,7 +130,7 @@ func TestRPCChangesetCanWriteCustomSliceSecondIncludedPath(t *testing.T) {
 
 	const filePath = "/acme/payment/shared/from_backend_rpc.go"
 	const content = "package shared\nconst FromBackendRPC = true\n"
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testBackendSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestRPCChangesetRejectsCustomSliceOutsidePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("package payment\n")})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("package payment\n"), Slice: testBackendSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,12 @@ func TestRPCBlobStatusUploadAndHashValidation(t *testing.T) {
 
 	data := []byte("package blob\nconst RPCBlob = true\n")
 	contentHash := objectid.RawContentHash(data)
-	before, err := blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: []string{contentHash}})
+	_, err := blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: []string{contentHash}})
+	assertGRPCCode(t, err, codes.InvalidArgument)
+	_, err = blob.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: contentHash, Data: data})
+	assertGRPCCode(t, err, codes.InvalidArgument)
+
+	before, err := blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: []string{contentHash}, Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,19 +499,19 @@ func TestRPCBlobStatusUploadAndHashValidation(t *testing.T) {
 		t.Fatalf("unexpected pre-upload blob status: %#v", before.Blobs)
 	}
 
-	_, err = blob.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: "sha256:not-the-content", Data: data})
+	_, err = blob.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: "sha256:not-the-content", Data: data, Slice: testPaymentSliceRef()})
 	if grpcstatus.Code(err) != codes.InvalidArgument {
 		t.Fatalf("expected mismatched content hash to fail with InvalidArgument, got %v", err)
 	}
 
-	uploaded, err := blob.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: contentHash, Data: data})
+	uploaded, err := blob.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: contentHash, Data: data, Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if uploaded.ContentHash != contentHash || uploaded.BlobId != objectid.BlobID(data) || uploaded.Size != int64(len(data)) {
 		t.Fatalf("unexpected upload response: %#v", uploaded)
 	}
-	after, err := blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: []string{contentHash, "sha256:missing"}})
+	after, err := blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: []string{contentHash, "sha256:missing"}, Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +638,7 @@ func submitRPCFileInSlice(t *testing.T, ctx context.Context, clients testCoreCli
 	if err != nil {
 		t.Fatal(err)
 	}
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: &corev1.SliceRef{Account: account, Slice: sliceName}})
 	if err != nil {
 		t.Fatal(err)
 	}

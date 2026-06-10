@@ -872,6 +872,7 @@ func loadUploadFileEdit(clients loadCoreClients, p string, content []byte) (*cor
 	upload, err := clients.blob.UploadBlob(clients.ctx, &corev1.UploadBlobRequest{
 		ContentHash: objectid.RawContentHash(content),
 		Data:        content,
+		Slice:       &corev1.SliceRef{Account: "acme", Slice: "payment"},
 	})
 	if err != nil {
 		return nil, err
@@ -1167,6 +1168,7 @@ func rpcUploadFileEdit(user rpcLoadUser, p string, content []byte) (*corev1.File
 	upload, err := user.blob.UploadBlob(user.ctx, &corev1.UploadBlobRequest{
 		ContentHash: objectid.RawContentHash(content),
 		Data:        content,
+		Slice:       &corev1.SliceRef{Account: user.account, Slice: "project"},
 	})
 	if err != nil {
 		return nil, err
@@ -1291,6 +1293,7 @@ func submitHotFileOnce(clients loadCoreClients, file hotFile, label string, oper
 	upload, err := clients.blob.UploadBlob(clients.ctx, &corev1.UploadBlobRequest{
 		ContentHash: objectid.RawContentHash(content),
 		Data:        content,
+		Slice:       &corev1.SliceRef{Account: "acme", Slice: "payment"},
 	})
 	if err != nil {
 		return nil, err

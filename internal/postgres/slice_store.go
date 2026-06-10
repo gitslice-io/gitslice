@@ -282,9 +282,9 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 		visibility = "account"
 	}
 	switch visibility {
-	case "account", "public":
+	case "private", "account", "public":
 	default:
-		return nil, "", fmt.Errorf("%w: visibility must be account or public", ErrInvalid)
+		return nil, "", fmt.Errorf("%w: visibility must be private, account, or public", ErrInvalid)
 	}
 	if len(includedPaths) == 0 {
 		return nil, "", fmt.Errorf("%w: included path is required", ErrInvalid)

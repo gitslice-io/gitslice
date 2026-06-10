@@ -137,22 +137,35 @@ func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject
 }
 
 func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error {
-	var ok bool
+	_, err := s.AccountRole(ctx, subjectID, accountSlug)
+	return err
+}
+
+func (s *AuthStore) AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error) {
+	var role string
 	err := s.db.QueryRowContext(ctx, `
-		select exists(
-			select 1
-			from account_memberships m
-			join accounts a on a.id = m.account_id
-			where a.slug = $1 and m.subject_id = $2
-		)
-	`, accountSlug, subjectID).Scan(&ok)
+		select m.role
+		from account_memberships m
+		join accounts a on a.id = m.account_id
+		where a.slug = $1 and m.subject_id = $2
+		order by case m.role
+			when 'owner' then 1
+			when 'admin' then 2
+			when 'writer' then 3
+			when 'member' then 4
+			when 'reader' then 5
+			when 'guest' then 6
+			else 7
+		end
+		limit 1
+	`, accountSlug, subjectID).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrUnauthorized
+	}
 	if err != nil {
-		return err
+		return "", err
 	}
-	if !ok {
-		return ErrUnauthorized
-	}
-	return nil
+	return role, nil
 }
 
 func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error) {

@@ -1438,13 +1438,13 @@ home slice root, for example /nic/notes.`,
 	sliceCreateCmd := &cobra.Command{
 		Use:   "create <slice|account/slice>",
 		Short: "Create a slice",
-		Args:  exactArgs(1, "gs slice create <slice|account/slice> [--include /account/path] [--visibility account|public]"),
+		Args:  exactArgs(1, "gs slice create <slice|account/slice> [--include /account/path] [--visibility private|account|public]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility)
 		},
 	}
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateIncludes, "include", nil, "included global path; repeat for multiple paths")
-	sliceCreateCmd.Flags().StringVar(&sliceCreateVisibility, "visibility", sliceCreateVisibility, "slice visibility: account or public")
+	sliceCreateCmd.Flags().StringVar(&sliceCreateVisibility, "visibility", sliceCreateVisibility, "slice visibility: private, account, or public")
 	sliceListCmd := &cobra.Command{
 		Use:   "list [account]",
 		Short: "List slices in an account",
@@ -1478,7 +1478,7 @@ home slice root, for example /nic/notes.`,
 	sliceUpdateCmd := &cobra.Command{
 		Use:   "update <slice|account/slice>",
 		Short: "Update slice included paths or visibility",
-		Args:  exactArgs(1, "gs slice update <slice|account/slice> [--include /account/path] [--visibility account|public]"),
+		Args:  exactArgs(1, "gs slice update <slice|account/slice> [--include /account/path] [--visibility private|account|public]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			visibilityChanged := cmd.Flags().Changed("visibility")
 			includesChanged := cmd.Flags().Changed("include")
@@ -1486,7 +1486,7 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateIncludes, "include", nil, "replacement included global path; repeat for multiple paths")
-	sliceUpdateCmd.Flags().StringVar(&sliceUpdateVisibility, "visibility", sliceUpdateVisibility, "slice visibility: account or public")
+	sliceUpdateCmd.Flags().StringVar(&sliceUpdateVisibility, "visibility", sliceUpdateVisibility, "slice visibility: private, account, or public")
 	sliceDeleteYes := false
 	sliceDeleteCmd := &cobra.Command{
 		Use:   "delete <slice|account/slice>",
@@ -4662,7 +4662,7 @@ func (r Runner) runFileWrite(ctx context.Context, opts commandOptions, p string,
 	if err != nil {
 		return err
 	}
-	edit, err := r.uploadFileEdit(authContext(ctx, cfg), conn, cleaned, data)
+	edit, err := r.uploadFileEdit(authContext(ctx, cfg), conn, mutator.slice.Ref, cleaned, data)
 	if err != nil {
 		return err
 	}
@@ -4685,7 +4685,7 @@ func (r Runner) runFSUpload(ctx context.Context, opts commandOptions, localPath,
 	}
 	edits := make([]*corev1.FileEdit, 0, len(plan.Files)+len(plan.EmptyRemoteDirs))
 	if len(plan.Files) > 0 {
-		fileEdits, err := r.uploadLocalFiles(ctx, cfg, conn, plan.Files, uploadOpts.Concurrency)
+		fileEdits, err := r.uploadLocalFiles(ctx, cfg, conn, mutator.slice.Ref, plan.Files, uploadOpts.Concurrency)
 		if err != nil {
 			return err
 		}
@@ -4920,8 +4920,8 @@ func (r Runner) personalHomeSlice(ctx context.Context, cfg UserConfig, conn *grp
 	return slice, nil
 }
 
-func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, p string, data []byte) (*corev1.FileEdit, error) {
-	upload, err := corev1.NewBlobServiceClient(conn).UploadBlob(ctx, &corev1.UploadBlobRequest{Data: data})
+func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, sliceRef *corev1.SliceRef, p string, data []byte) (*corev1.FileEdit, error) {
+	upload, err := corev1.NewBlobServiceClient(conn).UploadBlob(ctx, &corev1.UploadBlobRequest{Data: data, Slice: sliceRef})
 	if err != nil {
 		return nil, err
 	}
@@ -4934,14 +4934,14 @@ func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, p str
 	}, nil
 }
 
-func (r Runner) uploadLocalFiles(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, files []localUploadFile, concurrency int) ([]*corev1.FileEdit, error) {
+func (r Runner) uploadLocalFiles(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceRef *corev1.SliceRef, files []localUploadFile, concurrency int) ([]*corev1.FileEdit, error) {
 	files = append([]localUploadFile(nil), files...)
 	if err := hashLocalUploadFiles(ctx, files, boundedUploadConcurrency(concurrency, len(files))); err != nil {
 		return nil, err
 	}
 	blobClient := corev1.NewBlobServiceClient(conn)
 	callCtx := authContext(ctx, cfg)
-	known, err := remoteBlobRecords(callCtx, blobClient, files)
+	known, err := remoteBlobRecords(callCtx, blobClient, sliceRef, files)
 	if err != nil {
 		return nil, err
 	}
@@ -4955,7 +4955,7 @@ func (r Runner) uploadLocalFiles(ctx context.Context, cfg UserConfig, conn *grpc
 		}
 	}
 	if len(missingByHash) > 0 {
-		uploaded, err := uploadMissingLocalBlobs(callCtx, blobClient, missingByHash, boundedUploadConcurrency(concurrency, len(missingByHash)))
+		uploaded, err := uploadMissingLocalBlobs(callCtx, blobClient, sliceRef, missingByHash, boundedUploadConcurrency(concurrency, len(missingByHash)))
 		if err != nil {
 			return nil, err
 		}
@@ -5044,7 +5044,7 @@ func hashLocalUploadFiles(ctx context.Context, files []localUploadFile, concurre
 	return ctx.Err()
 }
 
-func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient, files []localUploadFile) (map[string]*corev1.BlobRecord, error) {
+func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, files []localUploadFile) (map[string]*corev1.BlobRecord, error) {
 	seen := map[string]struct{}{}
 	hashes := make([]string, 0, len(files))
 	for _, file := range files {
@@ -5064,7 +5064,7 @@ func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient,
 		if end > len(hashes) {
 			end = len(hashes)
 		}
-		res, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes[start:end]})
+		res, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes[start:end], Slice: sliceRef})
 		if err != nil {
 			return nil, err
 		}
@@ -5075,7 +5075,7 @@ func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient,
 	return records, nil
 }
 
-func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, missing map[string]localUploadFile, concurrency int) (map[string]*corev1.BlobRecord, error) {
+func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, missing map[string]localUploadFile, concurrency int) (map[string]*corev1.BlobRecord, error) {
 	hashes := make([]string, 0, len(missing))
 	for hash := range missing {
 		hashes = append(hashes, hash)
@@ -5100,7 +5100,7 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 					results <- result{hash: hash, err: err}
 					continue
 				}
-				upload, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data})
+				upload, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data, Slice: sliceRef})
 				if err != nil {
 					results <- result{hash: hash, err: err}
 					continue
@@ -7110,7 +7110,7 @@ func (s *serverShell) write(ctx context.Context, target string, data []byte) err
 	if err != nil {
 		return err
 	}
-	edit, err := s.runner.uploadFileEdit(authContext(ctx, s.mutator.cfg), s.mutator.conn, cleaned, data)
+	edit, err := s.runner.uploadFileEdit(authContext(ctx, s.mutator.cfg), s.mutator.conn, s.mutator.slice.Ref, cleaned, data)
 	if err != nil {
 		return err
 	}
@@ -7664,7 +7664,7 @@ func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg Us
 		}
 	}
 	if upload {
-		if err := attachBlobIDs(callCtx, blobClient, cache, edits); err != nil {
+		if err := attachBlobIDs(callCtx, blobClient, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -7740,7 +7740,7 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 	return files, nil
 }
 
-func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, cache *clientcache.ObjectCache, edits []*corev1.FileEdit) error {
+func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit) error {
 	hashSet := map[string]struct{}{}
 	for _, edit := range edits {
 		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.BlobId != "" || edit.ContentHash == "" {
@@ -7758,7 +7758,7 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, cac
 	}
 	sort.Strings(hashes)
 
-	status, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes})
+	status, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes, Slice: sliceRef})
 	if err != nil {
 		return err
 	}
@@ -7777,7 +7777,7 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, cac
 		if err != nil {
 			return fmt.Errorf("read cached object %s: %w", hash, err)
 		}
-		uploaded, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data})
+		uploaded, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data, Slice: sliceRef})
 		if err != nil {
 			return err
 		}

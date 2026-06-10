@@ -20,11 +20,11 @@ func TestServicesRunAgainstInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 
-	uploaded, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("hello\n")})
+	uploaded, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("hello\n"), Slice: &corev1.SliceRef{Account: "acme", Slice: "home"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := handlers.Blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: []string{uploaded.ContentHash, "sha256:missing"}})
+	status, err := handlers.Blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: []string{uploaded.ContentHash, "sha256:missing"}, Slice: &corev1.SliceRef{Account: "acme", Slice: "home"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestChangesetDiffListAndAbandonUseInMemoryStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newBlob, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("new\n")})
+	newBlob, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("new\n"), Slice: &corev1.SliceRef{Account: "acme", Slice: "payment"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestChangesetUpdateValidatesAndHydratesBlobContentHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uploaded, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("blob metadata\n")})
+	uploaded, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("blob metadata\n"), Slice: &corev1.SliceRef{Account: "acme", Slice: "home"}})
 	if err != nil {
 		t.Fatal(err)
 	}

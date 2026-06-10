@@ -24,6 +24,7 @@ const (
 type GetBlobStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ContentHashes []string               `protobuf:"bytes,1,rep,name=content_hashes,json=contentHashes,proto3" json:"content_hashes,omitempty"`
+	Slice         *SliceRef              `protobuf:"bytes,2,opt,name=slice,proto3" json:"slice,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -61,6 +62,13 @@ func (*GetBlobStatusRequest) Descriptor() ([]byte, []int) {
 func (x *GetBlobStatusRequest) GetContentHashes() []string {
 	if x != nil {
 		return x.ContentHashes
+	}
+	return nil
+}
+
+func (x *GetBlobStatusRequest) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
 	}
 	return nil
 }
@@ -189,6 +197,7 @@ type UploadBlobRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ContentHash   string                 `protobuf:"bytes,1,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
 	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	Slice         *SliceRef              `protobuf:"bytes,3,opt,name=slice,proto3" json:"slice,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -233,6 +242,13 @@ func (x *UploadBlobRequest) GetContentHash() string {
 func (x *UploadBlobRequest) GetData() []byte {
 	if x != nil {
 		return x.Data
+	}
+	return nil
+}
+
+func (x *UploadBlobRequest) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
 	}
 	return nil
 }
@@ -301,9 +317,10 @@ var File_proto_core_v1_blob_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_blob_proto_rawDesc = "" +
 	"\n" +
-	"\x18proto/core/v1/blob.proto\x12\x10gitslice.core.v1\"=\n" +
+	"\x18proto/core/v1/blob.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"o\n" +
 	"\x14GetBlobStatusRequest\x12%\n" +
-	"\x0econtent_hashes\x18\x01 \x03(\tR\rcontentHashes\"\x94\x01\n" +
+	"\x0econtent_hashes\x18\x01 \x03(\tR\rcontentHashes\x120\n" +
+	"\x05slice\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"\x94\x01\n" +
 	"\n" +
 	"BlobRecord\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
@@ -312,10 +329,11 @@ const file_proto_core_v1_blob_proto_rawDesc = "" +
 	"\x10storage_location\x18\x04 \x01(\tR\x0fstorageLocation\x12\x14\n" +
 	"\x05state\x18\x05 \x01(\tR\x05state\"K\n" +
 	"\x15GetBlobStatusResponse\x122\n" +
-	"\x05blobs\x18\x01 \x03(\v2\x1c.gitslice.core.v1.BlobRecordR\x05blobs\"J\n" +
+	"\x05blobs\x18\x01 \x03(\v2\x1c.gitslice.core.v1.BlobRecordR\x05blobs\"|\n" +
 	"\x11UploadBlobRequest\x12!\n" +
 	"\fcontent_hash\x18\x01 \x01(\tR\vcontentHash\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data\"d\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x120\n" +
+	"\x05slice\x18\x03 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"d\n" +
 	"\x12UploadBlobResponse\x12\x17\n" +
 	"\ablob_id\x18\x01 \x01(\tR\x06blobId\x12!\n" +
 	"\fcontent_hash\x18\x02 \x01(\tR\vcontentHash\x12\x12\n" +
@@ -344,18 +362,21 @@ var file_proto_core_v1_blob_proto_goTypes = []any{
 	(*GetBlobStatusResponse)(nil), // 2: gitslice.core.v1.GetBlobStatusResponse
 	(*UploadBlobRequest)(nil),     // 3: gitslice.core.v1.UploadBlobRequest
 	(*UploadBlobResponse)(nil),    // 4: gitslice.core.v1.UploadBlobResponse
+	(*SliceRef)(nil),              // 5: gitslice.core.v1.SliceRef
 }
 var file_proto_core_v1_blob_proto_depIdxs = []int32{
-	1, // 0: gitslice.core.v1.GetBlobStatusResponse.blobs:type_name -> gitslice.core.v1.BlobRecord
-	0, // 1: gitslice.core.v1.BlobService.GetBlobStatus:input_type -> gitslice.core.v1.GetBlobStatusRequest
-	3, // 2: gitslice.core.v1.BlobService.UploadBlob:input_type -> gitslice.core.v1.UploadBlobRequest
-	2, // 3: gitslice.core.v1.BlobService.GetBlobStatus:output_type -> gitslice.core.v1.GetBlobStatusResponse
-	4, // 4: gitslice.core.v1.BlobService.UploadBlob:output_type -> gitslice.core.v1.UploadBlobResponse
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	5, // 0: gitslice.core.v1.GetBlobStatusRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	1, // 1: gitslice.core.v1.GetBlobStatusResponse.blobs:type_name -> gitslice.core.v1.BlobRecord
+	5, // 2: gitslice.core.v1.UploadBlobRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	0, // 3: gitslice.core.v1.BlobService.GetBlobStatus:input_type -> gitslice.core.v1.GetBlobStatusRequest
+	3, // 4: gitslice.core.v1.BlobService.UploadBlob:input_type -> gitslice.core.v1.UploadBlobRequest
+	2, // 5: gitslice.core.v1.BlobService.GetBlobStatus:output_type -> gitslice.core.v1.GetBlobStatusResponse
+	4, // 6: gitslice.core.v1.BlobService.UploadBlob:output_type -> gitslice.core.v1.UploadBlobResponse
+	5, // [5:7] is the sub-list for method output_type
+	3, // [3:5] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_blob_proto_init() }
@@ -363,6 +384,7 @@ func file_proto_core_v1_blob_proto_init() {
 	if File_proto_core_v1_blob_proto != nil {
 		return
 	}
+	file_proto_core_v1_common_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

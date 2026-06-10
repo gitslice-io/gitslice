@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/storage"
@@ -13,12 +14,21 @@ import (
 )
 
 type BlobService struct {
+	Auth        storage.AuthStore
 	Blobs       storage.BlobStore
+	Slices      storage.SliceStore
 	ObjectStore ObjectStore
 }
 
 func (s *BlobService) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStatusRequest) (*corev1.GetBlobStatusResponse, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Slice == nil {
+		return nil, status.Error(codes.InvalidArgument, "slice is required")
+	}
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead); err != nil {
 		return nil, err
 	}
 	records, err := s.Blobs.GetByContentHash(ctx, req.ContentHashes)
@@ -41,7 +51,14 @@ func (s *BlobService) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStat
 }
 
 func (s *BlobService) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequest) (*corev1.UploadBlobResponse, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Slice == nil {
+		return nil, status.Error(codes.InvalidArgument, "slice is required")
+	}
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionWrite); err != nil {
 		return nil, err
 	}
 	contentHash := objectid.RawContentHash(req.Data)

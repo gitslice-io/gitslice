@@ -3893,3 +3893,55 @@ Verification:
 ```bash
 git diff --check
 ```
+
+## 2026-06-09: Enforce Slice Visibility And Roles
+
+Request:
+
+- implement the MVP review authorization pass: replace flat account membership
+  checks in services, enforce slice visibility and coarse role checks, scope
+  blob status/upload calls to an authorized slice, update tests, and regenerate
+  protobuf output for API changes
+
+Implemented:
+
+- added a shared `internal/authz` authorizer with read/write/admin actions,
+  visibility handling, and account-role mapping
+- added `AuthStore.AccountRole` for Postgres and in-memory stores
+- allowed `private` slice visibility in slice validation
+- replaced service-layer bare account-membership checks with shared
+  authorization helpers
+- made Git HTTP projection reads use the same authorizer so authenticated
+  non-members can read public slices
+- added a required `slice` field to blob status/upload requests and updated CLI
+  call sites
+- added authorizer unit coverage and RPC/Git coverage for private/public reads,
+  non-admin slice-definition mutation denial, and scoped blob probing
+
+Important decisions and learnings:
+
+- because there is not yet a slice-role table, MVP private-slice explicit access
+  maps to account membership with any role
+- `owner`/`admin` map to slice admin, `writer`/`member` map to writer, and
+  non-members only get authenticated public-slice reads
+- unscoped repository path reads remain account-member scoped; authenticated
+  public reads are enabled through slice-scoped RPCs and Git HTTP projection
+  reads
+- blob authorization is intentionally scoped to the named slice capability:
+  status requires read, upload requires write
+- the requested local Postgres e2e command could not open localhost sockets in
+  this sandbox and failed before test logic with `connect: operation not
+  permitted`
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/authz service internal/storage/memory/store.go internal/postgres/auth_store.go internal/postgres/slice_store.go internal/cli/cli.go internal/cli/cli_test.go internal/gitcompat/projector.go tests/rpc tests/cli/cli_smoke_test.go tests/load/load_test.go
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc
+```
+
+The final command failed in this managed sandbox with localhost TCP connection
+errors (`operation not permitted`) for both IPv6 and IPv4 Postgres addresses.

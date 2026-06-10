@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
@@ -159,12 +160,9 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	if req.Slice.Account == "" || req.Slice.Slice == "" {
 		return nil, status.Error(codes.InvalidArgument, "slice ref is required")
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.Slice.Account); err != nil {
-		return nil, grpcError(err)
-	}
-	slice, err := s.Slices.Resolve(ctx, req.Slice)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	p, err := repositoryReadPath(req.Path)
 	if err != nil {
@@ -302,8 +300,8 @@ func (s *RepositoryService) ensureRepositoryPathRead(ctx context.Context, subjec
 	if account == "" {
 		return nil
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
-		return grpcError(err)
+	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+		return err
 	}
 	return nil
 }
@@ -343,8 +341,8 @@ func (s *RepositoryService) ensureCommitRead(ctx context.Context, subjectID stri
 		return status.Error(codes.PermissionDenied, "commit is not readable")
 	}
 	for account := range accounts {
-		if err := s.Auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
-			return grpcError(err)
+		if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -356,15 +354,13 @@ func (s *RepositoryService) filterReadableRootEntries(ctx context.Context, subje
 		if entry.Kind != "directory" || entry.Name == "" {
 			continue
 		}
-		err := s.Auth.EnsureAccountMember(ctx, subjectID, entry.Name)
-		if err == nil {
+		ok, err := canAuthorizeAccount(ctx, s.Auth, subjectID, entry.Name, authz.ActionRead)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			out = append(out, entry)
-			continue
 		}
-		if errors.Is(err, storage.ErrUnauthorized) || errors.Is(err, storage.ErrNotFound) {
-			continue
-		}
-		return nil, grpcError(err)
 	}
 	return out, nil
 }
@@ -523,12 +519,9 @@ func (s *RepositoryService) listCommitFilters(ctx context.Context, subjectID str
 		if req.Slice.Account == "" || req.Slice.Slice == "" {
 			return listCommitFilters{}, status.Error(codes.InvalidArgument, "slice ref is required")
 		}
-		if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.Slice.Account); err != nil {
-			return listCommitFilters{}, grpcError(err)
-		}
-		slice, err := s.Slices.Resolve(ctx, req.Slice)
+		slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
 		if err != nil {
-			return listCommitFilters{}, grpcError(err)
+			return listCommitFilters{}, err
 		}
 		for _, included := range slice.Definition.IncludedPaths {
 			prefix, err := repositoryReadPath(included)
@@ -729,12 +722,9 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	if req.AuthoringSlice == nil {
 		return nil, status.Error(codes.InvalidArgument, "authoring slice is required")
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.AuthoringSlice.Account); err != nil {
-		return nil, grpcError(err)
-	}
-	slice, err := s.Slices.Resolve(ctx, req.AuthoringSlice)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionWrite)
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	mountPath, err := paths.Canonical(req.MountPath)
 	if err != nil {

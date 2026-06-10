@@ -59,7 +59,7 @@ func TestRPCCommitHistoryInfersExactDeleteAddMove(t *testing.T) {
 
 	content := "same content\n"
 	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/history/infer_old.txt", content, "history infer initial")
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestRPCCommitHistoryDoesNotInferAmbiguousExactMove(t *testing.T) {
 	content := "ambiguous\n"
 	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/history/ambiguous_a.txt", content, "history ambiguous a")
 	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/history/ambiguous_b.txt", content, "history ambiguous b")
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestRPCCommitHistoryDeleteRecreateSamePathStartsNewEntity(t *testing.T) {
 
 func submitRPCFileWithTitle(t *testing.T, ctx context.Context, clients testCoreClients, sliceName, path, content, title string) string {
 	t.Helper()
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}

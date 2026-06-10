@@ -32,7 +32,7 @@ type backend struct {
 	next int64
 
 	subjects       map[string]storage.Subject
-	accountMembers map[string]map[string]struct{}
+	accountMembers map[string]map[string]string
 	sessions       map[string]string
 
 	blobs   map[string]*corev1.BlobRecord
@@ -65,7 +65,7 @@ type ObjectStore struct{ b *backend }
 func New() *Stores {
 	b := &backend{
 		subjects:        map[string]storage.Subject{},
-		accountMembers:  map[string]map[string]struct{}{},
+		accountMembers:  map[string]map[string]string{},
 		sessions:        map[string]string{},
 		blobs:           map[string]*corev1.BlobRecord{},
 		objects:         map[string][]byte{},
@@ -107,6 +107,12 @@ func (s *Stores) AddAccount(subjectID, accountSlug string) {
 	s.backend.addAccountLocked(subjectID, accountSlug)
 }
 
+func (s *Stores) AddAccountRole(subjectID, accountSlug, role string) {
+	s.backend.mu.Lock()
+	defer s.backend.mu.Unlock()
+	s.backend.addAccountRoleLocked(subjectID, accountSlug, role)
+}
+
 func (s *Stores) PutSlice(ref *corev1.SliceRef, includedPaths []string, visibility string) *corev1.Slice {
 	s.backend.mu.Lock()
 	defer s.backend.mu.Unlock()
@@ -127,16 +133,24 @@ func (s *Stores) PutObject(key string, data []byte) {
 }
 
 func (b *backend) addAccountLocked(subjectID, accountSlug string) {
+	b.addAccountRoleLocked(subjectID, accountSlug, "admin")
+}
+
+func (b *backend) addAccountRoleLocked(subjectID, accountSlug, role string) {
 	subjectID = strings.TrimSpace(subjectID)
 	accountSlug = strings.TrimSpace(accountSlug)
+	role = strings.TrimSpace(role)
 	if subjectID == "" || accountSlug == "" {
 		return
 	}
+	if role == "" {
+		role = "member"
+	}
 	b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: strings.TrimPrefix(subjectID, "user_")}
 	if b.accountMembers[subjectID] == nil {
-		b.accountMembers[subjectID] = map[string]struct{}{}
+		b.accountMembers[subjectID] = map[string]string{}
 	}
-	b.accountMembers[subjectID][accountSlug] = struct{}{}
+	b.accountMembers[subjectID][accountSlug] = role
 	home := &corev1.SliceRef{Account: accountSlug, Slice: "home"}
 	if _, ok := b.sliceRefs[sliceRefKey(home)]; !ok {
 		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "account")
@@ -326,6 +340,16 @@ func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountS
 		return storage.ErrUnauthorized
 	}
 	return nil
+}
+
+func (s *AuthStore) AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	role, ok := s.b.accountMembers[subjectID][accountSlug]
+	if !ok {
+		return "", storage.ErrUnauthorized
+	}
+	return role, nil
 }
 
 func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error) {
@@ -994,7 +1018,7 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 	if visibility == "" {
 		visibility = "account"
 	}
-	if visibility != "account" && visibility != "public" {
+	if visibility != "private" && visibility != "account" && visibility != "public" {
 		return nil, "", storage.ErrInvalid
 	}
 	seen := map[string]struct{}{}
