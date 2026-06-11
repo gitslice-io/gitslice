@@ -3,6 +3,7 @@ package rpc_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,14 +91,16 @@ func TestRPCWorkspaceValidationUsesAllCustomSliceIncludedPaths(t *testing.T) {
 		FileEdits: []*corev1.FileEdit{
 			{Op: "upsert", Path: "/acme/backend/rpc_backend.go"},
 			{Op: "upsert", Path: "/acme/payment/shared/rpc_shared.go"},
+			{Op: "upsert", Path: "/acme/payment/shared/deep/rpc_shared_deep.go"},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertStringSet(t, validation.AffectedPaths, "/acme/backend/rpc_backend.go", "/acme/payment/shared/rpc_shared.go")
+	assertStringSet(t, validation.AffectedPaths, "/acme/backend/rpc_backend.go", "/acme/payment/shared/rpc_shared.go", "/acme/payment/shared/deep/rpc_shared_deep.go")
 	assertPathCoverage(t, validation.Coverage, "/acme/backend/rpc_backend.go", backend.Id)
 	assertPathCoverage(t, validation.Coverage, "/acme/payment/shared/rpc_shared.go", payment.Id, backend.Id)
+	assertPathCoverage(t, validation.Coverage, "/acme/payment/shared/deep/rpc_shared_deep.go", payment.Id, backend.Id)
 	if validation.SubmitRequirements == nil || validation.SubmitRequirements.SourceSliceDefinitionHash != backend.DefinitionHash {
 		t.Fatalf("unexpected submit requirements: %#v", validation.SubmitRequirements)
 	}
@@ -526,6 +529,40 @@ func TestRPCBlobStatusUploadAndHashValidation(t *testing.T) {
 	}
 }
 
+func TestRPCStreamingBlobUploadReadAndHashMismatch(t *testing.T) {
+	ts := startRPCServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	blob := corev1.NewBlobServiceClient(conn)
+
+	data := bytes.Repeat([]byte("streaming blob payload\n"), 300000)
+	contentHash := objectid.RawContentHash(data)
+	uploaded := uploadBlobStreamForTest(t, ctx, blob, testPaymentSliceRef(), contentHash, data)
+	if uploaded.ContentHash != contentHash || uploaded.BlobId != objectid.BlobID(data) || uploaded.Size != int64(len(data)) {
+		t.Fatalf("unexpected streaming upload response: %#v", uploaded)
+	}
+	read := readBlobStreamForTest(t, ctx, blob, testPaymentSliceRef(), contentHash)
+	if !bytes.Equal(read, data) {
+		t.Fatalf("streaming read length = %d, want %d", len(read), len(data))
+	}
+
+	badData := []byte("bad hash streaming upload")
+	_, err := uploadBlobStreamForTestErr(ctx, blob, testPaymentSliceRef(), "sha256:not-the-content", badData)
+	if grpcstatus.Code(err) != codes.InvalidArgument {
+		t.Fatalf("streaming hash mismatch error = %v, want InvalidArgument", err)
+	}
+	actualBadHash := objectid.RawContentHash(badData)
+	status, err := blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: []string{actualBadHash}, Slice: testPaymentSliceRef()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Blobs) != 1 || status.Blobs[0].State != "missing" {
+		t.Fatalf("mismatched streaming upload left available metadata: %#v", status.Blobs)
+	}
+}
+
 func TestRPCImportGitRepositoryCustomSliceMount(t *testing.T) {
 	ts := startRPCServer(t)
 	token := loginViaGRPC(t, ts.addr, "alice")
@@ -723,6 +760,60 @@ func assertPathCoverage(t *testing.T, coverage []*corev1.PathCoverage, path stri
 		}
 	}
 	t.Fatalf("coverage for %s not found in %#v", path, coverage)
+}
+
+func uploadBlobStreamForTest(t *testing.T, ctx context.Context, blob corev1.BlobServiceClient, slice *corev1.SliceRef, contentHash string, data []byte) *corev1.UploadBlobResponse {
+	t.Helper()
+	res, err := uploadBlobStreamForTestErr(ctx, blob, slice, contentHash, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func uploadBlobStreamForTestErr(ctx context.Context, blob corev1.BlobServiceClient, slice *corev1.SliceRef, contentHash string, data []byte) (*corev1.UploadBlobResponse, error) {
+	stream, err := blob.UploadBlobStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+	size := int64(len(data))
+	if err := stream.Send(&corev1.UploadBlobChunk{Payload: &corev1.UploadBlobChunk_Init{Init: &corev1.UploadBlobInit{
+		Slice:       slice,
+		ContentHash: contentHash,
+		Size:        &size,
+	}}}); err != nil {
+		return nil, err
+	}
+	const chunkSize = 1 << 20
+	for offset := 0; offset < len(data); offset += chunkSize {
+		end := offset + chunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+		if err := stream.Send(&corev1.UploadBlobChunk{Payload: &corev1.UploadBlobChunk_Data{Data: data[offset:end]}}); err != nil {
+			return nil, err
+		}
+	}
+	return stream.CloseAndRecv()
+}
+
+func readBlobStreamForTest(t *testing.T, ctx context.Context, blob corev1.BlobServiceClient, slice *corev1.SliceRef, contentHash string) []byte {
+	t.Helper()
+	stream, err := blob.ReadBlobStream(ctx, &corev1.ReadBlobStreamRequest{Slice: slice, ContentHash: contentHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			return out.Bytes()
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		out.Write(chunk.Data)
+	}
 }
 
 func assertCommitSetIncludes(t *testing.T, commits []*corev1.Commit, wantIDs ...string) {

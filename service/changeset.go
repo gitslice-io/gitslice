@@ -471,16 +471,16 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		affected = append(affected, p)
 	}
 	sort.Strings(affected)
+	coverageByPath, err := v.Slices.CoveringIDsByPath(ctx, affected)
+	if err != nil {
+		return nil, grpcError(err)
+	}
 	coverage := make([]*corev1.PathCoverage, 0, len(affected))
 	pathBases := make([]*corev1.PathBase, 0, len(affected))
 	readSet := make([]*corev1.PathSetEntry, 0, len(affected))
 	writeSet := make([]*corev1.PathSetEntry, 0, len(affected))
 	for _, p := range affected {
-		covering, err := v.Slices.CoveringIDs(ctx, p)
-		if err != nil {
-			return nil, grpcError(err)
-		}
-		coverage = append(coverage, &corev1.PathCoverage{Path: p, CoveringSliceIds: covering})
+		coverage = append(coverage, &corev1.PathCoverage{Path: p, CoveringSliceIds: coverageByPath[p]})
 		base, err := v.pathBase(ctx, baseCommitID, p)
 		if err != nil {
 			return nil, err

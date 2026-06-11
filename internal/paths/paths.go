@@ -48,6 +48,27 @@ func InAnyPrefix(prefixes []string, p string) bool {
 	return false
 }
 
+func AncestorPrefixes(p string) []string {
+	p = strings.TrimRight(path.Clean(strings.ReplaceAll(p, "\\", "/")), "/")
+	if p == "." || p == "" || p == "/" {
+		return nil
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	segments := strings.Split(strings.Trim(p, "/"), "/")
+	out := make([]string, 0, len(segments))
+	current := ""
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." {
+			return nil
+		}
+		current += "/" + segment
+		out = append(out, current)
+	}
+	return out
+}
+
 func FromWorkspacePath(includedPrefix, workspacePath string) (string, error) {
 	workspacePath = strings.TrimPrefix(strings.ReplaceAll(workspacePath, "\\", "/"), "./")
 	trimmedPrefix := strings.TrimPrefix(includedPrefix, "/")

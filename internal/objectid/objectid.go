@@ -14,7 +14,7 @@ const algorithm = "sha256"
 
 func RawContentHash(data []byte) string {
 	sum := sha256.Sum256(data)
-	return algorithm + ":" + hex.EncodeToString(sum[:])
+	return formatHash(sum[:])
 }
 
 func RawContentHashReader(r io.Reader) (string, int64, error) {
@@ -23,11 +23,56 @@ func RawContentHashReader(r io.Reader) (string, int64, error) {
 	if err != nil {
 		return "", n, err
 	}
-	return algorithm + ":" + hex.EncodeToString(h.Sum(nil)), n, nil
+	return formatHash(h.Sum(nil)), n, nil
 }
 
 func BlobID(data []byte) string {
-	return hash("gitslice.blob.v1", data)
+	h := NewBlobHasher()
+	_, _ = h.Write(data)
+	return h.BlobID()
+}
+
+type BlobHasher struct {
+	raw  hashWriter
+	blob hashWriter
+	size int64
+}
+
+type hashWriter interface {
+	Write([]byte) (int, error)
+	Sum([]byte) []byte
+}
+
+func NewBlobHasher() *BlobHasher {
+	blob := sha256.New()
+	blob.Write([]byte("gitslice.blob.v1"))
+	blob.Write([]byte{0})
+	return &BlobHasher{
+		raw:  sha256.New(),
+		blob: blob,
+	}
+}
+
+func (h *BlobHasher) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	_, _ = h.raw.Write(p)
+	_, _ = h.blob.Write(p)
+	h.size += int64(len(p))
+	return len(p), nil
+}
+
+func (h *BlobHasher) RawContentHash() string {
+	return formatHash(h.raw.Sum(nil))
+}
+
+func (h *BlobHasher) BlobID() string {
+	return formatHash(h.blob.Sum(nil))
+}
+
+func (h *BlobHasher) Size() int64 {
+	return h.size
 }
 
 type TreeEntry struct {
@@ -89,5 +134,9 @@ func hash(domain string, payload []byte) string {
 	h.Write([]byte(domain))
 	h.Write([]byte{0})
 	h.Write(payload)
-	return algorithm + ":" + hex.EncodeToString(h.Sum(nil))
+	return formatHash(h.Sum(nil))
+}
+
+func formatHash(sum []byte) string {
+	return algorithm + ":" + hex.EncodeToString(sum)
 }

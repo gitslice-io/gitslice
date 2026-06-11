@@ -13,7 +13,7 @@ var (
 	)
 )
 
-func recordBlobUpload(size int) {
+func recordBlobUpload(size int64) {
 	blobUploadsTotal.Inc(nil)
 	blobUploadBytesTotal.Add(float64(size), nil)
 }

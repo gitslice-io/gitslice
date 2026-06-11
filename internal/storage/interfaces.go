@@ -79,5 +79,5 @@ type SliceStore interface {
 	List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error)
 	UpdateDefinition(ctx context.Context, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	Delete(ctx context.Context, sliceID string) error
-	CoveringIDs(ctx context.Context, p string) ([]string, error)
+	CoveringIDsByPath(ctx context.Context, paths []string) (map[string][]string, error)
 }

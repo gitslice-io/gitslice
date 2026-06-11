@@ -1120,20 +1120,16 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	return nil
 }
 
-func (s *SliceStore) CoveringIDs(ctx context.Context, p string) ([]string, error) {
+func (s *SliceStore) CoveringIDsByPath(ctx context.Context, changedPaths []string) (map[string][]string, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	var ids []string
+	byPrefix := map[string][]string{}
 	for _, slice := range s.b.slices {
 		for _, prefix := range slice.Definition.IncludedPaths {
-			if pathContains(prefix, p) {
-				ids = append(ids, slice.Id)
-				break
-			}
+			byPrefix[prefix] = append(byPrefix[prefix], slice.Id)
 		}
 	}
-	sort.Strings(ids)
-	return ids, nil
+	return storage.AssembleCoverageByPath(changedPaths, byPrefix), nil
 }
 
 func (b *backend) listCommitPageLocked(limit int, include func(*corev1.Commit) bool) *storage.CommitListPage {

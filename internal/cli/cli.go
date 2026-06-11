@@ -432,6 +432,9 @@ const (
 	workspaceSyncMergeManual          = "manual"
 	workspaceSyncMergeOurs            = "ours"
 	workspaceSyncMergeTheirs          = "theirs"
+
+	blobStreamThresholdBytes = int64(4 << 20)
+	blobStreamChunkBytes     = 1 << 20
 )
 
 type helpTopic struct {
@@ -4706,6 +4709,26 @@ func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath
 	if resolved.Entry == nil || resolved.Entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE {
 		return fmt.Errorf("%s is not a file", p)
 	}
+	if resolved.Entry.Size > blobStreamThresholdBytes && resolved.Entry.ContentHash != "" {
+		blobClient := corev1.NewBlobServiceClient(conn)
+		if opts.jsonOutput() {
+			data, err := readBlobStreamBytes(callCtx, blobClient, slice.Ref, resolved.Entry.ContentHash, 0, 0)
+			if err != nil {
+				return err
+			}
+			return r.writeJSONOutput(opts, fsCatOutput{
+				Path:        p,
+				Slice:       slice.Ref.Account + "/" + slice.Ref.Slice,
+				CommitID:    commitID,
+				ContentHash: resolved.Entry.ContentHash,
+				DataBase64:  base64.StdEncoding.EncodeToString(data),
+			})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		return writeBlobStream(callCtx, blobClient, slice.Ref, resolved.Entry.ContentHash, 0, 0, r.stdout())
+	}
 	read, err := repo.ReadFile(callCtx, &corev1.ReadFileRequest{CommitId: commitID, Path: p})
 	if err != nil {
 		return err
@@ -5045,7 +5068,7 @@ func (r Runner) personalHomeSlice(ctx context.Context, cfg UserConfig, conn *grp
 }
 
 func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, sliceRef *corev1.SliceRef, p string, data []byte) (*corev1.FileEdit, error) {
-	upload, err := corev1.NewBlobServiceClient(conn).UploadBlob(ctx, &corev1.UploadBlobRequest{Data: data, Slice: sliceRef})
+	upload, err := uploadBlobBytes(ctx, corev1.NewBlobServiceClient(conn), sliceRef, "", data)
 	if err != nil {
 		return nil, err
 	}
@@ -5219,12 +5242,7 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 			defer wg.Done()
 			for hash := range jobs {
 				file := missing[hash]
-				data, err := os.ReadFile(file.LocalPath)
-				if err != nil {
-					results <- result{hash: hash, err: err}
-					continue
-				}
-				upload, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data, Slice: sliceRef})
+				upload, err := uploadLocalBlob(ctx, blobClient, sliceRef, file)
 				if err != nil {
 					results <- result{hash: hash, err: err}
 					continue
@@ -5266,6 +5284,120 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 		return nil, err
 	}
 	return records, nil
+}
+
+func uploadLocalBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, file localUploadFile) (*corev1.UploadBlobResponse, error) {
+	if file.Size > blobStreamThresholdBytes {
+		f, err := os.Open(file.LocalPath)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		return uploadBlobReader(ctx, blobClient, sliceRef, file.ContentHash, file.Size, f)
+	}
+	data, err := os.ReadFile(file.LocalPath)
+	if err != nil {
+		return nil, err
+	}
+	return uploadBlobBytes(ctx, blobClient, sliceRef, file.ContentHash, data)
+}
+
+func uploadBlobBytes(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, contentHash string, data []byte) (*corev1.UploadBlobResponse, error) {
+	if int64(len(data)) > blobStreamThresholdBytes {
+		return uploadBlobReader(ctx, blobClient, sliceRef, contentHash, int64(len(data)), bytes.NewReader(data))
+	}
+	return blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: contentHash, Data: data, Slice: sliceRef})
+}
+
+func uploadBlobReader(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, contentHash string, size int64, r io.Reader) (*corev1.UploadBlobResponse, error) {
+	stream, err := blobClient.UploadBlobStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+	init := &corev1.UploadBlobInit{Slice: sliceRef, ContentHash: contentHash}
+	if size >= 0 {
+		init.Size = &size
+	}
+	if err := stream.Send(&corev1.UploadBlobChunk{Payload: &corev1.UploadBlobChunk_Init{Init: init}}); err != nil {
+		return nil, err
+	}
+	buf := make([]byte, blobStreamChunkBytes)
+	for {
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			data := append([]byte(nil), buf[:n]...)
+			if err := stream.Send(&corev1.UploadBlobChunk{Payload: &corev1.UploadBlobChunk_Data{Data: data}}); err != nil {
+				return nil, err
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	return stream.CloseAndRecv()
+}
+
+func readBlobStreamBytes(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, contentHash string, offset, length int64) ([]byte, error) {
+	var b bytes.Buffer
+	if err := writeBlobStream(ctx, blobClient, sliceRef, contentHash, offset, length, &b); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+func writeBlobStream(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, contentHash string, offset, length int64, dst io.Writer) error {
+	stream, err := blobClient.ReadBlobStream(ctx, &corev1.ReadBlobStreamRequest{
+		Slice:       sliceRef,
+		ContentHash: contentHash,
+		Offset:      offset,
+		Length:      length,
+	})
+	if err != nil {
+		return err
+	}
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if len(chunk.Data) == 0 {
+			continue
+		}
+		if _, err := dst.Write(chunk.Data); err != nil {
+			return err
+		}
+	}
+}
+
+type blobStreamReader struct {
+	stream corev1.BlobService_ReadBlobStreamClient
+	buf    []byte
+}
+
+func newBlobStreamReader(stream corev1.BlobService_ReadBlobStreamClient) *blobStreamReader {
+	return &blobStreamReader{stream: stream}
+}
+
+func (r *blobStreamReader) Read(p []byte) (int, error) {
+	for len(r.buf) == 0 {
+		chunk, err := r.stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return 0, io.EOF
+		}
+		if err != nil {
+			return 0, err
+		}
+		r.buf = chunk.Data
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
 }
 
 type remoteFileMutator struct {
@@ -7629,6 +7761,7 @@ func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn
 		runner:   r,
 		root:     root,
 		repo:     repo,
+		blob:     corev1.NewBlobServiceClient(conn),
 		cache:    cache,
 		ws:       ws,
 		commitID: commitID,
@@ -7653,6 +7786,7 @@ type workspaceHydrator struct {
 	runner   Runner
 	root     string
 	repo     corev1.RepositoryServiceClient
+	blob     corev1.BlobServiceClient
 	cache    *clientcache.ObjectCache
 	ws       WorkspaceConfig
 	commitID string
@@ -7713,10 +7847,6 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 }
 
 func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeEntry) error {
-	data, err := h.cachedFileBytes(ctx, entry)
-	if err != nil {
-		return err
-	}
 	rel, err := workspaceRelPath(h.ws, entry.Path)
 	if err != nil {
 		return err
@@ -7729,22 +7859,86 @@ func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeE
 	if mode == 0 {
 		mode = 0o100644
 	}
-	fileMode := fs.FileMode(0o644)
-	if mode&0o111 != 0 {
-		fileMode = 0o755
-	}
-	if err := os.WriteFile(target, data, fileMode); err != nil {
-		return err
+	var size int64
+	if entry.Size > blobStreamThresholdBytes && entry.ContentHash != "" {
+		size, err = h.hydrateLargeFile(ctx, entry, target, mode)
+		if err != nil {
+			return err
+		}
+	} else {
+		data, err := h.cachedFileBytes(ctx, entry)
+		if err != nil {
+			return err
+		}
+		if _, err := writeWorkspaceFile(target, mode, bytes.NewReader(data)); err != nil {
+			return err
+		}
+		size = int64(len(data))
 	}
 	h.base.Files[entry.Path] = BaseSnapshotFile{
 		Path:        entry.Path,
 		RelPath:     rel,
 		ContentHash: entry.ContentHash,
 		Mode:        mode,
-		Size:        int64(len(data)),
+		Size:        size,
 	}
 	h.result.FileCount++
 	return nil
+}
+
+func (h *workspaceHydrator) hydrateLargeFile(ctx context.Context, entry *corev1.TreeEntry, target string, mode uint32) (int64, error) {
+	if h.cache.Exists(entry.ContentHash) {
+		h.result.CacheHits++
+		return h.copyCachedFileToWorkspace(entry.ContentHash, target, mode)
+	}
+	stream, err := h.blob.ReadBlobStream(ctx, &corev1.ReadBlobStreamRequest{
+		Slice:       &corev1.SliceRef{Account: h.ws.Account, Slice: h.ws.Slice},
+		ContentHash: entry.ContentHash,
+	})
+	if err != nil {
+		return 0, err
+	}
+	cached, err := h.cache.PutReader(newBlobStreamReader(stream))
+	if err != nil {
+		return 0, err
+	}
+	if cached.ContentHash != entry.ContentHash {
+		return 0, fmt.Errorf("hydrated content hash mismatch for %s: got %s, want %s", entry.Path, cached.ContentHash, entry.ContentHash)
+	}
+	h.result.CacheMisses++
+	return h.copyCachedFileToWorkspace(entry.ContentHash, target, mode)
+}
+
+func (h *workspaceHydrator) copyCachedFileToWorkspace(contentHash, target string, mode uint32) (int64, error) {
+	f, err := h.cache.Open(contentHash)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	return writeWorkspaceFile(target, mode, f)
+}
+
+func writeWorkspaceFile(target string, mode uint32, r io.Reader) (int64, error) {
+	fileMode := fs.FileMode(0o644)
+	if mode&0o111 != 0 {
+		fileMode = 0o755
+	}
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fileMode)
+	if err != nil {
+		return 0, err
+	}
+	n, copyErr := io.Copy(f, r)
+	closeErr := f.Close()
+	if copyErr != nil {
+		return n, copyErr
+	}
+	if closeErr != nil {
+		return n, closeErr
+	}
+	if err := os.Chmod(target, fileMode); err != nil {
+		return n, err
+	}
+	return n, nil
 }
 
 func (h *workspaceHydrator) cachedFileBytes(ctx context.Context, entry *corev1.TreeEntry) ([]byte, error) {
@@ -7916,11 +8110,7 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sli
 		if blobIDs[hash] != "" {
 			continue
 		}
-		data, err := cache.Read(hash)
-		if err != nil {
-			return fmt.Errorf("read cached object %s: %w", hash, err)
-		}
-		uploaded, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data, Slice: sliceRef})
+		uploaded, err := uploadCachedBlob(ctx, blobClient, sliceRef, cache, hash)
 		if err != nil {
 			return err
 		}
@@ -7934,6 +8124,30 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sli
 		edit.BlobId = blobIDs[edit.ContentHash]
 	}
 	return nil
+}
+
+func uploadCachedBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hash string) (*corev1.UploadBlobResponse, error) {
+	cachePath, err := cache.Path(hash)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(cachePath)
+	if err != nil {
+		return nil, fmt.Errorf("stat cached object %s: %w", hash, err)
+	}
+	if info.Size() > blobStreamThresholdBytes {
+		f, err := cache.Open(hash)
+		if err != nil {
+			return nil, fmt.Errorf("open cached object %s: %w", hash, err)
+		}
+		defer f.Close()
+		return uploadBlobReader(ctx, blobClient, sliceRef, hash, info.Size(), f)
+	}
+	data, err := cache.Read(hash)
+	if err != nil {
+		return nil, fmt.Errorf("read cached object %s: %w", hash, err)
+	}
+	return uploadBlobBytes(ctx, blobClient, sliceRef, hash, data)
 }
 
 func (r Runner) loadLocalState() (UserConfig, WorkspaceConfig, WorkspaceState, error) {

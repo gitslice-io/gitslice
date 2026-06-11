@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	BlobService_GetBlobStatus_FullMethodName = "/gitslice.core.v1.BlobService/GetBlobStatus"
-	BlobService_UploadBlob_FullMethodName    = "/gitslice.core.v1.BlobService/UploadBlob"
+	BlobService_GetBlobStatus_FullMethodName    = "/gitslice.core.v1.BlobService/GetBlobStatus"
+	BlobService_UploadBlob_FullMethodName       = "/gitslice.core.v1.BlobService/UploadBlob"
+	BlobService_UploadBlobStream_FullMethodName = "/gitslice.core.v1.BlobService/UploadBlobStream"
+	BlobService_ReadBlobStream_FullMethodName   = "/gitslice.core.v1.BlobService/ReadBlobStream"
 )
 
 // BlobServiceClient is the client API for BlobService service.
@@ -29,6 +31,8 @@ const (
 type BlobServiceClient interface {
 	GetBlobStatus(ctx context.Context, in *GetBlobStatusRequest, opts ...grpc.CallOption) (*GetBlobStatusResponse, error)
 	UploadBlob(ctx context.Context, in *UploadBlobRequest, opts ...grpc.CallOption) (*UploadBlobResponse, error)
+	UploadBlobStream(ctx context.Context, opts ...grpc.CallOption) (BlobService_UploadBlobStreamClient, error)
+	ReadBlobStream(ctx context.Context, in *ReadBlobStreamRequest, opts ...grpc.CallOption) (BlobService_ReadBlobStreamClient, error)
 }
 
 type blobServiceClient struct {
@@ -57,12 +61,80 @@ func (c *blobServiceClient) UploadBlob(ctx context.Context, in *UploadBlobReques
 	return out, nil
 }
 
+func (c *blobServiceClient) UploadBlobStream(ctx context.Context, opts ...grpc.CallOption) (BlobService_UploadBlobStreamClient, error) {
+	stream, err := c.cc.NewStream(ctx, &BlobService_ServiceDesc.Streams[0], BlobService_UploadBlobStream_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &blobServiceUploadBlobStreamClient{stream}
+	return x, nil
+}
+
+type BlobService_UploadBlobStreamClient interface {
+	Send(*UploadBlobChunk) error
+	CloseAndRecv() (*UploadBlobResponse, error)
+	grpc.ClientStream
+}
+
+type blobServiceUploadBlobStreamClient struct {
+	grpc.ClientStream
+}
+
+func (x *blobServiceUploadBlobStreamClient) Send(m *UploadBlobChunk) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *blobServiceUploadBlobStreamClient) CloseAndRecv() (*UploadBlobResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(UploadBlobResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *blobServiceClient) ReadBlobStream(ctx context.Context, in *ReadBlobStreamRequest, opts ...grpc.CallOption) (BlobService_ReadBlobStreamClient, error) {
+	stream, err := c.cc.NewStream(ctx, &BlobService_ServiceDesc.Streams[1], BlobService_ReadBlobStream_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &blobServiceReadBlobStreamClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type BlobService_ReadBlobStreamClient interface {
+	Recv() (*ReadBlobChunk, error)
+	grpc.ClientStream
+}
+
+type blobServiceReadBlobStreamClient struct {
+	grpc.ClientStream
+}
+
+func (x *blobServiceReadBlobStreamClient) Recv() (*ReadBlobChunk, error) {
+	m := new(ReadBlobChunk)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // BlobServiceServer is the server API for BlobService service.
 // All implementations should embed UnimplementedBlobServiceServer
 // for forward compatibility
 type BlobServiceServer interface {
 	GetBlobStatus(context.Context, *GetBlobStatusRequest) (*GetBlobStatusResponse, error)
 	UploadBlob(context.Context, *UploadBlobRequest) (*UploadBlobResponse, error)
+	UploadBlobStream(BlobService_UploadBlobStreamServer) error
+	ReadBlobStream(*ReadBlobStreamRequest, BlobService_ReadBlobStreamServer) error
 }
 
 // UnimplementedBlobServiceServer should be embedded to have forward compatible implementations.
@@ -74,6 +146,12 @@ func (UnimplementedBlobServiceServer) GetBlobStatus(context.Context, *GetBlobSta
 }
 func (UnimplementedBlobServiceServer) UploadBlob(context.Context, *UploadBlobRequest) (*UploadBlobResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UploadBlob not implemented")
+}
+func (UnimplementedBlobServiceServer) UploadBlobStream(BlobService_UploadBlobStreamServer) error {
+	return status.Errorf(codes.Unimplemented, "method UploadBlobStream not implemented")
+}
+func (UnimplementedBlobServiceServer) ReadBlobStream(*ReadBlobStreamRequest, BlobService_ReadBlobStreamServer) error {
+	return status.Errorf(codes.Unimplemented, "method ReadBlobStream not implemented")
 }
 
 // UnsafeBlobServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -123,6 +201,53 @@ func _BlobService_UploadBlob_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BlobService_UploadBlobStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(BlobServiceServer).UploadBlobStream(&blobServiceUploadBlobStreamServer{stream})
+}
+
+type BlobService_UploadBlobStreamServer interface {
+	SendAndClose(*UploadBlobResponse) error
+	Recv() (*UploadBlobChunk, error)
+	grpc.ServerStream
+}
+
+type blobServiceUploadBlobStreamServer struct {
+	grpc.ServerStream
+}
+
+func (x *blobServiceUploadBlobStreamServer) SendAndClose(m *UploadBlobResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *blobServiceUploadBlobStreamServer) Recv() (*UploadBlobChunk, error) {
+	m := new(UploadBlobChunk)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func _BlobService_ReadBlobStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(ReadBlobStreamRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(BlobServiceServer).ReadBlobStream(m, &blobServiceReadBlobStreamServer{stream})
+}
+
+type BlobService_ReadBlobStreamServer interface {
+	Send(*ReadBlobChunk) error
+	grpc.ServerStream
+}
+
+type blobServiceReadBlobStreamServer struct {
+	grpc.ServerStream
+}
+
+func (x *blobServiceReadBlobStreamServer) Send(m *ReadBlobChunk) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // BlobService_ServiceDesc is the grpc.ServiceDesc for BlobService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -139,6 +264,17 @@ var BlobService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BlobService_UploadBlob_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "UploadBlobStream",
+			Handler:       _BlobService_UploadBlobStream_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "ReadBlobStream",
+			Handler:       _BlobService_ReadBlobStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "proto/core/v1/blob.proto",
 }

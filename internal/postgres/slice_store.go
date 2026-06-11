@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gitslice-io/gitslice/internal/paths"
+	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
@@ -26,8 +27,14 @@ func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedP
 		return nil, err
 	}
 
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
 	var accountID string
-	err = s.db.QueryRowContext(ctx, `select id from accounts where slug = $1`, ref.Account).Scan(&accountID)
+	err = tx.QueryRowContext(ctx, `select id from accounts where slug = $1`, ref.Account).Scan(&accountID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -35,7 +42,7 @@ func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedP
 		return nil, err
 	}
 	var existingID string
-	err = s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		select slices.id
 		from slices
 		where slices.account_id = $1 and slices.slug = $2
@@ -57,11 +64,17 @@ func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedP
 		return nil, err
 	}
 	definitionHash := definitionHash(id, 1, includedPaths, visibility, requiredApprovals, requiredChecks)
-	_, err = s.db.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, required_approvals, required_checks, created_at, updated_at)
 		values ($1, $2, $3, 1, $4, $5, $6, $7, $8, now(), now())
 	`, id, accountID, ref.Slice, definitionHash, visibility, includedJSON, requiredApprovals, requiredChecksJSON)
 	if err != nil {
+		return nil, err
+	}
+	if err := syncSliceIncludedPathsTx(ctx, tx, id, includedPaths); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, id)
@@ -159,7 +172,13 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash
 		return nil, err
 	}
 	nextHash := definitionHash(sliceID, nextVersion, includedPaths, visibility, requiredApprovals, requiredChecks)
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
 		update slices
 		set version = $1,
 		    definition_hash = $2,
@@ -180,6 +199,12 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash
 	if affected == 0 {
 		return nil, ErrConflict
 	}
+	if err := syncSliceIncludedPathsTx(ctx, tx, sliceID, includedPaths); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	slice, err := s.Get(ctx, sliceID)
 	if err != nil {
 		return nil, err
@@ -192,11 +217,21 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	if sliceID == "" {
 		return fmt.Errorf("%w: slice_id is required", ErrInvalid)
 	}
-	if _, err := s.Get(ctx, sliceID); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `select exists(select 1 from slices where id = $1)`, sliceID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
 	var changesets int
-	if err := s.db.QueryRowContext(ctx, `
+	if err := tx.QueryRowContext(ctx, `
 		select count(*)
 		from changesets
 		where authoring_slice_id = $1
@@ -206,7 +241,10 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	if changesets > 0 {
 		return fmt.Errorf("%w: slice has changesets", ErrConflict)
 	}
-	res, err := s.db.ExecContext(ctx, `delete from slices where id = $1`, sliceID)
+	if _, err := tx.ExecContext(ctx, `delete from slice_included_paths where slice_id = $1`, sliceID); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `delete from slices where id = $1`, sliceID)
 	if err != nil {
 		return err
 	}
@@ -217,34 +255,52 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	if affected == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
-func (s *SliceStore) CoveringIDs(ctx context.Context, p string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `select id, included_paths from slices order by id`)
+func (s *SliceStore) CoveringIDsByPath(ctx context.Context, changedPaths []string) (map[string][]string, error) {
+	prefixes := storage.CoveragePrefixUnion(changedPaths)
+	if len(prefixes) == 0 {
+		return storage.AssembleCoverageByPath(changedPaths, nil), nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select prefix, slice_id
+		from slice_included_paths
+		where prefix = any($1)
+		order by prefix, slice_id
+	`, prefixes)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var ids []string
+	byPrefix := map[string][]string{}
 	for rows.Next() {
-		var id string
-		var raw []byte
-		if err := rows.Scan(&id, &raw); err != nil {
+		var prefix string
+		var sliceID string
+		if err := rows.Scan(&prefix, &sliceID); err != nil {
 			return nil, err
 		}
-		var prefixes []string
-		if err := decodeJSON(raw, &prefixes); err != nil {
-			return nil, err
-		}
-		for _, prefix := range prefixes {
-			if p == strings.TrimRight(prefix, "/") || strings.HasPrefix(p, strings.TrimRight(prefix, "/")+"/") {
-				ids = append(ids, id)
-				break
-			}
-		}
+		byPrefix[prefix] = append(byPrefix[prefix], sliceID)
 	}
-	return ids, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return storage.AssembleCoverageByPath(changedPaths, byPrefix), nil
+}
+
+func syncSliceIncludedPathsTx(ctx context.Context, tx *sql.Tx, sliceID string, prefixes []string) error {
+	if _, err := tx.ExecContext(ctx, `delete from slice_included_paths where slice_id = $1`, sliceID); err != nil {
+		return err
+	}
+	if len(prefixes) == 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into slice_included_paths(slice_id, prefix)
+		select $1, unnest($2::text[])
+		on conflict do nothing
+	`, sliceID, prefixes)
+	return err
 }
 
 func normalizeSliceRef(ref *corev1.SliceRef) (*corev1.SliceRef, error) {

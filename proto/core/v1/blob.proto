@@ -9,6 +9,8 @@ option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
 service BlobService {
   rpc GetBlobStatus(GetBlobStatusRequest) returns (GetBlobStatusResponse);
   rpc UploadBlob(UploadBlobRequest) returns (UploadBlobResponse);
+  rpc UploadBlobStream(stream UploadBlobChunk) returns (UploadBlobResponse);
+  rpc ReadBlobStream(ReadBlobStreamRequest) returns (stream ReadBlobChunk);
 }
 
 message GetBlobStatusRequest {
@@ -34,8 +36,34 @@ message UploadBlobRequest {
   SliceRef slice = 3;
 }
 
+message UploadBlobInit {
+  SliceRef slice = 1;
+  string content_hash = 2;
+  optional int64 size = 3;
+}
+
+message UploadBlobChunk {
+  oneof payload {
+    UploadBlobInit init = 1;
+    bytes data = 2;
+  }
+}
+
 message UploadBlobResponse {
   string blob_id = 1;
   string content_hash = 2;
   int64 size = 3;
+}
+
+message ReadBlobStreamRequest {
+  SliceRef slice = 1;
+  string content_hash = 2;
+  int64 offset = 3;
+  int64 length = 4;
+}
+
+message ReadBlobChunk {
+  bytes data = 1;
+  int64 offset = 2;
+  string content_hash = 3;
 }

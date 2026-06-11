@@ -4118,3 +4118,66 @@ git diff --check
 
 All listed commands passed. The real Postgres CLI/RPC e2e tests did not run
 against a database because `GITSLICE_TEST_DATABASE_URL` was not set.
+
+## 2026-06-10: Fix Covering-Slice Lookup and Blob Streaming Bottlenecks
+
+Request:
+
+- fix MVP review §4.3 items 2 and 3:
+  covering-slice prefix indexing and streaming blob upload/read, while leaving
+  unary blob/read compatibility intact
+
+Implemented:
+
+- added `slice_included_paths(slice_id, prefix)` with a prefix index and
+  backfill from existing `slices.included_paths`
+- changed Postgres slice create/update/delete to update `slices` and
+  `slice_included_paths` in the same transaction
+- replaced per-path `CoveringIDs` calls with `CoveringIDsByPath`, which derives
+  ancestor prefixes once, queries the prefix index once, and assembles sorted
+  per-path slice IDs deterministically
+- added shared coverage helper tests for ancestor-prefix derivation and
+  deterministic batch assembly
+- added `UploadBlobStream` and `ReadBlobStream` to `BlobService` and
+  regenerated protobuf, gRPC, and grpc-gateway stubs with `make proto`
+- implemented streaming upload with a staging object-store key, incremental raw
+  content hash and blob-id hashing, declared hash/size validation, cleanup on
+  rejection, final copy to the content-addressed object key, and existing blob
+  upload metrics
+- implemented streaming blob reads by content hash with the same slice read
+  authorization shape as `GetBlobStatus`
+- switched CLI local-file uploads and cached changeset blob uploads above 4 MiB
+  to streaming RPCs while keeping unary uploads for small blobs
+- switched `gs fs cat` and workspace hydration above 4 MiB to `ReadBlobStream`
+  when a content hash is available; hydration streams into the client object
+  cache before copying into the workspace
+- extended RPC and CLI e2e coverage for batch overlapping-slice coverage,
+  multi-megabyte streaming upload/read, streaming hash-mismatch rejection, and
+  large changeset submit plus hydrate read-back
+
+Important decisions and learnings:
+
+- ancestor-prefix matching uses exact indexed prefixes (`prefix = any($1)`)
+  rather than SQL `LIKE`, because the path's full ancestor chain makes
+  `path = prefix or path like prefix || '/%'` equivalent for canonical paths
+- the filesystem object store already streams `Put` from an `io.Reader` through
+  a temp file and rename, so no object-store rewrite was needed
+- because the generic object-store interface has no rename/finalize primitive,
+  streaming upload finalizes by copying the verified staged object to the final
+  content-addressed key and then deleting the staging key
+- the real Postgres CLI/RPC e2e suites were intentionally not run against a
+  database in this sandbox; `go test ./...` compiled those packages and skipped
+  runtime e2e tests because `GITSLICE_TEST_DATABASE_URL` was unset
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/paths/paths.go internal/storage/coverage.go internal/storage/coverage_test.go internal/storage/interfaces.go internal/storage/memory/store.go internal/postgres/slice_store.go internal/postgres/fixture.go internal/objectid/objectid.go service/blob.go service/blob_stream.go service/blob_stream_test.go service/metrics.go service/changeset.go internal/cli/cli.go tests/rpc/rpc_custom_slice_test.go tests/cli/cli_smoke_test.go
+go test ./internal/paths ./internal/storage ./internal/objectid ./service ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed commands passed.

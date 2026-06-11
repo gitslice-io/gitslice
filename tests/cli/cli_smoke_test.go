@@ -59,6 +59,8 @@ func TestMinimalCLIJourney(t *testing.T) {
 	if !strings.Contains(status, "/acme/payment/app.go") {
 		t.Fatalf("expected app.go to be dirty, got:\n%s", status)
 	}
+	largeContent := bytes.Repeat([]byte("large streaming workspace file\n"), 180000)
+	writeWorkspaceFileBytes(t, workspace, "large.txt", largeContent)
 	runCLI(t, home, workspace, "cs", "create")
 	runCLI(t, home, workspace, "cs", "submit")
 	csStatus := runCLI(t, home, workspace, "cs", "status")
@@ -72,6 +74,15 @@ func TestMinimalCLIJourney(t *testing.T) {
 	status = runCLI(t, home, workspace, "status")
 	if !strings.Contains(status, "status: clean") {
 		t.Fatalf("expected clean status after submit, got:\n%s", status)
+	}
+	hydratedWorkspace := t.TempDir()
+	runCLI(t, home, hydratedWorkspace, "init", "acme/payment")
+	gotLarge, err := os.ReadFile(filepath.Join(hydratedWorkspace, "acme", "payment", "large.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotLarge, largeContent) {
+		t.Fatalf("hydrated large file length = %d, want %d", len(gotLarge), len(largeContent))
 	}
 }
 
@@ -2464,11 +2475,16 @@ func singleDraftChangeset(t *testing.T, ctx context.Context, client corev1.Chang
 
 func writeWorkspaceFile(t *testing.T, workspace, rel, content string) {
 	t.Helper()
+	writeWorkspaceFileBytes(t, workspace, rel, []byte(content))
+}
+
+func writeWorkspaceFileBytes(t *testing.T, workspace, rel string, content []byte) {
+	t.Helper()
 	path := filepath.Join(workspace, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
