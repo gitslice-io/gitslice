@@ -14,7 +14,9 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/server"
 	"google.golang.org/grpc"
@@ -358,6 +360,7 @@ func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T)
 	if submitted.CommitId == "" {
 		t.Fatalf("authorized submit did not publish commit: %#v", submitted)
 	}
+	ts.waitForOutboxDrain(t)
 	if _, err := clients.repository.GetCommit(aliceCtx, &corev1.GetCommitRequest{
 		CommitId: submitted.CommitId,
 	}); err != nil {
@@ -571,6 +574,25 @@ func (ts *testRPCServer) stop(t *testing.T) {
 		t.Fatalf("server exited with error: %v", err)
 	}
 	ts.cancel = nil
+}
+
+func (ts *testRPCServer) waitForOutboxDrain(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	db, err := postgres.Open(ctx, databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	objectStore, err := filesystem.New(ts.objectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetTreeStore(treestore.New(objectStore))
+	if err := db.Changesets().WaitForOutboxDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
 }
 
 type testCoreClients struct {

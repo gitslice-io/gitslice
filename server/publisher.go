@@ -10,7 +10,7 @@ import (
 
 const defaultPublishInterval = 25 * time.Millisecond
 
-func runPublisher(ctx context.Context, changesets storage.ChangesetStore, batchSize int, interval time.Duration) {
+func runPublisher(ctx context.Context, changesets storage.ChangesetStore, batchSize int, interval time.Duration, onPublished func()) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -29,6 +29,9 @@ func runPublisher(ctx context.Context, changesets storage.ChangesetStore, batchS
 				slog.Warn("pending publish batch failed", "error", err)
 			}
 			if published > 0 {
+				if onPublished != nil {
+					onPublished()
+				}
 				timer.Reset(0)
 			} else {
 				timer.Reset(interval)

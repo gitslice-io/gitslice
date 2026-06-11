@@ -240,6 +240,7 @@ func TestRPCListCommitsSupportsPathAndCustomSlice(t *testing.T) {
 	privateCommit := submitRPCFile(t, ctx, clients, "payment", "/acme/payment/history/private.go", "package history\nconst Private = true\n")
 	sharedCommit := submitRPCFile(t, ctx, clients, "payment", "/acme/payment/history/shared/shared.go", "package shared\nconst Shared = true\n")
 	backendCommit := submitRPCFile(t, ctx, clients, "backend", "/acme/backend/history/backend.go", "package backend\nconst Backend = true\n")
+	ts.waitForOutboxDrain(t)
 
 	if _, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: "acme", Slice: "history"},

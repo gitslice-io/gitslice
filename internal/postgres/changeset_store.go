@@ -43,6 +43,38 @@ type entityChange struct {
 	Mode        uint32
 }
 
+const outboxKindCommitPublished = "commit_published"
+
+type commitPublishedPayload struct {
+	TargetRef    string    `json:"target_ref"`
+	CommitID     string    `json:"commit_id"`
+	BaseCommitID string    `json:"base_commit_id"`
+	ChangesetID  string    `json:"changeset_id"`
+	PatchsetID   string    `json:"patchset_id"`
+	ChangedPaths []string  `json:"changed_paths"`
+	CommittedAt  time.Time `json:"committed_at"`
+}
+
+type publishCommitInsert struct {
+	ID              string
+	ParentIDsJSON   []byte
+	RootTreeID      string
+	AuthorSubjectID string
+	Message         string
+	CreatedAt       time.Time
+	ChangedJSON     []byte
+}
+
+type publishedPendingUpdate struct {
+	PendingID string
+	CommitID  string
+}
+
+type submittedChangesetUpdate struct {
+	ChangesetID string
+	CommitID    string
+}
+
 func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
 	if req.AuthoringSlice == nil {
 		return nil, fmt.Errorf("authoring slice is required")
@@ -705,6 +737,10 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 	}
 	baseTime := time.Now().UTC().Truncate(time.Microsecond)
 	var publishLatencies []time.Duration
+	var commitInserts []publishCommitInsert
+	var outboxPayloads []commitPublishedPayload
+	var pendingUpdates []publishedPendingUpdate
+	var changesetUpdates []submittedChangesetUpdate
 	updatedBy := "publisher"
 	for _, row := range batch {
 		var cs struct {
@@ -767,39 +803,29 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 		if err != nil {
 			return 0, err
 		}
-		_, err = tx.ExecContext(ctx, `
-			insert into commits(id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths)
-			values ($1, $2, $3, $4, $5, $6, $7)
-			on conflict (id) do nothing
-		`, commitID, parentJSON, rootTreeID, cs.Author, message, now, changedJSON)
-		if err != nil {
+		commitInserts = append(commitInserts, publishCommitInsert{
+			ID:              commitID,
+			ParentIDsJSON:   parentJSON,
+			RootTreeID:      rootTreeID,
+			AuthorSubjectID: cs.Author,
+			Message:         message,
+			CreatedAt:       now,
+			ChangedJSON:     changedJSON,
+		})
+		if err := s.refreshPathHeadsForPatchsetRootTx(ctx, tx, rootTreeID, row.ChangesetID, row.PatchsetID, patchset.FileEdits); err != nil {
 			return 0, err
 		}
-		if err := insertCommitChangedPathsTx(ctx, tx, targetRef, commitID, patchset.ChangedPaths, now); err != nil {
-			return 0, err
-		}
-		if err := s.refreshPathHeadsForPatchsetTx(ctx, tx, commitID, row.ChangesetID, row.PatchsetID, patchset.FileEdits); err != nil {
-			return 0, err
-		}
-		if err := s.applyEntityHistoryTx(ctx, tx, targetRef, baseCommitID, commitID, patchset.FileEdits, now); err != nil {
-			return 0, err
-		}
-		_, err = tx.ExecContext(ctx, `
-			update pending_publish
-			set status = 'published', commit_id = $1, updated_at = now(), published_at = now()
-			where id = $2
-		`, commitID, row.ID)
-		if err != nil {
-			return 0, err
-		}
-		_, err = tx.ExecContext(ctx, `
-			update changesets
-			set status = 'submitted', commit_id = $1, updated_at = now()
-			where id = $2
-		`, commitID, row.ChangesetID)
-		if err != nil {
-			return 0, err
-		}
+		outboxPayloads = append(outboxPayloads, commitPublishedPayload{
+			TargetRef:    targetRef,
+			CommitID:     commitID,
+			BaseCommitID: baseCommitID,
+			ChangesetID:  row.ChangesetID,
+			PatchsetID:   row.PatchsetID,
+			ChangedPaths: patchset.ChangedPaths,
+			CommittedAt:  now,
+		})
+		pendingUpdates = append(pendingUpdates, publishedPendingUpdate{PendingID: row.ID, CommitID: commitID})
+		changesetUpdates = append(changesetUpdates, submittedChangesetUpdate{ChangesetID: row.ChangesetID, CommitID: commitID})
 		currentCommitID = commitID
 		updatedBy = cs.Author
 		published++
@@ -810,6 +836,18 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			return 0, err
 		}
 		return 0, nil
+	}
+	if err := insertPublishedCommitsTx(ctx, tx, commitInserts); err != nil {
+		return 0, err
+	}
+	if err := insertCommitPublishedOutboxTx(ctx, tx, outboxPayloads); err != nil {
+		return 0, err
+	}
+	if err := markPendingPublishedTx(ctx, tx, pendingUpdates); err != nil {
+		return 0, err
+	}
+	if err := markChangesetsSubmittedTx(ctx, tx, changesetUpdates); err != nil {
+		return 0, err
 	}
 	res, err := tx.ExecContext(ctx, `
 		update refs
@@ -846,17 +884,128 @@ func (s *ChangesetStore) PendingPublishDepth(ctx context.Context) (int, error) {
 	return depth, err
 }
 
-func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, commitID string, changedPaths []string, committedAt time.Time) error {
-	for _, p := range changedPaths {
-		if _, err := tx.ExecContext(ctx, `
-			insert into commit_changed_paths(target_ref, commit_id, path, committed_at)
-			values ($1, $2, $3, $4)
-			on conflict do nothing
-		`, targetRef, commitID, p, committedAt); err != nil {
+func insertPublishedCommitsTx(ctx context.Context, tx *sql.Tx, rows []publishCommitInsert) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(`
+		insert into commits(id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths)
+		values `)
+	args := make([]any, 0, len(rows)*7)
+	for i, row := range rows {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		base := len(args) + 1
+		b.WriteString(fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d)", base, base+1, base+2, base+3, base+4, base+5, base+6))
+		args = append(args, row.ID, row.ParentIDsJSON, row.RootTreeID, row.AuthorSubjectID, row.Message, row.CreatedAt, row.ChangedJSON)
+	}
+	b.WriteString(" on conflict (id) do nothing")
+	_, err := tx.ExecContext(ctx, b.String(), args...)
+	return err
+}
+
+func insertCommitPublishedOutboxTx(ctx context.Context, tx *sql.Tx, payloads []commitPublishedPayload) error {
+	if len(payloads) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(`
+		insert into outbox(kind, payload, created_at)
+		values `)
+	args := make([]any, 0, len(payloads)*3)
+	for i, payload := range payloads {
+		raw, err := encodeJSON(payload)
+		if err != nil {
 			return err
 		}
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		base := len(args) + 1
+		b.WriteString(fmt.Sprintf("($%d, $%d, $%d)", base, base+1, base+2))
+		args = append(args, outboxKindCommitPublished, raw, payload.CommittedAt)
 	}
-	return nil
+	_, err := tx.ExecContext(ctx, b.String(), args...)
+	return err
+}
+
+func markPendingPublishedTx(ctx context.Context, tx *sql.Tx, rows []publishedPendingUpdate) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(`
+		update pending_publish as pending
+		set status = 'published',
+		    commit_id = published.commit_id,
+		    updated_at = now(),
+		    published_at = now()
+		from (values `)
+	args := make([]any, 0, len(rows)*2)
+	for i, row := range rows {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		base := len(args) + 1
+		b.WriteString(fmt.Sprintf("($%d, $%d)", base, base+1))
+		args = append(args, row.PendingID, row.CommitID)
+	}
+	b.WriteString(`
+		) as published(id, commit_id)
+		where pending.id = published.id`)
+	_, err := tx.ExecContext(ctx, b.String(), args...)
+	return err
+}
+
+func markChangesetsSubmittedTx(ctx context.Context, tx *sql.Tx, rows []submittedChangesetUpdate) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(`
+		update changesets as changeset
+		set status = 'submitted',
+		    commit_id = published.commit_id,
+		    updated_at = now()
+		from (values `)
+	args := make([]any, 0, len(rows)*2)
+	for i, row := range rows {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		base := len(args) + 1
+		b.WriteString(fmt.Sprintf("($%d, $%d)", base, base+1))
+		args = append(args, row.ChangesetID, row.CommitID)
+	}
+	b.WriteString(`
+		) as published(id, commit_id)
+		where changeset.id = published.id`)
+	_, err := tx.ExecContext(ctx, b.String(), args...)
+	return err
+}
+
+func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, commitID string, changedPaths []string, committedAt time.Time) error {
+	if len(changedPaths) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(`
+		insert into commit_changed_paths(target_ref, commit_id, path, committed_at)
+		values `)
+	args := make([]any, 0, len(changedPaths)*4)
+	for i, p := range changedPaths {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		base := len(args) + 1
+		b.WriteString(fmt.Sprintf("($%d, $%d, $%d, $%d)", base, base+1, base+2, base+3))
+		args = append(args, targetRef, commitID, p, committedAt)
+	}
+	b.WriteString(" on conflict do nothing")
+	_, err := tx.ExecContext(ctx, b.String(), args...)
+	return err
 }
 
 type pathHeadRefreshTarget struct {
@@ -864,11 +1013,7 @@ type pathHeadRefreshTarget struct {
 	Recursive bool
 }
 
-func (s *ChangesetStore) refreshPathHeadsForPatchsetTx(ctx context.Context, tx *sql.Tx, commitID, changesetID, patchsetID string, edits []*corev1.FileEdit) error {
-	rootTreeID, err := s.repository.rootTreeIDForCommitTx(ctx, tx, commitID)
-	if err != nil {
-		return err
-	}
+func (s *ChangesetStore) refreshPathHeadsForPatchsetRootTx(ctx context.Context, tx *sql.Tx, rootTreeID, changesetID, patchsetID string, edits []*corev1.FileEdit) error {
 	for _, target := range pathHeadRefreshTargetsForEdits(edits) {
 		entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, target.Path)
 		if errors.Is(err, ErrNotFound) {

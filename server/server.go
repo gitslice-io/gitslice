@@ -12,6 +12,7 @@ import (
 
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
+	"github.com/gitslice-io/gitslice/internal/indexworker"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
@@ -37,6 +38,12 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.PublishInterval <= 0 {
 		cfg.PublishInterval = defaultPublishInterval
 	}
+	if cfg.IndexBatchSize <= 0 {
+		cfg.IndexBatchSize = 128
+	}
+	if cfg.IndexInterval <= 0 {
+		cfg.IndexInterval = defaultPublishInterval
+	}
 	db, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -52,8 +59,17 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 	}
+	var indexWorker *indexworker.Worker
+	if !cfg.DisableIndexWorker {
+		indexWorker = indexworker.New(db.Changesets(), cfg.IndexBatchSize, cfg.IndexInterval)
+		go indexWorker.Run(ctx)
+	}
 	if !cfg.DisableAsyncPublisher {
-		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval)
+		var nudge func()
+		if indexWorker != nil {
+			nudge = indexWorker.Nudge
+		}
+		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval, nudge)
 	}
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

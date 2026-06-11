@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -102,6 +103,120 @@ func TestStoragePublishesObjectStoreTreeAndReadsFiles(t *testing.T) {
 	}
 	if len(files) != 1 || files[0].Path != path {
 		t.Fatalf("files = %#v, want only %s", files, path)
+	}
+}
+
+func TestStoragePublishEnqueuesOutboxAndDrainIndexesChangedPaths(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	blobID, contentHash := upsertTestBlob(t, ctx, store, "package payment\nconst Indexed = true\n")
+	path := "/acme/payment/indexed.go"
+
+	patchset := createDraftPatchset(t, ctx, store, base.CommitId, path, blobID, contentHash)
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+		t.Fatal(err)
+	}
+	if published, err := store.Changesets().PublishPending(ctx, 10); err != nil {
+		t.Fatal(err)
+	} else if published != 1 {
+		t.Fatalf("published = %d, want 1", published)
+	}
+	commitID := getTestRef(t, ctx, store).CommitId
+	if depth := outboxDepthForTest(t, ctx, store); depth != 1 {
+		t.Fatalf("outbox depth = %d, want 1", depth)
+	}
+	if count := commitChangedPathCountForTest(t, ctx, store, commitID, path); count != 0 {
+		t.Fatalf("commit_changed_paths before drain = %d, want 0", count)
+	}
+
+	drainCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := store.Changesets().WaitForOutboxDrain(drainCtx); err != nil {
+		t.Fatal(err)
+	}
+	if depth := outboxDepthForTest(t, ctx, store); depth != 0 {
+		t.Fatalf("outbox depth after drain = %d, want 0", depth)
+	}
+	if count := commitChangedPathCountForTest(t, ctx, store, commitID, path); count != 1 {
+		t.Fatalf("commit_changed_paths after drain = %d, want 1", count)
+	}
+}
+
+func TestStorageOutboxFailureIncrementsAttemptsAndRetries(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	var id int64
+	if err := store.db.QueryRowContext(ctx, `
+		insert into outbox(kind, payload)
+		values ('unknown_kind', '{}'::jsonb)
+		returning id
+	`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.Changesets().ProcessOutbox(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Processed != 0 || result.Failed != 1 {
+		t.Fatalf("ProcessOutbox result = %#v, want 0 processed and 1 failed", result)
+	}
+	if attempts := outboxAttemptsForTest(t, ctx, store, id); attempts != 1 {
+		t.Fatalf("attempts after first failure = %d, want 1", attempts)
+	}
+
+	result, err = store.Changesets().ProcessOutbox(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Processed != 0 || result.Failed != 1 {
+		t.Fatalf("retry ProcessOutbox result = %#v, want 0 processed and 1 failed", result)
+	}
+	if attempts := outboxAttemptsForTest(t, ctx, store, id); attempts != 2 {
+		t.Fatalf("attempts after retry = %d, want 2", attempts)
+	}
+}
+
+func TestStorageRebuildDerivedIndexesMatchesIncrementalChangedPaths(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	firstBlobID, firstHash := upsertTestBlob(t, ctx, store, "package payment\nconst A = 1\n")
+	first := createDraftPatchset(t, ctx, store, base.CommitId, "/acme/payment/rebuild_a.go", firstBlobID, firstHash)
+	if _, err := store.Changesets().Submit(ctx, first.ChangesetId, first.Id); err != nil {
+		t.Fatal(err)
+	}
+	if published, err := store.Changesets().PublishPending(ctx, 10); err != nil {
+		t.Fatal(err)
+	} else if published != 1 {
+		t.Fatalf("first published = %d, want 1", published)
+	}
+
+	base = getTestRef(t, ctx, store)
+	secondBlobID, secondHash := upsertTestBlob(t, ctx, store, "package payment\nconst B = 1\n")
+	second := createDraftPatchset(t, ctx, store, base.CommitId, "/acme/payment/rebuild_b.go", secondBlobID, secondHash)
+	if _, err := store.Changesets().Submit(ctx, second.ChangesetId, second.Id); err != nil {
+		t.Fatal(err)
+	}
+	if published, err := store.Changesets().PublishPending(ctx, 10); err != nil {
+		t.Fatal(err)
+	} else if published != 1 {
+		t.Fatalf("second published = %d, want 1", published)
+	}
+	drainCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := store.Changesets().WaitForOutboxDrain(drainCtx); err != nil {
+		t.Fatal(err)
+	}
+	incremental := commitChangedPathRowsForTest(t, ctx, store, DefaultTargetRef)
+	if len(incremental) < 2 {
+		t.Fatalf("incremental changed-path rows = %#v, want at least 2", incremental)
+	}
+
+	if err := store.Changesets().RebuildDerivedIndexes(ctx, DefaultTargetRef); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt := commitChangedPathRowsForTest(t, ctx, store, DefaultTargetRef)
+	if !reflect.DeepEqual(rebuilt, incremental) {
+		t.Fatalf("rebuilt changed-path rows differ\nincremental=%#v\nrebuilt=%#v", incremental, rebuilt)
 	}
 }
 
@@ -498,6 +613,69 @@ func getTestRef(t *testing.T, ctx context.Context, store *DB) *corev1.Ref {
 		t.Fatal(err)
 	}
 	return ref
+}
+
+func outboxDepthForTest(t *testing.T, ctx context.Context, store *DB) int {
+	t.Helper()
+	depth, err := store.Changesets().OutboxDepth(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return depth
+}
+
+func outboxAttemptsForTest(t *testing.T, ctx context.Context, store *DB, id int64) int {
+	t.Helper()
+	var attempts int
+	if err := store.db.QueryRowContext(ctx, `
+		select attempts
+		from outbox
+		where id = $1
+	`, id).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	return attempts
+}
+
+func commitChangedPathCountForTest(t *testing.T, ctx context.Context, store *DB, commitID, p string) int {
+	t.Helper()
+	var count int
+	if err := store.db.QueryRowContext(ctx, `
+		select count(*)
+		from commit_changed_paths
+		where target_ref = $1
+		  and commit_id = $2
+		  and path = $3
+	`, DefaultTargetRef, commitID, p).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+func commitChangedPathRowsForTest(t *testing.T, ctx context.Context, store *DB, targetRef string) []string {
+	t.Helper()
+	rows, err := store.db.QueryContext(ctx, `
+		select commit_id, path, change_kind
+		from commit_changed_paths
+		where target_ref = $1
+		order by commit_id, path, change_kind
+	`, targetRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var commitID, p, changeKind string
+		if err := rows.Scan(&commitID, &p, &changeKind); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, commitID+"\x00"+p+"\x00"+changeKind)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func createTestSchema(t *testing.T, databaseURL, schema string) {

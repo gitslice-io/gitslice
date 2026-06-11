@@ -34,6 +34,18 @@ type ChangesetStore interface {
 	Abandon(ctx context.Context, changesetID string) error
 }
 
+type OutboxProcessResult struct {
+	Processed int
+	Failed    int
+}
+
+type DerivedIndexStore interface {
+	ProcessOutbox(ctx context.Context, limit int) (OutboxProcessResult, error)
+	OutboxDepth(ctx context.Context) (int, error)
+	WaitForOutboxDrain(ctx context.Context) error
+	RebuildDerivedIndexes(ctx context.Context, targetRef string) error
+}
+
 type CommitListPage struct {
 	Commits       []*corev1.Commit
 	NextPageToken string

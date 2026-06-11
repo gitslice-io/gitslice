@@ -4181,3 +4181,70 @@ git diff --check
 ```
 
 All listed commands passed.
+
+## 2026-06-11: Move Publish Index Writes to Transactional Outbox
+
+Request:
+
+- implement MVP review §4.3 item 4 by adding a transactional outbox,
+  moving changed-path and entity-history writes out of the publish transaction,
+  wiring an async index worker, adding deterministic drain/rebuild tooling, and
+  leaving `MVP_REVIEW.md` untouched
+
+Implemented:
+
+- added `outbox(id, kind, payload, created_at, processed_at, attempts)` with an
+  index on `(processed_at, id)` for unprocessed scans
+- changed `PublishPending` to keep only commit creation inputs, `path_heads`
+  refresh, pending/changeset status updates, ref CAS, and outbox append inside
+  the publish transaction
+- batched published commit inserts, outbox inserts, and publish status updates
+  with multi-row statements
+- added durable `commit_published` payloads carrying target ref, commit id,
+  base commit id, changeset id, patchset id, changed paths, and commit time
+- added `ProcessOutbox`, `OutboxDepth`, `WaitForOutboxDrain`, and
+  `RebuildDerivedIndexes` on the Postgres changeset store
+- added an `internal/indexworker` polling worker that drains outbox rows with
+  `for update skip locked`, records processed/failed/depth metrics, and can be
+  nudged after publish
+- wired the index worker in `server/`, with env/flag configurable batch size and
+  interval; the publisher nudges it after successful publish batches
+- added hidden `gs admin rebuild-indexes --yes [--target-ref]` repair tooling
+  backed by source-of-truth commits and the filesystem object store
+- added store tests for outbox enqueue/drain, failure attempt increments, and
+  rebuild parity; RPC history tests now explicitly wait for outbox drain before
+  index-backed history assertions
+
+Important decisions and learnings:
+
+- `path_heads` refresh and the ref CAS remain in the publish transaction because
+  they are correctness-critical submit state, not derived history indexes
+- changed-path and entity-history reads are now eventually consistent with
+  publish; normal server operation nudges the index worker after publish, while
+  tests and repair workflows use `WaitForOutboxDrain` for deterministic
+  freshness
+- `RebuildDerivedIndexes` locks the target ref and matching unprocessed outbox
+  rows, clears derived rows for that target ref, rebuilds changed paths from the
+  reachable commit graph, replays entity history from published patchsets, and
+  marks superseded target-ref outbox rows processed
+- row-level outbox failures roll back derived writes and increment `attempts`;
+  the row remains unprocessed for a later retry
+- outbox processing uses a transaction-scoped advisory lock in addition to
+  `for update skip locked` so multiple server processes cannot process later
+  entity-history events ahead of earlier events for the MVP
+- the real Postgres e2e gate was intentionally not run with a database URL in
+  this sandbox; `go test ./...` compiled those packages and skipped database
+  e2e execution where `GITSLICE_TEST_DATABASE_URL` was unset
+
+Verification:
+
+```bash
+gofmt -w internal/storage/interfaces.go internal/storage/metrics.go internal/postgres/changeset_store.go internal/postgres/outbox.go internal/indexworker/worker.go server/config.go server/server.go server/publisher.go cmd/gitslice-server/main.go internal/cli/cli.go internal/postgres/store_test.go tests/rpc/slice_test.go tests/rpc/commit_history_test.go tests/rpc/rpc_custom_slice_test.go
+go test ./internal/postgres -run TestDoesNotExist
+go test ./internal/indexworker ./server ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed commands passed.

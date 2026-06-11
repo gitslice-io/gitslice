@@ -18,7 +18,10 @@ type Config struct {
 	RunMigrations         bool
 	PublishBatchSize      int
 	PublishInterval       time.Duration
+	IndexBatchSize        int
+	IndexInterval         time.Duration
 	DisableAsyncPublisher bool
+	DisableIndexWorker    bool
 	DevMode               bool
 }
 
@@ -34,7 +37,10 @@ func ConfigFromEnv() Config {
 		RunMigrations:         os.Getenv("GITSLICE_RUN_MIGRATIONS") != "0",
 		PublishBatchSize:      intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BATCH_SIZE"), 128),
 		PublishInterval:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_INTERVAL_MS"), 25)) * time.Millisecond,
+		IndexBatchSize:        intValueOrDefault(os.Getenv("GITSLICE_INDEX_BATCH_SIZE"), 128),
+		IndexInterval:         time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_INTERVAL_MS"), 25)) * time.Millisecond,
 		DisableAsyncPublisher: os.Getenv("GITSLICE_DISABLE_ASYNC_PUBLISHER") == "1",
+		DisableIndexWorker:    os.Getenv("GITSLICE_DISABLE_INDEX_WORKER") == "1",
 		DevMode:               os.Getenv("GITSLICE_DEV_MODE") == "1",
 	}
 }

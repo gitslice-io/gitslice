@@ -1811,6 +1811,15 @@ func (s *RepositoryService) waitForImportPublished(ctx context.Context, changese
 			return "", err
 		}
 		if cs.Status == "submitted" && cs.CommitId != "" {
+			// History queries read derived indexes filled by the outbox
+			// worker; drain before returning so imported commits are
+			// immediately queryable through gs log and slice history.
+			// Stores without async derived indexes (memory) skip this.
+			if drainer, ok := s.Changesets.(storage.DerivedIndexStore); ok {
+				if err := drainer.WaitForOutboxDrain(ctx); err != nil {
+					return "", err
+				}
+			}
 			return cs.CommitId, nil
 		}
 		if _, err := s.Changesets.PublishPending(ctx, 128); err != nil && !errors.Is(err, storage.ErrConflict) {

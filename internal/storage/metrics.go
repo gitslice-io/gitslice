@@ -47,6 +47,15 @@ var (
 		"Accepted-to-published latency for changesets.",
 		[]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60},
 	)
+	outboxRowsTotal = metrics.NewCounter(
+		"gitslice_outbox_rows_total",
+		"Outbox rows handled by derived-index workers.",
+		"result",
+	)
+	outboxQueueDepth = metrics.NewGauge(
+		"gitslice_outbox_queue_depth",
+		"Unprocessed derived-index outbox rows sampled by the index worker loop.",
+	)
 )
 
 func RecordSubmitResult(err error) {
@@ -99,4 +108,17 @@ func SetPendingPublishQueueDepth(depth int) {
 
 func ObservePublishLatency(duration time.Duration) {
 	publishLatencySeconds.Observe(duration.Seconds(), nil)
+}
+
+func RecordOutboxProcessResult(result OutboxProcessResult) {
+	if result.Processed > 0 {
+		outboxRowsTotal.Add(float64(result.Processed), metrics.Labels{"result": "processed"})
+	}
+	if result.Failed > 0 {
+		outboxRowsTotal.Add(float64(result.Failed), metrics.Labels{"result": "failed"})
+	}
+}
+
+func SetOutboxQueueDepth(depth int) {
+	outboxQueueDepth.Set(float64(depth), nil)
 }

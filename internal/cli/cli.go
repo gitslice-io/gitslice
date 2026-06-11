@@ -29,10 +29,12 @@ import (
 	"github.com/gitslice-io/gitslice/internal/clientcache"
 	"github.com/gitslice-io/gitslice/internal/diffutil"
 	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
 	"github.com/gitslice-io/gitslice/internal/storage"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/itchyny/gojq"
 	"github.com/peterh/liner"
@@ -1452,6 +1454,27 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 
+	adminCmd := &cobra.Command{
+		Use:    "admin",
+		Short:  "Administrative repair commands",
+		Hidden: true,
+		RunE:   requireSubcommand("admin"),
+	}
+	adminRebuildYes := false
+	adminRebuildTargetRef := postgres.DefaultTargetRef
+	adminRebuildIndexesCmd := &cobra.Command{
+		Use:    "rebuild-indexes",
+		Short:  "Rebuild derived indexes from source-of-truth commits",
+		Hidden: true,
+		Args:   noArgs("gs admin rebuild-indexes --yes"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAdminRebuildIndexes(cmd.Context(), *opts, adminRebuildTargetRef, adminRebuildYes)
+		},
+	}
+	adminRebuildIndexesCmd.Flags().StringVar(&adminRebuildTargetRef, "target-ref", adminRebuildTargetRef, "target ref to rebuild")
+	adminRebuildIndexesCmd.Flags().BoolVar(&adminRebuildYes, "yes", adminRebuildYes, "confirm derived index rebuild")
+	adminCmd.AddCommand(adminRebuildIndexesCmd)
+
 	sliceCmd := &cobra.Command{
 		Use:     "slice",
 		Aliases: []string{"slices"},
@@ -1536,7 +1559,7 @@ home slice root, for example /nic/notes.`,
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd)
 	return root
 }
 
@@ -8933,6 +8956,45 @@ func (r Runner) runSchema(opts commandOptions) error {
 			},
 		},
 	})
+}
+
+func (r Runner) runAdminRebuildIndexes(ctx context.Context, opts commandOptions, targetRef string, yes bool) error {
+	if !yes {
+		return userError("confirmation_required", "rebuild-indexes requires --yes", "Run gs admin rebuild-indexes --yes after confirming no conflicting repair is running.")
+	}
+	if strings.TrimSpace(targetRef) == "" {
+		targetRef = postgres.DefaultTargetRef
+	}
+	databaseURL := os.Getenv("GITSLICE_DATABASE_URL")
+	if databaseURL == "" {
+		return userError("missing_config", "GITSLICE_DATABASE_URL is required", "Set GITSLICE_DATABASE_URL to the metadata database used by the server.")
+	}
+	objectStoreRoot := os.Getenv("GITSLICE_OBJECT_STORE_ROOT")
+	if objectStoreRoot == "" {
+		return userError("missing_config", "GITSLICE_OBJECT_STORE_ROOT is required", "Set GITSLICE_OBJECT_STORE_ROOT to the filesystem object store root used by the server.")
+	}
+	db, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	objectStore, err := filesystem.New(objectStoreRoot)
+	if err != nil {
+		return err
+	}
+	db.SetTreeStore(treestore.New(objectStore))
+	if err := db.Changesets().RebuildDerivedIndexes(ctx, targetRef); err != nil {
+		return err
+	}
+	out := map[string]any{
+		"target_ref": targetRef,
+		"rebuilt":    true,
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	fmt.Fprintf(r.Stdout, "rebuilt derived indexes for %s\n", targetRef)
+	return nil
 }
 
 func cliHelpTopicSchema() []map[string]string {
