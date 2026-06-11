@@ -122,6 +122,9 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 	`, homeSliceID, homeDefinitionHash, homeIncludedJSON, emptyChecksJSON, subjectID); err != nil {
 		return "", "", err
 	}
+	if err := syncSliceIncludedPathsTx(ctx, tx, homeSliceID, homeIncludedPaths); err != nil {
+		return "", "", err
+	}
 
 	token, sessionID, hashedToken, expiresAt, err := newSession(subjectID)
 	if err != nil {

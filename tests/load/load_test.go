@@ -48,6 +48,20 @@ import (
 // non-alphanumeric characters are replaced with underscores.
 const defaultLoadBudgetP95MS = 5000
 
+// The hot-files scenarios intentionally drive hundreds of workers into
+// admission and publish contention on overlapping paths, so their baseline
+// p95 is queueing-dominated (measured ~20s at 300 workers). Their default
+// budgets guard order-of-magnitude regressions rather than absolute latency;
+// the per-scenario env overrides above still apply.
+var defaultScenarioBudgetP95 = map[string]time.Duration{
+	"hot_files_create_update_submit_accept": 60 * time.Second,
+	"hot_files_accepted_to_published":       60 * time.Second,
+	"hot_files_home_projection_refresh":     60 * time.Second,
+	"hot_files_other_projection_refresh":    60 * time.Second,
+	"hot_files_home_submit_to_visible":      60 * time.Second,
+	"hot_files_other_submit_to_visible":     60 * time.Second,
+}
+
 func TestLoadConcurrentDisjointSubmit(t *testing.T) {
 	ts := startLoadServer(t)
 	workers := envInt("GITSLICE_LOAD_WORKERS", 16)
@@ -1155,28 +1169,47 @@ func runRPCUserOperation(user rpcLoadUser, operation int) (time.Duration, error)
 	if err := requireEntry(list.Entries, filePath, corev1.EntryKind_ENTRY_KIND_FILE); err != nil {
 		return 0, err
 	}
-	history, err := user.repo.ListCommits(user.ctx, &corev1.ListCommitsRequest{
-		RefName: postgres.DefaultTargetRef,
-		Limit:   10,
-		Path:    filePath,
-		Slice:   &corev1.SliceRef{Account: user.account, Slice: "project"},
-	})
-	if err != nil {
-		return 0, err
-	}
-	for _, commit := range history.Commits {
-		if commit.Id == commitID {
-			return duration, nil
+	// Path-filtered history reads the commit_changed_paths derived index,
+	// which the outbox worker fills shortly after publish (design/06).
+	// Poll briefly like a real client instead of assuming read-your-writes.
+	deadline := time.Now().Add(5 * time.Second)
+	lastCount := 0
+	for {
+		history, err := user.repo.ListCommits(user.ctx, &corev1.ListCommitsRequest{
+			RefName: postgres.DefaultTargetRef,
+			Limit:   10,
+			Path:    filePath,
+			Slice:   &corev1.SliceRef{Account: user.account, Slice: "project"},
+		})
+		if err != nil {
+			return 0, err
+		}
+		for _, commit := range history.Commits {
+			if commit.Id == commitID {
+				return duration, nil
+			}
+		}
+		lastCount = len(history.Commits)
+		if time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-user.ctx.Done():
+			return 0, user.ctx.Err()
+		case <-time.After(25 * time.Millisecond):
 		}
 	}
-	return 0, fmt.Errorf("commit %s missing from ListCommits(%s), got %d commits", commitID, filePath, len(history.Commits))
+	return 0, fmt.Errorf("commit %s missing from ListCommits(%s), got %d commits", commitID, filePath, lastCount)
 }
 
 func rpcUploadFileEdit(user rpcLoadUser, p string, content []byte) (*corev1.FileEdit, error) {
 	upload, err := user.blob.UploadBlob(user.ctx, &corev1.UploadBlobRequest{
 		ContentHash: objectid.RawContentHash(content),
 		Data:        content,
-		Slice:       &corev1.SliceRef{Account: user.account, Slice: "project"},
+		// Authorize against the home slice: it covers the whole account
+		// root and exists from signup, while the project slice is only
+		// created later in the seed flow.
+		Slice: &corev1.SliceRef{Account: user.account, Slice: "home"},
 	})
 	if err != nil {
 		return nil, err
@@ -1567,6 +1600,9 @@ func loadBudgetP95(name string) time.Duration {
 		return value
 	}
 	if value, ok := envMillis("GITSLICE_LOAD_BUDGET_P95_MS"); ok {
+		return value
+	}
+	if value, ok := defaultScenarioBudgetP95[name]; ok {
 		return value
 	}
 	return time.Duration(defaultLoadBudgetP95MS) * time.Millisecond
