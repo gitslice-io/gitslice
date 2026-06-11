@@ -293,6 +293,18 @@ func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 	if strings.Join(definition.IncludedPaths, ",") != "/acme/payment/api" {
 		t.Fatalf("updated included paths = %#v", definition.IncludedPaths)
 	}
+	definitionHistory, err := handlers.Slice.ListSliceDefinitionVersions(ctx, &corev1.ListSliceDefinitionVersionsRequest{SliceId: slice.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(definitionHistory.Versions) != 2 || definitionHistory.Versions[0].Version != 2 || definitionHistory.Versions[1].Version != 1 {
+		t.Fatalf("unexpected definition history: %#v", definitionHistory.Versions)
+	}
+	for _, version := range definitionHistory.Versions {
+		if version.CreatedBy != "user_alice" || version.CreatedAt == "" {
+			t.Fatalf("unexpected definition history metadata: %#v", version)
+		}
+	}
 	history, err := handlers.Repository.ListCommits(ctx, &corev1.ListCommitsRequest{
 		Path:  "/acme/payment/api",
 		Slice: &corev1.SliceRef{Account: "acme", Slice: "api"},

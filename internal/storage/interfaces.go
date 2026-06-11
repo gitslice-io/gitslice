@@ -84,12 +84,13 @@ type RepositoryStore interface {
 }
 
 type SliceStore interface {
-	Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error)
+	Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error)
 	ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error)
 	Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error)
 	Get(ctx context.Context, sliceID string) (*corev1.Slice, error)
 	List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error)
-	UpdateDefinition(ctx context.Context, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
+	ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error)
+	UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	Delete(ctx context.Context, sliceID string) error
 	CoveringIDsByPath(ctx context.Context, paths []string) (map[string][]string, error)
 }

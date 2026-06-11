@@ -11,6 +11,7 @@ service SliceService {
   rpc ResolveSlice(ResolveSliceRequest) returns (Slice);
   rpc GetSlice(GetSliceRequest) returns (Slice);
   rpc ListSlices(ListSlicesRequest) returns (ListSlicesResponse);
+  rpc ListSliceDefinitionVersions(ListSliceDefinitionVersionsRequest) returns (ListSliceDefinitionVersionsResponse);
   rpc UpdateSliceDefinition(UpdateSliceDefinitionRequest) returns (SliceDefinition);
   rpc DeleteSlice(DeleteSliceRequest) returns (DeleteSliceResponse);
 }
@@ -29,6 +30,18 @@ message SliceDefinition {
   string visibility = 4;
   int32 required_approvals = 5;
   repeated string required_checks = 6;
+}
+
+message SliceDefinitionVersion {
+  string slice_id = 1;
+  int64 version = 2;
+  string definition_hash = 3;
+  string visibility = 4;
+  repeated string included_paths = 5;
+  int32 required_approvals = 6;
+  repeated string required_checks = 7;
+  string created_at = 8;
+  string created_by = 9;
 }
 
 message CreateSliceRequest {
@@ -56,6 +69,15 @@ message ListSlicesRequest {
 message ListSlicesResponse {
   repeated Slice slices = 1;
   string next_cursor = 2;
+}
+
+message ListSliceDefinitionVersionsRequest {
+  string slice_id = 1;
+  int32 page_size = 2;
+}
+
+message ListSliceDefinitionVersionsResponse {
+  repeated SliceDefinitionVersion versions = 1;
 }
 
 message UpdateSliceDefinitionRequest {

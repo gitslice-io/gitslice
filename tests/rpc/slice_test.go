@@ -122,6 +122,105 @@ func TestSliceServiceCustomSliceValidation(t *testing.T) {
 	}
 }
 
+func TestSliceDefinitionVersionHistory(t *testing.T) {
+	ts := startRPCServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	submitDirectFile(t, ctx, clients, "/acme/payment/rpc-history/seed.txt", "history\n", "history seed")
+	submitDirectFile(t, ctx, clients, "/acme/payment/rpc-history/archive/seed.txt", "archive\n", "history archive seed")
+
+	created, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
+		Ref:           &corev1.SliceRef{Account: "acme", Slice: "rpc-history"},
+		IncludedPaths: []string{"/acme/payment/rpc-history"},
+		Visibility:    "account",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstUpdate, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                created.Id,
+		ExpectedDefinitionHash: created.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:     []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"},
+			Visibility:        "account",
+			RequiredApprovals: 1,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstUpdate.Version != 2 {
+		t.Fatalf("first update version = %d, want 2", firstUpdate.Version)
+	}
+	second, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "rpc-history"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secondUpdate, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                created.Id,
+		ExpectedDefinitionHash: second.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:     second.Definition.IncludedPaths,
+			Visibility:        "private",
+			RequiredApprovals: 1,
+			RequiredChecks:    []string{"unit"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondUpdate.Version != 3 {
+		t.Fatalf("second update version = %d, want 3", secondUpdate.Version)
+	}
+	third, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "rpc-history"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	history, err := slices.ListSliceDefinitionVersions(ctx, &corev1.ListSliceDefinitionVersionsRequest{
+		SliceId:  created.Id,
+		PageSize: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Versions) != 3 {
+		t.Fatalf("history row count = %d, want 3: %#v", len(history.Versions), history.Versions)
+	}
+	assertSliceDefinitionVersion(t, history.Versions[0], created.Id, 3, third.DefinitionHash, "private", []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"}, 1, []string{"unit"})
+	assertSliceDefinitionVersion(t, history.Versions[1], created.Id, 2, second.DefinitionHash, "account", []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"}, 1, nil)
+	assertSliceDefinitionVersion(t, history.Versions[2], created.Id, 1, created.DefinitionHash, "account", []string{"/acme/payment/rpc-history"}, 0, nil)
+	for _, version := range history.Versions {
+		if version.CreatedBy != "user_alice" {
+			t.Fatalf("version %d created_by = %q, want user_alice", version.Version, version.CreatedBy)
+		}
+		if version.CreatedAt == "" {
+			t.Fatalf("version %d has empty created_at", version.Version)
+		}
+	}
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "history-outsider",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = slices.ListSliceDefinitionVersions(grpcAuthContext(signup.Token), &corev1.ListSliceDefinitionVersionsRequest{
+		SliceId:  created.Id,
+		PageSize: 10,
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+}
+
 func TestChangesetServiceListAndDiff(t *testing.T) {
 	ts := startRPCServer(t)
 	token := loginViaGRPC(t, ts.addr, "alice")
@@ -642,6 +741,22 @@ func assertGRPCCode(t *testing.T, err error, want codes.Code) {
 	t.Helper()
 	if grpcstatus.Code(err) != want {
 		t.Fatalf("grpc code = %v, want %v; err=%v", grpcstatus.Code(err), want, err)
+	}
+}
+
+func assertSliceDefinitionVersion(t *testing.T, got *corev1.SliceDefinitionVersion, sliceID string, version int64, definitionHash, visibility string, includedPaths []string, requiredApprovals int32, requiredChecks []string) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("nil slice definition version, want version %d", version)
+	}
+	if got.SliceId != sliceID || got.Version != version || got.DefinitionHash != definitionHash || got.Visibility != visibility || got.RequiredApprovals != requiredApprovals {
+		t.Fatalf("unexpected definition version row:\n got: %#v\nwant: slice_id=%s version=%d hash=%s visibility=%s required_approvals=%d", got, sliceID, version, definitionHash, visibility, requiredApprovals)
+	}
+	if strings.Join(got.IncludedPaths, "\x00") != strings.Join(includedPaths, "\x00") {
+		t.Fatalf("version %d included paths = %#v, want %#v", version, got.IncludedPaths, includedPaths)
+	}
+	if strings.Join(got.RequiredChecks, "\x00") != strings.Join(requiredChecks, "\x00") {
+		t.Fatalf("version %d required checks = %#v, want %#v", version, got.RequiredChecks, requiredChecks)
 	}
 }
 

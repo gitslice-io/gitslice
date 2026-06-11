@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	SliceService_CreateSlice_FullMethodName           = "/gitslice.core.v1.SliceService/CreateSlice"
-	SliceService_ResolveSlice_FullMethodName          = "/gitslice.core.v1.SliceService/ResolveSlice"
-	SliceService_GetSlice_FullMethodName              = "/gitslice.core.v1.SliceService/GetSlice"
-	SliceService_ListSlices_FullMethodName            = "/gitslice.core.v1.SliceService/ListSlices"
-	SliceService_UpdateSliceDefinition_FullMethodName = "/gitslice.core.v1.SliceService/UpdateSliceDefinition"
-	SliceService_DeleteSlice_FullMethodName           = "/gitslice.core.v1.SliceService/DeleteSlice"
+	SliceService_CreateSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/CreateSlice"
+	SliceService_ResolveSlice_FullMethodName                = "/gitslice.core.v1.SliceService/ResolveSlice"
+	SliceService_GetSlice_FullMethodName                    = "/gitslice.core.v1.SliceService/GetSlice"
+	SliceService_ListSlices_FullMethodName                  = "/gitslice.core.v1.SliceService/ListSlices"
+	SliceService_ListSliceDefinitionVersions_FullMethodName = "/gitslice.core.v1.SliceService/ListSliceDefinitionVersions"
+	SliceService_UpdateSliceDefinition_FullMethodName       = "/gitslice.core.v1.SliceService/UpdateSliceDefinition"
+	SliceService_DeleteSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/DeleteSlice"
 )
 
 // SliceServiceClient is the client API for SliceService service.
@@ -35,6 +36,7 @@ type SliceServiceClient interface {
 	ResolveSlice(ctx context.Context, in *ResolveSliceRequest, opts ...grpc.CallOption) (*Slice, error)
 	GetSlice(ctx context.Context, in *GetSliceRequest, opts ...grpc.CallOption) (*Slice, error)
 	ListSlices(ctx context.Context, in *ListSlicesRequest, opts ...grpc.CallOption) (*ListSlicesResponse, error)
+	ListSliceDefinitionVersions(ctx context.Context, in *ListSliceDefinitionVersionsRequest, opts ...grpc.CallOption) (*ListSliceDefinitionVersionsResponse, error)
 	UpdateSliceDefinition(ctx context.Context, in *UpdateSliceDefinitionRequest, opts ...grpc.CallOption) (*SliceDefinition, error)
 	DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error)
 }
@@ -83,6 +85,15 @@ func (c *sliceServiceClient) ListSlices(ctx context.Context, in *ListSlicesReque
 	return out, nil
 }
 
+func (c *sliceServiceClient) ListSliceDefinitionVersions(ctx context.Context, in *ListSliceDefinitionVersionsRequest, opts ...grpc.CallOption) (*ListSliceDefinitionVersionsResponse, error) {
+	out := new(ListSliceDefinitionVersionsResponse)
+	err := c.cc.Invoke(ctx, SliceService_ListSliceDefinitionVersions_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sliceServiceClient) UpdateSliceDefinition(ctx context.Context, in *UpdateSliceDefinitionRequest, opts ...grpc.CallOption) (*SliceDefinition, error) {
 	out := new(SliceDefinition)
 	err := c.cc.Invoke(ctx, SliceService_UpdateSliceDefinition_FullMethodName, in, out, opts...)
@@ -109,6 +120,7 @@ type SliceServiceServer interface {
 	ResolveSlice(context.Context, *ResolveSliceRequest) (*Slice, error)
 	GetSlice(context.Context, *GetSliceRequest) (*Slice, error)
 	ListSlices(context.Context, *ListSlicesRequest) (*ListSlicesResponse, error)
+	ListSliceDefinitionVersions(context.Context, *ListSliceDefinitionVersionsRequest) (*ListSliceDefinitionVersionsResponse, error)
 	UpdateSliceDefinition(context.Context, *UpdateSliceDefinitionRequest) (*SliceDefinition, error)
 	DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error)
 }
@@ -128,6 +140,9 @@ func (UnimplementedSliceServiceServer) GetSlice(context.Context, *GetSliceReques
 }
 func (UnimplementedSliceServiceServer) ListSlices(context.Context, *ListSlicesRequest) (*ListSlicesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListSlices not implemented")
+}
+func (UnimplementedSliceServiceServer) ListSliceDefinitionVersions(context.Context, *ListSliceDefinitionVersionsRequest) (*ListSliceDefinitionVersionsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSliceDefinitionVersions not implemented")
 }
 func (UnimplementedSliceServiceServer) UpdateSliceDefinition(context.Context, *UpdateSliceDefinitionRequest) (*SliceDefinition, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateSliceDefinition not implemented")
@@ -219,6 +234,24 @@ func _SliceService_ListSlices_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_ListSliceDefinitionVersions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSliceDefinitionVersionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).ListSliceDefinitionVersions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_ListSliceDefinitionVersions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).ListSliceDefinitionVersions(ctx, req.(*ListSliceDefinitionVersionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SliceService_UpdateSliceDefinition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateSliceDefinitionRequest)
 	if err := dec(in); err != nil {
@@ -277,6 +310,10 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListSlices",
 			Handler:    _SliceService_ListSlices_Handler,
+		},
+		{
+			MethodName: "ListSliceDefinitionVersions",
+			Handler:    _SliceService_ListSliceDefinitionVersions_Handler,
 		},
 		{
 			MethodName: "UpdateSliceDefinition",

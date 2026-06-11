@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/storage"
@@ -17,11 +18,12 @@ type SliceStore struct {
 	db *sql.DB
 }
 
-func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
+func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
 	ref, err := normalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}
+	subjectID = strings.TrimSpace(subjectID)
 	includedPaths, visibility, requiredApprovals, requiredChecks, err = s.ValidateDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 	if err != nil {
 		return nil, err
@@ -69,6 +71,9 @@ func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedP
 		values ($1, $2, $3, 1, $4, $5, $6, $7, $8, now(), now())
 	`, id, accountID, ref.Slice, definitionHash, visibility, includedJSON, requiredApprovals, requiredChecksJSON)
 	if err != nil {
+		return nil, err
+	}
+	if err := appendSliceDefinitionVersionTx(ctx, tx, id, 1, definitionHash, visibility, includedPaths, requiredApprovals, requiredChecks, subjectID); err != nil {
 		return nil, err
 	}
 	if err := syncSliceIncludedPathsTx(ctx, tx, id, includedPaths); err != nil {
@@ -142,7 +147,39 @@ func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*co
 	return out, rows.Err()
 }
 
-func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+func (s *SliceStore) ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error) {
+	sliceID = strings.TrimSpace(sliceID)
+	if sliceID == "" {
+		return nil, fmt.Errorf("%w: slice_id is required", ErrInvalid)
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select slice_id, version, definition_hash, visibility, included_paths,
+		       required_approvals, required_checks, created_at, coalesce(created_by, '')
+		from slice_definition_versions
+		where slice_id = $1
+		order by version desc
+		limit $2
+	`, sliceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.SliceDefinitionVersion
+	for rows.Next() {
+		version, err := scanSliceDefinitionVersion(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, version)
+	}
+	return out, rows.Err()
+}
+
+func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+	subjectID = strings.TrimSpace(subjectID)
 	sliceID = strings.TrimSpace(sliceID)
 	expectedHash = strings.TrimSpace(expectedHash)
 	if sliceID == "" {
@@ -198,6 +235,9 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash
 	}
 	if affected == 0 {
 		return nil, ErrConflict
+	}
+	if err := appendSliceDefinitionVersionTx(ctx, tx, sliceID, nextVersion, nextHash, visibility, includedPaths, requiredApprovals, requiredChecks, subjectID); err != nil {
+		return nil, err
 	}
 	if err := syncSliceIncludedPathsTx(ctx, tx, sliceID, includedPaths); err != nil {
 		return nil, err
@@ -286,6 +326,32 @@ func (s *SliceStore) CoveringIDsByPath(ctx context.Context, changedPaths []strin
 		return nil, err
 	}
 	return storage.AssembleCoverageByPath(changedPaths, byPrefix), nil
+}
+
+func appendSliceDefinitionVersionTx(ctx context.Context, tx *sql.Tx, sliceID string, version int64, definitionHash, visibility string, includedPaths []string, requiredApprovals int32, requiredChecks []string, createdBy string) error {
+	includedJSON, err := encodeJSON(includedPaths)
+	if err != nil {
+		return err
+	}
+	requiredChecksJSON, err := encodeJSON(requiredChecks)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		insert into slice_definition_versions(
+			slice_id,
+			version,
+			definition_hash,
+			visibility,
+			included_paths,
+			required_approvals,
+			required_checks,
+			created_at,
+			created_by
+		)
+		values ($1, $2, $3, $4, $5, $6, $7, now(), nullif($8, ''))
+	`, sliceID, version, definitionHash, visibility, includedJSON, requiredApprovals, requiredChecksJSON, strings.TrimSpace(createdBy))
+	return err
 }
 
 func syncSliceIncludedPathsTx(ctx context.Context, tx *sql.Tx, sliceID string, prefixes []string) error {
@@ -441,6 +507,32 @@ func canonicalAccountRootPath(value string) (string, error) {
 		return "", fmt.Errorf("invalid account path segment")
 	}
 	return cleaned, nil
+}
+
+func scanSliceDefinitionVersion(row scanner) (*corev1.SliceDefinitionVersion, error) {
+	var (
+		out                              corev1.SliceDefinitionVersion
+		requiredApprovals                int32
+		includedJSON, requiredChecksJSON []byte
+		createdAt                        time.Time
+	)
+	err := row.Scan(&out.SliceId, &out.Version, &out.DefinitionHash, &out.Visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON, &createdAt, &out.CreatedBy)
+	if err != nil {
+		return nil, err
+	}
+	var included []string
+	if err := decodeJSON(includedJSON, &included); err != nil {
+		return nil, err
+	}
+	var requiredChecks []string
+	if err := decodeJSON(requiredChecksJSON, &requiredChecks); err != nil {
+		return nil, err
+	}
+	out.IncludedPaths = included
+	out.RequiredApprovals = requiredApprovals
+	out.RequiredChecks = requiredChecks
+	out.CreatedAt = formatTime(createdAt)
+	return &out, nil
 }
 
 func scanSlice(row scanner) (*corev1.Slice, error) {

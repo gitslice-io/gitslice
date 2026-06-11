@@ -37,7 +37,7 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 	if err := s.validateIncludedPathsExist(ctx, ref, includedPaths); err != nil {
 		return nil, err
 	}
-	slice, err := s.Slices.Create(ctx, ref, includedPaths, visibility, requiredApprovals, requiredChecks)
+	slice, err := s.Slices.Create(ctx, subjectID, ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -90,6 +90,25 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 	return &corev1.ListSlicesResponse{Slices: slices}, nil
 }
 
+func (s *SliceService) ListSliceDefinitionVersions(ctx context.Context, req *corev1.ListSliceDefinitionVersionsRequest) (*corev1.ListSliceDefinitionVersionsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slice, err := s.Slices.Get(ctx, req.SliceId)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionRead); err != nil {
+		return nil, err
+	}
+	versions, err := s.Slices.ListDefinitionVersions(ctx, req.SliceId, int(req.PageSize))
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.ListSliceDefinitionVersionsResponse{Versions: versions}, nil
+}
+
 func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.UpdateSliceDefinitionRequest) (*corev1.SliceDefinition, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -112,7 +131,7 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	if err := s.validateIncludedPathsExist(ctx, current.Ref, addedIncludedPaths(current.Definition, includedPaths)); err != nil {
 		return nil, err
 	}
-	definition, err := s.Slices.UpdateDefinition(ctx, req.SliceId, req.ExpectedDefinitionHash, &corev1.SliceDefinition{
+	definition, err := s.Slices.UpdateDefinition(ctx, subjectID, req.SliceId, req.ExpectedDefinitionHash, &corev1.SliceDefinition{
 		IncludedPaths:     includedPaths,
 		Visibility:        visibility,
 		RequiredApprovals: requiredApprovals,

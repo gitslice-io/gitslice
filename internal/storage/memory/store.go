@@ -45,8 +45,9 @@ type backend struct {
 	commits     map[string]*corev1.Commit
 	commitFiles map[string]map[string]storage.FileEntry
 
-	slices    map[string]*corev1.Slice
-	sliceRefs map[string]string
+	slices                  map[string]*corev1.Slice
+	sliceRefs               map[string]string
+	sliceDefinitionVersions map[string][]*corev1.SliceDefinitionVersion
 
 	changesets        map[string]*corev1.Changeset
 	pendingAcceptedAt map[string]time.Time
@@ -70,25 +71,26 @@ type ObjectStore struct{ b *backend }
 
 func New() *Stores {
 	b := &backend{
-		subjects:          map[string]storage.Subject{},
-		accountMembers:    map[string]map[string]string{},
-		sessions:          map[string]string{},
-		blobs:             map[string]*corev1.BlobRecord{},
-		objects:           map[string][]byte{},
-		refs:              map[string]*corev1.Ref{},
-		commits:           map[string]*corev1.Commit{},
-		commitFiles:       map[string]map[string]storage.FileEntry{},
-		slices:            map[string]*corev1.Slice{},
-		sliceRefs:         map[string]string{},
-		changesets:        map[string]*corev1.Changeset{},
-		pendingAcceptedAt: map[string]time.Time{},
-		approvals:         map[string]map[string]struct{}{},
-		checkResults:      map[string]map[string]string{},
-		imports:           map[string]*storage.GitImportRecord{},
-		importsByKey:      map[string]string{},
-		importedCommits:   map[string][]storage.GitImportedCommitRecord{},
-		entitiesByPath:    map[string]storage.CurrentPathEntity{},
-		entityChanges:     map[string][]storage.HistoryEntityRef{},
+		subjects:                map[string]storage.Subject{},
+		accountMembers:          map[string]map[string]string{},
+		sessions:                map[string]string{},
+		blobs:                   map[string]*corev1.BlobRecord{},
+		objects:                 map[string][]byte{},
+		refs:                    map[string]*corev1.Ref{},
+		commits:                 map[string]*corev1.Commit{},
+		commitFiles:             map[string]map[string]storage.FileEntry{},
+		slices:                  map[string]*corev1.Slice{},
+		sliceRefs:               map[string]string{},
+		sliceDefinitionVersions: map[string][]*corev1.SliceDefinitionVersion{},
+		changesets:              map[string]*corev1.Changeset{},
+		pendingAcceptedAt:       map[string]time.Time{},
+		approvals:               map[string]map[string]struct{}{},
+		checkResults:            map[string]map[string]string{},
+		imports:                 map[string]*storage.GitImportRecord{},
+		importsByKey:            map[string]string{},
+		importedCommits:         map[string][]storage.GitImportedCommitRecord{},
+		entitiesByPath:          map[string]storage.CurrentPathEntity{},
+		entityChanges:           map[string][]storage.HistoryEntityRef{},
 	}
 	root := &corev1.Commit{
 		Id:         "mem_root",
@@ -129,7 +131,7 @@ func (s *Stores) PutSlice(ref *corev1.SliceRef, includedPaths []string, visibili
 func (s *Stores) PutSliceWithSubmitSettings(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) *corev1.Slice {
 	s.backend.mu.Lock()
 	defer s.backend.mu.Unlock()
-	slice, _ := s.backend.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
+	slice, _ := s.backend.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks, "system")
 	return slice
 }
 
@@ -166,11 +168,11 @@ func (b *backend) addAccountRoleLocked(subjectID, accountSlug, role string) {
 	b.accountMembers[subjectID][accountSlug] = role
 	home := &corev1.SliceRef{Account: accountSlug, Slice: "home"}
 	if _, ok := b.sliceRefs[sliceRefKey(home)]; !ok {
-		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "account", 0, nil)
+		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "account", 0, nil, subjectID)
 	}
 }
 
-func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
+func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string, createdBy string) (*corev1.Slice, error) {
 	ref, err := normalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
@@ -200,7 +202,26 @@ func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, v
 	}
 	b.slices[id] = cloneSlice(slice)
 	b.sliceRefs[sliceRefKey(ref)] = id
+	b.appendSliceDefinitionVersionLocked(slice, createdBy)
 	return cloneSlice(slice), nil
+}
+
+func (b *backend) appendSliceDefinitionVersionLocked(slice *corev1.Slice, createdBy string) {
+	if slice == nil || slice.Definition == nil {
+		return
+	}
+	version := &corev1.SliceDefinitionVersion{
+		SliceId:           slice.Id,
+		Version:           slice.Definition.Version,
+		DefinitionHash:    slice.DefinitionHash,
+		Visibility:        slice.Definition.Visibility,
+		IncludedPaths:     append([]string(nil), slice.Definition.IncludedPaths...),
+		RequiredApprovals: slice.Definition.RequiredApprovals,
+		RequiredChecks:    append([]string(nil), slice.Definition.RequiredChecks...),
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		CreatedBy:         strings.TrimSpace(createdBy),
+	}
+	b.sliceDefinitionVersions[slice.Id] = append(b.sliceDefinitionVersions[slice.Id], cloneSliceDefinitionVersion(version))
 }
 
 func (b *backend) putCommitWithFilesLocked(commitID string, files []storage.FileEntry, changedPaths []string, message string) {
@@ -1033,13 +1054,13 @@ func (s *RepositoryStore) ListFiles(ctx context.Context, commitID, prefix string
 	return out, nil
 }
 
-func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
+func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if _, ok := s.b.sliceRefs[sliceRefKey(ref)]; ok {
 		return nil, storage.ErrConflict
 	}
-	return s.b.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
+	return s.b.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks, subjectID)
 }
 
 func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
@@ -1085,7 +1106,24 @@ func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*co
 	return out, nil
 }
 
-func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+func (s *SliceStore) ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.b.slices[sliceID] == nil {
+		return nil, storage.ErrNotFound
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	versions := s.b.sliceDefinitionVersions[sliceID]
+	out := make([]*corev1.SliceDefinitionVersion, 0, len(versions))
+	for i := len(versions) - 1; i >= 0 && len(out) < limit; i-- {
+		out = append(out, cloneSliceDefinitionVersion(versions[i]))
+	}
+	return out, nil
+}
+
+func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	current := s.b.slices[sliceID]
@@ -1105,6 +1143,7 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash
 	current.Definition.RequiredApprovals = requiredApprovals
 	current.Definition.RequiredChecks = append([]string(nil), requiredChecks...)
 	current.DefinitionHash = memoryDefinitionHash(sliceID, current.Definition.Version, included, visibility, requiredApprovals, requiredChecks)
+	s.b.appendSliceDefinitionVersionLocked(current, subjectID)
 	return cloneSlice(current).Definition, nil
 }
 
@@ -1117,6 +1156,7 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	}
 	delete(s.b.sliceRefs, sliceRefKey(slice.Ref))
 	delete(s.b.slices, sliceID)
+	delete(s.b.sliceDefinitionVersions, sliceID)
 	return nil
 }
 
@@ -1504,6 +1544,16 @@ func cloneSlice(in *corev1.Slice) *corev1.Slice {
 		def.RequiredChecks = append([]string(nil), in.Definition.RequiredChecks...)
 		out.Definition = &def
 	}
+	return &out
+}
+
+func cloneSliceDefinitionVersion(in *corev1.SliceDefinitionVersion) *corev1.SliceDefinitionVersion {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.IncludedPaths = append([]string(nil), in.IncludedPaths...)
+	out.RequiredChecks = append([]string(nil), in.RequiredChecks...)
 	return &out
 }
 

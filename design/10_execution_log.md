@@ -4248,3 +4248,63 @@ git diff --check
 ```
 
 All listed commands passed.
+
+## 2026-06-11: Slice Definition Version Audit History and Doc Truth-Up
+
+Request:
+
+- close MVP review section 6 item 6 by adding auditable slice definition
+  version history, exposing it through RPC and CLI, and truthing up the Phase 3
+  op-log docs without touching `MVP_REVIEW.md`
+
+Implemented:
+
+- added migration `0009_slice_definition_versions.sql` with
+  `slice_definition_versions(slice_id, version)` as the primary key, backfilled
+  from each slice's current `slices.version` so existing history starts at the
+  current accepted definition
+- changed `SliceStore.Create` and `UpdateDefinition` to receive the acting
+  `subjectID` and append a version row in the same transaction as the `slices`
+  current-row mutation
+- updated direct fixture and signup home-slice creation paths to insert matching
+  definition-version rows because those slices are not created through
+  `SliceStore.Create`
+- added `ListSliceDefinitionVersions` to `SliceService`, regenerated proto,
+  gRPC, and gateway files, and authorized reads through the same boundary as
+  `GetSlice`
+- added `gs slice history <slice|account/slice> [--page-size n]` with text and
+  JSON output for version, definition hash, visibility, included paths, submit
+  settings, creator, and creation time
+- updated the memory store and service coverage to keep newest-first definition
+  history
+- added RPC e2e coverage that creates a slice, updates it twice, verifies three
+  newest-first history rows with the expected versions and hashes, and verifies
+  an unauthorized subject cannot list private slice history
+
+Important decisions and learnings:
+
+- `created_by` is nullable/free text in the audit table so migration backfill can
+  preserve unknown historical actors and fixture/system-created slices can still
+  be represented
+- the current implementation still keeps the latest definition on `slices` for
+  fast reads; `slice_definition_versions` is the append-only audit trail
+- Phase 3 `gs op log` is now explicitly deferred post-MVP because server-side
+  changeset history plus draft state covers the MVP audit need; `future_work.md`
+  continues to track workspace operation logs
+- there is no root `DESIGN.md` in this checkout, so there was no style-guide file
+  to relocate
+- the real Postgres e2e gate was intentionally not run in this sandbox; `go test
+  ./...` compiled those packages and ran them in their local skip/compile mode
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/postgres/auth_store.go internal/postgres/fixture.go internal/postgres/slice_store.go internal/storage/interfaces.go internal/storage/memory/store.go service/slice.go service/memory_service_test.go internal/cli/cli.go tests/rpc/slice_test.go
+go test ./service ./internal/postgres ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed commands passed.

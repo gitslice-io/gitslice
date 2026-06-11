@@ -317,6 +317,18 @@ type sliceOutput struct {
 	DefinitionHash    string   `json:"definition_hash"`
 }
 
+type sliceDefinitionVersionOutput struct {
+	SliceID           string   `json:"slice_id"`
+	Version           int64    `json:"version"`
+	DefinitionHash    string   `json:"definition_hash"`
+	Visibility        string   `json:"visibility"`
+	IncludedPaths     []string `json:"included_paths"`
+	RequiredApprovals int32    `json:"required_approvals"`
+	RequiredChecks    []string `json:"required_checks"`
+	CreatedBy         string   `json:"created_by"`
+	CreatedAt         string   `json:"created_at"`
+}
+
 type fileMutationOutput struct {
 	Operation      string   `json:"operation"`
 	Slice          string   `json:"slice"`
@@ -1525,6 +1537,16 @@ home slice root, for example /nic/notes.`,
 			return r.runSlicePaths(cmd.Context(), *opts, args[0])
 		},
 	}
+	sliceHistoryPageSize := 50
+	sliceHistoryCmd := &cobra.Command{
+		Use:   "history <slice|account/slice>",
+		Short: "Show slice definition history",
+		Args:  exactArgs(1, "gs slice history <slice|account/slice> [--page-size n]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSliceHistory(cmd.Context(), *opts, args[0], sliceHistoryPageSize)
+		},
+	}
+	sliceHistoryCmd.Flags().IntVar(&sliceHistoryPageSize, "page-size", sliceHistoryPageSize, "maximum definition versions to print")
 	sliceUpdateVisibility := ""
 	sliceUpdateRequiredApprovals := 0
 	sliceUpdateClearRequiredChecks := false
@@ -1557,7 +1579,7 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
-	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
+	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceDeleteCmd)
 
 	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd)
 	return root
@@ -2629,6 +2651,71 @@ func (r Runner) runSlicePaths(ctx context.Context, opts commandOptions, sliceRef
 	return nil
 }
 
+func (r Runner) runSliceHistory(ctx context.Context, opts commandOptions, sliceRef string, pageSize int) error {
+	if pageSize < 0 {
+		return userError("invalid_args", "page size must be zero or greater", "Pass --page-size 0 or higher.")
+	}
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
+	client := corev1.NewSliceServiceClient(conn)
+	slice, err := client.ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		return err
+	}
+	res, err := client.ListSliceDefinitionVersions(callCtx, &corev1.ListSliceDefinitionVersionsRequest{
+		SliceId:  slice.Id,
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		return err
+	}
+	versions := make([]sliceDefinitionVersionOutput, 0, len(res.Versions))
+	for _, version := range res.Versions {
+		versions = append(versions, sliceDefinitionVersionToOutput(version))
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"ref":      sliceRefLabel(slice.Ref),
+			"slice_id": slice.Id,
+			"versions": versions,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "history for %s:\n", sliceRefLabel(slice.Ref))
+	if len(versions) == 0 {
+		fmt.Fprintln(r.Stdout, "  no definition versions")
+		return nil
+	}
+	for _, version := range versions {
+		fmt.Fprintf(r.Stdout, "  version: %d\n", version.Version)
+		fmt.Fprintf(r.Stdout, "    definition_hash: %s\n", version.DefinitionHash)
+		fmt.Fprintf(r.Stdout, "    visibility: %s\n", version.Visibility)
+		fmt.Fprintf(r.Stdout, "    included_paths: %s\n", strings.Join(version.IncludedPaths, ", "))
+		fmt.Fprintf(r.Stdout, "    required_approvals: %d\n", version.RequiredApprovals)
+		if len(version.RequiredChecks) > 0 {
+			fmt.Fprintf(r.Stdout, "    required_checks: %s\n", strings.Join(version.RequiredChecks, ", "))
+		} else {
+			fmt.Fprintln(r.Stdout, "    required_checks: none")
+		}
+		if version.CreatedBy != "" {
+			fmt.Fprintf(r.Stdout, "    created_by: %s\n", version.CreatedBy)
+		} else {
+			fmt.Fprintln(r.Stdout, "    created_by: unknown")
+		}
+		fmt.Fprintf(r.Stdout, "    created_at: %s\n", version.CreatedAt)
+	}
+	return nil
+}
+
 func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool) error {
 	if requiredChecksChanged && clearRequiredChecks {
 		return userError("invalid_args", "required checks can be replaced or cleared, not both", "Use --required-check or --clear-required-checks.")
@@ -2844,6 +2931,23 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		out.RequiredChecks = append([]string{}, slice.Definition.RequiredChecks...)
 	}
 	return out
+}
+
+func sliceDefinitionVersionToOutput(version *corev1.SliceDefinitionVersion) sliceDefinitionVersionOutput {
+	if version == nil {
+		return sliceDefinitionVersionOutput{}
+	}
+	return sliceDefinitionVersionOutput{
+		SliceID:           version.SliceId,
+		Version:           version.Version,
+		DefinitionHash:    version.DefinitionHash,
+		Visibility:        version.Visibility,
+		IncludedPaths:     append([]string{}, version.IncludedPaths...),
+		RequiredApprovals: version.RequiredApprovals,
+		RequiredChecks:    append([]string{}, version.RequiredChecks...),
+		CreatedBy:         version.CreatedBy,
+		CreatedAt:         version.CreatedAt,
+	}
 }
 
 func sliceRefLabel(ref *corev1.SliceRef) string {
@@ -8734,6 +8838,15 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"args":           []string{"slice|account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"ref", "included_paths"},
+			},
+			{
+				"use":            "gs slice history <slice|account/slice>",
+				"summary":        "show slice definition history",
+				"aliases":        []string{"gs slices history <slice|account/slice>"},
+				"args":           []string{"slice|account/slice"},
+				"flags":          []string{"--page-size"},
+				"writes_stdout":  true,
+				"machine_output": []string{"ref", "slice_id", "versions"},
 			},
 			{
 				"use":            "gs slice update <slice|account/slice>",
