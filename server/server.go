@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
@@ -26,6 +27,20 @@ import (
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+)
+
+// HTTP server deadlines. The JSON gateway carries small, fast requests, so all
+// four deadlines are bounded. The Git smart-HTTP server can stream large, slow
+// clone/fetch/push bodies, so only the header-read and idle deadlines are set
+// (a body read/write deadline would abort legitimate large transfers).
+const (
+	gatewayReadHeaderTimeout = 10 * time.Second
+	gatewayReadTimeout       = 30 * time.Second
+	gatewayWriteTimeout      = 60 * time.Second
+	gatewayIdleTimeout       = 120 * time.Second
+
+	gitReadHeaderTimeout = 10 * time.Second
+	gitIdleTimeout       = 120 * time.Second
 )
 
 func Run(ctx context.Context, cfg Config) error {
@@ -83,7 +98,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Slices:     db.Slices(),
 	}
 	handlers := service.New(stores, objectStore)
-	grpcServer := NewGRPCServer(db.Auth(), handlers)
+	grpcServer := NewGRPCServer(db.Auth(), handlers, cfg.DevMode)
 	var gatewayServer *http.Server
 	var gatewayLis net.Listener
 	if cfg.HTTPAddr != "" {
@@ -95,7 +110,13 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		gatewayServer = &http.Server{Handler: NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg.DevMode)}
+		gatewayServer = &http.Server{
+			Handler:           NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg.DevMode),
+			ReadHeaderTimeout: gatewayReadHeaderTimeout,
+			ReadTimeout:       gatewayReadTimeout,
+			WriteTimeout:      gatewayWriteTimeout,
+			IdleTimeout:       gatewayIdleTimeout,
+		}
 	}
 	var gitHTTPServer *http.Server
 	var gitHTTPLis net.Listener
@@ -115,7 +136,15 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		gitHTTPServer = &http.Server{Handler: gitcompat.NewHandler(db.Auth(), projector, handlers.Blob, handlers.Changeset)}
+		gitHTTPServer = &http.Server{
+			Handler: gitcompat.NewHandler(db.Auth(), projector, handlers.Blob, handlers.Changeset),
+			// Git clone/fetch/push transfers can be large and slow, so only the
+			// header-read deadline (slowloris protection) and the idle-keepalive
+			// deadline are bounded here; body read/write are left to the request
+			// context and the body-size cap in the handler.
+			ReadHeaderTimeout: gitReadHeaderTimeout,
+			IdleTimeout:       gitIdleTimeout,
+		}
 	}
 	errCh := make(chan error, 3)
 	go func() {
@@ -162,14 +191,19 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func NewGRPCServer(auth storage.AuthStore, handlers *service.Handlers) *grpc.Server {
+func NewGRPCServer(auth storage.AuthStore, handlers *service.Handlers, devMode bool) *grpc.Server {
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(auth)),
 		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(auth)),
 	)
-	corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
+	// FakeAccountService mints session tokens with no credential check (dev
+	// login and self-serve signup). It is a prototype affordance and must never
+	// be exposed in a non-dev deployment, so it is only registered in dev mode.
+	if devMode {
+		corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
+	}
 	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)
 	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
 	corev1.RegisterBlobServiceServer(grpcServer, handlers.Blob)

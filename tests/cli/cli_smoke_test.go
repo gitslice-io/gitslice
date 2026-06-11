@@ -2214,6 +2214,7 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 			DatabaseURL:       databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
 			ObjectStoreRoot:   ts.objectRoot,
 			RunMigrations:     migrate,
+			DevMode:           true,
 		})
 	}()
 	waitForHealth(t, ts.addr)

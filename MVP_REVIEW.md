@@ -8,6 +8,38 @@ completeness and (b) how easily the system can scale.
 
 ---
 
+## 0. Addendum — Security review and hardening (2026-06-11)
+
+A follow-up security/scalability pass was run against the current tree (several
+findings from the 2026-06-09 review were already fixed in code: covering-slice
+prefix table, transactional outbox + index worker, streaming blob transfer,
+role + visibility authorization). The following fixes were applied in this pass:
+
+- **Single global target ref is now enforced, not just assumed.** Decision:
+  keep one global ref (`refs/global/main`); branches stay future work. The
+  service layer rejects any non-default `target_ref`
+  (`service/errors.go:requireDefaultTargetRef`, wired into `CreateChangeset` and
+  `ImportGitRepository`). See §4.2 item 4 for the corrected `path_heads`
+  analysis.
+- **Fake account service is no longer exposed outside dev mode.**
+  `FakeAccountService` mints session tokens with no credential check (dev login
+  and self-serve signup) and was registered unconditionally. It is now
+  registered only when `DevMode` is set (`server/server.go:NewGRPCServer`); test
+  harnesses opt in explicitly.
+- **HTTP servers now have deadlines and request-body caps.** The JSON gateway
+  sets read-header/read/write/idle timeouts and caps bodies via
+  `MaxBytesReader`; the Git smart-HTTP server sets read-header/idle timeouts
+  (body deadlines left open for large clone/push) and caps buffered request
+  bodies at 128 MiB. This closes the slowloris and memory-exhaustion surface
+  from unbounded `io.ReadAll`.
+
+Still open (tracked in `future_work.md`, intentionally deferred as they need
+their own design): session revocation / token rotation RPC, rate limiting and
+quotas, transport TLS, and unauthenticated `/metrics`. These are real but are
+larger than localized fixes and should land as scoped changes.
+
+---
+
 ## 1. Verdict
 
 **The core CLI-first MVP journey is real and working end-to-end**, with strong
@@ -237,11 +269,21 @@ supposed to gate on. Adding a `/metrics` endpoint plus counters around
    batch row inserts (single multi-row `INSERT` or `COPY`). Keep the publish tx
    to: commit row, path_heads refresh, ref CAS, outbox append.
 
-4. **`path_heads` has no `target_ref` dimension.** Primary key is `path` alone
-   (`migrations/0001_init.sql:95`). Works only while there is exactly one
-   target ref (`refs/global/main`); the design's per-target-ref sequencing and
-   any future branch support require `(target_ref, path)`. Cheap to fix now,
-   painful after data accumulates.
+4. **`path_heads` is keyed by `path` alone — resolved as intended, not a
+   defect.** Primary key is `path` (`migrations/0001_init.sql:95`), which is
+   correct only while there is exactly one target ref. The earlier draft of this
+   review called that a design divergence; that was wrong — the design's own
+   `path_heads` schema (`design/02_storage.md:524`) is also `path primary key`,
+   so implementation and design agree. The project has now committed to a
+   **single global target ref** (`refs/global/main`); multiple target refs
+   (branches) remain explicitly future work (`design/02_storage.md` §3.1). To
+   keep that invariant enforced rather than merely assumed, the service layer now
+   rejects any non-default `target_ref` at `CreateChangeset` and
+   `ImportGitRepository` (`service/errors.go:requireDefaultTargetRef`). Adding a
+   `target_ref` column to `path_heads` is deferred until branches are actually on
+   the roadmap; it is a cheap change while the model stays single-ref and an
+   online hot-table migration afterward, so the trade is acknowledged and
+   accepted.
 
 5. **Publisher processes one target ref per tick.** `PublishPending` filters the
    locked batch to the first ref's rows (`changeset_store.go:511-517`) and

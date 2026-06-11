@@ -47,8 +47,20 @@ func NewHTTPHandler(gateway http.Handler, allowedOrigin string, devMode bool) ht
 	if devMode {
 		registerPprofHandlers(mux)
 	}
-	mux.Handle("/", withCORS(gateway, allowedOrigin))
+	mux.Handle("/", withCORS(withMaxBody(gateway, rpclimits.MaxUnaryMessageBytes), allowedOrigin))
 	return mux
+}
+
+// withMaxBody caps the request body so the JSON gateway cannot be forced to
+// buffer an unbounded payload while translating to gRPC. The cap matches the
+// unary gRPC message limit the gateway forwards to.
+func withMaxBody(handler http.Handler, max int64) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, max)
+		}
+		handler.ServeHTTP(w, r)
+	})
 }
 
 func registerPprofHandlers(mux *http.ServeMux) {

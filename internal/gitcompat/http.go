@@ -18,6 +18,11 @@ import (
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
+// maxGitRequestBytes caps the in-memory buffering of Git smart-HTTP request
+// bodies (upload-pack negotiation and receive-pack packfiles) so a single
+// request cannot exhaust server memory. It matches the unary gRPC message limit.
+const maxGitRequestBytes = 128 * 1024 * 1024
+
 type Handler struct {
 	auth       storage.AuthStore
 	projector  *Projector
@@ -103,7 +108,7 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (string, er
 }
 
 func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo string) error {
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGitRequestBytes))
 	if err != nil {
 		return err
 	}
@@ -180,8 +185,13 @@ func (h *Handler) handleReceivePack(w http.ResponseWriter, r *http.Request, subj
 		http.Error(w, "git receive-pack requires POST", http.StatusMethodNotAllowed)
 		return
 	}
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGitRequestBytes))
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "git push exceeds maximum size", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

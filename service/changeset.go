@@ -43,6 +43,9 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	if req.AuthoringSlice == nil {
 		return nil, status.Error(codes.InvalidArgument, "authoring slice is required")
 	}
+	if err := requireDefaultTargetRef(req.TargetRef); err != nil {
+		return nil, err
+	}
 	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionWrite); err != nil {
 		return nil, err
 	}
