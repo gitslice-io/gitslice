@@ -111,7 +111,8 @@ Exit criteria:
 - Changeset creation rejects local diffs that are not contained by one
   authoring slice.
 - Workspace state does not require cloning the full global source graph.
-- Local operations can be inspected through `gs op log`.
+- Deferred post-MVP: local operations can be inspected through `gs op log`.
+  Server-side changeset history plus draft state covers the MVP audit need.
 - `gs cs create` and `gs cs update` produce server patchsets from local snapshots.
 - Functional tests cover `gs auth login`, `gs workspace init`, `gs status`, and
   clean/dirty workspace transitions against a local server.

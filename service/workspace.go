@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -29,12 +31,9 @@ func (s *WorkspaceService) GetWorkspaceState(ctx context.Context, req *corev1.Ge
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
-		return nil, grpcError(err)
-	}
-	slice, err := s.Slices.Resolve(ctx, ref)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionRead)
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	target, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef)
 	if err != nil {
@@ -53,25 +52,35 @@ func (s *WorkspaceService) GetWorkspaceState(ctx context.Context, req *corev1.Ge
 }
 
 func (s *WorkspaceService) HydratePaths(ctx context.Context, req *corev1.HydratePathsRequest) (*corev1.HydratePathsResponse, error) {
-	if _, err := requireSubject(ctx); err != nil {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if len(req.Paths) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "at least one path is required")
 	}
+	p, err := paths.Canonical(req.Paths[0])
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if account := accountSlugForRepositoryPath(p); account != "" {
+		if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+			return nil, err
+		}
+	}
 	target, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	read, err := readFile(ctx, s.Repository, s.ObjectStore, &corev1.ReadFileRequest{CommitId: target.CommitId, Path: req.Paths[0]})
+	read, err := readFile(ctx, s.Repository, s.ObjectStore, &corev1.ReadFileRequest{CommitId: target.CommitId, Path: p})
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := resolvePath(ctx, s.Repository, &corev1.ResolvePathRequest{CommitId: target.CommitId, Path: req.Paths[0]})
+	resolved, err := resolvePath(ctx, s.Repository, &corev1.ResolvePathRequest{CommitId: target.CommitId, Path: p})
 	if err != nil {
 		return nil, err
 	}
-	return &corev1.HydratePathsResponse{Path: req.Paths[0], Entry: resolved.Entry, Data: read.Data}, nil
+	return &corev1.HydratePathsResponse{Path: p, Entry: resolved.Entry, Data: read.Data}, nil
 }
 
 func (s *WorkspaceService) ValidateWorkspaceDiff(ctx context.Context, req *corev1.ValidateWorkspaceDiffRequest) (*corev1.ValidateWorkspaceDiffResponse, error) {
@@ -83,12 +92,9 @@ func (s *WorkspaceService) ValidateWorkspaceDiff(ctx context.Context, req *corev
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
-		return nil, grpcError(err)
-	}
-	slice, err := s.Slices.Resolve(ctx, ref)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionWrite)
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {

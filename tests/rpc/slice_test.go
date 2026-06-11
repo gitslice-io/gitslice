@@ -14,7 +14,9 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/server"
 	"google.golang.org/grpc"
@@ -120,6 +122,105 @@ func TestSliceServiceCustomSliceValidation(t *testing.T) {
 	}
 }
 
+func TestSliceDefinitionVersionHistory(t *testing.T) {
+	ts := startRPCServer(t)
+	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	submitDirectFile(t, ctx, clients, "/acme/payment/rpc-history/seed.txt", "history\n", "history seed")
+	submitDirectFile(t, ctx, clients, "/acme/payment/rpc-history/archive/seed.txt", "archive\n", "history archive seed")
+
+	created, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
+		Ref:           &corev1.SliceRef{Account: "acme", Slice: "rpc-history"},
+		IncludedPaths: []string{"/acme/payment/rpc-history"},
+		Visibility:    "account",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstUpdate, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                created.Id,
+		ExpectedDefinitionHash: created.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:     []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"},
+			Visibility:        "account",
+			RequiredApprovals: 1,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstUpdate.Version != 2 {
+		t.Fatalf("first update version = %d, want 2", firstUpdate.Version)
+	}
+	second, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "rpc-history"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secondUpdate, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                created.Id,
+		ExpectedDefinitionHash: second.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:     second.Definition.IncludedPaths,
+			Visibility:        "private",
+			RequiredApprovals: 1,
+			RequiredChecks:    []string{"unit"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondUpdate.Version != 3 {
+		t.Fatalf("second update version = %d, want 3", secondUpdate.Version)
+	}
+	third, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "rpc-history"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	history, err := slices.ListSliceDefinitionVersions(ctx, &corev1.ListSliceDefinitionVersionsRequest{
+		SliceId:  created.Id,
+		PageSize: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Versions) != 3 {
+		t.Fatalf("history row count = %d, want 3: %#v", len(history.Versions), history.Versions)
+	}
+	assertSliceDefinitionVersion(t, history.Versions[0], created.Id, 3, third.DefinitionHash, "private", []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"}, 1, []string{"unit"})
+	assertSliceDefinitionVersion(t, history.Versions[1], created.Id, 2, second.DefinitionHash, "account", []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"}, 1, nil)
+	assertSliceDefinitionVersion(t, history.Versions[2], created.Id, 1, created.DefinitionHash, "account", []string{"/acme/payment/rpc-history"}, 0, nil)
+	for _, version := range history.Versions {
+		if version.CreatedBy != "user_alice" {
+			t.Fatalf("version %d created_by = %q, want user_alice", version.Version, version.CreatedBy)
+		}
+		if version.CreatedAt == "" {
+			t.Fatalf("version %d has empty created_at", version.Version)
+		}
+	}
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "history-outsider",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = slices.ListSliceDefinitionVersions(grpcAuthContext(signup.Token), &corev1.ListSliceDefinitionVersionsRequest{
+		SliceId:  created.Id,
+		PageSize: 10,
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+}
+
 func TestChangesetServiceListAndDiff(t *testing.T) {
 	ts := startRPCServer(t)
 	token := loginViaGRPC(t, ts.addr, "alice")
@@ -132,7 +233,7 @@ func TestChangesetServiceListAndDiff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("package payment\nconst Version = 1\n")})
+	first, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("package payment\nconst Version = 1\n"), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +260,7 @@ func TestChangesetServiceListAndDiff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("package payment\nconst Version = 2\n")})
+	second, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte("package payment\nconst Version = 2\n"), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,6 +459,7 @@ func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T)
 	if submitted.CommitId == "" {
 		t.Fatalf("authorized submit did not publish commit: %#v", submitted)
 	}
+	ts.waitForOutboxDrain(t)
 	if _, err := clients.repository.GetCommit(aliceCtx, &corev1.GetCommitRequest{
 		CommitId: submitted.CommitId,
 	}); err != nil {
@@ -405,6 +507,111 @@ func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T)
 	}
 	if treeEntriesContainName(rootList.Entries, "acme") {
 		t.Fatalf("outsider root listing leaked acme account: %#v", rootList.Entries)
+	}
+}
+
+func TestRPCSliceVisibilityRolesAndBlobScopeAuthorization(t *testing.T) {
+	ts := startRPCServer(t)
+	aliceToken := loginViaGRPC(t, ts.addr, "alice")
+	bobToken := loginViaGRPC(t, ts.addr, "bob")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+
+	aliceCtx := grpcAuthContext(aliceToken)
+	bobCtx := grpcAuthContext(bobToken)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	submitDirectFile(t, aliceCtx, clients, "/acme/payment/authz_visibility.go", "package payment\nconst Visibility = true\n", "visibility authz")
+	payment, err := slices.ResolveSlice(aliceCtx, &corev1.ResolveSliceRequest{Ref: testPaymentSliceRef()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slices.UpdateSliceDefinition(aliceCtx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                payment.Id,
+		ExpectedDefinitionHash: payment.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths: payment.Definition.IncludedPaths,
+			Visibility:    "private",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	privateSlice, err := slices.ResolveSlice(aliceCtx, &corev1.ResolveSliceRequest{Ref: testPaymentSliceRef()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "visibility-outsider",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsiderCtx := grpcAuthContext(signup.Token)
+
+	_, err = slices.ResolveSlice(outsiderCtx, &corev1.ResolveSliceRequest{Ref: testPaymentSliceRef()})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.repository.ListDirectory(outsiderCtx, &corev1.ListDirectoryRequest{
+		Path:  "/acme/payment",
+		Slice: testPaymentSliceRef(),
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = clients.blob.GetBlobStatus(outsiderCtx, &corev1.GetBlobStatusRequest{
+		ContentHashes: []string{"sha256:cross-tenant-probe"},
+		Slice:         testPaymentSliceRef(),
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+
+	_, err = slices.UpdateSliceDefinition(bobCtx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                privateSlice.Id,
+		ExpectedDefinitionHash: privateSlice.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths: privateSlice.Definition.IncludedPaths,
+			Visibility:    "account",
+		},
+	})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	_, err = slices.DeleteSlice(bobCtx, &corev1.DeleteSliceRequest{SliceId: privateSlice.Id})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+
+	publicDef, err := slices.UpdateSliceDefinition(aliceCtx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                privateSlice.Id,
+		ExpectedDefinitionHash: privateSlice.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths: privateSlice.Definition.IncludedPaths,
+			Visibility:    "public",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publicDef.Visibility != "public" {
+		t.Fatalf("visibility = %q, want public", publicDef.Visibility)
+	}
+	resolved, err := slices.ResolveSlice(outsiderCtx, &corev1.ResolveSliceRequest{Ref: testPaymentSliceRef()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Definition.Visibility != "public" {
+		t.Fatalf("outsider resolved visibility = %q, want public", resolved.Definition.Visibility)
+	}
+	ref, err := clients.repository.GetRef(outsiderCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := clients.repository.ListDirectory(outsiderCtx, &corev1.ListDirectoryRequest{
+		CommitId: ref.CommitId,
+		Path:     "/acme/payment",
+		Slice:    testPaymentSliceRef(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !treeEntriesContainName(listed.Entries, "authz_visibility.go") {
+		t.Fatalf("public slice listing missing authz_visibility.go: %#v", listed.Entries)
 	}
 }
 
@@ -468,6 +675,25 @@ func (ts *testRPCServer) stop(t *testing.T) {
 	ts.cancel = nil
 }
 
+func (ts *testRPCServer) waitForOutboxDrain(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	db, err := postgres.Open(ctx, databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	objectStore, err := filesystem.New(ts.objectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetTreeStore(treestore.New(objectStore))
+	if err := db.Changesets().WaitForOutboxDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type testCoreClients struct {
 	repository corev1.RepositoryServiceClient
 	blob       corev1.BlobServiceClient
@@ -518,13 +744,29 @@ func assertGRPCCode(t *testing.T, err error, want codes.Code) {
 	}
 }
 
+func assertSliceDefinitionVersion(t *testing.T, got *corev1.SliceDefinitionVersion, sliceID string, version int64, definitionHash, visibility string, includedPaths []string, requiredApprovals int32, requiredChecks []string) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("nil slice definition version, want version %d", version)
+	}
+	if got.SliceId != sliceID || got.Version != version || got.DefinitionHash != definitionHash || got.Visibility != visibility || got.RequiredApprovals != requiredApprovals {
+		t.Fatalf("unexpected definition version row:\n got: %#v\nwant: slice_id=%s version=%d hash=%s visibility=%s required_approvals=%d", got, sliceID, version, definitionHash, visibility, requiredApprovals)
+	}
+	if strings.Join(got.IncludedPaths, "\x00") != strings.Join(includedPaths, "\x00") {
+		t.Fatalf("version %d included paths = %#v, want %#v", version, got.IncludedPaths, includedPaths)
+	}
+	if strings.Join(got.RequiredChecks, "\x00") != strings.Join(requiredChecks, "\x00") {
+		t.Fatalf("version %d required checks = %#v, want %#v", version, got.RequiredChecks, requiredChecks)
+	}
+}
+
 func createDirectPatchset(t *testing.T, ctx context.Context, clients testCoreClients, path, content, title string) (string, string) {
 	t.Helper()
 	ref, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,6 +911,14 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func testPaymentSliceRef() *corev1.SliceRef {
+	return &corev1.SliceRef{Account: "acme", Slice: "payment"}
+}
+
+func testBackendSliceRef() *corev1.SliceRef {
+	return &corev1.SliceRef{Account: "acme", Slice: "backend"}
 }
 
 func treeEntriesContainName(entries []*corev1.TreeEntry, want string) bool {

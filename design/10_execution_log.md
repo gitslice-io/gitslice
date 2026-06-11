@@ -3893,3 +3893,418 @@ Verification:
 ```bash
 git diff --check
 ```
+
+## 2026-06-09: Enforce Slice Visibility And Roles
+
+Request:
+
+- implement the MVP review authorization pass: replace flat account membership
+  checks in services, enforce slice visibility and coarse role checks, scope
+  blob status/upload calls to an authorized slice, update tests, and regenerate
+  protobuf output for API changes
+
+Implemented:
+
+- added a shared `internal/authz` authorizer with read/write/admin actions,
+  visibility handling, and account-role mapping
+- added `AuthStore.AccountRole` for Postgres and in-memory stores
+- allowed `private` slice visibility in slice validation
+- replaced service-layer bare account-membership checks with shared
+  authorization helpers
+- made Git HTTP projection reads use the same authorizer so authenticated
+  non-members can read public slices
+- added a required `slice` field to blob status/upload requests and updated CLI
+  call sites
+- added authorizer unit coverage and RPC/Git coverage for private/public reads,
+  non-admin slice-definition mutation denial, and scoped blob probing
+
+Important decisions and learnings:
+
+- because there is not yet a slice-role table, MVP private-slice explicit access
+  maps to account membership with any role
+- `owner`/`admin` map to slice admin, `writer`/`member` map to writer, and
+  non-members only get authenticated public-slice reads
+- unscoped repository path reads remain account-member scoped; authenticated
+  public reads are enabled through slice-scoped RPCs and Git HTTP projection
+  reads
+- blob authorization is intentionally scoped to the named slice capability:
+  status requires read, upload requires write
+- the requested local Postgres e2e command could not open localhost sockets in
+  this sandbox and failed before test logic with `connect: operation not
+  permitted`
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/authz service internal/storage/memory/store.go internal/postgres/auth_store.go internal/postgres/slice_store.go internal/cli/cli.go internal/cli/cli_test.go internal/gitcompat/projector.go tests/rpc tests/cli/cli_smoke_test.go tests/load/load_test.go
+go test ./...
+go build ./cmd/...
+GITSLICE_TEST_DATABASE_URL=postgres://nic@localhost/gitslice_dev?sslmode=disable go test -count=1 ./tests/cli ./tests/rpc
+```
+
+The final command failed in this managed sandbox with localhost TCP connection
+errors (`operation not permitted`) for both IPv6 and IPv4 Postgres addresses.
+
+## 2026-06-10: Add Minimal Submit Approvals And Required Checks
+
+Request:
+
+- implement MVP review item 6.2: slice-level submit settings, current-patchset
+  approvals, current-patchset check results, submit-time requirement freshness
+  validation, user-visible blocked reasons, CLI/RPC coverage, and tests
+
+Implemented:
+
+- added `required_approvals` and `required_checks` to slice definitions and
+  slice creation requests
+- included submit settings in slice definition hashes, including the in-memory
+  store hash used by service tests
+- added Postgres columns for persisted slice submit settings, patchset submit
+  requirement snapshots, and changeset submit-blocked reasons
+- added `approvals` keyed by `(changeset_id, patchset_id, subject_id)` and
+  `check_results` keyed by `(changeset_id, patchset_id, check_name)`
+- added `ApproveChangeset` and `ReportCheckResult` RPCs plus `gs cs approve`
+  and `gs cs check <changeset> <check-name> --status pass|fail`
+- made patchset validation populate required approval counts, required checks,
+  and source slice definition hashes
+- made `ChangesetStore.Submit` recheck latest authoring-slice containment,
+  reject requirement hash drift with `requirements changed, refresh the
+  changeset`, require distinct non-author approvals, and require each named
+  check to have a current passing result
+
+Important decisions and learnings:
+
+- approval rows are retained across patchsets, but submit only counts rows for
+  the current patchset, so new patchsets naturally invalidate earlier approvals
+- check results are upserted for the current patchset and only `pass` satisfies
+  a required check; `fail` and missing results have distinct blocked reasons
+- legacy or direct-store patchsets without a recorded definition hash are
+  backfilled from the current slice at patchset creation to preserve the
+  no-requirements behavior
+- `gs cs status` now prints the last submit-blocked reason and current
+  patchset submit requirements so blocked state is visible after the failed
+  submit call
+- the real Postgres e2e gate was intentionally not run in this sandbox because
+  localhost TCP access is blocked and the task explicitly reserved that gate
+  for the operator
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/cli/cli.go internal/postgres/auth_store.go internal/postgres/changeset_store.go internal/postgres/fixture.go internal/postgres/helpers.go internal/postgres/slice_store.go internal/postgres/store_test.go internal/storage/interfaces.go internal/storage/memory/store.go internal/storage/submit_requirements.go internal/storage/submit_requirements_test.go service/changeset.go service/slice.go
+gofmt -w tests/rpc/submit_requirements_test.go && go test ./tests/rpc
+go test ./...
+```
+
+## 2026-06-10: Implement Minimal Git Push Into Changesets
+
+Request:
+
+- implement MVP review item 6.3 / Phase 6 minimal Git push support:
+  `git push origin HEAD:refs/changes/new` creates a native changeset patchset,
+  `refs/changes/<changeset-number-or-id>` updates an existing changeset, direct
+  protected refs remain rejected, and pushes use the same native validation path
+  as CLI/gRPC changeset updates
+
+Implemented:
+
+- replaced the receive-pack blanket 403 with a smart HTTP receive-pack
+  advertisement and custom report-status response
+- parsed receive-pack pkt-line ref update commands and incoming packfiles
+- indexed incoming packs in a temporary bare repository with the projected bare
+  repo object directory as an alternate, mirroring the existing `git` binary
+  dependency used by projection
+- resolved the current projected synthetic Git commit back to its native commit
+  using `gitslice_projection.json` and required pushed histories to be linear
+  descendants of that projected head
+- converted the cumulative Git diff from projected head to pushed head into
+  canonical global `FileEdit`s, uploaded changed blobs through `BlobService`,
+  and created/updated patchsets through `ChangesetService.UpdateChangeset`
+- rejected multiple ref updates, delete pushes, merge commits, non-descendant
+  histories, and direct protected branch pushes with clear report-status text
+- added CLI e2e coverage for new changeset push, second patchset push,
+  protected branch rejection, unauthorized push rejection, and native submit
+  after Git-originated patchsets
+- added unit coverage for receive-pack parsing, pushed diff conversion, and
+  thin-pack indexing with projected objects as alternates
+
+Important decisions and learnings:
+
+- the receive-pack command's old object id is all-zero for unadvertised
+  `refs/changes/new`, so the push base must be validated by ancestry against
+  the current projected synthetic `refs/heads/main` commit rather than by the
+  command old id
+- Git-originated writes precheck slice containment before creating a new
+  changeset to avoid empty changesets on out-of-slice diffs, but the
+  authoritative validation still runs through `UpdateChangeset`
+- success handles such as `acme/payment@42` are emitted over sideband progress;
+  report-status itself remains protocol-valid with `ok`/`ng` per ref
+- the sandbox denied the default Go cache under `~/Library/Caches/go-build`, so
+  verification used `GOCACHE=/private/tmp/gitslice-go-cache`
+- the requested full `go test ./...` gate cannot complete in this sandbox
+  because existing `internal/cli` tests bind `127.0.0.1:0` and fail with
+  `operation not permitted`; the real Postgres e2e suite was intentionally not
+  run per task constraints
+
+Verification:
+
+```bash
+gofmt -w internal/gitcompat/http.go internal/gitcompat/push.go internal/gitcompat/push_test.go server/server.go tests/cli/cli_smoke_test.go
+GOCACHE=/private/tmp/gitslice-go-cache go test ./internal/gitcompat
+GOCACHE=/private/tmp/gitslice-go-cache go test ./tests/cli
+GOCACHE=/private/tmp/gitslice-go-cache go test ./...
+GOCACHE=/private/tmp/gitslice-go-cache go build ./cmd/...
+git diff --check
+```
+
+`go test ./...` failed only in existing localhost-binding `internal/cli` tests
+with `listen tcp 127.0.0.1:0: bind: operation not permitted`; the other listed
+commands passed.
+
+## 2026-06-10: Add MVP Observability Floor
+
+Request:
+
+- implement MVP review item 6.4: Prometheus-text metrics, dev-only pprof,
+  request IDs, submit/publish/blob/Git/gRPC instrumentation, enforced load-test
+  latency budgets, and a metrics e2e assertion
+
+Implemented:
+
+- added `internal/metrics`, a stdlib-only in-process registry for counters,
+  gauges, histograms, and Prometheus text rendering
+- exposed `GET /metrics` on the optional HTTP gateway listener; the endpoint
+  remains unavailable when no HTTP listener is configured
+- gated `net/http/pprof` handlers on the same HTTP listener behind
+  `GITSLICE_DEV_MODE=1` or `gitslice-server --dev`
+- added gRPC request ID, metrics, and structured completion/failure logging
+  interceptors for unary and stream RPCs
+- instrumented submit acceptance/rejection by stable blocked-reason category,
+  publish batches, published changesets, ref CAS failures, pending publish queue
+  depth, accepted-to-published publish latency, blob upload count/bytes, and Git
+  HTTP operation/status counts
+- converted load-test p95 latency logs into enforced budgets with a 5000ms
+  default, a global `GITSLICE_LOAD_BUDGET_P95_MS` override, and per-scenario
+  `GITSLICE_LOAD_BUDGET_<SCENARIO>_P95_MS` overrides
+- extended the minimal CLI journey to scrape `/metrics` after submit and assert
+  submit and publish counters are present and nonzero
+
+Important decisions and learnings:
+
+- metrics registration lives in the measured package: storage metrics in
+  `internal/storage`, blob metrics in `service`, Git HTTP metrics in
+  `internal/gitcompat`, and gRPC interceptor metrics in `server`
+- publish latency uses the existing `pending_publish.created_at` column, so no
+  schema migration was needed
+- submit rejection labels intentionally normalize user-facing blocked strings
+  into stable categories: `stale_path_base`, `requirements_changed`,
+  `approvals_missing`, `checks_missing`, `conflict`, and `error`
+- the real Postgres e2e gate was intentionally not run with a database URL in
+  this sandbox; the operator will run it with local Postgres access
+
+Verification:
+
+```bash
+gofmt -w internal/metrics/metrics.go internal/requestid/requestid.go internal/storage/metrics.go internal/storage/interfaces.go internal/postgres/types.go internal/postgres/changeset_store.go internal/storage/memory/store.go service/metrics.go service/blob.go internal/gitcompat/metrics.go internal/gitcompat/http.go server/observability.go server/config.go server/gateway.go server/server.go server/publisher.go cmd/gitslice-server/main.go tests/load/load_test.go tests/cli/cli_smoke_test.go
+go test ./internal/metrics ./internal/storage ./internal/storage/memory ./service ./server ./internal/gitcompat
+go test -tags load ./tests/load -run TestDoesNotExist
+go test ./internal/postgres -run TestDoesNotExist
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed commands passed. The real Postgres CLI/RPC e2e tests did not run
+against a database because `GITSLICE_TEST_DATABASE_URL` was not set.
+
+## 2026-06-10: Fix Covering-Slice Lookup and Blob Streaming Bottlenecks
+
+Request:
+
+- fix MVP review §4.3 items 2 and 3:
+  covering-slice prefix indexing and streaming blob upload/read, while leaving
+  unary blob/read compatibility intact
+
+Implemented:
+
+- added `slice_included_paths(slice_id, prefix)` with a prefix index and
+  backfill from existing `slices.included_paths`
+- changed Postgres slice create/update/delete to update `slices` and
+  `slice_included_paths` in the same transaction
+- replaced per-path `CoveringIDs` calls with `CoveringIDsByPath`, which derives
+  ancestor prefixes once, queries the prefix index once, and assembles sorted
+  per-path slice IDs deterministically
+- added shared coverage helper tests for ancestor-prefix derivation and
+  deterministic batch assembly
+- added `UploadBlobStream` and `ReadBlobStream` to `BlobService` and
+  regenerated protobuf, gRPC, and grpc-gateway stubs with `make proto`
+- implemented streaming upload with a staging object-store key, incremental raw
+  content hash and blob-id hashing, declared hash/size validation, cleanup on
+  rejection, final copy to the content-addressed object key, and existing blob
+  upload metrics
+- implemented streaming blob reads by content hash with the same slice read
+  authorization shape as `GetBlobStatus`
+- switched CLI local-file uploads and cached changeset blob uploads above 4 MiB
+  to streaming RPCs while keeping unary uploads for small blobs
+- switched `gs fs cat` and workspace hydration above 4 MiB to `ReadBlobStream`
+  when a content hash is available; hydration streams into the client object
+  cache before copying into the workspace
+- extended RPC and CLI e2e coverage for batch overlapping-slice coverage,
+  multi-megabyte streaming upload/read, streaming hash-mismatch rejection, and
+  large changeset submit plus hydrate read-back
+
+Important decisions and learnings:
+
+- ancestor-prefix matching uses exact indexed prefixes (`prefix = any($1)`)
+  rather than SQL `LIKE`, because the path's full ancestor chain makes
+  `path = prefix or path like prefix || '/%'` equivalent for canonical paths
+- the filesystem object store already streams `Put` from an `io.Reader` through
+  a temp file and rename, so no object-store rewrite was needed
+- because the generic object-store interface has no rename/finalize primitive,
+  streaming upload finalizes by copying the verified staged object to the final
+  content-addressed key and then deleting the staging key
+- the real Postgres CLI/RPC e2e suites were intentionally not run against a
+  database in this sandbox; `go test ./...` compiled those packages and skipped
+  runtime e2e tests because `GITSLICE_TEST_DATABASE_URL` was unset
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/paths/paths.go internal/storage/coverage.go internal/storage/coverage_test.go internal/storage/interfaces.go internal/storage/memory/store.go internal/postgres/slice_store.go internal/postgres/fixture.go internal/objectid/objectid.go service/blob.go service/blob_stream.go service/blob_stream_test.go service/metrics.go service/changeset.go internal/cli/cli.go tests/rpc/rpc_custom_slice_test.go tests/cli/cli_smoke_test.go
+go test ./internal/paths ./internal/storage ./internal/objectid ./service ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed commands passed.
+
+## 2026-06-11: Move Publish Index Writes to Transactional Outbox
+
+Request:
+
+- implement MVP review §4.3 item 4 by adding a transactional outbox,
+  moving changed-path and entity-history writes out of the publish transaction,
+  wiring an async index worker, adding deterministic drain/rebuild tooling, and
+  leaving `MVP_REVIEW.md` untouched
+
+Implemented:
+
+- added `outbox(id, kind, payload, created_at, processed_at, attempts)` with an
+  index on `(processed_at, id)` for unprocessed scans
+- changed `PublishPending` to keep only commit creation inputs, `path_heads`
+  refresh, pending/changeset status updates, ref CAS, and outbox append inside
+  the publish transaction
+- batched published commit inserts, outbox inserts, and publish status updates
+  with multi-row statements
+- added durable `commit_published` payloads carrying target ref, commit id,
+  base commit id, changeset id, patchset id, changed paths, and commit time
+- added `ProcessOutbox`, `OutboxDepth`, `WaitForOutboxDrain`, and
+  `RebuildDerivedIndexes` on the Postgres changeset store
+- added an `internal/indexworker` polling worker that drains outbox rows with
+  `for update skip locked`, records processed/failed/depth metrics, and can be
+  nudged after publish
+- wired the index worker in `server/`, with env/flag configurable batch size and
+  interval; the publisher nudges it after successful publish batches
+- added hidden `gs admin rebuild-indexes --yes [--target-ref]` repair tooling
+  backed by source-of-truth commits and the filesystem object store
+- added store tests for outbox enqueue/drain, failure attempt increments, and
+  rebuild parity; RPC history tests now explicitly wait for outbox drain before
+  index-backed history assertions
+
+Important decisions and learnings:
+
+- `path_heads` refresh and the ref CAS remain in the publish transaction because
+  they are correctness-critical submit state, not derived history indexes
+- changed-path and entity-history reads are now eventually consistent with
+  publish; normal server operation nudges the index worker after publish, while
+  tests and repair workflows use `WaitForOutboxDrain` for deterministic
+  freshness
+- `RebuildDerivedIndexes` locks the target ref and matching unprocessed outbox
+  rows, clears derived rows for that target ref, rebuilds changed paths from the
+  reachable commit graph, replays entity history from published patchsets, and
+  marks superseded target-ref outbox rows processed
+- row-level outbox failures roll back derived writes and increment `attempts`;
+  the row remains unprocessed for a later retry
+- outbox processing uses a transaction-scoped advisory lock in addition to
+  `for update skip locked` so multiple server processes cannot process later
+  entity-history events ahead of earlier events for the MVP
+- the real Postgres e2e gate was intentionally not run with a database URL in
+  this sandbox; `go test ./...` compiled those packages and skipped database
+  e2e execution where `GITSLICE_TEST_DATABASE_URL` was unset
+
+Verification:
+
+```bash
+gofmt -w internal/storage/interfaces.go internal/storage/metrics.go internal/postgres/changeset_store.go internal/postgres/outbox.go internal/indexworker/worker.go server/config.go server/server.go server/publisher.go cmd/gitslice-server/main.go internal/cli/cli.go internal/postgres/store_test.go tests/rpc/slice_test.go tests/rpc/commit_history_test.go tests/rpc/rpc_custom_slice_test.go
+go test ./internal/postgres -run TestDoesNotExist
+go test ./internal/indexworker ./server ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed commands passed.
+
+## 2026-06-11: Slice Definition Version Audit History and Doc Truth-Up
+
+Request:
+
+- close MVP review section 6 item 6 by adding auditable slice definition
+  version history, exposing it through RPC and CLI, and truthing up the Phase 3
+  op-log docs without touching `MVP_REVIEW.md`
+
+Implemented:
+
+- added migration `0009_slice_definition_versions.sql` with
+  `slice_definition_versions(slice_id, version)` as the primary key, backfilled
+  from each slice's current `slices.version` so existing history starts at the
+  current accepted definition
+- changed `SliceStore.Create` and `UpdateDefinition` to receive the acting
+  `subjectID` and append a version row in the same transaction as the `slices`
+  current-row mutation
+- updated direct fixture and signup home-slice creation paths to insert matching
+  definition-version rows because those slices are not created through
+  `SliceStore.Create`
+- added `ListSliceDefinitionVersions` to `SliceService`, regenerated proto,
+  gRPC, and gateway files, and authorized reads through the same boundary as
+  `GetSlice`
+- added `gs slice history <slice|account/slice> [--page-size n]` with text and
+  JSON output for version, definition hash, visibility, included paths, submit
+  settings, creator, and creation time
+- updated the memory store and service coverage to keep newest-first definition
+  history
+- added RPC e2e coverage that creates a slice, updates it twice, verifies three
+  newest-first history rows with the expected versions and hashes, and verifies
+  an unauthorized subject cannot list private slice history
+
+Important decisions and learnings:
+
+- `created_by` is nullable/free text in the audit table so migration backfill can
+  preserve unknown historical actors and fixture/system-created slices can still
+  be represented
+- the current implementation still keeps the latest definition on `slices` for
+  fast reads; `slice_definition_versions` is the append-only audit trail
+- Phase 3 `gs op log` is now explicitly deferred post-MVP because server-side
+  changeset history plus draft state covers the MVP audit need; `future_work.md`
+  continues to track workspace operation logs
+- there is no root `DESIGN.md` in this checkout, so there was no style-guide file
+  to relocate
+- the real Postgres e2e gate was intentionally not run in this sandbox; `go test
+  ./...` compiled those packages and ran them in their local skip/compile mode
+
+Verification:
+
+```bash
+make proto
+gofmt -w internal/postgres/auth_store.go internal/postgres/fixture.go internal/postgres/slice_store.go internal/storage/interfaces.go internal/storage/memory/store.go service/slice.go service/memory_service_test.go internal/cli/cli.go tests/rpc/slice_test.go
+go test ./service ./internal/postgres ./internal/cli
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed commands passed.

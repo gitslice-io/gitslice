@@ -3,6 +3,9 @@ package memory
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path"
@@ -32,7 +35,7 @@ type backend struct {
 	next int64
 
 	subjects       map[string]storage.Subject
-	accountMembers map[string]map[string]struct{}
+	accountMembers map[string]map[string]string
 	sessions       map[string]string
 
 	blobs   map[string]*corev1.BlobRecord
@@ -42,10 +45,14 @@ type backend struct {
 	commits     map[string]*corev1.Commit
 	commitFiles map[string]map[string]storage.FileEntry
 
-	slices    map[string]*corev1.Slice
-	sliceRefs map[string]string
+	slices                  map[string]*corev1.Slice
+	sliceRefs               map[string]string
+	sliceDefinitionVersions map[string][]*corev1.SliceDefinitionVersion
 
-	changesets map[string]*corev1.Changeset
+	changesets        map[string]*corev1.Changeset
+	pendingAcceptedAt map[string]time.Time
+	approvals         map[string]map[string]struct{}
+	checkResults      map[string]map[string]string
 
 	imports         map[string]*storage.GitImportRecord
 	importsByKey    map[string]string
@@ -64,22 +71,26 @@ type ObjectStore struct{ b *backend }
 
 func New() *Stores {
 	b := &backend{
-		subjects:        map[string]storage.Subject{},
-		accountMembers:  map[string]map[string]struct{}{},
-		sessions:        map[string]string{},
-		blobs:           map[string]*corev1.BlobRecord{},
-		objects:         map[string][]byte{},
-		refs:            map[string]*corev1.Ref{},
-		commits:         map[string]*corev1.Commit{},
-		commitFiles:     map[string]map[string]storage.FileEntry{},
-		slices:          map[string]*corev1.Slice{},
-		sliceRefs:       map[string]string{},
-		changesets:      map[string]*corev1.Changeset{},
-		imports:         map[string]*storage.GitImportRecord{},
-		importsByKey:    map[string]string{},
-		importedCommits: map[string][]storage.GitImportedCommitRecord{},
-		entitiesByPath:  map[string]storage.CurrentPathEntity{},
-		entityChanges:   map[string][]storage.HistoryEntityRef{},
+		subjects:                map[string]storage.Subject{},
+		accountMembers:          map[string]map[string]string{},
+		sessions:                map[string]string{},
+		blobs:                   map[string]*corev1.BlobRecord{},
+		objects:                 map[string][]byte{},
+		refs:                    map[string]*corev1.Ref{},
+		commits:                 map[string]*corev1.Commit{},
+		commitFiles:             map[string]map[string]storage.FileEntry{},
+		slices:                  map[string]*corev1.Slice{},
+		sliceRefs:               map[string]string{},
+		sliceDefinitionVersions: map[string][]*corev1.SliceDefinitionVersion{},
+		changesets:              map[string]*corev1.Changeset{},
+		pendingAcceptedAt:       map[string]time.Time{},
+		approvals:               map[string]map[string]struct{}{},
+		checkResults:            map[string]map[string]string{},
+		imports:                 map[string]*storage.GitImportRecord{},
+		importsByKey:            map[string]string{},
+		importedCommits:         map[string][]storage.GitImportedCommitRecord{},
+		entitiesByPath:          map[string]storage.CurrentPathEntity{},
+		entityChanges:           map[string][]storage.HistoryEntityRef{},
 	}
 	root := &corev1.Commit{
 		Id:         "mem_root",
@@ -107,10 +118,20 @@ func (s *Stores) AddAccount(subjectID, accountSlug string) {
 	s.backend.addAccountLocked(subjectID, accountSlug)
 }
 
-func (s *Stores) PutSlice(ref *corev1.SliceRef, includedPaths []string, visibility string) *corev1.Slice {
+func (s *Stores) AddAccountRole(subjectID, accountSlug, role string) {
 	s.backend.mu.Lock()
 	defer s.backend.mu.Unlock()
-	slice, _ := s.backend.putSliceLocked(ref, includedPaths, visibility)
+	s.backend.addAccountRoleLocked(subjectID, accountSlug, role)
+}
+
+func (s *Stores) PutSlice(ref *corev1.SliceRef, includedPaths []string, visibility string) *corev1.Slice {
+	return s.PutSliceWithSubmitSettings(ref, includedPaths, visibility, 0, nil)
+}
+
+func (s *Stores) PutSliceWithSubmitSettings(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) *corev1.Slice {
+	s.backend.mu.Lock()
+	defer s.backend.mu.Unlock()
+	slice, _ := s.backend.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks, "system")
 	return slice
 }
 
@@ -127,28 +148,36 @@ func (s *Stores) PutObject(key string, data []byte) {
 }
 
 func (b *backend) addAccountLocked(subjectID, accountSlug string) {
+	b.addAccountRoleLocked(subjectID, accountSlug, "admin")
+}
+
+func (b *backend) addAccountRoleLocked(subjectID, accountSlug, role string) {
 	subjectID = strings.TrimSpace(subjectID)
 	accountSlug = strings.TrimSpace(accountSlug)
+	role = strings.TrimSpace(role)
 	if subjectID == "" || accountSlug == "" {
 		return
 	}
+	if role == "" {
+		role = "member"
+	}
 	b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: strings.TrimPrefix(subjectID, "user_")}
 	if b.accountMembers[subjectID] == nil {
-		b.accountMembers[subjectID] = map[string]struct{}{}
+		b.accountMembers[subjectID] = map[string]string{}
 	}
-	b.accountMembers[subjectID][accountSlug] = struct{}{}
+	b.accountMembers[subjectID][accountSlug] = role
 	home := &corev1.SliceRef{Account: accountSlug, Slice: "home"}
 	if _, ok := b.sliceRefs[sliceRefKey(home)]; !ok {
-		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "account")
+		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "account", 0, nil, subjectID)
 	}
 }
 
-func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, visibility string) (*corev1.Slice, error) {
+func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string, createdBy string) (*corev1.Slice, error) {
 	ref, err := normalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}
-	includedPaths, visibility, err = validateSliceDefinition(ref, includedPaths, visibility)
+	includedPaths, visibility, requiredApprovals, requiredChecks, err = validateSliceDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 	if err != nil {
 		return nil, err
 	}
@@ -157,21 +186,42 @@ func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, v
 	if existing := b.slices[id]; existing != nil && existing.Definition != nil {
 		version = existing.Definition.Version + 1
 	}
-	definitionHash := fmt.Sprintf("mem_slice_def_%s_%d", id, version)
+	definitionHash := memoryDefinitionHash(id, version, includedPaths, visibility, requiredApprovals, requiredChecks)
 	slice := &corev1.Slice{
 		Id:             id,
 		Ref:            cloneSliceRef(ref),
 		DefinitionHash: definitionHash,
 		Definition: &corev1.SliceDefinition{
-			SliceId:       id,
-			Version:       version,
-			IncludedPaths: append([]string(nil), includedPaths...),
-			Visibility:    visibility,
+			SliceId:           id,
+			Version:           version,
+			IncludedPaths:     append([]string(nil), includedPaths...),
+			Visibility:        visibility,
+			RequiredApprovals: requiredApprovals,
+			RequiredChecks:    append([]string(nil), requiredChecks...),
 		},
 	}
 	b.slices[id] = cloneSlice(slice)
 	b.sliceRefs[sliceRefKey(ref)] = id
+	b.appendSliceDefinitionVersionLocked(slice, createdBy)
 	return cloneSlice(slice), nil
+}
+
+func (b *backend) appendSliceDefinitionVersionLocked(slice *corev1.Slice, createdBy string) {
+	if slice == nil || slice.Definition == nil {
+		return
+	}
+	version := &corev1.SliceDefinitionVersion{
+		SliceId:           slice.Id,
+		Version:           slice.Definition.Version,
+		DefinitionHash:    slice.DefinitionHash,
+		Visibility:        slice.Definition.Visibility,
+		IncludedPaths:     append([]string(nil), slice.Definition.IncludedPaths...),
+		RequiredApprovals: slice.Definition.RequiredApprovals,
+		RequiredChecks:    append([]string(nil), slice.Definition.RequiredChecks...),
+		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
+		CreatedBy:         strings.TrimSpace(createdBy),
+	}
+	b.sliceDefinitionVersions[slice.Id] = append(b.sliceDefinitionVersions[slice.Id], cloneSliceDefinitionVersion(version))
 }
 
 func (b *backend) putCommitWithFilesLocked(commitID string, files []storage.FileEntry, changedPaths []string, message string) {
@@ -226,6 +276,19 @@ func (b *backend) nextChangesetNumberLocked(sliceID string) int64 {
 		}
 	}
 	return max + 1
+}
+
+func memoryDefinitionHash(sliceID string, version int64, included []string, visibility string, requiredApprovals int32, requiredChecks []string) string {
+	payload, _ := json.Marshal(struct {
+		SliceID           string   `json:"slice_id"`
+		Version           int64    `json:"version"`
+		Included          []string `json:"included_paths"`
+		Visibility        string   `json:"visibility"`
+		RequiredApprovals int32    `json:"required_approvals"`
+		RequiredChecks    []string `json:"required_checks"`
+	}{SliceID: sliceID, Version: version, Included: included, Visibility: visibility, RequiredApprovals: requiredApprovals, RequiredChecks: requiredChecks})
+	sum := sha256.Sum256(payload)
+	return "mem_sha256:" + hex.EncodeToString(sum[:])
 }
 
 func (b *backend) resolveChangesetSelectorLocked(selector string) string {
@@ -326,6 +389,16 @@ func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountS
 		return storage.ErrUnauthorized
 	}
 	return nil
+}
+
+func (s *AuthStore) AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	role, ok := s.b.accountMembers[subjectID][accountSlug]
+	if !ok {
+		return "", storage.ErrUnauthorized
+	}
+	return role, nil
 }
 
 func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error) {
@@ -466,13 +539,77 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	next.ChangesetId = changesetID
 	next.Number = int64(len(cs.Patchsets) + 1)
 	next.Handle = storage.PatchsetHandle(cs.AuthoringSlice, cs.Number, next.Number)
+	if next.SubmitRequirements == nil || next.SubmitRequirements.SourceSliceDefinitionHash == "" {
+		sliceID := s.b.sliceRefs[sliceRefKey(cs.AuthoringSlice)]
+		slice := s.b.slices[sliceID]
+		next.SubmitRequirements = submitRequirementsForMemorySlice(slice)
+	}
 	cs.Patchsets = append(cs.Patchsets, next)
 	cs.CurrentPatchsetId = next.Id
 	cs.CurrentPatchsetNumber = next.Number
+	cs.SubmitBlockedReason = ""
 	return clonePatchset(next), nil
 }
 
-func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID string) (*corev1.ApproveChangesetResponse, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
+		changesetID = resolved
+	}
+	cs := s.b.changesets[changesetID]
+	if cs == nil {
+		return nil, storage.ErrNotFound
+	}
+	patchset := currentPatchset(cs)
+	if patchset == nil {
+		return nil, storage.ErrConflict
+	}
+	if cs.Status == "abandoned" || cs.Status == "submitted" {
+		return nil, storage.ErrConflict
+	}
+	key := patchsetRequirementKey(changesetID, patchset.Id)
+	if s.b.approvals[key] == nil {
+		s.b.approvals[key] = map[string]struct{}{}
+	}
+	s.b.approvals[key][strings.TrimSpace(subjectID)] = struct{}{}
+	return &corev1.ApproveChangesetResponse{ChangesetId: changesetID, PatchsetId: patchset.Id, SubjectId: strings.TrimSpace(subjectID)}, nil
+}
+
+func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, resultStatus string) (*corev1.ReportCheckResultResponse, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
+		changesetID = resolved
+	}
+	cs := s.b.changesets[changesetID]
+	if cs == nil {
+		return nil, storage.ErrNotFound
+	}
+	patchset := currentPatchset(cs)
+	if patchset == nil {
+		return nil, storage.ErrConflict
+	}
+	if cs.Status == "abandoned" || cs.Status == "submitted" {
+		return nil, storage.ErrConflict
+	}
+	checkName = strings.TrimSpace(checkName)
+	resultStatus, ok := storage.NormalizeCheckStatus(resultStatus)
+	if checkName == "" || !ok {
+		return nil, storage.ErrInvalid
+	}
+	key := patchsetRequirementKey(changesetID, patchset.Id)
+	if s.b.checkResults[key] == nil {
+		s.b.checkResults[key] = map[string]string{}
+	}
+	s.b.checkResults[key][checkName] = resultStatus
+	return &corev1.ReportCheckResultResponse{ChangesetId: changesetID, PatchsetId: patchset.Id, CheckName: checkName, Status: resultStatus}, nil
+}
+
+func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (res *corev1.SubmitChangesetResponse, err error) {
+	defer func() {
+		storage.RecordSubmitResult(err)
+	}()
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	cs := s.b.changesets[changesetID]
@@ -483,20 +620,53 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 		return nil, storage.ErrConflict
 	}
 	patchset := currentPatchset(cs)
-	if patchset != nil && len(patchset.Conflicts) > 0 {
+	if patchset == nil {
+		return nil, storage.ErrConflict
+	}
+	if len(patchset.Conflicts) > 0 {
 		return nil, fmt.Errorf("%w: unresolved patchset conflicts", storage.ErrConflict)
 	}
+	sliceID := s.b.sliceRefs[sliceRefKey(cs.AuthoringSlice)]
+	slice := s.b.slices[sliceID]
+	latestReq := submitRequirementsForMemorySlice(slice)
+	for _, p := range patchset.ChangedPaths {
+		if slice == nil || slice.Definition == nil || !pathInAnyPrefix(slice.Definition.IncludedPaths, p) {
+			return nil, s.b.blockSubmitLocked(cs, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
+		}
+	}
+	recordedHash := ""
+	if patchset.SubmitRequirements != nil {
+		recordedHash = patchset.SubmitRequirements.SourceSliceDefinitionHash
+	}
+	if recordedHash == "" {
+		recordedHash = latestReq.SourceSliceDefinitionHash
+	}
+	if recordedHash != latestReq.SourceSliceDefinitionHash {
+		return nil, s.b.blockSubmitLocked(cs, "requirements changed, refresh the changeset")
+	}
+	key := patchsetRequirementKey(changesetID, patchset.Id)
+	approvalSubjects := make([]string, 0, len(s.b.approvals[key]))
+	for subjectID := range s.b.approvals[key] {
+		approvalSubjects = append(approvalSubjects, subjectID)
+	}
+	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, s.b.checkResults[key]); reason != "" {
+		return nil, s.b.blockSubmitLocked(cs, reason)
+	}
 	cs.Status = "pending_publish"
+	cs.SubmitBlockedReason = ""
+	s.b.pendingAcceptedAt[cs.Id] = time.Now()
 	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id, ChangesetHandle: cs.Handle}, nil
 }
 
-func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, error) {
+func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (published int, err error) {
+	defer func() {
+		storage.RecordPublishBatch(published, err)
+	}()
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if limit <= 0 {
 		limit = 128
 	}
-	published := 0
 	for _, cs := range sortedChangesets(s.b.changesets) {
 		if published >= limit {
 			break
@@ -547,9 +717,25 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (int, er
 		s.b.putCommitWithFilesLocked(commitID, files, patchset.ChangedPaths, cs.Title)
 		cs.Status = "submitted"
 		cs.CommitId = commitID
+		if acceptedAt, ok := s.b.pendingAcceptedAt[cs.Id]; ok {
+			storage.ObservePublishLatency(time.Since(acceptedAt))
+			delete(s.b.pendingAcceptedAt, cs.Id)
+		}
 		published++
 	}
 	return published, nil
+}
+
+func (s *ChangesetStore) PendingPublishDepth(ctx context.Context) (int, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	depth := 0
+	for _, cs := range s.b.changesets {
+		if cs != nil && cs.Status == "pending_publish" {
+			depth++
+		}
+	}
+	return depth, nil
 }
 
 func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {
@@ -868,17 +1054,17 @@ func (s *RepositoryStore) ListFiles(ctx context.Context, commitID, prefix string
 	return out, nil
 }
 
-func (s *SliceStore) Create(ctx context.Context, ref *corev1.SliceRef, includedPaths []string, visibility string) (*corev1.Slice, error) {
+func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if _, ok := s.b.sliceRefs[sliceRefKey(ref)]; ok {
 		return nil, storage.ErrConflict
 	}
-	return s.b.putSliceLocked(ref, includedPaths, visibility)
+	return s.b.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks, subjectID)
 }
 
-func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string) ([]string, string, error) {
-	return validateSliceDefinition(ref, includedPaths, visibility)
+func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
+	return validateSliceDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 }
 
 func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
@@ -920,7 +1106,24 @@ func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*co
 	return out, nil
 }
 
-func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+func (s *SliceStore) ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.b.slices[sliceID] == nil {
+		return nil, storage.ErrNotFound
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	versions := s.b.sliceDefinitionVersions[sliceID]
+	out := make([]*corev1.SliceDefinitionVersion, 0, len(versions))
+	for i := len(versions) - 1; i >= 0 && len(out) < limit; i-- {
+		out = append(out, cloneSliceDefinitionVersion(versions[i]))
+	}
+	return out, nil
+}
+
+func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	current := s.b.slices[sliceID]
@@ -930,14 +1133,17 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, sliceID, expectedHash
 	if expectedHash != "" && current.DefinitionHash != expectedHash {
 		return nil, storage.ErrConflict
 	}
-	included, visibility, err := validateSliceDefinition(current.Ref, definition.IncludedPaths, definition.Visibility)
+	included, visibility, requiredApprovals, requiredChecks, err := validateSliceDefinition(current.Ref, definition.IncludedPaths, definition.Visibility, definition.RequiredApprovals, definition.RequiredChecks)
 	if err != nil {
 		return nil, err
 	}
 	current.Definition.Version++
 	current.Definition.IncludedPaths = included
 	current.Definition.Visibility = visibility
-	current.DefinitionHash = fmt.Sprintf("mem_slice_def_%s_%d", sliceID, current.Definition.Version)
+	current.Definition.RequiredApprovals = requiredApprovals
+	current.Definition.RequiredChecks = append([]string(nil), requiredChecks...)
+	current.DefinitionHash = memoryDefinitionHash(sliceID, current.Definition.Version, included, visibility, requiredApprovals, requiredChecks)
+	s.b.appendSliceDefinitionVersionLocked(current, subjectID)
 	return cloneSlice(current).Definition, nil
 }
 
@@ -950,23 +1156,20 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	}
 	delete(s.b.sliceRefs, sliceRefKey(slice.Ref))
 	delete(s.b.slices, sliceID)
+	delete(s.b.sliceDefinitionVersions, sliceID)
 	return nil
 }
 
-func (s *SliceStore) CoveringIDs(ctx context.Context, p string) ([]string, error) {
+func (s *SliceStore) CoveringIDsByPath(ctx context.Context, changedPaths []string) (map[string][]string, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	var ids []string
+	byPrefix := map[string][]string{}
 	for _, slice := range s.b.slices {
 		for _, prefix := range slice.Definition.IncludedPaths {
-			if pathContains(prefix, p) {
-				ids = append(ids, slice.Id)
-				break
-			}
+			byPrefix[prefix] = append(byPrefix[prefix], slice.Id)
 		}
 	}
-	sort.Strings(ids)
-	return ids, nil
+	return storage.AssembleCoverageByPath(changedPaths, byPrefix), nil
 }
 
 func (b *backend) listCommitPageLocked(limit int, include func(*corev1.Commit) bool) *storage.CommitListPage {
@@ -986,23 +1189,23 @@ func (b *backend) listCommitPageLocked(limit int, include func(*corev1.Commit) b
 	return &storage.CommitListPage{Commits: commits}
 }
 
-func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string) ([]string, string, error) {
+func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
 	ref, err := normalizeSliceRef(ref)
 	if err != nil {
-		return nil, "", err
+		return nil, "", 0, nil, err
 	}
 	if visibility == "" {
 		visibility = "account"
 	}
-	if visibility != "account" && visibility != "public" {
-		return nil, "", storage.ErrInvalid
+	if visibility != "private" && visibility != "account" && visibility != "public" {
+		return nil, "", 0, nil, storage.ErrInvalid
 	}
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(includedPaths))
 	for _, raw := range includedPaths {
 		cleaned, err := canonicalIncludedPath(ref, raw)
 		if err != nil {
-			return nil, "", err
+			return nil, "", 0, nil, err
 		}
 		if _, ok := seen[cleaned]; ok {
 			continue
@@ -1011,9 +1214,25 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 		out = append(out, cleaned)
 	}
 	if len(out) == 0 {
-		return nil, "", storage.ErrInvalid
+		return nil, "", 0, nil, storage.ErrInvalid
 	}
-	return out, visibility, nil
+	if requiredApprovals < 0 {
+		return nil, "", 0, nil, storage.ErrInvalid
+	}
+	checks := make([]string, 0, len(requiredChecks))
+	checkSeen := map[string]struct{}{}
+	for _, raw := range requiredChecks {
+		check := strings.TrimSpace(raw)
+		if check == "" || strings.Contains(check, ",") {
+			return nil, "", 0, nil, storage.ErrInvalid
+		}
+		if _, ok := checkSeen[check]; ok {
+			continue
+		}
+		checkSeen[check] = struct{}{}
+		checks = append(checks, check)
+	}
+	return out, visibility, requiredApprovals, checks, nil
 }
 
 func canonicalIncludedPath(ref *corev1.SliceRef, raw string) (string, error) {
@@ -1108,6 +1327,37 @@ func pathContains(prefix, p string) bool {
 	prefix = strings.TrimRight(prefix, "/")
 	p = strings.TrimRight(p, "/")
 	return p == prefix || strings.HasPrefix(p, prefix+"/")
+}
+
+func pathInAnyPrefix(prefixes []string, p string) bool {
+	for _, prefix := range prefixes {
+		if pathContains(prefix, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func patchsetRequirementKey(changesetID, patchsetID string) string {
+	return changesetID + "\x00" + patchsetID
+}
+
+func submitRequirementsForMemorySlice(slice *corev1.Slice) *corev1.SubmitRequirements {
+	req := &corev1.SubmitRequirements{}
+	if slice == nil {
+		return req
+	}
+	req.SourceSliceDefinitionHash = slice.DefinitionHash
+	if slice.Definition != nil {
+		req.RequiredApprovals = slice.Definition.RequiredApprovals
+		req.RequiredChecks = append([]string(nil), slice.Definition.RequiredChecks...)
+	}
+	return req
+}
+
+func (b *backend) blockSubmitLocked(cs *corev1.Changeset, reason string) error {
+	cs.SubmitBlockedReason = reason
+	return fmt.Errorf("%w: %s", storage.ErrConflict, reason)
 }
 
 func normalizePathPrefixes(prefixes []string) []string {
@@ -1291,8 +1541,19 @@ func cloneSlice(in *corev1.Slice) *corev1.Slice {
 	if in.Definition != nil {
 		def := *in.Definition
 		def.IncludedPaths = append([]string(nil), in.Definition.IncludedPaths...)
+		def.RequiredChecks = append([]string(nil), in.Definition.RequiredChecks...)
 		out.Definition = &def
 	}
+	return &out
+}
+
+func cloneSliceDefinitionVersion(in *corev1.SliceDefinitionVersion) *corev1.SliceDefinitionVersion {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.IncludedPaths = append([]string(nil), in.IncludedPaths...)
+	out.RequiredChecks = append([]string(nil), in.RequiredChecks...)
 	return &out
 }
 
@@ -1308,6 +1569,12 @@ func clonePatchset(in *corev1.Patchset) *corev1.Patchset {
 	out.ReadSet = append([]*corev1.PathSetEntry(nil), in.ReadSet...)
 	out.WriteSet = append([]*corev1.PathSetEntry(nil), in.WriteSet...)
 	out.Conflicts = append([]*corev1.PatchsetConflict(nil), in.Conflicts...)
+	if in.SubmitRequirements != nil {
+		req := *in.SubmitRequirements
+		req.RequiredChecks = append([]string(nil), in.SubmitRequirements.RequiredChecks...)
+		req.PathLockIds = append([]string(nil), in.SubmitRequirements.PathLockIds...)
+		out.SubmitRequirements = &req
+	}
 	return &out
 }
 
@@ -1320,6 +1587,12 @@ func cloneChangeset(in *corev1.Changeset) *corev1.Changeset {
 	out.Patchsets = make([]*corev1.Patchset, 0, len(in.Patchsets))
 	for _, patchset := range in.Patchsets {
 		out.Patchsets = append(out.Patchsets, clonePatchset(patchset))
+	}
+	if in.SubmitRequirements != nil {
+		req := *in.SubmitRequirements
+		req.RequiredChecks = append([]string(nil), in.SubmitRequirements.RequiredChecks...)
+		req.PathLockIds = append([]string(nil), in.SubmitRequirements.PathLockIds...)
+		out.SubmitRequirements = &req
 	}
 	return &out
 }

@@ -93,11 +93,36 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 	if err != nil {
 		return "", "", err
 	}
+	emptyChecksJSON, err := encodeJSON([]string{})
+	if err != nil {
+		return "", "", err
+	}
+	homeDefinitionHash := definitionHash(homeSliceID, 1, homeIncludedPaths, "account", 0, nil)
 	if _, err := tx.ExecContext(ctx, `
 		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
 		values ($1, $2, 'home', 1, $3, 'account', $4, now(), now())
 		on conflict (account_id, slug) do nothing
-	`, homeSliceID, accountID, definitionHash(homeSliceID, 1, homeIncludedPaths, "account"), homeIncludedJSON); err != nil {
+	`, homeSliceID, accountID, homeDefinitionHash, homeIncludedJSON); err != nil {
+		return "", "", err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into slice_definition_versions(
+			slice_id,
+			version,
+			definition_hash,
+			visibility,
+			included_paths,
+			required_approvals,
+			required_checks,
+			created_at,
+			created_by
+		)
+		values ($1, 1, $2, 'account', $3, 0, $4, now(), $5)
+		on conflict do nothing
+	`, homeSliceID, homeDefinitionHash, homeIncludedJSON, emptyChecksJSON, subjectID); err != nil {
+		return "", "", err
+	}
+	if err := syncSliceIncludedPathsTx(ctx, tx, homeSliceID, homeIncludedPaths); err != nil {
 		return "", "", err
 	}
 
@@ -137,22 +162,35 @@ func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject
 }
 
 func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error {
-	var ok bool
+	_, err := s.AccountRole(ctx, subjectID, accountSlug)
+	return err
+}
+
+func (s *AuthStore) AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error) {
+	var role string
 	err := s.db.QueryRowContext(ctx, `
-		select exists(
-			select 1
-			from account_memberships m
-			join accounts a on a.id = m.account_id
-			where a.slug = $1 and m.subject_id = $2
-		)
-	`, accountSlug, subjectID).Scan(&ok)
+		select m.role
+		from account_memberships m
+		join accounts a on a.id = m.account_id
+		where a.slug = $1 and m.subject_id = $2
+		order by case m.role
+			when 'owner' then 1
+			when 'admin' then 2
+			when 'writer' then 3
+			when 'member' then 4
+			when 'reader' then 5
+			when 'guest' then 6
+			else 7
+		end
+		limit 1
+	`, accountSlug, subjectID).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrUnauthorized
+	}
 	if err != nil {
-		return err
+		return "", err
 	}
-	if !ok {
-		return ErrUnauthorized
-	}
-	return nil
+	return role, nil
 }
 
 func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error) {

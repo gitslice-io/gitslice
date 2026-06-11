@@ -24,6 +24,7 @@ func TestRPCCommitHistoryFollowsExplicitFileMove(t *testing.T) {
 		Path:    "/acme/payment/history/moved.txt",
 	}})
 	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/history/moved.txt", "second\n", "history edit moved file")
+	ts.waitForOutboxDrain(t)
 
 	follow, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
 		RefName: postgres.DefaultTargetRef,
@@ -59,7 +60,7 @@ func TestRPCCommitHistoryInfersExactDeleteAddMove(t *testing.T) {
 
 	content := "same content\n"
 	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/history/infer_old.txt", content, "history infer initial")
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +68,7 @@ func TestRPCCommitHistoryInfersExactDeleteAddMove(t *testing.T) {
 		{Op: "delete", Path: "/acme/payment/history/infer_old.txt"},
 		{Op: "upsert", Path: "/acme/payment/history/infer_new.txt", BlobId: upload.BlobId, ContentHash: upload.ContentHash, Mode: 0o100644},
 	})
+	ts.waitForOutboxDrain(t)
 
 	follow, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
 		RefName: postgres.DefaultTargetRef,
@@ -106,6 +108,7 @@ func TestRPCCommitHistoryIncludesAncestorDirectoryMove(t *testing.T) {
 		OldPath: "/acme/payment/history/dir",
 		Path:    "/acme/payment/history/renamed",
 	}})
+	ts.waitForOutboxDrain(t)
 
 	follow, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
 		RefName: postgres.DefaultTargetRef,
@@ -148,6 +151,7 @@ func TestRPCCommitHistoryFollowsMoveWithinCustomSlice(t *testing.T) {
 		OldPath: oldPath,
 		Path:    newPath,
 	}})
+	ts.waitForOutboxDrain(t)
 
 	follow, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
 		RefName: postgres.DefaultTargetRef,
@@ -186,7 +190,7 @@ func TestRPCCommitHistoryDoesNotInferAmbiguousExactMove(t *testing.T) {
 	content := "ambiguous\n"
 	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/history/ambiguous_a.txt", content, "history ambiguous a")
 	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/history/ambiguous_b.txt", content, "history ambiguous b")
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,6 +199,7 @@ func TestRPCCommitHistoryDoesNotInferAmbiguousExactMove(t *testing.T) {
 		{Op: "delete", Path: "/acme/payment/history/ambiguous_b.txt"},
 		{Op: "upsert", Path: "/acme/payment/history/ambiguous_new.txt", BlobId: upload.BlobId, ContentHash: upload.ContentHash, Mode: 0o100644},
 	})
+	ts.waitForOutboxDrain(t)
 
 	follow, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
 		RefName: postgres.DefaultTargetRef,
@@ -221,6 +226,7 @@ func TestRPCCommitHistoryDeleteRecreateSamePathStartsNewEntity(t *testing.T) {
 	submitRPCFileWithTitle(t, ctx, clients, "payment", path, "old\n", "history recreate old")
 	submitRPCFileEdits(t, ctx, clients, "payment", "history recreate delete", []*corev1.FileEdit{{Op: "delete", Path: path}})
 	submitRPCFileWithTitle(t, ctx, clients, "payment", path, "new\n", "history recreate new")
+	ts.waitForOutboxDrain(t)
 
 	follow, err := clients.repository.ListCommits(ctx, &corev1.ListCommitsRequest{
 		RefName: postgres.DefaultTargetRef,
@@ -249,7 +255,7 @@ func TestRPCCommitHistoryDeleteRecreateSamePathStartsNewEntity(t *testing.T) {
 
 func submitRPCFileWithTitle(t *testing.T, ctx context.Context, clients testCoreClients, sliceName, path, content, title string) string {
 	t.Helper()
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
 	}

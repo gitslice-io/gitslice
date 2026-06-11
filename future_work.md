@@ -66,8 +66,8 @@ work below.
 
 ## Product Completeness
 
-- Implement hydration, dehydration, workspace operation logs, undo, diff, and
-  conflict-resolution CLI workflows.
+- Implement hydration, dehydration, workspace operation logs (`gs op log`),
+  undo, diff, and conflict-resolution CLI workflows.
 - Add changeset list/show/abandon/explain commands and stable JSON schemas for
   all CLI commands.
 - Implement review, approvals, required checks, submit requirement provenance,

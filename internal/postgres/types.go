@@ -1,6 +1,10 @@
 package postgres
 
-import "github.com/gitslice-io/gitslice/internal/storage"
+import (
+	"time"
+
+	"github.com/gitslice-io/gitslice/internal/storage"
+)
 
 const DefaultTargetRef = storage.DefaultTargetRef
 
@@ -17,6 +21,7 @@ type pendingPublishRow struct {
 	ChangesetID string
 	PatchsetID  string
 	TargetRef   string
+	CreatedAt   time.Time
 }
 
 type GitImportRecord = storage.GitImportRecord

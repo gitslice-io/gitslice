@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/diffutil"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
@@ -42,8 +43,8 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	if req.AuthoringSlice == nil {
 		return nil, status.Error(codes.InvalidArgument, "authoring slice is required")
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.AuthoringSlice.Account); err != nil {
-		return nil, grpcError(err)
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionWrite); err != nil {
+		return nil, err
 	}
 	cs, err := s.Changesets.Create(ctx, subjectID, req)
 	if err != nil {
@@ -68,8 +69,8 @@ func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListC
 	if req.AuthoringSlice == nil {
 		return nil, status.Error(codes.InvalidArgument, "authoring slice is required")
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, req.AuthoringSlice.Account); err != nil {
-		return nil, grpcError(err)
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionRead); err != nil {
+		return nil, err
 	}
 	changesets, err := s.Changesets.List(ctx, req)
 	if err != nil {
@@ -147,7 +148,7 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +339,7 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
+	cs, err := s.getChangesetForWriteOrAuthor(ctx, subjectID, req.ChangesetId)
 	if err != nil {
 		return nil, err
 	}
@@ -352,12 +353,44 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	return res, nil
 }
 
+func (s *ChangesetService) ApproveChangeset(ctx context.Context, req *corev1.ApproveChangesetRequest) (*corev1.ApproveChangesetResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.Changesets.Approve(ctx, cs.Id, subjectID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return res, nil
+}
+
+func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.ReportCheckResultRequest) (*corev1.ReportCheckResultResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.Changesets.ReportCheckResult(ctx, cs.Id, subjectID, req.CheckName, req.Status)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return res, nil
+}
+
 func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.AbandonChangesetRequest) (*corev1.Empty, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
+	cs, err := s.getChangesetForWriteOrAuthor(ctx, subjectID, req.ChangesetId)
 	if err != nil {
 		return nil, err
 	}
@@ -368,6 +401,10 @@ func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.Aba
 }
 
 func (s *ChangesetService) getAuthorizedChangeset(ctx context.Context, subjectID, changesetID string) (*corev1.Changeset, error) {
+	return s.getChangesetForAction(ctx, subjectID, changesetID, authz.ActionRead)
+}
+
+func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {
 	cs, err := s.Changesets.Get(ctx, changesetID)
 	if err != nil {
 		return nil, grpcError(err)
@@ -375,8 +412,35 @@ func (s *ChangesetService) getAuthorizedChangeset(ctx context.Context, subjectID
 	if cs.AuthoringSlice == nil {
 		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, cs.AuthoringSlice.Account); err != nil {
+	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
+	if err != nil {
 		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
+		return nil, err
+	}
+	storage.PopulateChangesetHandles(cs)
+	return cs, nil
+}
+
+func (s *ChangesetService) getChangesetForWriteOrAuthor(ctx context.Context, subjectID, changesetID string) (*corev1.Changeset, error) {
+	cs, err := s.Changesets.Get(ctx, changesetID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if cs.AuthoringSlice == nil {
+		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
+	}
+	if cs.Author == subjectID {
+		storage.PopulateChangesetHandles(cs)
+		return cs, nil
+	}
+	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionWrite); err != nil {
+		return nil, err
 	}
 	storage.PopulateChangesetHandles(cs)
 	return cs, nil
@@ -407,16 +471,16 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		affected = append(affected, p)
 	}
 	sort.Strings(affected)
+	coverageByPath, err := v.Slices.CoveringIDsByPath(ctx, affected)
+	if err != nil {
+		return nil, grpcError(err)
+	}
 	coverage := make([]*corev1.PathCoverage, 0, len(affected))
 	pathBases := make([]*corev1.PathBase, 0, len(affected))
 	readSet := make([]*corev1.PathSetEntry, 0, len(affected))
 	writeSet := make([]*corev1.PathSetEntry, 0, len(affected))
 	for _, p := range affected {
-		covering, err := v.Slices.CoveringIDs(ctx, p)
-		if err != nil {
-			return nil, grpcError(err)
-		}
-		coverage = append(coverage, &corev1.PathCoverage{Path: p, CoveringSliceIds: covering})
+		coverage = append(coverage, &corev1.PathCoverage{Path: p, CoveringSliceIds: coverageByPath[p]})
 		base, err := v.pathBase(ctx, baseCommitID, p)
 		if err != nil {
 			return nil, err
@@ -429,6 +493,8 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		AffectedPaths: affected,
 		Coverage:      coverage,
 		SubmitRequirements: &corev1.SubmitRequirements{
+			RequiredApprovals:         slice.Definition.RequiredApprovals,
+			RequiredChecks:            append([]string(nil), slice.Definition.RequiredChecks...),
 			SourceSliceDefinitionHash: slice.DefinitionHash,
 		},
 		PathBases: pathBases,

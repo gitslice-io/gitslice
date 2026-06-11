@@ -49,7 +49,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			ObjectStore: objectStore,
 			validator:   validator,
 		},
-		Blob: &BlobService{Blobs: stores.Blobs, ObjectStore: objectStore},
+		Blob: &BlobService{Auth: stores.Auth, Blobs: stores.Blobs, Slices: stores.Slices, ObjectStore: objectStore},
 		Slice: &SliceService{
 			Auth:       stores.Auth,
 			Repository: stores.Repository,

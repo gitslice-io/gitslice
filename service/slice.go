@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -26,17 +27,17 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
-		return nil, grpcError(err)
+	if err := authorizeAccount(ctx, s.Auth, subjectID, ref.Account, authz.ActionAdmin); err != nil {
+		return nil, err
 	}
-	includedPaths, visibility, err := s.Slices.ValidateDefinition(ref, req.IncludedPaths, req.Visibility)
+	includedPaths, visibility, requiredApprovals, requiredChecks, err := s.Slices.ValidateDefinition(ref, req.IncludedPaths, req.Visibility, req.RequiredApprovals, req.RequiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	if err := s.validateIncludedPathsExist(ctx, ref, includedPaths); err != nil {
 		return nil, err
 	}
-	slice, err := s.Slices.Create(ctx, ref, includedPaths, visibility)
+	slice, err := s.Slices.Create(ctx, subjectID, ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -52,14 +53,7 @@ func (s *SliceService) ResolveSlice(ctx context.Context, req *corev1.ResolveSlic
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, ref.Account); err != nil {
-		return nil, grpcError(err)
-	}
-	slice, err := s.Slices.Resolve(ctx, ref)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	return slice, nil
+	return resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionRead)
 }
 
 func (s *SliceService) GetSlice(ctx context.Context, req *corev1.GetSliceRequest) (*corev1.Slice, error) {
@@ -71,8 +65,8 @@ func (s *SliceService) GetSlice(ctx context.Context, req *corev1.GetSliceRequest
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, slice.Ref.Account); err != nil {
-		return nil, grpcError(err)
+	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionRead); err != nil {
+		return nil, err
 	}
 	return slice, nil
 }
@@ -86,14 +80,33 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, account); err != nil {
-		return nil, grpcError(err)
+	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+		return nil, err
 	}
 	slices, err := s.Slices.List(ctx, account, int(req.PageSize))
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.ListSlicesResponse{Slices: slices}, nil
+}
+
+func (s *SliceService) ListSliceDefinitionVersions(ctx context.Context, req *corev1.ListSliceDefinitionVersionsRequest) (*corev1.ListSliceDefinitionVersionsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slice, err := s.Slices.Get(ctx, req.SliceId)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionRead); err != nil {
+		return nil, err
+	}
+	versions, err := s.Slices.ListDefinitionVersions(ctx, req.SliceId, int(req.PageSize))
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.ListSliceDefinitionVersionsResponse{Versions: versions}, nil
 }
 
 func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.UpdateSliceDefinitionRequest) (*corev1.SliceDefinition, error) {
@@ -105,22 +118,24 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, current.Ref.Account); err != nil {
-		return nil, grpcError(err)
+	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionAdmin); err != nil {
+		return nil, err
 	}
 	if req.Definition == nil {
 		return nil, status.Error(codes.InvalidArgument, "slice definition is required")
 	}
-	includedPaths, visibility, err := s.Slices.ValidateDefinition(current.Ref, req.Definition.IncludedPaths, req.Definition.Visibility)
+	includedPaths, visibility, requiredApprovals, requiredChecks, err := s.Slices.ValidateDefinition(current.Ref, req.Definition.IncludedPaths, req.Definition.Visibility, req.Definition.RequiredApprovals, req.Definition.RequiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := s.validateIncludedPathsExist(ctx, current.Ref, includedPaths); err != nil {
+	if err := s.validateIncludedPathsExist(ctx, current.Ref, addedIncludedPaths(current.Definition, includedPaths)); err != nil {
 		return nil, err
 	}
-	definition, err := s.Slices.UpdateDefinition(ctx, req.SliceId, req.ExpectedDefinitionHash, &corev1.SliceDefinition{
-		IncludedPaths: includedPaths,
-		Visibility:    visibility,
+	definition, err := s.Slices.UpdateDefinition(ctx, subjectID, req.SliceId, req.ExpectedDefinitionHash, &corev1.SliceDefinition{
+		IncludedPaths:     includedPaths,
+		Visibility:        visibility,
+		RequiredApprovals: requiredApprovals,
+		RequiredChecks:    requiredChecks,
 	})
 	if err != nil {
 		return nil, grpcError(err)
@@ -137,13 +152,32 @@ func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceR
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := s.Auth.EnsureAccountMember(ctx, subjectID, slice.Ref.Account); err != nil {
-		return nil, grpcError(err)
+	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionAdmin); err != nil {
+		return nil, err
 	}
 	if err := s.Slices.Delete(ctx, req.SliceId); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.DeleteSliceResponse{SliceId: req.SliceId}, nil
+}
+
+// addedIncludedPaths returns the requested included paths that are not already
+// part of the current definition, so updates that keep existing paths (for
+// example visibility-only changes) do not re-require committed content.
+func addedIncludedPaths(current *corev1.SliceDefinition, requested []string) []string {
+	existing := map[string]struct{}{}
+	if current != nil {
+		for _, p := range current.IncludedPaths {
+			existing[p] = struct{}{}
+		}
+	}
+	added := make([]string, 0, len(requested))
+	for _, p := range requested {
+		if _, ok := existing[p]; !ok {
+			added = append(added, p)
+		}
+	}
+	return added
 }
 
 func (s *SliceService) validateIncludedPathsExist(ctx context.Context, ref *corev1.SliceRef, includedPaths []string) error {

@@ -87,11 +87,35 @@ func seedSlice(ctx context.Context, tx *sql.Tx, id, slug string, included []stri
 	if err != nil {
 		return err
 	}
+	emptyChecksJSON, err := encodeJSON([]string{})
+	if err != nil {
+		return err
+	}
+	definitionHash := definitionHash(id, 1, included, "account", 0, nil)
 	returnSQL := `
 		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
 		values ($1, 'acct_acme', $2, 1, $3, 'account', $4, now(), now())
 		on conflict (id) do nothing
 	`
-	_, err = tx.ExecContext(ctx, returnSQL, id, slug, definitionHash(id, 1, included, "account"), includedJSON)
-	return err
+	if _, err := tx.ExecContext(ctx, returnSQL, id, slug, definitionHash, includedJSON); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into slice_definition_versions(
+			slice_id,
+			version,
+			definition_hash,
+			visibility,
+			included_paths,
+			required_approvals,
+			required_checks,
+			created_at,
+			created_by
+		)
+		values ($1, 1, $2, 'account', $3, 0, $4, now(), 'system')
+		on conflict do nothing
+	`, id, definitionHash, includedJSON, emptyChecksJSON); err != nil {
+		return err
+	}
+	return syncSliceIncludedPathsTx(ctx, tx, id, included)
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
+	"github.com/gitslice-io/gitslice/internal/indexworker"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
@@ -37,6 +38,12 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.PublishInterval <= 0 {
 		cfg.PublishInterval = defaultPublishInterval
 	}
+	if cfg.IndexBatchSize <= 0 {
+		cfg.IndexBatchSize = 128
+	}
+	if cfg.IndexInterval <= 0 {
+		cfg.IndexInterval = defaultPublishInterval
+	}
 	db, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -52,8 +59,17 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 	}
+	var indexWorker *indexworker.Worker
+	if !cfg.DisableIndexWorker {
+		indexWorker = indexworker.New(db.Changesets(), cfg.IndexBatchSize, cfg.IndexInterval)
+		go indexWorker.Run(ctx)
+	}
 	if !cfg.DisableAsyncPublisher {
-		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval)
+		var nudge func()
+		if indexWorker != nil {
+			nudge = indexWorker.Nudge
+		}
+		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval, nudge)
 	}
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -66,7 +82,8 @@ func Run(ctx context.Context, cfg Config) error {
 		Repository: db.Repository(),
 		Slices:     db.Slices(),
 	}
-	grpcServer := NewGRPCServer(db.Auth(), service.New(stores, objectStore))
+	handlers := service.New(stores, objectStore)
+	grpcServer := NewGRPCServer(db.Auth(), handlers)
 	var gatewayServer *http.Server
 	var gatewayLis net.Listener
 	if cfg.HTTPAddr != "" {
@@ -78,7 +95,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		gatewayServer = &http.Server{Handler: withCORS(gatewayHandler, cfg.HTTPAllowedOrigin)}
+		gatewayServer = &http.Server{Handler: NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg.DevMode)}
 	}
 	var gitHTTPServer *http.Server
 	var gitHTTPLis net.Listener
@@ -98,7 +115,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		gitHTTPServer = &http.Server{Handler: gitcompat.NewHandler(db.Auth(), projector)}
+		gitHTTPServer = &http.Server{Handler: gitcompat.NewHandler(db.Auth(), projector, handlers.Blob, handlers.Changeset)}
 	}
 	errCh := make(chan error, 3)
 	go func() {
@@ -149,8 +166,8 @@ func NewGRPCServer(auth storage.AuthStore, handlers *service.Handlers) *grpc.Ser
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
-		grpc.UnaryInterceptor(authInterceptor(auth)),
-		grpc.StreamInterceptor(authStreamInterceptor(auth)),
+		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(auth)),
+		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(auth)),
 	)
 	corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
 	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)

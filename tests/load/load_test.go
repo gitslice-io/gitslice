@@ -20,6 +20,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -39,6 +40,27 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+// Load latency budgets are intentionally lenient MVP regression guards. By
+// default each reported scenario must keep p95 <= 5000ms. Override all
+// scenarios with GITSLICE_LOAD_BUDGET_P95_MS, or one scenario with
+// GITSLICE_LOAD_BUDGET_<SCENARIO>_P95_MS where SCENARIO is uppercased and
+// non-alphanumeric characters are replaced with underscores.
+const defaultLoadBudgetP95MS = 5000
+
+// The hot-files scenarios intentionally drive hundreds of workers into
+// admission and publish contention on overlapping paths, so their baseline
+// p95 is queueing-dominated (measured ~20s at 300 workers). Their default
+// budgets guard order-of-magnitude regressions rather than absolute latency;
+// the per-scenario env overrides above still apply.
+var defaultScenarioBudgetP95 = map[string]time.Duration{
+	"hot_files_create_update_submit_accept": 60 * time.Second,
+	"hot_files_accepted_to_published":       60 * time.Second,
+	"hot_files_home_projection_refresh":     60 * time.Second,
+	"hot_files_other_projection_refresh":    60 * time.Second,
+	"hot_files_home_submit_to_visible":      60 * time.Second,
+	"hot_files_other_submit_to_visible":     60 * time.Second,
+}
 
 func TestLoadConcurrentDisjointSubmit(t *testing.T) {
 	ts := startLoadServer(t)
@@ -872,6 +894,7 @@ func loadUploadFileEdit(clients loadCoreClients, p string, content []byte) (*cor
 	upload, err := clients.blob.UploadBlob(clients.ctx, &corev1.UploadBlobRequest{
 		ContentHash: objectid.RawContentHash(content),
 		Data:        content,
+		Slice:       &corev1.SliceRef{Account: "acme", Slice: "payment"},
 	})
 	if err != nil {
 		return nil, err
@@ -1146,27 +1169,47 @@ func runRPCUserOperation(user rpcLoadUser, operation int) (time.Duration, error)
 	if err := requireEntry(list.Entries, filePath, corev1.EntryKind_ENTRY_KIND_FILE); err != nil {
 		return 0, err
 	}
-	history, err := user.repo.ListCommits(user.ctx, &corev1.ListCommitsRequest{
-		RefName: postgres.DefaultTargetRef,
-		Limit:   10,
-		Path:    filePath,
-		Slice:   &corev1.SliceRef{Account: user.account, Slice: "project"},
-	})
-	if err != nil {
-		return 0, err
-	}
-	for _, commit := range history.Commits {
-		if commit.Id == commitID {
-			return duration, nil
+	// Path-filtered history reads the commit_changed_paths derived index,
+	// which the outbox worker fills shortly after publish (design/06).
+	// Poll briefly like a real client instead of assuming read-your-writes.
+	deadline := time.Now().Add(5 * time.Second)
+	lastCount := 0
+	for {
+		history, err := user.repo.ListCommits(user.ctx, &corev1.ListCommitsRequest{
+			RefName: postgres.DefaultTargetRef,
+			Limit:   10,
+			Path:    filePath,
+			Slice:   &corev1.SliceRef{Account: user.account, Slice: "project"},
+		})
+		if err != nil {
+			return 0, err
+		}
+		for _, commit := range history.Commits {
+			if commit.Id == commitID {
+				return duration, nil
+			}
+		}
+		lastCount = len(history.Commits)
+		if time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-user.ctx.Done():
+			return 0, user.ctx.Err()
+		case <-time.After(25 * time.Millisecond):
 		}
 	}
-	return 0, fmt.Errorf("commit %s missing from ListCommits(%s), got %d commits", commitID, filePath, len(history.Commits))
+	return 0, fmt.Errorf("commit %s missing from ListCommits(%s), got %d commits", commitID, filePath, lastCount)
 }
 
 func rpcUploadFileEdit(user rpcLoadUser, p string, content []byte) (*corev1.FileEdit, error) {
 	upload, err := user.blob.UploadBlob(user.ctx, &corev1.UploadBlobRequest{
 		ContentHash: objectid.RawContentHash(content),
 		Data:        content,
+		// Authorize against the home slice: it covers the whole account
+		// root and exists from signup, while the project slice is only
+		// created later in the seed flow.
+		Slice: &corev1.SliceRef{Account: user.account, Slice: "home"},
 	})
 	if err != nil {
 		return nil, err
@@ -1291,6 +1334,7 @@ func submitHotFileOnce(clients loadCoreClients, file hotFile, label string, oper
 	upload, err := clients.blob.UploadBlob(clients.ctx, &corev1.UploadBlobRequest{
 		ContentHash: objectid.RawContentHash(content),
 		Data:        content,
+		Slice:       &corev1.SliceRef{Account: "acme", Slice: "payment"},
 	})
 	if err != nil {
 		return nil, err
@@ -1513,15 +1557,22 @@ func reportDurations(t *testing.T, name string, operations int, wall time.Durati
 	if len(durations) == 0 {
 		t.Fatalf("%s recorded no durations", name)
 	}
+	p50 := percentile(durations, 0.50)
+	p95 := percentile(durations, 0.95)
+	p99 := percentile(durations, 0.99)
+	p95Budget := loadBudgetP95(name)
 	t.Logf("%s operations=%d wall=%s throughput=%.2f/s p50=%s p95=%s p99=%s",
 		name,
 		operations,
 		wall,
 		float64(operations)/wall.Seconds(),
-		percentile(durations, 0.50),
-		percentile(durations, 0.95),
-		percentile(durations, 0.99),
+		p50,
+		p95,
+		p99,
 	)
+	if p95 > p95Budget {
+		t.Fatalf("%s p95=%s exceeds budget %s; override with GITSLICE_LOAD_BUDGET_P95_MS or %s", name, p95, p95Budget, loadBudgetEnvKey(name))
+	}
 }
 
 func percentile(durations []time.Duration, p float64) time.Duration {
@@ -1542,6 +1593,48 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func loadBudgetP95(name string) time.Duration {
+	if value, ok := envMillis(loadBudgetEnvKey(name)); ok {
+		return value
+	}
+	if value, ok := envMillis("GITSLICE_LOAD_BUDGET_P95_MS"); ok {
+		return value
+	}
+	if value, ok := defaultScenarioBudgetP95[name]; ok {
+		return value
+	}
+	return time.Duration(defaultLoadBudgetP95MS) * time.Millisecond
+}
+
+func loadBudgetEnvKey(name string) string {
+	var b strings.Builder
+	b.WriteString("GITSLICE_LOAD_BUDGET_")
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(unicode.ToUpper(r))
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	b.WriteString("_P95_MS")
+	return b.String()
+}
+
+func envMillis(key string) (time.Duration, bool) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, false
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, false
+	}
+	return time.Duration(value) * time.Millisecond, true
 }
 
 func minInt(a, b int) int {

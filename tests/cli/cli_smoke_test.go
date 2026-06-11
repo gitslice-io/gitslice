@@ -59,15 +59,30 @@ func TestMinimalCLIJourney(t *testing.T) {
 	if !strings.Contains(status, "/acme/payment/app.go") {
 		t.Fatalf("expected app.go to be dirty, got:\n%s", status)
 	}
+	largeContent := bytes.Repeat([]byte("large streaming workspace file\n"), 180000)
+	writeWorkspaceFileBytes(t, workspace, "large.txt", largeContent)
 	runCLI(t, home, workspace, "cs", "create")
 	runCLI(t, home, workspace, "cs", "submit")
 	csStatus := runCLI(t, home, workspace, "cs", "status")
 	if !strings.Contains(csStatus, "status: submitted") {
 		t.Fatalf("expected submitted changeset, got:\n%s", csStatus)
 	}
+	metricsText := httpGet(t, ts.httpAddr, "/metrics")
+	assertMetricPositive(t, metricsText, `gitslice_submit_total{result="accepted",reason="none"}`)
+	assertMetricPositive(t, metricsText, `gitslice_publish_batches_total{result="success"}`)
+	assertMetricPositive(t, metricsText, "gitslice_published_changesets_total")
 	status = runCLI(t, home, workspace, "status")
 	if !strings.Contains(status, "status: clean") {
 		t.Fatalf("expected clean status after submit, got:\n%s", status)
+	}
+	hydratedWorkspace := t.TempDir()
+	runCLI(t, home, hydratedWorkspace, "init", "acme/payment")
+	gotLarge, err := os.ReadFile(filepath.Join(hydratedWorkspace, "acme", "payment", "large.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotLarge, largeContent) {
+		t.Fatalf("hydrated large file length = %d, want %d", len(gotLarge), len(largeContent))
 	}
 }
 
@@ -844,7 +859,8 @@ func TestHTTPGatewayWriteChangesetFlow(t *testing.T) {
 
 	content := []byte("package payment\nconst GatewayWrite = true\n")
 	upload := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/UploadBlob", token, map[string]any{
-		"data": base64.StdEncoding.EncodeToString(content),
+		"data":  base64.StdEncoding.EncodeToString(content),
+		"slice": map[string]string{"account": "acme", "slice": "payment"},
 	})
 	blobID, _ := upload["blobId"].(string)
 	contentHash, _ := upload["contentHash"].(string)
@@ -854,6 +870,7 @@ func TestHTTPGatewayWriteChangesetFlow(t *testing.T) {
 
 	blobStatus := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/GetBlobStatus", token, map[string]any{
 		"contentHashes": []string{contentHash, "sha256:missing"},
+		"slice":         map[string]string{"account": "acme", "slice": "payment"},
 	})
 	records, ok := blobStatus["blobs"].([]any)
 	if !ok || len(records) != 2 {
@@ -1701,6 +1718,9 @@ func TestRestartPreservesSubmittedState(t *testing.T) {
 func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 	ts := startTestServer(t)
 	token := loginViaGRPC(t, ts.addr, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
 
 	uploadInfoRefs := "/git/acme/payment.git/info/refs?service=git-upload-pack"
 	statusCode, headers, body := gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "")
@@ -1714,6 +1734,42 @@ func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer not-a-token")
 	if statusCode != http.StatusUnauthorized {
 		t.Fatalf("expected invalid token upload-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
+	}
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "git-public-outsider",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+signup.Token)
+	if statusCode != http.StatusForbidden {
+		t.Fatalf("expected account-visible upload-pack discovery for outsider to return 403, got %d:\n%s", statusCode, string(body))
+	}
+
+	slices := corev1.NewSliceServiceClient(conn)
+	payment, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "payment"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                payment.Id,
+		ExpectedDefinitionHash: payment.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths: payment.Definition.IncludedPaths,
+			Visibility:    "public",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+signup.Token)
+	if statusCode != http.StatusOK {
+		t.Fatalf("expected public upload-pack discovery for outsider to return 200, got %d:\n%s", statusCode, string(body))
+	}
+	if got := headers.Get("Content-Type"); !strings.Contains(got, "application/x-git-upload-pack-advertisement") {
+		t.Fatalf("expected public upload-pack advertisement content type, got %q", got)
 	}
 
 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:"+token))
@@ -1739,12 +1795,12 @@ func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 		t.Fatalf("expected receive-pack auth challenge, got %q", got)
 	}
 
-	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, receiveInfoRefs, "Bearer "+token)
-	if statusCode != http.StatusForbidden {
-		t.Fatalf("expected authenticated receive-pack discovery to return 403, got %d:\n%s", statusCode, string(body))
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, receiveInfoRefs, "Bearer "+token)
+	if statusCode != http.StatusOK {
+		t.Fatalf("expected authenticated receive-pack discovery to return 200, got %d:\n%s", statusCode, string(body))
 	}
-	if !strings.Contains(string(body), "git push is not supported") || !strings.Contains(string(body), "native changesets") {
-		t.Fatalf("expected push rejection to direct users to native changesets, got:\n%s", string(body))
+	if !strings.Contains(headers.Get("Content-Type"), "application/x-git-receive-pack-advertisement") {
+		t.Fatalf("expected receive-pack advertisement content type, got %q", headers.Get("Content-Type"))
 	}
 
 	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, "/not-git/acme/payment.git/info/refs?service=git-upload-pack", "Bearer "+token)
@@ -1796,13 +1852,100 @@ func TestGitCloneProjection(t *testing.T) {
 	if string(projectedFetch) != "package payment\nconst GitFetch = true\n" {
 		t.Fatalf("unexpected fetched file contents:\n%s", string(projectedFetch))
 	}
+}
 
-	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/new")
-	if err == nil {
-		t.Fatal("expected git push to be rejected")
+func TestGitPushIntoChangesets(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	token := readToken(t, home)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "git_push_base.go", "package payment\nconst GitPushBase = true\n")
+	runCLI(t, home, workspace, "cs", "create", "--title", "git push base")
+	runCLI(t, home, workspace, "cs", "submit")
+
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	changesets := corev1.NewChangesetServiceClient(conn)
+
+	cloneDir := filepath.Join(t.TempDir(), "payment")
+	gitURL := "http://" + ts.gitAddr + "/git/acme/payment.git"
+	runGit(t, "", "-c", "http.extraHeader=Authorization: Bearer "+token, "clone", gitURL, cloneDir)
+	runGit(t, "", "-C", cloneDir, "config", "user.name", "Git Pusher")
+	runGit(t, "", "-C", cloneDir, "config", "user.email", "git-pusher@example.invalid")
+
+	writeWorkspaceFile(t, cloneDir, "acme/payment/git_push_one.go", "package payment\nconst GitPushOne = true\n")
+	runGit(t, "", "-C", cloneDir, "add", "acme/payment/git_push_one.go")
+	runGit(t, "", "-C", cloneDir, "commit", "-m", "git push first patchset")
+	_, stderr, err := runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/new")
+	if err != nil {
+		t.Fatalf("git push refs/changes/new failed: %v\nstderr:\n%s", err, stderr)
 	}
-	if !strings.Contains(stderr, "403") && !strings.Contains(stderr, "not supported") {
-		t.Fatalf("expected push rejection, got stderr:\n%s", stderr)
+	if !strings.Contains(stderr, "Created changeset acme/payment@") {
+		t.Fatalf("push output missing created changeset handle:\n%s", stderr)
+	}
+	draft := singleDraftChangeset(t, ctx, changesets)
+	if len(draft.Patchsets) != 1 {
+		t.Fatalf("draft patchset count = %d, want 1: %#v", len(draft.Patchsets), draft)
+	}
+	if !containsString(draft.Patchsets[0].ChangedPaths, "/acme/payment/git_push_one.go") {
+		t.Fatalf("first patchset changed paths = %#v", draft.Patchsets[0].ChangedPaths)
+	}
+
+	writeWorkspaceFile(t, cloneDir, "acme/payment/git_push_two.go", "package payment\nconst GitPushTwo = true\n")
+	runGit(t, "", "-C", cloneDir, "add", "acme/payment/git_push_two.go")
+	runGit(t, "", "-C", cloneDir, "commit", "-m", "git push second patchset")
+	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/changes/"+strconv.FormatInt(draft.Number, 10))
+	if err != nil {
+		t.Fatalf("git push existing changeset failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if !strings.Contains(stderr, "Updated changeset "+draft.Handle) {
+		t.Fatalf("push output missing updated changeset handle:\n%s", stderr)
+	}
+	updated, err := changesets.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: draft.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.CurrentPatchsetNumber != 2 || len(updated.Patchsets) != 2 {
+		t.Fatalf("updated changeset patchsets = current %d count %d, want current 2 count 2", updated.CurrentPatchsetNumber, len(updated.Patchsets))
+	}
+	second := updated.Patchsets[1]
+	for _, want := range []string{"/acme/payment/git_push_one.go", "/acme/payment/git_push_two.go"} {
+		if !containsString(second.ChangedPaths, want) {
+			t.Fatalf("second patchset changed paths missing %s: %#v", want, second.ChangedPaths)
+		}
+	}
+
+	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+token, "push", "origin", "HEAD:refs/heads/main")
+	if err == nil {
+		t.Fatal("expected protected branch push to be rejected")
+	}
+	if !strings.Contains(stderr, "protected") && !strings.Contains(stderr, "refs/changes/new") {
+		t.Fatalf("protected branch rejection did not guide to changes refs:\n%s", stderr)
+	}
+
+	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "git-push-outsider",
+		CallbackUrl: "http://127.0.0.1/callback",
+		State:       "state",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+signup.Token, "push", "origin", "HEAD:refs/changes/new")
+	if err == nil {
+		t.Fatal("expected unauthorized git push to be rejected")
+	}
+	if !strings.Contains(stderr, "403") && !strings.Contains(strings.ToLower(stderr), "permission") {
+		t.Fatalf("unauthorized push did not fail with auth guidance:\n%s", stderr)
+	}
+
+	runCLI(t, home, workspace, "cs", "submit", updated.Handle)
+	submitted := waitForSubmittedChangeset(t, ctx, changesets, updated.Id)
+	if !containsString(submitted.AffectedPaths, "/acme/payment/git_push_two.go") {
+		t.Fatalf("submitted changeset affected paths = %#v", submitted.AffectedPaths)
 	}
 }
 
@@ -2265,7 +2408,7 @@ func createDirectPatchset(t *testing.T, ctx context.Context, clients testCoreCli
 	if err != nil {
 		t.Fatal(err)
 	}
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content)})
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: &corev1.SliceRef{Account: "acme", Slice: "payment"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2314,13 +2457,34 @@ func waitForSubmittedChangeset(t *testing.T, ctx context.Context, client corev1.
 	return nil
 }
 
+func singleDraftChangeset(t *testing.T, ctx context.Context, client corev1.ChangesetServiceClient) *corev1.Changeset {
+	t.Helper()
+	res, err := client.ListChangesets(ctx, &corev1.ListChangesetsRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		Status:         "draft",
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Changesets) != 1 {
+		t.Fatalf("draft changeset count = %d, want 1: %#v", len(res.Changesets), res.Changesets)
+	}
+	return res.Changesets[0]
+}
+
 func writeWorkspaceFile(t *testing.T, workspace, rel, content string) {
+	t.Helper()
+	writeWorkspaceFileBytes(t, workspace, rel, []byte(content))
+}
+
+func writeWorkspaceFileBytes(t *testing.T, workspace, rel string, content []byte) {
 	t.Helper()
 	path := filepath.Join(workspace, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -2628,6 +2792,42 @@ func httpGatewayOptions(t *testing.T, addr, path, origin string) (int, http.Head
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode, resp.Header.Clone()
+}
+
+func httpGet(t *testing.T, addr, path string) string {
+	t.Helper()
+	resp, err := http.Get("http://" + addr + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode >= 300 {
+		t.Fatalf("GET %s returned %d:\n%s", path, resp.StatusCode, string(data))
+	}
+	return string(data)
+}
+
+func assertMetricPositive(t *testing.T, text, series string) {
+	t.Helper()
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != series {
+			continue
+		}
+		value, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			t.Fatalf("metric %s has unparsable value %q", series, fields[1])
+		}
+		if value > 0 {
+			return
+		}
+		t.Fatalf("metric %s = %s, want > 0", series, fields[1])
+	}
+	t.Fatalf("metric %s not found in /metrics output:\n%s", series, text)
 }
 
 func gitHTTPRaw(t *testing.T, addr, path, authorization string) (int, http.Header, []byte) {

@@ -437,6 +437,14 @@ path_locks(
 )
 ```
 
+MVP implementation note: the current slice definition is stored on `slices` for
+fast reads, and `slice_definition_versions(slice_id, version, definition_hash,
+visibility, included_paths, required_approvals, required_checks, created_by,
+created_at)` records each accepted definition version. Migration backfill starts
+history at each existing slice's current `slices.version`; later creates and
+definition updates append rows in the same transaction as the current-row
+mutation.
+
 Changeset and patchset metadata:
 
 ```text

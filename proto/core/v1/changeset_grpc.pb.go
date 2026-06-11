@@ -19,13 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ChangesetService_CreateChangeset_FullMethodName  = "/gitslice.core.v1.ChangesetService/CreateChangeset"
-	ChangesetService_GetChangeset_FullMethodName     = "/gitslice.core.v1.ChangesetService/GetChangeset"
-	ChangesetService_ListChangesets_FullMethodName   = "/gitslice.core.v1.ChangesetService/ListChangesets"
-	ChangesetService_DiffChangeset_FullMethodName    = "/gitslice.core.v1.ChangesetService/DiffChangeset"
-	ChangesetService_UpdateChangeset_FullMethodName  = "/gitslice.core.v1.ChangesetService/UpdateChangeset"
-	ChangesetService_SubmitChangeset_FullMethodName  = "/gitslice.core.v1.ChangesetService/SubmitChangeset"
-	ChangesetService_AbandonChangeset_FullMethodName = "/gitslice.core.v1.ChangesetService/AbandonChangeset"
+	ChangesetService_CreateChangeset_FullMethodName   = "/gitslice.core.v1.ChangesetService/CreateChangeset"
+	ChangesetService_GetChangeset_FullMethodName      = "/gitslice.core.v1.ChangesetService/GetChangeset"
+	ChangesetService_ListChangesets_FullMethodName    = "/gitslice.core.v1.ChangesetService/ListChangesets"
+	ChangesetService_DiffChangeset_FullMethodName     = "/gitslice.core.v1.ChangesetService/DiffChangeset"
+	ChangesetService_UpdateChangeset_FullMethodName   = "/gitslice.core.v1.ChangesetService/UpdateChangeset"
+	ChangesetService_ApproveChangeset_FullMethodName  = "/gitslice.core.v1.ChangesetService/ApproveChangeset"
+	ChangesetService_ReportCheckResult_FullMethodName = "/gitslice.core.v1.ChangesetService/ReportCheckResult"
+	ChangesetService_SubmitChangeset_FullMethodName   = "/gitslice.core.v1.ChangesetService/SubmitChangeset"
+	ChangesetService_AbandonChangeset_FullMethodName  = "/gitslice.core.v1.ChangesetService/AbandonChangeset"
 )
 
 // ChangesetServiceClient is the client API for ChangesetService service.
@@ -37,6 +39,8 @@ type ChangesetServiceClient interface {
 	ListChangesets(ctx context.Context, in *ListChangesetsRequest, opts ...grpc.CallOption) (*ListChangesetsResponse, error)
 	DiffChangeset(ctx context.Context, in *DiffChangesetRequest, opts ...grpc.CallOption) (*DiffChangesetResponse, error)
 	UpdateChangeset(ctx context.Context, in *UpdateChangesetRequest, opts ...grpc.CallOption) (*Patchset, error)
+	ApproveChangeset(ctx context.Context, in *ApproveChangesetRequest, opts ...grpc.CallOption) (*ApproveChangesetResponse, error)
+	ReportCheckResult(ctx context.Context, in *ReportCheckResultRequest, opts ...grpc.CallOption) (*ReportCheckResultResponse, error)
 	SubmitChangeset(ctx context.Context, in *SubmitChangesetRequest, opts ...grpc.CallOption) (*SubmitChangesetResponse, error)
 	AbandonChangeset(ctx context.Context, in *AbandonChangesetRequest, opts ...grpc.CallOption) (*Empty, error)
 }
@@ -94,6 +98,24 @@ func (c *changesetServiceClient) UpdateChangeset(ctx context.Context, in *Update
 	return out, nil
 }
 
+func (c *changesetServiceClient) ApproveChangeset(ctx context.Context, in *ApproveChangesetRequest, opts ...grpc.CallOption) (*ApproveChangesetResponse, error) {
+	out := new(ApproveChangesetResponse)
+	err := c.cc.Invoke(ctx, ChangesetService_ApproveChangeset_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetServiceClient) ReportCheckResult(ctx context.Context, in *ReportCheckResultRequest, opts ...grpc.CallOption) (*ReportCheckResultResponse, error) {
+	out := new(ReportCheckResultResponse)
+	err := c.cc.Invoke(ctx, ChangesetService_ReportCheckResult_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *changesetServiceClient) SubmitChangeset(ctx context.Context, in *SubmitChangesetRequest, opts ...grpc.CallOption) (*SubmitChangesetResponse, error) {
 	out := new(SubmitChangesetResponse)
 	err := c.cc.Invoke(ctx, ChangesetService_SubmitChangeset_FullMethodName, in, out, opts...)
@@ -121,6 +143,8 @@ type ChangesetServiceServer interface {
 	ListChangesets(context.Context, *ListChangesetsRequest) (*ListChangesetsResponse, error)
 	DiffChangeset(context.Context, *DiffChangesetRequest) (*DiffChangesetResponse, error)
 	UpdateChangeset(context.Context, *UpdateChangesetRequest) (*Patchset, error)
+	ApproveChangeset(context.Context, *ApproveChangesetRequest) (*ApproveChangesetResponse, error)
+	ReportCheckResult(context.Context, *ReportCheckResultRequest) (*ReportCheckResultResponse, error)
 	SubmitChangeset(context.Context, *SubmitChangesetRequest) (*SubmitChangesetResponse, error)
 	AbandonChangeset(context.Context, *AbandonChangesetRequest) (*Empty, error)
 }
@@ -143,6 +167,12 @@ func (UnimplementedChangesetServiceServer) DiffChangeset(context.Context, *DiffC
 }
 func (UnimplementedChangesetServiceServer) UpdateChangeset(context.Context, *UpdateChangesetRequest) (*Patchset, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateChangeset not implemented")
+}
+func (UnimplementedChangesetServiceServer) ApproveChangeset(context.Context, *ApproveChangesetRequest) (*ApproveChangesetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApproveChangeset not implemented")
+}
+func (UnimplementedChangesetServiceServer) ReportCheckResult(context.Context, *ReportCheckResultRequest) (*ReportCheckResultResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportCheckResult not implemented")
 }
 func (UnimplementedChangesetServiceServer) SubmitChangeset(context.Context, *SubmitChangesetRequest) (*SubmitChangesetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitChangeset not implemented")
@@ -252,6 +282,42 @@ func _ChangesetService_UpdateChangeset_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChangesetService_ApproveChangeset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApproveChangesetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).ApproveChangeset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_ApproveChangeset_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).ApproveChangeset(ctx, req.(*ApproveChangesetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetService_ReportCheckResult_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportCheckResultRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).ReportCheckResult(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_ReportCheckResult_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).ReportCheckResult(ctx, req.(*ReportCheckResultRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ChangesetService_SubmitChangeset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SubmitChangesetRequest)
 	if err := dec(in); err != nil {
@@ -314,6 +380,14 @@ var ChangesetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateChangeset",
 			Handler:    _ChangesetService_UpdateChangeset_Handler,
+		},
+		{
+			MethodName: "ApproveChangeset",
+			Handler:    _ChangesetService_ApproveChangeset_Handler,
+		},
+		{
+			MethodName: "ReportCheckResult",
+			Handler:    _ChangesetService_ReportCheckResult_Handler,
 		},
 		{
 			MethodName: "SubmitChangeset",

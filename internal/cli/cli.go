@@ -29,10 +29,12 @@ import (
 	"github.com/gitslice-io/gitslice/internal/clientcache"
 	"github.com/gitslice-io/gitslice/internal/diffutil"
 	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
 	"github.com/gitslice-io/gitslice/internal/storage"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/itchyny/gojq"
 	"github.com/peterh/liner"
@@ -209,12 +211,14 @@ type workspaceSyncOutput struct {
 }
 
 type changesetOutput struct {
-	ChangesetHandle string `json:"changeset_handle,omitempty"`
-	PatchsetHandle  string `json:"patchset_handle,omitempty"`
-	ChangesetID     string `json:"changeset_id"`
-	PatchsetID      string `json:"patchset_id,omitempty"`
-	PatchsetNumber  int64  `json:"patchset_number,omitempty"`
-	Status          string `json:"status,omitempty"`
+	ChangesetHandle     string                     `json:"changeset_handle,omitempty"`
+	PatchsetHandle      string                     `json:"patchset_handle,omitempty"`
+	ChangesetID         string                     `json:"changeset_id"`
+	PatchsetID          string                     `json:"patchset_id,omitempty"`
+	PatchsetNumber      int64                      `json:"patchset_number,omitempty"`
+	Status              string                     `json:"status,omitempty"`
+	SubmitBlockedReason string                     `json:"submit_blocked_reason,omitempty"`
+	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
 }
 
 type versionOutput struct {
@@ -301,14 +305,28 @@ type hydrateResult struct {
 }
 
 type sliceOutput struct {
-	ID             string   `json:"id"`
-	Ref            string   `json:"ref"`
-	Account        string   `json:"account"`
-	Slice          string   `json:"slice"`
-	Version        int64    `json:"version"`
-	Visibility     string   `json:"visibility"`
-	IncludedPaths  []string `json:"included_paths"`
-	DefinitionHash string   `json:"definition_hash"`
+	ID                string   `json:"id"`
+	Ref               string   `json:"ref"`
+	Account           string   `json:"account"`
+	Slice             string   `json:"slice"`
+	Version           int64    `json:"version"`
+	Visibility        string   `json:"visibility"`
+	IncludedPaths     []string `json:"included_paths"`
+	RequiredApprovals int32    `json:"required_approvals"`
+	RequiredChecks    []string `json:"required_checks"`
+	DefinitionHash    string   `json:"definition_hash"`
+}
+
+type sliceDefinitionVersionOutput struct {
+	SliceID           string   `json:"slice_id"`
+	Version           int64    `json:"version"`
+	DefinitionHash    string   `json:"definition_hash"`
+	Visibility        string   `json:"visibility"`
+	IncludedPaths     []string `json:"included_paths"`
+	RequiredApprovals int32    `json:"required_approvals"`
+	RequiredChecks    []string `json:"required_checks"`
+	CreatedBy         string   `json:"created_by"`
+	CreatedAt         string   `json:"created_at"`
 }
 
 type fileMutationOutput struct {
@@ -428,6 +446,9 @@ const (
 	workspaceSyncMergeManual          = "manual"
 	workspaceSyncMergeOurs            = "ours"
 	workspaceSyncMergeTheirs          = "theirs"
+
+	blobStreamThresholdBytes = int64(4 << 20)
+	blobStreamChunkBytes     = 1 << 20
 )
 
 type helpTopic struct {
@@ -1231,6 +1252,24 @@ func (r Runner) rootCommand() *cobra.Command {
 	csDiffCmd.Flags().StringVar(&csDiffTo, "to", csDiffTo, "patchset number or handle to diff to")
 	csDiffCmd.Flags().BoolVar(&csDiffNameOnly, "name-only", csDiffNameOnly, "show only changed path names")
 	csDiffCmd.Flags().BoolVar(&csDiffStat, "stat", csDiffStat, "show a compact changed-path summary")
+	csApproveCmd := &cobra.Command{
+		Use:   "approve <changeset>",
+		Short: "Approve the current patchset of a changeset",
+		Args:  exactArgs(1, "gs cs approve <changeset>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetApprove(cmd.Context(), *opts, args[0])
+		},
+	}
+	csCheckStatus := ""
+	csCheckCmd := &cobra.Command{
+		Use:   "check <changeset> <check-name>",
+		Short: "Report a changeset check result",
+		Args:  exactArgs(2, "gs cs check <changeset> <check-name> --status pass|fail"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetCheck(cmd.Context(), *opts, args[0], args[1], csCheckStatus)
+		},
+	}
+	csCheckCmd.Flags().StringVar(&csCheckStatus, "status", csCheckStatus, "check status: pass or fail")
 	csAbandonReason := ""
 	csAbandonCmd := &cobra.Command{
 		Use:   "abandon [changeset]",
@@ -1259,7 +1298,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	csListCmd.Flags().StringVar(&csListSlice, "slice", csListSlice, "authoring slice, defaults to current workspace slice")
 	csListCmd.Flags().StringVar(&csListStatus, "status", csListStatus, "status filter")
 	csListCmd.Flags().IntVar(&csListLimit, "limit", csListLimit, "maximum changesets to list")
-	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csAbandonCmd, csListCmd)
+	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
 
 	fsCmd := &cobra.Command{
 		Use:     "fs",
@@ -1427,6 +1466,27 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 
+	adminCmd := &cobra.Command{
+		Use:    "admin",
+		Short:  "Administrative repair commands",
+		Hidden: true,
+		RunE:   requireSubcommand("admin"),
+	}
+	adminRebuildYes := false
+	adminRebuildTargetRef := postgres.DefaultTargetRef
+	adminRebuildIndexesCmd := &cobra.Command{
+		Use:    "rebuild-indexes",
+		Short:  "Rebuild derived indexes from source-of-truth commits",
+		Hidden: true,
+		Args:   noArgs("gs admin rebuild-indexes --yes"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAdminRebuildIndexes(cmd.Context(), *opts, adminRebuildTargetRef, adminRebuildYes)
+		},
+	}
+	adminRebuildIndexesCmd.Flags().StringVar(&adminRebuildTargetRef, "target-ref", adminRebuildTargetRef, "target ref to rebuild")
+	adminRebuildIndexesCmd.Flags().BoolVar(&adminRebuildYes, "yes", adminRebuildYes, "confirm derived index rebuild")
+	adminCmd.AddCommand(adminRebuildIndexesCmd)
+
 	sliceCmd := &cobra.Command{
 		Use:     "slice",
 		Aliases: []string{"slices"},
@@ -1434,17 +1494,21 @@ home slice root, for example /nic/notes.`,
 		RunE:    requireSubcommand("slice"),
 	}
 	sliceCreateVisibility := "account"
+	sliceCreateRequiredApprovals := 0
 	var sliceCreateIncludes []string
+	var sliceCreateRequiredChecks []string
 	sliceCreateCmd := &cobra.Command{
 		Use:   "create <slice|account/slice>",
 		Short: "Create a slice",
-		Args:  exactArgs(1, "gs slice create <slice|account/slice> [--include /account/path] [--visibility account|public]"),
+		Args:  exactArgs(1, "gs slice create <slice|account/slice> [--include /account/path] [--visibility private|account|public] [--required-approvals n] [--required-check name]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility)
+			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility, sliceCreateRequiredApprovals, sliceCreateRequiredChecks)
 		},
 	}
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateIncludes, "include", nil, "included global path; repeat for multiple paths")
-	sliceCreateCmd.Flags().StringVar(&sliceCreateVisibility, "visibility", sliceCreateVisibility, "slice visibility: account or public")
+	sliceCreateCmd.Flags().StringVar(&sliceCreateVisibility, "visibility", sliceCreateVisibility, "slice visibility: private, account, or public")
+	sliceCreateCmd.Flags().IntVar(&sliceCreateRequiredApprovals, "required-approvals", sliceCreateRequiredApprovals, "distinct non-author approvals required before submit")
+	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateRequiredChecks, "required-check", nil, "check name required to pass before submit; repeat for multiple checks")
 	sliceListCmd := &cobra.Command{
 		Use:   "list [account]",
 		Short: "List slices in an account",
@@ -1473,20 +1537,38 @@ home slice root, for example /nic/notes.`,
 			return r.runSlicePaths(cmd.Context(), *opts, args[0])
 		},
 	}
+	sliceHistoryPageSize := 50
+	sliceHistoryCmd := &cobra.Command{
+		Use:   "history <slice|account/slice>",
+		Short: "Show slice definition history",
+		Args:  exactArgs(1, "gs slice history <slice|account/slice> [--page-size n]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSliceHistory(cmd.Context(), *opts, args[0], sliceHistoryPageSize)
+		},
+	}
+	sliceHistoryCmd.Flags().IntVar(&sliceHistoryPageSize, "page-size", sliceHistoryPageSize, "maximum definition versions to print")
 	sliceUpdateVisibility := ""
+	sliceUpdateRequiredApprovals := 0
+	sliceUpdateClearRequiredChecks := false
 	var sliceUpdateIncludes []string
+	var sliceUpdateRequiredChecks []string
 	sliceUpdateCmd := &cobra.Command{
 		Use:   "update <slice|account/slice>",
-		Short: "Update slice included paths or visibility",
-		Args:  exactArgs(1, "gs slice update <slice|account/slice> [--include /account/path] [--visibility account|public]"),
+		Short: "Update slice included paths, visibility, or submit settings",
+		Args:  exactArgs(1, "gs slice update <slice|account/slice> [--include /account/path] [--visibility private|account|public] [--required-approvals n] [--required-check name]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			visibilityChanged := cmd.Flags().Changed("visibility")
 			includesChanged := cmd.Flags().Changed("include")
-			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged)
+			requiredApprovalsChanged := cmd.Flags().Changed("required-approvals")
+			requiredChecksChanged := cmd.Flags().Changed("required-check")
+			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged, sliceUpdateRequiredApprovals, requiredApprovalsChanged, sliceUpdateRequiredChecks, requiredChecksChanged, sliceUpdateClearRequiredChecks)
 		},
 	}
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateIncludes, "include", nil, "replacement included global path; repeat for multiple paths")
-	sliceUpdateCmd.Flags().StringVar(&sliceUpdateVisibility, "visibility", sliceUpdateVisibility, "slice visibility: account or public")
+	sliceUpdateCmd.Flags().StringVar(&sliceUpdateVisibility, "visibility", sliceUpdateVisibility, "slice visibility: private, account, or public")
+	sliceUpdateCmd.Flags().IntVar(&sliceUpdateRequiredApprovals, "required-approvals", sliceUpdateRequiredApprovals, "replacement distinct non-author approvals required before submit")
+	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateRequiredChecks, "required-check", nil, "replacement required check name; repeat for multiple checks")
+	sliceUpdateCmd.Flags().BoolVar(&sliceUpdateClearRequiredChecks, "clear-required-checks", sliceUpdateClearRequiredChecks, "remove all required checks")
 	sliceDeleteYes := false
 	sliceDeleteCmd := &cobra.Command{
 		Use:   "delete <slice|account/slice>",
@@ -1497,9 +1579,9 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
-	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceUpdateCmd, sliceDeleteCmd)
+	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, sliceCmd)
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd)
 	return root
 }
 
@@ -2440,10 +2522,13 @@ func findGeneratedRPCMethod(selector string) (protoreflect.MethodDescriptor, err
 	return method, nil
 }
 
-func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string) error {
+func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string, requiredApprovals int, requiredChecks []string) error {
 	includedPaths, err := expandSliceIncludedPaths(includedPaths)
 	if err != nil {
 		return err
+	}
+	if requiredApprovals < 0 {
+		return userError("invalid_args", "required approvals must be zero or greater", "Pass --required-approvals 0 or higher.")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
@@ -2458,9 +2543,11 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 		includedPaths = defaultSliceIncludedPaths(ref)
 	}
 	slice, err := corev1.NewSliceServiceClient(conn).CreateSlice(callCtx, &corev1.CreateSliceRequest{
-		Ref:           ref,
-		IncludedPaths: includedPaths,
-		Visibility:    visibility,
+		Ref:               ref,
+		IncludedPaths:     includedPaths,
+		Visibility:        visibility,
+		RequiredApprovals: int32(requiredApprovals),
+		RequiredChecks:    requiredChecks,
 	})
 	if err != nil {
 		return err
@@ -2521,6 +2608,10 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 		fmt.Fprintf(r.Stdout, "  %s\n", slice.Ref)
 		fmt.Fprintf(r.Stdout, "    visibility: %s\n", slice.Visibility)
 		fmt.Fprintf(r.Stdout, "    included paths: %s\n", strings.Join(slice.IncludedPaths, ", "))
+		fmt.Fprintf(r.Stdout, "    required approvals: %d\n", slice.RequiredApprovals)
+		if len(slice.RequiredChecks) > 0 {
+			fmt.Fprintf(r.Stdout, "    required checks: %s\n", strings.Join(slice.RequiredChecks, ", "))
+		}
 	}
 	return nil
 }
@@ -2560,9 +2651,80 @@ func (r Runner) runSlicePaths(ctx context.Context, opts commandOptions, sliceRef
 	return nil
 }
 
-func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool) error {
-	if !includesChanged && !visibilityChanged {
-		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, or both.")
+func (r Runner) runSliceHistory(ctx context.Context, opts commandOptions, sliceRef string, pageSize int) error {
+	if pageSize < 0 {
+		return userError("invalid_args", "page size must be zero or greater", "Pass --page-size 0 or higher.")
+	}
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
+	client := corev1.NewSliceServiceClient(conn)
+	slice, err := client.ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		return err
+	}
+	res, err := client.ListSliceDefinitionVersions(callCtx, &corev1.ListSliceDefinitionVersionsRequest{
+		SliceId:  slice.Id,
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		return err
+	}
+	versions := make([]sliceDefinitionVersionOutput, 0, len(res.Versions))
+	for _, version := range res.Versions {
+		versions = append(versions, sliceDefinitionVersionToOutput(version))
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"ref":      sliceRefLabel(slice.Ref),
+			"slice_id": slice.Id,
+			"versions": versions,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "history for %s:\n", sliceRefLabel(slice.Ref))
+	if len(versions) == 0 {
+		fmt.Fprintln(r.Stdout, "  no definition versions")
+		return nil
+	}
+	for _, version := range versions {
+		fmt.Fprintf(r.Stdout, "  version: %d\n", version.Version)
+		fmt.Fprintf(r.Stdout, "    definition_hash: %s\n", version.DefinitionHash)
+		fmt.Fprintf(r.Stdout, "    visibility: %s\n", version.Visibility)
+		fmt.Fprintf(r.Stdout, "    included_paths: %s\n", strings.Join(version.IncludedPaths, ", "))
+		fmt.Fprintf(r.Stdout, "    required_approvals: %d\n", version.RequiredApprovals)
+		if len(version.RequiredChecks) > 0 {
+			fmt.Fprintf(r.Stdout, "    required_checks: %s\n", strings.Join(version.RequiredChecks, ", "))
+		} else {
+			fmt.Fprintln(r.Stdout, "    required_checks: none")
+		}
+		if version.CreatedBy != "" {
+			fmt.Fprintf(r.Stdout, "    created_by: %s\n", version.CreatedBy)
+		} else {
+			fmt.Fprintln(r.Stdout, "    created_by: unknown")
+		}
+		fmt.Fprintf(r.Stdout, "    created_at: %s\n", version.CreatedAt)
+	}
+	return nil
+}
+
+func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool) error {
+	if requiredChecksChanged && clearRequiredChecks {
+		return userError("invalid_args", "required checks can be replaced or cleared, not both", "Use --required-check or --clear-required-checks.")
+	}
+	if !includesChanged && !visibilityChanged && !requiredApprovalsChanged && !requiredChecksChanged && !clearRequiredChecks {
+		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, --required-approvals, --required-check, or --clear-required-checks.")
+	}
+	if requiredApprovals < 0 {
+		return userError("invalid_args", "required approvals must be zero or greater", "Pass --required-approvals 0 or higher.")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
@@ -2590,12 +2752,24 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 	if visibilityChanged {
 		nextVisibility = visibility
 	}
+	nextRequiredApprovals := current.Definition.RequiredApprovals
+	if requiredApprovalsChanged {
+		nextRequiredApprovals = int32(requiredApprovals)
+	}
+	nextRequiredChecks := append([]string{}, current.Definition.RequiredChecks...)
+	if clearRequiredChecks {
+		nextRequiredChecks = nil
+	} else if requiredChecksChanged {
+		nextRequiredChecks = requiredChecks
+	}
 	_, err = client.UpdateSliceDefinition(callCtx, &corev1.UpdateSliceDefinitionRequest{
 		SliceId:                current.Id,
 		ExpectedDefinitionHash: current.DefinitionHash,
 		Definition: &corev1.SliceDefinition{
-			IncludedPaths: nextIncluded,
-			Visibility:    nextVisibility,
+			IncludedPaths:     nextIncluded,
+			Visibility:        nextVisibility,
+			RequiredApprovals: nextRequiredApprovals,
+			RequiredChecks:    nextRequiredChecks,
 		},
 	})
 	if err != nil {
@@ -2722,6 +2896,12 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 	fmt.Fprintf(w, "id: %s\n", out.ID)
 	fmt.Fprintf(w, "version: %d\n", out.Version)
 	fmt.Fprintf(w, "visibility: %s\n", out.Visibility)
+	fmt.Fprintf(w, "required_approvals: %d\n", out.RequiredApprovals)
+	if len(out.RequiredChecks) > 0 {
+		fmt.Fprintf(w, "required_checks: %s\n", strings.Join(out.RequiredChecks, ", "))
+	} else {
+		fmt.Fprintln(w, "required_checks: none")
+	}
 	fmt.Fprintf(w, "definition_hash: %s\n", out.DefinitionHash)
 	fmt.Fprintln(w, "included_paths:")
 	for _, p := range out.IncludedPaths {
@@ -2747,8 +2927,27 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		out.Version = slice.Definition.Version
 		out.Visibility = slice.Definition.Visibility
 		out.IncludedPaths = append([]string{}, slice.Definition.IncludedPaths...)
+		out.RequiredApprovals = slice.Definition.RequiredApprovals
+		out.RequiredChecks = append([]string{}, slice.Definition.RequiredChecks...)
 	}
 	return out
+}
+
+func sliceDefinitionVersionToOutput(version *corev1.SliceDefinitionVersion) sliceDefinitionVersionOutput {
+	if version == nil {
+		return sliceDefinitionVersionOutput{}
+	}
+	return sliceDefinitionVersionOutput{
+		SliceID:           version.SliceId,
+		Version:           version.Version,
+		DefinitionHash:    version.DefinitionHash,
+		Visibility:        version.Visibility,
+		IncludedPaths:     append([]string{}, version.IncludedPaths...),
+		RequiredApprovals: version.RequiredApprovals,
+		RequiredChecks:    append([]string{}, version.RequiredChecks...),
+		CreatedBy:         version.CreatedBy,
+		CreatedAt:         version.CreatedAt,
+	}
 }
 
 func sliceRefLabel(ref *corev1.SliceRef) string {
@@ -4459,6 +4658,61 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	return nil
 }
 
+func (r Runner) runChangesetApprove(ctx context.Context, opts commandOptions, requestedID string) error {
+	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	res, err := corev1.NewChangesetServiceClient(conn).ApproveChangeset(authContext(ctx, cfg), &corev1.ApproveChangesetRequest{ChangesetId: changesetID})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, res)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "approved patchset %s for changeset %s\n", res.PatchsetId, requestedID)
+	return nil
+}
+
+func (r Runner) runChangesetCheck(ctx context.Context, opts commandOptions, requestedID, checkName, resultStatus string) error {
+	if _, ok := storage.NormalizeCheckStatus(resultStatus); !ok {
+		return userError("invalid_args", "check status must be pass or fail", "Pass --status pass or --status fail.")
+	}
+	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	res, err := corev1.NewChangesetServiceClient(conn).ReportCheckResult(authContext(ctx, cfg), &corev1.ReportCheckResultRequest{
+		ChangesetId: changesetID,
+		CheckName:   checkName,
+		Status:      resultStatus,
+	})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, res)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "reported check %s=%s for changeset %s\n", res.CheckName, res.Status, requestedID)
+	return nil
+}
+
 func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changesetID, changesetLabel string, timeout time.Duration, progress bool) (string, string, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -4582,6 +4836,26 @@ func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath
 	if resolved.Entry == nil || resolved.Entry.Kind != corev1.EntryKind_ENTRY_KIND_FILE {
 		return fmt.Errorf("%s is not a file", p)
 	}
+	if resolved.Entry.Size > blobStreamThresholdBytes && resolved.Entry.ContentHash != "" {
+		blobClient := corev1.NewBlobServiceClient(conn)
+		if opts.jsonOutput() {
+			data, err := readBlobStreamBytes(callCtx, blobClient, slice.Ref, resolved.Entry.ContentHash, 0, 0)
+			if err != nil {
+				return err
+			}
+			return r.writeJSONOutput(opts, fsCatOutput{
+				Path:        p,
+				Slice:       slice.Ref.Account + "/" + slice.Ref.Slice,
+				CommitID:    commitID,
+				ContentHash: resolved.Entry.ContentHash,
+				DataBase64:  base64.StdEncoding.EncodeToString(data),
+			})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		return writeBlobStream(callCtx, blobClient, slice.Ref, resolved.Entry.ContentHash, 0, 0, r.stdout())
+	}
 	read, err := repo.ReadFile(callCtx, &corev1.ReadFileRequest{CommitId: commitID, Path: p})
 	if err != nil {
 		return err
@@ -4662,7 +4936,7 @@ func (r Runner) runFileWrite(ctx context.Context, opts commandOptions, p string,
 	if err != nil {
 		return err
 	}
-	edit, err := r.uploadFileEdit(authContext(ctx, cfg), conn, cleaned, data)
+	edit, err := r.uploadFileEdit(authContext(ctx, cfg), conn, mutator.slice.Ref, cleaned, data)
 	if err != nil {
 		return err
 	}
@@ -4685,7 +4959,7 @@ func (r Runner) runFSUpload(ctx context.Context, opts commandOptions, localPath,
 	}
 	edits := make([]*corev1.FileEdit, 0, len(plan.Files)+len(plan.EmptyRemoteDirs))
 	if len(plan.Files) > 0 {
-		fileEdits, err := r.uploadLocalFiles(ctx, cfg, conn, plan.Files, uploadOpts.Concurrency)
+		fileEdits, err := r.uploadLocalFiles(ctx, cfg, conn, mutator.slice.Ref, plan.Files, uploadOpts.Concurrency)
 		if err != nil {
 			return err
 		}
@@ -4920,8 +5194,8 @@ func (r Runner) personalHomeSlice(ctx context.Context, cfg UserConfig, conn *grp
 	return slice, nil
 }
 
-func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, p string, data []byte) (*corev1.FileEdit, error) {
-	upload, err := corev1.NewBlobServiceClient(conn).UploadBlob(ctx, &corev1.UploadBlobRequest{Data: data})
+func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, sliceRef *corev1.SliceRef, p string, data []byte) (*corev1.FileEdit, error) {
+	upload, err := uploadBlobBytes(ctx, corev1.NewBlobServiceClient(conn), sliceRef, "", data)
 	if err != nil {
 		return nil, err
 	}
@@ -4934,14 +5208,14 @@ func (r Runner) uploadFileEdit(ctx context.Context, conn *grpc.ClientConn, p str
 	}, nil
 }
 
-func (r Runner) uploadLocalFiles(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, files []localUploadFile, concurrency int) ([]*corev1.FileEdit, error) {
+func (r Runner) uploadLocalFiles(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceRef *corev1.SliceRef, files []localUploadFile, concurrency int) ([]*corev1.FileEdit, error) {
 	files = append([]localUploadFile(nil), files...)
 	if err := hashLocalUploadFiles(ctx, files, boundedUploadConcurrency(concurrency, len(files))); err != nil {
 		return nil, err
 	}
 	blobClient := corev1.NewBlobServiceClient(conn)
 	callCtx := authContext(ctx, cfg)
-	known, err := remoteBlobRecords(callCtx, blobClient, files)
+	known, err := remoteBlobRecords(callCtx, blobClient, sliceRef, files)
 	if err != nil {
 		return nil, err
 	}
@@ -4955,7 +5229,7 @@ func (r Runner) uploadLocalFiles(ctx context.Context, cfg UserConfig, conn *grpc
 		}
 	}
 	if len(missingByHash) > 0 {
-		uploaded, err := uploadMissingLocalBlobs(callCtx, blobClient, missingByHash, boundedUploadConcurrency(concurrency, len(missingByHash)))
+		uploaded, err := uploadMissingLocalBlobs(callCtx, blobClient, sliceRef, missingByHash, boundedUploadConcurrency(concurrency, len(missingByHash)))
 		if err != nil {
 			return nil, err
 		}
@@ -5044,7 +5318,7 @@ func hashLocalUploadFiles(ctx context.Context, files []localUploadFile, concurre
 	return ctx.Err()
 }
 
-func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient, files []localUploadFile) (map[string]*corev1.BlobRecord, error) {
+func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, files []localUploadFile) (map[string]*corev1.BlobRecord, error) {
 	seen := map[string]struct{}{}
 	hashes := make([]string, 0, len(files))
 	for _, file := range files {
@@ -5064,7 +5338,7 @@ func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient,
 		if end > len(hashes) {
 			end = len(hashes)
 		}
-		res, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes[start:end]})
+		res, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes[start:end], Slice: sliceRef})
 		if err != nil {
 			return nil, err
 		}
@@ -5075,7 +5349,7 @@ func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient,
 	return records, nil
 }
 
-func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, missing map[string]localUploadFile, concurrency int) (map[string]*corev1.BlobRecord, error) {
+func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, missing map[string]localUploadFile, concurrency int) (map[string]*corev1.BlobRecord, error) {
 	hashes := make([]string, 0, len(missing))
 	for hash := range missing {
 		hashes = append(hashes, hash)
@@ -5095,12 +5369,7 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 			defer wg.Done()
 			for hash := range jobs {
 				file := missing[hash]
-				data, err := os.ReadFile(file.LocalPath)
-				if err != nil {
-					results <- result{hash: hash, err: err}
-					continue
-				}
-				upload, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data})
+				upload, err := uploadLocalBlob(ctx, blobClient, sliceRef, file)
 				if err != nil {
 					results <- result{hash: hash, err: err}
 					continue
@@ -5142,6 +5411,120 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 		return nil, err
 	}
 	return records, nil
+}
+
+func uploadLocalBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, file localUploadFile) (*corev1.UploadBlobResponse, error) {
+	if file.Size > blobStreamThresholdBytes {
+		f, err := os.Open(file.LocalPath)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		return uploadBlobReader(ctx, blobClient, sliceRef, file.ContentHash, file.Size, f)
+	}
+	data, err := os.ReadFile(file.LocalPath)
+	if err != nil {
+		return nil, err
+	}
+	return uploadBlobBytes(ctx, blobClient, sliceRef, file.ContentHash, data)
+}
+
+func uploadBlobBytes(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, contentHash string, data []byte) (*corev1.UploadBlobResponse, error) {
+	if int64(len(data)) > blobStreamThresholdBytes {
+		return uploadBlobReader(ctx, blobClient, sliceRef, contentHash, int64(len(data)), bytes.NewReader(data))
+	}
+	return blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: contentHash, Data: data, Slice: sliceRef})
+}
+
+func uploadBlobReader(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, contentHash string, size int64, r io.Reader) (*corev1.UploadBlobResponse, error) {
+	stream, err := blobClient.UploadBlobStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+	init := &corev1.UploadBlobInit{Slice: sliceRef, ContentHash: contentHash}
+	if size >= 0 {
+		init.Size = &size
+	}
+	if err := stream.Send(&corev1.UploadBlobChunk{Payload: &corev1.UploadBlobChunk_Init{Init: init}}); err != nil {
+		return nil, err
+	}
+	buf := make([]byte, blobStreamChunkBytes)
+	for {
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			data := append([]byte(nil), buf[:n]...)
+			if err := stream.Send(&corev1.UploadBlobChunk{Payload: &corev1.UploadBlobChunk_Data{Data: data}}); err != nil {
+				return nil, err
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	return stream.CloseAndRecv()
+}
+
+func readBlobStreamBytes(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, contentHash string, offset, length int64) ([]byte, error) {
+	var b bytes.Buffer
+	if err := writeBlobStream(ctx, blobClient, sliceRef, contentHash, offset, length, &b); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+func writeBlobStream(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, contentHash string, offset, length int64, dst io.Writer) error {
+	stream, err := blobClient.ReadBlobStream(ctx, &corev1.ReadBlobStreamRequest{
+		Slice:       sliceRef,
+		ContentHash: contentHash,
+		Offset:      offset,
+		Length:      length,
+	})
+	if err != nil {
+		return err
+	}
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if len(chunk.Data) == 0 {
+			continue
+		}
+		if _, err := dst.Write(chunk.Data); err != nil {
+			return err
+		}
+	}
+}
+
+type blobStreamReader struct {
+	stream corev1.BlobService_ReadBlobStreamClient
+	buf    []byte
+}
+
+func newBlobStreamReader(stream corev1.BlobService_ReadBlobStreamClient) *blobStreamReader {
+	return &blobStreamReader{stream: stream}
+}
+
+func (r *blobStreamReader) Read(p []byte) (int, error) {
+	for len(r.buf) == 0 {
+		chunk, err := r.stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return 0, io.EOF
+		}
+		if err != nil {
+			return 0, err
+		}
+		r.buf = chunk.Data
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
 }
 
 type remoteFileMutator struct {
@@ -5393,12 +5776,14 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return err
 	}
 	output := changesetOutput{
-		ChangesetHandle: displayChangesetHandle(cs),
-		PatchsetHandle:  displayCurrentPatchsetHandle(cs),
-		ChangesetID:     cs.Id,
-		PatchsetID:      cs.CurrentPatchsetId,
-		PatchsetNumber:  cs.CurrentPatchsetNumber,
-		Status:          cs.Status,
+		ChangesetHandle:     displayChangesetHandle(cs),
+		PatchsetHandle:      displayCurrentPatchsetHandle(cs),
+		ChangesetID:         cs.Id,
+		PatchsetID:          cs.CurrentPatchsetId,
+		PatchsetNumber:      cs.CurrentPatchsetNumber,
+		Status:              cs.Status,
+		SubmitBlockedReason: cs.SubmitBlockedReason,
+		SubmitRequirements:  currentPatchsetSubmitRequirements(cs),
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, output)
@@ -5410,9 +5795,13 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return userError("changeset_not_submitted", "changeset is not submitted", "Run gs cs status without --quiet for details.")
 	}
 	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\n", firstNonEmpty(output.ChangesetHandle, cs.Id), cs.Status)
+	if cs.SubmitBlockedReason != "" {
+		fmt.Fprintf(r.Stdout, "submit_blocked_reason: %s\n", cs.SubmitBlockedReason)
+	}
 	if cs.CurrentPatchsetNumber > 0 {
 		fmt.Fprintf(r.Stdout, "patchset: %d\n", cs.CurrentPatchsetNumber)
 	}
+	printSubmitRequirements(r.Stdout, currentPatchsetSubmitRequirements(cs))
 	return nil
 }
 
@@ -5665,6 +6054,9 @@ func (r Runner) getChangeset(ctx context.Context, cfg UserConfig, changesetID st
 func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	fmt.Fprintf(w, "changeset: %s\n", firstNonEmpty(displayChangesetHandle(cs), cs.Id))
 	fmt.Fprintf(w, "status: %s\n", cs.Status)
+	if cs.SubmitBlockedReason != "" {
+		fmt.Fprintf(w, "submit_blocked_reason: %s\n", cs.SubmitBlockedReason)
+	}
 	if cs.Title != "" {
 		fmt.Fprintf(w, "title: %s\n", cs.Title)
 	}
@@ -5757,7 +6149,9 @@ func printSubmitRequirements(w io.Writer, req *corev1.SubmitRequirements) {
 		fmt.Fprintln(w, "  none")
 		return
 	}
-	printRequirementField(w, "required_approvals", req.RequiredApprovals)
+	if req.RequiredApprovals > 0 {
+		fmt.Fprintf(w, "  required_approvals: %d\n", req.RequiredApprovals)
+	}
 	printRequirementField(w, "required_checks", req.RequiredChecks)
 	printRequirementField(w, "path_lock_ids", req.PathLockIds)
 	if req.SourceSliceDefinitionHash != "" {
@@ -5766,7 +6160,7 @@ func printSubmitRequirements(w io.Writer, req *corev1.SubmitRequirements) {
 	if req.SourcePathLockSetHash != "" {
 		fmt.Fprintf(w, "  source_path_lock_set_hash: %s\n", req.SourcePathLockSetHash)
 	}
-	if len(req.RequiredApprovals) == 0 && len(req.RequiredChecks) == 0 && len(req.PathLockIds) == 0 && req.SourceSliceDefinitionHash == "" && req.SourcePathLockSetHash == "" {
+	if req.RequiredApprovals == 0 && len(req.RequiredChecks) == 0 && len(req.PathLockIds) == 0 && req.SourceSliceDefinitionHash == "" && req.SourcePathLockSetHash == "" {
 		fmt.Fprintln(w, "  none")
 	}
 }
@@ -5788,6 +6182,14 @@ func currentPatchset(cs *corev1.Changeset) *corev1.Patchset {
 		}
 	}
 	return cs.Patchsets[len(cs.Patchsets)-1]
+}
+
+func currentPatchsetSubmitRequirements(cs *corev1.Changeset) *corev1.SubmitRequirements {
+	patchset := currentPatchset(cs)
+	if patchset == nil {
+		return nil
+	}
+	return patchset.SubmitRequirements
 }
 
 func patchsetChangedPaths(patchset *corev1.Patchset) []string {
@@ -7110,7 +7512,7 @@ func (s *serverShell) write(ctx context.Context, target string, data []byte) err
 	if err != nil {
 		return err
 	}
-	edit, err := s.runner.uploadFileEdit(authContext(ctx, s.mutator.cfg), s.mutator.conn, cleaned, data)
+	edit, err := s.runner.uploadFileEdit(authContext(ctx, s.mutator.cfg), s.mutator.conn, s.mutator.slice.Ref, cleaned, data)
 	if err != nil {
 		return err
 	}
@@ -7486,6 +7888,7 @@ func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn
 		runner:   r,
 		root:     root,
 		repo:     repo,
+		blob:     corev1.NewBlobServiceClient(conn),
 		cache:    cache,
 		ws:       ws,
 		commitID: commitID,
@@ -7510,6 +7913,7 @@ type workspaceHydrator struct {
 	runner   Runner
 	root     string
 	repo     corev1.RepositoryServiceClient
+	blob     corev1.BlobServiceClient
 	cache    *clientcache.ObjectCache
 	ws       WorkspaceConfig
 	commitID string
@@ -7570,10 +7974,6 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 }
 
 func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeEntry) error {
-	data, err := h.cachedFileBytes(ctx, entry)
-	if err != nil {
-		return err
-	}
 	rel, err := workspaceRelPath(h.ws, entry.Path)
 	if err != nil {
 		return err
@@ -7586,22 +7986,86 @@ func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeE
 	if mode == 0 {
 		mode = 0o100644
 	}
-	fileMode := fs.FileMode(0o644)
-	if mode&0o111 != 0 {
-		fileMode = 0o755
-	}
-	if err := os.WriteFile(target, data, fileMode); err != nil {
-		return err
+	var size int64
+	if entry.Size > blobStreamThresholdBytes && entry.ContentHash != "" {
+		size, err = h.hydrateLargeFile(ctx, entry, target, mode)
+		if err != nil {
+			return err
+		}
+	} else {
+		data, err := h.cachedFileBytes(ctx, entry)
+		if err != nil {
+			return err
+		}
+		if _, err := writeWorkspaceFile(target, mode, bytes.NewReader(data)); err != nil {
+			return err
+		}
+		size = int64(len(data))
 	}
 	h.base.Files[entry.Path] = BaseSnapshotFile{
 		Path:        entry.Path,
 		RelPath:     rel,
 		ContentHash: entry.ContentHash,
 		Mode:        mode,
-		Size:        int64(len(data)),
+		Size:        size,
 	}
 	h.result.FileCount++
 	return nil
+}
+
+func (h *workspaceHydrator) hydrateLargeFile(ctx context.Context, entry *corev1.TreeEntry, target string, mode uint32) (int64, error) {
+	if h.cache.Exists(entry.ContentHash) {
+		h.result.CacheHits++
+		return h.copyCachedFileToWorkspace(entry.ContentHash, target, mode)
+	}
+	stream, err := h.blob.ReadBlobStream(ctx, &corev1.ReadBlobStreamRequest{
+		Slice:       &corev1.SliceRef{Account: h.ws.Account, Slice: h.ws.Slice},
+		ContentHash: entry.ContentHash,
+	})
+	if err != nil {
+		return 0, err
+	}
+	cached, err := h.cache.PutReader(newBlobStreamReader(stream))
+	if err != nil {
+		return 0, err
+	}
+	if cached.ContentHash != entry.ContentHash {
+		return 0, fmt.Errorf("hydrated content hash mismatch for %s: got %s, want %s", entry.Path, cached.ContentHash, entry.ContentHash)
+	}
+	h.result.CacheMisses++
+	return h.copyCachedFileToWorkspace(entry.ContentHash, target, mode)
+}
+
+func (h *workspaceHydrator) copyCachedFileToWorkspace(contentHash, target string, mode uint32) (int64, error) {
+	f, err := h.cache.Open(contentHash)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	return writeWorkspaceFile(target, mode, f)
+}
+
+func writeWorkspaceFile(target string, mode uint32, r io.Reader) (int64, error) {
+	fileMode := fs.FileMode(0o644)
+	if mode&0o111 != 0 {
+		fileMode = 0o755
+	}
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fileMode)
+	if err != nil {
+		return 0, err
+	}
+	n, copyErr := io.Copy(f, r)
+	closeErr := f.Close()
+	if copyErr != nil {
+		return n, copyErr
+	}
+	if closeErr != nil {
+		return n, closeErr
+	}
+	if err := os.Chmod(target, fileMode); err != nil {
+		return n, err
+	}
+	return n, nil
 }
 
 func (h *workspaceHydrator) cachedFileBytes(ctx context.Context, entry *corev1.TreeEntry) ([]byte, error) {
@@ -7664,7 +8128,7 @@ func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg Us
 		}
 	}
 	if upload {
-		if err := attachBlobIDs(callCtx, blobClient, cache, edits); err != nil {
+		if err := attachBlobIDs(callCtx, blobClient, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -7740,7 +8204,7 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 	return files, nil
 }
 
-func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, cache *clientcache.ObjectCache, edits []*corev1.FileEdit) error {
+func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit) error {
 	hashSet := map[string]struct{}{}
 	for _, edit := range edits {
 		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.BlobId != "" || edit.ContentHash == "" {
@@ -7758,7 +8222,7 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, cac
 	}
 	sort.Strings(hashes)
 
-	status, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes})
+	status, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes, Slice: sliceRef})
 	if err != nil {
 		return err
 	}
@@ -7773,11 +8237,7 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, cac
 		if blobIDs[hash] != "" {
 			continue
 		}
-		data, err := cache.Read(hash)
-		if err != nil {
-			return fmt.Errorf("read cached object %s: %w", hash, err)
-		}
-		uploaded, err := blobClient.UploadBlob(ctx, &corev1.UploadBlobRequest{ContentHash: hash, Data: data})
+		uploaded, err := uploadCachedBlob(ctx, blobClient, sliceRef, cache, hash)
 		if err != nil {
 			return err
 		}
@@ -7791,6 +8251,30 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, cac
 		edit.BlobId = blobIDs[edit.ContentHash]
 	}
 	return nil
+}
+
+func uploadCachedBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hash string) (*corev1.UploadBlobResponse, error) {
+	cachePath, err := cache.Path(hash)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(cachePath)
+	if err != nil {
+		return nil, fmt.Errorf("stat cached object %s: %w", hash, err)
+	}
+	if info.Size() > blobStreamThresholdBytes {
+		f, err := cache.Open(hash)
+		if err != nil {
+			return nil, fmt.Errorf("open cached object %s: %w", hash, err)
+		}
+		defer f.Close()
+		return uploadBlobReader(ctx, blobClient, sliceRef, hash, info.Size(), f)
+	}
+	data, err := cache.Read(hash)
+	if err != nil {
+		return nil, fmt.Errorf("read cached object %s: %w", hash, err)
+	}
+	return uploadBlobBytes(ctx, blobClient, sliceRef, hash, data)
 }
 
 func (r Runner) loadLocalState() (UserConfig, WorkspaceConfig, WorkspaceState, error) {
@@ -8327,9 +8811,9 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"summary":        "create a slice",
 				"aliases":        []string{"gs slices create <slice|account/slice>"},
 				"args":           []string{"slice|account/slice"},
-				"flags":          []string{"--include", "--visibility"},
+				"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-check"},
 				"writes_stdout":  true,
-				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
 			},
 			{
 				"use":            "gs slice list [account]",
@@ -8345,7 +8829,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs slices info <slice|account/slice>"},
 				"args":           []string{"slice|account/slice"},
 				"writes_stdout":  true,
-				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
 			},
 			{
 				"use":            "gs slice paths <slice|account/slice>",
@@ -8356,13 +8840,22 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"ref", "included_paths"},
 			},
 			{
+				"use":            "gs slice history <slice|account/slice>",
+				"summary":        "show slice definition history",
+				"aliases":        []string{"gs slices history <slice|account/slice>"},
+				"args":           []string{"slice|account/slice"},
+				"flags":          []string{"--page-size"},
+				"writes_stdout":  true,
+				"machine_output": []string{"ref", "slice_id", "versions"},
+			},
+			{
 				"use":            "gs slice update <slice|account/slice>",
-				"summary":        "update slice included paths or visibility",
+				"summary":        "update slice included paths, visibility, or submit settings",
 				"aliases":        []string{"gs slices update <slice|account/slice>"},
 				"args":           []string{"slice|account/slice"},
-				"flags":          []string{"--include", "--visibility"},
+				"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-check", "--clear-required-checks"},
 				"writes_stdout":  true,
-				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "definition_hash"},
+				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
 			},
 			{
 				"use":            "gs slice delete <slice|account/slice>",
@@ -8402,7 +8895,24 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs changeset status [changeset]"},
 				"flags":          []string{"--watch", "--watch-timeout"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "patchset_number", "changeset_id", "patchset_id", "status"},
+				"machine_output": []string{"changeset_handle", "patchset_number", "changeset_id", "patchset_id", "status", "submit_blocked_reason", "submit_requirements"},
+			},
+			{
+				"use":            "gs cs approve <changeset>",
+				"summary":        "approve the current patchset of a changeset",
+				"aliases":        []string{"gs changeset approve <changeset>"},
+				"args":           []string{"changeset"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "subject_id"},
+			},
+			{
+				"use":            "gs cs check <changeset> <check-name>",
+				"summary":        "report a changeset check result",
+				"aliases":        []string{"gs changeset check <changeset> <check-name>"},
+				"args":           []string{"changeset", "check-name"},
+				"flags":          []string{"--status"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "check_name", "status"},
 			},
 			{
 				"use":            "gs cs show [changeset]",
@@ -8559,6 +9069,45 @@ func (r Runner) runSchema(opts commandOptions) error {
 			},
 		},
 	})
+}
+
+func (r Runner) runAdminRebuildIndexes(ctx context.Context, opts commandOptions, targetRef string, yes bool) error {
+	if !yes {
+		return userError("confirmation_required", "rebuild-indexes requires --yes", "Run gs admin rebuild-indexes --yes after confirming no conflicting repair is running.")
+	}
+	if strings.TrimSpace(targetRef) == "" {
+		targetRef = postgres.DefaultTargetRef
+	}
+	databaseURL := os.Getenv("GITSLICE_DATABASE_URL")
+	if databaseURL == "" {
+		return userError("missing_config", "GITSLICE_DATABASE_URL is required", "Set GITSLICE_DATABASE_URL to the metadata database used by the server.")
+	}
+	objectStoreRoot := os.Getenv("GITSLICE_OBJECT_STORE_ROOT")
+	if objectStoreRoot == "" {
+		return userError("missing_config", "GITSLICE_OBJECT_STORE_ROOT is required", "Set GITSLICE_OBJECT_STORE_ROOT to the filesystem object store root used by the server.")
+	}
+	db, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	objectStore, err := filesystem.New(objectStoreRoot)
+	if err != nil {
+		return err
+	}
+	db.SetTreeStore(treestore.New(objectStore))
+	if err := db.Changesets().RebuildDerivedIndexes(ctx, targetRef); err != nil {
+		return err
+	}
+	out := map[string]any{
+		"target_ref": targetRef,
+		"rebuilt":    true,
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	fmt.Fprintf(r.Stdout, "rebuilt derived indexes for %s\n", targetRef)
+	return nil
 }
 
 func cliHelpTopicSchema() []map[string]string {

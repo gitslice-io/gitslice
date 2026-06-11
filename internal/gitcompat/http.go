@@ -13,19 +13,39 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/storage"
+	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
 type Handler struct {
-	auth      storage.AuthStore
-	projector *Projector
+	auth       storage.AuthStore
+	projector  *Projector
+	blobs      BlobAPI
+	changesets ChangesetAPI
 }
 
-func NewHandler(auth storage.AuthStore, projector *Projector) *Handler {
-	return &Handler{auth: auth, projector: projector}
+type BlobAPI interface {
+	UploadBlob(context.Context, *corev1.UploadBlobRequest) (*corev1.UploadBlobResponse, error)
+}
+
+type ChangesetAPI interface {
+	CreateChangeset(context.Context, *corev1.CreateChangesetRequest) (*corev1.Changeset, error)
+	GetChangeset(context.Context, *corev1.GetChangesetRequest) (*corev1.Changeset, error)
+	UpdateChangeset(context.Context, *corev1.UpdateChangesetRequest) (*corev1.Patchset, error)
+}
+
+func NewHandler(auth storage.AuthStore, projector *Projector, blobs BlobAPI, changesets ChangesetAPI) *Handler {
+	return &Handler{auth: auth, projector: projector, blobs: blobs, changesets: changesets}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	operation := gitHTTPOperation(r)
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	defer func() {
+		recordGitHTTPRequest(operation, recorder.status)
+	}()
+	w = recorder
 	account, slice, pathInfo, err := parseGitPath(r.URL.Path)
 	if err != nil {
 		http.NotFound(w, r)
@@ -38,11 +58,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isReceivePack(r) {
-		if err := h.projector.AuthorizeSlice(r.Context(), subjectID, account, slice); err != nil {
-			writeGitError(w, err)
-			return
-		}
-		http.Error(w, "git push is not supported by the MVP Git layer; use native changesets", http.StatusForbidden)
+		h.handleReceivePack(w, r, subjectID, account, slice)
 		return
 	}
 	if _, _, err := h.projector.EnsureProjectedRepo(r.Context(), subjectID, account, slice); err != nil {
@@ -52,6 +68,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := h.serveBackend(w, r, pathInfo); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusRecorder) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(data)
 }
 
 func (h *Handler) authenticate(ctx context.Context, r *http.Request) (string, error) {
@@ -125,6 +158,46 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo 
 	return err
 }
 
+func (h *Handler) handleReceivePack(w http.ResponseWriter, r *http.Request, subjectID, account, slice string) {
+	if h.blobs == nil || h.changesets == nil {
+		http.Error(w, "git push is not configured", http.StatusInternalServerError)
+		return
+	}
+	if err := h.projector.AuthorizeSlice(r.Context(), subjectID, account, slice); err != nil {
+		writeGitError(w, err)
+		return
+	}
+	repoPath, projection, err := h.projector.EnsureProjectedRepo(r.Context(), subjectID, account, slice)
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	if isReceivePackDiscovery(r) {
+		writeReceivePackAdvertisement(w, projection)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "git receive-pack requires POST", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req, err := parseReceivePackRequest(body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	result := h.applyReceivePack(r.Context(), authctx.WithSubjectID(r.Context(), subjectID), repoPath, projection, account, slice, req)
+	writeReceivePackResult(w, req.capabilities, result)
+}
+
+func isReceivePackDiscovery(r *http.Request) bool {
+	return r.Method == http.MethodGet && r.URL.Query().Get("service") == "git-receive-pack"
+}
+
 func parseGitPath(path string) (string, string, string, error) {
 	trimmed := strings.TrimPrefix(path, "/git/")
 	if trimmed == path || trimmed == "" {
@@ -148,6 +221,17 @@ func parseGitPath(path string) (string, string, string, error) {
 
 func isReceivePack(r *http.Request) bool {
 	return strings.Contains(r.URL.Path, "git-receive-pack") || r.URL.Query().Get("service") == "git-receive-pack"
+}
+
+func gitHTTPOperation(r *http.Request) string {
+	switch {
+	case isReceivePack(r):
+		return "receive-pack"
+	case strings.Contains(r.URL.Path, "git-upload-pack") || r.URL.Query().Get("service") == "git-upload-pack":
+		return "upload-pack"
+	default:
+		return "unknown"
+	}
 }
 
 func bearerToken(header string) string {
