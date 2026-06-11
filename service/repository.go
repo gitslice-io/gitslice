@@ -743,6 +743,9 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	if req.MaxCommits < 0 {
 		return nil, status.Error(codes.InvalidArgument, "max_commits must be non-negative")
 	}
+	if err := requireDefaultTargetRef(req.TargetRef); err != nil {
+		return nil, err
+	}
 	targetRef := req.TargetRef
 	if targetRef == "" {
 		targetRef = storage.DefaultTargetRef

@@ -793,6 +793,7 @@ func startLoadServer(t *testing.T) *loadServer {
 			DatabaseURL:     databaseURLWithSearchPath(t, databaseURL, schema),
 			ObjectStoreRoot: ts.objectRoot,
 			RunMigrations:   true,
+			DevMode:         true,
 		})
 	}()
 	waitForHealth(t, ts.addr)

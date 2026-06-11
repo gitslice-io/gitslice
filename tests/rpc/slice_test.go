@@ -657,6 +657,7 @@ func (ts *testRPCServer) start(t *testing.T) {
 			DatabaseURL:     databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
 			ObjectStoreRoot: ts.objectRoot,
 			RunMigrations:   true,
+			DevMode:         true,
 		})
 	}()
 	waitForHealth(t, ts.addr)

@@ -503,6 +503,19 @@ func TestRepositoryReadFileRejectsNegativeRange(t *testing.T) {
 	}
 }
 
+func TestCreateChangesetRejectsNonDefaultTargetRef(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	_, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "home"},
+		TargetRef:      "refs/global/branches/feature",
+		Title:          "branch attempt",
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("CreateChangeset target ref error = %v, want InvalidArgument", err)
+	}
+}
+
 func TestChangesetUpdateRejectsMalformedFileEdits(t *testing.T) {
 	_, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
