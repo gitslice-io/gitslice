@@ -3376,6 +3376,55 @@ Verification:
 git diff --check
 ```
 
+## 2026-06-06: Two-Slice Same-File Append Load Test
+
+Request:
+
+- test two clients concurrently editing the same file through two slices with
+  1000 edits and verify final file integrity
+
+Decisions:
+
+- added a load-tag test that uses two independent gRPC clients authenticated as
+  the same account
+- the clients write through `acme/payment` and `acme/backend`, which both cover
+  `/acme/payment/shared`
+- each operation performs a read/modify/write append against the latest
+  published ref and retries expected same-path conflicts until accepted
+- final verification checks that the shared file contains exactly one line for
+  every requested operation, then verifies both slice projections and runs the
+  PostgreSQL/object-store integrity checker
+
+Verification:
+
+```bash
+gofmt -w tests/load/load_test.go
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 -tags load ./tests/load -run TestLoadTwoSliceConcurrentSameFileAppendIntegrity -v
+```
+
+## 2026-06-07: CI-Friendly Two-Slice Load Default
+
+Request:
+
+- reduce the CI runtime impact of the two-slice same-file load test
+
+Decisions:
+
+- reduced the default operation count for
+  `TestLoadTwoSliceConcurrentSameFileAppendIntegrity` from 1000 to 100
+- wired `GITSLICE_LOAD_TWO_SLICE_EDITS=100` into the GitHub load workflow and
+  `make load`
+- kept the full 1000-edit stress case available with
+  `GITSLICE_LOAD_TWO_SLICE_EDITS=1000`
+
+Verification:
+
+```bash
+gofmt -w tests/load/load_test.go
+set -a; . ./.env.local; set +a; GOCACHE=/tmp/gocache go test -count=1 -tags load ./tests/load -run TestLoadTwoSliceConcurrentSameFileAppendIntegrity -v
+git diff --check
+```
+
 ## 2026-05-26: Multi-User RPC Load Simulation
 
 Request:
