@@ -1,20 +1,23 @@
 # Gitslice Web
 
-This directory contains the browser application for the prototype web surface.
-The current implementation is intentionally limited to the CLI signup approval
-page.
+This directory contains the React/Vite browser application for the Gitslice web
+surface. It is currently a foundation scaffold: shared auth, routing, API
+transport, app shell, and stub pages are present so page bodies can be filled in
+incrementally.
 
 Run it locally with:
 
 ```bash
-make run-web
+npm install
+npm run dev
 ```
 
-The signup page calls the generated grpc-gateway endpoint:
+Required environment:
 
 ```text
-POST /gitslice.core.v1.FakeAccountService/ApproveSignup
+VITE_CLERK_PUBLISHABLE_KEY
+VITE_API_BASE_URL
 ```
 
-The Go server does not mount custom web handlers for this page. It only exposes
-the HTTP JSON gateway when `GITSLICE_HTTP_ADDR` or `--http-addr` is configured.
+The API client calls generated grpc-gateway unbound method paths such as
+`POST /gitslice.core.v1.SliceService/ListSlices`.
