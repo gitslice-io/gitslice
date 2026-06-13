@@ -5,6 +5,9 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/gitslice-io/gitslice/internal/auth/clerk"
+	"github.com/gitslice-io/gitslice/internal/objectstore/r2"
 )
 
 type Config struct {
@@ -14,7 +17,11 @@ type Config struct {
 	GitHTTPAddr           string
 	GitCacheRoot          string
 	DatabaseURL           string
+	ObjectStoreType       string
 	ObjectStoreRoot       string
+	R2                    r2.Config
+	AuthProvider          string
+	Clerk                 clerk.Config
 	RunMigrations         bool
 	PublishBatchSize      int
 	PublishInterval       time.Duration
@@ -33,7 +40,11 @@ func ConfigFromEnv() Config {
 		GitHTTPAddr:           os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
 		GitCacheRoot:          os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
 		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),
+		ObjectStoreType:       os.Getenv("OBJECT_STORE_TYPE"),
 		ObjectStoreRoot:       os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),
+		R2:                    r2.ConfigFromEnv(),
+		AuthProvider:          os.Getenv("AUTH_PROVIDER"),
+		Clerk:                 clerk.ConfigFromEnv(),
 		RunMigrations:         os.Getenv("GITSLICE_RUN_MIGRATIONS") != "0",
 		PublishBatchSize:      intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BATCH_SIZE"), 128),
 		PublishInterval:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_INTERVAL_MS"), 25)) * time.Millisecond,
@@ -45,6 +56,10 @@ func ConfigFromEnv() Config {
 	}
 }
 
+func (c Config) usesR2() bool {
+	return c.ObjectStoreType == "r2"
+}
+
 func (c Config) Validate() error {
 	if c.GRPCAddr == "" {
 		return fmt.Errorf("grpc address is required")
@@ -52,7 +67,8 @@ func (c Config) Validate() error {
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("GITSLICE_DATABASE_URL is required")
 	}
-	if c.ObjectStoreRoot == "" {
+	// The filesystem object store needs a root; R2 supplies its own location.
+	if !c.usesR2() && c.ObjectStoreRoot == "" {
 		return fmt.Errorf("GITSLICE_OBJECT_STORE_ROOT is required")
 	}
 	return nil

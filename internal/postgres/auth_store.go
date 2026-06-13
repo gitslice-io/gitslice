@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
+	"github.com/gitslice-io/gitslice/internal/storage"
 )
 
 type AuthStore struct {
@@ -43,8 +45,6 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 	if err != nil {
 		return "", "", err
 	}
-	subjectID := signupSubjectID(username)
-	accountID := signupAccountID(username)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -52,16 +52,72 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 	}
 	defer tx.Rollback()
 
+	subjectID, _, err := provisionPersonalAccount(ctx, tx, username, username)
+	if err != nil {
+		return "", "", err
+	}
+
+	token, sessionID, hashedToken, expiresAt, err := newSession(subjectID)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into sessions(id, subject_id, token_hash, expires_at)
+		values ($1, $2, $3, $4)
+	`, sessionID, subjectID, hashedToken, expiresAt); err != nil {
+		return "", "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", "", err
+	}
+	return token, subjectID, nil
+}
+
+// EnsureExternalSubject idempotently provisions a subject and personal account
+// for an externally authenticated identity (for example a verified Clerk user).
+// Unlike SignupUser it issues no session token: the external provider's token is
+// verified on every request, so there is no internal session to mint.
+func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error) {
+	username := storage.ExternalUsername(externalID, email)
+	displayName := strings.TrimSpace(email)
+	if displayName == "" {
+		displayName = username
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	subjectID, _, err := provisionPersonalAccount(ctx, tx, username, displayName)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return subjectID, nil
+}
+
+// provisionPersonalAccount idempotently creates the subject, personal account,
+// admin membership, and home slice (with its definition version and path index)
+// for username within tx, returning the subject and account IDs. The caller owns
+// the transaction lifecycle.
+func provisionPersonalAccount(ctx context.Context, tx *sql.Tx, username, displayName string) (string, string, error) {
+	subjectID := signupSubjectID(username)
+	accountID := signupAccountID(username)
+
 	if _, err := tx.ExecContext(ctx, `
 		insert into subjects(id, kind, display_name, created_at)
 		values ($1, 'user', $2, now())
 		on conflict (id) do nothing
-	`, subjectID, username); err != nil {
+	`, subjectID, displayName); err != nil {
 		return "", "", err
 	}
 
 	var existingAccountID, existingKind string
-	err = tx.QueryRowContext(ctx, `
+	err := tx.QueryRowContext(ctx, `
 		select id, kind
 		from accounts
 		where slug = $1
@@ -126,20 +182,7 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 		return "", "", err
 	}
 
-	token, sessionID, hashedToken, expiresAt, err := newSession(subjectID)
-	if err != nil {
-		return "", "", err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		insert into sessions(id, subject_id, token_hash, expires_at)
-		values ($1, $2, $3, $4)
-	`, sessionID, subjectID, hashedToken, expiresAt); err != nil {
-		return "", "", err
-	}
-	if err := tx.Commit(); err != nil {
-		return "", "", err
-	}
-	return token, subjectID, nil
+	return subjectID, accountID, nil
 }
 
 func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject, error) {

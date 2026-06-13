@@ -9,6 +9,10 @@ import (
 type AuthStore interface {
 	LoginDevUser(ctx context.Context, devUser string) (string, string, error)
 	SignupUser(ctx context.Context, username string) (string, string, error)
+	// EnsureExternalSubject idempotently provisions a subject and personal
+	// account for an externally authenticated identity (for example a verified
+	// Clerk user) and returns the internal subject ID.
+	EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error)
 	SubjectForToken(ctx context.Context, token string) (*Subject, error)
 	EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error
 	AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error)

@@ -11,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gitslice-io/gitslice/internal/auth/clerk"
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
 	"github.com/gitslice-io/gitslice/internal/indexworker"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
+	"github.com/gitslice-io/gitslice/internal/objectstore/r2"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
 	"github.com/gitslice-io/gitslice/internal/storage"
@@ -64,7 +66,11 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer db.Close()
-	objectStore, err := filesystem.New(cfg.ObjectStoreRoot)
+	objectStore, err := newObjectStore(cfg)
+	if err != nil {
+		return err
+	}
+	resolveSubject, err := newSubjectResolver(db.Auth(), cfg)
 	if err != nil {
 		return err
 	}
@@ -98,7 +104,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Slices:     db.Slices(),
 	}
 	handlers := service.New(stores, objectStore)
-	grpcServer := NewGRPCServer(db.Auth(), handlers, cfg.DevMode)
+	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg.DevMode)
 	var gatewayServer *http.Server
 	var gatewayLis net.Listener
 	if cfg.HTTPAddr != "" {
@@ -122,6 +128,9 @@ func Run(ctx context.Context, cfg Config) error {
 	var gitHTTPLis net.Listener
 	if cfg.GitHTTPAddr != "" {
 		if cfg.GitCacheRoot == "" {
+			if cfg.ObjectStoreRoot == "" {
+				return fmt.Errorf("GITSLICE_GIT_CACHE_ROOT is required when the git http server is enabled without a filesystem object store")
+			}
 			cfg.GitCacheRoot = filepath.Join(cfg.ObjectStoreRoot, "git-cache")
 		}
 		projector, err := gitcompat.NewProjector(gitcompat.ProjectorStores{
@@ -137,7 +146,7 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		gitHTTPServer = &http.Server{
-			Handler: gitcompat.NewHandler(db.Auth(), projector, handlers.Blob, handlers.Changeset),
+			Handler: gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset),
 			// Git clone/fetch/push transfers can be large and slow, so only the
 			// header-read deadline (slowloris protection) and the idle-keepalive
 			// deadline are bounded here; body read/write are left to the request
@@ -191,12 +200,51 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
-func NewGRPCServer(auth storage.AuthStore, handlers *service.Handlers, devMode bool) *grpc.Server {
+// subjectResolver maps a verified bearer token to an internal subject ID. It
+// abstracts over the dev/fake session store and external providers such as Clerk.
+type subjectResolver func(ctx context.Context, token string) (string, error)
+
+// newObjectStore selects the object store backend from config: Cloudflare R2 when
+// OBJECT_STORE_TYPE=r2, otherwise the prototype filesystem store.
+func newObjectStore(cfg Config) (service.ObjectStore, error) {
+	if cfg.usesR2() {
+		return r2.New(cfg.R2)
+	}
+	return filesystem.New(cfg.ObjectStoreRoot)
+}
+
+// newSubjectResolver builds the token->subject resolver for the configured auth
+// provider. With AUTH_PROVIDER=clerk it verifies Clerk session JWTs and
+// JIT-provisions a subject; otherwise it resolves dev/fake session tokens.
+func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, error) {
+	if cfg.AuthProvider == "clerk" {
+		verifier, err := clerk.NewVerifier(cfg.Clerk)
+		if err != nil {
+			return nil, err
+		}
+		return func(ctx context.Context, token string) (string, error) {
+			claims, err := verifier.Verify(ctx, token)
+			if err != nil {
+				return "", fmt.Errorf("%w: %v", storage.ErrUnauthenticated, err)
+			}
+			return auth.EnsureExternalSubject(ctx, claims.Subject, claims.Email)
+		}, nil
+	}
+	return func(ctx context.Context, token string) (string, error) {
+		subject, err := auth.SubjectForToken(ctx, token)
+		if err != nil {
+			return "", err
+		}
+		return subject.ID, nil
+	}, nil
+}
+
+func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, devMode bool) *grpc.Server {
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
-		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(auth)),
-		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(auth)),
+		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve)),
+		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(resolve)),
 	)
 	// FakeAccountService mints session tokens with no credential check (dev
 	// login and self-serve signup). It is a prototype affordance and must never
@@ -216,7 +264,7 @@ func NewGRPCServer(auth storage.AuthStore, handlers *service.Handlers, devMode b
 	return grpcServer
 }
 
-func authStreamInterceptor(auth storage.AuthStore) grpc.StreamServerInterceptor {
+func authStreamInterceptor(resolve subjectResolver) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if isPublicMethod(info.FullMethod) {
 			return handler(srv, stream)
@@ -225,13 +273,13 @@ func authStreamInterceptor(auth storage.AuthStore) grpc.StreamServerInterceptor 
 		if err != nil {
 			return err
 		}
-		subject, err := auth.SubjectForToken(stream.Context(), token)
+		subjectID, err := resolve(stream.Context(), token)
 		if err != nil {
 			return grpcAuthError(err)
 		}
 		return handler(srv, &contextServerStream{
 			ServerStream: stream,
-			ctx:          authctx.WithSubjectID(stream.Context(), subject.ID),
+			ctx:          authctx.WithSubjectID(stream.Context(), subjectID),
 		})
 	}
 }
@@ -245,7 +293,7 @@ func (s *contextServerStream) Context() context.Context {
 	return s.ctx
 }
 
-func authInterceptor(auth storage.AuthStore) grpc.UnaryServerInterceptor {
+func authInterceptor(resolve subjectResolver) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if isPublicMethod(info.FullMethod) {
 			return handler(ctx, req)
@@ -254,11 +302,11 @@ func authInterceptor(auth storage.AuthStore) grpc.UnaryServerInterceptor {
 		if err != nil {
 			return nil, err
 		}
-		subject, err := auth.SubjectForToken(ctx, token)
+		subjectID, err := resolve(ctx, token)
 		if err != nil {
 			return nil, grpcAuthError(err)
 		}
-		return handler(authctx.WithSubjectID(ctx, subject.ID), req)
+		return handler(authctx.WithSubjectID(ctx, subjectID), req)
 	}
 }
 
