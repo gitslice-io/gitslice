@@ -1,7 +1,5 @@
 import type { Slice, TreeEntry } from "../../api/types";
 
-export const DEFAULT_SOURCE_REF = "main";
-
 export interface SourceRouteParams {
   account?: string;
   _splat?: string;
@@ -9,7 +7,6 @@ export interface SourceRouteParams {
 }
 
 export interface SourceSearchParams {
-  ref?: unknown;
   commit?: unknown;
   account?: unknown;
 }
@@ -19,8 +16,6 @@ export interface BreadcrumbSegment {
   routePath: string;
   repositoryPath: string;
 }
-
-const SHORT_REF_PREFIX = "refs/global/";
 
 export function searchString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -106,25 +101,6 @@ export function normalizeRelativePath(value: string) {
   }
 
   return parts.join("/");
-}
-
-export function refNameCandidates(refName: string) {
-  const trimmed = refName.trim();
-  if (!trimmed) {
-    return [];
-  }
-
-  const candidates = [trimmed];
-  if (!trimmed.includes("/") && !trimmed.startsWith("refs/")) {
-    candidates.push(`${SHORT_REF_PREFIX}${trimmed}`);
-  }
-
-  return Array.from(new Set(candidates));
-}
-
-export function isCommitLike(value: string) {
-  const trimmed = value.trim();
-  return /^sha256:[0-9a-f]{8,}$/i.test(trimmed) || /^[0-9a-f]{12,}$/i.test(trimmed);
 }
 
 export function entryDisplayName(entry: TreeEntry) {

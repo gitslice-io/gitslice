@@ -188,7 +188,6 @@ export function ChangesetDetailPage() {
         <div className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-4">
           <MetaItem label="Author" value={changeset.author} />
           <MetaItem label="Authoring slice" value={formatSliceRef(changeset.authoringSlice)} />
-          <MetaItem label="Target ref" value={changeset.targetRef} />
           <MetaItem label="Base commit" value={changeset.baseCommitId} mono />
           <MetaItem label="Current patchset" value={changeset.currentPatchsetNumber} />
           <MetaItem label="Commit id" value={changeset.commitId} mono />

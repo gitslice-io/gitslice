@@ -516,6 +516,21 @@ func TestCreateChangesetRejectsNonDefaultTargetRef(t *testing.T) {
 	}
 }
 
+func TestCreateChangesetDefaultsEmptyTargetRef(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	cs, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "home"},
+		Title:          "omitted target ref",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.TargetRef != storage.DefaultTargetRef {
+		t.Fatalf("CreateChangeset target ref = %q, want %q", cs.TargetRef, storage.DefaultTargetRef)
+	}
+}
+
 func TestChangesetUpdateRejectsMalformedFileEdits(t *testing.T) {
 	_, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")

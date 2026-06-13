@@ -14,7 +14,7 @@ import {
   sliceDisplayName,
   sourceTargetForIncludedPath
 } from "../components/slices/SlicePageParts";
-import { useSelection } from "../state/selection";
+import { GLOBAL_REF_NAME } from "../lib/globalRef";
 
 interface SliceParams {
   id?: string;
@@ -28,7 +28,6 @@ const DIRECTORY_PAGE_SIZE = 25;
 
 export function SliceDetailPage() {
   const api = useApi();
-  const { ref } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const sliceId = params.id ?? "";
 
@@ -38,27 +37,32 @@ export function SliceDetailPage() {
     queryFn: () => api.getSlice({ sliceId })
   });
 
-  const refQuery = useQuery({
-    enabled: ref.trim().length > 0,
-    queryKey: ["ref", ref],
-    queryFn: () => api.getRef({ refName: ref.trim() })
+  const latestQuery = useQuery({
+    queryKey: ["globalRef", GLOBAL_REF_NAME],
+    queryFn: async () => {
+      const ref = await api.getRef({ refName: GLOBAL_REF_NAME });
+      if (!ref.commitId) {
+        throw new Error("Latest global state did not return a commit id.");
+      }
+      return ref;
+    }
   });
 
   const slice = sliceQuery.data;
   const directoryQuery = useQuery({
     enabled:
-      Boolean(refQuery.data?.commitId) &&
+      Boolean(latestQuery.data?.commitId) &&
       Boolean(slice?.ref?.account) &&
       Boolean(slice?.ref?.slice),
     queryKey: [
       "sliceDirectory",
       slice?.ref?.account,
       slice?.ref?.slice,
-      refQuery.data?.commitId
+      latestQuery.data?.commitId
     ],
     queryFn: () =>
       api.listDirectory({
-        commitId: refQuery.data?.commitId,
+        commitId: latestQuery.data?.commitId,
         pageSize: DIRECTORY_PAGE_SIZE,
         path: "",
         slice: slice?.ref
@@ -193,16 +197,16 @@ export function SliceDetailPage() {
               Projected source
             </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Root directory entries filtered through this slice on ref{" "}
-              <span className="font-medium text-zinc-950">{ref || "main"}</span>.
+              Root directory entries filtered through this slice at the latest
+              global commit.
             </p>
           </div>
 
-          {refQuery.isError ? (
-            <SliceNotice title="Could not resolve ref" tone="error">
-              {getErrorMessage(refQuery.error)}
+          {latestQuery.isError ? (
+            <SliceNotice title="Could not resolve latest source" tone="error">
+              {getErrorMessage(latestQuery.error)}
             </SliceNotice>
-          ) : directoryQuery.isLoading ? (
+          ) : latestQuery.isLoading || directoryQuery.isLoading ? (
             <div className="space-y-2">
               <div className="h-4 w-1/2 animate-pulse rounded bg-slate-200" />
               <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200" />
@@ -261,7 +265,7 @@ export function SliceDetailPage() {
             </div>
           ) : (
             <SliceNotice title="No projected entries">
-              The selected ref returned no root entries for this slice
+              The latest global commit returned no root entries for this slice
               projection.
             </SliceNotice>
           )}

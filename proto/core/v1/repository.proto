@@ -125,6 +125,8 @@ message ImportGitRepositoryRequest {
   string mount_path = 2;
   SliceRef authoring_slice = 3;
   string mode = 4;
+  // Reserved for future branch support. Currently optional; when provided it
+  // must be the single global ref, refs/global/main.
   string target_ref = 5;
   int32 max_commits = 6;
   bool resume = 7;

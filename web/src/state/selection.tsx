@@ -8,14 +8,10 @@ import {
 } from "react";
 
 const ACCOUNT_KEY = "gitslice.web.account";
-const REF_KEY = "gitslice.web.ref";
-const DEFAULT_REF = "main";
 
 interface SelectionState {
   account: string;
-  ref: string;
   setAccount(account: string): void;
-  setRef(ref: string): void;
 }
 
 const SelectionContext = createContext<SelectionState | null>(null);
@@ -25,28 +21,20 @@ interface SelectionProviderProps {
 }
 
 export function SelectionProvider({ children }: SelectionProviderProps) {
-  const initialSelection = useMemo(readInitialSelection, []);
-  const [account, setAccountState] = useState(initialSelection.account);
-  const [ref, setRefState] = useState(initialSelection.ref);
+  const initialAccount = useMemo(readInitialAccount, []);
+  const [account, setAccountState] = useState(initialAccount);
 
   const setAccount = useCallback((nextAccount: string) => {
     setAccountState(nextAccount);
     localStorage.setItem(ACCOUNT_KEY, nextAccount);
   }, []);
 
-  const setRef = useCallback((nextRef: string) => {
-    setRefState(nextRef);
-    localStorage.setItem(REF_KEY, nextRef);
-  }, []);
-
   const value = useMemo(
     () => ({
       account,
-      ref,
-      setAccount,
-      setRef
+      setAccount
     }),
-    [account, ref, setAccount, setRef]
+    [account, setAccount]
   );
 
   return (
@@ -66,16 +54,12 @@ export function useSelection() {
   return value;
 }
 
-function readInitialSelection() {
+function readInitialAccount() {
   const params = new URLSearchParams(window.location.search);
   const pathAccount = readSourceAccount(window.location.pathname);
   const storedAccount = localStorage.getItem(ACCOUNT_KEY) ?? "";
-  const storedRef = localStorage.getItem(REF_KEY) ?? DEFAULT_REF;
 
-  return {
-    account: params.get("account") || pathAccount || storedAccount,
-    ref: params.get("ref") || storedRef || DEFAULT_REF
-  };
+  return params.get("account") || pathAccount || storedAccount;
 }
 
 function readSourceAccount(pathname: string) {

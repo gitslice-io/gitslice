@@ -114,6 +114,8 @@ message SubmitRequirements {
 
 message CreateChangesetRequest {
   SliceRef authoring_slice = 1;
+  // Reserved for future branch support. Currently optional; when provided it
+  // must be the single global ref, refs/global/main.
   string target_ref = 2;
   string base_commit_id = 3;
   string title = 4;

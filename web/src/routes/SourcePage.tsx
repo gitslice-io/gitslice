@@ -12,20 +12,17 @@ import { SourceBreadcrumb } from "../components/source/SourceBreadcrumb";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
 import { SourceCoverage } from "../components/source/SourceCoverage";
 import { SourceDirectoryTable } from "../components/source/SourceDirectoryTable";
-import { SourceRefInput } from "../components/source/SourceRefInput";
 import {
-  DEFAULT_SOURCE_REF,
   buildRepositoryPath,
   decodeBase64File,
   entryKindLabel,
-  isCommitLike,
-  refNameCandidates,
   repositoryPathToRoutePath,
   routeSplat,
   searchString,
   type SourceRouteParams,
   type SourceSearchParams
 } from "../components/source/sourceUtils";
+import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { useSelection } from "../state/selection";
 
 export function SourcePage() {
@@ -39,16 +36,15 @@ export function SourcePage() {
   const account = routeAccount || selection.account.trim();
   const currentRoutePath = routeSplat(params);
   const repositoryPath = buildRepositoryPath(account, currentRoutePath);
-  const refName = searchString(search.ref) || selection.ref || DEFAULT_SOURCE_REF;
   const commitQueryParam = searchString(search.commit);
-  const linkSearch = commitQueryParam
-    ? { commit: commitQueryParam, ref: refName }
-    : { ref: refName };
+  const linkSearch: Record<string, string> = commitQueryParam
+    ? { commit: commitQueryParam }
+    : {};
 
-  const refQuery = useQuery({
-    enabled: !commitQueryParam && Boolean(refName),
-    queryKey: ["source", "ref", refName],
-    queryFn: () => resolveRef(api, refName)
+  const latestQuery = useQuery({
+    enabled: !commitQueryParam,
+    queryKey: ["source", "latest", GLOBAL_REF_NAME],
+    queryFn: () => resolveLatestCommit(api)
   });
 
   const slicesQuery = useQuery({
@@ -57,7 +53,7 @@ export function SourcePage() {
     queryFn: () => listAllSlices(api, account)
   });
 
-  const commitId = commitQueryParam || refQuery.data?.ref.commitId || "";
+  const commitId = commitQueryParam || latestQuery.data?.commitId || "";
 
   const pathQuery = useQuery({
     enabled: Boolean(account && commitId),
@@ -81,15 +77,11 @@ export function SourcePage() {
     queryFn: () => api.readFile({ commitId, path: repositoryPath })
   });
 
-  function navigateToCurrentPath(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed || !account) {
+  function navigateSourceSearch(nextSearch: Record<string, string>) {
+    if (!account) {
       return;
     }
 
-    const nextSearch = isCommitLike(trimmed)
-      ? { commit: trimmed, ref: refName }
-      : { ref: trimmed };
     const routePath = repositoryPathToRoutePath(account, repositoryPath);
 
     void navigate({
@@ -101,41 +93,47 @@ export function SourcePage() {
     });
   }
 
+  function pinCurrentCommit() {
+    if (!commitId) {
+      return;
+    }
+    navigateSourceSearch({ commit: commitId });
+  }
+
+  function viewLatest() {
+    navigateSourceSearch({});
+  }
+
   return (
     <section className="mx-auto grid w-full max-w-7xl gap-5">
       <div className="rounded-lg border border-slate-200 bg-white p-4 md:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-              Source Browser
-            </p>
-            {account ? (
-              <div className="mt-2">
-                <SourceBreadcrumb
-                  account={account}
-                  repositoryPath={repositoryPath}
-                  search={linkSearch}
-                />
-              </div>
-            ) : (
-              <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
-                Select an account
-              </h1>
-            )}
-          </div>
-          <SourceRefInput
-            disabled={!account}
-            isCommitMode={Boolean(commitQueryParam)}
-            onSubmit={navigateToCurrentPath}
-            value={commitQueryParam || refName}
-          />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+            Source Browser
+          </p>
+          {account ? (
+            <div className="mt-2">
+              <SourceBreadcrumb
+                account={account}
+                repositoryPath={repositoryPath}
+                search={linkSearch}
+              />
+            </div>
+          ) : (
+            <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
+              Select an account
+            </h1>
+          )}
         </div>
-        <SourceMeta
-          commitId={commitId}
-          isCommitMode={Boolean(commitQueryParam)}
-          refName={refName}
-          resolvedRef={refQuery.data?.ref.name}
-        />
+        {account ? (
+          <SourceMeta
+            canPin={Boolean(commitId && !commitQueryParam)}
+            commitId={commitId}
+            isPinned={Boolean(commitQueryParam)}
+            onPinCurrent={pinCurrentCommit}
+            onViewLatest={viewLatest}
+          />
+        ) : null}
       </div>
 
       {!account ? (
@@ -155,10 +153,10 @@ export function SourcePage() {
           pathError={pathQuery.error}
           account={account}
         />
-      ) : refQuery.isPending ? (
+      ) : latestQuery.isPending ? (
         <SourceSkeleton />
-      ) : refQuery.error ? (
-        <ErrorPanel title="Unable to resolve ref" error={refQuery.error} />
+      ) : latestQuery.error ? (
+        <ErrorPanel title="Unable to resolve latest source" error={latestQuery.error} />
       ) : (
         <SourceBody
           commitId={commitId}
@@ -218,7 +216,7 @@ function SourceBody({
   pathError
 }: SourceBodyProps) {
   if (!commitId) {
-    return <EmptyPanel message="The selected ref did not return a commit id." />;
+    return <EmptyPanel message="The latest global state did not return a commit id." />;
   }
 
   if (isPathLoading) {
@@ -282,32 +280,51 @@ function SourceBody({
 }
 
 interface SourceMetaProps {
+  canPin: boolean;
   commitId: string;
-  isCommitMode: boolean;
-  refName: string;
-  resolvedRef: string | undefined;
+  isPinned: boolean;
+  onPinCurrent(): void;
+  onViewLatest(): void;
 }
 
-function SourceMeta({ commitId, isCommitMode, refName, resolvedRef }: SourceMetaProps) {
+function SourceMeta({
+  canPin,
+  commitId,
+  isPinned,
+  onPinCurrent,
+  onViewLatest
+}: SourceMetaProps) {
   return (
-    <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-slate-200 pt-4 text-xs text-slate-500">
-      <span>
-        Mode:{" "}
+    <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0 text-xs text-slate-500">
         <span className="font-medium text-slate-700">
-          {isCommitMode ? "commit" : "ref"}
+          {isPinned ? "Viewing pinned commit" : "Viewing latest global state"}
         </span>
-      </span>
-      {!isCommitMode ? (
-        <span>
-          Ref: <span className="font-mono text-slate-700">{resolvedRef || refName}</span>
+        <span className="mt-1 block min-w-0">
+          Commit:{" "}
+          <span className="break-all font-mono text-slate-700">
+            {commitId || "pending"}
+          </span>
         </span>
-      ) : null}
-      <span className="min-w-0">
-        Commit:{" "}
-        <span className="break-all font-mono text-slate-700">
-          {commitId || "pending"}
-        </span>
-      </span>
+      </div>
+      {isPinned ? (
+        <button
+          className="w-fit rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-zinc-500 active:translate-y-px"
+          onClick={onViewLatest}
+          type="button"
+        >
+          View Latest
+        </button>
+      ) : (
+        <button
+          className="w-fit rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-zinc-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!canPin}
+          onClick={onPinCurrent}
+          type="button"
+        >
+          Pin Commit
+        </button>
+      )}
     </div>
   );
 }
@@ -367,25 +384,12 @@ function ErrorPanel({ error, title }: ErrorPanelProps) {
   );
 }
 
-async function resolveRef(api: ApiClient, refName: string) {
-  const candidates = refNameCandidates(refName);
-  let lastError: unknown;
-
-  for (const candidate of candidates) {
-    try {
-      const commit = await api.getRef({ refName: candidate });
-      if (!commit.commitId) {
-        throw new Error(`Ref ${candidate} did not return a commit id`);
-      }
-      return { ref: commit, requestedRefName: refName };
-    } catch (error) {
-      lastError = error;
-    }
+async function resolveLatestCommit(api: ApiClient) {
+  const ref = await api.getRef({ refName: GLOBAL_REF_NAME });
+  if (!ref.commitId) {
+    throw new Error("Latest global state did not return a commit id.");
   }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(`Unable to resolve ref ${refName}`);
+  return ref;
 }
 
 async function listDirectoryAll(
