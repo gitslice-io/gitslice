@@ -274,8 +274,11 @@ func (*GetAuthStatusRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetAuthStatusResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SubjectId     string                 `protobuf:"bytes,1,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SubjectId string                 `protobuf:"bytes,1,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	// Account slugs the authenticated subject belongs to. The first is the
+	// subject's personal account, whose "home" slice covers "/<account>".
+	Accounts      []string `protobuf:"bytes,2,rep,name=accounts,proto3" json:"accounts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -317,6 +320,13 @@ func (x *GetAuthStatusResponse) GetSubjectId() string {
 	return ""
 }
 
+func (x *GetAuthStatusResponse) GetAccounts() []string {
+	if x != nil {
+		return x.Accounts
+	}
+	return nil
+}
+
 var File_proto_core_v1_auth_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_auth_proto_rawDesc = "" +
@@ -337,10 +347,11 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\n" +
 	"subject_id\x18\x02 \x01(\tR\tsubjectId\x12!\n" +
 	"\fredirect_url\x18\x03 \x01(\tR\vredirectUrl\"\x16\n" +
-	"\x14GetAuthStatusRequest\"6\n" +
+	"\x14GetAuthStatusRequest\"R\n" +
 	"\x15GetAuthStatusResponse\x12\x1d\n" +
 	"\n" +
-	"subject_id\x18\x01 \x01(\tR\tsubjectId2\xc0\x01\n" +
+	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x1a\n" +
+	"\baccounts\x18\x02 \x03(\tR\baccounts2\xc0\x01\n" +
 	"\x12FakeAccountService\x12H\n" +
 	"\x05Login\x12\x1e.gitslice.core.v1.LoginRequest\x1a\x1f.gitslice.core.v1.LoginResponse\x12`\n" +
 	"\rApproveSignup\x12&.gitslice.core.v1.ApproveSignupRequest\x1a'.gitslice.core.v1.ApproveSignupResponse2o\n" +

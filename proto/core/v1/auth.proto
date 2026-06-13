@@ -38,4 +38,7 @@ message GetAuthStatusRequest {}
 
 message GetAuthStatusResponse {
   string subject_id = 1;
+  // Account slugs the authenticated subject belongs to. The first is the
+  // subject's personal account, whose "home" slice covers "/<account>".
+  repeated string accounts = 2;
 }

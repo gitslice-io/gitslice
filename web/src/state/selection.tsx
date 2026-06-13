@@ -1,40 +1,32 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode
-} from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-const ACCOUNT_KEY = "gitslice.web.account";
+import { useApi } from "../api/useApi";
 
+// The "account" is the signed-in user's own account, resolved from the session
+// (GetAuthStatus) rather than typed in by the user. The first account is their
+// personal account, whose home slice covers "/<account>".
 interface SelectionState {
   account: string;
-  setAccount(account: string): void;
+  accounts: string[];
+  isLoading: boolean;
 }
 
 const SelectionContext = createContext<SelectionState | null>(null);
 
-interface SelectionProviderProps {
-  children: ReactNode;
-}
+export function SelectionProvider({ children }: { children: ReactNode }) {
+  const api = useApi();
+  const { data, isLoading } = useQuery({
+    queryKey: ["authStatus"],
+    queryFn: () => api.getAuthStatus({})
+  });
 
-export function SelectionProvider({ children }: SelectionProviderProps) {
-  const initialAccount = useMemo(readInitialAccount, []);
-  const [account, setAccountState] = useState(initialAccount);
+  const accounts = data?.accounts ?? [];
+  const account = accounts[0] ?? "";
 
-  const setAccount = useCallback((nextAccount: string) => {
-    setAccountState(nextAccount);
-    localStorage.setItem(ACCOUNT_KEY, nextAccount);
-  }, []);
-
-  const value = useMemo(
-    () => ({
-      account,
-      setAccount
-    }),
-    [account, setAccount]
+  const value = useMemo<SelectionState>(
+    () => ({ account, accounts, isLoading }),
+    [account, accounts.join(" "), isLoading]
   );
 
   return (
@@ -52,17 +44,4 @@ export function useSelection() {
   }
 
   return value;
-}
-
-function readInitialAccount() {
-  const params = new URLSearchParams(window.location.search);
-  const pathAccount = readSourceAccount(window.location.pathname);
-  const storedAccount = localStorage.getItem(ACCOUNT_KEY) ?? "";
-
-  return params.get("account") || pathAccount || storedAccount;
-}
-
-function readSourceAccount(pathname: string) {
-  const match = pathname.match(/^\/source\/([^/]+)/);
-  return match ? decodeURIComponent(match[1]) : "";
 }

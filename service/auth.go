@@ -18,7 +18,9 @@ type FakeAccountService struct {
 	Auth storage.AuthStore
 }
 
-type AuthService struct{}
+type AuthService struct {
+	Auth storage.AuthStore
+}
 
 func (s *FakeAccountService) Login(ctx context.Context, req *corev1.LoginRequest) (*corev1.LoginResponse, error) {
 	token, subjectID, err := s.Auth.LoginDevUser(ctx, req.DevUser)
@@ -63,7 +65,11 @@ func (s *AuthService) GetAuthStatus(ctx context.Context, req *corev1.GetAuthStat
 	if err != nil {
 		return nil, err
 	}
-	return &corev1.GetAuthStatusResponse{SubjectId: subjectID}, nil
+	accounts, err := s.Auth.ListSubjectAccountSlugs(ctx, subjectID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.GetAuthStatusResponse{SubjectId: subjectID, Accounts: accounts}, nil
 }
 
 func parseLocalCallbackURL(raw string) (*url.URL, error) {

@@ -39,7 +39,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 	}
 	return &Handlers{
 		FakeAccount: &FakeAccountService{Auth: stores.Auth},
-		Auth:        &AuthService{},
+		Auth:        &AuthService{Auth: stores.Auth},
 		Repository: &RepositoryService{
 			Auth:        stores.Auth,
 			Blobs:       stores.Blobs,
