@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/auth/clerk"
+	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
 	"github.com/gitslice-io/gitslice/internal/objectstore/r2"
 )
 
@@ -22,6 +23,7 @@ type Config struct {
 	R2                    r2.Config
 	AuthProvider          string
 	Clerk                 clerk.Config
+	ServiceToken          servicetoken.Config
 	RunMigrations         bool
 	PublishBatchSize      int
 	PublishInterval       time.Duration
@@ -45,6 +47,7 @@ func ConfigFromEnv() Config {
 		R2:                    r2.ConfigFromEnv(),
 		AuthProvider:          os.Getenv("AUTH_PROVIDER"),
 		Clerk:                 clerk.ConfigFromEnv(),
+		ServiceToken:          servicetoken.ConfigFromEnv(),
 		RunMigrations:         os.Getenv("GITSLICE_RUN_MIGRATIONS") != "0",
 		PublishBatchSize:      intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BATCH_SIZE"), 128),
 		PublishInterval:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_INTERVAL_MS"), 25)) * time.Millisecond,

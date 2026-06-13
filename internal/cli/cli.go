@@ -27,6 +27,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
 	"github.com/gitslice-io/gitslice/internal/clientcache"
 	"github.com/gitslice-io/gitslice/internal/diffutil"
 	"github.com/gitslice-io/gitslice/internal/objectid"
@@ -867,7 +868,37 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runAuthLogout(*opts)
 		},
 	}
-	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd, authTokenCmd, authLogoutCmd)
+	genKeyOut := ""
+	genServiceKeyCmd := &cobra.Command{
+		Use:   "gen-service-key",
+		Short: "Generate an Ed25519 service-token keypair (testing/service accounts)",
+		Args:  noArgs("gs auth gen-service-key [--out-dir DIR]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runGenServiceKey(*opts, genKeyOut)
+		},
+	}
+	genServiceKeyCmd.Flags().StringVar(&genKeyOut, "out-dir", "", "write service-key.pem and service-key.pub.pem to this directory instead of stdout")
+
+	mintKeyPath := ""
+	mintSubject := ""
+	mintEmail := ""
+	mintIssuer := servicetoken.DefaultIssuer
+	mintTTL := 24 * time.Hour
+	mintServiceTokenCmd := &cobra.Command{
+		Use:   "mint-service-token",
+		Short: "Mint a signed service token to authenticate without Clerk (testing)",
+		Args:  noArgs("gs auth mint-service-token --key PRIV.pem --subject ID [--email E] [--issuer I] [--ttl 24h]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runMintServiceToken(*opts, mintKeyPath, mintSubject, mintEmail, mintIssuer, mintTTL)
+		},
+	}
+	mintServiceTokenCmd.Flags().StringVar(&mintKeyPath, "key", "", "path to the Ed25519 private key PEM (required)")
+	mintServiceTokenCmd.Flags().StringVar(&mintSubject, "subject", "", "subject id to authenticate as (required)")
+	mintServiceTokenCmd.Flags().StringVar(&mintEmail, "email", "", "optional email claim")
+	mintServiceTokenCmd.Flags().StringVar(&mintIssuer, "issuer", mintIssuer, "issuer claim (must match server GITSLICE_SERVICE_JWT_ISSUER)")
+	mintServiceTokenCmd.Flags().DurationVar(&mintTTL, "ttl", mintTTL, "token lifetime")
+
+	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd, authTokenCmd, authLogoutCmd, genServiceKeyCmd, mintServiceTokenCmd)
 
 	initCmd := &cobra.Command{
 		Use:   "init <slice|account/slice>",
@@ -1659,6 +1690,57 @@ func findHelpTopic(name string) (helpTopic, bool) {
 func writeHelpTopic(w io.Writer, topic helpTopic) error {
 	_, err := fmt.Fprint(w, strings.TrimRight(topic.Body, "\n")+"\n")
 	return err
+}
+
+func (r Runner) runGenServiceKey(opts commandOptions, outDir string) error {
+	priv, pub, err := servicetoken.GenerateKeyPair()
+	if err != nil {
+		return err
+	}
+	if outDir != "" {
+		privPath := filepath.Join(outDir, "service-key.pem")
+		pubPath := filepath.Join(outDir, "service-key.pub.pem")
+		if err := os.WriteFile(privPath, []byte(priv), 0o600); err != nil {
+			return err
+		}
+		if err := os.WriteFile(pubPath, []byte(pub), 0o644); err != nil {
+			return err
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{"private_key_path": privPath, "public_key_path": pubPath})
+		}
+		fmt.Fprintf(r.Stdout, "wrote %s (keep secret) and %s\n", privPath, pubPath)
+		fmt.Fprintf(r.Stdout, "Configure the server with GITSLICE_SERVICE_JWT_PUBLIC_KEY (contents of %s).\n", pubPath)
+		return nil
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"private_key_pem": priv, "public_key_pem": pub})
+	}
+	fmt.Fprintf(r.Stdout, "# Private key (keep secret; pass to `gs auth mint-service-token --key`):\n%s\n", priv)
+	fmt.Fprintf(r.Stdout, "# Public key (set as server GITSLICE_SERVICE_JWT_PUBLIC_KEY):\n%s\n", pub)
+	return nil
+}
+
+func (r Runner) runMintServiceToken(opts commandOptions, keyPath, subject, email, issuer string, ttl time.Duration) error {
+	if keyPath == "" {
+		return userError("invalid_args", "--key is required", "Generate one with gs auth gen-service-key.")
+	}
+	if subject == "" {
+		return userError("invalid_args", "--subject is required", "Pass the subject id to authenticate as, e.g. --subject svc_test.")
+	}
+	keyPEM, err := os.ReadFile(keyPath)
+	if err != nil {
+		return err
+	}
+	token, err := servicetoken.Mint(string(keyPEM), subject, email, issuer, ttl)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"token": token})
+	}
+	fmt.Fprintln(r.Stdout, token)
+	return nil
 }
 
 type authLoginOptions struct {

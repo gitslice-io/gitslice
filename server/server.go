@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/auth/clerk"
+	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
 	"github.com/gitslice-io/gitslice/internal/indexworker"
@@ -217,25 +218,46 @@ func newObjectStore(cfg Config) (service.ObjectStore, error) {
 // provider. With AUTH_PROVIDER=clerk it verifies Clerk session JWTs and
 // JIT-provisions a subject; otherwise it resolves dev/fake session tokens.
 func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, error) {
+	// Optional asymmetric-key service-token path for automated testing and
+	// service accounts. Disabled unless GITSLICE_SERVICE_JWT_PUBLIC_KEY is set.
+	serviceVerifier, err := servicetoken.NewVerifier(cfg.ServiceToken)
+	if err != nil {
+		return nil, err
+	}
+
+	var primary subjectResolver
 	if cfg.AuthProvider == "clerk" {
-		verifier, err := clerk.NewVerifier(cfg.Clerk)
+		clerkVerifier, err := clerk.NewVerifier(cfg.Clerk)
 		if err != nil {
 			return nil, err
 		}
-		return func(ctx context.Context, token string) (string, error) {
-			claims, err := verifier.Verify(ctx, token)
+		primary = func(ctx context.Context, token string) (string, error) {
+			claims, err := clerkVerifier.Verify(ctx, token)
 			if err != nil {
 				return "", fmt.Errorf("%w: %v", storage.ErrUnauthenticated, err)
 			}
 			return auth.EnsureExternalSubject(ctx, claims.Subject, claims.Email)
-		}, nil
-	}
-	return func(ctx context.Context, token string) (string, error) {
-		subject, err := auth.SubjectForToken(ctx, token)
-		if err != nil {
-			return "", err
 		}
-		return subject.ID, nil
+	} else {
+		primary = func(ctx context.Context, token string) (string, error) {
+			subject, err := auth.SubjectForToken(ctx, token)
+			if err != nil {
+				return "", err
+			}
+			return subject.ID, nil
+		}
+	}
+
+	if serviceVerifier == nil {
+		return primary, nil
+	}
+	// Try the strict service-token verifier first; a token not signed by the
+	// configured key simply falls through to the primary provider.
+	return func(ctx context.Context, token string) (string, error) {
+		if claims, err := serviceVerifier.Verify(ctx, token); err == nil {
+			return auth.EnsureExternalSubject(ctx, claims.Subject, claims.Email)
+		}
+		return primary(ctx, token)
 	}, nil
 }
 
