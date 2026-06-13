@@ -23,8 +23,13 @@ import (
 // request cannot exhaust server memory. It matches the unary gRPC message limit.
 const maxGitRequestBytes = 128 * 1024 * 1024
 
+// SubjectResolver maps a verified bearer/basic-auth token to an internal subject
+// ID. It is supplied by the caller so the Git layer authenticates through the same
+// provider as the gRPC server (dev sessions or Clerk).
+type SubjectResolver func(ctx context.Context, token string) (string, error)
+
 type Handler struct {
-	auth       storage.AuthStore
+	resolve    SubjectResolver
 	projector  *Projector
 	blobs      BlobAPI
 	changesets ChangesetAPI
@@ -40,8 +45,8 @@ type ChangesetAPI interface {
 	UpdateChangeset(context.Context, *corev1.UpdateChangesetRequest) (*corev1.Patchset, error)
 }
 
-func NewHandler(auth storage.AuthStore, projector *Projector, blobs BlobAPI, changesets ChangesetAPI) *Handler {
-	return &Handler{auth: auth, projector: projector, blobs: blobs, changesets: changesets}
+func NewHandler(resolve SubjectResolver, projector *Projector, blobs BlobAPI, changesets ChangesetAPI) *Handler {
+	return &Handler{resolve: resolve, projector: projector, blobs: blobs, changesets: changesets}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -100,11 +105,7 @@ func (h *Handler) authenticate(ctx context.Context, r *http.Request) (string, er
 	if token == "" {
 		return "", storage.ErrUnauthenticated
 	}
-	subject, err := h.auth.SubjectForToken(ctx, token)
-	if err != nil {
-		return "", err
-	}
-	return subject.ID, nil
+	return h.resolve(ctx, token)
 }
 
 func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo string) error {

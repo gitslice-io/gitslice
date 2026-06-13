@@ -371,6 +371,18 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 	return token, subjectID, nil
 }
 
+func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	username := storage.ExternalUsername(externalID, email)
+	if username == "" {
+		return "", storage.ErrInvalid
+	}
+	subjectID := "user_" + strings.ReplaceAll(username, "-", "_")
+	s.b.addAccountLocked(subjectID, username)
+	return subjectID, nil
+}
+
 func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*storage.Subject, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
