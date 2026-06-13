@@ -30,6 +30,8 @@ export interface GetAuthStatusRequest {}
 
 export interface GetAuthStatusResponse {
   subjectId?: string;
+  // Account slugs the subject belongs to; the first is their personal account.
+  accounts?: string[];
 }
 
 export interface Ref {
