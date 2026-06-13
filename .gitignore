@@ -3,3 +3,7 @@ env.local
 .env.staging
 .env.production
 
+# build artifacts and local deploy helpers
+/bin/
+/deploy/
+

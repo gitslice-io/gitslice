@@ -46,10 +46,21 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	if err := requireDefaultTargetRef(req.TargetRef); err != nil {
 		return nil, err
 	}
+	targetRef := req.TargetRef
+	if targetRef == "" {
+		targetRef = storage.DefaultTargetRef
+	}
 	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionWrite); err != nil {
 		return nil, err
 	}
-	cs, err := s.Changesets.Create(ctx, subjectID, req)
+	createReq := &corev1.CreateChangesetRequest{
+		AuthoringSlice: req.AuthoringSlice,
+		TargetRef:      targetRef,
+		BaseCommitId:   req.BaseCommitId,
+		Title:          req.Title,
+		Description:    req.Description,
+	}
+	cs, err := s.Changesets.Create(ctx, subjectID, createReq)
 	if err != nil {
 		return nil, grpcError(err)
 	}

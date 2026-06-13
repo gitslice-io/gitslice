@@ -11,14 +11,14 @@ import {
   prepareFileEdits,
   type FileEditDraft
 } from "../components/changesets/FileEditForm";
+import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { useSelection } from "../state/selection";
 
 export function NewChangesetPage() {
   const api = useApi();
   const navigate = useNavigate();
-  const { account, ref } = useSelection();
+  const { account } = useSelection();
   const [sliceInput, setSliceInput] = useState(() => (account ? `${account}/` : ""));
-  const [targetRef, setTargetRef] = useState(ref || "main");
   const [baseCommitId, setBaseCommitId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -30,12 +30,6 @@ export function NewChangesetPage() {
     }
   }, [account, sliceInput]);
 
-  useEffect(() => {
-    if (!targetRef && ref) {
-      setTargetRef(ref);
-    }
-  }, [ref, targetRef]);
-
   const preview = useMemo(() => clientPreview(rows), [rows]);
 
   const validateMutation = useMutation({
@@ -44,13 +38,12 @@ export function NewChangesetPage() {
       const authoringSlice = parseSliceRef(sliceInput);
       const resolvedSlice = await api.resolveSlice({ ref: authoringSlice });
       const resolvedRef = resolvedSlice.ref ?? authoringSlice;
-      const cleanTargetRef = targetRef.trim() || "main";
       const baseCommit = baseCommitId.trim()
         ? baseCommitId.trim()
-        : (await api.getRef({ refName: cleanTargetRef })).commitId;
+        : (await api.getRef({ refName: GLOBAL_REF_NAME })).commitId;
 
       if (!baseCommit) {
-        throw new Error(`Target ref ${cleanTargetRef} did not return a commit id.`);
+        throw new Error("Latest global state did not return a commit id.");
       }
 
       return {
@@ -65,13 +58,12 @@ export function NewChangesetPage() {
       const authoringSlice = parseSliceRef(sliceInput);
       const resolvedSlice = await api.resolveSlice({ ref: authoringSlice });
       const resolvedRef = resolvedSlice.ref ?? authoringSlice;
-      const cleanTargetRef = targetRef.trim() || "main";
       const baseCommit = baseCommitId.trim()
         ? baseCommitId.trim()
-        : (await api.getRef({ refName: cleanTargetRef })).commitId;
+        : (await api.getRef({ refName: GLOBAL_REF_NAME })).commitId;
 
       if (!baseCommit) {
-        throw new Error(`Target ref ${cleanTargetRef} did not return a commit id.`);
+        throw new Error("Latest global state did not return a commit id.");
       }
 
       const fileEdits = await prepareFileEdits({
@@ -82,7 +74,6 @@ export function NewChangesetPage() {
 
       const changeset = await api.createChangeset({
         authoringSlice: resolvedRef,
-        targetRef: cleanTargetRef,
         baseCommitId: baseCommit,
         title: title.trim(),
         description: description.trim()
@@ -159,23 +150,12 @@ export function NewChangesetPage() {
             </label>
 
             <label className="grid gap-2 text-sm font-medium text-zinc-800">
-              Target ref
-              <input
-                className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
-                disabled={busy}
-                onChange={(event) => setTargetRef(event.target.value)}
-                placeholder="main"
-                value={targetRef}
-              />
-            </label>
-
-            <label className="grid gap-2 text-sm font-medium text-zinc-800">
               Base commit
               <input
                 className="h-10 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
                 disabled={busy}
                 onChange={(event) => setBaseCommitId(event.target.value)}
-                placeholder="Resolved from target ref when blank"
+                placeholder="Resolved from latest global state when blank"
                 value={baseCommitId}
               />
             </label>
