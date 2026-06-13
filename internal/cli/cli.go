@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -42,6 +43,7 @@ import (
 	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	grpcstatus "google.golang.org/grpc/status"
@@ -803,16 +805,28 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	loginServer := defaultServerAddr()
 	loginDevUser := "alice"
+	loginClerkToken := ""
+	loginClerkBrowser := false
+	loginWebURL := defaultWebURL()
 	loginCmd := &cobra.Command{
 		Use:   "login",
-		Short: "Log in through the development account service",
-		Args:  noArgs("gs auth login [--server addr] [--dev-user alice]"),
+		Short: "Log in to a Gitslice server (dev account, Clerk token, or Clerk browser flow)",
+		Args:  noArgs("gs auth login [--server addr] [--dev-user alice | --clerk-token JWT | --clerk]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runAuthLogin(cmd.Context(), *opts, loginServer, loginDevUser)
+			return r.runAuthLogin(cmd.Context(), *opts, authLoginOptions{
+				serverAddr:   loginServer,
+				devUser:      loginDevUser,
+				clerkToken:   loginClerkToken,
+				clerkBrowser: loginClerkBrowser,
+				webURL:       loginWebURL,
+			})
 		},
 	}
 	loginCmd.Flags().StringVar(&loginServer, "server", loginServer, "server gRPC address")
-	loginCmd.Flags().StringVar(&loginDevUser, "dev-user", loginDevUser, "development user")
+	loginCmd.Flags().StringVar(&loginDevUser, "dev-user", loginDevUser, "development user (dev/fake login)")
+	loginCmd.Flags().StringVar(&loginClerkToken, "clerk-token", loginClerkToken, "log in with a Clerk session JWT (use '-' to read from stdin)")
+	loginCmd.Flags().BoolVar(&loginClerkBrowser, "clerk", loginClerkBrowser, "log in via the browser-based Clerk flow")
+	loginCmd.Flags().StringVar(&loginWebURL, "web-url", loginWebURL, "web base URL for the --clerk browser flow")
 	signupServer := defaultServerAddr()
 	signupWebURL := defaultWebURL()
 	signupUsername := ""
@@ -1647,7 +1661,41 @@ func writeHelpTopic(w io.Writer, topic helpTopic) error {
 	return err
 }
 
-func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAddr, devUser string) error {
+type authLoginOptions struct {
+	serverAddr   string
+	devUser      string
+	clerkToken   string
+	clerkBrowser bool
+	webURL       string
+}
+
+// runAuthLogin dispatches to the selected login mode: a Clerk session JWT
+// (--clerk-token, or '-' for stdin), the browser-based Clerk flow (--clerk), or
+// the default dev/fake account login (--dev-user).
+func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, in authLoginOptions) error {
+	switch {
+	case in.clerkToken != "":
+		token := in.clerkToken
+		if token == "-" {
+			raw, err := io.ReadAll(r.stdin())
+			if err != nil {
+				return err
+			}
+			token = string(raw)
+		}
+		token = strings.TrimSpace(token)
+		if token == "" {
+			return userError("invalid_args", "clerk token is empty", "Pass a Clerk session JWT to --clerk-token, or '-' to read it from stdin.")
+		}
+		return r.finishClerkLogin(ctx, opts, in.serverAddr, token)
+	case in.clerkBrowser:
+		return r.runAuthLoginClerkBrowser(ctx, opts, in.serverAddr, in.webURL)
+	default:
+		return r.runAuthDevLogin(ctx, opts, in.serverAddr, in.devUser)
+	}
+}
+
+func (r Runner) runAuthDevLogin(ctx context.Context, opts commandOptions, serverAddr, devUser string) error {
 	conn, err := dial(ctx, serverAddr)
 	if err != nil {
 		return err
@@ -1657,7 +1705,94 @@ func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAdd
 	if err != nil {
 		return err
 	}
-	cfg := UserConfig{ServerAddr: serverAddr, Token: res.Token, SubjectID: res.SubjectId}
+	return r.persistAndReportLogin(opts, UserConfig{ServerAddr: serverAddr, Token: res.Token, SubjectID: res.SubjectId})
+}
+
+// finishClerkLogin stores a Clerk session JWT as the bearer credential and
+// verifies it by calling AuthService.GetAuthStatus, which runs the server-side
+// Clerk verification and returns the provisioned subject ID.
+func (r Runner) finishClerkLogin(ctx context.Context, opts commandOptions, serverAddr, token string) error {
+	subjectID, err := r.verifyToken(ctx, serverAddr, token)
+	if err != nil {
+		return userError("clerk_login_failed", fmt.Sprintf("token was not accepted by %s: %v", serverAddr, err), "Check that the token is a current Clerk session JWT and that the server runs AUTH_PROVIDER=clerk.")
+	}
+	return r.persistAndReportLogin(opts, UserConfig{ServerAddr: serverAddr, Token: token, SubjectID: subjectID})
+}
+
+func (r Runner) runAuthLoginClerkBrowser(ctx context.Context, opts commandOptions, serverAddr, webURL string) error {
+	callbackLis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	defer callbackLis.Close()
+
+	state, err := objectid.RandomID("clerkstate")
+	if err != nil {
+		return err
+	}
+	callbackURL := "http://" + callbackLis.Addr().String() + "/callback"
+	loginURL, err := clerkLoginURL(webURL, callbackURL, state)
+	if err != nil {
+		return err
+	}
+
+	resultCh := make(chan clerkLoginCallbackResult, 1)
+	callbackServer := &http.Server{Handler: clerkLoginCallbackHandler(state, resultCh)}
+	go func() {
+		if err := callbackServer.Serve(callbackLis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			select {
+			case resultCh <- clerkLoginCallbackResult{Error: err.Error()}:
+			default:
+			}
+		}
+	}()
+	defer callbackServer.Shutdown(context.Background())
+
+	promptWriter := r.stdout()
+	if opts.jsonOutput() {
+		promptWriter = r.stderr()
+	}
+	if !opts.Quiet {
+		fmt.Fprintln(promptWriter, "Open this URL to sign in with Clerk:")
+		fmt.Fprintln(promptWriter, loginURL)
+	}
+	if err := openBrowserURL(loginURL); err != nil && !opts.Quiet {
+		fmt.Fprintf(r.stderr(), "could not open browser automatically: %v\n", err)
+	}
+	if !opts.Quiet {
+		fmt.Fprintln(promptWriter, "Waiting for browser sign-in...")
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	var result clerkLoginCallbackResult
+	select {
+	case result = <-resultCh:
+	case <-waitCtx.Done():
+		return waitCtx.Err()
+	}
+	if result.Error != "" {
+		return userError("clerk_login_failed", result.Error, "Try gs auth login --clerk again.")
+	}
+	return r.finishClerkLogin(ctx, opts, serverAddr, result.Token)
+}
+
+// verifyToken dials serverAddr and calls AuthService.GetAuthStatus using token as
+// the bearer credential, returning the authenticated subject ID.
+func (r Runner) verifyToken(ctx context.Context, serverAddr, token string) (string, error) {
+	conn, err := dial(ctx, serverAddr)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	res, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(authContext(ctx, UserConfig{Token: token}), &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		return "", err
+	}
+	return res.SubjectId, nil
+}
+
+func (r Runner) persistAndReportLogin(opts commandOptions, cfg UserConfig) error {
 	if existing, err := r.readPartialUserConfig(); err == nil {
 		cfg.Aliases = existing.Aliases
 	}
@@ -1666,15 +1801,77 @@ func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, serverAdd
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
-			"server_addr": serverAddr,
-			"subject_id":  res.SubjectId,
+			"server_addr": cfg.ServerAddr,
+			"subject_id":  cfg.SubjectID,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "logged in as %s\n", res.SubjectId)
+	fmt.Fprintf(r.Stdout, "logged in as %s\n", cfg.SubjectID)
 	return nil
+}
+
+type clerkLoginCallbackResult struct {
+	Token string
+	Error string
+}
+
+func clerkLoginCallbackHandler(expectedState string, resultCh chan<- clerkLoginCallbackResult) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/callback" {
+			http.NotFound(w, req)
+			return
+		}
+		values := req.URL.Query()
+		if values.Get("state") != expectedState {
+			http.Error(w, "invalid login state", http.StatusBadRequest)
+			return
+		}
+		result := clerkLoginCallbackResult{
+			Token: values.Get("token"),
+			Error: values.Get("error"),
+		}
+		if result.Error == "" && result.Token == "" {
+			result.Error = "clerk login callback did not include a token"
+		}
+		if result.Error == "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintln(w, "<!doctype html><title>Gitslice Login Complete</title><p>Login complete. Return to your terminal.</p>")
+		} else {
+			http.Error(w, result.Error, http.StatusBadRequest)
+		}
+		select {
+		case resultCh <- result:
+		default:
+		}
+	})
+}
+
+// clerkLoginURL builds the web sign-in handoff URL for the browser Clerk flow.
+// The web app is expected to sign the user in via Clerk and redirect to
+// callbackURL with ?state=<state>&token=<clerk session jwt> (or ?error=...).
+func clerkLoginURL(webURL, callbackURL, state string) (string, error) {
+	webURL = strings.TrimSpace(webURL)
+	if webURL == "" {
+		webURL = defaultWebURL()
+	}
+	if !strings.Contains(webURL, "://") {
+		webURL = "http://" + webURL
+	}
+	parsed, err := url.Parse(webURL)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("web-url must use http or https")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/cli-login"
+	query := parsed.Query()
+	query.Set("callback_url", callbackURL)
+	query.Set("state", state)
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
 }
 
 func (r Runner) runAuthSignup(ctx context.Context, opts commandOptions, serverAddr, webURL, username string, openBrowser bool) error {
@@ -9241,14 +9438,52 @@ func authContext(ctx context.Context, cfg UserConfig) context.Context {
 func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return grpc.DialContext(ctx, addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	target, useTLS := resolveDialTarget(addr)
+	creds := insecure.NewCredentials()
+	if useTLS {
+		host := target
+		if h, _, err := net.SplitHostPort(target); err == nil {
+			host = h
+		}
+		creds = credentials.NewTLS(&tls.Config{ServerName: host})
+	}
+	return grpc.DialContext(ctx, target,
+		grpc.WithTransportCredentials(creds),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 			grpc.MaxCallSendMsgSize(rpclimits.MaxUnaryMessageBytes),
 		),
 		grpc.WithBlock(),
 	)
+}
+
+// resolveDialTarget strips any scheme from a server address and decides whether
+// to use TLS. TLS is used when the address has an https/grpcs scheme, targets
+// port 443, or GS_TLS is set. This lets the CLI reach TLS endpoints such as
+// api.agenttools.dev:443 while defaulting to plaintext for local servers.
+func resolveDialTarget(addr string) (string, bool) {
+	addr = strings.TrimSpace(addr)
+	useTLS := false
+	switch {
+	case strings.HasPrefix(addr, "grpcs://"):
+		addr, useTLS = strings.TrimPrefix(addr, "grpcs://"), true
+	case strings.HasPrefix(addr, "https://"):
+		addr, useTLS = strings.TrimPrefix(addr, "https://"), true
+	case strings.HasPrefix(addr, "grpc://"):
+		addr = strings.TrimPrefix(addr, "grpc://")
+	case strings.HasPrefix(addr, "http://"):
+		addr = strings.TrimPrefix(addr, "http://")
+	}
+	addr = strings.TrimSuffix(addr, "/")
+	if !useTLS {
+		if _, port, err := net.SplitHostPort(addr); err == nil && port == "443" {
+			useTLS = true
+		}
+	}
+	if v := os.Getenv("GS_TLS"); v == "1" || strings.EqualFold(v, "true") {
+		useTLS = true
+	}
+	return addr, useTLS
 }
 
 func defaultServerAddr() string {
