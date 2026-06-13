@@ -2,12 +2,20 @@ import { useAuth } from "@clerk/clerk-react";
 import { Navigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
+import { devAuthEnabled, getDevToken } from "./devAuth";
+
 interface RequireAuthProps {
   children: ReactNode;
 }
 
 export function RequireAuth({ children }: RequireAuthProps) {
   const { isLoaded, isSignedIn } = useAuth();
+
+  // Dev/testing bypass (compiled out unless VITE_ENABLE_DEV_AUTH): a present dev
+  // token counts as authenticated so authed views can be driven headlessly.
+  if (devAuthEnabled && getDevToken()) {
+    return <>{children}</>;
+  }
 
   if (!isLoaded) {
     return (

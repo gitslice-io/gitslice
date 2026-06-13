@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { languageFromPath } from "./sourceUtils";
+import { highlightToHtml } from "./highlight";
 
 interface SourceCodeViewerProps {
   code: string;
@@ -28,20 +29,7 @@ export function SourceCodeViewer({ code, path }: SourceCodeViewerProps) {
     async function highlightCode() {
       setHighlight({ html: "", isLoading: true, error: "" });
       try {
-        const { codeToHtml } = await import("shiki");
-        let html: string;
-        try {
-          html = await codeToHtml(code, {
-            lang: language,
-            theme: "github-light"
-          });
-        } catch {
-          html = await codeToHtml(code, {
-            lang: "text",
-            theme: "github-light"
-          });
-        }
-
+        const html = await highlightToHtml(code, language);
         if (active) {
           setHighlight({ html, isLoading: false, error: "" });
         }
