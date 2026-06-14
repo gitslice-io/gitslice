@@ -9,6 +9,8 @@ import type {
   ApproveChangesetResponse,
   Changeset,
   CreateChangesetRequest,
+  DiffChangesetRequest,
+  DiffChangesetResponse,
   Empty,
   GetAuthStatusRequest,
   GetAuthStatusResponse,
@@ -68,6 +70,9 @@ export interface ApiClient {
     request: ListChangesetsRequest
   ): Promise<ListChangesetsResponse>;
   getChangeset(request: GetChangesetRequest): Promise<Changeset>;
+  diffChangeset(
+    request: DiffChangesetRequest
+  ): Promise<DiffChangesetResponse>;
   updateChangeset(request: UpdateChangesetRequest): Promise<Patchset>;
   approveChangeset(
     request: ApproveChangesetRequest
@@ -181,6 +186,12 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
         invoke<GetChangesetRequest, Changeset>(
           "ChangesetService",
           "GetChangeset",
+          request
+        ),
+      diffChangeset: (request) =>
+        invoke<DiffChangesetRequest, DiffChangesetResponse>(
+          "ChangesetService",
+          "DiffChangeset",
           request
         ),
       updateChangeset: (request) =>

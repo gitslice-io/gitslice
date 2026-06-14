@@ -1,39 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Link, useParams } from "@tanstack/react-router";
+import { useMemo, useState, type FormEvent } from "react";
 
-import type {
-  Changeset,
-  FileEdit,
-  Patchset,
-  PathBase,
-  PathCoverage,
-  PathSetEntry,
-  SubmitRequirements
-} from "../api/types";
+import type { Changeset, DiffChangesetResponse } from "../api/types";
 import { useApi } from "../api/useApi";
-import {
-  FileEditForm,
-  clientPreview,
-  createEmptyEditDraft,
-  prepareFileEdits,
-  type FileEditDraft
-} from "../components/changesets/FileEditForm";
 import { cn } from "../lib/cn";
+
+interface DiffFileSection {
+  additions: number;
+  deletions: number;
+  id: string;
+  lines: string[];
+  path: string;
+}
+
+interface DiffSectionDraft {
+  diffPath?: string;
+  lines: string[];
+  newPath?: string;
+  oldPath?: string;
+}
 
 export function ChangesetDetailPage() {
   const api = useApi();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const params = useParams({ strict: false }) as { id?: string };
-  const search = useSearch({ strict: false }) as { patchset?: string | number };
   const changesetId = params.id ?? "";
-  const selectedPatchset = search.patchset ? String(search.patchset) : "";
   const [abandonReason, setAbandonReason] = useState("");
-  const [showAddPatchset, setShowAddPatchset] = useState(false);
-  const [patchsetRows, setPatchsetRows] = useState<FileEditDraft[]>([
-    createEmptyEditDraft()
-  ]);
+  const [actionError, setActionError] = useState("");
 
   const changesetQuery = useQuery({
     enabled: Boolean(changesetId),
@@ -45,9 +39,20 @@ export function ChangesetDetailPage() {
 
   const changeset = changesetQuery.data;
   const canonicalChangesetId = changeset?.id || changesetId;
-  const patchsetPreview = useMemo(
-    () => clientPreview(patchsetRows),
-    [patchsetRows]
+
+  const diffQuery = useQuery({
+    enabled: Boolean(changeset && canonicalChangesetId),
+    queryKey: ["changesetDiff", changesetId],
+    queryFn: () => api.diffChangeset({ changesetId: canonicalChangesetId })
+  });
+
+  const diffSections = useMemo(
+    () =>
+      parseUnifiedDiff(
+        diffQuery.data?.diff ?? "",
+        diffQuery.data?.changedPaths ?? []
+      ),
+    [diffQuery.data?.changedPaths, diffQuery.data?.diff]
   );
 
   const invalidateChangeset = async () => {
@@ -56,10 +61,29 @@ export function ChangesetDetailPage() {
     });
   };
 
-  const submitMutation = useMutation({
+  const approveMutation = useMutation({
     mutationFn: async () => {
+      if (!canonicalChangesetId) {
+        throw new Error("This changeset did not return an id.");
+      }
+
+      return api.approveChangeset({ changesetId: canonicalChangesetId });
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+    onMutate: () => setActionError(""),
+    onSuccess: async () => {
+      setActionError("");
+      await invalidateChangeset();
+    }
+  });
+
+  const mergeMutation = useMutation({
+    mutationFn: async () => {
+      if (!canonicalChangesetId) {
+        throw new Error("This changeset did not return an id.");
+      }
       if (!changeset?.currentPatchsetId) {
-        throw new Error("This changeset has no current patchset to submit.");
+        throw new Error("This changeset has no current patchset to merge.");
       }
 
       return api.submitChangeset({
@@ -67,75 +91,46 @@ export function ChangesetDetailPage() {
         expectedCurrentPatchsetId: changeset.currentPatchsetId
       });
     },
-    onSuccess: invalidateChangeset
-  });
-
-  const abandonMutation = useMutation({
-    mutationFn: async () =>
-      api.abandonChangeset({
-        changesetId: canonicalChangesetId,
-        reason: abandonReason.trim()
-      }),
-    onSuccess: invalidateChangeset
-  });
-
-  const addPatchsetMutation = useMutation({
-    mutationFn: async () => {
-      if (!changeset?.authoringSlice) {
-        throw new Error("Changeset did not return an authoring slice.");
-      }
-      if (!changeset.currentPatchsetId) {
-        throw new Error("This changeset has no current patchset.");
-      }
-
-      const fileEdits = await prepareFileEdits({
-        rows: patchsetRows,
-        slice: changeset.authoringSlice,
-        uploadBlob: api.uploadBlob
-      });
-
-      return api.updateChangeset({
-        changesetId: canonicalChangesetId,
-        expectedCurrentPatchsetId: changeset.currentPatchsetId,
-        baseCommitId: changeset.baseCommitId,
-        fileEdits
-      });
-    },
+    onError: (error) => setActionError(errorMessage(error)),
+    onMutate: () => setActionError(""),
     onSuccess: async () => {
-      setPatchsetRows([createEmptyEditDraft()]);
-      setShowAddPatchset(false);
+      setActionError("");
       await invalidateChangeset();
     }
   });
 
-  const focusPatchset = (number?: string) => {
-    void navigate({
-      to: "/changesets/$id",
-      params: { id: changesetId },
-      search: (previous) => {
-        const next = { ...previous } as Record<string, unknown>;
-        if (number) {
-          next.patchset = number;
-        } else {
-          delete next.patchset;
-        }
-        return next;
+  const abandonMutation = useMutation({
+    mutationFn: async () => {
+      if (!canonicalChangesetId) {
+        throw new Error("This changeset did not return an id.");
       }
-    });
-  };
+
+      return api.abandonChangeset({
+        changesetId: canonicalChangesetId,
+        reason: abandonReason.trim()
+      });
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+    onMutate: () => setActionError(""),
+    onSuccess: async () => {
+      setActionError("");
+      setAbandonReason("");
+      await invalidateChangeset();
+    }
+  });
 
   const submitAbandon = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     abandonMutation.mutate();
   };
 
-  const submitPatchset = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    addPatchsetMutation.mutate();
-  };
-
   if (!changesetId) {
-    return <PageMessage title="Missing changeset" message="No changeset id was provided." />;
+    return (
+      <PageMessage
+        title="Missing changeset"
+        message="No changeset id was provided."
+      />
+    );
   }
 
   if (changesetQuery.isLoading) {
@@ -152,585 +147,347 @@ export function ChangesetDetailPage() {
   }
 
   if (!changeset) {
-    return <PageMessage title="Changeset not found" message="The API returned no changeset." />;
+    return (
+      <PageMessage
+        title="Changeset not found"
+        message="The API returned no changeset."
+      />
+    );
   }
 
-  const patchsets = changeset.patchsets ?? [];
-  const busy =
-    submitMutation.isPending ||
-    abandonMutation.isPending ||
-    addPatchsetMutation.isPending;
+  const terminal = isTerminalStatus(changeset.status);
+  const actionBusy =
+    approveMutation.isPending ||
+    mergeMutation.isPending ||
+    abandonMutation.isPending;
 
   return (
-    <section className="mx-auto w-full max-w-7xl">
-      <div className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-5 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-                {changeset.handle || changesetLabel(changeset)}
-              </p>
-              <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
-                {changeset.title || "Untitled changeset"}
-              </h1>
-              {changeset.description ? (
-                <p className="mt-2 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                  {changeset.description}
-                </p>
-              ) : null}
+    <section className="mx-auto w-full max-w-5xl">
+      <HeaderCard
+        abandonReason={abandonReason}
+        actionBusy={actionBusy}
+        actionError={actionError}
+        abandonPending={abandonMutation.isPending}
+        approvePending={approveMutation.isPending}
+        changeset={changeset}
+        mergePending={mergeMutation.isPending}
+        onAbandon={submitAbandon}
+        onAbandonReasonChange={setAbandonReason}
+        onApprove={() => approveMutation.mutate()}
+        onMerge={() => mergeMutation.mutate()}
+        terminal={terminal}
+      />
+
+      <DiffReview
+        diffResponse={diffQuery.data}
+        error={diffQuery.error}
+        isError={diffQuery.isError}
+        isLoading={diffQuery.isPending}
+        sections={diffSections}
+      />
+    </section>
+  );
+}
+
+function HeaderCard({
+  abandonPending,
+  abandonReason,
+  actionBusy,
+  actionError,
+  approvePending,
+  changeset,
+  mergePending,
+  onAbandon,
+  onAbandonReasonChange,
+  onApprove,
+  onMerge,
+  terminal
+}: {
+  abandonPending: boolean;
+  abandonReason: string;
+  actionBusy: boolean;
+  actionError: string;
+  approvePending: boolean;
+  changeset: Changeset;
+  mergePending: boolean;
+  onAbandon(event: FormEvent<HTMLFormElement>): void;
+  onAbandonReasonChange(value: string): void;
+  onApprove(): void;
+  onMerge(): void;
+  terminal: boolean;
+}) {
+  const sliceSearch = changesetSliceSearch(changeset);
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+      <div className="px-5 py-5 md:px-6">
+        {sliceSearch ? (
+          <Link
+            className="text-sm font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 transition hover:text-zinc-950 hover:decoration-slate-700"
+            search={{ slice: sliceSearch } as never}
+            to="/changesets"
+          >
+            Back to {sliceSearch} changesets
+          </Link>
+        ) : null}
+
+        <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-normal text-zinc-950 md:text-3xl">
+              {changeset.title || "Untitled changeset"}
+            </h1>
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-600">
+              <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
+                {changesetHandle(changeset)}
+              </span>
+              <span>{changeset.author || "author not returned"}</span>
+              <StatusBadge status={changeset.status} />
             </div>
-            <span className={cn("w-fit rounded-full px-3 py-1 text-xs font-semibold", statusClass(changeset.status))}>
-              {changeset.status || "unknown"}
-            </span>
+            {changeset.description ? (
+              <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                {changeset.description}
+              </p>
+            ) : null}
+            {changeset.baseCommitId ? (
+              <p className="mt-4 font-mono text-xs text-slate-500">
+                base {shortCommit(changeset.baseCommitId)}
+              </p>
+            ) : null}
           </div>
+
+          <ReviewActions
+            abandonPending={abandonPending}
+            abandonReason={abandonReason}
+            actionBusy={actionBusy}
+            approvePending={approvePending}
+            canMerge={Boolean(changeset.currentPatchsetId)}
+            mergePending={mergePending}
+            onAbandon={onAbandon}
+            onAbandonReasonChange={onAbandonReasonChange}
+            onApprove={onApprove}
+            onMerge={onMerge}
+            terminal={terminal}
+          />
         </div>
 
-        <div className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-4">
-          <MetaItem label="Author" value={changeset.author} />
-          <MetaItem label="Authoring slice" value={formatSliceRef(changeset.authoringSlice)} />
-          <MetaItem label="Base commit" value={changeset.baseCommitId} mono />
-          <MetaItem label="Current patchset" value={changeset.currentPatchsetNumber} />
-          <MetaItem label="Commit id" value={changeset.commitId} mono />
-          <MetaItem label="Pending publish id" value={changeset.pendingPublishId} mono />
-          <MetaItem label="Submit blocked" value={changeset.submitBlockedReason} />
-        </div>
+        {changeset.submitBlockedReason ? (
+          <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {changeset.submitBlockedReason}
+          </div>
+        ) : null}
+        {actionError ? (
+          <ErrorBox className="mt-5" message={actionError} />
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
-        <details className="border-t border-slate-200 px-5 py-4">
-          <summary className="cursor-pointer text-sm font-medium text-slate-700">
-            Debug identifiers
-          </summary>
-          <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-slate-950 p-4 font-mono text-xs leading-5 text-slate-100">
-            {JSON.stringify(debugChangeset(changeset), null, 2)}
-          </pre>
-        </details>
+function ReviewActions({
+  abandonPending,
+  abandonReason,
+  actionBusy,
+  approvePending,
+  canMerge,
+  mergePending,
+  onAbandon,
+  onAbandonReasonChange,
+  onApprove,
+  onMerge,
+  terminal
+}: {
+  abandonPending: boolean;
+  abandonReason: string;
+  actionBusy: boolean;
+  approvePending: boolean;
+  canMerge: boolean;
+  mergePending: boolean;
+  onAbandon(event: FormEvent<HTMLFormElement>): void;
+  onAbandonReasonChange(value: string): void;
+  onApprove(): void;
+  onMerge(): void;
+  terminal: boolean;
+}) {
+  return (
+    <div className="w-full shrink-0 space-y-3 lg:w-auto lg:min-w-80">
+      <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+        <button
+          className={secondaryButtonClass}
+          disabled={actionBusy || terminal}
+          onClick={onApprove}
+          type="button"
+        >
+          {approvePending ? "Approving..." : "Approve"}
+        </button>
+        <button
+          className={primaryButtonClass}
+          disabled={actionBusy || terminal || !canMerge}
+          onClick={onMerge}
+          type="button"
+        >
+          {mergePending ? "Merging..." : "Merge"}
+        </button>
       </div>
 
-      <div className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <h2 className="text-base font-semibold tracking-normal text-zinc-950">
-              Actions
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Submit uses the returned current patchset id. Add Patchset uploads
-              pasted content with the same edit controls as the create page.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <button
-              className="rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={busy}
-              onClick={() => setShowAddPatchset((value) => !value)}
-              type="button"
-            >
-              {showAddPatchset ? "Cancel Patchset" : "Add Patchset"}
-            </button>
-            <button
-              className="rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={busy || !changeset.currentPatchsetId}
-              onClick={() => submitMutation.mutate()}
-              type="button"
-            >
-              {submitMutation.isPending ? "Submitting..." : "Submit"}
-            </button>
-          </div>
-        </div>
-
-        {submitMutation.isSuccess ? (
-          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-            Submit returned status {submitMutation.data.status || "unknown"}
-            {submitMutation.data.pendingPublishId
-              ? ` with publish id ${submitMutation.data.pendingPublishId}`
-              : ""}
-            .
-          </div>
-        ) : null}
-        {submitMutation.isError ? (
-          <ErrorBox className="mt-4" error={submitMutation.error} />
-        ) : null}
-
-        <form className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={submitAbandon}>
-          <label className="grid gap-2 text-sm font-medium text-zinc-800">
-            Abandon reason
+      {!terminal ? (
+        <form
+          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
+          onSubmit={onAbandon}
+        >
+          <label className="grid gap-1 text-xs font-medium text-slate-600">
+            Reason
             <input
-              className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
-              disabled={busy}
-              onChange={(event) => setAbandonReason(event.target.value)}
+              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+              disabled={actionBusy}
+              onChange={(event) => onAbandonReasonChange(event.target.value)}
               placeholder="Optional reason"
               value={abandonReason}
             />
           </label>
           <button
-            className="self-end rounded-md border border-red-300 bg-white px-4 py-2.5 text-sm font-medium text-red-700 transition hover:border-red-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={busy}
+            className={dangerButtonClass}
+            disabled={actionBusy}
             type="submit"
           >
-            {abandonMutation.isPending ? "Abandoning..." : "Abandon"}
+            {abandonPending ? "Abandoning..." : "Abandon"}
           </button>
         </form>
-        {abandonMutation.isError ? (
-          <ErrorBox className="mt-4" error={abandonMutation.error} />
-        ) : null}
+      ) : null}
+    </div>
+  );
+}
 
-        {showAddPatchset ? (
-          <form className="mt-6 grid gap-4" onSubmit={submitPatchset}>
-            <FileEditForm
-              disabled={busy}
-              onRowsChange={setPatchsetRows}
-              rows={patchsetRows}
-              title="Add Patchset"
-            />
-            {patchsetPreview ? (
-              <pre className="max-h-64 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-4 font-mono text-sm leading-6 text-slate-800">
-                {patchsetPreview}
-              </pre>
-            ) : null}
-            {addPatchsetMutation.isError ? <ErrorBox error={addPatchsetMutation.error} /> : null}
-            <div>
-              <button
-                className="rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={busy}
-                type="submit"
-              >
-                {addPatchsetMutation.isPending ? "Adding Patchset..." : "Add Patchset"}
-              </button>
-            </div>
-          </form>
-        ) : null}
-      </div>
+function DiffReview({
+  diffResponse,
+  error,
+  isError,
+  isLoading,
+  sections
+}: {
+  diffResponse?: DiffChangesetResponse;
+  error: unknown;
+  isError: boolean;
+  isLoading: boolean;
+  sections: DiffFileSection[];
+}) {
+  const changedPaths = diffResponse?.changedPaths ?? [];
+  const diff = diffResponse?.diff ?? "";
+  const hasTextualDiff = diff.trim().length > 0 && sections.length > 0;
 
-      <section className="mt-8">
-        <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
+  return (
+    <section className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+      <div className="border-b border-slate-200 px-5 py-4 md:px-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold tracking-normal text-zinc-950">
-              Patchsets
+            <h2 className="text-base font-semibold tracking-normal text-zinc-950">
+              Changed files
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Returned metadata only: changed paths, file edits, coverage, path
-              bases, path sets, conflicts, and submit requirement ids.
+              {isLoading
+                ? "Loading file changes..."
+                : `${changedPaths.length} file(s) changed`}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              className={cn(tabClass(!selectedPatchset))}
-              onClick={() => focusPatchset()}
-              type="button"
-            >
-              All
-            </button>
-            {patchsets.map((patchset) => (
-              <button
-                className={cn(tabClass(selectedPatchset === String(patchset.number)))}
-                key={patchset.id || patchset.number}
-                onClick={() => focusPatchset(String(patchset.number ?? ""))}
-                type="button"
-              >
-                PS{patchset.number ?? "?"}
-              </button>
-            ))}
+          {sections.length > 0 ? (
+            <nav className="flex max-w-full flex-wrap gap-2 md:justify-end">
+              {sections.map((section) => (
+                <a
+                  className="max-w-full truncate rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-zinc-950"
+                  href={`#${section.id}`}
+                  key={section.id}
+                >
+                  {section.path}
+                </a>
+              ))}
+            </nav>
+          ) : null}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <DiffSkeleton />
+      ) : isError ? (
+        <div className="p-5 md:p-6">
+          <ErrorBox message={errorMessage(error)} />
+        </div>
+      ) : hasTextualDiff ? (
+        <div className="grid gap-4 p-4 md:p-5">
+          {sections.map((section) => (
+            <DiffFilePanel key={section.id} section={section} />
+          ))}
+        </div>
+      ) : (
+        <div className="p-5 md:p-6">
+          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+            No textual changes to display.
           </div>
         </div>
-
-        {patchsets.length === 0 ? (
-          <div className="mt-5 rounded-lg border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">
-            No patchsets returned.
-          </div>
-        ) : (
-          <div className="mt-5 grid gap-5">
-            {patchsets.map((patchset) => (
-              <PatchsetCard
-                focused={selectedPatchset === String(patchset.number)}
-                key={patchset.id || patchset.number}
-                patchset={patchset}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      )}
     </section>
   );
 }
 
-function PatchsetCard({
-  focused,
-  patchset
-}: {
-  focused: boolean;
-  patchset: Patchset;
-}) {
+function DiffFilePanel({ section }: { section: DiffFileSection }) {
   return (
     <article
-      className={cn(
-        "rounded-lg border bg-white",
-        focused ? "border-zinc-950" : "border-slate-200"
-      )}
+      className="overflow-hidden rounded-lg border border-slate-200 bg-white"
+      id={section.id}
     >
-      <div className="border-b border-slate-200 px-5 py-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold tracking-normal text-zinc-950">
-                {patchset.handle || `PS${patchset.number ?? "?"}`}
-              </h3>
-              {focused ? (
-                <span className="rounded-full bg-zinc-950 px-2.5 py-1 text-xs font-semibold text-white">
-                  Focused
-                </span>
-              ) : null}
-              {patchset.kind ? (
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                  {patchset.kind}
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-1 text-sm text-slate-600">
-              author {patchset.author || "not returned"} | base{" "}
-              <span className="font-mono">{patchset.baseCommitId || "not returned"}</span>
-              {patchset.createdAt ? ` | ${formatDate(patchset.createdAt)}` : ""}
-            </p>
-          </div>
-          <details className="text-sm">
-            <summary className="cursor-pointer font-medium text-slate-700">
-              Patchset ids
-            </summary>
-            <pre className="mt-2 max-w-full overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
-              {JSON.stringify(
-                { id: patchset.id, changesetId: patchset.changesetId },
-                null,
-                2
-              )}
-            </pre>
-          </details>
+      <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="min-w-0 truncate font-mono text-sm font-semibold text-zinc-950">
+          {section.path}
+        </h3>
+        <div className="flex shrink-0 gap-2 font-mono text-xs">
+          <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-800">
+            +{section.additions}
+          </span>
+          <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">
+            -{section.deletions}
+          </span>
         </div>
       </div>
-
-      <div className="grid gap-6 px-5 py-5">
-        <ListBlock title="Changed paths" values={patchset.changedPaths} mono />
-        <FileEditTable edits={patchset.fileEdits ?? []} />
-        <CoverageTable coverage={patchset.coverage ?? []} />
-        <PathBaseTable bases={patchset.pathBases ?? []} />
-        <PathSetSummary
-          readSet={patchset.readSet ?? []}
-          writeSet={patchset.writeSet ?? []}
-        />
-        <SubmitRequirementsBlock requirements={patchset.submitRequirements} />
-        <ListBlock
-          title="Conflicts"
-          values={(patchset.conflicts ?? []).map(
-            (conflict) =>
-              `${conflict.path || "unknown"} ${conflict.conflictClass || "conflict"}`
-          )}
-        />
-      </div>
+      <pre className="overflow-x-auto bg-white text-xs leading-5 md:text-sm">
+        <code className="block min-w-full py-2">
+          {section.lines.map((line, index) => (
+            <span
+              className={cn(
+                "block min-h-5 whitespace-pre px-4 py-0.5",
+                diffLineClass(line)
+              )}
+              key={`${index}-${line}`}
+            >
+              {line || " "}
+            </span>
+          ))}
+        </code>
+      </pre>
     </article>
   );
 }
 
-function FileEditTable({ edits }: { edits: FileEdit[] }) {
-  if (edits.length === 0) {
-    return <EmptyBlock title="File edits" message="No file edits returned." />;
-  }
-
-  return (
-    <DataBlock title="File edits">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-          <thead className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-            <tr>
-              <th className="py-2 pr-4">Op</th>
-              <th className="px-4 py-2">Path</th>
-              <th className="px-4 py-2">Old path</th>
-              <th className="px-4 py-2">Blob</th>
-              <th className="px-4 py-2">Content hash</th>
-              <th className="py-2 pl-4">Mode</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 text-slate-700">
-            {edits.map((edit, index) => (
-              <tr key={`${edit.path}-${edit.oldPath}-${index}`}>
-                <td className="py-2 pr-4 font-medium text-zinc-950">
-                  {edit.op || "not returned"}
-                </td>
-                <td className="px-4 py-2 font-mono">{edit.path || "not returned"}</td>
-                <td className="px-4 py-2 font-mono">{edit.oldPath || "none"}</td>
-                <td className="px-4 py-2 font-mono">{edit.blobId || "none"}</td>
-                <td className="px-4 py-2 font-mono">{edit.contentHash || "none"}</td>
-                <td className="py-2 pl-4 font-mono">{edit.mode ?? "none"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </DataBlock>
-  );
-}
-
-function CoverageTable({ coverage }: { coverage: PathCoverage[] }) {
-  if (coverage.length === 0) {
-    return <EmptyBlock title="Coverage" message="No coverage returned." />;
-  }
-
-  return (
-    <DataBlock title="Coverage">
-      <div className="grid gap-2">
-        {coverage.map((item, index) => (
-          <div
-            className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]"
-            key={`${item.path}-${index}`}
-          >
-            <span className="font-mono text-slate-800">{item.path || "not returned"}</span>
-            <span className="font-mono text-slate-600">
-              {formatArray(item.coveringSliceIds)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </DataBlock>
-  );
-}
-
-function PathBaseTable({ bases }: { bases: PathBase[] }) {
-  if (bases.length === 0) {
-    return <EmptyBlock title="Path bases" message="No path bases returned." />;
-  }
-
-  return (
-    <DataBlock title="Path bases">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-          <thead className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-            <tr>
-              <th className="py-2 pr-4">Path</th>
-              <th className="px-4 py-2">Base commit</th>
-              <th className="px-4 py-2">Exists</th>
-              <th className="px-4 py-2">Kind</th>
-              <th className="px-4 py-2">Blob</th>
-              <th className="px-4 py-2">Content hash</th>
-              <th className="px-4 py-2">Tree</th>
-              <th className="py-2 pl-4">Check</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 text-slate-700">
-            {bases.map((base, index) => (
-              <tr key={`${base.path}-${index}`}>
-                <td className="py-2 pr-4 font-mono">{base.path || "not returned"}</td>
-                <td className="px-4 py-2 font-mono">{base.baseCommitId || "none"}</td>
-                <td className="px-4 py-2">{base.exists ? "yes" : "no"}</td>
-                <td className="px-4 py-2">{base.entryKind || "none"}</td>
-                <td className="px-4 py-2 font-mono">{base.blobId || "none"}</td>
-                <td className="px-4 py-2 font-mono">{base.contentHash || "none"}</td>
-                <td className="px-4 py-2 font-mono">{base.treeId || "none"}</td>
-                <td className="py-2 pl-4">
-                  <span className="font-mono">{base.check || "none"}</span>
-                  {base.entryFingerprint ? (
-                    <span className="mt-1 block font-mono text-xs text-slate-500">
-                      {base.entryFingerprint}
-                    </span>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </DataBlock>
-  );
-}
-
-function PathSetSummary({
-  readSet,
-  writeSet
+function ErrorBox({
+  className,
+  message
 }: {
-  readSet: PathSetEntry[];
-  writeSet: PathSetEntry[];
+  className?: string;
+  message: string;
 }) {
   return (
-    <DataBlock title="Read and write sets">
-      <div className="grid gap-4 md:grid-cols-2">
-        <PathSetList title="Read set" values={readSet} />
-        <PathSetList title="Write set" values={writeSet} />
-      </div>
-    </DataBlock>
-  );
-}
-
-function PathSetList({
-  title,
-  values
-}: {
-  title: string;
-  values: PathSetEntry[];
-}) {
-  return (
-    <div>
-      <h4 className="text-sm font-medium text-zinc-950">{title}</h4>
-      {values.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-600">None returned.</p>
-      ) : (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {values.map((entry, index) => (
-            <span
-              className="rounded-md bg-slate-100 px-2.5 py-1 font-mono text-xs text-slate-700"
-              key={`${entry.path}-${index}`}
-            >
-              {entry.path || "not returned"}
-              {entry.recursive ? " recursive" : ""}
-            </span>
-          ))}
-        </div>
+    <div
+      className={cn(
+        "rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800",
+        className
       )}
-    </div>
-  );
-}
-
-function SubmitRequirementsBlock({
-  requirements
-}: {
-  requirements?: SubmitRequirements;
-}) {
-  return (
-    <DataBlock title="Submit requirements">
-      <div className="grid gap-3 text-sm text-slate-700 md:grid-cols-2">
-        <RequirementItem
-          label="Required approvals"
-          value={requirements?.requiredApprovals ?? "none returned"}
-        />
-        <RequirementItem
-          label="Required checks"
-          value={formatArray(requirements?.requiredChecks)}
-        />
-        <RequirementItem
-          label="Path lock ids"
-          value={formatArray(requirements?.pathLockIds)}
-        />
-        <RequirementItem
-          label="Source slice definition hash"
-          value={requirements?.sourceSliceDefinitionHash || "none returned"}
-          mono
-        />
-        <RequirementItem
-          label="Source path lock set hash"
-          value={requirements?.sourcePathLockSetHash || "none returned"}
-          mono
-        />
-      </div>
-    </DataBlock>
-  );
-}
-
-function RequirementItem({
-  label,
-  mono = false,
-  value
-}: {
-  label: string;
-  mono?: boolean;
-  value: string | number;
-}) {
-  return (
-    <div className="rounded-md bg-slate-50 px-3 py-2">
-      <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-        {label}
-      </dt>
-      <dd className={cn("mt-1 break-words text-slate-800", mono && "font-mono text-xs")}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
-function ListBlock({
-  mono = false,
-  title,
-  values
-}: {
-  mono?: boolean;
-  title: string;
-  values?: string[];
-}) {
-  if (!values || values.length === 0) {
-    return <EmptyBlock title={title} message={`No ${title.toLowerCase()} returned.`} />;
-  }
-
-  return (
-    <DataBlock title={title}>
-      <div className="flex flex-wrap gap-2">
-        {values.map((value) => (
-          <span
-            className={cn(
-              "rounded-md bg-slate-100 px-2.5 py-1 text-sm text-slate-700",
-              mono && "font-mono text-xs"
-            )}
-            key={value}
-          >
-            {value}
-          </span>
-        ))}
-      </div>
-    </DataBlock>
-  );
-}
-
-function DataBlock({
-  children,
-  title
-}: {
-  children: ReactNode;
-  title: string;
-}) {
-  return (
-    <section>
-      <h4 className="text-sm font-semibold tracking-normal text-zinc-950">
-        {title}
-      </h4>
-      <div className="mt-3">{children}</div>
-    </section>
-  );
-}
-
-function EmptyBlock({ message, title }: { message: string; title: string }) {
-  return (
-    <DataBlock title={title}>
-      <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-        {message}
-      </div>
-    </DataBlock>
-  );
-}
-
-function MetaItem({
-  label,
-  mono = false,
-  value
-}: {
-  label: string;
-  mono?: boolean;
-  value?: string | number;
-}) {
-  return (
-    <div>
-      <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-        {label}
-      </dt>
-      <dd className={cn("mt-1 break-words text-sm text-zinc-950", mono && "font-mono text-xs")}>
-        {value === undefined || value === "" ? "not returned" : value}
-      </dd>
-    </div>
-  );
-}
-
-function ErrorBox({ className, error }: { className?: string; error: unknown }) {
-  return (
-    <div className={cn("rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800", className)}>
-      {errorMessage(error)}
+    >
+      {message}
     </div>
   );
 }
 
 function PageMessage({ message, title }: { message: string; title: string }) {
   return (
-    <section className="mx-auto w-full max-w-7xl">
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
+    <section className="mx-auto w-full max-w-5xl">
+      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
         <h1 className="text-xl font-semibold tracking-normal text-zinc-950">
           {title}
         </h1>
@@ -742,83 +499,244 @@ function PageMessage({ message, title }: { message: string; title: string }) {
 
 function ChangesetSkeleton() {
   return (
-    <section className="mx-auto w-full max-w-7xl">
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
-        <div className="h-4 w-40 animate-pulse rounded bg-slate-200" />
-        <div className="mt-4 h-8 w-2/3 animate-pulse rounded bg-slate-200" />
-        <div className="mt-4 grid gap-4 md:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <div className="h-12 animate-pulse rounded bg-slate-100" key={index} />
-          ))}
+    <section className="mx-auto w-full max-w-5xl">
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
+        <div className="h-4 w-48 animate-pulse rounded bg-slate-200" />
+        <div className="mt-5 h-8 w-2/3 animate-pulse rounded bg-slate-200" />
+        <div className="mt-4 flex gap-2">
+          <div className="h-7 w-24 animate-pulse rounded bg-slate-100" />
+          <div className="h-7 w-32 animate-pulse rounded bg-slate-100" />
+          <div className="h-7 w-20 animate-pulse rounded bg-slate-100" />
         </div>
       </div>
     </section>
   );
 }
 
-function changesetLabel(changeset: Changeset) {
-  if (changeset.number) {
-    return `Changeset ${changeset.number}`;
-  }
-  return "Changeset";
+function DiffSkeleton() {
+  return (
+    <div className="grid gap-4 p-4 md:p-5">
+      {Array.from({ length: 2 }).map((_, index) => (
+        <div
+          className="overflow-hidden rounded-lg border border-slate-200"
+          key={index}
+        >
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="h-4 w-64 animate-pulse rounded bg-slate-200" />
+          </div>
+          <div className="space-y-2 p-4">
+            <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
+            <div className="h-4 w-11/12 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 w-4/5 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function debugChangeset(changeset: Changeset) {
-  return {
-    id: changeset.id,
-    currentPatchsetId: changeset.currentPatchsetId,
-    patchsets: (changeset.patchsets ?? []).map((patchset) => ({
-      id: patchset.id,
-      changesetId: patchset.changesetId,
-      number: patchset.number,
-      handle: patchset.handle
-    }))
+function StatusBadge({ status }: { status?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex rounded-md border px-2 py-1 text-xs font-semibold",
+        statusClass(status)
+      )}
+    >
+      {status || "unknown"}
+    </span>
+  );
+}
+
+function parseUnifiedDiff(diff: string, changedPaths: string[]) {
+  const normalized = diff.replace(/\r\n/g, "\n");
+  if (!normalized.trim()) {
+    return [];
+  }
+
+  const lines = normalized.split("\n");
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
+  const drafts: DiffSectionDraft[] = [];
+  let current: DiffSectionDraft | null = null;
+
+  const startSection = () => {
+    current = { lines: [] };
+    drafts.push(current);
   };
+
+  lines.forEach((line, index) => {
+    const nextLine = lines[index + 1] ?? "";
+    const startsGitFile = line.startsWith("diff --git ");
+    const startsUnifiedFile =
+      line.startsWith("--- ") &&
+      nextLine.startsWith("+++ ") &&
+      (!current || sectionHasBody(current));
+
+    if (startsGitFile || startsUnifiedFile || !current) {
+      startSection();
+    }
+
+    if (!current) {
+      return;
+    }
+
+    updateSectionPath(current, line);
+    current.lines.push(line);
+  });
+
+  return drafts
+    .filter((section) => section.lines.length > 0)
+    .map((section, index) => {
+      const path =
+        section.newPath ||
+        section.oldPath ||
+        section.diffPath ||
+        changedPaths[index] ||
+        `File ${index + 1}`;
+
+      return {
+        additions: section.lines.filter(isAdditionLine).length,
+        deletions: section.lines.filter(isDeletionLine).length,
+        id: `diff-file-${index + 1}`,
+        lines: section.lines,
+        path
+      };
+    });
 }
 
-function formatSliceRef(ref: Changeset["authoringSlice"]) {
-  if (!ref?.account && !ref?.slice) {
-    return "not returned";
+function updateSectionPath(section: DiffSectionDraft, line: string) {
+  if (line.startsWith("diff --git ")) {
+    section.diffPath = parseDiffGitPath(line);
+    return;
   }
-  return `${ref.account ?? "unknown"}/${ref.slice ?? "unknown"}`;
-}
 
-function formatArray(values?: string[]) {
-  return values && values.length > 0 ? values.join(", ") : "none returned";
-}
-
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
+  if (line.startsWith("--- ")) {
+    section.oldPath = parseFileHeaderPath(line.slice(4));
+    return;
   }
-  return date.toLocaleString();
+
+  if (line.startsWith("+++ ")) {
+    section.newPath = parseFileHeaderPath(line.slice(4));
+  }
+}
+
+function parseDiffGitPath(line: string) {
+  const match = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+  if (!match) {
+    return undefined;
+  }
+  return match[2] || match[1];
+}
+
+function parseFileHeaderPath(value: string) {
+  const path = value.trim().split("\t")[0];
+  if (!path || path === "/dev/null") {
+    return undefined;
+  }
+  return path.replace(/^[ab]\//, "");
+}
+
+function sectionHasBody(section: DiffSectionDraft) {
+  return section.lines.some(
+    (line) =>
+      line.startsWith("@@") || isAdditionLine(line) || isDeletionLine(line)
+  );
+}
+
+function diffLineClass(line: string) {
+  if (line.startsWith("@@")) {
+    return "bg-sky-50 text-sky-700";
+  }
+  if (isFileMetadataLine(line)) {
+    return "bg-slate-50 text-slate-500";
+  }
+  if (isAdditionLine(line)) {
+    return "bg-emerald-50 text-emerald-900";
+  }
+  if (isDeletionLine(line)) {
+    return "bg-rose-50 text-rose-900";
+  }
+  return "text-slate-700";
+}
+
+function isFileMetadataLine(line: string) {
+  return (
+    line.startsWith("diff --git ") ||
+    line.startsWith("index ") ||
+    line.startsWith("--- ") ||
+    line.startsWith("+++ ") ||
+    line.startsWith("new file mode ") ||
+    line.startsWith("deleted file mode ") ||
+    line.startsWith("similarity index ") ||
+    line.startsWith("rename from ") ||
+    line.startsWith("rename to ")
+  );
+}
+
+function isAdditionLine(line: string) {
+  return line.startsWith("+") && !line.startsWith("+++");
+}
+
+function isDeletionLine(line: string) {
+  return line.startsWith("-") && !line.startsWith("---");
+}
+
+function changesetSliceSearch(changeset: Changeset) {
+  const ref = changeset.authoringSlice;
+  if (!ref?.account || !ref.slice) {
+    return "";
+  }
+  return `${ref.account}/${ref.slice}`;
+}
+
+function changesetHandle(changeset: Changeset) {
+  if (changeset.handle) {
+    return changeset.handle;
+  }
+  if (changeset.number !== undefined && changeset.number !== "") {
+    return `#${changeset.number}`;
+  }
+  return changeset.id || "changeset";
+}
+
+function shortCommit(commitId: string) {
+  return commitId.slice(0, 12);
 }
 
 function statusClass(status?: string) {
-  switch (status) {
-    case "draft":
-      return "bg-slate-100 text-slate-800";
-    case "pending_publish":
-      return "bg-amber-100 text-amber-900";
+  switch ((status || "").toLowerCase()) {
+    case "merged":
     case "submitted":
-      return "bg-emerald-100 text-emerald-900";
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "pending_publish":
+      return "border-amber-200 bg-amber-50 text-amber-900";
     case "abandoned":
-      return "bg-red-100 text-red-800";
+      return "border-rose-200 bg-rose-50 text-rose-800";
+    case "draft":
+      return "border-slate-200 bg-slate-50 text-slate-700";
     default:
-      return "bg-slate-100 text-slate-700";
+      return "border-slate-200 bg-slate-50 text-slate-700";
   }
 }
 
-function tabClass(active: boolean) {
-  return cn(
-    "rounded-md px-3 py-2 text-sm font-medium transition active:translate-y-px",
-    active
-      ? "bg-zinc-950 text-white"
-      : "border border-slate-300 bg-white text-slate-700 hover:border-zinc-500"
-  );
+function isTerminalStatus(status?: string) {
+  const normalized = (status || "").toLowerCase();
+  return normalized === "merged" || normalized === "abandoned";
 }
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
+
+const primaryButtonClass =
+  "rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+
+const secondaryButtonClass =
+  "rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+
+const dangerButtonClass =
+  "self-end rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
