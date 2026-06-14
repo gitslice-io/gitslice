@@ -7,3 +7,6 @@ env.local
 /bin/
 /deploy/
 /.tmp/
+
+# Local agent session transcripts (never commit)
+session-ses_*.md
