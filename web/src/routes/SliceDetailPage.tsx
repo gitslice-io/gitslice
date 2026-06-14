@@ -244,7 +244,7 @@ export function SliceDetailPage() {
             isDirectoryLoading={directoryQuery.isPending}
             isFileLoading={fileQuery.isPending}
             isLatestLoading={latestQuery.isPending}
-            isPathLoading={pathQuery.isPending}
+            isPathLoading={pathQuery.isLoading}
             onSelectPath={selectPath}
             onStageEdit={stagePendingEdit}
             pathError={pathQuery.error}
