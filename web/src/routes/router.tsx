@@ -14,7 +14,6 @@ import { CliLoginPage } from "./CliLoginPage";
 import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
 import { LoginPage } from "./LoginPage";
-import { NewChangesetPage } from "./NewChangesetPage";
 import { SliceDetailPage } from "./SliceDetailPage";
 import { SliceSettingsPage } from "./SliceSettingsPage";
 import { SlicesPage } from "./SlicesPage";
@@ -96,12 +95,6 @@ const changesetsRoute = createRoute({
   component: ChangesetsPage
 });
 
-const newChangesetRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "changesets/new",
-  component: NewChangesetPage
-});
-
 const changesetDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "changesets/$id",
@@ -120,7 +113,6 @@ const routeTree = rootRoute.addChildren([
     sliceDetailRoute,
     sliceSettingsRoute,
     changesetsRoute,
-    newChangesetRoute,
     changesetDetailRoute
   ])
 ]);

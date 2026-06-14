@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 
@@ -8,6 +8,23 @@ import type {
 } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
+import {
+  DirectoryCreateControls,
+  InlineRenameForm,
+  PendingChangesTray,
+  joinRepositoryPath,
+  parentRepositoryPath as editingParentRepositoryPath,
+  pendingChildrenForDirectory,
+  pendingDeleteForPath,
+  pendingEditKey,
+  pendingRenameForPath,
+  pendingWriteForPath,
+  removePendingEdit,
+  repositoryPathName as editingRepositoryPathName,
+  upsertPendingEdit,
+  validateEntryName,
+  type PendingEdit
+} from "../components/source/SliceEditing";
 import {
   decodeBase64File,
   entryDisplayName,
@@ -70,6 +87,7 @@ export function SliceDetailPage() {
   const sliceRef = slice?.ref;
   const sliceLabel = sliceDisplayName(slice);
   const commitId = latestQuery.data?.commitId ?? "";
+  const [pendingEdits, setPendingEdits] = useState<PendingEdit[]>([]);
   const isProjectedDirectoryPath = isSliceProjectionDirectoryPath(
     selectedPath,
     slice?.definition?.includedPaths ?? []
@@ -120,6 +138,10 @@ export function SliceDetailPage() {
     });
   }
 
+  function stagePendingEdit(edit: PendingEdit) {
+    setPendingEdits((current) => upsertPendingEdit(current, edit));
+  }
+
   if (sliceQuery.isLoading) {
     return (
       <section className="mx-auto w-full max-w-7xl">
@@ -164,13 +186,6 @@ export function SliceDetailPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
-              className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
-              search={{ slice: sliceLabel } as never}
-              to="/changesets/new"
-            >
-              New Changeset
-            </Link>
-            <Link
               className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
               search={{ slice: sliceLabel } as never}
               to="/changesets"
@@ -188,7 +203,7 @@ export function SliceDetailPage() {
           </div>
         }
         title={sliceLabel}
-        description="Slice home with projected source navigation and slice-scoped changeset actions."
+        description="Slice home with projected source navigation and in-place draft changeset editing."
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[19rem_minmax(0,1fr)]">
@@ -207,6 +222,17 @@ export function SliceDetailPage() {
         </aside>
 
         <div className="min-w-0 space-y-6">
+          <PendingChangesTray
+            api={api}
+            commitId={commitId}
+            edits={pendingEdits}
+            onClear={() => setPendingEdits([])}
+            onRemove={(key) =>
+              setPendingEdits((current) => removePendingEdit(current, key))
+            }
+            sliceLabel={sliceLabel}
+            sliceRef={sliceRef}
+          />
           <SliceSourceWorkspace
             commitError={latestQuery.error}
             commitId={commitId}
@@ -220,7 +246,9 @@ export function SliceDetailPage() {
             isLatestLoading={latestQuery.isPending}
             isPathLoading={pathQuery.isPending}
             onSelectPath={selectPath}
+            onStageEdit={stagePendingEdit}
             pathError={pathQuery.error}
+            pendingEdits={pendingEdits}
             selectedPath={selectedPath}
           />
         </div>
@@ -743,7 +771,9 @@ interface SliceSourceWorkspaceProps {
   isLatestLoading: boolean;
   isPathLoading: boolean;
   onSelectPath(path: string): void;
+  onStageEdit(edit: PendingEdit): void;
   pathError: Error | null;
+  pendingEdits: PendingEdit[];
   selectedPath: string;
 }
 
@@ -760,7 +790,9 @@ function SliceSourceWorkspace({
   isLatestLoading,
   isPathLoading,
   onSelectPath,
+  onStageEdit,
   pathError,
+  pendingEdits,
   selectedPath
 }: SliceSourceWorkspaceProps) {
   if (isLatestLoading || isPathLoading) {
@@ -813,8 +845,22 @@ function SliceSourceWorkspace({
 
     return (
       <SlicePanel className="p-0">
-        <DirectoryHeader commitId={commitId} selectedPath={selectedPath} />
-        <SliceDirectoryTable entries={directoryEntries} onSelectPath={onSelectPath} />
+        <DirectoryHeader
+          commitId={commitId}
+          onStageEdit={onStageEdit}
+          selectedPath={selectedPath}
+        />
+        <DirectoryCreateControls
+          directoryPath={selectedPath}
+          onStageEdit={onStageEdit}
+        />
+        <SliceDirectoryTable
+          entries={directoryEntries}
+          onSelectPath={onSelectPath}
+          onStageEdit={onStageEdit}
+          pendingEdits={pendingEdits}
+          selectedPath={selectedPath}
+        />
       </SlicePanel>
     );
   }
@@ -832,10 +878,13 @@ function SliceSourceWorkspace({
     }
 
     return (
-      <div className="space-y-3">
-        <DirectoryHeader commitId={commitId} selectedPath={selectedPath} />
-        <SourceCodeViewer code={fileContent} path={entry.path ?? selectedPath} />
-      </div>
+      <EditableFileView
+        commitId={commitId}
+        fileContent={fileContent}
+        onStageEdit={onStageEdit}
+        pendingEdits={pendingEdits}
+        selectedPath={entry.path ?? selectedPath}
+      />
     );
   }
 
@@ -852,33 +901,89 @@ function SliceSourceWorkspace({
 
 function DirectoryHeader({
   commitId,
+  onStageEdit,
   selectedPath
 }: {
   commitId: string;
+  onStageEdit?: (edit: PendingEdit) => void;
   selectedPath: string;
 }) {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const canRename = Boolean(selectedPath && onStageEdit);
+
+  function stageRename(name: string) {
+    if (!onStageEdit) {
+      return;
+    }
+    onStageEdit({
+      kind: "rename",
+      oldPath: selectedPath,
+      path: joinRepositoryPath(editingParentRepositoryPath(selectedPath), name)
+    });
+    setIsRenaming(false);
+  }
+
   return (
     <div className="border-b border-slate-200 px-5 py-4">
-      <h2 className="text-base font-semibold text-zinc-950">
-        {selectedPath || "Slice root"}
-      </h2>
-      <p className="mt-1 break-all text-xs text-slate-500">
-        Commit <span className="font-mono text-slate-700">{commitId}</span>
-      </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="break-all text-base font-semibold text-zinc-950">
+            {selectedPath || "Slice root"}
+          </h2>
+          <p className="mt-1 break-all text-xs text-slate-500">
+            Commit <span className="font-mono text-slate-700">{commitId}</span>
+          </p>
+        </div>
+        {canRename ? (
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              onClick={() => setIsRenaming(true)}
+              type="button"
+            >
+              Rename
+            </button>
+            <button
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              onClick={() => onStageEdit?.({ kind: "delete", path: selectedPath })}
+              type="button"
+            >
+              Delete
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {isRenaming ? (
+        <div className="mt-3">
+          <InlineRenameForm
+            onCancel={() => setIsRenaming(false)}
+            onSave={stageRename}
+            originalName={editingRepositoryPathName(selectedPath)}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function SliceDirectoryTable({
   entries,
-  onSelectPath
+  onSelectPath,
+  onStageEdit,
+  pendingEdits,
+  selectedPath
 }: {
   entries: TreeEntry[];
   onSelectPath(path: string): void;
+  onStageEdit(edit: PendingEdit): void;
+  pendingEdits: PendingEdit[];
+  selectedPath: string;
 }) {
+  const [renamingPath, setRenamingPath] = useState("");
   const sortedEntries = sortEntries(entries);
+  const pendingChildren = pendingChildrenForDirectory(pendingEdits, selectedPath);
 
-  if (!sortedEntries.length) {
+  if (!sortedEntries.length && !pendingChildren.length) {
     return (
       <div className="p-8 text-sm text-slate-600">
         This slice-projected directory is empty.
@@ -895,12 +1000,18 @@ function SliceDirectoryTable({
             <th className="px-4 py-3">Kind</th>
             <th className="px-4 py-3">Size</th>
             <th className="px-4 py-3">Content hash</th>
+            <th className="px-4 py-3">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {sortedEntries.map((entry) => {
             const path = normalizeRepositoryPath(entry.path ?? "");
             const isDirectory = entry.kind === "ENTRY_KIND_DIRECTORY";
+            const pendingDelete = pendingDeleteForPath(pendingEdits, path);
+            const pendingRename = pendingRenameForPath(pendingEdits, path);
+            const pendingWrite = pendingWriteForPath(pendingEdits, path);
+            const isRenaming = renamingPath === path;
+            const displayName = entryDisplayName(entry);
 
             return (
               <tr className="align-top transition hover:bg-slate-50" key={entry.path ?? entryDisplayName(entry)}>
@@ -910,9 +1021,14 @@ function SliceDirectoryTable({
                     onClick={() => onSelectPath(path)}
                     type="button"
                   >
-                    {entryDisplayName(entry)}
+                    {displayName}
                     {isDirectory ? "/" : ""}
                   </button>
+                  <PendingRowBadges
+                    isDeleted={Boolean(pendingDelete)}
+                    isEdited={Boolean(pendingWrite)}
+                    renamePath={pendingRename?.path}
+                  />
                   {entry.path ? (
                     <div className="mt-1 max-w-96 truncate font-mono text-xs text-slate-400">
                       {entry.path}
@@ -928,11 +1044,271 @@ function SliceDirectoryTable({
                 <td className="max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600">
                   {entry.contentHash || entry.blobId || entry.treeId || ""}
                 </td>
+                <td className="min-w-48 px-4 py-3">
+                  {isRenaming ? (
+                    <InlineRenameForm
+                      onCancel={() => setRenamingPath("")}
+                      onSave={(name) => {
+                        onStageEdit({
+                          kind: "rename",
+                          oldPath: path,
+                          path: joinRepositoryPath(
+                            editingParentRepositoryPath(path),
+                            name
+                          )
+                        });
+                        setRenamingPath("");
+                      }}
+                      originalName={displayName}
+                    />
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                        onClick={() => setRenamingPath(path)}
+                        type="button"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                        onClick={() => onStageEdit({ kind: "delete", path })}
+                        type="button"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {pendingChildren.map((edit) => {
+            const isDirectory = edit.kind === "mkdir";
+            const path = edit.path;
+
+            return (
+              <tr
+                className="align-top bg-slate-50 transition hover:bg-slate-100"
+                key={pendingEditKey(edit)}
+              >
+                <td className="min-w-56 px-4 py-3">
+                  <span className="font-medium text-zinc-950">
+                    {editingRepositoryPathName(path)}
+                    {isDirectory ? "/" : ""}
+                  </span>
+                  <div className="mt-2">
+                    <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700">
+                      pending
+                    </span>
+                  </div>
+                  <div className="mt-1 max-w-96 truncate font-mono text-xs text-slate-400">
+                    {path}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                  {isDirectory ? "directory" : "file"}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
+                  {edit.kind === "write" ? formatSize(String(edit.content.length)) : ""}
+                </td>
+                <td className="max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600" />
+                <td className="px-4 py-3 text-xs text-slate-500">
+                  Remove from the pending changes panel.
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function PendingRowBadges({
+  isDeleted,
+  isEdited,
+  renamePath
+}: {
+  isDeleted: boolean;
+  isEdited: boolean;
+  renamePath?: string;
+}) {
+  if (!isDeleted && !isEdited && !renamePath) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {isEdited ? <PendingBadge>pending edited</PendingBadge> : null}
+      {isDeleted ? <PendingBadge>pending deleted</PendingBadge> : null}
+      {renamePath ? (
+        <PendingBadge>
+          pending rename to {editingRepositoryPathName(renamePath)}
+        </PendingBadge>
+      ) : null}
+    </div>
+  );
+}
+
+function PendingBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+      {children}
+    </span>
+  );
+}
+
+function EditableFileView({
+  commitId,
+  fileContent,
+  onStageEdit,
+  pendingEdits,
+  selectedPath
+}: {
+  commitId: string;
+  fileContent: string;
+  onStageEdit(edit: PendingEdit): void;
+  pendingEdits: PendingEdit[];
+  selectedPath: string;
+}) {
+  const pendingWrite = pendingWriteForPath(pendingEdits, selectedPath);
+  const pendingDelete = pendingDeleteForPath(pendingEdits, selectedPath);
+  const pendingRename = pendingRenameForPath(pendingEdits, selectedPath);
+  const displayedContent = pendingWrite?.content ?? fileContent;
+  const [isEditing, setIsEditing] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [draft, setDraft] = useState(displayedContent);
+  const [renameError, setRenameError] = useState("");
+
+  useEffect(() => {
+    setIsEditing(false);
+    setIsRenaming(false);
+    setRenameError("");
+    setDraft(displayedContent);
+  }, [displayedContent, selectedPath]);
+
+  function saveEdit() {
+    onStageEdit({
+      kind: "write",
+      path: selectedPath,
+      content: draft,
+      isNew: false
+    });
+    setIsEditing(false);
+  }
+
+  function saveRename(name: string) {
+    const validationError = validateEntryName(name);
+    if (validationError) {
+      setRenameError(validationError);
+      return;
+    }
+    onStageEdit({
+      kind: "rename",
+      oldPath: selectedPath,
+      path: joinRepositoryPath(editingParentRepositoryPath(selectedPath), name)
+    });
+    setIsRenaming(false);
+    setRenameError("");
+  }
+
+  return (
+    <div className="space-y-3">
+      <SlicePanel className="p-0">
+        <DirectoryHeader commitId={commitId} selectedPath={selectedPath} />
+        <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                {pendingWrite ? <PendingBadge>pending</PendingBadge> : null}
+                {pendingDelete ? <PendingBadge>pending deleted</PendingBadge> : null}
+                {pendingRename ? (
+                  <PendingBadge>
+                    pending rename to{" "}
+                    {editingRepositoryPathName(pendingRename.path)}
+                  </PendingBadge>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+                onClick={() => {
+                  setDraft(displayedContent);
+                  setIsEditing(true);
+                }}
+                type="button"
+              >
+                Edit
+              </button>
+              <button
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                onClick={() => setIsRenaming(true)}
+                type="button"
+              >
+                Rename
+              </button>
+              <button
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                onClick={() => onStageEdit({ kind: "delete", path: selectedPath })}
+                type="button"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+          {isRenaming ? (
+            <div className="mt-3">
+              <InlineRenameForm
+                onCancel={() => {
+                  setIsRenaming(false);
+                  setRenameError("");
+                }}
+                onSave={saveRename}
+                originalName={editingRepositoryPathName(selectedPath)}
+              />
+              {renameError ? (
+                <p className="mt-2 text-sm text-rose-700">{renameError}</p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {isEditing ? (
+          <div className="p-5">
+            <label className="grid gap-2 text-sm font-medium text-zinc-800">
+              File content
+              <textarea
+                className="min-h-[28rem] rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+                onChange={(event) => setDraft(event.target.value)}
+                value={draft}
+              />
+            </label>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+                onClick={saveEdit}
+                type="button"
+              >
+                Save
+              </button>
+              <button
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                onClick={() => {
+                  setDraft(displayedContent);
+                  setIsEditing(false);
+                }}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </SlicePanel>
+      {!isEditing ? (
+        <SourceCodeViewer code={displayedContent} path={selectedPath} />
+      ) : null}
     </div>
   );
 }

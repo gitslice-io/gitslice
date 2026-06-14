@@ -1,4 +1,4 @@
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 
 interface ChangesetsSearch {
@@ -40,7 +40,7 @@ export function ChangesetsPage() {
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
           Open a known changeset by canonical id or handle. The current API does
           not expose changeset listing yet, so this page stays scoped to lookup
-          and creation.
+          and review entry points.
         </p>
       </div>
 
@@ -68,20 +68,13 @@ export function ChangesetsPage() {
             >
               Open
             </button>
-            <Link
-              className="rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-500 active:translate-y-px"
-              search={selectedSlice ? ({ slice: selectedSlice } as never) : undefined}
-              to="/changesets/new"
-            >
-              Create Changeset
-            </Link>
           </div>
         </form>
 
         <aside className="rounded-lg border border-dashed border-slate-300 bg-white p-5">
           <h2 className="text-sm font-semibold text-zinc-950">Lookup only</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Use the id returned by the CLI, API, or create flow. Filters,
+            Use the id returned by the CLI, API, or slice edit flow. Filters,
             pagination, recent changesets, and author search are intentionally
             out of scope for this page.
           </p>
