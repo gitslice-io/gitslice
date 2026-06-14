@@ -61,22 +61,6 @@ export function ChangesetDetailPage() {
     });
   };
 
-  const approveMutation = useMutation({
-    mutationFn: async () => {
-      if (!canonicalChangesetId) {
-        throw new Error("This changeset did not return an id.");
-      }
-
-      return api.approveChangeset({ changesetId: canonicalChangesetId });
-    },
-    onError: (error) => setActionError(errorMessage(error)),
-    onMutate: () => setActionError(""),
-    onSuccess: async () => {
-      setActionError("");
-      await invalidateChangeset();
-    }
-  });
-
   const mergeMutation = useMutation({
     mutationFn: async () => {
       if (!canonicalChangesetId) {
@@ -156,10 +140,7 @@ export function ChangesetDetailPage() {
   }
 
   const terminal = isTerminalStatus(changeset.status);
-  const actionBusy =
-    approveMutation.isPending ||
-    mergeMutation.isPending ||
-    abandonMutation.isPending;
+  const actionBusy = mergeMutation.isPending || abandonMutation.isPending;
 
   return (
     <section className="mx-auto w-full max-w-5xl">
@@ -168,12 +149,10 @@ export function ChangesetDetailPage() {
         actionBusy={actionBusy}
         actionError={actionError}
         abandonPending={abandonMutation.isPending}
-        approvePending={approveMutation.isPending}
         changeset={changeset}
         mergePending={mergeMutation.isPending}
         onAbandon={submitAbandon}
         onAbandonReasonChange={setAbandonReason}
-        onApprove={() => approveMutation.mutate()}
         onMerge={() => mergeMutation.mutate()}
         terminal={terminal}
       />
@@ -194,12 +173,10 @@ function HeaderCard({
   abandonReason,
   actionBusy,
   actionError,
-  approvePending,
   changeset,
   mergePending,
   onAbandon,
   onAbandonReasonChange,
-  onApprove,
   onMerge,
   terminal
 }: {
@@ -207,12 +184,10 @@ function HeaderCard({
   abandonReason: string;
   actionBusy: boolean;
   actionError: string;
-  approvePending: boolean;
   changeset: Changeset;
   mergePending: boolean;
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
-  onApprove(): void;
   onMerge(): void;
   terminal: boolean;
 }) {
@@ -259,12 +234,10 @@ function HeaderCard({
             abandonPending={abandonPending}
             abandonReason={abandonReason}
             actionBusy={actionBusy}
-            approvePending={approvePending}
             canMerge={Boolean(changeset.currentPatchsetId)}
             mergePending={mergePending}
             onAbandon={onAbandon}
             onAbandonReasonChange={onAbandonReasonChange}
-            onApprove={onApprove}
             onMerge={onMerge}
             terminal={terminal}
           />
@@ -287,38 +260,26 @@ function ReviewActions({
   abandonPending,
   abandonReason,
   actionBusy,
-  approvePending,
   canMerge,
   mergePending,
   onAbandon,
   onAbandonReasonChange,
-  onApprove,
   onMerge,
   terminal
 }: {
   abandonPending: boolean;
   abandonReason: string;
   actionBusy: boolean;
-  approvePending: boolean;
   canMerge: boolean;
   mergePending: boolean;
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
-  onApprove(): void;
   onMerge(): void;
   terminal: boolean;
 }) {
   return (
     <div className="w-full shrink-0 space-y-3 lg:w-auto lg:min-w-80">
       <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-        <button
-          className={secondaryButtonClass}
-          disabled={actionBusy || terminal}
-          onClick={onApprove}
-          type="button"
-        >
-          {approvePending ? "Approving..." : "Approve"}
-        </button>
         <button
           className={primaryButtonClass}
           disabled={actionBusy || terminal || !canMerge}
@@ -734,9 +695,6 @@ function errorMessage(error: unknown) {
 
 const primaryButtonClass =
   "rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
-
-const secondaryButtonClass =
-  "rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
 
 const dangerButtonClass =
   "self-end rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";

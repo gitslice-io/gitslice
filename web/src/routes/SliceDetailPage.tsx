@@ -9,7 +9,6 @@ import type {
 import { type ApiClient, useApi } from "../api/useApi";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
 import {
-  DraftChangesetPanel,
   DirectoryCreateControls,
   InlineRenameForm,
   joinRepositoryPath,
@@ -239,7 +238,6 @@ export function SliceDetailPage() {
         </aside>
 
         <div className="min-w-0 space-y-6">
-          <DraftChangesetPanel {...draftChangeset} />
           <SliceSourceWorkspace
             commitError={latestQuery.error}
             commitId={commitId}

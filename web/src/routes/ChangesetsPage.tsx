@@ -144,22 +144,6 @@ function ChangesetRow({
     await queryClient.invalidateQueries({ queryKey });
   };
 
-  const approveMutation = useMutation({
-    mutationFn: async () => {
-      if (!changesetId) {
-        throw new Error("This changeset did not return an id.");
-      }
-
-      return api.approveChangeset({ changesetId });
-    },
-    onError: (error) => setRowError(getErrorMessage(error)),
-    onMutate: () => setRowError(""),
-    onSuccess: async () => {
-      setRowError("");
-      await invalidateList();
-    }
-  });
-
   const mergeMutation = useMutation({
     mutationFn: async () => {
       if (!changesetId) {
@@ -179,7 +163,7 @@ function ChangesetRow({
     }
   });
 
-  const busy = approveMutation.isPending || mergeMutation.isPending;
+  const busy = mergeMutation.isPending;
 
   return (
     <tr className="align-top transition hover:bg-slate-50">
@@ -236,14 +220,6 @@ function ChangesetRow({
       </td>
       <td className="px-4 py-4">
         <div className="flex justify-end gap-2">
-          <button
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 transition hover:border-zinc-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={busy || !changesetId}
-            onClick={() => approveMutation.mutate()}
-            type="button"
-          >
-            {approveMutation.isPending ? "Approving..." : "Approve"}
-          </button>
           <button
             className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
             disabled={busy || !changesetId || terminal}
