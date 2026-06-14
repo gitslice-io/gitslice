@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "deploy:staging": "wrangler deploy --env staging"
+    "deploy:staging": "bash scripts/deploy-staging.sh"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.54.0",

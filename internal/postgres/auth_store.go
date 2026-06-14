@@ -10,10 +10,12 @@ import (
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/storage"
+	"github.com/gitslice-io/gitslice/internal/treestore"
 )
 
 type AuthStore struct {
-	db *sql.DB
+	db    *sql.DB
+	trees *treestore.Store
 }
 
 func (s *AuthStore) LoginDevUser(ctx context.Context, devUser string) (string, string, error) {
@@ -52,7 +54,7 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 	}
 	defer tx.Rollback()
 
-	subjectID, _, err := provisionPersonalAccount(ctx, tx, username, username)
+	subjectID, _, err := s.provisionPersonalAccount(ctx, tx, username, username)
 	if err != nil {
 		return "", "", err
 	}
@@ -90,7 +92,7 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 	}
 	defer tx.Rollback()
 
-	subjectID, _, err := provisionPersonalAccount(ctx, tx, username, displayName)
+	subjectID, _, err := s.provisionPersonalAccount(ctx, tx, username, displayName)
 	if err != nil {
 		return "", err
 	}
@@ -104,7 +106,7 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 // admin membership, and home slice (with its definition version and path index)
 // for username within tx, returning the subject and account IDs. The caller owns
 // the transaction lifecycle.
-func provisionPersonalAccount(ctx context.Context, tx *sql.Tx, username, displayName string) (string, string, error) {
+func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, username, displayName string) (string, string, error) {
 	subjectID := signupSubjectID(username)
 	accountID := signupAccountID(username)
 
@@ -181,8 +183,100 @@ func provisionPersonalAccount(ctx context.Context, tx *sql.Tx, username, display
 	if err := syncSliceIncludedPathsTx(ctx, tx, homeSliceID, homeIncludedPaths); err != nil {
 		return "", "", err
 	}
+	if err := ensureAccountRootDirectoryTx(ctx, tx, username, subjectID, s.trees); err != nil {
+		return "", "", err
+	}
 
 	return subjectID, accountID, nil
+}
+
+func ensureAccountRootDirectoryTx(ctx context.Context, tx *sql.Tx, accountSlug, subjectID string, trees *treestore.Store) error {
+	accountSlug = strings.TrimSpace(accountSlug)
+	if accountSlug == "" {
+		return fmt.Errorf("%w: account slug is required", ErrInvalid)
+	}
+	if trees == nil {
+		return nil
+	}
+
+	accountRoot := "/" + accountSlug
+	var currentCommitID string
+	err := tx.QueryRowContext(ctx, `
+		select commit_id
+		from refs
+		where name = $1
+		for update
+	`, DefaultTargetRef).Scan(&currentCommitID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	rootTreeID, err := (&RepositoryStore{}).rootTreeIDForCommitTx(ctx, tx, currentCommitID)
+	if err != nil {
+		return err
+	}
+	if _, err := trees.GetEntry(ctx, rootTreeID, accountRoot); err == nil {
+		return nil
+	} else if !errors.Is(err, treestore.ErrNotFound) {
+		return err
+	}
+
+	newRootTreeID, err := trees.ApplyEdits(ctx, rootTreeID, []treestore.FileEdit{
+		{Op: "mkdir", Path: accountRoot},
+	})
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	commitID := objectid.CommitID(objectid.CommitObject{
+		ParentIDs:    []string{currentCommitID},
+		RootTreeID:   newRootTreeID,
+		Author:       subjectID,
+		Message:      "Create account root " + accountRoot,
+		CreatedAt:    now,
+		ChangedPaths: []string{accountRoot},
+	})
+	parentJSON, err := encodeJSON([]string{currentCommitID})
+	if err != nil {
+		return err
+	}
+	changedJSON, err := encodeJSON([]string{accountRoot})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into commits(id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths)
+		values ($1, $2, $3, $4, $5, $6, $7)
+		on conflict (id) do nothing
+	`, commitID, parentJSON, newRootTreeID, subjectID, "Create account root "+accountRoot, now, changedJSON); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `
+		update refs
+		set commit_id = $1, version = version + 1, updated_at = $2, updated_by = $3
+		where name = $4 and commit_id = $5
+	`, commitID, now, subjectID, DefaultTargetRef, currentCommitID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrConflict
+	}
+	if err := insertCommitChangedPathsTx(ctx, tx, DefaultTargetRef, commitID, []string{accountRoot}, now); err != nil {
+		return err
+	}
+	entry, err := trees.GetEntry(ctx, newRootTreeID, accountRoot)
+	if err != nil {
+		return err
+	}
+	return upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(treeEntryFromTree(*entry)), "", "")
 }
 
 func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject, error) {
@@ -242,7 +336,12 @@ func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID strin
 		from account_memberships m
 		join accounts a on a.id = m.account_id
 		where m.subject_id = $1
-		order by a.slug
+		order by
+			case
+				when a.kind = 'personal' and $1 = 'user_' || replace(a.slug, '-', '_') then 0
+				else 1
+			end,
+			a.slug
 	`, subjectID)
 	if err != nil {
 		return nil, err

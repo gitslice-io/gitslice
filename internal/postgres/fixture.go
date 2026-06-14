@@ -79,6 +79,9 @@ func (d *DB) seedDevFixture(ctx context.Context) error {
 	if err := seedSlice(ctx, tx, "slice_acme_backend", "backend", []string{"/acme/backend", "/acme/payment/shared"}); err != nil {
 		return err
 	}
+	if err := ensureAccountRootDirectoryTx(ctx, tx, "acme", "system", d.repository.trees); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

@@ -1,8 +1,14 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
+
+interface ChangesetsSearch {
+  slice?: unknown;
+}
 
 export function ChangesetsPage() {
   const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as ChangesetsSearch;
+  const selectedSlice = typeof search.slice === "string" ? search.slice.trim() : "";
   const [changeset, setChangeset] = useState("");
   const [error, setError] = useState("");
 
@@ -29,11 +35,12 @@ export function ChangesetsPage() {
           Changesets
         </p>
         <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
-          Open Changeset
+          {selectedSlice ? `${selectedSlice} Changesets` : "Open Changeset"}
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-          Open a known changeset by canonical id or handle. Changeset listing is
-          not available in the current API.
+          Open a known changeset by canonical id or handle. The current API does
+          not expose changeset listing yet, so this page stays scoped to lookup
+          and creation.
         </p>
       </div>
 
@@ -47,7 +54,7 @@ export function ChangesetsPage() {
             <input
               className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
               onChange={(event) => setChangeset(event.target.value)}
-              placeholder="acme/payment@42"
+              placeholder={selectedSlice ? `${selectedSlice}@42` : "acme/payment@42"}
               value={changeset}
             />
           </label>
@@ -63,6 +70,7 @@ export function ChangesetsPage() {
             </button>
             <Link
               className="rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-800 transition hover:border-zinc-500 active:translate-y-px"
+              search={selectedSlice ? ({ slice: selectedSlice } as never) : undefined}
               to="/changesets/new"
             >
               Create Changeset

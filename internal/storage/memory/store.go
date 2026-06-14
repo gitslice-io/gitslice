@@ -44,6 +44,7 @@ type backend struct {
 	refs        map[string]*corev1.Ref
 	commits     map[string]*corev1.Commit
 	commitFiles map[string]map[string]storage.FileEntry
+	commitDirs  map[string]map[string]struct{}
 
 	slices                  map[string]*corev1.Slice
 	sliceRefs               map[string]string
@@ -79,6 +80,7 @@ func New() *Stores {
 		refs:                    map[string]*corev1.Ref{},
 		commits:                 map[string]*corev1.Commit{},
 		commitFiles:             map[string]map[string]storage.FileEntry{},
+		commitDirs:              map[string]map[string]struct{}{},
 		slices:                  map[string]*corev1.Slice{},
 		sliceRefs:               map[string]string{},
 		sliceDefinitionVersions: map[string][]*corev1.SliceDefinitionVersion{},
@@ -100,6 +102,7 @@ func New() *Stores {
 	}
 	b.commits[root.Id] = cloneCommit(root)
 	b.commitFiles[root.Id] = map[string]storage.FileEntry{}
+	b.commitDirs[root.Id] = map[string]struct{}{}
 	b.refs[storage.DefaultTargetRef] = &corev1.Ref{Name: storage.DefaultTargetRef, CommitId: root.Id, UpdatedAt: root.CreatedAt}
 	return &Stores{
 		Auth:       &AuthStore{b: b},
@@ -170,6 +173,7 @@ func (b *backend) addAccountRoleLocked(subjectID, accountSlug, role string) {
 	if _, ok := b.sliceRefs[sliceRefKey(home)]; !ok {
 		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "account", 0, nil, subjectID)
 	}
+	b.ensureAccountRootDirectoryLocked(accountSlug, subjectID)
 }
 
 func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string, createdBy string) (*corev1.Slice, error) {
@@ -225,6 +229,10 @@ func (b *backend) appendSliceDefinitionVersionLocked(slice *corev1.Slice, create
 }
 
 func (b *backend) putCommitWithFilesLocked(commitID string, files []storage.FileEntry, changedPaths []string, message string) {
+	b.putCommitWithFilesAndDirsLocked(commitID, files, nil, changedPaths, message)
+}
+
+func (b *backend) putCommitWithFilesAndDirsLocked(commitID string, files []storage.FileEntry, dirs map[string]struct{}, changedPaths []string, message string) {
 	if commitID == "" {
 		commitID = b.nextIDLocked("commit")
 	}
@@ -244,8 +252,16 @@ func (b *backend) putCommitWithFilesLocked(commitID string, files []storage.File
 		commit.ParentIds = []string{parent}
 	}
 	byPath := map[string]storage.FileEntry{}
+	if dirs == nil {
+		dirs = cloneDirSet(b.commitDirs[parent])
+	} else {
+		dirs = cloneDirSet(dirs)
+	}
 	for _, file := range files {
 		byPath[file.Path] = file
+		for parent := path.Dir(file.Path); parent != "" && parent != "/" && parent != "."; parent = path.Dir(parent) {
+			dirs[parent] = struct{}{}
+		}
 		b.entitiesByPath[file.Path] = storage.CurrentPathEntity{
 			Path:        file.Path,
 			AccountID:   accountFromPath(file.Path),
@@ -257,7 +273,48 @@ func (b *backend) putCommitWithFilesLocked(commitID string, files []storage.File
 	}
 	b.commits[commitID] = cloneCommit(commit)
 	b.commitFiles[commitID] = byPath
+	b.commitDirs[commitID] = dirs
 	b.refs[storage.DefaultTargetRef] = &corev1.Ref{Name: storage.DefaultTargetRef, CommitId: commitID, UpdatedAt: createdAt, UpdatedBy: "memory"}
+}
+
+func (b *backend) ensureAccountRootDirectoryLocked(accountSlug, subjectID string) {
+	accountSlug = strings.TrimSpace(accountSlug)
+	if accountSlug == "" {
+		return
+	}
+	ref := b.refs[storage.DefaultTargetRef]
+	if ref == nil {
+		return
+	}
+	accountRoot := "/" + accountSlug
+	if _, ok := b.commitDirs[ref.CommitId][accountRoot]; ok {
+		return
+	}
+	files := cloneFileMap(b.commitFiles[ref.CommitId])
+	dirs := cloneDirSet(b.commitDirs[ref.CommitId])
+	dirs[accountRoot] = struct{}{}
+
+	commitID := b.nextIDLocked("commit")
+	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
+	commit := &corev1.Commit{
+		Id:           commitID,
+		ParentIds:    []string{ref.CommitId},
+		RootTreeId:   "mem_tree_" + commitID,
+		Author:       subjectID,
+		Message:      "Create account root " + accountRoot,
+		CreatedAt:    createdAt,
+		ChangedPaths: []string{accountRoot},
+	}
+	b.commits[commitID] = cloneCommit(commit)
+	b.commitFiles[commitID] = files
+	b.commitDirs[commitID] = dirs
+	b.refs[storage.DefaultTargetRef] = &corev1.Ref{Name: storage.DefaultTargetRef, CommitId: commitID, UpdatedAt: createdAt, UpdatedBy: subjectID}
+	b.entitiesByPath[accountRoot] = storage.CurrentPathEntity{
+		Path:      accountRoot,
+		AccountID: accountSlug,
+		EntityID:  "ent_" + accountSlug,
+		Kind:      "directory",
+	}
 }
 
 func (b *backend) nextIDLocked(prefix string) string {
@@ -425,6 +482,15 @@ func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID strin
 		out = append(out, slug)
 	}
 	sort.Strings(out)
+	personalSlug := strings.TrimPrefix(strings.TrimSpace(subjectID), "user_")
+	personalSlug = strings.ReplaceAll(personalSlug, "_", "-")
+	for i, slug := range out {
+		if slug == personalSlug {
+			copy(out[1:i+1], out[:i])
+			out[0] = slug
+			break
+		}
+	}
 	return out, nil
 }
 
@@ -695,10 +761,12 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			return published, storage.ErrNotFound
 		}
 		baseFiles := cloneFileMap(s.b.commitFiles[ref.CommitId])
+		baseDirs := cloneDirSet(s.b.commitDirs[ref.CommitId])
 		for _, edit := range patchset.FileEdits {
 			switch edit.Op {
 			case "delete":
 				delete(baseFiles, edit.Path)
+				delete(baseDirs, edit.Path)
 			case "rename":
 				file, ok := baseFiles[edit.OldPath]
 				if ok {
@@ -706,7 +774,12 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 					file.Path = edit.Path
 					baseFiles[edit.Path] = file
 				}
+				if _, ok := baseDirs[edit.OldPath]; ok {
+					delete(baseDirs, edit.OldPath)
+					baseDirs[edit.Path] = struct{}{}
+				}
 			case "mkdir":
+				baseDirs[edit.Path] = struct{}{}
 			default:
 				blob := s.b.blobs[edit.BlobId]
 				if blob == nil && edit.ContentHash == "" {
@@ -726,7 +799,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			files = append(files, file)
 		}
 		commitID := s.b.nextIDLocked("commit")
-		s.b.putCommitWithFilesLocked(commitID, files, patchset.ChangedPaths, cs.Title)
+		s.b.putCommitWithFilesAndDirsLocked(commitID, files, baseDirs, patchset.ChangedPaths, cs.Title)
 		cs.Status = "submitted"
 		cs.CommitId = commitID
 		if acceptedAt, ok := s.b.pendingAcceptedAt[cs.Id]; ok {
@@ -1026,10 +1099,14 @@ func (s *RepositoryStore) GetEntry(ctx context.Context, commitID, p string) (*st
 	if files == nil {
 		return nil, storage.ErrNotFound
 	}
+	dirs := s.b.commitDirs[commitID]
 	if file, ok := files[p]; ok {
 		return &storage.TreeEntry{Path: file.Path, Name: path.Base(file.Path), Kind: "file", Mode: file.Mode, BlobID: file.BlobID, ContentHash: file.ContentHash, Size: file.Size}, nil
 	}
-	if p == "/" || hasDescendant(files, p) {
+	if _, ok := dirs[p]; ok {
+		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: "mem_tree_" + strings.Trim(p, "/")}, nil
+	}
+	if p == "/" || hasDescendant(files, p) || hasDescendantDir(dirs, p) {
 		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: "mem_tree_" + strings.Trim(p, "/")}, nil
 	}
 	return nil, storage.ErrNotFound
@@ -1042,8 +1119,12 @@ func (s *RepositoryStore) ListDirectory(ctx context.Context, commitID, p string)
 	if files == nil {
 		return nil, storage.ErrNotFound
 	}
-	entries := directoryEntries(p, files)
-	if len(entries) == 0 && p != "/" && !hasDescendant(files, p) {
+	dirs := s.b.commitDirs[commitID]
+	entries := directoryEntries(p, files, dirs)
+	if len(entries) == 0 && p != "/" && !hasDescendant(files, p) && !hasDescendantDir(dirs, p) {
+		if _, ok := dirs[p]; ok {
+			return nil, nil
+		}
 		return nil, storage.ErrNotFound
 	}
 	return entries, nil
@@ -1422,7 +1503,23 @@ func hasDescendant(files map[string]storage.FileEntry, prefix string) bool {
 	return false
 }
 
-func directoryEntries(prefix string, files map[string]storage.FileEntry) []storage.TreeEntry {
+func hasDescendantDir(dirs map[string]struct{}, prefix string) bool {
+	prefix = strings.TrimRight(prefix, "/")
+	if prefix == "" {
+		prefix = "/"
+	}
+	if prefix == "/" {
+		return len(dirs) > 0
+	}
+	for dir := range dirs {
+		if strings.HasPrefix(dir, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func directoryEntries(prefix string, files map[string]storage.FileEntry, dirs map[string]struct{}) []storage.TreeEntry {
 	prefix = strings.TrimRight(prefix, "/")
 	if prefix == "" {
 		prefix = "/"
@@ -1445,6 +1542,20 @@ func directoryEntries(prefix string, files map[string]storage.FileEntry) []stora
 		if len(parts) == 1 {
 			byPath[child] = storage.TreeEntry{Path: file.Path, Name: path.Base(file.Path), Kind: "file", Mode: file.Mode, BlobID: file.BlobID, ContentHash: file.ContentHash, Size: file.Size}
 		} else if _, ok := byPath[child]; !ok {
+			byPath[child] = storage.TreeEntry{Path: child, Name: parts[0], Kind: "directory", TreeID: "mem_tree_" + strings.Trim(child, "/")}
+		}
+	}
+	for dir := range dirs {
+		rel, ok := relativeDirectoryPath(prefix, dir)
+		if !ok || rel == "" {
+			continue
+		}
+		parts := strings.Split(rel, "/")
+		child := strings.TrimRight(prefix, "/") + "/" + parts[0]
+		if prefix == "/" {
+			child = "/" + parts[0]
+		}
+		if _, ok := byPath[child]; !ok {
 			byPath[child] = storage.TreeEntry{Path: child, Name: parts[0], Kind: "directory", TreeID: "mem_tree_" + strings.Trim(child, "/")}
 		}
 	}
@@ -1501,6 +1612,14 @@ func cloneFileMap(in map[string]storage.FileEntry) map[string]storage.FileEntry 
 	out := map[string]storage.FileEntry{}
 	for k, v := range in {
 		out[k] = v
+	}
+	return out
+}
+
+func cloneDirSet(in map[string]struct{}) map[string]struct{} {
+	out := map[string]struct{}{}
+	for p := range in {
+		out[p] = struct{}{}
 	}
 	return out
 }

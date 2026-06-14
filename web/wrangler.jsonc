@@ -19,7 +19,8 @@
         }
       ],
       "vars": {
-        "PUBLIC_API_BASE_URL": "https://api.agenttools.dev"
+        "PUBLIC_API_BASE_URL": "https://api.agenttools.dev",
+        "PUBLIC_GITSLICE_GIT_HTTP_BASE_URL": "https://api.agenttools.dev"
       }
     }
   }

@@ -11,6 +11,7 @@ import { SelectionProvider } from "../state/selection";
 import { ChangesetDetailPage } from "./ChangesetDetailPage";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { CliLoginPage } from "./CliLoginPage";
+import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
 import { LoginPage } from "./LoginPage";
 import { NewChangesetPage } from "./NewChangesetPage";
@@ -51,6 +52,12 @@ const homeRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/",
   component: HomePage
+});
+
+const docRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "doc",
+  component: DocPage
 });
 
 const sourceRoute = createRoute({
@@ -106,6 +113,7 @@ const routeTree = rootRoute.addChildren([
   cliLoginRoute,
   appRoute.addChildren([
     homeRoute,
+    docRoute,
     sourceRoute,
     sourceSplatRoute,
     slicesRoute,

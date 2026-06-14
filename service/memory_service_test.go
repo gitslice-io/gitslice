@@ -347,6 +347,20 @@ func TestFakeSignupUsesInMemoryAuthAndCreatesHomeSlice(t *testing.T) {
 	if strings.Join(slice.Definition.IncludedPaths, ",") != "/nic" {
 		t.Fatalf("home included paths = %#v", slice.Definition.IncludedPaths)
 	}
+	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{RefName: storage.DefaultTargetRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := handlers.Repository.ResolvePath(ctx, &corev1.ResolvePathRequest{
+		CommitId: ref.CommitId,
+		Path:     "/nic",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Entry == nil || resolved.Entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+		t.Fatalf("home account root entry = %#v, want directory", resolved.Entry)
+	}
 }
 
 func TestSimpleServiceMethodsUseInMemoryStorage(t *testing.T) {
@@ -366,6 +380,15 @@ func TestSimpleServiceMethodsUseInMemoryStorage(t *testing.T) {
 	}
 	if authStatus.SubjectId != login.SubjectId {
 		t.Fatalf("auth subject = %q, want %q", authStatus.SubjectId, login.SubjectId)
+	}
+
+	mem.AddAccountRole("user_alice", "alice", "admin")
+	authStatus, err = handlers.Auth.GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authStatus.Accounts) < 2 || authStatus.Accounts[0] != "alice" {
+		t.Fatalf("auth accounts = %#v, want personal account first", authStatus.Accounts)
 	}
 
 	data := []byte("read me\n")

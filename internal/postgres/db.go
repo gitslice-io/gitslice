@@ -45,6 +45,7 @@ func (d *DB) Close() error {
 }
 
 func (d *DB) SetTreeStore(trees *treestore.Store) {
+	d.auth.trees = trees
 	d.repository.trees = trees
 	d.changesets.trees = trees
 }
