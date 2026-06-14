@@ -9,9 +9,9 @@ import type {
 import { type ApiClient, useApi } from "../api/useApi";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
 import {
+  DraftChangesetPanel,
   DirectoryCreateControls,
   InlineRenameForm,
-  PendingChangesTray,
   joinRepositoryPath,
   parentRepositoryPath as editingParentRepositoryPath,
   pendingChildrenForDirectory,
@@ -19,9 +19,8 @@ import {
   pendingEditKey,
   pendingRenameForPath,
   pendingWriteForPath,
-  removePendingEdit,
   repositoryPathName as editingRepositoryPathName,
-  upsertPendingEdit,
+  useDraftChangesetController,
   validateEntryName,
   type PendingEdit
 } from "../components/source/SliceEditing";
@@ -45,6 +44,7 @@ import {
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
+import { useSelection } from "../state/selection";
 
 interface SliceParams {
   id?: string;
@@ -61,6 +61,7 @@ interface GitCloneEnv extends ImportMetaEnv {
 export function SliceDetailPage() {
   const api = useApi();
   const navigate = useNavigate();
+  const { subjectId } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const search = useSearch({ strict: false }) as SliceSearch;
   const sliceId = params.id ?? "";
@@ -87,7 +88,14 @@ export function SliceDetailPage() {
   const sliceRef = slice?.ref;
   const sliceLabel = sliceDisplayName(slice);
   const commitId = latestQuery.data?.commitId ?? "";
-  const [pendingEdits, setPendingEdits] = useState<PendingEdit[]>([]);
+  const draftChangeset = useDraftChangesetController({
+    api,
+    commitId,
+    sliceLabel,
+    sliceRef,
+    subjectId
+  });
+  const pendingEdits = draftChangeset.edits;
   const isProjectedDirectoryPath = isSliceProjectionDirectoryPath(
     selectedPath,
     slice?.definition?.includedPaths ?? []
@@ -139,7 +147,7 @@ export function SliceDetailPage() {
   }
 
   function stagePendingEdit(edit: PendingEdit) {
-    setPendingEdits((current) => upsertPendingEdit(current, edit));
+    draftChangeset.stageEdit(edit);
   }
 
   if (sliceQuery.isLoading) {
@@ -222,17 +230,7 @@ export function SliceDetailPage() {
         </aside>
 
         <div className="min-w-0 space-y-6">
-          <PendingChangesTray
-            api={api}
-            commitId={commitId}
-            edits={pendingEdits}
-            onClear={() => setPendingEdits([])}
-            onRemove={(key) =>
-              setPendingEdits((current) => removePendingEdit(current, key))
-            }
-            sliceLabel={sliceLabel}
-            sliceRef={sliceRef}
-          />
+          <DraftChangesetPanel {...draftChangeset} />
           <SliceSourceWorkspace
             commitError={latestQuery.error}
             commitId={commitId}
@@ -1110,7 +1108,9 @@ function SliceDirectoryTable({
                   {isDirectory ? "directory" : "file"}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
-                  {edit.kind === "write" ? formatSize(String(edit.content.length)) : ""}
+                  {edit.kind === "write" && edit.content !== undefined
+                    ? formatSize(String(edit.content.length))
+                    : ""}
                 </td>
                 <td className="max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600" />
                 <td className="px-4 py-3 text-xs text-slate-500">
