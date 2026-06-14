@@ -22,6 +22,8 @@ export function TopBar() {
           >
             Gitslice
           </Link>
+        </div>
+        <div className="flex min-w-0 items-center gap-3">
           <nav aria-label="Primary" className="flex items-center gap-1">
             {navItems.map((item) => (
               <Link
@@ -38,8 +40,6 @@ export function TopBar() {
               </Link>
             ))}
           </nav>
-        </div>
-        <div className="flex min-w-0 items-center gap-3">
           {account ? (
             <div className="hidden min-w-0 text-right text-xs font-semibold text-slate-500 sm:block">
               Account
