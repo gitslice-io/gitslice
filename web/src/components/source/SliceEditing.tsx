@@ -549,8 +549,22 @@ export function DirectoryCreateControls({
 }: DirectoryCreateControlsProps) {
   const [mode, setMode] = useState<"file" | "folder" | "">("");
 
+  // Without a concrete current folder we'd build account-only paths the server
+  // rejects, so require navigating into a folder first.
+  if (!directoryPath) {
+    return (
+      <div className="border-b border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-600">
+        Open a folder to add files or folders here.
+      </div>
+    );
+  }
+
   return (
     <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+      <p className="mb-2 truncate text-xs text-slate-500">
+        New items are created in{" "}
+        <span className="font-mono text-slate-700">{directoryPath}</span>
+      </p>
       <div className="flex flex-wrap gap-2">
         <button
           className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"

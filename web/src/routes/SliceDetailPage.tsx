@@ -187,6 +187,15 @@ export function SliceDetailPage() {
   const includedPaths = slice.definition?.includedPaths ?? [];
   const gitCloneHint = buildGitCloneHint(slice.ref?.account, slice.ref?.slice);
   const currentEntries = directoryQuery.data ?? [];
+  // The directory new file/folder controls create under the current folder. At
+  // the slice root selectedPath is "" — which would build account-only paths the
+  // server rejects (paths need at least an account + one more segment), so fall
+  // back to the slice's included root when there is exactly one.
+  const projectedRoots = includedPaths
+    .map((includedPath) => normalizeTreePath(includedPath))
+    .filter(Boolean);
+  const createDirectory =
+    selectedPath || (projectedRoots.length === 1 ? projectedRoots[0] : "");
 
   return (
     <section className="mx-auto w-full max-w-7xl">
@@ -234,6 +243,7 @@ export function SliceDetailPage() {
           <SliceSourceWorkspace
             commitError={latestQuery.error}
             commitId={commitId}
+            createDirectory={createDirectory}
             directoryEntries={currentEntries}
             directoryError={directoryQuery.error}
             entry={entry}
@@ -773,11 +783,13 @@ interface SliceSourceWorkspaceProps {
   pathError: Error | null;
   pendingEdits: PendingEdit[];
   selectedPath: string;
+  createDirectory: string;
 }
 
 function SliceSourceWorkspace({
   commitError,
   commitId,
+  createDirectory,
   directoryEntries,
   directoryError,
   entry,
@@ -849,7 +861,7 @@ function SliceSourceWorkspace({
           selectedPath={selectedPath}
         />
         <DirectoryCreateControls
-          directoryPath={selectedPath}
+          directoryPath={createDirectory}
           onStageEdit={onStageEdit}
         />
         <SliceDirectoryTable
