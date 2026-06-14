@@ -914,7 +914,7 @@ func (s *RepositoryStore) rootTreeIDForCommit(ctx context.Context, commitID stri
 	return rootTreeID, err
 }
 
-func (s *RepositoryStore) rootTreeIDForCommitTx(ctx context.Context, tx *sql.Tx, commitID string) (string, error) {
+func rootTreeIDForCommitTx(ctx context.Context, tx *sql.Tx, commitID string) (string, error) {
 	var rootTreeID string
 	err := tx.QueryRowContext(ctx, `
 		select root_tree_id
@@ -928,7 +928,7 @@ func (s *RepositoryStore) rootTreeIDForCommitTx(ctx context.Context, tx *sql.Tx,
 }
 
 func (s *RepositoryStore) getFileAtCommitTx(ctx context.Context, tx *sql.Tx, commitID, p string) (*FileEntry, error) {
-	rootTreeID, err := s.rootTreeIDForCommitTx(ctx, tx, commitID)
+	rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, commitID)
 	if err != nil {
 		return nil, err
 	}
@@ -936,7 +936,7 @@ func (s *RepositoryStore) getFileAtCommitTx(ctx context.Context, tx *sql.Tx, com
 }
 
 func (s *RepositoryStore) getEntryAtCommitTx(ctx context.Context, tx *sql.Tx, commitID, p string) (*TreeEntry, error) {
-	rootTreeID, err := s.rootTreeIDForCommitTx(ctx, tx, commitID)
+	rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, commitID)
 	if err != nil {
 		return nil, err
 	}

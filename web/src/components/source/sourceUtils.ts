@@ -1,4 +1,11 @@
-import type { Slice, TreeEntry } from "../../api/types";
+import { RpcError } from "../../api/client";
+import type { ApiClient } from "../../api/useApi";
+import type {
+  ListDirectoryResponse,
+  Slice,
+  SliceRef,
+  TreeEntry
+} from "../../api/types";
 
 export interface SourceRouteParams {
   account?: string;
@@ -204,6 +211,82 @@ export function decodeBase64File(data: string | undefined) {
   } catch {
     return data;
   }
+}
+
+export async function listDirectoryAll(
+  api: ApiClient,
+  request: {
+    allowMissingDirectory?: boolean;
+    commitId: string;
+    path: string;
+    slice?: SliceRef;
+  }
+) {
+  const entries: TreeEntry[] = [];
+  let cursor = "";
+
+  do {
+    let page: ListDirectoryResponse;
+    try {
+      page = await api.listDirectory({
+        commitId: request.commitId,
+        cursor,
+        pageSize: 500,
+        path: request.path,
+        slice: request.slice
+      });
+    } catch (error) {
+      if (request.allowMissingDirectory && isPathNotFoundError(error)) {
+        return [];
+      }
+      throw error;
+    }
+    entries.push(...(page.entries ?? []));
+    cursor = page.nextCursor ?? "";
+  } while (cursor);
+
+  return entries;
+}
+
+export function syntheticDirectoryEntry(path: string, fallbackName = "slice root"): TreeEntry {
+  const parts = normalizeRepositoryPath(path).split("/").filter(Boolean);
+
+  return {
+    kind: "ENTRY_KIND_DIRECTORY",
+    name: parts[parts.length - 1] ?? fallbackName,
+    path
+  };
+}
+
+export function isSliceProjectionDirectoryPath(path: string, includedPaths: string[]) {
+  if (!path) {
+    return true;
+  }
+
+  const normalized = normalizeRepositoryPath(path);
+
+  return includedPaths.some((includedPath) => {
+    const includedNormalized = normalizeRepositoryPath(includedPath);
+    return (
+      normalized === includedNormalized ||
+      includedNormalized.startsWith(`${normalized}/`)
+    );
+  });
+}
+
+export function isPathNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error instanceof RpcError) {
+    return (
+      error.status === 404 ||
+      error.code === 5 ||
+      error.code === "5" ||
+      error.code === "NotFound"
+    );
+  }
+  return error.message.toLowerCase().includes("path not found");
 }
 
 export function sliceLabel(slice: Slice) {

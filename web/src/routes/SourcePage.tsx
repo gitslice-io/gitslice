@@ -2,12 +2,10 @@ import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
 import type {
-  ListDirectoryResponse,
   ListSlicesResponse,
   Slice,
   TreeEntry
 } from "../api/types";
-import { RpcError } from "../api/client";
 import { type ApiClient, useApi } from "../api/useApi";
 import { SourceBreadcrumb } from "../components/source/SourceBreadcrumb";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
@@ -17,10 +15,13 @@ import {
   buildRepositoryPath,
   decodeBase64File,
   entryKindLabel,
-  normalizeRepositoryPath,
+  isPathNotFoundError,
+  isSliceProjectionDirectoryPath,
+  listDirectoryAll,
   repositoryPathToRoutePath,
   routeSplat,
   searchString,
+  syntheticDirectoryEntry,
   type SourceRouteParams,
   type SourceSearchParams
 } from "../components/source/sourceUtils";
@@ -70,7 +71,12 @@ export function SourcePage() {
   const isKnownSliceDirectory = Boolean(
     pathNotFound &&
       slicesQuery.data &&
-      isSliceProjectionDirectoryPath(repositoryPath, slicesQuery.data)
+      isSliceProjectionDirectoryPath(
+        repositoryPath,
+        (slicesQuery.data ?? []).flatMap(
+          (slice) => slice.definition?.includedPaths ?? []
+        )
+      )
   );
   const isResolvingProjectedDirectory = Boolean(
     pathNotFound && slicesQuery.isPending && !slicesQuery.error
@@ -92,8 +98,10 @@ export function SourcePage() {
     enabled: Boolean(commitId && isDirectory),
     queryKey: ["source", "directory", commitId, repositoryPath],
     queryFn: () =>
-      listDirectoryAll(api, commitId, repositoryPath, {
-        allowMissingDirectory: isSyntheticDirectory
+      listDirectoryAll(api, {
+        allowMissingDirectory: isSyntheticDirectory,
+        commitId,
+        path: repositoryPath
       })
   });
 
@@ -416,79 +424,6 @@ async function resolveLatestCommit(api: ApiClient) {
     throw new Error("Latest global state did not return a commit id.");
   }
   return ref;
-}
-
-async function listDirectoryAll(
-  api: ApiClient,
-  commitId: string,
-  path: string,
-  options: { allowMissingDirectory?: boolean } = {}
-) {
-  const entries: TreeEntry[] = [];
-  let cursor = "";
-
-  do {
-    let page: ListDirectoryResponse;
-    try {
-      page = await api.listDirectory({
-        commitId,
-        cursor,
-        pageSize: 500,
-        path
-      });
-    } catch (error) {
-      if (options.allowMissingDirectory && isPathNotFoundError(error)) {
-        return [];
-      }
-      throw error;
-    }
-    entries.push(...(page.entries ?? []));
-    cursor = page.nextCursor ?? "";
-  } while (cursor);
-
-  return entries;
-}
-
-function syntheticDirectoryEntry(path: string, name: string): TreeEntry {
-  return {
-    kind: "ENTRY_KIND_DIRECTORY",
-    name: sourceDirectoryName(path, name),
-    path
-  };
-}
-
-function sourceDirectoryName(path: string, fallback: string) {
-  const parts = normalizeRepositoryPath(path).split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? fallback;
-}
-
-function isSliceProjectionDirectoryPath(path: string, slices: Slice[]) {
-  const normalizedPath = normalizeRepositoryPath(path);
-
-  return slices.some((slice) =>
-    (slice.definition?.includedPaths ?? []).some((includedPath) => {
-      const normalizedIncluded = normalizeRepositoryPath(includedPath);
-      return (
-        normalizedPath === normalizedIncluded ||
-        normalizedIncluded.startsWith(`${normalizedPath}/`)
-      );
-    })
-  );
-}
-
-function isPathNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  if (error instanceof RpcError) {
-    return (
-      error.status === 404 ||
-      error.code === 5 ||
-      error.code === "5" ||
-      error.code === "NotFound"
-    );
-  }
-  return error.message.toLowerCase().includes("path not found");
 }
 
 async function listAllSlices(api: ApiClient, account: string) {

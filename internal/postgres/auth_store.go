@@ -214,7 +214,7 @@ func ensureAccountRootDirectoryTx(ctx context.Context, tx *sql.Tx, accountSlug, 
 		return err
 	}
 
-	rootTreeID, err := (&RepositoryStore{}).rootTreeIDForCommitTx(ctx, tx, currentCommitID)
+	rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, currentCommitID)
 	if err != nil {
 		return err
 	}

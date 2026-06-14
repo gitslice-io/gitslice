@@ -731,7 +731,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 		return 0, err
 	}
 	currentCommitID := originalCommitID
-	rootTreeID, err := s.repository.rootTreeIDForCommitTx(ctx, tx, currentCommitID)
+	rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, currentCommitID)
 	if err != nil {
 		return 0, err
 	}
