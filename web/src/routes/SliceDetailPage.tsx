@@ -3,19 +3,21 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useQueries, useQuery } from "@tanstack/react-query";
 
 import type {
-  ListDirectoryResponse,
   SliceRef,
   TreeEntry
 } from "../api/types";
-import { RpcError } from "../api/client";
 import { type ApiClient, useApi } from "../api/useApi";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
 import {
+  decodeBase64File,
   entryDisplayName,
   entryKindLabel,
   formatSize,
+  isSliceProjectionDirectoryPath,
+  listDirectoryAll,
   normalizeRepositoryPath,
-  sortEntries
+  sortEntries,
+  syntheticDirectoryEntry
 } from "../components/source/sourceUtils";
 import {
   SliceLoadingBlock,
@@ -38,8 +40,6 @@ interface SliceSearch {
 interface GitCloneEnv extends ImportMetaEnv {
   readonly VITE_GITSLICE_GIT_HTTP_BASE_URL?: string;
 }
-
-const DIRECTORY_PAGE_SIZE = 500;
 
 export function SliceDetailPage() {
   const api = useApi();
@@ -960,107 +960,10 @@ function NavigatorSkeleton() {
   );
 }
 
-function navigatorButtonClass(active: boolean) {
-  return [
-    "w-full truncate rounded-md px-2.5 py-2 text-left text-sm font-medium transition",
-    active
-      ? "bg-zinc-950 text-white"
-      : "text-slate-700 hover:bg-slate-100 hover:text-zinc-950"
-  ].join(" ");
-}
-
-async function listDirectoryAll(
-  api: ApiClient,
-  request: {
-    allowMissingDirectory?: boolean;
-    commitId: string;
-    path: string;
-    slice?: SliceRef;
-  }
-) {
-  const entries: TreeEntry[] = [];
-  let cursor = "";
-
-  do {
-    let page: ListDirectoryResponse;
-    try {
-      page = await api.listDirectory({
-        commitId: request.commitId,
-        cursor,
-        pageSize: DIRECTORY_PAGE_SIZE,
-        path: request.path,
-        slice: request.slice
-      });
-    } catch (error) {
-      if (request.allowMissingDirectory && isPathNotFoundError(error)) {
-        return [];
-      }
-      throw error;
-    }
-    entries.push(...(page.entries ?? []));
-    cursor = page.nextCursor ?? "";
-  } while (cursor);
-
-  return entries;
-}
-
 function pathSearchValue(value: unknown) {
   return typeof value === "string" && value.trim()
     ? normalizeRepositoryPath(value)
     : "";
-}
-
-function syntheticDirectoryEntry(path: string): TreeEntry {
-  const parts = path.split("/").filter(Boolean);
-
-  return {
-    kind: "ENTRY_KIND_DIRECTORY",
-    name: parts[parts.length - 1] ?? "slice root",
-    path
-  };
-}
-
-function isSliceProjectionDirectoryPath(path: string, includedPaths: string[]) {
-  if (!path) {
-    return true;
-  }
-
-  return includedPaths.some((includedPath) => {
-    const normalizedIncluded = normalizeRepositoryPath(includedPath);
-    return (
-      path === normalizedIncluded ||
-      normalizedIncluded.startsWith(`${path}/`)
-    );
-  });
-}
-
-function isPathNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  if (error instanceof RpcError) {
-    return (
-      error.status === 404 ||
-      error.code === 5 ||
-      error.code === "5" ||
-      error.code === "NotFound"
-    );
-  }
-  return error.message.toLowerCase().includes("path not found");
-}
-
-function decodeBase64File(data: string | undefined) {
-  if (!data) {
-    return "";
-  }
-
-  try {
-    const binary = window.atob(data);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  } catch {
-    return data;
-  }
 }
 
 function buildGitCloneHint(account?: string, slug?: string) {
