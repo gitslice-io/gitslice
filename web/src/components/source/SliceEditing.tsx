@@ -1,25 +1,53 @@
-import { useMutation } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent
+} from "react";
 
-import type { FileEdit, SliceRef } from "../../api/types";
+import type { Changeset, FileEdit, SliceRef } from "../../api/types";
 import { type ApiClient } from "../../api/useApi";
 import { normalizeRepositoryPath } from "./sourceUtils";
 
 export type PendingEdit =
-  | { kind: "write"; path: string; content: string; isNew: boolean }
+  | {
+      kind: "write";
+      path: string;
+      content?: string;
+      isNew: boolean;
+      blobId?: string;
+      contentHash?: string;
+    }
   | { kind: "mkdir"; path: string }
   | { kind: "rename"; oldPath: string; path: string }
   | { kind: "delete"; path: string };
 
-interface PendingChangesTrayProps {
+type DraftSaveStatus = "idle" | "adopting" | "saving" | "saved" | "failed";
+type DraftActionStatus = "idle" | "submitting" | "discarding";
+
+interface DraftChangesetControllerOptions {
   api: ApiClient;
   commitId: string;
-  edits: PendingEdit[];
-  onClear(): void;
-  onRemove(key: string): void;
   sliceLabel: string;
   sliceRef: SliceRef | undefined;
+  subjectId: string;
+}
+
+export interface DraftChangesetController {
+  actionStatus: DraftActionStatus;
+  changesetHandle: string;
+  changesetId: string;
+  currentPatchsetId: string;
+  edits: PendingEdit[];
+  errorMessage: string;
+  removeEdit(key: string): void;
+  retrySave(): void;
+  saveStatus: DraftSaveStatus;
+  stageEdit(edit: PendingEdit): void;
+  discardDraft(): Promise<void>;
+  submitDraft(): Promise<string>;
 }
 
 interface DirectoryCreateControlsProps {
@@ -33,71 +61,371 @@ interface InlineRenameFormProps {
   originalName: string;
 }
 
-export function PendingChangesTray({
+export function useDraftChangesetController({
   api,
   commitId,
-  edits,
-  onClear,
-  onRemove,
   sliceLabel,
-  sliceRef
-}: PendingChangesTrayProps) {
-  const navigate = useNavigate();
+  sliceRef,
+  subjectId
+}: DraftChangesetControllerOptions): DraftChangesetController {
   const defaultTitle = `Web edits to ${sliceLabel}`;
-  const [title, setTitle] = useState(defaultTitle);
+  const [changesetId, setChangesetId] = useState("");
+  const [changesetHandle, setChangesetHandle] = useState("");
+  const [currentPatchsetId, setCurrentPatchsetId] = useState("");
+  const [edits, setEdits] = useState<PendingEdit[]>([]);
+  const [saveStatus, setSaveStatus] = useState<DraftSaveStatus>("idle");
+  const [actionStatus, setActionStatus] =
+    useState<DraftActionStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const changesetIdRef = useRef("");
+  const changesetHandleRef = useRef("");
+  const currentPatchsetIdRef = useRef("");
+  const editsRef = useRef<PendingEdit[]>([]);
+  const errorMessageRef = useRef("");
+  const flushTailRef = useRef<Promise<void>>(Promise.resolve());
+  const generationRef = useRef(0);
+
+  const setControllerError = useCallback((message: string) => {
+    errorMessageRef.current = message;
+    setErrorMessage(message);
+  }, []);
+
+  const clearControllerError = useCallback(() => {
+    errorMessageRef.current = "";
+    setErrorMessage("");
+  }, []);
+
+  const setDraftIdentity = useCallback(
+    (changeset: Changeset | undefined) => {
+      const nextChangesetId = changeset?.id ?? "";
+      const nextHandle = changeset?.handle ?? "";
+      const nextPatchsetId = changeset?.currentPatchsetId ?? "";
+
+      changesetIdRef.current = nextChangesetId;
+      changesetHandleRef.current = nextHandle;
+      currentPatchsetIdRef.current = nextPatchsetId;
+      setChangesetId(nextChangesetId);
+      setChangesetHandle(nextHandle);
+      setCurrentPatchsetId(nextPatchsetId);
+    },
+    []
+  );
 
   useEffect(() => {
-    setTitle(defaultTitle);
-  }, [defaultTitle]);
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    changesetIdRef.current = "";
+    changesetHandleRef.current = "";
+    currentPatchsetIdRef.current = "";
+    editsRef.current = [];
+    setChangesetId("");
+    setChangesetHandle("");
+    setCurrentPatchsetId("");
+    setEdits([]);
+    clearControllerError();
 
-  const createMutation = useMutation({
-    mutationFn: async () => {
+    if (!commitId || !sliceRef?.account || !sliceRef?.slice || !subjectId) {
+      setSaveStatus("idle");
+      return;
+    }
+
+    let cancelled = false;
+    setSaveStatus("adopting");
+
+    async function adoptDraft() {
+      try {
+        const listed = await api.listChangesets({
+          authoringSlice: sliceRef,
+          status: "draft",
+          limit: 50
+        });
+        const draft = (listed.changesets ?? []).find(
+          (changeset) => changeset.author === subjectId
+        );
+
+        if (cancelled || generationRef.current !== generation) {
+          return;
+        }
+
+        if (!draft?.id && !draft?.handle) {
+          setSaveStatus("idle");
+          return;
+        }
+
+        const fullDraft = await api.getChangeset({
+          changesetId: draft.id || draft.handle
+        });
+
+        if (cancelled || generationRef.current !== generation) {
+          return;
+        }
+
+        const currentPatchset = currentChangesetPatchset(fullDraft);
+        const hydratedEdits = (currentPatchset?.fileEdits ?? [])
+          .map(fileEditToPendingEdit)
+          .filter((edit): edit is PendingEdit => Boolean(edit));
+
+        setDraftIdentity(fullDraft);
+        currentPatchsetIdRef.current =
+          currentPatchset?.id ?? fullDraft.currentPatchsetId ?? "";
+        setCurrentPatchsetId(currentPatchsetIdRef.current);
+        editsRef.current = hydratedEdits;
+        setEdits(hydratedEdits);
+        setSaveStatus("saved");
+      } catch (error) {
+        if (cancelled || generationRef.current !== generation) {
+          return;
+        }
+        setSaveStatus("failed");
+        setControllerError(errorMessageFromUnknown(error));
+      }
+    }
+
+    void adoptDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, clearControllerError, commitId, setControllerError, setDraftIdentity, sliceRef, subjectId]);
+
+  const clearDraftState = useCallback(() => {
+    changesetIdRef.current = "";
+    changesetHandleRef.current = "";
+    currentPatchsetIdRef.current = "";
+    editsRef.current = [];
+    setChangesetId("");
+    setChangesetHandle("");
+    setCurrentPatchsetId("");
+    setEdits([]);
+    clearControllerError();
+    setSaveStatus("idle");
+  }, [clearControllerError]);
+
+  const persistEdits = useCallback(
+    async (nextEdits: PendingEdit[], generation: number) => {
       if (!commitId) {
         throw new Error("Latest global state did not return a commit id.");
       }
       if (!sliceRef?.account || !sliceRef?.slice) {
         throw new Error("Authoring slice is missing account or slice.");
       }
-      if (!edits.length) {
-        throw new Error("Stage at least one file edit.");
+
+      clearControllerError();
+      setSaveStatus("saving");
+
+      let draftId = changesetIdRef.current;
+      let draftPatchsetId = currentPatchsetIdRef.current;
+
+      if (!draftId) {
+        if (!nextEdits.length) {
+          setSaveStatus("idle");
+          return;
+        }
+
+        const changeset = await api.createChangeset({
+          authoringSlice: sliceRef,
+          baseCommitId: commitId,
+          title: defaultTitle,
+          description: ""
+        });
+
+        if (!changeset.id) {
+          throw new Error("CreateChangeset did not return a changeset id.");
+        }
+
+        if (generationRef.current !== generation) {
+          return;
+        }
+
+        draftId = changeset.id;
+        draftPatchsetId = changeset.currentPatchsetId ?? "";
+        changesetIdRef.current = draftId;
+        changesetHandleRef.current = changeset.handle ?? "";
+        currentPatchsetIdRef.current = draftPatchsetId;
+        setChangesetId(draftId);
+        setChangesetHandle(changeset.handle ?? "");
+        setCurrentPatchsetId(draftPatchsetId);
       }
 
-      const fileEdits = await preparePendingFileEdits(api, edits, sliceRef);
-      const changeset = await api.createChangeset({
-        authoringSlice: sliceRef,
-        baseCommitId: commitId,
-        title: title.trim() || defaultTitle,
-        description: ""
-      });
-
-      if (!changeset.id) {
-        throw new Error("CreateChangeset did not return a changeset id.");
-      }
-
-      await api.updateChangeset({
-        changesetId: changeset.id,
-        expectedCurrentPatchsetId: changeset.currentPatchsetId,
+      const fileEdits = await preparePendingFileEdits(api, nextEdits, sliceRef);
+      const patchset = await api.updateChangeset({
+        changesetId: draftId,
+        expectedCurrentPatchsetId: draftPatchsetId,
         baseCommitId: commitId,
         fileEdits
       });
 
-      return changeset;
-    },
-    onSuccess: (changeset) => {
-      const id = changeset.handle || changeset.id;
-      if (!id) {
+      if (generationRef.current !== generation) {
         return;
       }
-      onClear();
+
+      if (!patchset.id) {
+        throw new Error("UpdateChangeset did not return a patchset id.");
+      }
+
+      currentPatchsetIdRef.current = patchset.id ?? "";
+      setCurrentPatchsetId(patchset.id ?? "");
+      setSaveStatus("saved");
+    },
+    [api, clearControllerError, commitId, defaultTitle, sliceRef]
+  );
+
+  const queueFlush = useCallback(
+    (nextEdits: PendingEdit[]) => {
+      const generation = generationRef.current;
+      const run = flushTailRef.current.then(
+        () => persistEdits(nextEdits, generation),
+        () => persistEdits(nextEdits, generation)
+      );
+
+      flushTailRef.current = run.catch(() => undefined);
+      void run.catch((error) => {
+        if (generationRef.current !== generation) {
+          return;
+        }
+        setSaveStatus("failed");
+        setControllerError(errorMessageFromUnknown(error));
+      });
+    },
+    [persistEdits, setControllerError]
+  );
+
+  const applyEdits = useCallback(
+    (nextEdits: PendingEdit[]) => {
+      editsRef.current = nextEdits;
+      setEdits(nextEdits);
+      queueFlush(nextEdits);
+    },
+    [queueFlush]
+  );
+
+  const stageEdit = useCallback(
+    (edit: PendingEdit) => {
+      applyEdits(upsertPendingEdit(editsRef.current, edit));
+    },
+    [applyEdits]
+  );
+
+  const removeEdit = useCallback(
+    (key: string) => {
+      applyEdits(removePendingEdit(editsRef.current, key));
+    },
+    [applyEdits]
+  );
+
+  const retrySave = useCallback(() => {
+    queueFlush(editsRef.current);
+  }, [queueFlush]);
+
+  const submitDraft = useCallback(async () => {
+    setActionStatus("submitting");
+    try {
+      await flushTailRef.current;
+      if (errorMessageRef.current) {
+        throw new Error("Save failed. Retry the draft before submitting.");
+      }
+
+      const id = changesetIdRef.current;
+      const expectedCurrentPatchsetId = currentPatchsetIdRef.current;
+      if (!id) {
+        throw new Error("There is no draft changeset to submit.");
+      }
+      if (!expectedCurrentPatchsetId) {
+        throw new Error("The draft changeset has no patchset to submit.");
+      }
+
+      await api.submitChangeset({
+        changesetId: id,
+        expectedCurrentPatchsetId
+      });
+
+      const navigateId = changesetHandleRef.current || id;
+      clearDraftState();
+      return navigateId;
+    } finally {
+      setActionStatus("idle");
+    }
+  }, [api, clearDraftState]);
+
+  const discardDraft = useCallback(async () => {
+    setActionStatus("discarding");
+    try {
+      await flushTailRef.current;
+      const id = changesetIdRef.current;
+      if (id) {
+        await api.abandonChangeset({
+          changesetId: id,
+          reason: "discarded from web"
+        });
+      }
+      clearDraftState();
+    } finally {
+      setActionStatus("idle");
+    }
+  }, [api, clearDraftState]);
+
+  return {
+    actionStatus,
+    changesetHandle,
+    changesetId,
+    currentPatchsetId,
+    edits,
+    errorMessage,
+    removeEdit,
+    retrySave,
+    saveStatus,
+    stageEdit,
+    discardDraft,
+    submitDraft
+  };
+}
+
+export function DraftChangesetPanel({
+  actionStatus,
+  changesetHandle,
+  changesetId,
+  currentPatchsetId,
+  edits,
+  errorMessage,
+  removeEdit,
+  retrySave,
+  saveStatus,
+  discardDraft,
+  submitDraft
+}: DraftChangesetController) {
+  const navigate = useNavigate();
+  const [actionError, setActionError] = useState("");
+  const detailId = changesetHandle || changesetId;
+  const isAdopting = saveStatus === "adopting";
+  const isSaving = saveStatus === "saving";
+  const isActionPending = actionStatus !== "idle";
+  const hasDraft = Boolean(changesetId || edits.length);
+
+  if (!hasDraft && !isAdopting && !errorMessage) {
+    return null;
+  }
+
+  async function submit() {
+    setActionError("");
+    try {
+      const id = await submitDraft();
       void navigate({
         to: "/changesets/$id",
         params: { id }
       });
+    } catch (error) {
+      setActionError(errorMessageFromUnknown(error));
     }
-  });
+  }
 
-  if (!edits.length) {
-    return null;
+  async function discard() {
+    setActionError("");
+    try {
+      await discardDraft();
+    } catch (error) {
+      setActionError(errorMessageFromUnknown(error));
+    }
   }
 
   return (
@@ -105,85 +433,110 @@ export function PendingChangesTray({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-zinc-950">
-            Pending changes
+            Draft changeset
           </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            These edits are staged in this browser until you create a draft
-            changeset.
-          </p>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-600">
+            {detailId ? (
+              <Link
+                className="break-all font-mono text-zinc-900 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
+                params={{ id: detailId }}
+                to="/changesets/$id"
+              >
+                {detailId}
+              </Link>
+            ) : (
+              <span>Draft will be created with the first saved edit.</span>
+            )}
+            <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+              {draftStatusLabel(saveStatus)}
+            </span>
+          </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <button
             className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={createMutation.isPending}
-            onClick={onClear}
+            disabled={isActionPending || isAdopting || isSaving || !hasDraft}
+            onClick={() => void discard()}
             type="button"
           >
-            Discard all
+            {actionStatus === "discarding" ? "Discarding..." : "Discard"}
           </button>
           <button
             className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={createMutation.isPending}
-            onClick={() => createMutation.mutate()}
+            disabled={
+              isActionPending ||
+              isAdopting ||
+              isSaving ||
+              !changesetId ||
+              !currentPatchsetId ||
+              !edits.length
+            }
+            onClick={() => void submit()}
             type="button"
           >
-            {createMutation.isPending ? "Creating..." : "Create changeset"}
+            {actionStatus === "submitting" ? "Submitting..." : "Submit"}
           </button>
         </div>
       </div>
 
-      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
-        Title
-        <input
-          className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
-          disabled={createMutation.isPending}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder={defaultTitle}
-          value={title}
-        />
-      </label>
-
-      <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
-        {edits.map((edit) => {
-          const key = pendingEditKey(edit);
-          return (
-            <li
-              className="flex min-w-0 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between"
-              key={key}
-            >
-              <div className="min-w-0">
-                <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
-                  {pendingEditLabel(edit)}
-                </span>
-                <div className="mt-2 break-all font-mono text-sm text-zinc-950">
-                  {edit.kind === "rename" ? (
-                    <>
-                      {edit.oldPath} <span className="text-slate-400">to</span>{" "}
-                      {edit.path}
-                    </>
-                  ) : (
-                    edit.path
-                  )}
-                </div>
-              </div>
-              <button
-                className="w-fit rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={createMutation.isPending}
-                onClick={() => onRemove(key)}
-                type="button"
+      {edits.length ? (
+        <ul className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
+          {edits.map((edit) => {
+            const key = pendingEditKey(edit);
+            return (
+              <li
+                className="flex min-w-0 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between"
+                key={key}
               >
-                Remove
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                <div className="min-w-0">
+                  <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                    {pendingEditLabel(edit)}
+                  </span>
+                  <div className="mt-2 break-all font-mono text-sm text-zinc-950">
+                    {edit.kind === "rename" ? (
+                      <>
+                        {edit.oldPath} <span className="text-slate-400">to</span>{" "}
+                        {edit.path}
+                      </>
+                    ) : (
+                      edit.path
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="w-fit rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isActionPending || isAdopting}
+                  onClick={() => removeEdit(key)}
+                  type="button"
+                >
+                  Remove
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="mt-4 rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+          No file edits in this draft.
+        </p>
+      )}
 
-      {createMutation.error ? (
+      {errorMessage ? (
         <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-          {createMutation.error instanceof Error
-            ? createMutation.error.message
-            : "Could not create changeset."}
+          {errorMessage}
+          <button
+            className="ml-3 font-semibold underline decoration-rose-300 underline-offset-4 hover:decoration-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isActionPending || isAdopting || isSaving}
+            onClick={retrySave}
+            type="button"
+          >
+            Retry
+          </button>
+        </p>
+      ) : null}
+      {actionError ? (
+        <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+          {actionError}
         </p>
       ) : null}
     </section>
@@ -520,6 +873,20 @@ async function preparePendingFileEdits(
     if (edit.kind !== "write") {
       continue;
     }
+
+    if (edit.content === undefined) {
+      if (!edit.blobId || !edit.contentHash) {
+        throw new Error(`Draft write for ${edit.path} is missing blob metadata.`);
+      }
+      uploadedWrites.set(pendingEditKey(edit), {
+        op: edit.isNew ? "add" : "update",
+        path: edit.path,
+        blobId: edit.blobId,
+        contentHash: edit.contentHash
+      });
+      continue;
+    }
+
     const uploaded = await api.uploadBlob({
       data: utf8ToBase64(edit.content),
       slice
@@ -571,6 +938,80 @@ function editOrder(kind: PendingEdit["kind"]) {
   }
 }
 
+function currentChangesetPatchset(changeset: Changeset) {
+  if (!changeset.patchsets?.length) {
+    return undefined;
+  }
+  return (
+    changeset.patchsets.find(
+      (patchset) => patchset.id === changeset.currentPatchsetId
+    ) ?? changeset.patchsets[changeset.patchsets.length - 1]
+  );
+}
+
+function fileEditToPendingEdit(edit: FileEdit): PendingEdit | null {
+  const op = edit.op ?? "";
+  const rawPath = edit.path?.trim() ?? "";
+
+  if (!rawPath) {
+    return null;
+  }
+
+  const path = normalizeRepositoryPath(rawPath);
+
+  // The server normalizes write ops to "upsert" when it stores patchset edits,
+  // so an adopted draft reports "upsert" rather than the original add/update.
+  if (
+    op === "add" ||
+    op === "update" ||
+    op === "modify" ||
+    op === "upsert"
+  ) {
+    return {
+      kind: "write",
+      path,
+      isNew: op === "add",
+      blobId: edit.blobId,
+      contentHash: edit.contentHash
+    };
+  }
+
+  if (op === "mkdir") {
+    return { kind: "mkdir", path };
+  }
+
+  if (op === "rename") {
+    const rawOldPath = edit.oldPath?.trim() ?? "";
+    if (!rawOldPath) {
+      return null;
+    }
+    const oldPath = normalizeRepositoryPath(rawOldPath);
+    return { kind: "rename", oldPath, path };
+  }
+
+  if (op === "delete") {
+    return { kind: "delete", path };
+  }
+
+  return null;
+}
+
+function draftStatusLabel(status: DraftSaveStatus) {
+  if (status === "adopting") {
+    return "Loading draft...";
+  }
+  if (status === "saving") {
+    return "Saving...";
+  }
+  if (status === "saved") {
+    return "Saved";
+  }
+  if (status === "failed") {
+    return "Save failed";
+  }
+  return "Not saved";
+}
+
 function pendingEditLabel(edit: PendingEdit) {
   if (edit.kind === "write") {
     return edit.isNew ? "new file" : "edited";
@@ -616,6 +1057,10 @@ function hasConflictingPendingPath(candidate: PendingEdit, next: PendingEdit) {
 function normalizeDirectoryPath(path: string) {
   const normalized = normalizeRepositoryPath(path);
   return normalized === "/" ? "" : normalized;
+}
+
+function errorMessageFromUnknown(error: unknown) {
+  return error instanceof Error ? error.message : "The request failed.";
 }
 
 function utf8ToBase64(value: string) {
