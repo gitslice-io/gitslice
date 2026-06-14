@@ -7,6 +7,7 @@ import type {
   Slice,
   TreeEntry
 } from "../api/types";
+import { RpcError } from "../api/client";
 import { type ApiClient, useApi } from "../api/useApi";
 import { SourceBreadcrumb } from "../components/source/SourceBreadcrumb";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
@@ -16,6 +17,7 @@ import {
   buildRepositoryPath,
   decodeBase64File,
   entryKindLabel,
+  normalizeRepositoryPath,
   repositoryPathToRoutePath,
   routeSplat,
   searchString,
@@ -54,6 +56,9 @@ export function SourcePage() {
   });
 
   const commitId = commitQueryParam || latestQuery.data?.commitId || "";
+  const isAccountRoot = Boolean(
+    account && repositoryPath === buildRepositoryPath(account, "")
+  );
 
   const pathQuery = useQuery({
     enabled: Boolean(account && commitId),
@@ -61,14 +66,35 @@ export function SourcePage() {
     queryFn: () => api.resolvePath({ commitId, path: repositoryPath })
   });
 
-  const entry = pathQuery.data?.entry;
+  const pathNotFound = isPathNotFoundError(pathQuery.error);
+  const isKnownSliceDirectory = Boolean(
+    pathNotFound &&
+      slicesQuery.data &&
+      isSliceProjectionDirectoryPath(repositoryPath, slicesQuery.data)
+  );
+  const isResolvingProjectedDirectory = Boolean(
+    pathNotFound && slicesQuery.isPending && !slicesQuery.error
+  );
+  const isSyntheticDirectory =
+    pathNotFound && (isAccountRoot || isKnownSliceDirectory);
+  const entry =
+    pathQuery.data?.entry ??
+    (isSyntheticDirectory
+      ? syntheticDirectoryEntry(repositoryPath, account)
+      : undefined);
   const isDirectory = entry?.kind === "ENTRY_KIND_DIRECTORY";
   const isFile = entry?.kind === "ENTRY_KIND_FILE";
+  const pathError =
+    isSyntheticDirectory || isResolvingProjectedDirectory ? null : pathQuery.error;
+  const isPathLoading = pathQuery.isPending || isResolvingProjectedDirectory;
 
   const directoryQuery = useQuery({
     enabled: Boolean(commitId && isDirectory),
     queryKey: ["source", "directory", commitId, repositoryPath],
-    queryFn: () => listDirectoryAll(api, commitId, repositoryPath)
+    queryFn: () =>
+      listDirectoryAll(api, commitId, repositoryPath, {
+        allowMissingDirectory: isSyntheticDirectory
+      })
   });
 
   const fileQuery = useQuery({
@@ -148,9 +174,9 @@ export function SourcePage() {
           fileError={fileQuery.error}
           isDirectoryLoading={directoryQuery.isPending}
           isFileLoading={fileQuery.isPending}
-          isPathLoading={pathQuery.isPending}
+          isPathLoading={isPathLoading}
           linkSearch={linkSearch}
-          pathError={pathQuery.error}
+          pathError={pathError}
           account={account}
         />
       ) : latestQuery.isPending ? (
@@ -167,9 +193,9 @@ export function SourcePage() {
           fileError={fileQuery.error}
           isDirectoryLoading={directoryQuery.isPending}
           isFileLoading={fileQuery.isPending}
-          isPathLoading={pathQuery.isPending}
+          isPathLoading={isPathLoading}
           linkSearch={linkSearch}
-          pathError={pathQuery.error}
+          pathError={pathError}
           account={account}
         />
       )}
@@ -395,23 +421,74 @@ async function resolveLatestCommit(api: ApiClient) {
 async function listDirectoryAll(
   api: ApiClient,
   commitId: string,
-  path: string
+  path: string,
+  options: { allowMissingDirectory?: boolean } = {}
 ) {
   const entries: TreeEntry[] = [];
   let cursor = "";
 
   do {
-    const page: ListDirectoryResponse = await api.listDirectory({
-      commitId,
-      cursor,
-      pageSize: 500,
-      path
-    });
+    let page: ListDirectoryResponse;
+    try {
+      page = await api.listDirectory({
+        commitId,
+        cursor,
+        pageSize: 500,
+        path
+      });
+    } catch (error) {
+      if (options.allowMissingDirectory && isPathNotFoundError(error)) {
+        return [];
+      }
+      throw error;
+    }
     entries.push(...(page.entries ?? []));
     cursor = page.nextCursor ?? "";
   } while (cursor);
 
   return entries;
+}
+
+function syntheticDirectoryEntry(path: string, name: string): TreeEntry {
+  return {
+    kind: "ENTRY_KIND_DIRECTORY",
+    name: sourceDirectoryName(path, name),
+    path
+  };
+}
+
+function sourceDirectoryName(path: string, fallback: string) {
+  const parts = normalizeRepositoryPath(path).split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? fallback;
+}
+
+function isSliceProjectionDirectoryPath(path: string, slices: Slice[]) {
+  const normalizedPath = normalizeRepositoryPath(path);
+
+  return slices.some((slice) =>
+    (slice.definition?.includedPaths ?? []).some((includedPath) => {
+      const normalizedIncluded = normalizeRepositoryPath(includedPath);
+      return (
+        normalizedPath === normalizedIncluded ||
+        normalizedIncluded.startsWith(`${normalizedPath}/`)
+      );
+    })
+  );
+}
+
+function isPathNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error instanceof RpcError) {
+    return (
+      error.status === 404 ||
+      error.code === 5 ||
+      error.code === "5" ||
+      error.code === "NotFound"
+    );
+  }
+  return error.message.toLowerCase().includes("path not found");
 }
 
 async function listAllSlices(api: ApiClient, account: string) {

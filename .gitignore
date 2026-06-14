@@ -6,4 +6,4 @@ env.local
 # build artifacts and local deploy helpers
 /bin/
 /deploy/
-
+/.tmp/

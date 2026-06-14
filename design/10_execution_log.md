@@ -3,6 +3,138 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-06-13: Account Root Directory Materialization
+
+Request:
+
+- create the home directory for an account when the account is created, ensure
+  home directories are unique, and reset the local database
+
+Implemented:
+
+- wired the Postgres auth store to the configured tree store so account
+  provisioning can materialize the account root in the native repository tree
+- changed personal account provisioning to create a real `mkdir /<account>`
+  commit on `refs/global/main` in the same transaction as the subject, account,
+  membership, and `home` slice metadata
+- changed development fixture seeding to materialize `/acme`, so the seeded org
+  account root is no longer a purely virtual path
+- recorded the account-root commit in `commits`, `refs`, `commit_changed_paths`,
+  and `path_heads`
+- extended the in-memory store to track explicit empty directories in commits,
+  including signup account roots and mkdir-only publishes
+- added signup regression coverage for resolving the new account root as a
+  directory and listing it from `/`
+
+Important decisions and learnings:
+
+- account root uniqueness is already enforced by the unique `accounts.slug`
+  constraint; because the account root path is `/<slug>`, the source-tree home
+  directory namespace is the same unique namespace
+- the existing outbox payload requires a patchset id, so account-root system
+  commits update changed-path and path-head indexes directly rather than
+  creating fake patchsets
+- local TCP Postgres auth for `postgres://nic@localhost/gitslice_dev` requires a
+  password in this environment; reset/migration used the local Unix socket URL
+  instead
+
+Verification:
+
+```bash
+go test ./internal/storage/memory ./service ./internal/postgres
+go test ./tests/cli -run TestDoesNotExist
+go test ./service -run TestFakeSignupUsesInMemoryAuthAndCreatesHomeSlice -count=1 -v
+go test ./...
+GITSLICE_TEST_DATABASE_URL='postgres://nic@/gitslice_dev?host=/var/run/postgresql&sslmode=disable' go test -count=1 ./tests/cli -run TestSignupWebApproveIssuesToken -v
+go build ./cmd/...
+git diff --check
+psql postgres -v ON_ERROR_STOP=1 -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = 'gitslice_dev' and pid <> pg_backend_pid();" -c "drop database if exists gitslice_dev;" -c "create database gitslice_dev;"
+GITSLICE_DATABASE_URL='postgres://nic@/gitslice_dev?host=/var/run/postgresql&sslmode=disable' GITSLICE_OBJECT_STORE_ROOT='/home/nic/workspace/slices/.tmp/object-store' GITSLICE_HTTP_ADDR='' GITSLICE_GIT_HTTP_ADDR='' timeout 3s go run ./cmd/gitslice-server --grpc-addr 127.0.0.1:0 --migrate
+psql gitslice_dev -v ON_ERROR_STOP=1 -c "select slug from accounts order by slug;" -c "select path, exists from path_heads where path in ('/acme', '/signup-user') order by path;" -c "select name, version from refs where name = 'refs/global/main';"
+```
+
+After the final reset and seed, the local `gitslice_dev` database contained only
+the seeded `acme` account, `path_heads` contained `/acme` with `exists = true`,
+and `refs/global/main` was at version 2.
+
+## 2026-06-13: Slice-First Web Navigation
+
+Request:
+
+- update the web UI so the top header has `home` and `doc`, the home page lists
+  slices, selecting a slice opens a slice home with a left folder navigator, and
+  changeset flows are scoped to the selected slice
+- fix the signed-in home screen so it uses the user's home account instead of
+  prompting for a manually selected account
+
+Implemented:
+
+- replaced the persistent left app sidebar with a top header navigation
+  containing `home` and `doc`
+- changed `/` to render the account slice list instead of redirecting to the
+  source browser
+- added `/doc` as a lightweight documentation index for the design files
+- reworked the slice detail route into a slice home page with metadata,
+  slice-scoped changeset actions, a sticky left folder navigator, and a projected
+  source workspace using `RepositoryService.ListDirectory` with the selected
+  slice projection
+- seeded changeset lookup and creation pages from `?slice=account/slice` so
+  actions launched from a slice home default to that slice
+
+Important decisions and learnings:
+
+- changeset listing is still not available through the current public API, so
+  the slice-scoped changeset UI can seed create and lookup flows but cannot show
+  a true per-slice changeset feed yet
+- the slice folder navigator uses the existing slice-projected directory API
+  rather than introducing a separate tree endpoint
+- source browsing can encounter `path not found` for empty account roots or
+  slice-included prefixes that have no committed tree entries yet; the web UI
+  now treats only those projected directory roots as empty directories while
+  preserving real missing-path errors elsewhere
+- staging exposed that account-root materialization does not create every slice
+  include prefix, so the source route must use slice metadata before deciding
+  whether a missing path is a real error or an empty projected directory
+- staging deploys must rebuild the Vite bundle with `.env.staging` loaded;
+  Wrangler runtime vars are not available through `import.meta.env`, so the
+  deploy script sources the staging env before `npm run build`
+- `AuthService.GetAuthStatus` is the source of truth for the web home account;
+  the UI now waits for that RPC and surfaces errors rather than falling back to
+  the obsolete manual-account prompt
+- account membership lists are ordered with the subject's personal account first
+  so the first account remains the home slice account even when the user belongs
+  to other accounts
+- staging routes `api.agenttools.dev` to the gRPC listener, so the server now
+  multiplexes gRPC and HTTP JSON grpc-gateway traffic on the main gRPC port by
+  content type; browser JSON requests no longer fail with gRPC `415 invalid
+  request content-type`
+
+Verification:
+
+```bash
+npm run build
+git diff --check
+set -a; . ../.env.staging; set +a; npm run deploy:staging
+go build -o bin/gitslice-server ./cmd/gitslice-server
+go build -o bin/gs ./cmd/gs
+npx pm2 restart gitslice-rewrite-staging --update-env
+curl -L --max-time 20 https://agenttools.dev/source/acme/payment
+curl -sS -i --max-time 20 -X POST http://127.0.0.1:8081/gitslice.core.v1.AuthService/GetAuthStatus -H 'Content-Type: application/json' --data '{}'
+cd web && npm run deploy:staging
+curl -sSL --max-time 20 https://agenttools.dev/source/acme/payment
+curl -sSL --max-time 20 https://agenttools.dev/assets/index-Djv3XKmq.js | rg -o "https://api.agenttools.dev"
+npm run build
+go test ./internal/storage/memory ./service ./internal/postgres
+go test ./...
+go build ./cmd/...
+git diff --check
+go test ./server ./tests/cli ./tests/rpc
+go build -o bin/gitslice-server ./cmd/gitslice-server
+npx pm2 restart gitslice-rewrite-staging --update-env
+curl -sS -i --max-time 20 -X POST https://api.agenttools.dev/gitslice.core.v1.AuthService/GetAuthStatus -H 'Content-Type: application/json' --data '{}'
+curl -sS -i --max-time 20 -X OPTIONS https://api.agenttools.dev/gitslice.core.v1.AuthService/GetAuthStatus -H 'Origin: https://agenttools.dev' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,content-type'
+```
+
 ## 2026-05-25: Workspace Init Materialization
 
 Request:
@@ -4230,6 +4362,61 @@ git diff --check
 ```
 
 All listed commands passed.
+
+## 2026-06-14: Slice Sidebar Source Tree
+
+Request:
+
+- make the slice page folders sidebar behave like a GitHub-style file tree
+
+Implemented:
+
+- replaced the slice sidebar's flat included-path/current-folder lists with an
+  expandable file tree on the slice home page
+- lazy-load expanded directories through the existing slice-projected
+  `ListDirectory` path so the tree stays scoped to the selected slice
+- merge synthetic include-path ancestors into the tree so slice roots remain
+  visible before every parent directory has loaded from storage
+- keep selected files from being queried as folders by expanding only their
+  parent directory chain
+
+Verification:
+
+```bash
+cd web
+npm run build
+```
+
+The web production build passed.
+
+## 2026-06-14: Slice Content Focus and Staging Git Clone URL
+
+Request:
+
+- make the slice content area show only the selected folder's files or selected
+  file content, move the Git clone endpoint to a smaller control, and configure
+  `VITE_GITSLICE_GIT_HTTP_BASE_URL` for staging
+
+Implemented:
+
+- removed the metadata, changeset, and large Git clone panels from the slice
+  page content column so the selected directory table or file viewer is the
+  first content surface beside the tree
+- added a compact `Clone` dropdown in the slice header actions with a read-only
+  clone URL field and copy action
+- set staging's web Git clone base to `https://api.agenttools.dev` and taught
+  `web/scripts/deploy-staging.sh` to map the public staging value into
+  `VITE_GITSLICE_GIT_HTTP_BASE_URL` before building
+- documented the local web env clone-base value in `web/.env.example`
+
+Verification:
+
+```bash
+cd web
+npm run build
+```
+
+The web production build passed.
 
 ## 2026-06-11: Move Publish Index Writes to Transactional Outbox
 

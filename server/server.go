@@ -24,6 +24,8 @@ import (
 	"github.com/gitslice-io/gitslice/internal/treestore"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/gitslice-io/gitslice/service"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -106,13 +108,18 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	handlers := service.New(stores, objectStore)
 	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg.DevMode)
+	gatewayHandler, err := NewHTTPGateway(ctx, gatewayGRPCEndpoint(lis.Addr()))
+	if err != nil {
+		return err
+	}
+	combinedServer := &http.Server{
+		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg.DevMode)),
+		ReadHeaderTimeout: gatewayReadHeaderTimeout,
+		IdleTimeout:       gatewayIdleTimeout,
+	}
 	var gatewayServer *http.Server
 	var gatewayLis net.Listener
 	if cfg.HTTPAddr != "" {
-		gatewayHandler, err := NewHTTPGateway(ctx, gatewayGRPCEndpoint(lis.Addr()))
-		if err != nil {
-			return err
-		}
 		gatewayLis, err = net.Listen("tcp", cfg.HTTPAddr)
 		if err != nil {
 			return err
@@ -159,7 +166,7 @@ func Run(ctx context.Context, cfg Config) error {
 	errCh := make(chan error, 3)
 	go func() {
 		slog.Info("gitslice server listening", "grpc_addr", lis.Addr().String())
-		errCh <- grpcServer.Serve(lis)
+		errCh <- combinedServer.Serve(lis)
 	}()
 	if gatewayServer != nil {
 		go func() {
@@ -175,6 +182,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	select {
 	case <-ctx.Done():
+		_ = combinedServer.Shutdown(context.Background())
 		grpcServer.GracefulStop()
 		if gatewayServer != nil {
 			_ = gatewayServer.Shutdown(context.Background())
@@ -190,6 +198,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
+		_ = combinedServer.Shutdown(context.Background())
 		grpcServer.GracefulStop()
 		if gatewayServer != nil {
 			_ = gatewayServer.Shutdown(context.Background())
@@ -199,6 +208,16 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 		return err
 	}
+}
+
+func NewCombinedGRPCGatewayHandler(grpcServer *grpc.Server, gateway http.Handler) http.Handler {
+	return h2c.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r)
+			return
+		}
+		gateway.ServeHTTP(w, r)
+	}), &http2.Server{})
 }
 
 // subjectResolver maps a verified bearer token to an internal subject ID. It

@@ -21,9 +21,9 @@ const PAGE_SIZE = 100;
 
 export function SlicesPage() {
   const api = useApi();
-  const { account } = useSelection();
+  const selection = useSelection();
   const search = useSearch({ strict: false }) as SlicesSearch;
-  const effectiveAccount = (account || search.account || "").trim();
+  const effectiveAccount = (search.account || selection.account || "").trim();
 
   const slicesQuery = useQuery({
     enabled: effectiveAccount.length > 0,
@@ -56,9 +56,15 @@ export function SlicesPage() {
       />
 
       <div className="mt-8">
-        {!effectiveAccount ? (
+        {selection.isLoading ? (
+          <SliceLoadingBlock />
+        ) : selection.error ? (
+          <SliceNotice title="Could not load your home account" tone="error">
+            {getErrorMessage(selection.error)}
+          </SliceNotice>
+        ) : !effectiveAccount ? (
           <SliceNotice title="Select an account">
-            Enter an account in the top bar before listing slices.
+            Your signed-in session did not return a home account.
           </SliceNotice>
         ) : slicesQuery.isLoading ? (
           <SliceLoadingBlock />

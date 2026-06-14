@@ -588,6 +588,31 @@ func TestSignupWebApproveIssuesToken(t *testing.T) {
 	if got := homeSlice.Definition.IncludedPaths; len(got) != 1 || got[0] != "/signup-user" {
 		t.Fatalf("home slice included paths = %#v, want [/signup-user]", got)
 	}
+	repository := corev1.NewRepositoryServiceClient(conn)
+	ref, err := repository.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedRoot, err := repository.ResolvePath(ctx, &corev1.ResolvePathRequest{
+		CommitId: ref.CommitId,
+		Path:     "/signup-user",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedRoot.Entry == nil || resolvedRoot.Entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
+		t.Fatalf("signup account root = %#v, want directory", resolvedRoot.Entry)
+	}
+	listedRoot, err := repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: ref.CommitId,
+		Path:     "/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEntry(listedRoot.Entries, "signup-user", corev1.EntryKind_ENTRY_KIND_DIRECTORY) {
+		t.Fatalf("root entries missing signup-user: %#v", listedRoot.Entries)
+	}
 
 	workspaces := corev1.NewWorkspaceServiceClient(conn)
 	_, err = workspaces.ValidateWorkspaceDiff(ctx, &corev1.ValidateWorkspaceDiffRequest{

@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { SliceRef } from "../api/types";
@@ -14,21 +14,33 @@ import {
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { useSelection } from "../state/selection";
 
+interface NewChangesetSearch {
+  slice?: unknown;
+}
+
 export function NewChangesetPage() {
   const api = useApi();
   const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as NewChangesetSearch;
   const { account } = useSelection();
-  const [sliceInput, setSliceInput] = useState(() => (account ? `${account}/` : ""));
+  const searchedSlice = typeof search.slice === "string" ? search.slice.trim() : "";
+  const [sliceInput, setSliceInput] = useState(() =>
+    searchedSlice || (account ? `${account}/` : "")
+  );
   const [baseCommitId, setBaseCommitId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [rows, setRows] = useState<FileEditDraft[]>([createEmptyEditDraft()]);
 
   useEffect(() => {
+    if (searchedSlice && sliceInput !== searchedSlice) {
+      setSliceInput(searchedSlice);
+      return;
+    }
     if (!sliceInput && account) {
       setSliceInput(`${account}/`);
     }
-  }, [account, sliceInput]);
+  }, [account, searchedSlice, sliceInput]);
 
   const preview = useMemo(() => clientPreview(rows), [rows]);
 
