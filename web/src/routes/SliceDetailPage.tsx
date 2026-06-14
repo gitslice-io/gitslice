@@ -223,18 +223,28 @@ export function SliceDetailPage() {
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[19rem_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-24 lg:self-start">
-          <SliceFolderNavigator
-            api={api}
-            commitId={commitId}
-            includedPaths={includedPaths}
-            isLatestLoading={latestQuery.isPending}
-            isSelectedDirectory={isDirectory}
-            onSelectPath={selectPath}
-            selectedPath={selectedPath}
-            sliceId={sliceId}
-            sliceRef={sliceRef}
-          />
+        <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
+          <details className="group lg:block">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-950 shadow-sm shadow-slate-200/50 lg:hidden">
+              <span>Files</span>
+              <span className="text-xs font-medium text-slate-500">
+                Tap to browse
+              </span>
+            </summary>
+            <div className="mt-2 lg:mt-0 lg:block">
+              <SliceFolderNavigator
+                api={api}
+                commitId={commitId}
+                includedPaths={includedPaths}
+                isLatestLoading={latestQuery.isPending}
+                isSelectedDirectory={isDirectory}
+                onSelectPath={selectPath}
+                selectedPath={selectedPath}
+                sliceId={sliceId}
+                sliceRef={sliceRef}
+              />
+            </div>
+          </details>
         </aside>
 
         <div className="min-w-0 space-y-6">
@@ -269,7 +279,7 @@ function GitCloneDropdown({ cloneUrl }: { cloneUrl: string }) {
       <summary className="flex cursor-pointer list-none items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]">
         Clone
       </summary>
-      <div className="absolute right-0 mt-2 w-[min(24rem,calc(100vw-2rem))] rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10">
+      <div className="fixed left-4 right-4 mt-2 rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10 sm:absolute sm:left-auto sm:right-0 sm:w-[min(24rem,calc(100vw-2rem))]">
         <label
           className="block text-xs font-semibold uppercase tracking-normal text-slate-500"
           htmlFor="git-clone-url"
@@ -419,7 +429,7 @@ function SliceFolderNavigator({
   }
 
   return (
-    <SlicePanel className="max-h-[calc(100dvh-8rem)] overflow-auto p-0">
+    <SlicePanel className="max-h-[60dvh] overflow-auto p-0 lg:max-h-[calc(100dvh-8rem)]">
       <div className="border-b border-slate-200 px-3 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -932,13 +942,13 @@ function DirectoryHeader({
   }
 
   return (
-    <div className="border-b border-slate-200 px-5 py-4">
+    <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="break-all text-base font-semibold text-zinc-950">
             {selectedPath || "Slice root"}
           </h2>
-          <p className="mt-1 break-all text-xs text-slate-500">
+          <p className="mt-1 hidden break-all text-xs text-slate-500 sm:block">
             Commit <span className="font-mono text-slate-700">{commitId}</span>
           </p>
         </div>
@@ -1004,11 +1014,11 @@ function SliceDirectoryTable({
       <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
         <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
           <tr>
-            <th className="px-4 py-3">Name</th>
-            <th className="px-4 py-3">Kind</th>
-            <th className="px-4 py-3">Size</th>
-            <th className="px-4 py-3">Content hash</th>
-            <th className="px-4 py-3">Actions</th>
+            <th className="px-3 py-3 sm:px-4">Name</th>
+            <th className="hidden px-4 py-3 md:table-cell">Kind</th>
+            <th className="hidden px-4 py-3 md:table-cell">Size</th>
+            <th className="hidden px-4 py-3 md:table-cell">Content hash</th>
+            <th className="px-3 py-3 sm:px-4">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -1023,9 +1033,9 @@ function SliceDirectoryTable({
 
             return (
               <tr className="align-top transition hover:bg-slate-50" key={entry.path ?? entryDisplayName(entry)}>
-                <td className="min-w-56 px-4 py-3">
+                <td className="min-w-0 px-3 py-3 sm:min-w-56 sm:px-4">
                   <button
-                    className="text-left font-medium text-zinc-950 underline-offset-4 hover:underline"
+                    className="break-words text-left font-medium text-zinc-950 underline-offset-4 hover:underline"
                     onClick={() => onSelectPath(path)}
                     type="button"
                   >
@@ -1038,21 +1048,21 @@ function SliceDirectoryTable({
                     renamePath={pendingRename?.path}
                   />
                   {entry.path ? (
-                    <div className="mt-1 max-w-96 truncate font-mono text-xs text-slate-400">
+                    <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 sm:truncate">
                       {entry.path}
                     </div>
                   ) : null}
                 </td>
-                <td className="px-4 py-3 text-slate-600">
+                <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
                   {entryKindLabel(entry.kind)}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
+                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                   {formatSize(entry.size)}
                 </td>
-                <td className="max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600">
+                <td className="hidden max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                   {entry.contentHash || entry.blobId || entry.treeId || ""}
                 </td>
-                <td className="min-w-48 px-4 py-3">
+                <td className="min-w-40 px-3 py-3 sm:min-w-48 sm:px-4">
                   {isRenaming ? (
                     <InlineRenameForm
                       onCancel={() => setRenamingPath("")}
@@ -1100,8 +1110,8 @@ function SliceDirectoryTable({
                 className="align-top bg-slate-50 transition hover:bg-slate-100"
                 key={pendingEditKey(edit)}
               >
-                <td className="min-w-56 px-4 py-3">
-                  <span className="font-medium text-zinc-950">
+                <td className="min-w-0 px-3 py-3 sm:min-w-56 sm:px-4">
+                  <span className="break-words font-medium text-zinc-950">
                     {editingRepositoryPathName(path)}
                     {isDirectory ? "/" : ""}
                   </span>
@@ -1110,20 +1120,20 @@ function SliceDirectoryTable({
                       pending
                     </span>
                   </div>
-                  <div className="mt-1 max-w-96 truncate font-mono text-xs text-slate-400">
+                  <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 sm:truncate">
                     {path}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-slate-600">
+                <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
                   {isDirectory ? "directory" : "file"}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
+                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                   {edit.kind === "write" && edit.content !== undefined
                     ? formatSize(String(edit.content.length))
                     : ""}
                 </td>
-                <td className="max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600" />
-                <td className="px-4 py-3 text-xs text-slate-500">
+                <td className="hidden max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600 md:table-cell" />
+                <td className="px-3 py-3 text-xs text-slate-500 sm:px-4">
                   Remove from the pending changes panel.
                 </td>
               </tr>
@@ -1241,7 +1251,7 @@ function EditableFileView({
                 ) : null}
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
+            <div className="flex min-w-0 flex-wrap gap-2 sm:shrink-0">
               <button
                 className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
                 onClick={() => {
@@ -1285,11 +1295,11 @@ function EditableFileView({
           ) : null}
         </div>
         {isEditing ? (
-          <div className="p-5">
+          <div className="p-4 sm:p-5">
             <label className="grid gap-2 text-sm font-medium text-zinc-800">
               File content
               <textarea
-                className="min-h-[28rem] rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+                className="min-h-80 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 sm:min-h-[28rem]"
                 onChange={(event) => setDraft(event.target.value)}
                 value={draft}
               />

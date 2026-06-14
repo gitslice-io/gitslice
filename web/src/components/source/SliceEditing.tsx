@@ -561,7 +561,7 @@ export function DirectoryCreateControls({
 
   return (
     <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
-      <p className="mb-2 truncate text-xs text-slate-500">
+      <p className="mb-2 min-w-0 break-all text-xs text-slate-500">
         New items are created in{" "}
         <span className="font-mono text-slate-700">{directoryPath}</span>
       </p>
@@ -629,7 +629,7 @@ export function InlineRenameForm({
     <form className="grid gap-2" onSubmit={submit}>
       <div className="flex min-w-0 flex-wrap gap-2">
         <input
-          className="h-9 min-w-40 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+          className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
           onChange={(event) => {
             setName(event.target.value);
             setError("");

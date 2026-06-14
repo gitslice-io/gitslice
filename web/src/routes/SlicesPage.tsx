@@ -82,11 +82,15 @@ export function SlicesPage() {
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">Slice</th>
-                    <th className="px-4 py-3">Visibility</th>
-                    <th className="px-4 py-3">Version</th>
-                    <th className="px-4 py-3">Definition hash</th>
-                    <th className="px-4 py-3">Included paths</th>
+                    <th className="px-3 py-3 sm:px-4">Slice</th>
+                    <th className="px-3 py-3 sm:px-4">Visibility</th>
+                    <th className="hidden px-4 py-3 md:table-cell">Version</th>
+                    <th className="hidden px-4 py-3 md:table-cell">
+                      Definition hash
+                    </th>
+                    <th className="hidden px-4 py-3 md:table-cell">
+                      Included paths
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -99,10 +103,10 @@ export function SlicesPage() {
                         className="align-top transition hover:bg-slate-50"
                         key={sliceId || sliceDisplayName(slice)}
                       >
-                        <td className="px-4 py-3 font-medium text-zinc-950">
+                        <td className="max-w-[12rem] px-3 py-3 font-medium text-zinc-950 sm:max-w-none sm:px-4">
                           {sliceId ? (
                             <Link
-                              className="underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
+                              className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
                               params={{ id: sliceId }}
                               to="/slices/$id"
                             >
@@ -112,16 +116,16 @@ export function SlicesPage() {
                             sliceDisplayName(slice)
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
+                        <td className="px-3 py-3 text-slate-700 sm:px-4">
                           {slice.definition?.visibility || "unspecified"}
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                        <td className="hidden px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
                           {slice.definition?.version ?? "unknown"}
                         </td>
-                        <td className="max-w-xs break-all px-4 py-3 font-mono text-xs text-slate-700">
+                        <td className="hidden max-w-xs break-all px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
                           {slice.definitionHash || "none"}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
+                        <td className="hidden px-4 py-3 text-slate-700 md:table-cell">
                           <span className="font-medium text-zinc-950">
                             {paths.length}
                           </span>{" "}

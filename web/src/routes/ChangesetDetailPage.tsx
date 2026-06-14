@@ -198,7 +198,7 @@ function HeaderCard({
       <div className="px-5 py-5 md:px-6">
         {sliceSearch ? (
           <Link
-            className="text-sm font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 transition hover:text-zinc-950 hover:decoration-slate-700"
+            className="break-all text-sm font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 transition hover:text-zinc-950 hover:decoration-slate-700"
             search={{ slice: sliceSearch } as never}
             to="/changesets"
           >
@@ -208,11 +208,11 @@ function HeaderCard({
 
         <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-normal text-zinc-950 md:text-3xl">
+            <h1 className="text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl md:text-3xl">
               {changeset.title || "Untitled changeset"}
             </h1>
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-600">
-              <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
+              <span className="max-w-full break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
                 {changesetHandle(changeset)}
               </span>
               <span>{changeset.author || "author not returned"}</span>
@@ -224,7 +224,7 @@ function HeaderCard({
               </p>
             ) : null}
             {changeset.baseCommitId ? (
-              <p className="mt-4 font-mono text-xs text-slate-500">
+              <p className="mt-4 break-all font-mono text-xs text-slate-500">
                 base {shortCommit(changeset.baseCommitId)}
               </p>
             ) : null}
@@ -298,7 +298,7 @@ function ReviewActions({
           <label className="grid gap-1 text-xs font-medium text-slate-600">
             Reason
             <input
-              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+              className="h-9 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
               disabled={actionBusy}
               onChange={(event) => onAbandonReasonChange(event.target.value)}
               placeholder="Optional reason"
@@ -464,7 +464,7 @@ function ChangesetSkeleton() {
       <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
         <div className="h-4 w-48 animate-pulse rounded bg-slate-200" />
         <div className="mt-5 h-8 w-2/3 animate-pulse rounded bg-slate-200" />
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           <div className="h-7 w-24 animate-pulse rounded bg-slate-100" />
           <div className="h-7 w-32 animate-pulse rounded bg-slate-100" />
           <div className="h-7 w-20 animate-pulse rounded bg-slate-100" />

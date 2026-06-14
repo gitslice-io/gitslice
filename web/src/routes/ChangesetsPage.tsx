@@ -55,7 +55,7 @@ export function ChangesetsPage() {
         title={sliceRef ? `${account}/${slice} · Changesets` : "Changesets"}
         description={
           sliceRef
-            ? "Review, approve, and merge changesets authored against this slice."
+            ? "Review and merge changesets authored against this slice."
             : "Open a slice and use its Changesets tab to see the slice-scoped review queue."
         }
       />
@@ -100,12 +100,14 @@ function ChangesetsTable({
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
           <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
             <tr>
-              <th className="px-4 py-3">Changeset</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Author</th>
-              <th className="px-4 py-3">Approvals</th>
-              <th className="px-4 py-3">Blocked reason</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th className="px-3 py-3 sm:px-4">Changeset</th>
+              <th className="hidden px-3 py-3 sm:table-cell sm:px-4">Status</th>
+              <th className="hidden px-4 py-3 md:table-cell">Author</th>
+              <th className="hidden px-4 py-3 md:table-cell">Approvals</th>
+              <th className="hidden px-4 py-3 md:table-cell">
+                Blocked reason
+              </th>
+              <th className="px-3 py-3 text-right sm:px-4">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -167,46 +169,59 @@ function ChangesetRow({
 
   return (
     <tr className="align-top transition hover:bg-slate-50">
-      <td className="min-w-72 px-4 py-4">
+      <td className="max-w-[14rem] px-3 py-4 sm:min-w-72 sm:max-w-none sm:px-4">
         <div className="flex flex-col gap-1">
+          <div className="sm:hidden">
+            <StatusBadge status={changeset.status} />
+          </div>
           {detailId ? (
             <Link
-              className="group w-fit"
+              className="group min-w-0"
               params={{ id: detailId }}
               to="/changesets/$id"
             >
-              <span className="block font-semibold text-zinc-950 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
+              <span className="block break-words font-semibold text-zinc-950 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
                 {label}
               </span>
-              <span className="mt-1 block max-w-xl text-sm text-slate-700 group-hover:text-zinc-950">
+              <span className="mt-1 block max-w-xl break-words text-sm text-slate-700 group-hover:text-zinc-950">
                 {changeset.title || "Untitled changeset"}
               </span>
             </Link>
           ) : (
             <>
               <span className="font-semibold text-zinc-950">{label}</span>
-              <span className="max-w-xl text-sm text-slate-700">
+              <span className="max-w-xl break-words text-sm text-slate-700">
                 {changeset.title || "Untitled changeset"}
               </span>
             </>
           )}
           {changeset.affectedPaths?.length ? (
-            <span className="max-w-xl truncate font-mono text-xs text-slate-500">
+            <span className="max-w-xl break-all font-mono text-xs text-slate-500 sm:truncate">
               {changeset.affectedPaths.join(", ")}
             </span>
           ) : null}
+          {changeset.submitBlockedReason ? (
+            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs leading-5 text-amber-900 md:hidden">
+              {changeset.submitBlockedReason}
+            </p>
+          ) : null}
+          {rowError ? (
+            <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs leading-5 text-red-800 md:hidden">
+              {rowError}
+            </p>
+          ) : null}
         </div>
       </td>
-      <td className="px-4 py-4">
+      <td className="hidden px-3 py-4 sm:table-cell sm:px-4">
         <StatusBadge status={changeset.status} />
       </td>
-      <td className="px-4 py-4 text-slate-700">
+      <td className="hidden px-4 py-4 text-slate-700 md:table-cell">
         {changeset.author || "not returned"}
       </td>
-      <td className="px-4 py-4 text-slate-700">
+      <td className="hidden px-4 py-4 text-slate-700 md:table-cell">
         {changeset.submitRequirements?.requiredApprovals ?? "not returned"}
       </td>
-      <td className="max-w-sm px-4 py-4 text-slate-700">
+      <td className="hidden max-w-sm px-4 py-4 text-slate-700 md:table-cell">
         {changeset.submitBlockedReason ? (
           <span>{changeset.submitBlockedReason}</span>
         ) : (
@@ -218,8 +233,8 @@ function ChangesetRow({
           </p>
         ) : null}
       </td>
-      <td className="px-4 py-4">
-        <div className="flex justify-end gap-2">
+      <td className="px-3 py-4 sm:px-4">
+        <div className="flex flex-wrap justify-end gap-2">
           <button
             className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
             disabled={busy || !changesetId || terminal}

@@ -44,12 +44,22 @@ export function SourceDirectoryTable({
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
           <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
             <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Kind</th>
-              {hasMode ? <th className="px-4 py-3">Mode</th> : null}
-              {hasSize ? <th className="px-4 py-3">Size</th> : null}
-              {hasObjectId ? <th className="px-4 py-3">Content</th> : null}
-              {hasSymlinkTarget ? <th className="px-4 py-3">Symlink target</th> : null}
+              <th className="px-3 py-3 sm:px-4">Name</th>
+              <th className="hidden px-4 py-3 md:table-cell">Kind</th>
+              {hasMode ? (
+                <th className="hidden px-4 py-3 md:table-cell">Mode</th>
+              ) : null}
+              {hasSize ? (
+                <th className="hidden px-4 py-3 md:table-cell">Size</th>
+              ) : null}
+              {hasObjectId ? (
+                <th className="hidden px-4 py-3 md:table-cell">Content</th>
+              ) : null}
+              {hasSymlinkTarget ? (
+                <th className="hidden px-4 py-3 md:table-cell">
+                  Symlink target
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -65,9 +75,9 @@ export function SourceDirectoryTable({
 
               return (
                 <tr className="align-top transition hover:bg-slate-50" key={entry.path ?? name}>
-                  <td className="min-w-56 px-4 py-3">
+                  <td className="min-w-0 px-3 py-3 sm:min-w-56 sm:px-4">
                     <Link
-                      className="font-medium text-zinc-950 underline-offset-4 hover:underline"
+                      className="break-words font-medium text-zinc-950 underline-offset-4 hover:underline"
                       params={
                         routePath
                           ? ({ account, _splat: routePath } as never)
@@ -80,40 +90,42 @@ export function SourceDirectoryTable({
                       {isDirectory ? "/" : ""}
                     </Link>
                     {entry.path ? (
-                      <div className="mt-1 max-w-96 truncate font-mono text-xs text-slate-400">
+                      <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 sm:truncate">
                         {entry.path}
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
                     {entryKindLabel(entry.kind)}
                   </td>
                   {hasMode ? (
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    <td className="hidden px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                       {formatMode(entry.mode)}
                     </td>
                   ) : null}
                   {hasSize ? (
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600">
+                    <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                       {formatSize(entry.size)}
                     </td>
                   ) : null}
                   {hasObjectId ? (
-                    <td className="px-4 py-3">
+                    <td className="hidden px-4 py-3 md:table-cell">
                       <div className="grid gap-1 font-mono text-xs text-slate-600">
                         {objectRows.map((row) => (
                           <div className="flex min-w-52 gap-2" key={row.label}>
                             <span className="w-8 shrink-0 text-slate-400">
                               {row.label}
                             </span>
-                            <span title={row.value}>{trimMiddle(row.value)}</span>
+                            <span className="truncate" title={row.value}>
+                              {trimMiddle(row.value)}
+                            </span>
                           </div>
                         ))}
                       </div>
                     </td>
                   ) : null}
                   {hasSymlinkTarget ? (
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    <td className="hidden break-all px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                       {entry.symlinkTarget}
                     </td>
                   ) : null}
@@ -126,4 +138,3 @@ export function SourceDirectoryTable({
     </div>
   );
 }
-
