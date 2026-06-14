@@ -59,6 +59,12 @@ const docRoute = createRoute({
   component: DocPage
 });
 
+const docSectionRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "doc/$section",
+  component: DocPage
+});
+
 const sourceRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "source/$account",
@@ -107,6 +113,7 @@ const routeTree = rootRoute.addChildren([
   appRoute.addChildren([
     homeRoute,
     docRoute,
+    docSectionRoute,
     sourceRoute,
     sourceSplatRoute,
     slicesRoute,

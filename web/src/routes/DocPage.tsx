@@ -1,63 +1,132 @@
-const concepts = [
+import { Link, useParams } from "@tanstack/react-router";
+
+type DocSection = "start" | "concepts" | "git-users" | "cli";
+
+interface DocParams {
+  section?: string;
+}
+
+const docSections: Array<{
+  description: string;
+  id: DocSection;
+  title: string;
+}> = [
   {
-    title: "Accounts & paths",
+    id: "start",
+    title: "Start Here",
+    description: "Sign in, open your home slice, make a first changeset."
+  },
+  {
+    id: "concepts",
+    title: "Concepts",
+    description: "How accounts, slices, workspaces, changesets, and commits fit."
+  },
+  {
+    id: "git-users",
+    title: "For Git Users",
+    description: "Map Git habits to Gitslice without learning internals first."
+  },
+  {
+    id: "cli",
+    title: "CLI Reference",
+    description: "A compact command lookup for daily `gs` work."
+  }
+];
+
+const startSteps = [
+  {
+    title: "Sign in",
+    description: "Authenticate once, then use the same identity for CLI and web.",
+    command: "gs auth login\ngs auth status"
+  },
+  {
+    title: "Open your home slice",
     description:
-      "Every source path is rooted under an account slug: /{account}/... (e.g. /nicholas, /acme). Account kind (user / org / service) is just metadata; there are no /users or /orgs prefixes.",
+      "Your personal account has a `home` slice rooted at /<you>. Use it for a first workflow.",
+    command: "gs init <you>/home\n# example: gs init nic/home"
+  },
+  {
+    title: "Make a local edit",
+    description: "Edit files normally, then inspect what the workspace will send.",
+    command: "gs status\ngs diff"
+  },
+  {
+    title: "Create and submit a changeset",
+    description:
+      "A changeset is the review and submit unit. When it lands, it is included in the accepted main tree.",
+    command: 'gs cs create --title "my first change"\ngs cs submit\ngs cs status --watch'
+  }
+];
+
+const conceptCards = [
+  {
+    title: "Accounts and paths",
+    description:
+      "Every source path starts under a globally unique account slug, such as /nic or /acme. Account kind is metadata, not part of the path."
   },
   {
     title: "Slices",
     description:
-      "A slice is a repository-like projection of the global source graph defined by its included paths, a product view rather than a storage shard. Slices carry visibility (public / account / private) and roles (reader / writer / admin / owner).",
+      "A slice is a repository-like projection over the global source graph. It defines included paths, visibility, roles, and submit settings."
   },
   {
     title: "Workspaces",
     description:
-      "A virtual workspace hydrates only the files you, or an agent, actually need from a slice, instead of cloning everything.",
+      "A workspace is bound to exactly one slice and hydrates the files needed for that scope instead of cloning the whole graph."
   },
   {
     title: "Changesets",
     description:
-      "The unit of review and submission. A changeset has exactly one authoring slice; cross-slice changesets are not supported. Every changed path must be included by the authoring slice.",
+      "A changeset contains one or more patchsets for one authoring slice. Cross-slice changesets are intentionally not supported."
   },
   {
     title: "Submit validation",
     description:
-      "Submit requirements (required approvals, required checks, path locks) are explicit slice settings enforced server-side. Caches and watchers speed things up, but the server decides correctness.",
+      "Approvals, checks, path locks, and slice rules are enforced server-side before work is included in main."
   },
+  {
+    title: "Native commits",
+    description:
+      "Commits exist as immutable accepted snapshots. Users normally create changesets; the system creates a native commit when a changeset lands."
+  }
 ];
 
-const quickstartSteps = [
+const gitTranslations = [
+  ["Git repository", "Slice"],
+  ["Pull request", "Changeset"],
+  ["Commit you make locally", "Patchset/change content in a changeset"],
+  ["Merged commit on main", "Native commit created when a changeset lands"],
+  ["main branch", "Latest accepted tree at refs/global/main"],
+  ["Working tree", "Workspace"],
+  ["Clone URL", "Per-slice Git endpoint when Git HTTP is enabled"]
+];
+
+const gitQuestions = [
   {
-    title: "Sign in",
-    description:
-      "Use an existing account, or create a new one, then check the active session.",
-    command:
-      "gs auth login\n# or: gs auth signup --username <you>\ngs auth status",
+    question: "Do I still make commits?",
+    answer:
+      "In normal Gitslice work, no. You edit files, create a changeset, and submit it. The system creates the accepted native commit after submit validation passes."
   },
   {
-    title: "Open a shell / workspace",
-    description:
-      "Create a workspace for a slice, then open an interactive session.",
-    command: "gs init <account>/<slice>\n# example: gs init nic/home\ngs shell",
+    question: "What replaces a pull request?",
+    answer:
+      "A changeset. It is scoped to one authoring slice, carries patchsets, and is the unit that submit validation accepts or rejects."
   },
   {
-    title: "Add or edit files",
-    description:
-      "Work locally, upload existing files, and inspect pending edits before review.",
-    command: "gs fs upload ./notes /nic/notes --recursive\ngs status\ngs diff",
+    question: "Where is main?",
+    answer:
+      "The accepted tree is the native ref refs/global/main. The web UI usually calls it latest or main tree."
   },
   {
-    title: "Create a changeset",
-    description:
-      "Package the pending work into the review and submission unit.",
-    command: 'gs cs create --title "update notes"\ngs cs diff',
+    question: "Can one change touch multiple repositories?",
+    answer:
+      "A changeset can only touch paths included by its authoring slice. If you need broader work, define a slice that includes the intended paths."
   },
   {
-    title: "Submit",
-    description:
-      "The server runs the slice's submit validation before the change lands on the global graph.",
-    command: "gs cs submit",
-  },
+    question: "Can I clone with Git?",
+    answer:
+      "Yes when the deployment enables the Git smart-HTTP gateway. Use the Clone dropdown on a slice page for the concrete URL."
+  }
 ];
 
 const commandGroups = [
@@ -67,168 +136,376 @@ const commandGroups = [
       ["gs auth login", "Sign in to an account."],
       ["gs auth status", "Show the active session."],
       ["gs auth logout", "Clear local authentication."],
-      ["gs auth token", "Print an auth token for local tooling."],
-    ],
+      ["gs auth token", "Print an auth token for local tooling."]
+    ]
   },
   {
-    title: "Workspace & browsing",
+    title: "Workspace and source",
     commands: [
-      ["gs init <slice>", "Create a workspace for a slice."],
+      ["gs init <account>/<slice>", "Create a workspace for one slice."],
+      ["gs shell", "Open the server-backed file shell."],
       ["gs status", "Show pending workspace edits."],
       ["gs diff", "Inspect pending content changes."],
-      ["gs log", "Read recent history."],
-      ["gs show <commit>", "Inspect a specific commit."],
-      ["gs fs ...", "Run file operations."],
-      ["gs browse", "Open the web companion."],
-    ],
+      ["gs log", "Read recent accepted history."],
+      ["gs show <commit>", "Inspect an accepted native commit."]
+    ]
+  },
+  {
+    title: "File operations",
+    commands: [
+      ["gs fs ls <path>", "List server files."],
+      ["gs fs cat <path>", "Read a server file."],
+      ["gs fs upload <local> <path>", "Upload local content into a pending edit."],
+      ["gs fs mkdir <path>", "Create a directory."]
+    ]
   },
   {
     title: "Changesets",
     commands: [
       ["gs cs create", "Create a changeset from pending edits."],
       ["gs cs diff", "Review changeset content."],
-      ["gs cs submit", "Submit a changeset for server validation."],
-    ],
+      ["gs cs submit", "Submit for validation and publish."],
+      ["gs cs status --watch", "Wait for pending publish to finish."],
+      ["gs cs abandon", "Close a changeset without landing it."]
+    ]
   },
   {
     title: "Slices",
     commands: [
-      ["gs slice ...", "Manage slice definitions, visibility, and roles."],
-    ],
-  },
+      ["gs slice list", "List account slices."],
+      ["gs slice create", "Create a slice definition."],
+      ["gs slice update", "Change included paths or policy."],
+      ["gs slice history", "Inspect slice definition versions."]
+    ]
+  }
 ];
 
-const exampleCommands = `gs auth signup --username nic
-gs init nic/home
-gs fs upload ./notes /nic/notes --recursive
-gs status
-gs cs create --title "update notes"
-gs cs diff
-gs cs submit`;
+function docPath(section: DocSection) {
+  return section === "start" ? "/doc" : `/doc/${section}`;
+}
+
+function normalizeSection(value: string | undefined): DocSection {
+  if (
+    value === "concepts" ||
+    value === "git-users" ||
+    value === "cli"
+  ) {
+    return value;
+  }
+  return "start";
+}
 
 function CommandBlock({ children }: { children: string }) {
   return (
-    <pre className="mt-3 overflow-x-auto rounded-md bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700">
+    <pre className="mt-3 overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-700">
       <code className="whitespace-pre">{children}</code>
     </pre>
   );
 }
 
-export function DocPage() {
+function SectionLink({
+  active,
+  section
+}: {
+  active: boolean;
+  section: (typeof docSections)[number];
+}) {
   return (
-    <section className="mx-auto w-full max-w-7xl">
-      <div className="border-b border-slate-200 pb-5">
-        <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-          Gitslice
-        </p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
-          Docs
-        </h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-          Gitslice is a source-graph platform that gives teams one coherent
-          codebase without forcing every workflow through a single physical Git
-          repo. It feels familiar to Git users, but treats slices, workspaces,
-          changesets, and submit validation as first-class. The CLI (
-          <code className="rounded-md bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-            gs
-          </code>
-          ) is the primary surface; this web app is a companion for browsing and
-          review.
-        </p>
-      </div>
+    <Link
+      className={[
+        "block rounded-md border px-4 py-3 text-left transition active:scale-[0.98]",
+        active
+          ? "border-zinc-950 bg-zinc-950 text-white"
+          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
+      ].join(" ")}
+      to={docPath(section.id)}
+    >
+      <span className="block text-sm font-semibold">{section.title}</span>
+      <span
+        className={[
+          "mt-1 block text-xs leading-5",
+          active ? "text-slate-300" : "text-slate-500"
+        ].join(" ")}
+      >
+        {section.description}
+      </span>
+    </Link>
+  );
+}
 
-      <div className="mt-8">
-        <h2 className="text-base font-semibold text-zinc-950">Core concepts</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {concepts.map((concept) => (
-            <article
-              className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
-              key={concept.title}
-            >
-              <h3 className="text-base font-semibold text-zinc-950">
-                {concept.title}
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                {concept.description}
-              </p>
-            </article>
+export function DocPage() {
+  const params = useParams({ strict: false }) as DocParams;
+  const section = normalizeSection(params.section);
+
+  return (
+    <section className="mx-auto grid w-full max-w-7xl gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <aside className="lg:sticky lg:top-24 lg:self-start">
+        <div className="grid gap-2">
+          {docSections.map((item) => (
+            <SectionLink
+              active={section === item.id}
+              key={item.id}
+              section={item}
+            />
           ))}
         </div>
-      </div>
+      </aside>
 
-      <div className="mt-8 rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
-        <h2 className="text-base font-semibold text-zinc-950">Get started</h2>
+      <div className="min-w-0">
+        {section === "start" ? <StartHereDoc /> : null}
+        {section === "concepts" ? <ConceptsDoc /> : null}
+        {section === "git-users" ? <GitUsersDoc /> : null}
+        {section === "cli" ? <CliReferenceDoc /> : null}
+      </div>
+    </section>
+  );
+}
+
+function PageHeader({
+  eyebrow,
+  title,
+  description
+}: {
+  description: string;
+  eyebrow: string;
+  title: string;
+}) {
+  return (
+    <header className="border-b border-slate-200 pb-5">
+      <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+        {eyebrow}
+      </p>
+      <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
+        {title}
+      </h1>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+        {description}
+      </p>
+    </header>
+  );
+}
+
+function StartHereDoc() {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Gitslice docs"
+        title="Start Here"
+        description="Use this path if you want to get productive before learning the whole model. Gitslice gives you repository-like slices over one global source graph, and changesets are how work lands."
+      />
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
+        <h2 className="text-base font-semibold text-zinc-950">
+          First workflow
+        </h2>
         <ol className="mt-4 space-y-5">
-          {quickstartSteps.map((step, index) => (
-            <li className="text-sm leading-6 text-slate-600" key={step.title}>
-              <div className="flex gap-3">
-                <span className="font-semibold text-zinc-950">
-                  {index + 1}.
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-semibold text-zinc-950">
-                    {step.title}
-                  </h3>
-                  <p className="mt-1">{step.description}</p>
-                  <CommandBlock>{step.command}</CommandBlock>
-                </div>
+          {startSteps.map((step, index) => (
+            <li className="flex gap-3 text-sm leading-6" key={step.title}>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+                {index + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold text-zinc-950">{step.title}</h3>
+                <p className="mt-1 text-slate-600">{step.description}</p>
+                <CommandBlock>{step.command}</CommandBlock>
               </div>
             </li>
           ))}
         </ol>
+      </section>
 
-        <div className="mt-6 border-t border-slate-200 pt-5">
-          <h3 className="text-sm font-semibold text-zinc-950">
-            Compact example
-          </h3>
-          <CommandBlock>{exampleCommands}</CommandBlock>
-        </div>
-      </div>
+      <section className="mt-8 grid gap-4 md:grid-cols-2">
+        <NextDocCard
+          description="Learn the native nouns once the first workflow makes sense."
+          section="concepts"
+          title="Understand the model"
+        />
+        <NextDocCard
+          description="Coming from Git? Start with the translation table."
+          section="git-users"
+          title="Read the Git guide"
+        />
+      </section>
+    </div>
+  );
+}
 
-      <div className="mt-8">
+function ConceptsDoc() {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Gitslice docs"
+        title="Concepts"
+        description="Gitslice is native source storage first, Git compatibility second. These are the terms that explain how the system works."
+      />
+
+      <section className="mt-8 grid gap-4 md:grid-cols-2">
+        {conceptCards.map((concept) => (
+          <article
+            className="rounded-md border border-slate-200 bg-white p-5"
+            key={concept.title}
+          >
+            <h2 className="text-base font-semibold text-zinc-950">
+              {concept.title}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {concept.description}
+            </p>
+          </article>
+        ))}
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
         <h2 className="text-base font-semibold text-zinc-950">
-          Command reference
+          Submit lifecycle
         </h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {commandGroups.map((group) => (
-            <section
-              className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
-              key={group.title}
-            >
-              <h3 className="text-base font-semibold text-zinc-950">
-                {group.title}
-              </h3>
-              <dl className="mt-3 space-y-3">
-                {group.commands.map(([command, description]) => (
-                  <div key={command}>
-                    <dt>
-                      <code className="rounded-md bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700">
-                        {command}
-                      </code>
-                    </dt>
-                    <dd className="mt-1 text-sm leading-6 text-slate-600">
-                      {description}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ))}
+        <div className="mt-4 overflow-x-auto">
+          <div className="grid min-w-[42rem] grid-cols-4 gap-3 text-sm">
+            {[
+              ["Draft", "Edit and update patchsets."],
+              ["Pending publish", "Submit accepted and queued."],
+              ["Submitted", "Included in the accepted main tree."],
+              ["Native commit", "Immutable snapshot behind refs/global/main."]
+            ].map(([title, description]) => (
+              <div
+                className="rounded-md border border-slate-200 bg-slate-50 p-4"
+                key={title}
+              >
+                <h3 className="font-semibold text-zinc-950">{title}</h3>
+                <p className="mt-2 leading-6 text-slate-600">{description}</p>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </section>
+    </div>
+  );
+}
 
-      <div className="mt-8 rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
+function GitUsersDoc() {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Gitslice docs"
+        title="For Git Users"
+        description="Use this page if your mental model starts with repos, branches, commits, and pull requests. Gitslice keeps familiar boundaries but changes the native write path."
+      />
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
         <h2 className="text-base font-semibold text-zinc-950">
-          Git compatibility
+          Git to Gitslice
         </h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          Git clients can clone/fetch over the Git smart-HTTP gateway;
-          authentication maps to the same account, slice, and policy model as
-          the CLI. Git access still flows through changesets and submit
-          validation, so it never bypasses them. Use the per-slice Clone button
-          on a slice page for the concrete URL.
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Git term</th>
+                <th className="px-4 py-3">Gitslice term</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {gitTranslations.map(([git, gitslice]) => (
+                <tr key={git}>
+                  <td className="px-4 py-3 font-medium text-zinc-950">{git}</td>
+                  <td className="px-4 py-3 text-slate-600">{gitslice}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
+        <h2 className="text-base font-semibold text-zinc-950">
+          Familiar workflow, native submit
+        </h2>
+        <CommandBlock>{`gs auth login
+gs init <account>/<slice>
+# edit files
+gs status
+gs cs create --title "change title"
+gs cs submit`}</CommandBlock>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          The important shift: you do not need to create a local commit before
+          review. A changeset is the review unit, and submit creates the accepted
+          native snapshot.
         </p>
-      </div>
-    </section>
+      </section>
+
+      <section className="mt-8 grid gap-4 md:grid-cols-2">
+        {gitQuestions.map((item) => (
+          <article
+            className="rounded-md border border-slate-200 bg-white p-5"
+            key={item.question}
+          >
+            <h2 className="text-base font-semibold text-zinc-950">
+              {item.question}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {item.answer}
+            </p>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function CliReferenceDoc() {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Gitslice docs"
+        title="CLI Reference"
+        description="A compact lookup for the commands used in normal Gitslice work. Use Start Here for the walkthrough."
+      />
+
+      <section className="mt-8 grid gap-4 md:grid-cols-2">
+        {commandGroups.map((group) => (
+          <article
+            className="rounded-md border border-slate-200 bg-white p-5"
+            key={group.title}
+          >
+            <h2 className="text-base font-semibold text-zinc-950">
+              {group.title}
+            </h2>
+            <dl className="mt-4 space-y-3">
+              {group.commands.map(([command, description]) => (
+                <div key={command}>
+                  <dt>
+                    <code className="rounded-md bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700">
+                      {command}
+                    </code>
+                  </dt>
+                  <dd className="mt-1 text-sm leading-6 text-slate-600">
+                    {description}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function NextDocCard({
+  description,
+  section,
+  title
+}: {
+  description: string;
+  section: DocSection;
+  title: string;
+}) {
+  return (
+    <Link
+      className="rounded-md border border-slate-200 bg-white p-5 transition hover:bg-slate-50 active:scale-[0.98]"
+      to={docPath(section)}
+    >
+      <h2 className="text-base font-semibold text-zinc-950">{title}</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+    </Link>
   );
 }

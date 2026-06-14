@@ -4418,6 +4418,32 @@ npm run build
 
 The web production build passed.
 
+## 2026-06-14: Split Web Docs for Onboarding
+
+Request:
+
+- split the web docs so new users get a basic workflow/concepts guide and Git
+  users get a specific translation guide
+
+Implemented:
+
+- changed `/doc` into a Start Here onboarding guide with a first workflow and
+  links to deeper docs
+- added `/doc/concepts`, `/doc/git-users`, and `/doc/cli` as separate doc
+  sections backed by the same web route component
+- added a Git-to-Gitslice translation table and common Git-user questions so
+  users can map repos, branches, pull requests, commits, and working trees to
+  slices, refs, changesets, native commits, and workspaces
+
+Verification:
+
+```bash
+cd web
+npm run build
+```
+
+The web production build passed.
+
 ## 2026-06-11: Move Publish Index Writes to Transactional Outbox
 
 Request:
