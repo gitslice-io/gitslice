@@ -24,7 +24,7 @@ export function SlicePageHeader({
           <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
             {eyebrow}
           </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
+          <h1 className="mt-2 break-words text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">
             {title}
           </h1>
           {description ? (
@@ -33,7 +33,7 @@ export function SlicePageHeader({
             </p>
           ) : null}
         </div>
-        {actions ? <div className="shrink-0">{actions}</div> : null}
+        {actions ? <div className="min-w-0 lg:shrink-0">{actions}</div> : null}
       </div>
     </div>
   );
@@ -114,7 +114,7 @@ export function SliceMetadataGrid({ rows }: MetadataGridProps) {
           <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">
             {row.label}
           </dt>
-          <dd className="mt-1 min-w-0 break-words text-sm font-medium text-zinc-950">
+          <dd className="mt-1 min-w-0 break-all text-sm font-medium text-zinc-950">
             {row.value}
           </dd>
         </div>

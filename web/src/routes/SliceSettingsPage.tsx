@@ -263,7 +263,7 @@ export function SliceSettingsPage() {
                   <label className="grid gap-2 text-sm font-medium text-zinc-950">
                     Path {index + 1}
                     <input
-                      className="h-10 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500"
+                      className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500"
                       onChange={(event) =>
                         updatePath(index, event.target.value)
                       }
@@ -288,7 +288,7 @@ export function SliceSettingsPage() {
             <label className="grid gap-2 text-sm font-medium text-zinc-950">
               Add path
               <input
-                className="h-10 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500"
+                className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500"
                 onChange={(event) => setPathDraft(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
@@ -316,7 +316,7 @@ export function SliceSettingsPage() {
           <SliceNotice title="Fix included paths" tone="error">
             <ul className="list-disc space-y-1 pl-5">
               {clientErrors.map((error) => (
-                <li key={error}>{error}</li>
+                <li className="break-all" key={error}>{error}</li>
               ))}
             </ul>
           </SliceNotice>

@@ -275,7 +275,7 @@ function PageHeader({
       <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
         {eyebrow}
       </p>
-      <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
+      <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">
         {title}
       </h1>
       <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
@@ -359,8 +359,8 @@ function ConceptsDoc() {
         <h2 className="text-base font-semibold text-zinc-950">
           Submit lifecycle
         </h2>
-        <div className="mt-4 overflow-x-auto">
-          <div className="grid min-w-[42rem] grid-cols-4 gap-3 text-sm">
+        <div className="mt-4">
+          <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
             {[
               ["Draft", "Edit and update patchsets."],
               ["Pending publish", "Submit accepted and queued."],

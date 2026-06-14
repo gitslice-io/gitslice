@@ -9,7 +9,7 @@ export function StubPage({ title }: StubPageProps) {
         <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
           Gitslice Web
         </p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">
+        <h1 className="mt-2 break-words text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">
           {title}
         </h1>
       </div>
