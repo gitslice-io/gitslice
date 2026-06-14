@@ -258,6 +258,26 @@ export interface Changeset {
   submitBlockedReason?: string;
 }
 
+export interface ListChangesetsRequest {
+  authoringSlice?: SliceRef;
+  status?: string;
+  limit?: number;
+}
+
+export interface ListChangesetsResponse {
+  changesets?: Changeset[];
+}
+
+export interface ApproveChangesetRequest {
+  changesetId?: string;
+}
+
+export interface ApproveChangesetResponse {
+  changesetId?: string;
+  patchsetId?: string;
+  subjectId?: string;
+}
+
 export interface CreateChangesetRequest {
   authoringSlice?: SliceRef;
   targetRef?: string;

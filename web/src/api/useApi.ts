@@ -5,6 +5,8 @@ import { getDevToken } from "../auth/devAuth";
 import { callRpc, defaultApiBaseUrl, type RpcService } from "./client";
 import type {
   AbandonChangesetRequest,
+  ApproveChangesetRequest,
+  ApproveChangesetResponse,
   Changeset,
   CreateChangesetRequest,
   Empty,
@@ -16,6 +18,8 @@ import type {
   GetCommitRequest,
   GetRefRequest,
   GetSliceRequest,
+  ListChangesetsRequest,
+  ListChangesetsResponse,
   ListDirectoryRequest,
   ListDirectoryResponse,
   ListSlicesRequest,
@@ -60,8 +64,14 @@ export interface ApiClient {
     request: UpdateSliceDefinitionRequest
   ): Promise<SliceDefinition>;
   createChangeset(request: CreateChangesetRequest): Promise<Changeset>;
+  listChangesets(
+    request: ListChangesetsRequest
+  ): Promise<ListChangesetsResponse>;
   getChangeset(request: GetChangesetRequest): Promise<Changeset>;
   updateChangeset(request: UpdateChangesetRequest): Promise<Patchset>;
+  approveChangeset(
+    request: ApproveChangesetRequest
+  ): Promise<ApproveChangesetResponse>;
   submitChangeset(
     request: SubmitChangesetRequest
   ): Promise<SubmitChangesetResponse>;
@@ -161,6 +171,12 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
           "CreateChangeset",
           request
         ),
+      listChangesets: (request) =>
+        invoke<ListChangesetsRequest, ListChangesetsResponse>(
+          "ChangesetService",
+          "ListChangesets",
+          request
+        ),
       getChangeset: (request) =>
         invoke<GetChangesetRequest, Changeset>(
           "ChangesetService",
@@ -171,6 +187,12 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
         invoke<UpdateChangesetRequest, Patchset>(
           "ChangesetService",
           "UpdateChangeset",
+          request
+        ),
+      approveChangeset: (request) =>
+        invoke<ApproveChangesetRequest, ApproveChangesetResponse>(
+          "ChangesetService",
+          "ApproveChangeset",
           request
         ),
       submitChangeset: (request) =>
