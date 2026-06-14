@@ -139,7 +139,7 @@ function ChangesetRow({
   const changesetId = changeset.id ?? "";
   const detailId = changeset.handle || changesetId;
   const label = changesetLabel(changeset);
-  const terminal = isTerminalStatus(changeset.status);
+  const mergeable = isMergeableStatus(changeset.status);
   const [rowError, setRowError] = useState("");
 
   const invalidateList = async () => {
@@ -237,7 +237,7 @@ function ChangesetRow({
         <div className="flex flex-wrap justify-end gap-2">
           <button
             className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={busy || !changesetId || terminal}
+            disabled={busy || !changesetId || !mergeable}
             onClick={() => mergeMutation.mutate()}
             type="button"
           >
@@ -384,6 +384,7 @@ function StatusBadge({ status }: { status?: string }) {
 
 function statusClass(status?: string) {
   switch ((status || "").toLowerCase()) {
+    case "published":
     case "merged":
     case "submitted":
       return "border-emerald-200 bg-emerald-50 text-emerald-800";
@@ -398,7 +399,9 @@ function statusClass(status?: string) {
   }
 }
 
-function isTerminalStatus(status?: string) {
+// Submit (merge) is only valid while the changeset is still open. Once it has
+// been submitted/published/abandoned it can't be merged again.
+function isMergeableStatus(status?: string) {
   const normalized = (status || "").toLowerCase();
-  return normalized === "merged" || normalized === "abandoned";
+  return normalized === "" || normalized === "draft" || normalized === "open";
 }

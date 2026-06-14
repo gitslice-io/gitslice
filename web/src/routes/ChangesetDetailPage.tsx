@@ -234,7 +234,10 @@ function HeaderCard({
             abandonPending={abandonPending}
             abandonReason={abandonReason}
             actionBusy={actionBusy}
-            canMerge={Boolean(changeset.currentPatchsetId)}
+            canMerge={
+              Boolean(changeset.currentPatchsetId) &&
+              isMergeableStatus(changeset.status)
+            }
             mergePending={mergePending}
             onAbandon={onAbandon}
             onAbandonReasonChange={onAbandonReasonChange}
@@ -670,6 +673,7 @@ function shortCommit(commitId: string) {
 
 function statusClass(status?: string) {
   switch ((status || "").toLowerCase()) {
+    case "published":
     case "merged":
     case "submitted":
       return "border-emerald-200 bg-emerald-50 text-emerald-800";
@@ -684,9 +688,23 @@ function statusClass(status?: string) {
   }
 }
 
+// A changeset that has been submitted/published/abandoned is no longer open for
+// action; merge/abandon controls hide for these.
 function isTerminalStatus(status?: string) {
   const normalized = (status || "").toLowerCase();
-  return normalized === "merged" || normalized === "abandoned";
+  return (
+    normalized === "submitted" ||
+    normalized === "pending_publish" ||
+    normalized === "published" ||
+    normalized === "merged" ||
+    normalized === "abandoned"
+  );
+}
+
+// Submit (merge) is only valid while the changeset is still open/draft.
+function isMergeableStatus(status?: string) {
+  const normalized = (status || "").toLowerCase();
+  return normalized === "" || normalized === "draft" || normalized === "open";
 }
 
 function errorMessage(error: unknown) {
