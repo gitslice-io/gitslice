@@ -65,6 +65,8 @@ export function SliceDetailPage() {
   const search = useSearch({ strict: false }) as SliceSearch;
   const sliceId = params.id ?? "";
   const selectedPath = pathSearchValue(search.path);
+  const [showTree, setShowTree] = useState(true);
+  const [mobileFilesOpen, setMobileFilesOpen] = useState(false);
 
   const sliceQuery = useQuery({
     enabled: sliceId.length > 0,
@@ -151,7 +153,7 @@ export function SliceDetailPage() {
 
   if (sliceQuery.isLoading) {
     return (
-      <section className="mx-auto w-full max-w-7xl">
+      <section className="mx-auto w-full max-w-[100rem]">
         <SliceLoadingBlock />
       </section>
     );
@@ -159,7 +161,7 @@ export function SliceDetailPage() {
 
   if (sliceQuery.isError) {
     return (
-      <section className="mx-auto w-full max-w-7xl">
+      <section className="mx-auto w-full max-w-[100rem]">
         <SlicePageHeader title="Slice Home" />
         <div className="mt-8">
           <SliceNotice title="Could not load slice" tone="error">
@@ -172,7 +174,7 @@ export function SliceDetailPage() {
 
   if (!slice) {
     return (
-      <section className="mx-auto w-full max-w-7xl">
+      <section className="mx-auto w-full max-w-[100rem]">
         <SlicePageHeader title="Slice Home" />
         <div className="mt-8">
           <SliceNotice title="Slice not found">
@@ -197,7 +199,7 @@ export function SliceDetailPage() {
     selectedPath || (projectedRoots.length === 1 ? projectedRoots[0] : "");
 
   return (
-    <section className="mx-auto w-full max-w-7xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <SlicePageHeader
         actions={
           <div className="flex flex-wrap gap-2">
@@ -222,32 +224,62 @@ export function SliceDetailPage() {
         description="Slice home with projected source navigation and in-place draft changeset editing."
       />
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[19rem_minmax(0,1fr)]">
-        <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
-          <details className="group lg:block">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-950 shadow-sm shadow-slate-200/50 lg:hidden">
-              <span>Files</span>
-              <span className="text-xs font-medium text-slate-500">
-                Tap to browse
-              </span>
-            </summary>
-            <div className="mt-2 lg:mt-0 lg:block">
-              <SliceFolderNavigator
-                api={api}
-                commitId={commitId}
-                includedPaths={includedPaths}
-                isLatestLoading={latestQuery.isPending}
-                isSelectedDirectory={isDirectory}
-                onSelectPath={selectPath}
-                selectedPath={selectedPath}
-                sliceId={sliceId}
-                sliceRef={sliceRef}
-              />
-            </div>
-          </details>
+      <div
+        className={[
+          "mt-8 grid gap-6",
+          showTree ? "lg:grid-cols-[19rem_minmax(0,1fr)]" : "lg:grid-cols-1"
+        ].join(" ")}
+      >
+        <aside
+          className={[
+            "min-w-0 lg:sticky lg:top-24 lg:self-start",
+            showTree ? "" : "lg:hidden"
+          ].join(" ")}
+          id="slice-file-tree-panel"
+        >
+          <button
+            aria-expanded={mobileFilesOpen}
+            className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-950 shadow-sm shadow-slate-200/50 lg:hidden"
+            onClick={() => setMobileFilesOpen((current) => !current)}
+            type="button"
+          >
+            <span>Files</span>
+            <span className="text-xs font-medium text-slate-500">
+              {mobileFilesOpen ? "Hide" : "Tap to browse"}
+            </span>
+          </button>
+          <div
+            className={[
+              mobileFilesOpen ? "mt-2 block" : "hidden",
+              "lg:mt-0 lg:block"
+            ].join(" ")}
+          >
+            <SliceFolderNavigator
+              api={api}
+              commitId={commitId}
+              includedPaths={includedPaths}
+              isLatestLoading={latestQuery.isPending}
+              isSelectedDirectory={isDirectory}
+              onSelectPath={selectPath}
+              selectedPath={selectedPath}
+              sliceId={sliceId}
+              sliceRef={sliceRef}
+            />
+          </div>
         </aside>
 
         <div className="min-w-0 space-y-6">
+          <div className="hidden lg:flex">
+            <button
+              aria-controls="slice-file-tree-panel"
+              aria-expanded={showTree}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              onClick={() => setShowTree((current) => !current)}
+              type="button"
+            >
+              {showTree ? "Hide files" : "Show files"}
+            </button>
+          </div>
           <SliceSourceWorkspace
             commitError={latestQuery.error}
             commitId={commitId}

@@ -68,7 +68,7 @@ export function SourceCodeViewer({ code, path }: SourceCodeViewerProps) {
           <div className="h-4 w-1/2 animate-pulse rounded bg-slate-200" />
         </div>
       ) : (
-        <div className="max-h-[70dvh] overflow-auto">
+        <div className="max-h-[82dvh] overflow-auto">
           {highlight.html ? (
             <div
               className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white [&_pre]:text-sm [&_pre]:leading-6"
