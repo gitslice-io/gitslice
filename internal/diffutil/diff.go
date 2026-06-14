@@ -43,7 +43,11 @@ func UnifiedFileDiff(oldFile, newFile File) string {
 	newLines := splitLines(newFile.Data)
 	fmt.Fprintf(&b, "@@ -1,%d +1,%d @@\n", len(oldLines), len(newLines))
 	for _, line := range lcsDiff(oldLines, newLines) {
-		b.WriteString(line)
+		// Source lines retain their original trailing newline (or lack one for a
+		// final line without it), so emit each diff entry on its own line to keep
+		// the unified diff well-formed even when a file has no trailing newline.
+		b.WriteString(strings.TrimRight(line, "\n"))
+		b.WriteByte('\n')
 	}
 	return b.String()
 }

@@ -290,6 +290,24 @@ export interface GetChangesetRequest {
   changesetId?: string;
 }
 
+export interface DiffChangesetRequest {
+  changesetId?: string;
+  patchset?: string;
+  fromPatchset?: string;
+  toPatchset?: string;
+}
+
+export interface DiffChangesetResponse {
+  changesetId?: string;
+  fromPatchsetId?: string;
+  toPatchsetId?: string;
+  changedPaths?: string[];
+  diff?: string;
+  changesetHandle?: string;
+  fromPatchsetHandle?: string;
+  toPatchsetHandle?: string;
+}
+
 export interface UpdateChangesetRequest {
   changesetId?: string;
   expectedCurrentPatchsetId?: string;
