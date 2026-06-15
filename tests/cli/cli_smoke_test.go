@@ -456,8 +456,8 @@ func TestCLISliceCRUD(t *testing.T) {
 		t.Fatalf("missing include stderr = %q, want path existence error", stderr)
 	}
 
-	created := runCLI(t, home, workspace, "slice", "create", "acme/docs", "--include", "/acme/payment/docs", "--visibility", "account")
-	for _, want := range []string{"created slice acme/docs", "visibility: account", "/acme/payment/docs"} {
+	created := runCLI(t, home, workspace, "slice", "create", "acme/docs", "--include", "/acme/payment/docs", "--visibility", "private")
+	for _, want := range []string{"created slice acme/docs", "visibility: private", "/acme/payment/docs"} {
 		if !strings.Contains(created, want) {
 			t.Fatalf("created slice output missing %q:\n%s", want, created)
 		}
@@ -468,7 +468,7 @@ func TestCLISliceCRUD(t *testing.T) {
 	}
 
 	listed := runCLI(t, home, workspace, "slice", "list", "acme")
-	for _, want := range []string{"slices for account acme:", "acme/payment", "acme/docs", "visibility: account", "included paths: /acme/payment/docs"} {
+	for _, want := range []string{"slices for account acme:", "acme/payment", "acme/docs", "visibility: private", "included paths: /acme/payment/docs"} {
 		if !strings.Contains(listed, want) {
 			t.Fatalf("slice list output missing %q:\n%s", want, listed)
 		}
@@ -1442,7 +1442,7 @@ func TestSliceDefinitionUpdateConflict(t *testing.T) {
 		ExpectedDefinitionHash: slice.DefinitionHash,
 		Definition: &corev1.SliceDefinition{
 			Version:       updated.Version,
-			Visibility:    "account",
+			Visibility:    "private",
 			IncludedPaths: []string{"/acme/payment"},
 		},
 	})
@@ -1771,7 +1771,7 @@ func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 	}
 	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+signup.Token)
 	if statusCode != http.StatusForbidden {
-		t.Fatalf("expected account-visible upload-pack discovery for outsider to return 403, got %d:\n%s", statusCode, string(body))
+		t.Fatalf("expected private upload-pack discovery for outsider to return 403, got %d:\n%s", statusCode, string(body))
 	}
 
 	slices := corev1.NewSliceServiceClient(conn)

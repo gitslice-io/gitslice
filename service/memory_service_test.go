@@ -144,7 +144,7 @@ func TestSliceServiceUsesInMemoryRepositoryValidation(t *testing.T) {
 	_, err := handlers.Slice.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: "acme", Slice: "missing"},
 		IncludedPaths: []string{"/acme/missing"},
-		Visibility:    "account",
+		Visibility:    "private",
 	})
 	if err == nil || !strings.Contains(err.Error(), "included path does not exist") {
 		t.Fatalf("CreateSlice missing path error = %v", err)
@@ -164,7 +164,7 @@ func TestSliceServiceUsesInMemoryRepositoryValidation(t *testing.T) {
 	slice, err := handlers.Slice.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: "acme", Slice: "payment"},
 		IncludedPaths: []string{"/acme/payment"},
-		Visibility:    "account",
+		Visibility:    "private",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestChangesetDiffListAndAbandonUseInMemoryStorage(t *testing.T) {
 		Mode:        0o100644,
 		Size:        int64(len(oldData)),
 	}}, []string{"/acme/payment/value.txt"})
-	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "payment"}, []string{"/acme/payment"}, "account")
+	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "payment"}, []string{"/acme/payment"}, "private")
 
 	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
 	if err != nil {
@@ -267,7 +267,7 @@ func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 	slice, err := handlers.Slice.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: "acme", Slice: "api"},
 		IncludedPaths: []string{"/acme/payment"},
-		Visibility:    "account",
+		Visibility:    "private",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +284,7 @@ func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 		ExpectedDefinitionHash: slice.DefinitionHash,
 		Definition: &corev1.SliceDefinition{
 			IncludedPaths: []string{"/acme/payment/api"},
-			Visibility:    "account",
+			Visibility:    "private",
 		},
 	})
 	if err != nil {

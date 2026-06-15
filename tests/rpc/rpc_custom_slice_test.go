@@ -245,7 +245,7 @@ func TestRPCListCommitsSupportsPathAndCustomSlice(t *testing.T) {
 	if _, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: "acme", Slice: "history"},
 		IncludedPaths: []string{"/acme/payment/history/shared", "/acme/backend/history"},
-		Visibility:    "account",
+		Visibility:    "private",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestRPCCustomSlicePublishIsConsistentWhenHomeObserves(t *testing.T) {
 	if _, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: "history-home", Slice: "project"},
 		IncludedPaths: []string{"/history-home/project"},
-		Visibility:    "account",
+		Visibility:    "private",
 	}); err != nil {
 		t.Fatal(err)
 	}

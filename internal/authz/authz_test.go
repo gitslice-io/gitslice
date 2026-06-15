@@ -18,8 +18,8 @@ func TestAuthorizeReadVisibility(t *testing.T) {
 	if err := authorizer.Authorize(context.Background(), "user_outsider", authzTestSlice("public"), ActionRead); err != nil {
 		t.Fatalf("public read for outsider = %v, want nil", err)
 	}
-	if err := authorizer.Authorize(context.Background(), "user_outsider", authzTestSlice("account"), ActionRead); !errors.Is(err, storage.ErrUnauthorized) {
-		t.Fatalf("account read for outsider = %v, want unauthorized", err)
+	if err := authorizer.Authorize(context.Background(), "user_outsider", authzTestSlice("private"), ActionRead); !errors.Is(err, storage.ErrUnauthorized) {
+		t.Fatalf("private read for outsider = %v, want unauthorized", err)
 	}
 	if err := authorizer.Authorize(context.Background(), "user_member", authzTestSlice("private"), ActionRead); err != nil {
 		t.Fatalf("private read for member = %v, want nil", err)
@@ -32,7 +32,7 @@ func TestAuthorizeRoleCapabilities(t *testing.T) {
 	mem.AddAccountRole("user_writer", "acme", "writer")
 	mem.AddAccountRole("user_reader", "acme", "reader")
 	authorizer := New(mem.Auth)
-	slice := authzTestSlice("account")
+	slice := authzTestSlice("private")
 
 	if err := authorizer.Authorize(context.Background(), "user_admin", slice, ActionAdmin); err != nil {
 		t.Fatalf("admin action for admin = %v, want nil", err)

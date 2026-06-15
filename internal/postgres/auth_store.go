@@ -155,10 +155,10 @@ func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, us
 	if err != nil {
 		return "", "", err
 	}
-	homeDefinitionHash := definitionHash(homeSliceID, 1, homeIncludedPaths, "account", 0, nil)
+	homeDefinitionHash := definitionHash(homeSliceID, 1, homeIncludedPaths, "private", 0, nil)
 	if _, err := tx.ExecContext(ctx, `
 		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
-		values ($1, $2, 'home', 1, $3, 'account', $4, now(), now())
+		values ($1, $2, 'home', 1, $3, 'private', $4, now(), now())
 		on conflict (account_id, slug) do nothing
 	`, homeSliceID, accountID, homeDefinitionHash, homeIncludedJSON); err != nil {
 		return "", "", err
@@ -175,7 +175,7 @@ func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, us
 			created_at,
 			created_by
 		)
-		values ($1, 1, $2, 'account', $3, 0, $4, now(), $5)
+		values ($1, 1, $2, 'private', $3, 0, $4, now(), $5)
 		on conflict do nothing
 	`, homeSliceID, homeDefinitionHash, homeIncludedJSON, emptyChecksJSON, subjectID); err != nil {
 		return "", "", err
