@@ -189,6 +189,7 @@ export function SliceSettingsPage() {
           account={slice?.ref?.account}
           disabled={updateMutation.isPending}
           includedPaths={includedPaths}
+          includedPathsLocked={slice?.ref?.slice === "home"}
           onIncludedPathsChange={setIncludedPaths}
           onVisibilityChange={setVisibility}
           visibility={visibility}

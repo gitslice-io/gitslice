@@ -128,6 +128,12 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	// The home slice's included paths are managed by account provisioning and
+	// must not be edited; other definition fields (e.g. visibility) may change.
+	if isHomeSlice(current.Ref) &&
+		!sameStringSet(current.Definition.GetIncludedPaths(), includedPaths) {
+		return nil, status.Error(codes.InvalidArgument, "the home slice's included paths cannot be changed")
+	}
 	if err := s.validateIncludedPathsExist(ctx, current.Ref, addedIncludedPaths(current.Definition, includedPaths)); err != nil {
 		return nil, err
 	}
@@ -200,6 +206,29 @@ func (s *SliceService) validateIncludedPathsExist(ctx context.Context, ref *core
 		}
 	}
 	return nil
+}
+
+func isHomeSlice(ref *corev1.SliceRef) bool {
+	return ref != nil && ref.Slice == "home"
+}
+
+// sameStringSet reports whether a and b contain the same elements regardless of
+// order or duplication count differences beyond membership multiplicity.
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[string]int, len(a))
+	for _, v := range a {
+		counts[v]++
+	}
+	for _, v := range b {
+		counts[v]--
+		if counts[v] < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeServiceSliceRef(ref *corev1.SliceRef) (*corev1.SliceRef, error) {
