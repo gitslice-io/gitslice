@@ -13,6 +13,7 @@ interface SelectionState {
   accounts: string[];
   error: Error | null;
   isLoading: boolean;
+  needsUsername: boolean;
   subjectId: string;
 }
 
@@ -31,6 +32,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
 
   const accounts = data?.accounts ?? [];
   const account = accounts[0] ?? "";
+  const needsUsername = Boolean(data?.needsUsername);
   const subjectId = data?.subjectId ?? "";
 
   const value = useMemo<SelectionState>(
@@ -39,9 +41,19 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       accounts,
       error: isError ? error : null,
       isLoading: !isAuthReady || isLoading,
+      needsUsername,
       subjectId
     }),
-    [account, accounts.join(" "), error, isAuthReady, isError, isLoading, subjectId]
+    [
+      account,
+      accounts.join(" "),
+      error,
+      isAuthReady,
+      isError,
+      isLoading,
+      needsUsername,
+      subjectId
+    ]
   );
 
   return (

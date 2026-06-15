@@ -34,9 +34,10 @@ type backend struct {
 	mu   sync.Mutex
 	next int64
 
-	subjects       map[string]storage.Subject
-	accountMembers map[string]map[string]string
-	sessions       map[string]string
+	subjects         map[string]storage.Subject
+	accountMembers   map[string]map[string]string
+	personalAccounts map[string]string
+	sessions         map[string]string
 
 	blobs   map[string]*corev1.BlobRecord
 	objects map[string][]byte
@@ -74,6 +75,7 @@ func New() *Stores {
 	b := &backend{
 		subjects:                map[string]storage.Subject{},
 		accountMembers:          map[string]map[string]string{},
+		personalAccounts:        map[string]string{},
 		sessions:                map[string]string{},
 		blobs:                   map[string]*corev1.BlobRecord{},
 		objects:                 map[string][]byte{},
@@ -164,7 +166,9 @@ func (b *backend) addAccountRoleLocked(subjectID, accountSlug, role string) {
 	if role == "" {
 		role = "member"
 	}
-	b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: strings.TrimPrefix(subjectID, "user_")}
+	if _, ok := b.subjects[subjectID]; !ok {
+		b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: strings.TrimPrefix(subjectID, "user_")}
+	}
 	if b.accountMembers[subjectID] == nil {
 		b.accountMembers[subjectID] = map[string]string{}
 	}
@@ -417,12 +421,18 @@ func (s *AuthStore) LoginDevUser(ctx context.Context, devUser string) (string, s
 func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, string, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	username = normalizeSlug(username)
-	if username == "" {
-		return "", "", storage.ErrInvalid
+	username, err := normalizeSignupUsername(username)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %v", storage.ErrInvalid, err)
 	}
 	subjectID := "user_" + strings.ReplaceAll(username, "-", "_")
-	s.b.addAccountLocked(subjectID, username)
+	if existing := s.b.personalAccounts[subjectID]; existing != "" && existing != username {
+		return "", "", fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
+	}
+	if existing := s.b.personalAccounts[subjectID]; existing == "" && s.b.accountSlugTakenLocked(username) {
+		return "", "", fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
+	}
+	s.b.provisionPersonalAccountLocked(subjectID, username, username)
 	token := s.b.nextIDLocked("tok")
 	s.b.sessions[token] = subjectID
 	return token, subjectID, nil
@@ -436,8 +446,72 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 		return "", storage.ErrInvalid
 	}
 	subjectID := "user_" + strings.ReplaceAll(username, "-", "_")
-	s.b.addAccountLocked(subjectID, username)
+	displayName := strings.TrimSpace(email)
+	if displayName == "" {
+		displayName = username
+	}
+	if _, ok := s.b.subjects[subjectID]; !ok {
+		s.b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: displayName}
+	}
 	return subjectID, nil
+}
+
+func (s *AuthStore) UsernameAvailable(ctx context.Context, username string) (bool, string, string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	normalized, err := normalizeSignupUsername(username)
+	if err != nil {
+		return false, "", err.Error(), nil
+	}
+	if s.b.accountSlugTakenLocked(normalized) {
+		return false, normalized, "username is taken", nil
+	}
+	return true, normalized, "", nil
+}
+
+func (s *AuthStore) ChooseUsername(ctx context.Context, subjectID, username string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectID == "" {
+		return "", fmt.Errorf("%w: subject is required", storage.ErrInvalid)
+	}
+	username, err := normalizeSignupUsername(username)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", storage.ErrInvalid, err)
+	}
+	if _, ok := s.b.subjects[subjectID]; !ok {
+		return "", storage.ErrNotFound
+	}
+	if existing := s.b.personalAccounts[subjectID]; existing != "" {
+		return existing, nil
+	}
+	if s.b.accountSlugTakenLocked(username) {
+		return "", fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
+	}
+	s.b.provisionPersonalAccountLocked(subjectID, username, username)
+	return username, nil
+}
+
+func (b *backend) provisionPersonalAccountLocked(subjectID, username, displayName string) {
+	if _, ok := b.subjects[subjectID]; !ok {
+		b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: displayName}
+	}
+	b.personalAccounts[subjectID] = username
+	b.addAccountLocked(subjectID, username)
+}
+
+func (b *backend) accountSlugTakenLocked(accountSlug string) bool {
+	accountSlug = strings.TrimSpace(accountSlug)
+	if accountSlug == "" {
+		return false
+	}
+	for _, memberships := range b.accountMembers {
+		if _, ok := memberships[accountSlug]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*storage.Subject, error) {
@@ -482,8 +556,11 @@ func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID strin
 		out = append(out, slug)
 	}
 	sort.Strings(out)
-	personalSlug := strings.TrimPrefix(strings.TrimSpace(subjectID), "user_")
-	personalSlug = strings.ReplaceAll(personalSlug, "_", "-")
+	personalSlug := s.b.personalAccounts[subjectID]
+	if personalSlug == "" {
+		personalSlug = strings.TrimPrefix(strings.TrimSpace(subjectID), "user_")
+		personalSlug = strings.ReplaceAll(personalSlug, "_", "-")
+	}
 	for i, slug := range out {
 		if slug == personalSlug {
 			copy(out[1:i+1], out[:i])
@@ -1377,6 +1454,27 @@ func normalizeSlug(value string) string {
 		return ""
 	}
 	return value
+}
+
+func normalizeSignupUsername(username string) (string, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	username = strings.ReplaceAll(username, "_", "-")
+	if username == "" {
+		return "", fmt.Errorf("username is required")
+	}
+	if len(username) > 63 {
+		return "", fmt.Errorf("username must be 63 characters or fewer")
+	}
+	if strings.HasPrefix(username, "-") || strings.HasSuffix(username, "-") {
+		return "", fmt.Errorf("username must not start or end with '-'")
+	}
+	for _, r := range username {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return "", fmt.Errorf("username may contain only letters, numbers, '-' or '_'")
+	}
+	return username, nil
 }
 
 func normalizeDevSubject(devUser string) string {

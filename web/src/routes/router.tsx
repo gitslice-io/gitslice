@@ -4,12 +4,14 @@ import {
   createRoute,
   createRouter
 } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
-import { SelectionProvider } from "../state/selection";
+import { SelectionProvider, useSelection } from "../state/selection";
 import { ChangesetDetailPage } from "./ChangesetDetailPage";
 import { ChangesetsPage } from "./ChangesetsPage";
+import { ChooseUsernamePage } from "./ChooseUsernamePage";
 import { CliLoginPage } from "./CliLoginPage";
 import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
@@ -41,11 +43,42 @@ const appRoute = createRoute({
   component: () => (
     <RequireAuth>
       <SelectionProvider>
-        <AppShell />
+        <UsernameGate>
+          <AppShell />
+        </UsernameGate>
       </SelectionProvider>
     </RequireAuth>
   )
 });
+
+function UsernameGate({ children }: { children: ReactNode }) {
+  const { error, isLoading, needsUsername } = useSelection();
+
+  if (isLoading) {
+    return (
+      <main className="grid min-h-[100dvh] place-items-center bg-slate-50 p-6 text-sm text-slate-600">
+        Loading session...
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="grid min-h-[100dvh] place-items-center bg-slate-50 p-6 text-sm text-slate-600">
+        <section className="w-full max-w-md rounded-lg border border-rose-200 bg-white p-5 text-rose-900 shadow-sm shadow-slate-200/50">
+          <p className="font-semibold">Could not load session</p>
+          <p className="mt-2 leading-6">{error.message}</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (needsUsername) {
+    return <ChooseUsernamePage />;
+  }
+
+  return <>{children}</>;
+}
 
 const homeRoute = createRoute({
   getParentRoute: () => appRoute,

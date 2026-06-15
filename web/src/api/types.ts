@@ -32,6 +32,26 @@ export interface GetAuthStatusResponse {
   subjectId?: string;
   // Account slugs the subject belongs to; the first is their personal account.
   accounts?: string[];
+  needsUsername?: boolean;
+}
+
+export interface CheckUsernameAvailableRequest {
+  username?: string;
+}
+
+export interface CheckUsernameAvailableResponse {
+  available?: boolean;
+  normalized?: string;
+  reason?: string;
+}
+
+export interface ChooseUsernameRequest {
+  username?: string;
+}
+
+export interface ChooseUsernameResponse {
+  subjectId?: string;
+  account?: string;
 }
 
 export interface Ref {
