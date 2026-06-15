@@ -441,14 +441,14 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	username := storage.ExternalUsername(externalID, email)
-	if username == "" {
+	externalID = strings.TrimSpace(externalID)
+	if externalID == "" {
 		return "", storage.ErrInvalid
 	}
-	subjectID := "user_" + strings.ReplaceAll(username, "-", "_")
+	subjectID := storage.ExternalSubjectID(externalID)
 	displayName := strings.TrimSpace(email)
 	if displayName == "" {
-		displayName = username
+		displayName = subjectID
 	}
 	if _, ok := s.b.subjects[subjectID]; !ok {
 		s.b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: displayName}
