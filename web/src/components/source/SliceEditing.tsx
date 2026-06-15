@@ -56,6 +56,7 @@ interface DirectoryCreateControlsProps {
 }
 
 interface InlineRenameFormProps {
+  directoryPath?: string;
   onCancel(): void;
   onSave(name: string): void;
   originalName: string;
@@ -608,18 +609,17 @@ export function DirectoryCreateControls({
 }
 
 export function InlineRenameForm({
+  directoryPath,
   onCancel,
   onSave,
   originalName
 }: InlineRenameFormProps) {
   const [name, setName] = useState(originalName);
-  const [error, setError] = useState("");
+  const nameError = validateEntryName(name);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validationError = validateEntryName(name);
-    if (validationError) {
-      setError(validationError);
+    if (nameError) {
       return;
     }
     onSave(name.trim());
@@ -630,14 +630,12 @@ export function InlineRenameForm({
       <div className="flex min-w-0 flex-wrap gap-2">
         <input
           className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
-          onChange={(event) => {
-            setName(event.target.value);
-            setError("");
-          }}
+          onChange={(event) => setName(event.target.value)}
           value={name}
         />
         <button
-          className="rounded-md bg-zinc-950 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+          className="rounded-md bg-zinc-950 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={Boolean(nameError)}
           type="submit"
         >
           Save
@@ -650,7 +648,15 @@ export function InlineRenameForm({
           Cancel
         </button>
       </div>
-      {error ? <p className="text-xs text-rose-700">{error}</p> : null}
+      {directoryPath !== undefined ? (
+        <EntryPathPreview
+          directoryPath={directoryPath}
+          name={name}
+          verb="Renames to"
+        />
+      ) : nameError && name.trim() ? (
+        <p className="text-xs text-rose-700">{nameError}</p>
+      ) : null}
     </form>
   );
 }
@@ -737,15 +743,61 @@ export function repositoryPathName(path: string) {
   return parts[parts.length - 1] ?? "";
 }
 
+// Validates a name or relative path (nested paths like "docs/notes.md" are
+// allowed). Each "/"-separated segment must be a valid path segment so the edit
+// the server receives is canonical: no empty segments, no "." / "..", no
+// surrounding whitespace, and no control characters.
 export function validateEntryName(name: string) {
-  const trimmed = name.trim();
-  if (!trimmed) {
+  const normalized = name.trim().replace(/\\/g, "/");
+  if (!normalized) {
     return "Enter a name.";
   }
-  if (trimmed.includes("/") || trimmed.includes("\\")) {
-    return "Names cannot contain path separators.";
+  const segments = normalized.split("/");
+  for (const segment of segments) {
+    if (segment === "") {
+      return "Path can't have empty segments (no leading, trailing, or double slashes).";
+    }
+    if (segment !== segment.trim()) {
+      return "Path segments can't start or end with a space.";
+    }
+    if (segment === "." || segment === "..") {
+      return 'Path segments can’t be "." or "..".';
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001f\u007f]/.test(segment)) {
+      return "Path can't contain control characters.";
+    }
   }
   return "";
+}
+
+// Shows where a new/renamed entry will land as the user types, or the inline
+// validation error. Empty input renders nothing.
+function EntryPathPreview({
+  directoryPath,
+  name,
+  verb
+}: {
+  directoryPath: string;
+  name: string;
+  verb: string;
+}) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const error = validateEntryName(trimmed);
+  if (error) {
+    return <p className="text-xs text-rose-700">{error}</p>;
+  }
+  return (
+    <p className="break-all text-xs text-slate-500">
+      {verb}{" "}
+      <span className="font-mono text-slate-700">
+        {joinRepositoryPath(directoryPath, trimmed)}
+      </span>
+    </p>
+  );
 }
 
 function NewFileForm({
@@ -759,13 +811,11 @@ function NewFileForm({
 }) {
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
-  const [error, setError] = useState("");
+  const nameError = validateEntryName(name);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validationError = validateEntryName(name);
-    if (validationError) {
-      setError(validationError);
+    if (nameError) {
       return;
     }
     onCreate({
@@ -782,14 +832,16 @@ function NewFileForm({
         File name
         <input
           className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
-          onChange={(event) => {
-            setName(event.target.value);
-            setError("");
-          }}
-          placeholder="notes.md"
+          onChange={(event) => setName(event.target.value)}
+          placeholder="notes.md or docs/notes.md"
           value={name}
         />
       </label>
+      <EntryPathPreview
+        directoryPath={directoryPath}
+        name={name}
+        verb="Creates"
+      />
       <label className="grid gap-2 text-sm font-medium text-zinc-800">
         Content
         <textarea
@@ -798,10 +850,10 @@ function NewFileForm({
           value={content}
         />
       </label>
-      {error ? <p className="text-sm text-rose-700">{error}</p> : null}
       <div className="flex flex-wrap gap-2">
         <button
-          className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+          className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={Boolean(nameError)}
           type="submit"
         >
           Save
@@ -828,13 +880,11 @@ function NewFolderForm({
   onCreate(edit: PendingEdit): void;
 }) {
   const [name, setName] = useState("");
-  const [error, setError] = useState("");
+  const nameError = validateEntryName(name);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validationError = validateEntryName(name);
-    if (validationError) {
-      setError(validationError);
+    if (nameError) {
       return;
     }
     onCreate({
@@ -849,18 +899,20 @@ function NewFolderForm({
         Folder name
         <input
           className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
-          onChange={(event) => {
-            setName(event.target.value);
-            setError("");
-          }}
-          placeholder="docs"
+          onChange={(event) => setName(event.target.value)}
+          placeholder="docs or docs/images"
           value={name}
         />
       </label>
-      {error ? <p className="text-sm text-rose-700">{error}</p> : null}
+      <EntryPathPreview
+        directoryPath={directoryPath}
+        name={name}
+        verb="Creates"
+      />
       <div className="flex flex-wrap gap-2">
         <button
-          className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+          className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={Boolean(nameError)}
           type="submit"
         >
           Save

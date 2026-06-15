@@ -1006,6 +1006,7 @@ function DirectoryHeader({
       {isRenaming ? (
         <div className="mt-3">
           <InlineRenameForm
+            directoryPath={editingParentRepositoryPath(selectedPath)}
             onCancel={() => setIsRenaming(false)}
             onSave={stageRename}
             originalName={editingRepositoryPathName(selectedPath)}
@@ -1097,6 +1098,7 @@ function SliceDirectoryTable({
                 <td className="min-w-40 px-3 py-3 sm:min-w-48 sm:px-4">
                   {isRenaming ? (
                     <InlineRenameForm
+                      directoryPath={editingParentRepositoryPath(path)}
                       onCancel={() => setRenamingPath("")}
                       onSave={(name) => {
                         onStageEdit({
@@ -1313,6 +1315,7 @@ function EditableFileView({
           {isRenaming ? (
             <div className="mt-3">
               <InlineRenameForm
+                directoryPath={editingParentRepositoryPath(selectedPath)}
                 onCancel={() => {
                   setIsRenaming(false);
                   setRenameError("");
