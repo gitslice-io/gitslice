@@ -199,40 +199,74 @@ export function SliceDetailPage() {
     selectedPath || (projectedRoots.length === 1 ? projectedRoots[0] : "");
 
   return (
-    <section className="mx-auto w-full max-w-[100rem]">
-      <SlicePageHeader
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              search={{ slice: sliceLabel } as never}
-              to="/changesets"
-            >
-              Changesets
-            </Link>
-            <Link
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              params={{ id: sliceId }}
-              to="/slices/$id/settings"
-            >
-              Settings
-            </Link>
-            <GitCloneDropdown cloneUrl={gitCloneHint.url} />
-          </div>
-        }
-        title={sliceLabel}
-        description="Slice home with projected source navigation and in-place draft changeset editing."
-      />
+    <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
+      <div className="lg:hidden">
+        <SlicePageHeader
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <Link
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                search={{ slice: sliceLabel } as never}
+                to="/changesets"
+              >
+                Changesets
+              </Link>
+              <Link
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                params={{ id: sliceId }}
+                to="/slices/$id/settings"
+              >
+                Settings
+              </Link>
+              <GitCloneDropdown cloneUrl={gitCloneHint.url} />
+            </div>
+          }
+          title={sliceLabel}
+          description="Slice home with projected source navigation and in-place draft changeset editing."
+        />
+      </div>
+
+      <div className="hidden shrink-0 items-center gap-3 border-b border-slate-200 pb-3 lg:flex">
+        <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-zinc-950">
+          {sliceLabel}
+        </h1>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            aria-controls="slice-file-tree-panel"
+            aria-expanded={showTree}
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+            onClick={() => setShowTree((current) => !current)}
+            type="button"
+          >
+            {showTree ? "Hide files" : "Show files"}
+          </button>
+          <Link
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+            search={{ slice: sliceLabel } as never}
+            to="/changesets"
+          >
+            Changesets
+          </Link>
+          <Link
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+            params={{ id: sliceId }}
+            to="/slices/$id/settings"
+          >
+            Settings
+          </Link>
+          <GitCloneDropdown cloneUrl={gitCloneHint.url} compact />
+        </div>
+      </div>
 
       <div
         className={[
-          "mt-8 grid gap-6",
+          "mt-8 grid gap-6 lg:mt-4 lg:min-h-0 lg:flex-1 lg:gap-4",
           showTree ? "lg:grid-cols-[19rem_minmax(0,1fr)]" : "lg:grid-cols-1"
         ].join(" ")}
       >
         <aside
           className={[
-            "min-w-0 lg:sticky lg:top-24 lg:self-start",
+            "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
             showTree ? "" : "lg:hidden"
           ].join(" ")}
           id="slice-file-tree-panel"
@@ -268,18 +302,7 @@ export function SliceDetailPage() {
           </div>
         </aside>
 
-        <div className="min-w-0 space-y-6">
-          <div className="hidden lg:flex">
-            <button
-              aria-controls="slice-file-tree-panel"
-              aria-expanded={showTree}
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              onClick={() => setShowTree((current) => !current)}
-              type="button"
-            >
-              {showTree ? "Hide files" : "Show files"}
-            </button>
-          </div>
+        <div className="min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto">
           <SliceSourceWorkspace
             commitError={latestQuery.error}
             commitId={commitId}
@@ -305,13 +328,24 @@ export function SliceDetailPage() {
   );
 }
 
-function GitCloneDropdown({ cloneUrl }: { cloneUrl: string }) {
+function GitCloneDropdown({
+  cloneUrl,
+  compact = false
+}: {
+  cloneUrl: string;
+  compact?: boolean;
+}) {
   return (
     <details className="group relative">
-      <summary className="flex cursor-pointer list-none items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]">
+      <summary
+        className={[
+          "flex cursor-pointer list-none items-center rounded-md border border-slate-300 bg-white font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]",
+          compact ? "px-2.5 py-1.5 text-xs" : "px-4 py-2 text-sm"
+        ].join(" ")}
+      >
         Clone
       </summary>
-      <div className="fixed left-4 right-4 mt-2 rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10 sm:absolute sm:left-auto sm:right-0 sm:w-[min(24rem,calc(100vw-2rem))]">
+      <div className="fixed left-4 right-4 z-20 mt-2 rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10 sm:absolute sm:left-auto sm:right-0 sm:w-[min(24rem,calc(100vw-2rem))]">
         <label
           className="block text-xs font-semibold uppercase tracking-normal text-slate-500"
           htmlFor="git-clone-url"
@@ -461,7 +495,7 @@ function SliceFolderNavigator({
   }
 
   return (
-    <SlicePanel className="max-h-[60dvh] overflow-auto p-0 lg:max-h-[calc(100dvh-8rem)]">
+    <SlicePanel className="max-h-[60dvh] overflow-auto p-0 lg:min-h-full lg:max-h-none lg:overflow-visible">
       <div className="border-b border-slate-200 px-3 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1362,7 +1396,7 @@ function EditableFileView({
         ) : null}
       </SlicePanel>
       {!isEditing ? (
-        <SourceCodeViewer code={displayedContent} path={selectedPath} />
+        <SourceCodeViewer code={displayedContent} fill path={selectedPath} />
       ) : null}
     </div>
   );
