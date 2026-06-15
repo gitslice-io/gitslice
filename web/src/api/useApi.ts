@@ -21,6 +21,8 @@ import type {
   GetCommitRequest,
   GetRefRequest,
   GetSliceRequest,
+  ListCommitsRequest,
+  ListCommitsResponse,
   ListChangesetsRequest,
   ListChangesetsResponse,
   ListDirectoryRequest,
@@ -55,6 +57,7 @@ export interface ApiClient {
   ): Promise<ListDirectoryResponse>;
   readFile(request: ReadFileRequest): Promise<ReadFileResponse>;
   getCommit(request: GetCommitRequest): Promise<Commit>;
+  listCommits(request: ListCommitsRequest): Promise<ListCommitsResponse>;
   getRef(request: GetRefRequest): Promise<Ref>;
   getBlobStatus(
     request: GetBlobStatusRequest
@@ -136,6 +139,12 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
         invoke<GetCommitRequest, Commit>(
           "RepositoryService",
           "GetCommit",
+          request
+        ),
+      listCommits: (request) =>
+        invoke<ListCommitsRequest, ListCommitsResponse>(
+          "RepositoryService",
+          "ListCommits",
           request
         ),
       getRef: (request) =>
