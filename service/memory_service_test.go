@@ -363,6 +363,54 @@ func TestFakeSignupUsesInMemoryAuthAndCreatesHomeSlice(t *testing.T) {
 	}
 }
 
+func TestUpdateSliceDefinitionRejectsHomeIncludedPathChange(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	res, err := handlers.FakeAccount.ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
+		Username:    "nic",
+		State:       "state-1",
+		CallbackUrl: "http://127.0.0.1:12345/callback",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authctx.WithSubjectID(context.Background(), res.SubjectId)
+	home, err := handlers.Slice.ResolveSlice(ctx, &corev1.ResolveSliceRequest{
+		Ref: &corev1.SliceRef{Account: "nic", Slice: "home"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Changing the home slice's included paths must be rejected.
+	_, err = handlers.Slice.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                home.Id,
+		ExpectedDefinitionHash: home.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths: []string{"/nic", "/nic/extra"},
+			Visibility:    home.Definition.Visibility,
+		},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("changing home included paths: got err=%v, want InvalidArgument", err)
+	}
+
+	// Other fields (visibility) may still change while paths are unchanged.
+	updated, err := handlers.Slice.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                home.Id,
+		ExpectedDefinitionHash: home.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths: home.Definition.IncludedPaths,
+			Visibility:    "private",
+		},
+	})
+	if err != nil {
+		t.Fatalf("changing home visibility (paths unchanged): %v", err)
+	}
+	if updated.Visibility != "private" {
+		t.Fatalf("home visibility = %q, want private", updated.Visibility)
+	}
+}
+
 func TestSimpleServiceMethodsUseInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 

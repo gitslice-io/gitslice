@@ -17,6 +17,7 @@ interface SliceDefinitionFormProps {
   includedPaths: string[];
   onIncludedPathsChange(paths: string[]): void;
   disabled?: boolean;
+  includedPathsLocked?: boolean;
 }
 
 export function SliceDefinitionForm({
@@ -25,7 +26,8 @@ export function SliceDefinitionForm({
   onVisibilityChange,
   includedPaths,
   onIncludedPathsChange,
-  disabled = false
+  disabled = false,
+  includedPathsLocked = false
 }: SliceDefinitionFormProps) {
   const api = useApi();
   const cleanAccount = account?.trim().replace(/^\/+|\/+$/g, "") ?? "";
@@ -184,11 +186,25 @@ export function SliceDefinitionForm({
             Included paths
           </h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            Paths should be account-rooted, for example /acme/payment. The
-            server performs final validation.
+            {includedPathsLocked
+              ? "The home slice's included paths are managed automatically and can't be changed."
+              : "Paths should be account-rooted, for example /acme/payment. The server performs final validation."}
           </p>
         </div>
 
+        {includedPathsLocked ? (
+          <ul className="space-y-2">
+            {includedPaths.map((path, index) => (
+              <li
+                className="break-all rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700"
+                key={index}
+              >
+                {path}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <>
         <div className="space-y-3">
           {includedPaths.length === 0 ? (
             <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
@@ -282,6 +298,8 @@ export function SliceDefinitionForm({
             Add path
           </button>
         </div>
+          </>
+        )}
       </SlicePanel>
     </>
   );
