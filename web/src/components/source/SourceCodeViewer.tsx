@@ -61,31 +61,29 @@ export function SourceCodeViewer({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
         <div className="min-w-0 truncate font-mono text-slate-600">{path}</div>
         <div className="flex items-center gap-3">
+          {highlight.isLoading && code ? (
+            <span className="text-slate-400">highlighting…</span>
+          ) : null}
           <span>{language}</span>
           <span>{lineCount} lines</span>
         </div>
       </div>
-      {highlight.isLoading ? (
-        <div className="grid gap-2 p-4">
-          <div className="h-4 w-4/5 animate-pulse rounded bg-slate-200" />
-          <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200" />
-          <div className="h-4 w-3/4 animate-pulse rounded bg-slate-200" />
-          <div className="h-4 w-1/2 animate-pulse rounded bg-slate-200" />
-        </div>
-      ) : (
-        <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
-          {highlight.html ? (
-            <div
-              className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white [&_pre]:text-sm [&_pre]:leading-6"
-              dangerouslySetInnerHTML={{ __html: highlight.html }}
-            />
-          ) : (
-            <pre className="min-w-max overflow-visible bg-white p-4 text-sm leading-6 text-zinc-900">
-              <code>{code}</code>
-            </pre>
-          )}
-        </div>
-      )}
+      <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
+        {highlight.html ? (
+          <div
+            className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white [&_pre]:text-sm [&_pre]:leading-6"
+            dangerouslySetInnerHTML={{ __html: highlight.html }}
+          />
+        ) : (
+          // Show the raw text immediately so file content never waits on the
+          // Shiki core load or a (potentially large) grammar-chunk download.
+          // Highlighting is layered in by swapping to the rendered HTML once it
+          // resolves; the plain <pre> matches its sizing to avoid layout shift.
+          <pre className="min-w-max overflow-visible bg-white p-4 text-sm leading-6 text-zinc-900">
+            <code>{code}</code>
+          </pre>
+        )}
+      </div>
       {highlight.error ? (
         <div className="border-t border-slate-200 px-4 py-3 text-xs text-amber-700">
           Syntax highlighting unavailable: {highlight.error}
