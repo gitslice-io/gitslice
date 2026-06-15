@@ -30,6 +30,7 @@ import {
   entryDisplayName,
   entryKindLabel,
   formatSize,
+  canModifyPath,
   isSliceProjectionDirectoryPath,
   listDirectoryAll,
   normalizeRepositoryPath,
@@ -58,6 +59,9 @@ interface SliceSearch {
 interface GitCloneEnv extends ImportMetaEnv {
   readonly VITE_GITSLICE_GIT_HTTP_BASE_URL?: string;
 }
+
+const TOP_LEVEL_SLICE_FOLDER_TITLE =
+  "Top-level slice folders are managed in the slice definition (Settings).";
 
 export function SliceDetailPage() {
   const api = useApi();
@@ -308,6 +312,7 @@ export function SliceDetailPage() {
             entry={entry}
             fileContent={decodeBase64File(fileQuery.data?.data)}
             fileError={fileQuery.error}
+            includedPaths={includedPaths}
             isDirectoryLoading={directoryQuery.isPending}
             isFileLoading={fileQuery.isPending}
             isLatestLoading={latestQuery.isPending}
@@ -844,6 +849,7 @@ interface SliceSourceWorkspaceProps {
   entry: TreeEntry | undefined;
   fileContent: string;
   fileError: Error | null;
+  includedPaths: string[];
   isDirectoryLoading: boolean;
   isFileLoading: boolean;
   isLatestLoading: boolean;
@@ -865,6 +871,7 @@ function SliceSourceWorkspace({
   entry,
   fileContent,
   fileError,
+  includedPaths,
   isDirectoryLoading,
   isFileLoading,
   isLatestLoading,
@@ -927,15 +934,18 @@ function SliceSourceWorkspace({
       <SlicePanel className="p-0">
         <DirectoryHeader
           commitId={commitId}
+          includedPaths={includedPaths}
           onStageEdit={onStageEdit}
           selectedPath={selectedPath}
         />
         <DirectoryCreateControls
           directoryPath={createDirectory}
+          includedPaths={includedPaths}
           onStageEdit={onStageEdit}
         />
         <SliceDirectoryTable
           entries={directoryEntries}
+          includedPaths={includedPaths}
           onSelectPath={onSelectPath}
           onStageEdit={onStageEdit}
           pendingEdits={pendingEdits}
@@ -961,6 +971,7 @@ function SliceSourceWorkspace({
       <EditableFileView
         commitId={commitId}
         fileContent={fileContent}
+        includedPaths={includedPaths}
         onStageEdit={onStageEdit}
         pendingEdits={pendingEdits}
         selectedPath={entry.path ?? selectedPath}
@@ -970,7 +981,11 @@ function SliceSourceWorkspace({
 
   return (
     <SlicePanel>
-      <DirectoryHeader commitId={commitId} selectedPath={selectedPath} />
+      <DirectoryHeader
+        commitId={commitId}
+        includedPaths={includedPaths}
+        selectedPath={selectedPath}
+      />
       <p className="mt-4 text-sm text-slate-600">
         {entryKindLabel(entry.kind)} entries are visible in the navigator but do
         not have a preview in this view.
@@ -981,12 +996,14 @@ function SliceSourceWorkspace({
 
 function DirectoryHeader({
   commitId,
+  includedPaths,
   onStageEdit,
   selectedPath,
   actions,
   children
 }: {
   commitId: string;
+  includedPaths: string[];
   onStageEdit?: (edit: PendingEdit) => void;
   selectedPath: string;
   actions?: ReactNode;
@@ -994,6 +1011,10 @@ function DirectoryHeader({
 }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const canRename = Boolean(selectedPath && onStageEdit);
+  const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
+  const modifyDisabledTitle = canModifySelectedPath
+    ? undefined
+    : TOP_LEVEL_SLICE_FOLDER_TITLE;
 
   function stageRename(name: string) {
     if (!onStageEdit) {
@@ -1015,11 +1036,15 @@ function DirectoryHeader({
       items={[
         {
           label: "Rename",
-          onSelect: () => setIsRenaming(true)
+          disabled: !canModifySelectedPath,
+          onSelect: () => setIsRenaming(true),
+          title: modifyDisabledTitle
         },
         {
           label: "Delete",
+          disabled: !canModifySelectedPath,
           onSelect: () => onStageEdit?.({ kind: "delete", path: selectedPath }),
+          title: modifyDisabledTitle,
           tone: "danger"
         }
       ]}
@@ -1042,7 +1067,7 @@ function DirectoryHeader({
         {rightActions ? <div className="shrink-0">{rightActions}</div> : null}
       </div>
       {children}
-      {actions === undefined && isRenaming ? (
+      {actions === undefined && isRenaming && canModifySelectedPath ? (
         <div className="mt-3">
           <InlineRenameForm
             directoryPath={editingParentRepositoryPath(selectedPath)}
@@ -1058,12 +1083,14 @@ function DirectoryHeader({
 
 function SliceDirectoryTable({
   entries,
+  includedPaths,
   onSelectPath,
   onStageEdit,
   pendingEdits,
   selectedPath
 }: {
   entries: TreeEntry[];
+  includedPaths: string[];
   onSelectPath(path: string): void;
   onStageEdit(edit: PendingEdit): void;
   pendingEdits: PendingEdit[];
@@ -1102,6 +1129,10 @@ function SliceDirectoryTable({
             const pendingWrite = pendingWriteForPath(pendingEdits, path);
             const isRenaming = renamingPath === path;
             const displayName = entryDisplayName(entry);
+            const canModifyEntryPath = canModifyPath(includedPaths, path);
+            const modifyDisabledTitle = canModifyEntryPath
+              ? undefined
+              : TOP_LEVEL_SLICE_FOLDER_TITLE;
 
             return (
               <tr className="align-top transition hover:bg-slate-50" key={entry.path ?? entryDisplayName(entry)}>
@@ -1135,7 +1166,7 @@ function SliceDirectoryTable({
                   {entry.contentHash || entry.blobId || entry.treeId || ""}
                 </td>
                 <td className="min-w-40 px-4 py-3 text-right sm:min-w-48 sm:px-5">
-                  {isRenaming ? (
+                  {isRenaming && canModifyEntryPath ? (
                     <InlineRenameForm
                       directoryPath={editingParentRepositoryPath(path)}
                       onCancel={() => setRenamingPath("")}
@@ -1157,12 +1188,16 @@ function SliceDirectoryTable({
                       items={[
                         {
                           label: "Rename",
-                          onSelect: () => setRenamingPath(path)
+                          disabled: !canModifyEntryPath,
+                          onSelect: () => setRenamingPath(path),
+                          title: modifyDisabledTitle
                         },
                         {
                           label: "Delete",
+                          disabled: !canModifyEntryPath,
                           onSelect: () =>
                             onStageEdit({ kind: "delete", path }),
+                          title: modifyDisabledTitle,
                           tone: "danger"
                         }
                       ]}
@@ -1254,12 +1289,14 @@ function PendingBadge({ children }: { children: ReactNode }) {
 function EditableFileView({
   commitId,
   fileContent,
+  includedPaths,
   onStageEdit,
   pendingEdits,
   selectedPath
 }: {
   commitId: string;
   fileContent: string;
+  includedPaths: string[];
   onStageEdit(edit: PendingEdit): void;
   pendingEdits: PendingEdit[];
   selectedPath: string;
@@ -1272,6 +1309,10 @@ function EditableFileView({
   const [isRenaming, setIsRenaming] = useState(false);
   const [draft, setDraft] = useState(displayedContent);
   const [renameError, setRenameError] = useState("");
+  const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
+  const modifyDisabledTitle = canModifySelectedPath
+    ? undefined
+    : TOP_LEVEL_SLICE_FOLDER_TITLE;
 
   useEffect(() => {
     setIsEditing(false);
@@ -1321,12 +1362,16 @@ function EditableFileView({
                 },
                 {
                   label: "Rename",
-                  onSelect: () => setIsRenaming(true)
+                  disabled: !canModifySelectedPath,
+                  onSelect: () => setIsRenaming(true),
+                  title: modifyDisabledTitle
                 },
                 {
                   label: "Delete",
+                  disabled: !canModifySelectedPath,
                   onSelect: () =>
                     onStageEdit({ kind: "delete", path: selectedPath }),
+                  title: modifyDisabledTitle,
                   tone: "danger"
                 }
               ]}
@@ -1334,6 +1379,7 @@ function EditableFileView({
             />
           }
           commitId={commitId}
+          includedPaths={includedPaths}
           selectedPath={selectedPath}
         >
           {pendingWrite || pendingDelete || pendingRename ? (
@@ -1348,7 +1394,7 @@ function EditableFileView({
               ) : null}
             </div>
           ) : null}
-          {isRenaming ? (
+          {isRenaming && canModifySelectedPath ? (
             <div className="mt-3">
               <InlineRenameForm
                 directoryPath={editingParentRepositoryPath(selectedPath)}

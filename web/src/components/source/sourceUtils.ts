@@ -316,6 +316,28 @@ export function pathCoversCurrentPath(includedPath: string, currentPath: string)
   return currentPath === normalizedIncluded || currentPath.startsWith(`${normalizedIncluded}/`);
 }
 
+export function isPathWritable(includedPaths: string[], path: string): boolean {
+  const normalizedPath = normalizeRepositoryPath(path);
+  return includedPaths.some((includedPath) =>
+    pathCoversCurrentPath(includedPath, normalizedPath)
+  );
+}
+
+export function isIncludedRoot(includedPaths: string[], path: string): boolean {
+  const normalizedPath = normalizeRepositoryPath(path);
+  return includedPaths.some(
+    (includedPath) => normalizeRepositoryPath(includedPath) === normalizedPath
+  );
+}
+
+export function canCreateInPath(includedPaths: string[], dir: string): boolean {
+  return isPathWritable(includedPaths, dir);
+}
+
+export function canModifyPath(includedPaths: string[], path: string): boolean {
+  return isPathWritable(includedPaths, path) && !isIncludedRoot(includedPaths, path);
+}
+
 export function sortEntries(entries: TreeEntry[]) {
   return [...entries].sort((left, right) => {
     const leftIsDirectory = left.kind === "ENTRY_KIND_DIRECTORY";
