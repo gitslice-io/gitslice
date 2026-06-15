@@ -5,6 +5,7 @@ import { highlightToHtml } from "./highlight";
 
 interface SourceCodeViewerProps {
   code: string;
+  fill?: boolean;
   path: string;
 }
 
@@ -14,7 +15,11 @@ interface HighlightState {
   error: string;
 }
 
-export function SourceCodeViewer({ code, path }: SourceCodeViewerProps) {
+export function SourceCodeViewer({
+  code,
+  fill = false,
+  path
+}: SourceCodeViewerProps) {
   const language = useMemo(() => languageFromPath(path), [path]);
   const lineCount = useMemo(() => (code ? code.split(/\r\n|\r|\n/).length : 0), [code]);
   const [highlight, setHighlight] = useState<HighlightState>({
@@ -68,7 +73,7 @@ export function SourceCodeViewer({ code, path }: SourceCodeViewerProps) {
           <div className="h-4 w-1/2 animate-pulse rounded bg-slate-200" />
         </div>
       ) : (
-        <div className="max-h-[82dvh] overflow-auto">
+        <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
           {highlight.html ? (
             <div
               className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white [&_pre]:text-sm [&_pre]:leading-6"
