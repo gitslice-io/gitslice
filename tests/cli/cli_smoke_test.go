@@ -2207,7 +2207,7 @@ func startTestServer(t *testing.T) *testServer {
 	if databaseURL == "" {
 		t.Skip("set GITSLICE_TEST_DATABASE_URL to run real Postgres CLI e2e tests")
 	}
-	schema := "gitslice_test_" + strings.ToLower(strings.ReplaceAll(t.Name(), "/", "_")) + "_" + time.Now().Format("150405000000")
+	schema := uniqueSchema("gitslice_test_", t)
 	createSchema(t, databaseURL, schema)
 	ts := &testServer{
 		addr:        freeAddr(t),
@@ -2894,6 +2894,30 @@ func waitForGatewayChangesetStatus(t *testing.T, addr, token, changesetID, want 
 	return nil
 }
 
+// uniqueSchema builds a Postgres-safe, unique schema name. Postgres truncates
+// identifiers to 63 bytes, so the unique token must survive truncation: we trim
+// the test-name hint up front to keep the whole name within the limit, leaving
+// the token (and its uniqueness) fully intact. The old time-of-day suffix had
+// only second resolution and was silently truncated away for long test names,
+// causing reruns to collide on a stale schema.
+func uniqueSchema(prefix string, t *testing.T) string {
+	const maxLen = 63 // Postgres NAMEDATALEN - 1
+	token := strconv.FormatInt(time.Now().UnixNano(), 36)
+	hint := strings.ToLower(strings.ReplaceAll(t.Name(), "/", "_"))
+	budget := maxLen - len(prefix) - len(token) - 1 // room for the "_" separator
+	if budget < 0 {
+		name := prefix + token
+		if len(name) > maxLen {
+			name = name[:maxLen]
+		}
+		return name
+	}
+	if len(hint) > budget {
+		hint = hint[:budget]
+	}
+	return prefix + hint + "_" + token
+}
+
 func createSchema(t *testing.T, databaseURL, schema string) {
 	t.Helper()
 	db, err := sql.Open("pgx", databaseURL)
@@ -2901,6 +2925,10 @@ func createSchema(t *testing.T, databaseURL, schema string) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	// Drop any leftover schema from an interrupted run so create is idempotent.
+	if _, err := db.Exec(`drop schema if exists ` + pqIdentifier(schema) + ` cascade`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`create schema ` + pqIdentifier(schema)); err != nil {
 		t.Fatal(err)
 	}
