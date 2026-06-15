@@ -807,14 +807,14 @@ func (r Runner) rootCommand() *cobra.Command {
 		RunE:  requireSubcommand("auth"),
 	}
 	loginServer := defaultServerAddr()
-	loginDevUser := "alice"
+	loginDevUser := ""
 	loginClerkToken := ""
 	loginClerkBrowser := false
 	loginWebURL := defaultWebURL()
 	loginCmd := &cobra.Command{
 		Use:   "login",
-		Short: "Log in to a Gitslice server (dev account, Clerk token, or Clerk browser flow)",
-		Args:  noArgs("gs auth login [--server addr] [--dev-user alice | --clerk-token JWT | --clerk]"),
+		Short: "Log in to a Gitslice server (Clerk browser flow by default; --dev-user for local dev)",
+		Args:  noArgs("gs auth login [--server addr] [--clerk | --clerk-token JWT | --dev-user alice]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runAuthLogin(cmd.Context(), *opts, authLoginOptions{
 				serverAddr:   loginServer,
@@ -1754,8 +1754,8 @@ type authLoginOptions struct {
 }
 
 // runAuthLogin dispatches to the selected login mode: a Clerk session JWT
-// (--clerk-token, or '-' for stdin), the browser-based Clerk flow (--clerk), or
-// the default dev/fake account login (--dev-user).
+// (--clerk-token, or '-' for stdin), an explicit dev/fake account login
+// (--dev-user, for local dev servers), or the default browser-based Clerk flow.
 func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, in authLoginOptions) error {
 	switch {
 	case in.clerkToken != "":
@@ -1774,8 +1774,14 @@ func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, in authLo
 		return r.finishClerkLogin(ctx, opts, in.serverAddr, token)
 	case in.clerkBrowser:
 		return r.runAuthLoginClerkBrowser(ctx, opts, in.serverAddr, in.webURL)
-	default:
+	case in.devUser != "":
 		return r.runAuthDevLogin(ctx, opts, in.serverAddr, in.devUser)
+	default:
+		// Default to the browser-based Clerk flow: the hosted/staging server
+		// uses Clerk and does not register the dev-only FakeAccountService, so a
+		// bare `gs auth login` must not attempt a dev login. Dev login is opt-in
+		// via --dev-user for local dev servers.
+		return r.runAuthLoginClerkBrowser(ctx, opts, in.serverAddr, in.webURL)
 	}
 }
 
@@ -9594,7 +9600,10 @@ func defaultWebURL() string {
 	if value := os.Getenv("GITSLICE_WEB_URL"); value != "" {
 		return value
 	}
-	return "http://127.0.0.1:5173"
+	// Hosted web app, used by the --clerk browser login flow (its /cli-login
+	// page returns the token to the CLI). Override with GS_WEB_URL for a local
+	// web dev server, e.g. http://127.0.0.1:5173.
+	return "https://agenttools.dev"
 }
 
 func defaultGatewayURL() string {
