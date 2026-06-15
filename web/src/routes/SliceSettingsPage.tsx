@@ -30,7 +30,7 @@ export function SliceSettingsPage() {
   const queryClient = useQueryClient();
   const params = useParams({ strict: false }) as SliceParams;
   const sliceId = params.id ?? "";
-  const [visibility, setVisibility] = useState<VisibilityOption>("account");
+  const [visibility, setVisibility] = useState<VisibilityOption>("private");
   const [includedPaths, setIncludedPaths] = useState<string[]>([]);
   const [clientErrors, setClientErrors] = useState<string[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);

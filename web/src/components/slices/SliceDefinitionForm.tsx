@@ -6,7 +6,7 @@ import { useApi } from "../../api/useApi";
 import { GLOBAL_REF_NAME } from "../../lib/globalRef";
 import { SlicePanel } from "./SlicePageParts";
 
-export const VISIBILITY_OPTIONS = ["private", "account", "public"] as const;
+export const VISIBILITY_OPTIONS = ["private", "public"] as const;
 
 export type VisibilityOption = (typeof VISIBILITY_OPTIONS)[number];
 
@@ -159,7 +159,7 @@ export function SliceDefinitionForm({
             definition.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {VISIBILITY_OPTIONS.map((option) => (
             <label
               className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-zinc-950"
@@ -306,11 +306,11 @@ export function SliceDefinitionForm({
 }
 
 export function toVisibilityOption(value?: string): VisibilityOption {
-  if (value === "private" || value === "public" || value === "account") {
+  if (value === "private" || value === "public") {
     return value;
   }
 
-  return "account";
+  return "private";
 }
 
 export function validateIncludedPaths(paths: string[]) {
