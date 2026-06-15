@@ -9,6 +9,7 @@ import {
 
 import type { Changeset, FileEdit, SliceRef } from "../../api/types";
 import { type ApiClient } from "../../api/useApi";
+import { ActionMenu } from "./ActionMenu";
 import { normalizeRepositoryPath } from "./sourceUtils";
 
 export type PendingEdit =
@@ -562,25 +563,24 @@ export function DirectoryCreateControls({
 
   return (
     <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
-      <p className="mb-2 min-w-0 break-all text-xs text-slate-500">
-        New items are created in{" "}
-        <span className="font-mono text-slate-700">{directoryPath}</span>
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <button
-          className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
-          onClick={() => setMode("file")}
-          type="button"
-        >
-          New file
-        </button>
-        <button
-          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-          onClick={() => setMode("folder")}
-          type="button"
-        >
-          New folder
-        </button>
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <p className="min-w-0 break-all text-xs text-slate-500">
+          New items are created in{" "}
+          <span className="font-mono text-slate-700">{directoryPath}</span>
+        </p>
+        <ActionMenu
+          items={[
+            {
+              label: "New file",
+              onSelect: () => setMode("file")
+            },
+            {
+              label: "New folder",
+              onSelect: () => setMode("folder")
+            }
+          ]}
+          label="Create item"
+        />
       </div>
 
       {mode === "file" ? (
