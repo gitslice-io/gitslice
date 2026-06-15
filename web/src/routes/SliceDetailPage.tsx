@@ -228,15 +228,6 @@ export function SliceDetailPage() {
             Files
           </button>
           <button
-            aria-controls="slice-file-tree-panel"
-            aria-expanded={showTree}
-            className="hidden rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:inline-flex"
-            onClick={() => setShowTree((current) => !current)}
-            type="button"
-          >
-            {showTree ? "Hide files" : "Show files"}
-          </button>
-          <button
             className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
             onClick={() => setHistoryOpen(true)}
             type="button"
@@ -264,7 +255,9 @@ export function SliceDetailPage() {
       <div
         className={[
           "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
-          showTree ? "lg:grid-cols-[19rem_minmax(0,1fr)]" : "lg:grid-cols-1"
+          showTree
+            ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
+            : "lg:grid-cols-[2.75rem_minmax(0,1fr)]"
         ].join(" ")}
       >
         {mobileFilesOpen ? (
@@ -275,6 +268,24 @@ export function SliceDetailPage() {
             type="button"
           />
         ) : null}
+        {/* Collapsed rail: re-opens the file tree (desktop only). */}
+        <button
+          aria-controls="slice-file-tree-panel"
+          aria-expanded={false}
+          aria-label="Show files"
+          className={[
+            "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 bg-white px-1.5 py-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]",
+            showTree ? "" : "lg:flex"
+          ].join(" ")}
+          onClick={() => setShowTree(true)}
+          title="Show files"
+          type="button"
+        >
+          <span aria-hidden="true" className="text-sm leading-none">
+            »
+          </span>
+          <span className="[writing-mode:vertical-rl]">Files</span>
+        </button>
         <aside
           className={[
             "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-slate-50 p-4 shadow-xl transition-transform duration-200",
@@ -301,6 +312,7 @@ export function SliceDetailPage() {
             includedPaths={includedPaths}
             isLatestLoading={latestQuery.isPending}
             isSelectedDirectory={isDirectory}
+            onCollapse={() => setShowTree(false)}
             onSelectPath={(nextPath) => {
               selectPath(nextPath);
               setMobileFilesOpen(false);
@@ -568,6 +580,7 @@ interface SliceFolderNavigatorProps {
   includedPaths: string[];
   isLatestLoading: boolean;
   isSelectedDirectory: boolean;
+  onCollapse?(): void;
   onSelectPath(path: string): void;
   selectedPath: string;
   sliceId: string;
@@ -580,6 +593,7 @@ function SliceFolderNavigator({
   includedPaths,
   isLatestLoading,
   isSelectedDirectory,
+  onCollapse,
   onSelectPath,
   selectedPath,
   sliceId,
@@ -694,13 +708,28 @@ function SliceFolderNavigator({
               Slice-projected source tree
             </p>
           </div>
-          <button
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-            onClick={() => onSelectPath("")}
-            type="button"
-          >
-            Root
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              onClick={() => onSelectPath("")}
+              type="button"
+            >
+              Root
+            </button>
+            {onCollapse ? (
+              <button
+                aria-controls="slice-file-tree-panel"
+                aria-expanded={true}
+                aria-label="Hide files"
+                className="hidden h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-sm leading-none text-slate-600 transition hover:bg-slate-50 active:scale-[0.98] lg:inline-flex"
+                onClick={onCollapse}
+                title="Hide files"
+                type="button"
+              >
+                «
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
