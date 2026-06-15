@@ -8,6 +8,11 @@ import type {
   ApproveChangesetRequest,
   ApproveChangesetResponse,
   Changeset,
+  CheckUsernameAvailableRequest,
+  CheckUsernameAvailableResponse,
+  ChooseUsernameRequest,
+  ChooseUsernameResponse,
+  Commit,
   CreateChangesetRequest,
   CreateSliceRequest,
   DiffChangesetRequest,
@@ -43,7 +48,6 @@ import type {
   UpdateSliceDefinitionRequest,
   UploadBlobRequest,
   UploadBlobResponse,
-  Commit,
   SliceDefinition
 } from "./types";
 
@@ -51,6 +55,12 @@ export interface ApiClient {
   getAuthStatus(
     request: GetAuthStatusRequest
   ): Promise<GetAuthStatusResponse>;
+  checkUsernameAvailable(
+    request: CheckUsernameAvailableRequest
+  ): Promise<CheckUsernameAvailableResponse>;
+  chooseUsername(
+    request: ChooseUsernameRequest
+  ): Promise<ChooseUsernameResponse>;
   resolvePath(request: ResolvePathRequest): Promise<ResolvePathResponse>;
   listDirectory(
     request: ListDirectoryRequest
@@ -115,6 +125,18 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
         invoke<GetAuthStatusRequest, GetAuthStatusResponse>(
           "AuthService",
           "GetAuthStatus",
+          request
+        ),
+      checkUsernameAvailable: (request) =>
+        invoke<CheckUsernameAvailableRequest, CheckUsernameAvailableResponse>(
+          "AuthService",
+          "CheckUsernameAvailable",
+          request
+        ),
+      chooseUsername: (request) =>
+        invoke<ChooseUsernameRequest, ChooseUsernameResponse>(
+          "AuthService",
+          "ChooseUsername",
           request
         ),
       resolvePath: (request) =>
