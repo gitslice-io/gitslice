@@ -90,6 +90,20 @@ export interface GetCommitRequest {
   commitId?: string;
 }
 
+export interface ListCommitsRequest {
+  refName?: string;
+  limit?: number;
+  path?: string;
+  slice?: SliceRef;
+  pageToken?: string;
+  followMoves?: boolean;
+}
+
+export interface ListCommitsResponse {
+  commits?: Commit[];
+  nextPageToken?: string;
+}
+
 export interface GetRefRequest {
   refName?: string;
 }
