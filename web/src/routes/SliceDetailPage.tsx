@@ -7,6 +7,7 @@ import type {
   TreeEntry
 } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
+import { ActionMenu } from "../components/source/ActionMenu";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
 import {
   DirectoryCreateControls,
@@ -1008,22 +1009,21 @@ function DirectoryHeader({
           </p>
         </div>
         {canRename ? (
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <button
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              onClick={() => setIsRenaming(true)}
-              type="button"
-            >
-              Rename
-            </button>
-            <button
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              onClick={() => onStageEdit?.({ kind: "delete", path: selectedPath })}
-              type="button"
-            >
-              Delete
-            </button>
-          </div>
+          <ActionMenu
+            items={[
+              {
+                label: "Rename",
+                onSelect: () => setIsRenaming(true)
+              },
+              {
+                label: "Delete",
+                onSelect: () =>
+                  onStageEdit?.({ kind: "delete", path: selectedPath }),
+                tone: "danger"
+              }
+            ]}
+            label="Directory actions"
+          />
         ) : null}
       </div>
       {isRenaming ? (
@@ -1137,22 +1137,21 @@ function SliceDirectoryTable({
                       originalName={displayName}
                     />
                   ) : (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                        onClick={() => setRenamingPath(path)}
-                        type="button"
-                      >
-                        Rename
-                      </button>
-                      <button
-                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                        onClick={() => onStageEdit({ kind: "delete", path })}
-                        type="button"
-                      >
-                        Delete
-                      </button>
-                    </div>
+                    <ActionMenu
+                      items={[
+                        {
+                          label: "Rename",
+                          onSelect: () => setRenamingPath(path)
+                        },
+                        {
+                          label: "Delete",
+                          onSelect: () =>
+                            onStageEdit({ kind: "delete", path }),
+                          tone: "danger"
+                        }
+                      ]}
+                      label={`Actions for ${displayName}`}
+                    />
                   )}
                 </td>
               </tr>
@@ -1308,31 +1307,29 @@ function EditableFileView({
                 ) : null}
               </div>
             </div>
-            <div className="flex min-w-0 flex-wrap gap-2 sm:shrink-0">
-              <button
-                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
-                onClick={() => {
-                  setDraft(displayedContent);
-                  setIsEditing(true);
-                }}
-                type="button"
-              >
-                Edit
-              </button>
-              <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                onClick={() => setIsRenaming(true)}
-                type="button"
-              >
-                Rename
-              </button>
-              <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                onClick={() => onStageEdit({ kind: "delete", path: selectedPath })}
-                type="button"
-              >
-                Delete
-              </button>
+            <div className="sm:shrink-0">
+              <ActionMenu
+                items={[
+                  {
+                    label: "Edit",
+                    onSelect: () => {
+                      setDraft(displayedContent);
+                      setIsEditing(true);
+                    }
+                  },
+                  {
+                    label: "Rename",
+                    onSelect: () => setIsRenaming(true)
+                  },
+                  {
+                    label: "Delete",
+                    onSelect: () =>
+                      onStageEdit({ kind: "delete", path: selectedPath }),
+                    tone: "danger"
+                  }
+                ]}
+                label="File actions"
+              />
             </div>
           </div>
           {isRenaming ? (
