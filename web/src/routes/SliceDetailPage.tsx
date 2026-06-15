@@ -976,11 +976,15 @@ function SliceSourceWorkspace({
 function DirectoryHeader({
   commitId,
   onStageEdit,
-  selectedPath
+  selectedPath,
+  actions,
+  children
 }: {
   commitId: string;
   onStageEdit?: (edit: PendingEdit) => void;
   selectedPath: string;
+  actions?: ReactNode;
+  children?: ReactNode;
 }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const canRename = Boolean(selectedPath && onStageEdit);
@@ -997,10 +1001,31 @@ function DirectoryHeader({
     setIsRenaming(false);
   }
 
+  // The caller can supply its own actions (e.g. the file menu); otherwise the
+  // directory builds its own Rename/Delete menu. Either way it sits to the right
+  // of the path on the same row, at every breakpoint.
+  const ownMenu = canRename ? (
+    <ActionMenu
+      items={[
+        {
+          label: "Rename",
+          onSelect: () => setIsRenaming(true)
+        },
+        {
+          label: "Delete",
+          onSelect: () => onStageEdit?.({ kind: "delete", path: selectedPath }),
+          tone: "danger"
+        }
+      ]}
+      label="Directory actions"
+    />
+  ) : null;
+  const rightActions = actions !== undefined ? actions : ownMenu;
+
   return (
     <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <h2 className="break-all text-base font-semibold text-zinc-950">
             {selectedPath || "Slice root"}
           </h2>
@@ -1008,25 +1033,10 @@ function DirectoryHeader({
             Commit <span className="font-mono text-slate-700">{commitId}</span>
           </p>
         </div>
-        {canRename ? (
-          <ActionMenu
-            items={[
-              {
-                label: "Rename",
-                onSelect: () => setIsRenaming(true)
-              },
-              {
-                label: "Delete",
-                onSelect: () =>
-                  onStageEdit?.({ kind: "delete", path: selectedPath }),
-                tone: "danger"
-              }
-            ]}
-            label="Directory actions"
-          />
-        ) : null}
+        {rightActions ? <div className="shrink-0">{rightActions}</div> : null}
       </div>
-      {isRenaming ? (
+      {children}
+      {actions === undefined && isRenaming ? (
         <div className="mt-3">
           <InlineRenameForm
             directoryPath={editingParentRepositoryPath(selectedPath)}
@@ -1292,46 +1302,46 @@ function EditableFileView({
   return (
     <div className="space-y-3">
       <SlicePanel className="p-0">
-        <DirectoryHeader commitId={commitId} selectedPath={selectedPath} />
-        <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                {pendingWrite ? <PendingBadge>pending</PendingBadge> : null}
-                {pendingDelete ? <PendingBadge>pending deleted</PendingBadge> : null}
-                {pendingRename ? (
-                  <PendingBadge>
-                    pending rename to{" "}
-                    {editingRepositoryPathName(pendingRename.path)}
-                  </PendingBadge>
-                ) : null}
-              </div>
-            </div>
-            <div className="sm:shrink-0">
-              <ActionMenu
-                items={[
-                  {
-                    label: "Edit",
-                    onSelect: () => {
-                      setDraft(displayedContent);
-                      setIsEditing(true);
-                    }
-                  },
-                  {
-                    label: "Rename",
-                    onSelect: () => setIsRenaming(true)
-                  },
-                  {
-                    label: "Delete",
-                    onSelect: () =>
-                      onStageEdit({ kind: "delete", path: selectedPath }),
-                    tone: "danger"
+        <DirectoryHeader
+          actions={
+            <ActionMenu
+              items={[
+                {
+                  label: "Edit",
+                  onSelect: () => {
+                    setDraft(displayedContent);
+                    setIsEditing(true);
                   }
-                ]}
-                label="File actions"
-              />
+                },
+                {
+                  label: "Rename",
+                  onSelect: () => setIsRenaming(true)
+                },
+                {
+                  label: "Delete",
+                  onSelect: () =>
+                    onStageEdit({ kind: "delete", path: selectedPath }),
+                  tone: "danger"
+                }
+              ]}
+              label="File actions"
+            />
+          }
+          commitId={commitId}
+          selectedPath={selectedPath}
+        >
+          {pendingWrite || pendingDelete || pendingRename ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {pendingWrite ? <PendingBadge>pending</PendingBadge> : null}
+              {pendingDelete ? <PendingBadge>pending deleted</PendingBadge> : null}
+              {pendingRename ? (
+                <PendingBadge>
+                  pending rename to{" "}
+                  {editingRepositoryPathName(pendingRename.path)}
+                </PendingBadge>
+              ) : null}
             </div>
-          </div>
+          ) : null}
           {isRenaming ? (
             <div className="mt-3">
               <InlineRenameForm
@@ -1348,7 +1358,7 @@ function EditableFileView({
               ) : null}
             </div>
           ) : null}
-        </div>
+        </DirectoryHeader>
         {isEditing ? (
           <div className="p-4 sm:p-5">
             <label className="grid gap-2 text-sm font-medium text-zinc-800">
