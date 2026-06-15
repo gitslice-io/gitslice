@@ -1,6 +1,7 @@
 package r2
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -97,10 +98,20 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	// R2 requires a Content-Length on PutObject and rejects chunked/streaming
+	// uploads with HTTP 411 (MissingContentLength). A bare io.Reader makes the
+	// SDK stream without a known length, so buffer the body and pass an explicit
+	// length via a seekable *bytes.Reader. Objects here are content-addressed
+	// trees/blobs, consistent with the buffering the filesystem store does.
+	buf, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
 	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(objectKey),
-		Body:   readerWithContext{ctx: ctx, r: r},
+		Bucket:        aws.String(s.bucket),
+		Key:           aws.String(objectKey),
+		Body:          bytes.NewReader(buf),
+		ContentLength: aws.Int64(int64(len(buf))),
 	})
 	return err
 }
@@ -195,18 +206,4 @@ func isNotFound(err error) bool {
 		}
 	}
 	return false
-}
-
-type readerWithContext struct {
-	ctx context.Context
-	r   io.Reader
-}
-
-func (r readerWithContext) Read(p []byte) (int, error) {
-	select {
-	case <-r.ctx.Done():
-		return 0, r.ctx.Err()
-	default:
-		return r.r.Read(p)
-	}
 }
