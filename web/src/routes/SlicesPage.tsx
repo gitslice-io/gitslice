@@ -51,6 +51,14 @@ export function SlicesPage() {
   return (
     <section className="mx-auto w-full max-w-7xl">
       <SlicePageHeader
+        actions={
+          <Link
+            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+            to="/slices/new"
+          >
+            New slice
+          </Link>
+        }
         title={effectiveAccount ? `Slices for ${effectiveAccount}` : "Slices"}
         description="Definitions for slices under the selected account."
       />
