@@ -695,6 +695,63 @@ func TestChangesetUpdateValidatesAndHydratesBlobContentHash(t *testing.T) {
 	}
 }
 
+func TestAuthChooseUsernameForExternalSubjectInMemoryStorage(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_user_123", "Taylor.Example@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authctx.WithSubjectID(context.Background(), subjectID)
+
+	authStatus, err := handlers.Auth.GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !authStatus.NeedsUsername || len(authStatus.Accounts) != 0 {
+		t.Fatalf("auth status = %#v, want needs username with no accounts", authStatus)
+	}
+
+	available, err := handlers.Auth.CheckUsernameAvailable(ctx, &corev1.CheckUsernameAvailableRequest{Username: "Taylor_Name"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !available.Available || available.Normalized != "taylor-name" || available.Reason != "" {
+		t.Fatalf("availability = %#v, want available normalized taylor-name", available)
+	}
+
+	chosen, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "Taylor_Name"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chosen.SubjectId != subjectID || chosen.Account != "taylor-name" {
+		t.Fatalf("chosen username = %#v, want subject %q account taylor-name", chosen, subjectID)
+	}
+
+	authStatus, err = handlers.Auth.GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authStatus.NeedsUsername || len(authStatus.Accounts) == 0 || authStatus.Accounts[0] != "taylor-name" {
+		t.Fatalf("auth status after choose = %#v, want taylor-name account", authStatus)
+	}
+
+	retried, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "another-name"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.Account != "taylor-name" {
+		t.Fatalf("retried choose account = %q, want existing taylor-name", retried.Account)
+	}
+
+	available, err = handlers.Auth.CheckUsernameAvailable(ctx, &corev1.CheckUsernameAvailableRequest{Username: "taylor_name"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if available.Available || available.Normalized != "taylor-name" || available.Reason != "username is taken" {
+		t.Fatalf("taken availability = %#v, want taken taylor-name", available)
+	}
+}
+
 func newMemoryHandlers() (*memory.Stores, *Handlers) {
 	mem := memory.New()
 	mem.AddAccount("user_alice", "acme")

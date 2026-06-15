@@ -1305,6 +1305,7 @@ func readSignupApprovalURL(t *testing.T, r io.Reader) string {
 }
 
 type fakeAuthStatusServer struct {
+	corev1.UnimplementedAuthServiceServer
 	subjectID string
 }
 

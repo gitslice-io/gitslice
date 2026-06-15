@@ -11,6 +11,8 @@ service FakeAccountService {
 
 service AuthService {
   rpc GetAuthStatus(GetAuthStatusRequest) returns (GetAuthStatusResponse);
+  rpc CheckUsernameAvailable(CheckUsernameAvailableRequest) returns (CheckUsernameAvailableResponse);
+  rpc ChooseUsername(ChooseUsernameRequest) returns (ChooseUsernameResponse);
 }
 
 message LoginRequest {
@@ -41,4 +43,30 @@ message GetAuthStatusResponse {
   // Account slugs the authenticated subject belongs to. The first is the
   // subject's personal account, whose "home" slice covers "/<account>".
   repeated string accounts = 2;
+  // True when the subject has no personal account yet and must choose a
+  // username before using account-scoped features.
+  bool needs_username = 3;
+}
+
+message CheckUsernameAvailableRequest {
+  string username = 1;
+}
+
+message CheckUsernameAvailableResponse {
+  bool available = 1;
+  // The normalized username that would be used (lowercased, '_' -> '-').
+  string normalized = 2;
+  // When not available or invalid, a short human-readable reason (e.g.
+  // "username is taken", or a validation message). Empty when available.
+  string reason = 3;
+}
+
+message ChooseUsernameRequest {
+  string username = 1;
+}
+
+message ChooseUsernameResponse {
+  string subject_id = 1;
+  // The chosen personal account slug.
+  string account = 2;
 }

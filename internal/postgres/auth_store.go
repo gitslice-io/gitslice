@@ -45,7 +45,7 @@ func (s *AuthStore) LoginDevUser(ctx context.Context, devUser string) (string, s
 func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, string, error) {
 	username, err := normalizeSignupUsername(username)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -75,7 +75,7 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 	return token, subjectID, nil
 }
 
-// EnsureExternalSubject idempotently provisions a subject and personal account
+// EnsureExternalSubject idempotently provisions a subject only
 // for an externally authenticated identity (for example a verified Clerk user).
 // Unlike SignupUser it issues no session token: the external provider's token is
 // verified on every request, so there is no internal session to mint.
@@ -92,8 +92,12 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 	}
 	defer tx.Rollback()
 
-	subjectID, _, err := s.provisionPersonalAccount(ctx, tx, username, displayName)
-	if err != nil {
+	subjectID := signupSubjectID(username)
+	if _, err := tx.ExecContext(ctx, `
+		insert into subjects(id, kind, display_name, created_at)
+		values ($1, 'user', $2, now())
+		on conflict (id) do nothing
+	`, subjectID, displayName); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {
@@ -108,7 +112,6 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 // the transaction lifecycle.
 func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, username, displayName string) (string, string, error) {
 	subjectID := signupSubjectID(username)
-	accountID := signupAccountID(username)
 
 	if _, err := tx.ExecContext(ctx, `
 		insert into subjects(id, kind, display_name, created_at)
@@ -118,23 +121,71 @@ func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, us
 		return "", "", err
 	}
 
+	accountID, err := s.provisionAccountForSubject(ctx, tx, subjectID, username, displayName)
+	if err != nil {
+		return "", "", err
+	}
+	return subjectID, accountID, nil
+}
+
+// provisionAccountForSubject creates the personal account, admin membership,
+// home slice (+ definition version + path index) and account-root directory for
+// an existing subjectID under the chosen username, within tx. It is the shared
+// core used by both SignupUser (subject derived from username) and
+// ChooseUsername (pre-existing external subject).
+func (s *AuthStore) provisionAccountForSubject(ctx context.Context, tx *sql.Tx, subjectID, username, displayName string) (accountID string, err error) {
+	accountID = signupAccountID(username)
+
 	var existingAccountID, existingKind string
-	err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		select id, kind
 		from accounts
 		where slug = $1
 	`, username).Scan(&existingAccountID, &existingKind)
 	if errors.Is(err, sql.ErrNoRows) {
-		_, err = tx.ExecContext(ctx, `
+		res, insertErr := tx.ExecContext(ctx, `
 			insert into accounts(id, slug, kind, created_at, updated_at)
 			values ($1, $2, 'personal', now(), now())
+			on conflict (slug) do nothing
 		`, accountID, username)
+		if insertErr != nil {
+			return "", insertErr
+		}
+		affected, rowsErr := res.RowsAffected()
+		if rowsErr != nil {
+			return "", rowsErr
+		}
+		if affected == 0 {
+			err = tx.QueryRowContext(ctx, `
+				select id, kind
+				from accounts
+				where slug = $1
+			`, username).Scan(&existingAccountID, &existingKind)
+		} else {
+			err = nil
+		}
 	}
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	if existingAccountID != "" && (existingAccountID != accountID || existingKind != "personal") {
-		return "", "", fmt.Errorf("%w: username %q is not available", ErrConflict, username)
+	if existingAccountID != "" {
+		if existingKind != "personal" {
+			return "", fmt.Errorf("%w: username %q is not available", ErrConflict, username)
+		}
+		var owns bool
+		if err := tx.QueryRowContext(ctx, `
+			select exists(
+				select 1
+				from account_memberships
+				where account_id = $1 and subject_id = $2
+			)
+		`, existingAccountID, subjectID).Scan(&owns); err != nil {
+			return "", err
+		}
+		if !owns {
+			return "", fmt.Errorf("%w: username %q is not available", ErrConflict, username)
+		}
+		accountID = existingAccountID
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -142,18 +193,18 @@ func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, us
 		values ($1, $2, 'admin', now())
 		on conflict do nothing
 	`, accountID, subjectID); err != nil {
-		return "", "", err
+		return "", err
 	}
 
 	homeSliceID := signupHomeSliceID(username)
 	homeIncludedPaths := []string{"/" + username}
 	homeIncludedJSON, err := encodeJSON(homeIncludedPaths)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	emptyChecksJSON, err := encodeJSON([]string{})
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	homeDefinitionHash := definitionHash(homeSliceID, 1, homeIncludedPaths, "private", 0, nil)
 	if _, err := tx.ExecContext(ctx, `
@@ -161,7 +212,7 @@ func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, us
 		values ($1, $2, 'home', 1, $3, 'private', $4, now(), now())
 		on conflict (account_id, slug) do nothing
 	`, homeSliceID, accountID, homeDefinitionHash, homeIncludedJSON); err != nil {
-		return "", "", err
+		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		insert into slice_definition_versions(
@@ -178,16 +229,88 @@ func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, us
 		values ($1, 1, $2, 'private', $3, 0, $4, now(), $5)
 		on conflict do nothing
 	`, homeSliceID, homeDefinitionHash, homeIncludedJSON, emptyChecksJSON, subjectID); err != nil {
-		return "", "", err
+		return "", err
 	}
 	if err := syncSliceIncludedPathsTx(ctx, tx, homeSliceID, homeIncludedPaths); err != nil {
-		return "", "", err
+		return "", err
 	}
 	if err := ensureAccountRootDirectoryTx(ctx, tx, username, subjectID, s.trees); err != nil {
-		return "", "", err
+		return "", err
 	}
 
-	return subjectID, accountID, nil
+	return accountID, nil
+}
+
+func (s *AuthStore) UsernameAvailable(ctx context.Context, username string) (bool, string, string, error) {
+	normalized, err := normalizeSignupUsername(username)
+	if err != nil {
+		return false, "", err.Error(), nil
+	}
+	var exists bool
+	if err := s.db.QueryRowContext(ctx, `
+		select exists(select 1 from accounts where slug = $1)
+	`, normalized).Scan(&exists); err != nil {
+		return false, "", "", err
+	}
+	if exists {
+		return false, normalized, "username is taken", nil
+	}
+	return true, normalized, "", nil
+}
+
+func (s *AuthStore) ChooseUsername(ctx context.Context, subjectID, username string) (string, error) {
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectID == "" {
+		return "", fmt.Errorf("%w: subject is required", ErrInvalid)
+	}
+	username, err := normalizeSignupUsername(username)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	var foundSubjectID string
+	err = tx.QueryRowContext(ctx, `
+		select id
+		from subjects
+		where id = $1
+		for update
+	`, subjectID).Scan(&foundSubjectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+
+	var existingSlug string
+	err = tx.QueryRowContext(ctx, `
+		select a.slug
+		from account_memberships m
+		join accounts a on a.id = m.account_id
+		where m.subject_id = $1 and a.kind = 'personal'
+		order by a.slug
+		limit 1
+	`, subjectID).Scan(&existingSlug)
+	if err == nil {
+		return existingSlug, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+
+	if _, err := s.provisionAccountForSubject(ctx, tx, subjectID, username, username); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return username, nil
 }
 
 func ensureAccountRootDirectoryTx(ctx context.Context, tx *sql.Tx, accountSlug, subjectID string, trees *treestore.Store) error {
