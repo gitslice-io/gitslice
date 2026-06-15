@@ -6,6 +6,7 @@ import type { Changeset, DiffChangesetResponse } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { cn } from "../lib/cn";
+import { shortHash } from "../lib/objectId";
 
 interface DiffFileSection {
   additions: number;
@@ -236,7 +237,10 @@ function HeaderCard({
               </p>
             ) : null}
             {changeset.baseCommitId ? (
-              <p className="mt-4 break-all font-mono text-xs text-slate-500">
+              <p
+                className="mt-4 font-mono text-xs text-slate-500"
+                title={changeset.baseCommitId}
+              >
                 base {shortCommit(changeset.baseCommitId)}
               </p>
             ) : null}
@@ -713,7 +717,7 @@ function changesetHandle(changeset: Changeset) {
 }
 
 function shortCommit(commitId: string) {
-  return commitId.slice(0, 12);
+  return shortHash(commitId);
 }
 
 function statusClass(status?: string) {
