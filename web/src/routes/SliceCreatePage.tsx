@@ -24,7 +24,7 @@ export function SliceCreatePage() {
   const selection = useSelection();
   const account = selection.account.trim();
   const [sliceName, setSliceName] = useState("");
-  const [visibility, setVisibility] = useState<VisibilityOption>("account");
+  const [visibility, setVisibility] = useState<VisibilityOption>("private");
   const [includedPaths, setIncludedPaths] = useState<string[]>([]);
   const [nameError, setNameError] = useState("");
   const [clientErrors, setClientErrors] = useState<string[]>([]);

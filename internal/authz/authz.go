@@ -34,7 +34,7 @@ func (a Authorizer) Authorize(ctx context.Context, subjectID string, slice *core
 	}
 	visibility := strings.TrimSpace(slice.Definition.Visibility)
 	if visibility == "" {
-		visibility = "account"
+		visibility = "private"
 	}
 	if action == ActionRead && visibility == "public" {
 		return nil
@@ -45,9 +45,6 @@ func (a Authorizer) Authorize(ctx context.Context, subjectID string, slice *core
 	}
 	switch action {
 	case ActionRead:
-		if visibility != "account" && visibility != "private" {
-			return storage.ErrInvalid
-		}
 		if !ok {
 			return storage.ErrUnauthorized
 		}

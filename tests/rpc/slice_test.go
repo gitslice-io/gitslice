@@ -60,12 +60,12 @@ func TestSliceServiceCustomSliceValidation(t *testing.T) {
 	created, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: "acme", Slice: "rpc-docs"},
 		IncludedPaths: []string{"/acme/payment/rpc-docs"},
-		Visibility:    "account",
+		Visibility:    "private",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Ref.Account != "acme" || created.Ref.Slice != "rpc-docs" || created.Definition.Visibility != "account" {
+	if created.Ref.Account != "acme" || created.Ref.Slice != "rpc-docs" || created.Definition.Visibility != "private" {
 		t.Fatalf("unexpected created slice: %#v", created)
 	}
 	if got := created.Definition.IncludedPaths; len(got) != 1 || got[0] != "/acme/payment/rpc-docs" {
@@ -88,7 +88,7 @@ func TestSliceServiceCustomSliceValidation(t *testing.T) {
 		ExpectedDefinitionHash: created.DefinitionHash,
 		Definition: &corev1.SliceDefinition{
 			IncludedPaths: []string{"/acme/payment/rpc-missing-update"},
-			Visibility:    "account",
+			Visibility:    "private",
 		},
 	})
 	if grpcstatus.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "included path does not exist: /acme/payment/rpc-missing-update") {
@@ -137,7 +137,7 @@ func TestSliceDefinitionVersionHistory(t *testing.T) {
 	created, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: "acme", Slice: "rpc-history"},
 		IncludedPaths: []string{"/acme/payment/rpc-history"},
-		Visibility:    "account",
+		Visibility:    "private",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestSliceDefinitionVersionHistory(t *testing.T) {
 		ExpectedDefinitionHash: created.DefinitionHash,
 		Definition: &corev1.SliceDefinition{
 			IncludedPaths:     []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"},
-			Visibility:        "account",
+			Visibility:        "private",
 			RequiredApprovals: 1,
 		},
 	})
@@ -195,8 +195,8 @@ func TestSliceDefinitionVersionHistory(t *testing.T) {
 		t.Fatalf("history row count = %d, want 3: %#v", len(history.Versions), history.Versions)
 	}
 	assertSliceDefinitionVersion(t, history.Versions[0], created.Id, 3, third.DefinitionHash, "private", []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"}, 1, []string{"unit"})
-	assertSliceDefinitionVersion(t, history.Versions[1], created.Id, 2, second.DefinitionHash, "account", []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"}, 1, nil)
-	assertSliceDefinitionVersion(t, history.Versions[2], created.Id, 1, created.DefinitionHash, "account", []string{"/acme/payment/rpc-history"}, 0, nil)
+	assertSliceDefinitionVersion(t, history.Versions[1], created.Id, 2, second.DefinitionHash, "private", []string{"/acme/payment/rpc-history", "/acme/payment/rpc-history/archive"}, 1, nil)
+	assertSliceDefinitionVersion(t, history.Versions[2], created.Id, 1, created.DefinitionHash, "private", []string{"/acme/payment/rpc-history"}, 0, nil)
 	for _, version := range history.Versions {
 		if version.CreatedBy != "user_alice" {
 			t.Fatalf("version %d created_by = %q, want user_alice", version.Version, version.CreatedBy)
@@ -570,7 +570,7 @@ func TestRPCSliceVisibilityRolesAndBlobScopeAuthorization(t *testing.T) {
 		ExpectedDefinitionHash: privateSlice.DefinitionHash,
 		Definition: &corev1.SliceDefinition{
 			IncludedPaths: privateSlice.Definition.IncludedPaths,
-			Visibility:    "account",
+			Visibility:    "private",
 		},
 	})
 	assertGRPCCode(t, err, codes.PermissionDenied)

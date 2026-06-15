@@ -28,8 +28,8 @@ func TestSliceDefinitionValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if visibility != "account" {
-		t.Fatalf("visibility = %q, want account", visibility)
+	if visibility != "private" {
+		t.Fatalf("visibility = %q, want private", visibility)
 	}
 	if len(included) != 1 || included[0] != "/nic/tools" {
 		t.Fatalf("included = %#v, want [/nic/tools]", included)
@@ -37,19 +37,22 @@ func TestSliceDefinitionValidation(t *testing.T) {
 	if requiredApprovals != 1 || len(requiredChecks) != 1 || requiredChecks[0] != "unit" {
 		t.Fatalf("submit settings = %d %#v, want 1 [unit]", requiredApprovals, requiredChecks)
 	}
-	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/other/tools"}, "account", 0, nil); !errors.Is(err, ErrInvalid) {
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic/tools"}, "account", 0, nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("account visibility err = %v, want ErrInvalid", err)
+	}
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/other/tools"}, "private", 0, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("outside account err = %v, want ErrInvalid", err)
 	}
-	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic"}, "account", 0, nil); !errors.Is(err, ErrInvalid) {
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic"}, "private", 0, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("custom account-root err = %v, want ErrInvalid", err)
 	}
-	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic/tools,/nic/docs"}, "account", 0, nil); !errors.Is(err, ErrInvalid) {
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic/tools,/nic/docs"}, "private", 0, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("comma-separated include err = %v, want ErrInvalid", err)
 	}
-	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic/tools"}, "account", -1, nil); !errors.Is(err, ErrInvalid) {
+	if _, _, _, _, err := validateSliceDefinition(ref, []string{"/nic/tools"}, "private", -1, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("negative approvals err = %v, want ErrInvalid", err)
 	}
-	homeIncluded, _, _, _, err := validateSliceDefinition(&corev1.SliceRef{Account: "nic", Slice: "home"}, []string{"/nic"}, "account", 0, nil)
+	homeIncluded, _, _, _, err := validateSliceDefinition(&corev1.SliceRef{Account: "nic", Slice: "home"}, []string{"/nic"}, "private", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -56,7 +56,7 @@ func TestHashVerifyingWriteCloserRejectsMismatch(t *testing.T) {
 func TestUploadBlobStreamHashMismatchCleansStaging(t *testing.T) {
 	mem := memory.New()
 	mem.AddAccount("user_alice", "acme")
-	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "payment"}, []string{"/acme/payment"}, "account")
+	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "payment"}, []string{"/acme/payment"}, "private")
 	objects := newRecordingObjectStore()
 	blob := &BlobService{Auth: mem.Auth, Blobs: mem.Blobs, Slices: mem.Slices, ObjectStore: objects}
 
