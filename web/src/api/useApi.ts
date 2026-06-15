@@ -9,6 +9,7 @@ import type {
   ApproveChangesetResponse,
   Changeset,
   CreateChangesetRequest,
+  CreateSliceRequest,
   DiffChangesetRequest,
   DiffChangesetResponse,
   Empty,
@@ -62,6 +63,7 @@ export interface ApiClient {
   resolveSlice(request: ResolveSliceRequest): Promise<Slice>;
   getSlice(request: GetSliceRequest): Promise<Slice>;
   listSlices(request: ListSlicesRequest): Promise<ListSlicesResponse>;
+  createSlice(request: CreateSliceRequest): Promise<Slice>;
   updateSliceDefinition(
     request: UpdateSliceDefinitionRequest
   ): Promise<SliceDefinition>;
@@ -162,6 +164,12 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
         invoke<ListSlicesRequest, ListSlicesResponse>(
           "SliceService",
           "ListSlices",
+          request
+        ),
+      createSlice: (request) =>
+        invoke<CreateSliceRequest, Slice>(
+          "SliceService",
+          "CreateSlice",
           request
         ),
       updateSliceDefinition: (request) =>

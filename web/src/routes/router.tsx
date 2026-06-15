@@ -14,6 +14,7 @@ import { CliLoginPage } from "./CliLoginPage";
 import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
 import { LoginPage } from "./LoginPage";
+import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceDetailPage } from "./SliceDetailPage";
 import { SliceSettingsPage } from "./SliceSettingsPage";
 import { SlicesPage } from "./SlicesPage";
@@ -83,6 +84,12 @@ const slicesRoute = createRoute({
   component: SlicesPage
 });
 
+const sliceCreateRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "slices/new",
+  component: SliceCreatePage
+});
+
 const sliceDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices/$id",
@@ -117,6 +124,7 @@ const routeTree = rootRoute.addChildren([
     sourceRoute,
     sourceSplatRoute,
     slicesRoute,
+    sliceCreateRoute,
     sliceDetailRoute,
     sliceSettingsRoute,
     changesetsRoute,

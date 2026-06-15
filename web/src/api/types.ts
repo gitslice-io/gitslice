@@ -158,6 +158,14 @@ export interface ListSlicesResponse {
   nextCursor?: string;
 }
 
+export interface CreateSliceRequest {
+  ref?: SliceRef;
+  includedPaths?: string[];
+  visibility?: string;
+  requiredApprovals?: number;
+  requiredChecks?: string[];
+}
+
 export interface UpdateSliceDefinitionRequest {
   sliceId?: string;
   expectedDefinitionHash?: string;
