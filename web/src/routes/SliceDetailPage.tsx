@@ -201,10 +201,19 @@ export function SliceDetailPage() {
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 pb-3 sm:gap-3">
-        <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-zinc-950">
+        <h1 className="w-full min-w-0 truncate text-base font-semibold text-zinc-950 sm:w-auto sm:flex-1">
           {sliceLabel}
         </h1>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            aria-controls="slice-file-tree-panel"
+            aria-expanded={mobileFilesOpen}
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
+            onClick={() => setMobileFilesOpen(true)}
+            type="button"
+          >
+            Files
+          </button>
           <button
             aria-controls="slice-file-tree-panel"
             aria-expanded={showTree}
@@ -238,42 +247,48 @@ export function SliceDetailPage() {
           showTree ? "lg:grid-cols-[19rem_minmax(0,1fr)]" : "lg:grid-cols-1"
         ].join(" ")}
       >
+        {mobileFilesOpen ? (
+          <button
+            aria-label="Close files"
+            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+            onClick={() => setMobileFilesOpen(false)}
+            type="button"
+          />
+        ) : null}
         <aside
           className={[
-            "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
+            "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-slate-50 p-4 shadow-xl transition-transform duration-200",
+            mobileFilesOpen ? "translate-x-0" : "-translate-x-full",
+            "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:transition-none lg:h-full lg:min-h-0 lg:overflow-y-auto",
             showTree ? "" : "lg:hidden"
           ].join(" ")}
           id="slice-file-tree-panel"
         >
-          <button
-            aria-expanded={mobileFilesOpen}
-            className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-950 shadow-sm shadow-slate-200/50 lg:hidden"
-            onClick={() => setMobileFilesOpen((current) => !current)}
-            type="button"
-          >
-            <span>Files</span>
-            <span className="text-xs font-medium text-slate-500">
-              {mobileFilesOpen ? "Hide" : "Tap to browse"}
-            </span>
-          </button>
-          <div
-            className={[
-              mobileFilesOpen ? "mt-2 block" : "hidden",
-              "lg:mt-0 lg:block"
-            ].join(" ")}
-          >
-            <SliceFolderNavigator
-              api={api}
-              commitId={commitId}
-              includedPaths={includedPaths}
-              isLatestLoading={latestQuery.isPending}
-              isSelectedDirectory={isDirectory}
-              onSelectPath={selectPath}
-              selectedPath={selectedPath}
-              sliceId={sliceId}
-              sliceRef={sliceRef}
-            />
+          <div className="mb-3 flex items-center justify-between lg:hidden">
+            <span className="text-sm font-semibold text-zinc-950">Files</span>
+            <button
+              aria-label="Close files"
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              onClick={() => setMobileFilesOpen(false)}
+              type="button"
+            >
+              Close
+            </button>
           </div>
+          <SliceFolderNavigator
+            api={api}
+            commitId={commitId}
+            includedPaths={includedPaths}
+            isLatestLoading={latestQuery.isPending}
+            isSelectedDirectory={isDirectory}
+            onSelectPath={(nextPath) => {
+              selectPath(nextPath);
+              setMobileFilesOpen(false);
+            }}
+            selectedPath={selectedPath}
+            sliceId={sliceId}
+            sliceRef={sliceRef}
+          />
         </aside>
 
         <div className="min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto">
