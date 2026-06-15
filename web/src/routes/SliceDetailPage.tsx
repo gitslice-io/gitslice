@@ -1080,11 +1080,11 @@ function SliceDirectoryTable({
       <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
         <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
           <tr>
-            <th className="px-3 py-3 sm:px-4">Name</th>
+            <th className="w-full px-3 py-3 sm:px-4">Name</th>
             <th className="hidden px-4 py-3 md:table-cell">Kind</th>
             <th className="hidden px-4 py-3 md:table-cell">Size</th>
             <th className="hidden px-4 py-3 md:table-cell">Content hash</th>
-            <th className="px-3 py-3 sm:px-4">Actions</th>
+            <th className="px-4 py-3 text-right sm:px-5">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -1128,7 +1128,7 @@ function SliceDirectoryTable({
                 <td className="hidden max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                   {entry.contentHash || entry.blobId || entry.treeId || ""}
                 </td>
-                <td className="min-w-40 px-3 py-3 sm:min-w-48 sm:px-4">
+                <td className="min-w-40 px-4 py-3 text-right sm:min-w-48 sm:px-5">
                   {isRenaming ? (
                     <InlineRenameForm
                       directoryPath={editingParentRepositoryPath(path)}
@@ -1199,7 +1199,7 @@ function SliceDirectoryTable({
                     : ""}
                 </td>
                 <td className="hidden max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600 md:table-cell" />
-                <td className="px-3 py-3 text-xs text-slate-500 sm:px-4">
+                <td className="px-4 py-3 text-right text-xs text-slate-500 sm:px-5">
                   Remove from the pending changes panel.
                 </td>
               </tr>
