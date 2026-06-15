@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { Slice } from "../api/types";
 import { useApi } from "../api/useApi";
+import { shortHash } from "../lib/objectId";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -130,8 +131,14 @@ export function SlicesPage() {
                         <td className="hidden px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
                           {slice.definition?.version ?? "unknown"}
                         </td>
-                        <td className="hidden max-w-xs break-all px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
-                          {slice.definitionHash || "none"}
+                        <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
+                          {slice.definitionHash ? (
+                            <span title={slice.definitionHash}>
+                              {shortHash(slice.definitionHash)}
+                            </span>
+                          ) : (
+                            "none"
+                          )}
                         </td>
                         <td className="hidden px-4 py-3 text-slate-700 md:table-cell">
                           <span className="font-medium text-zinc-950">

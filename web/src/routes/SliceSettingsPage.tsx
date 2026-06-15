@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import type { SliceDefinition } from "../api/types";
 import { useApi } from "../api/useApi";
+import { shortHash } from "../lib/objectId";
 import { Breadcrumb } from "../components/Breadcrumb";
 import {
   SliceDefinitionForm,
@@ -169,8 +170,8 @@ export function SliceSettingsPage() {
               {
                 label: "Current hash",
                 value: (
-                  <code className="font-mono text-xs">
-                    {slice.definitionHash || "none"}
+                  <code className="font-mono text-xs" title={slice.definitionHash}>
+                    {slice.definitionHash ? shortHash(slice.definitionHash) : "none"}
                   </code>
                 )
               },
