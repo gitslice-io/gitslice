@@ -186,6 +186,7 @@ export function SliceSettingsPage() {
         </SlicePanel>
 
         <SliceDefinitionForm
+          account={slice?.ref?.account}
           disabled={updateMutation.isPending}
           includedPaths={includedPaths}
           onIncludedPathsChange={setIncludedPaths}

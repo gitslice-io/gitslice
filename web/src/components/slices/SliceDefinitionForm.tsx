@@ -1,5 +1,9 @@
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { TreeEntry } from "../../api/types";
+import { useApi } from "../../api/useApi";
+import { GLOBAL_REF_NAME } from "../../lib/globalRef";
 import { SlicePanel } from "./SlicePageParts";
 
 export const VISIBILITY_OPTIONS = ["private", "account", "public"] as const;
@@ -7,6 +11,7 @@ export const VISIBILITY_OPTIONS = ["private", "account", "public"] as const;
 export type VisibilityOption = (typeof VISIBILITY_OPTIONS)[number];
 
 interface SliceDefinitionFormProps {
+  account?: string;
   visibility: VisibilityOption;
   onVisibilityChange(v: VisibilityOption): void;
   includedPaths: string[];
@@ -15,27 +20,115 @@ interface SliceDefinitionFormProps {
 }
 
 export function SliceDefinitionForm({
+  account,
   visibility,
   onVisibilityChange,
   includedPaths,
   onIncludedPathsChange,
   disabled = false
 }: SliceDefinitionFormProps) {
-  const [pathDraft, setPathDraft] = useState("");
+  const api = useApi();
+  const cleanAccount = account?.trim().replace(/^\/+|\/+$/g, "") ?? "";
+  const defaultPathDraft = cleanAccount ? `/${cleanAccount}/` : "/";
+  const previousDefaultPathDraft = useRef(defaultPathDraft);
+  const pathDraftInput = useRef<HTMLInputElement>(null);
+  const [pathDraft, setPathDraft] = useState(defaultPathDraft);
+  const [isPathDraftFocused, setIsPathDraftFocused] = useState(false);
+  const trimmedPathDraft = pathDraft.trim();
+
+  useEffect(() => {
+    setPathDraft((currentDraft) => {
+      if (
+        currentDraft === previousDefaultPathDraft.current ||
+        currentDraft.trim() === "" ||
+        currentDraft === "/"
+      ) {
+        return defaultPathDraft;
+      }
+
+      return currentDraft;
+    });
+    previousDefaultPathDraft.current = defaultPathDraft;
+  }, [defaultPathDraft]);
+
+  const latestGlobalRefQuery = useQuery({
+    queryKey: ["globalRef", GLOBAL_REF_NAME],
+    queryFn: () => api.getRef({ refName: GLOBAL_REF_NAME })
+  });
+  const commitId = latestGlobalRefQuery.data?.commitId ?? "";
+  const lastSlash = pathDraft.lastIndexOf("/");
+  const partial = lastSlash >= 0 ? pathDraft.slice(lastSlash + 1) : pathDraft;
+  const draftDirPath = lastSlash >= 0 ? pathDraft.slice(0, lastSlash) : "";
+  const dirPath = draftDirPath === "" ? "/" : draftDirPath;
+
+  const pathSuggestionsQuery = useQuery({
+    enabled: Boolean(commitId),
+    queryKey: ["pathSuggest", commitId, dirPath],
+    queryFn: async () => {
+      try {
+        return await api.listDirectory({
+          commitId,
+          pageSize: 200,
+          path: dirPath
+        });
+      } catch {
+        return { entries: [] };
+      }
+    }
+  });
+
+  const pathSuggestions = useMemo(() => {
+    const partialLower = partial.toLowerCase();
+
+    return (pathSuggestionsQuery.data?.entries ?? [])
+      .filter((entry): entry is TreeEntry & { name: string } => {
+        if (!entry.name) {
+          return false;
+        }
+
+        return (
+          partialLower === "" ||
+          entry.name.toLowerCase().startsWith(partialLower)
+        );
+      })
+      .sort((left, right) => {
+        const leftIsDirectory = left.kind === "ENTRY_KIND_DIRECTORY";
+        const rightIsDirectory = right.kind === "ENTRY_KIND_DIRECTORY";
+
+        if (leftIsDirectory !== rightIsDirectory) {
+          return leftIsDirectory ? -1 : 1;
+        }
+
+        return left.name.localeCompare(right.name);
+      })
+      .slice(0, 8);
+  }, [partial, pathSuggestionsQuery.data?.entries]);
+
+  const showPathSuggestions =
+    !disabled && isPathDraftFocused && pathSuggestions.length > 0;
+  const canAddPath = !disabled && trimmedPathDraft !== "" && trimmedPathDraft !== "/";
 
   function addPath() {
     if (disabled) {
       return;
     }
 
-    const nextPath = pathDraft.trim();
+    const nextPath = trimmedPathDraft;
 
-    if (!nextPath) {
+    if (!nextPath || nextPath === "/") {
       return;
     }
 
     onIncludedPathsChange([...includedPaths, nextPath]);
-    setPathDraft("");
+    setPathDraft(defaultPathDraft);
+  }
+
+  function selectPathSuggestion(entry: TreeEntry & { name: string }) {
+    const basePath = dirPath === "/" ? "" : dirPath;
+    const suffix = entry.kind === "ENTRY_KIND_DIRECTORY" ? "/" : "";
+
+    setPathDraft(`${basePath}/${entry.name}${suffix}`);
+    pathDraftInput.current?.focus();
   }
 
   function updatePath(index: number, value: string) {
@@ -136,24 +229,53 @@ export function SliceDefinitionForm({
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <label className="grid gap-2 text-sm font-medium text-zinc-950">
             Add path
-            <input
-              className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-              disabled={disabled}
-              onChange={(event) => setPathDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addPath();
-                }
-              }}
-              placeholder="/acme/proto/payment"
-              spellCheck={false}
-              value={pathDraft}
-            />
+            <div className="relative">
+              <input
+                aria-expanded={showPathSuggestions}
+                aria-haspopup="listbox"
+                className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+                disabled={disabled}
+                onBlur={() => setIsPathDraftFocused(false)}
+                onChange={(event) => setPathDraft(event.target.value)}
+                onFocus={() => setIsPathDraftFocused(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addPath();
+                  }
+                }}
+                placeholder="/acme/proto/payment"
+                ref={pathDraftInput}
+                spellCheck={false}
+                value={pathDraft}
+              />
+              {showPathSuggestions ? (
+                <div
+                  className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
+                  role="listbox"
+                >
+                  {pathSuggestions.map((entry) => (
+                    <button
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left font-mono text-sm text-zinc-950 transition hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
+                      key={`${entry.kind ?? "entry"}:${entry.name}`}
+                      onClick={() => selectPathSuggestion(entry)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      role="option"
+                      type="button"
+                    >
+                      <span className="min-w-0 truncate">{entry.name}</span>
+                      <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        {entry.kind === "ENTRY_KIND_DIRECTORY" ? "dir" : "file"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </label>
           <button
             className="self-end rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-            disabled={disabled || !pathDraft.trim()}
+            disabled={!canAddPath}
             onClick={addPath}
             type="button"
           >
