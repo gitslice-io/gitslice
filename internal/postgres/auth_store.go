@@ -80,10 +80,10 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 // Unlike SignupUser it issues no session token: the external provider's token is
 // verified on every request, so there is no internal session to mint.
 func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error) {
-	username := storage.ExternalUsername(externalID, email)
+	subjectID := storage.ExternalSubjectID(externalID)
 	displayName := strings.TrimSpace(email)
 	if displayName == "" {
-		displayName = username
+		displayName = subjectID
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -92,7 +92,6 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 	}
 	defer tx.Rollback()
 
-	subjectID := signupSubjectID(username)
 	if _, err := tx.ExecContext(ctx, `
 		insert into subjects(id, kind, display_name, created_at)
 		values ($1, 'user', $2, now())
