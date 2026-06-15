@@ -200,41 +200,15 @@ export function SliceDetailPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
-      <div className="lg:hidden">
-        <SlicePageHeader
-          actions={
-            <div className="flex flex-wrap gap-2">
-              <Link
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                search={{ slice: sliceLabel } as never}
-                to="/changesets"
-              >
-                Changesets
-              </Link>
-              <Link
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                params={{ id: sliceId }}
-                to="/slices/$id/settings"
-              >
-                Settings
-              </Link>
-              <GitCloneDropdown cloneUrl={gitCloneHint.url} />
-            </div>
-          }
-          title={sliceLabel}
-          description="Slice home with projected source navigation and in-place draft changeset editing."
-        />
-      </div>
-
-      <div className="hidden shrink-0 items-center gap-3 border-b border-slate-200 pb-3 lg:flex">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 pb-3 sm:gap-3">
         <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-zinc-950">
           {sliceLabel}
         </h1>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             aria-controls="slice-file-tree-panel"
             aria-expanded={showTree}
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+            className="hidden rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:inline-flex"
             onClick={() => setShowTree((current) => !current)}
             type="button"
           >
@@ -260,7 +234,7 @@ export function SliceDetailPage() {
 
       <div
         className={[
-          "mt-8 grid gap-6 lg:mt-4 lg:min-h-0 lg:flex-1 lg:gap-4",
+          "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
           showTree ? "lg:grid-cols-[19rem_minmax(0,1fr)]" : "lg:grid-cols-1"
         ].join(" ")}
       >
