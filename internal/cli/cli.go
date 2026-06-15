@@ -468,6 +468,8 @@ var cliHelpTopics = []helpTopic{
 
 GS_SERVER_ADDR
   Default gRPC server address for commands that accept --server.
+  When unset, gs defaults to the staging endpoint api.agenttools.dev:443
+  (TLS). Use 127.0.0.1:50051 for a local server.
 
 GITSLICE_GRPC_ADDR, GITSLICE_SERVER_ADDR
   Compatibility aliases for GS_SERVER_ADDR when GS_SERVER_ADDR is unset.
@@ -9578,7 +9580,11 @@ func defaultServerAddr() string {
 	if value := os.Getenv("GITSLICE_SERVER_ADDR"); value != "" {
 		return value
 	}
-	return "127.0.0.1:50051"
+	// Default to the staging endpoint. It is served over TLS via the
+	// agenttools.dev nginx host (which routes gitslice.core.v1.* to the staging
+	// gRPC server); resolveDialTarget enables TLS automatically for :443. Point
+	// at a local server with --server 127.0.0.1:50051 or GS_SERVER_ADDR.
+	return "api.agenttools.dev:443"
 }
 
 func defaultWebURL() string {
