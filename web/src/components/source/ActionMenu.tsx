@@ -1,10 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export interface ActionMenuItem {
   label: string;
   onSelect(): void;
   tone?: "default" | "danger";
   disabled?: boolean;
+}
+
+interface MenuCoords {
+  top: number;
+  left: number;
 }
 
 export function ActionMenu({
@@ -17,7 +23,40 @@ export function ActionMenu({
   align?: "left" | "right";
 }): JSX.Element {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<MenuCoords>({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Position the menu as a viewport-fixed element anchored to the trigger, so it
+  // is never clipped by an overflow:auto ancestor (e.g. the directory table's
+  // horizontal scroll wrapper). Measure the rendered menu and clamp it into the
+  // viewport so it never runs off-screen regardless of where the trigger sits.
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current || !menuRef.current) {
+      return;
+    }
+
+    const margin = 8;
+    const trigger = triggerRef.current.getBoundingClientRect();
+    const menu = menuRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Preferred horizontal anchor by `align`, then clamp within the viewport.
+    let left = align === "left" ? trigger.left : trigger.right - menu.width;
+    left = Math.min(
+      Math.max(margin, left),
+      Math.max(margin, viewportWidth - menu.width - margin)
+    );
+
+    // Below the trigger, or above it if there isn't room.
+    let top = trigger.bottom + 4;
+    if (top + menu.height > viewportHeight - margin) {
+      top = Math.max(margin, trigger.top - menu.height - 4);
+    }
+
+    setCoords({ top: Math.round(top), left: Math.round(left) });
+  }, [open, align]);
 
   useEffect(() => {
     if (!open) {
@@ -25,11 +64,13 @@ export function ActionMenu({
     }
 
     function onMouseDown(event: MouseEvent) {
-      const root = rootRef.current;
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
       if (
-        root &&
-        event.target instanceof Node &&
-        !root.contains(event.target)
+        !triggerRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
       ) {
         setOpen(false);
       }
@@ -41,60 +82,73 @@ export function ActionMenu({
       }
     }
 
+    // Any scroll (incl. inner scroll panes, capture phase) or resize would leave
+    // the fixed menu detached from its trigger — just close it.
+    function onReflow() {
+      setOpen(false);
+    }
+
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onReflow);
+    window.addEventListener("scroll", onReflow, true);
 
     return () => {
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onReflow);
+      window.removeEventListener("scroll", onReflow, true);
     };
   }, [open]);
 
   return (
-    <div className="relative inline-flex" ref={rootRef}>
+    <>
       <button
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={label}
         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold leading-none text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
         onClick={() => setOpen((current) => !current)}
+        ref={triggerRef}
         type="button"
       >
         <span aria-hidden="true">⋮</span>
       </button>
-      {open ? (
-        <div
-          className={[
-            "absolute top-full z-30 mt-1 min-w-36 rounded-md border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10",
-            align === "left" ? "left-0" : "right-0"
-          ].join(" ")}
-          role="menu"
-        >
-          {items.map((item) => {
-            const isDanger = item.tone === "danger";
-            return (
-              <button
-                className={[
-                  "block w-full rounded px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
-                  isDanger
-                    ? "text-rose-700 hover:bg-rose-50"
-                    : "text-slate-700 hover:bg-slate-50"
-                ].join(" ")}
-                disabled={item.disabled}
-                key={item.label}
-                onClick={() => {
-                  item.onSelect();
-                  setOpen(false);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
+      {open
+        ? createPortal(
+            <div
+              className="fixed z-50 max-h-[60vh] min-w-36 max-w-[calc(100vw-1rem)] overflow-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10"
+              ref={menuRef}
+              role="menu"
+              style={{ top: coords.top, left: coords.left }}
+            >
+              {items.map((item) => {
+                const isDanger = item.tone === "danger";
+                return (
+                  <button
+                    className={[
+                      "block w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+                      isDanger
+                        ? "text-rose-700 hover:bg-rose-50"
+                        : "text-slate-700 hover:bg-slate-50"
+                    ].join(" ")}
+                    disabled={item.disabled}
+                    key={item.label}
+                    onClick={() => {
+                      item.onSelect();
+                      setOpen(false);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 }
