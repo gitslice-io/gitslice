@@ -10,7 +10,7 @@ import {
 import type { Changeset, FileEdit, SliceRef } from "../../api/types";
 import { type ApiClient } from "../../api/useApi";
 import { ActionMenu } from "./ActionMenu";
-import { normalizeRepositoryPath } from "./sourceUtils";
+import { canCreateInPath, normalizeRepositoryPath } from "./sourceUtils";
 
 export type PendingEdit =
   | {
@@ -53,6 +53,7 @@ export interface DraftChangesetController {
 
 interface DirectoryCreateControlsProps {
   directoryPath: string;
+  includedPaths: string[];
   onStageEdit(edit: PendingEdit): void;
 }
 
@@ -547,6 +548,7 @@ export function DraftChangesetPanel({
 
 export function DirectoryCreateControls({
   directoryPath,
+  includedPaths,
   onStageEdit
 }: DirectoryCreateControlsProps) {
   const [mode, setMode] = useState<"file" | "folder" | "">("");
@@ -557,6 +559,16 @@ export function DirectoryCreateControls({
     return (
       <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 sm:px-5">
         Open a folder to add files or folders here.
+      </div>
+    );
+  }
+
+  if (!canCreateInPath(includedPaths, directoryPath)) {
+    return (
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 sm:px-5">
+        You can't add items at the slice top level. Open a folder inside one of
+        the slice's included paths, or edit the included paths from the slice's
+        Settings.
       </div>
     );
   }
