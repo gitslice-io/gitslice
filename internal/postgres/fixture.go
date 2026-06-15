@@ -94,10 +94,10 @@ func seedSlice(ctx context.Context, tx *sql.Tx, id, slug string, included []stri
 	if err != nil {
 		return err
 	}
-	definitionHash := definitionHash(id, 1, included, "account", 0, nil)
+	definitionHash := definitionHash(id, 1, included, "private", 0, nil)
 	returnSQL := `
 		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
-		values ($1, 'acct_acme', $2, 1, $3, 'account', $4, now(), now())
+		values ($1, 'acct_acme', $2, 1, $3, 'private', $4, now(), now())
 		on conflict (id) do nothing
 	`
 	if _, err := tx.ExecContext(ctx, returnSQL, id, slug, definitionHash, includedJSON); err != nil {
@@ -115,7 +115,7 @@ func seedSlice(ctx context.Context, tx *sql.Tx, id, slug string, included []stri
 			created_at,
 			created_by
 		)
-		values ($1, 1, $2, 'account', $3, 0, $4, now(), 'system')
+		values ($1, 1, $2, 'private', $3, 0, $4, now(), 'system')
 		on conflict do nothing
 	`, id, definitionHash, includedJSON, emptyChecksJSON); err != nil {
 		return err

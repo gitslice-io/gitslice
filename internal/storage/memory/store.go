@@ -171,7 +171,7 @@ func (b *backend) addAccountRoleLocked(subjectID, accountSlug, role string) {
 	b.accountMembers[subjectID][accountSlug] = role
 	home := &corev1.SliceRef{Account: accountSlug, Slice: "home"}
 	if _, ok := b.sliceRefs[sliceRefKey(home)]; !ok {
-		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "account", 0, nil, subjectID)
+		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "private", 0, nil, subjectID)
 	}
 	b.ensureAccountRootDirectoryLocked(accountSlug, subjectID)
 }
@@ -1287,10 +1287,11 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 	if err != nil {
 		return nil, "", 0, nil, err
 	}
+	visibility = strings.TrimSpace(visibility)
 	if visibility == "" {
-		visibility = "account"
+		visibility = "private"
 	}
-	if visibility != "private" && visibility != "account" && visibility != "public" {
+	if visibility != "private" && visibility != "public" {
 		return nil, "", 0, nil, storage.ErrInvalid
 	}
 	seen := map[string]struct{}{}

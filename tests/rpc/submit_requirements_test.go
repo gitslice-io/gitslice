@@ -151,7 +151,7 @@ func createSubmitRequirementSlice(t *testing.T, ctx context.Context, clients tes
 	created, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
 		Ref:               ref,
 		IncludedPaths:     []string{"/acme/payment/" + slug},
-		Visibility:        "account",
+		Visibility:        "private",
 		RequiredApprovals: requiredApprovals,
 		RequiredChecks:    requiredChecks,
 	})

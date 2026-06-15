@@ -1206,7 +1206,7 @@ func seedRPCUserHome(user rpcLoadUser) error {
 	if _, err := user.slices.CreateSlice(user.ctx, &corev1.CreateSliceRequest{
 		Ref:           &corev1.SliceRef{Account: user.account, Slice: "project"},
 		IncludedPaths: []string{projectPath},
-		Visibility:    "account",
+		Visibility:    "private",
 	}); err != nil {
 		return err
 	}
