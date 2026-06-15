@@ -16,10 +16,6 @@ import {
   InlineRenameForm,
   joinRepositoryPath,
   parentRepositoryPath as editingParentRepositoryPath,
-  pendingChildrenForDirectory,
-  pendingDeleteForPath,
-  pendingEditKey,
-  pendingRenameForPath,
   pendingWriteForPath,
   repositoryPathName as editingRepositoryPathName,
   useDraftChangesetController,
@@ -253,6 +249,16 @@ export function SliceDetailPage() {
         </div>
       </div>
 
+      {pendingEdits.length ? (
+        <PendingChangesBanner
+          changesetRef={
+            draftChangeset.changesetHandle || draftChangeset.changesetId
+          }
+          count={pendingEdits.length}
+          saveStatus={draftChangeset.saveStatus}
+        />
+      ) : null}
+
       <div
         className={[
           "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
@@ -402,6 +408,48 @@ function GitCloneDropdown({
         </div>
       </div>
     </details>
+  );
+}
+
+// A single, unobtrusive entry point from the source view into the draft
+// changeset. Staged file/folder operations all accumulate in one draft
+// changeset; rather than annotating each row/file inline, surface a count and a
+// link to review and submit them on the changeset detail page.
+function PendingChangesBanner({
+  changesetRef,
+  count,
+  saveStatus
+}: {
+  changesetRef: string;
+  count: number;
+  saveStatus: string;
+}) {
+  const label = `${count} pending ${count === 1 ? "change" : "changes"}`;
+  const preparing = saveStatus === "saving" || saveStatus === "adopting";
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+      <div className="flex items-center gap-2 text-sm text-amber-900">
+        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />
+        <span className="font-semibold">{label}</span>
+        {saveStatus === "failed" ? (
+          <span className="text-rose-700">— could not save draft</span>
+        ) : null}
+      </div>
+      {changesetRef ? (
+        <Link
+          className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 active:scale-[0.98]"
+          params={{ id: changesetRef }}
+          to="/changesets/$id"
+        >
+          Review changeset →
+        </Link>
+      ) : (
+        <span className="text-xs font-medium text-amber-800">
+          {preparing ? "Saving…" : "Preparing…"}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -1168,8 +1216,6 @@ function SliceSourceWorkspace({
           includedPaths={includedPaths}
           onSelectPath={onSelectPath}
           onStageEdit={onStageEdit}
-          pendingEdits={pendingEdits}
-          selectedPath={selectedPath}
         />
       </SlicePanel>
     );
@@ -1308,22 +1354,17 @@ function SliceDirectoryTable({
   entries,
   includedPaths,
   onSelectPath,
-  onStageEdit,
-  pendingEdits,
-  selectedPath
+  onStageEdit
 }: {
   entries: TreeEntry[];
   includedPaths: string[];
   onSelectPath(path: string): void;
   onStageEdit(edit: PendingEdit): void;
-  pendingEdits: PendingEdit[];
-  selectedPath: string;
 }) {
   const [renamingPath, setRenamingPath] = useState("");
   const sortedEntries = sortEntries(entries);
-  const pendingChildren = pendingChildrenForDirectory(pendingEdits, selectedPath);
 
-  if (!sortedEntries.length && !pendingChildren.length) {
+  if (!sortedEntries.length) {
     return (
       <div className="p-8 text-sm text-slate-600">
         This slice-projected directory is empty.
@@ -1347,9 +1388,6 @@ function SliceDirectoryTable({
           {sortedEntries.map((entry) => {
             const path = normalizeRepositoryPath(entry.path ?? "");
             const isDirectory = entry.kind === "ENTRY_KIND_DIRECTORY";
-            const pendingDelete = pendingDeleteForPath(pendingEdits, path);
-            const pendingRename = pendingRenameForPath(pendingEdits, path);
-            const pendingWrite = pendingWriteForPath(pendingEdits, path);
             const isRenaming = renamingPath === path;
             const displayName = entryDisplayName(entry);
             const entryHash =
@@ -1370,11 +1408,6 @@ function SliceDirectoryTable({
                     {displayName}
                     {isDirectory ? "/" : ""}
                   </button>
-                  <PendingRowBadges
-                    isDeleted={Boolean(pendingDelete)}
-                    isEdited={Boolean(pendingWrite)}
-                    renamePath={pendingRename?.path}
-                  />
                   {entry.path ? (
                     <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 sm:truncate">
                       {entry.path}
@@ -1437,81 +1470,9 @@ function SliceDirectoryTable({
               </tr>
             );
           })}
-          {pendingChildren.map((edit) => {
-            const isDirectory = edit.kind === "mkdir";
-            const path = edit.path;
-
-            return (
-              <tr
-                className="align-top bg-slate-50 transition hover:bg-slate-100"
-                key={pendingEditKey(edit)}
-              >
-                <td className="min-w-0 px-3 py-3 sm:min-w-56 sm:px-4">
-                  <span className="break-words font-medium text-zinc-950">
-                    {editingRepositoryPathName(path)}
-                    {isDirectory ? "/" : ""}
-                  </span>
-                  <div className="mt-2">
-                    <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700">
-                      pending
-                    </span>
-                  </div>
-                  <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 sm:truncate">
-                    {path}
-                  </div>
-                </td>
-                <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
-                  {isDirectory ? "directory" : "file"}
-                </td>
-                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
-                  {edit.kind === "write" && edit.content !== undefined
-                    ? formatSize(String(edit.content.length))
-                    : ""}
-                </td>
-                <td className="hidden max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600 md:table-cell" />
-                <td className="px-4 py-3 text-right text-xs text-slate-500 sm:px-5">
-                  Remove from the pending changes panel.
-                </td>
-              </tr>
-            );
-          })}
         </tbody>
       </table>
     </div>
-  );
-}
-
-function PendingRowBadges({
-  isDeleted,
-  isEdited,
-  renamePath
-}: {
-  isDeleted: boolean;
-  isEdited: boolean;
-  renamePath?: string;
-}) {
-  if (!isDeleted && !isEdited && !renamePath) {
-    return null;
-  }
-
-  return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {isEdited ? <PendingBadge>pending edited</PendingBadge> : null}
-      {isDeleted ? <PendingBadge>pending deleted</PendingBadge> : null}
-      {renamePath ? (
-        <PendingBadge>
-          pending rename to {editingRepositoryPathName(renamePath)}
-        </PendingBadge>
-      ) : null}
-    </div>
-  );
-}
-
-function PendingBadge({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
-      {children}
-    </span>
   );
 }
 
@@ -1530,9 +1491,10 @@ function EditableFileView({
   pendingEdits: PendingEdit[];
   selectedPath: string;
 }) {
+  // Keep reflecting a staged edit's content when viewing the file, so the view
+  // matches what will be submitted. The pending state itself is surfaced via the
+  // page-level review banner, not inline here.
   const pendingWrite = pendingWriteForPath(pendingEdits, selectedPath);
-  const pendingDelete = pendingDeleteForPath(pendingEdits, selectedPath);
-  const pendingRename = pendingRenameForPath(pendingEdits, selectedPath);
   const displayedContent = pendingWrite?.content ?? fileContent;
   const [isEditing, setIsEditing] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -1611,18 +1573,6 @@ function EditableFileView({
           includedPaths={includedPaths}
           selectedPath={selectedPath}
         >
-          {pendingWrite || pendingDelete || pendingRename ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {pendingWrite ? <PendingBadge>pending</PendingBadge> : null}
-              {pendingDelete ? <PendingBadge>pending deleted</PendingBadge> : null}
-              {pendingRename ? (
-                <PendingBadge>
-                  pending rename to{" "}
-                  {editingRepositoryPathName(pendingRename.path)}
-                </PendingBadge>
-              ) : null}
-            </div>
-          ) : null}
           {isRenaming && canModifySelectedPath ? (
             <div className="mt-3">
               <InlineRenameForm
