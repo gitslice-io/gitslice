@@ -8,6 +8,7 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
+import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -48,8 +49,33 @@ export function ChangesetsPage() {
     [changesetsQuery.data?.changesets]
   );
 
+  // Resolve the slice id so the breadcrumb can link back to the slice page.
+  const resolveSliceQuery = useQuery({
+    enabled: Boolean(account && slice),
+    queryKey: ["resolveSlice", account, slice],
+    queryFn: () => api.resolveSlice({ ref: { account, slice } })
+  });
+  const resolvedSliceId = resolveSliceQuery.data?.id ?? "";
+
+  const breadcrumbItems: Crumb[] = [{ label: "Slices", to: "/slices" }];
+  if (sliceRef) {
+    breadcrumbItems.push(
+      resolvedSliceId
+        ? {
+            label: `${account}/${slice}`,
+            to: "/slices/$id",
+            params: { id: resolvedSliceId }
+          }
+        : { label: `${account}/${slice}` }
+    );
+  }
+  breadcrumbItems.push({ label: "Changesets" });
+
   return (
     <section className="mx-auto w-full max-w-7xl">
+      <div className="mb-4">
+        <Breadcrumb items={breadcrumbItems} />
+      </div>
       <SlicePageHeader
         eyebrow="Changesets"
         title={sliceRef ? `${account}/${slice} · Changesets` : "Changesets"}
