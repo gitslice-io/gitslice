@@ -6,6 +6,7 @@ export interface ActionMenuItem {
   onSelect(): void;
   tone?: "default" | "danger";
   disabled?: boolean;
+  title?: string;
 }
 
 interface MenuCoords {
@@ -139,6 +140,7 @@ export function ActionMenu({
                       setOpen(false);
                     }}
                     role="menuitem"
+                    title={item.title}
                     type="button"
                   >
                     {item.label}
