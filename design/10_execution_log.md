@@ -4363,6 +4363,65 @@ git diff --check
 
 All listed commands passed.
 
+## 2026-06-15: First-Signup Username Choice Backend Foundation
+
+Request:
+
+- stop automatically provisioning a personal account for externally
+  authenticated subjects
+- add authenticated username availability and username choice RPCs
+- keep dev fake-account signup creating a personal account and home slice
+
+Implemented:
+
+- extended `AuthService` with `CheckUsernameAvailable` and `ChooseUsername`, and
+  added `needs_username` to `GetAuthStatus`
+- changed external subject provisioning to insert only the stable subject row;
+  personal account, membership, home slice, path index, and account-root creation
+  now happen through `ChooseUsername`
+- refactored Postgres personal-account provisioning into
+  `provisionAccountForSubject` so `SignupUser` and `ChooseUsername` share the
+  same account/home-slice/root-directory logic
+- preserved username uniqueness by treating an existing slug as reusable only
+  when it is already this subject's own personal account membership
+- mirrored the behavior in the memory store with an explicit personal-account
+  index for subjects whose chosen username is not derivable from their subject id
+- added in-memory service coverage for the external subject status,
+  availability, username choice, idempotent retry, and taken-username paths
+
+Important decisions and learnings:
+
+- `ChooseUsername` is idempotent when a subject already has a personal account:
+  it returns the existing slug instead of failing, so a double-submit is safe
+- Postgres locks the subject row while choosing a username so concurrent
+  double-submits for one subject serialize before checking for an existing
+  personal account
+- validation errors are wrapped with `ErrInvalid` on mutating username paths so
+  service error mapping returns `InvalidArgument`
+- this repository's shared `grpcError` currently maps `ErrConflict` to
+  `FailedPrecondition`; the username handlers reuse that existing mapper rather
+  than changing unrelated conflict behavior
+- `make proto` succeeded, but the local `protoc` version rewrote non-auth
+  generated metadata; that unrelated churn was removed so only auth generated
+  files remain changed
+- `go vet ./...` currently fails on pre-existing protobuf copy-lock warnings in
+  `internal/storage/memory`, `internal/cli`, and `service` files outside this
+  request's implementation scope
+
+Verification:
+
+```bash
+make proto
+gofmt -l -w internal/cli/cli_test.go internal/postgres/auth_store.go internal/storage/interfaces.go internal/storage/memory/store.go proto/core/v1/auth.pb.go proto/core/v1/auth.pb.gw.go proto/core/v1/auth_grpc.pb.go service/auth.go service/memory_service_test.go
+go build ./...
+go vet ./...
+go test ./...
+```
+
+`make proto`, `gofmt`, `go build ./...`, and `go test ./...` passed.
+`go vet ./...` failed on existing protobuf copy-lock warnings unrelated to the
+username change.
+
 ## 2026-06-14: Slice Sidebar Source Tree
 
 Request:

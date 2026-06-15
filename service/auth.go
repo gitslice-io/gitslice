@@ -69,7 +69,34 @@ func (s *AuthService) GetAuthStatus(ctx context.Context, req *corev1.GetAuthStat
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.GetAuthStatusResponse{SubjectId: subjectID, Accounts: accounts}, nil
+	return &corev1.GetAuthStatusResponse{SubjectId: subjectID, Accounts: accounts, NeedsUsername: len(accounts) == 0}, nil
+}
+
+func (s *AuthService) CheckUsernameAvailable(ctx context.Context, req *corev1.CheckUsernameAvailableRequest) (*corev1.CheckUsernameAvailableResponse, error) {
+	if _, err := requireSubject(ctx); err != nil {
+		return nil, err
+	}
+	available, normalized, reason, err := s.Auth.UsernameAvailable(ctx, req.Username)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.CheckUsernameAvailableResponse{
+		Available:  available,
+		Normalized: normalized,
+		Reason:     reason,
+	}, nil
+}
+
+func (s *AuthService) ChooseUsername(ctx context.Context, req *corev1.ChooseUsernameRequest) (*corev1.ChooseUsernameResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	account, err := s.Auth.ChooseUsername(ctx, subjectID, req.Username)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.ChooseUsernameResponse{SubjectId: subjectID, Account: account}, nil
 }
 
 func parseLocalCallbackURL(raw string) (*url.URL, error) {

@@ -9,10 +9,19 @@ import (
 type AuthStore interface {
 	LoginDevUser(ctx context.Context, devUser string) (string, string, error)
 	SignupUser(ctx context.Context, username string) (string, string, error)
-	// EnsureExternalSubject idempotently provisions a subject and personal
-	// account for an externally authenticated identity (for example a verified
-	// Clerk user) and returns the internal subject ID.
+	// EnsureExternalSubject idempotently provisions a subject only for an
+	// externally authenticated identity (for example a verified Clerk user) and
+	// returns the internal subject ID.
 	EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error)
+	// UsernameAvailable reports whether username (after normalization) is a
+	// valid, unclaimed personal-account slug. normalized is the canonical form;
+	// reason is a short explanation when available is false (invalid or taken).
+	UsernameAvailable(ctx context.Context, username string) (available bool, normalized string, reason string, err error)
+	// ChooseUsername provisions the personal account (and home slice) for an
+	// already-provisioned subject using the chosen username, returning the
+	// account slug. It errors if the subject already has a personal account or
+	// the username is taken/invalid.
+	ChooseUsername(ctx context.Context, subjectID, username string) (account string, err error)
 	SubjectForToken(ctx context.Context, token string) (*Subject, error)
 	EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error
 	AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error)
