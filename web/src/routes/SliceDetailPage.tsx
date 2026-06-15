@@ -47,6 +47,7 @@ import {
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
+import { shortHash } from "../lib/objectId";
 import { useSelection } from "../state/selection";
 
 interface SliceParams {
@@ -527,9 +528,7 @@ function HistoryDrawer({
                   : undefined;
                 const summary =
                   commit.message?.split("\n")[0] || "(no message)";
-                const shortCommitId = commit.id
-                  ?.replace(/^sha256:/, "")
-                  .slice(0, 12);
+                const shortCommitId = shortHash(commit.id);
 
                 return (
                   <div
@@ -539,7 +538,10 @@ function HistoryDrawer({
                     <p className="font-medium text-zinc-950">{summary}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
                       {shortCommitId ? (
-                        <span className="font-mono text-xs text-slate-500">
+                        <span
+                          className="font-mono text-xs text-slate-500"
+                          title={commit.id}
+                        >
                           {shortCommitId}
                         </span>
                       ) : null}
@@ -1278,8 +1280,11 @@ function DirectoryHeader({
           <h2 className="break-all text-base font-semibold text-zinc-950">
             {selectedPath || "Slice root"}
           </h2>
-          <p className="mt-1 hidden break-all text-xs text-slate-500 sm:block">
-            Commit <span className="font-mono text-slate-700">{commitId}</span>
+          <p className="mt-1 hidden text-xs text-slate-500 sm:block">
+            Commit{" "}
+            <span className="font-mono text-slate-700" title={commitId}>
+              {shortHash(commitId)}
+            </span>
           </p>
         </div>
         {rightActions ? <div className="shrink-0">{rightActions}</div> : null}
@@ -1347,6 +1352,8 @@ function SliceDirectoryTable({
             const pendingWrite = pendingWriteForPath(pendingEdits, path);
             const isRenaming = renamingPath === path;
             const displayName = entryDisplayName(entry);
+            const entryHash =
+              entry.contentHash || entry.blobId || entry.treeId || "";
             const canModifyEntryPath = canModifyPath(includedPaths, path);
             const modifyDisabledTitle = canModifyEntryPath
               ? undefined
@@ -1380,8 +1387,12 @@ function SliceDirectoryTable({
                 <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                   {formatSize(entry.size)}
                 </td>
-                <td className="hidden max-w-md break-all px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
-                  {entry.contentHash || entry.blobId || entry.treeId || ""}
+                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
+                  {entryHash ? (
+                    <span title={entryHash}>{shortHash(entryHash)}</span>
+                  ) : (
+                    ""
+                  )}
                 </td>
                 <td className="min-w-40 px-4 py-3 text-right sm:min-w-48 sm:px-5">
                   {isRenaming && canModifyEntryPath ? (
