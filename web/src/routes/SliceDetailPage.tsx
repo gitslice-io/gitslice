@@ -7,6 +7,7 @@ import type {
   TreeEntry
 } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
+import { Breadcrumb } from "../components/Breadcrumb";
 import { ActionMenu } from "../components/source/ActionMenu";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
 import {
@@ -202,9 +203,14 @@ export function SliceDetailPage() {
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 pb-3 sm:gap-3">
-        <h1 className="w-full min-w-0 truncate text-base font-semibold text-zinc-950 sm:w-auto sm:flex-1">
-          {sliceLabel}
-        </h1>
+        <div className="w-full min-w-0 sm:w-auto sm:flex-1">
+          <Breadcrumb
+            items={[
+              { label: "Slices", to: "/slices" },
+              { label: sliceLabel }
+            ]}
+          />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             aria-controls="slice-file-tree-panel"
