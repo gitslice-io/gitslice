@@ -460,6 +460,59 @@ function CliReferenceDoc() {
         description="A compact lookup for the commands used in normal Gitslice work. Use Start Here for the walkthrough."
       />
 
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
+        <h2 className="text-base font-semibold text-zinc-950">
+          Install the gs CLI
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          The CLI is a single Go binary named{" "}
+          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            gs
+          </code>
+          . Installing it requires Go 1.24 or newer.
+        </p>
+
+        <h3 className="mt-5 text-sm font-semibold text-zinc-950">
+          Option A — go install (quickest)
+        </h3>
+        <CommandBlock>{`go install github.com/gitslice-io/gitslice/cmd/gs@latest`}</CommandBlock>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Make sure your Go bin directory is on{" "}
+          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            PATH
+          </code>
+          :
+        </p>
+        <CommandBlock>{`export PATH="$PATH:$(go env GOPATH)/bin"`}</CommandBlock>
+
+        <h3 className="mt-5 text-sm font-semibold text-zinc-950">
+          Option B — build from source
+        </h3>
+        <CommandBlock>{`git clone https://github.com/gitslice-io/gitslice.git
+cd gitslice
+make install   # builds gs (and gitslice-server) into your Go bin`}</CommandBlock>
+
+        <h3 className="mt-5 text-sm font-semibold text-zinc-950">Verify</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            gs
+          </code>{" "}
+          defaults to the hosted endpoint, so you can sign in right away. Point
+          at a different server with{" "}
+          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            --server
+          </code>{" "}
+          or{" "}
+          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            GS_SERVER_ADDR
+          </code>
+          .
+        </p>
+        <CommandBlock>{`gs version
+gs auth login
+gs auth status`}</CommandBlock>
+      </section>
+
       <section className="mt-8 grid gap-4 md:grid-cols-2">
         {commandGroups.map((group) => (
           <article
