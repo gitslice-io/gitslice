@@ -1,16 +1,25 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { UserButton } from "@clerk/clerk-react";
 
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
 
 const navItems = [
-  { label: "home", to: "/" },
-  { label: "doc", to: "/doc" }
+  { label: "Slices", to: "/slices", section: "slices" },
+  { label: "doc", to: "/doc", section: "doc" }
 ] as const;
 
 export function TopBar() {
   const { account } = useSelection();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname
+  });
+  const isSlicesActive =
+    pathname === "/" ||
+    pathname.startsWith("/slices") ||
+    pathname.startsWith("/source") ||
+    pathname.startsWith("/changesets");
+  const isDocActive = pathname.startsWith("/doc");
 
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 backdrop-blur sm:px-4 md:px-6">
@@ -27,11 +36,17 @@ export function TopBar() {
           <nav aria-label="Primary" className="flex items-center gap-1">
             {navItems.map((item) => (
               <Link
-                activeOptions={{ exact: true }}
-                activeProps={{ "aria-current": "page" }}
+                aria-current={
+                  (item.section === "slices" && isSlicesActive) ||
+                  (item.section === "doc" && isDocActive)
+                    ? "page"
+                    : undefined
+                }
                 className={cn(
                   "rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 sm:px-3",
-                  "aria-[current=page]:bg-zinc-950 aria-[current=page]:text-white"
+                  ((item.section === "slices" && isSlicesActive) ||
+                    (item.section === "doc" && isDocActive)) &&
+                    "bg-zinc-950 text-white hover:bg-zinc-950 hover:text-white"
                 )}
                 key={item.label}
                 to={item.to}

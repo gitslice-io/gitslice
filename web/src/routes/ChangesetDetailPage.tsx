@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { useMemo, useState, type FormEvent } from "react";
 
 import type { Changeset, DiffChangesetResponse } from "../api/types";
 import { useApi } from "../api/useApi";
+import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { cn } from "../lib/cn";
 
 interface DiffFileSection {
@@ -39,6 +40,18 @@ export function ChangesetDetailPage() {
 
   const changeset = changesetQuery.data;
   const canonicalChangesetId = changeset?.id || changesetId;
+  const authoringAccount = changeset?.authoringSlice?.account ?? "";
+  const authoringSlice = changeset?.authoringSlice?.slice ?? "";
+  const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";
+
+  const resolveSliceQuery = useQuery({
+    enabled: Boolean(authoringAccount && authoringSlice),
+    queryKey: ["resolveSlice", authoringAccount, authoringSlice],
+    queryFn: () =>
+      api.resolveSlice({
+        ref: { account: authoringAccount, slice: authoringSlice }
+      })
+  });
 
   const diffQuery = useQuery({
     enabled: Boolean(changeset && canonicalChangesetId),
@@ -141,9 +154,20 @@ export function ChangesetDetailPage() {
 
   const terminal = isTerminalStatus(changeset.status);
   const actionBusy = mergeMutation.isPending || abandonMutation.isPending;
+  const resolvedSliceId = resolveSliceQuery.data?.id ?? "";
 
   return (
     <section className="mx-auto w-full max-w-5xl">
+      <div className="mb-5">
+        <Breadcrumb
+          items={changesetBreadcrumbItems({
+            changeset,
+            resolvedSliceId,
+            sliceSearch
+          })}
+        />
+      </div>
+
       <HeaderCard
         abandonReason={abandonReason}
         actionBusy={actionBusy}
@@ -191,22 +215,10 @@ function HeaderCard({
   onMerge(): void;
   terminal: boolean;
 }) {
-  const sliceSearch = changesetSliceSearch(changeset);
-
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
       <div className="px-5 py-5 md:px-6">
-        {sliceSearch ? (
-          <Link
-            className="break-all text-sm font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 transition hover:text-zinc-950 hover:decoration-slate-700"
-            search={{ slice: sliceSearch } as never}
-            to="/changesets"
-          >
-            Back to {sliceSearch} changesets
-          </Link>
-        ) : null}
-
-        <div className="mt-4 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <h1 className="text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl md:text-3xl">
               {changeset.title || "Untitled changeset"}
@@ -655,6 +667,39 @@ function changesetSliceSearch(changeset: Changeset) {
     return "";
   }
   return `${ref.account}/${ref.slice}`;
+}
+
+function changesetBreadcrumbItems({
+  changeset,
+  resolvedSliceId,
+  sliceSearch
+}: {
+  changeset: Changeset;
+  resolvedSliceId: string;
+  sliceSearch: string;
+}): Crumb[] {
+  const items: Crumb[] = [{ label: "Slices", to: "/slices" }];
+
+  if (sliceSearch) {
+    items.push(
+      resolvedSliceId
+        ? {
+            label: sliceSearch,
+            params: { id: resolvedSliceId },
+            to: "/slices/$id"
+          }
+        : { label: sliceSearch }
+    );
+    items.push({
+      label: `${sliceSearch} changesets`,
+      search: { slice: sliceSearch },
+      to: "/changesets"
+    });
+  }
+
+  items.push({ label: changesetHandle(changeset) });
+
+  return items;
 }
 
 function changesetHandle(changeset: Changeset) {

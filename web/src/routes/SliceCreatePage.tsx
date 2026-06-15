@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 
 import { useApi } from "../api/useApi";
+import { Breadcrumb } from "../components/Breadcrumb";
 import {
   SliceDefinitionForm,
   validateIncludedPaths,
@@ -96,15 +97,15 @@ export function SliceCreatePage() {
 
   return (
     <section className="mx-auto w-full max-w-7xl">
+      <div className="mb-5">
+        <Breadcrumb
+          items={[
+            { label: "Slices", to: "/slices" },
+            { label: "New slice" }
+          ]}
+        />
+      </div>
       <SlicePageHeader
-        actions={
-          <Link
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-            to="/slices"
-          >
-            Back to slices
-          </Link>
-        }
         eyebrow="Slices"
         title="New slice"
         description="Create a slice under your signed-in account with a visibility value and included source paths."

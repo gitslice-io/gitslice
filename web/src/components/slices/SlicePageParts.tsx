@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 import type { Slice } from "../../api/types";
@@ -131,50 +130,6 @@ export function VisibilityBadge({ visibility }: { visibility?: string }) {
   );
 }
 
-interface IncludedPathLinksProps {
-  paths: string[];
-  fallbackAccount?: string;
-}
-
-export function IncludedPathLinks({
-  paths,
-  fallbackAccount = ""
-}: IncludedPathLinksProps) {
-  if (!paths.length) {
-    return (
-      <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-        No included paths are defined for this slice.
-      </p>
-    );
-  }
-
-  return (
-    <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200">
-      {paths.map((path) => {
-        const target = sourceTargetForIncludedPath(path, fallbackAccount);
-
-        return (
-          <li
-            className="flex min-w-0 items-center justify-between gap-3 p-3"
-            key={path}
-          >
-            <code className="min-w-0 break-all text-sm text-zinc-950">
-              {path}
-            </code>
-            <Link
-              className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 active:scale-[0.98]"
-              params={{ account: target.account, _splat: target.splat }}
-              to="/source/$account/$"
-            >
-              Browse
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 export function sliceDisplayName(slice?: Slice) {
   if (!slice) {
     return "Unknown slice";
@@ -188,15 +143,6 @@ export function sliceDisplayName(slice?: Slice) {
   }
 
   return slug || slice.id || "Unknown slice";
-}
-
-export function sourceTargetForIncludedPath(path: string, fallbackAccount = "") {
-  const trimmed = path.trim().replace(/^\/+/, "");
-  const segments = trimmed ? trimmed.split("/") : [];
-  const account = segments[0] || fallbackAccount || "account";
-  const splat = segments[0] ? segments.slice(1).join("/") : "";
-
-  return { account, splat };
 }
 
 export function formatPathPreview(paths: string[], max = 2) {

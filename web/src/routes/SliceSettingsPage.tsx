@@ -1,9 +1,10 @@
-import { Link, useParams } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { SliceDefinition } from "../api/types";
 import { useApi } from "../api/useApi";
+import { Breadcrumb } from "../components/Breadcrumb";
 import {
   SliceDefinitionForm,
   toVisibilityOption,
@@ -139,19 +140,25 @@ export function SliceSettingsPage() {
     );
   }
 
+  const sliceLabel = sliceDisplayName(slice);
+
   return (
     <section className="mx-auto w-full max-w-7xl">
+      <div className="mb-5">
+        <Breadcrumb
+          items={[
+            { label: "Slices", to: "/slices" },
+            {
+              label: sliceLabel,
+              params: { id: sliceId },
+              to: "/slices/$id"
+            },
+            { label: "Settings" }
+          ]}
+        />
+      </div>
       <SlicePageHeader
-        actions={
-          <Link
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-            params={{ id: sliceId }}
-            to="/slices/$id"
-          >
-            Back to slice
-          </Link>
-        }
-        title={`Slice Settings: ${sliceDisplayName(slice)}`}
+        title={`Slice Settings: ${sliceLabel}`}
         description="Edit the supported slice definition fields only."
       />
 
