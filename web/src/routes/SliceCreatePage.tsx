@@ -159,6 +159,7 @@ export function SliceCreatePage() {
         </SlicePanel>
 
         <SliceDefinitionForm
+          account={account}
           disabled={isBusy}
           includedPaths={includedPaths}
           onIncludedPathsChange={setIncludedPaths}
