@@ -555,14 +555,14 @@ export function DirectoryCreateControls({
   // rejects, so require navigating into a folder first.
   if (!directoryPath) {
     return (
-      <div className="border-b border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-600">
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 sm:px-5">
         Open a folder to add files or folders here.
       </div>
     );
   }
 
   return (
-    <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+    <div className="border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-5">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <p className="min-w-0 break-all text-xs text-slate-500">
           New items are created in{" "}
