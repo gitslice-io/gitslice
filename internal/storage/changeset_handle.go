@@ -1,17 +1,47 @@
 package storage
 
 import (
-	"strconv"
 	"strings"
 
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
-func ChangesetHandle(ref *corev1.SliceRef, number int64) string {
-	if ref == nil || ref.Account == "" || ref.Slice == "" || number <= 0 {
+const ShortChangesetIDLen = 10
+
+// ShortChangesetID returns the canonical short, shareable code for a changeset
+// id: the hex portion after the "cs_" prefix, truncated to ShortChangesetIDLen.
+// Returns "" for an empty id. If the id has no "cs_" prefix it is treated as the
+// hex body as-is.
+func ShortChangesetID(id string) string {
+	if id == "" {
 		return ""
 	}
-	return SliceHandle(ref) + "@" + strconv.FormatInt(number, 10)
+	body := strings.TrimPrefix(id, "cs_")
+	if len(body) > ShortChangesetIDLen {
+		return body[:ShortChangesetIDLen]
+	}
+	return body
+}
+
+// ChangesetIDLookupPrefix validates a user-supplied changeset id or short code
+// and returns the canonical lookup prefix ("cs_" + lowercased hex) for a
+// left-anchored prefix match. ok is false for handles, empty, non-hex, or hex
+// shorter than 4 / longer than 32 chars. It accepts an optional leading "cs_".
+func ChangesetIDLookupPrefix(selector string) (prefix string, ok bool) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return "", false
+	}
+	body := strings.TrimPrefix(strings.ToLower(selector), "cs_")
+	if len(body) < 4 || len(body) > 32 {
+		return "", false
+	}
+	for _, ch := range body {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return "", false
+		}
+	}
+	return "cs_" + body, true
 }
 
 // SliceHandle is the canonical global slice identity, account:slice. The colon
@@ -38,92 +68,8 @@ func SplitSliceHandle(ref string) (account, slice string, ok bool) {
 	return parts[0], parts[1], true
 }
 
-func PatchsetHandle(ref *corev1.SliceRef, changesetNumber, patchsetNumber int64) string {
-	changeset := ChangesetHandle(ref, changesetNumber)
-	if changeset == "" || patchsetNumber <= 0 {
-		return ""
-	}
-	return changeset + "." + strconv.FormatInt(patchsetNumber, 10)
-}
-
 func PopulateChangesetHandles(cs *corev1.Changeset) {
 	if cs == nil {
 		return
 	}
-	cs.Handle = ChangesetHandle(cs.AuthoringSlice, cs.Number)
-	for _, patchset := range cs.Patchsets {
-		if patchset == nil {
-			continue
-		}
-		patchset.Handle = PatchsetHandle(cs.AuthoringSlice, cs.Number, patchset.Number)
-	}
-}
-
-func ParseChangesetHandle(selector string) (account, slice string, number int64, ok bool) {
-	selector = strings.TrimSpace(selector)
-	if bang := strings.LastIndex(selector, "!"); bang > 0 {
-		end := len(selector)
-		if at := strings.Index(selector[bang+1:], "@"); at >= 0 {
-			end = bang + 1 + at
-		}
-		return parseChangesetHandleParts(selector[:bang], selector[bang+1:end])
-	}
-
-	at := strings.LastIndex(selector, "@")
-	if at <= 0 || at == len(selector)-1 {
-		return "", "", 0, false
-	}
-	numberPart := selector[at+1:]
-	if dot := strings.Index(numberPart, "."); dot >= 0 {
-		numberPart = numberPart[:dot]
-	}
-	return parseChangesetHandleParts(selector[:at], numberPart)
-}
-
-func parseChangesetHandleParts(ref, numberPart string) (account, slice string, number int64, ok bool) {
-	account, slice, ok = SplitSliceHandle(ref)
-	if !ok {
-		return "", "", 0, false
-	}
-	n, err := strconv.ParseInt(numberPart, 10, 64)
-	if err != nil || n <= 0 {
-		return "", "", 0, false
-	}
-	return account, slice, n, true
-}
-
-func ParsePatchsetHandle(selector string) (account, slice string, changesetNumber, patchsetNumber int64, ok bool) {
-	selector = strings.TrimSpace(selector)
-	if bang := strings.LastIndex(selector, "!"); bang > 0 {
-		if at := strings.LastIndex(selector, "@"); at > bang && at < len(selector)-1 {
-			account, slice, changesetNumber, ok = ParseChangesetHandle(selector[:at])
-			if !ok {
-				return "", "", 0, 0, false
-			}
-			n, err := strconv.ParseInt(selector[at+1:], 10, 64)
-			if err != nil || n <= 0 {
-				return "", "", 0, 0, false
-			}
-			return account, slice, changesetNumber, n, true
-		}
-	}
-
-	at := strings.LastIndex(selector, "@")
-	if at <= 0 || at == len(selector)-1 {
-		return "", "", 0, 0, false
-	}
-	version := selector[at+1:]
-	dot := strings.LastIndex(version, ".")
-	if dot <= 0 || dot == len(version)-1 {
-		return "", "", 0, 0, false
-	}
-	account, slice, changesetNumber, ok = parseChangesetHandleParts(selector[:at], version[:dot])
-	if !ok {
-		return "", "", 0, 0, false
-	}
-	n, err := strconv.ParseInt(version[dot+1:], 10, 64)
-	if err != nil || n <= 0 {
-		return "", "", 0, 0, false
-	}
-	return account, slice, changesetNumber, n, true
 }

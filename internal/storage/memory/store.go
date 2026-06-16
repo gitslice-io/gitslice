@@ -368,19 +368,23 @@ func memoryTokenHash(token string) string {
 }
 
 func (b *backend) resolveChangesetSelectorLocked(selector string) string {
-	account, sliceName, number, ok := storage.ParseChangesetHandle(selector)
+	prefix, ok := storage.ChangesetIDLookupPrefix(selector)
 	if !ok {
 		return ""
 	}
+	var match string
 	for id, cs := range b.changesets {
-		if cs == nil || cs.AuthoringSlice == nil {
+		if cs == nil {
 			continue
 		}
-		if cs.AuthoringSlice.Account == account && cs.AuthoringSlice.Slice == sliceName && cs.Number == number {
-			return id
+		if strings.HasPrefix(strings.ToLower(id), prefix) {
+			if match != "" {
+				return ""
+			}
+			match = id
 		}
 	}
-	return ""
+	return match
 }
 
 func (s *ObjectStore) Put(ctx context.Context, key string, r io.Reader) error {
@@ -768,7 +772,6 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	next.Id = s.b.nextIDLocked("ps")
 	next.ChangesetId = changesetID
 	next.Number = int64(len(cs.Patchsets) + 1)
-	next.Handle = storage.PatchsetHandle(cs.AuthoringSlice, cs.Number, next.Number)
 	if next.SubmitRequirements == nil || next.SubmitRequirements.SourceSliceDefinitionHash == "" {
 		sliceID := s.b.sliceRefs[sliceRefKey(cs.AuthoringSlice)]
 		slice := s.b.slices[sliceID]
@@ -885,7 +888,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	cs.Status = "pending_publish"
 	cs.SubmitBlockedReason = ""
 	s.b.pendingAcceptedAt[cs.Id] = time.Now()
-	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id, ChangesetHandle: cs.Handle}, nil
+	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id}, nil
 }
 
 func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (published int, err error) {

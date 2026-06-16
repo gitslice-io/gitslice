@@ -9,6 +9,7 @@ import {
 
 import type { Changeset, FileEdit, SliceRef } from "../../api/types";
 import { type ApiClient } from "../../api/useApi";
+import { shortChangesetId } from "../../lib/objectId";
 import { ActionMenu } from "./ActionMenu";
 import { canCreateInPath, normalizeRepositoryPath } from "./sourceUtils";
 
@@ -41,8 +42,8 @@ interface DraftChangesetControllerOptions {
 
 export interface DraftChangesetController {
   actionStatus: DraftActionStatus;
-  changesetHandle: string;
   changesetId: string;
+  changesetLabel: string;
   currentPatchsetId: string;
   edits: PendingEdit[];
   errorMessage: string;
@@ -76,7 +77,7 @@ export function useDraftChangesetController({
 }: DraftChangesetControllerOptions): DraftChangesetController {
   const defaultTitle = `Web edits to ${sliceLabel}`;
   const [changesetId, setChangesetId] = useState("");
-  const [changesetHandle, setChangesetHandle] = useState("");
+  const [changesetLabel, setChangesetLabel] = useState("");
   const [currentPatchsetId, setCurrentPatchsetId] = useState("");
   const [edits, setEdits] = useState<PendingEdit[]>([]);
   const [saveStatus, setSaveStatus] = useState<DraftSaveStatus>("idle");
@@ -85,7 +86,6 @@ export function useDraftChangesetController({
   const [errorMessage, setErrorMessage] = useState("");
 
   const changesetIdRef = useRef("");
-  const changesetHandleRef = useRef("");
   const currentPatchsetIdRef = useRef("");
   const editsRef = useRef<PendingEdit[]>([]);
   const errorMessageRef = useRef("");
@@ -105,14 +105,13 @@ export function useDraftChangesetController({
   const setDraftIdentity = useCallback(
     (changeset: Changeset | undefined) => {
       const nextChangesetId = changeset?.id ?? "";
-      const nextHandle = changeset?.handle ?? "";
+      const nextLabel = shortChangesetId(nextChangesetId);
       const nextPatchsetId = changeset?.currentPatchsetId ?? "";
 
       changesetIdRef.current = nextChangesetId;
-      changesetHandleRef.current = nextHandle;
       currentPatchsetIdRef.current = nextPatchsetId;
       setChangesetId(nextChangesetId);
-      setChangesetHandle(nextHandle);
+      setChangesetLabel(nextLabel);
       setCurrentPatchsetId(nextPatchsetId);
     },
     []
@@ -122,11 +121,10 @@ export function useDraftChangesetController({
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     changesetIdRef.current = "";
-    changesetHandleRef.current = "";
     currentPatchsetIdRef.current = "";
     editsRef.current = [];
     setChangesetId("");
-    setChangesetHandle("");
+    setChangesetLabel("");
     setCurrentPatchsetId("");
     setEdits([]);
     clearControllerError();
@@ -154,13 +152,13 @@ export function useDraftChangesetController({
           return;
         }
 
-        if (!draft?.id && !draft?.handle) {
+        if (!draft?.id) {
           setSaveStatus("idle");
           return;
         }
 
         const fullDraft = await api.getChangeset({
-          changesetId: draft.id || draft.handle
+          changesetId: draft.id
         });
 
         if (cancelled || generationRef.current !== generation) {
@@ -197,11 +195,10 @@ export function useDraftChangesetController({
 
   const clearDraftState = useCallback(() => {
     changesetIdRef.current = "";
-    changesetHandleRef.current = "";
     currentPatchsetIdRef.current = "";
     editsRef.current = [];
     setChangesetId("");
-    setChangesetHandle("");
+    setChangesetLabel("");
     setCurrentPatchsetId("");
     setEdits([]);
     clearControllerError();
@@ -247,10 +244,9 @@ export function useDraftChangesetController({
         draftId = changeset.id;
         draftPatchsetId = changeset.currentPatchsetId ?? "";
         changesetIdRef.current = draftId;
-        changesetHandleRef.current = changeset.handle ?? "";
         currentPatchsetIdRef.current = draftPatchsetId;
         setChangesetId(draftId);
-        setChangesetHandle(changeset.handle ?? "");
+        setChangesetLabel(shortChangesetId(draftId));
         setCurrentPatchsetId(draftPatchsetId);
       }
 
@@ -346,9 +342,8 @@ export function useDraftChangesetController({
         expectedCurrentPatchsetId
       });
 
-      const navigateId = changesetHandleRef.current || id;
       clearDraftState();
-      return navigateId;
+      return id;
     } finally {
       setActionStatus("idle");
     }
@@ -373,8 +368,8 @@ export function useDraftChangesetController({
 
   return {
     actionStatus,
-    changesetHandle,
     changesetId,
+    changesetLabel,
     currentPatchsetId,
     edits,
     errorMessage,
@@ -389,8 +384,8 @@ export function useDraftChangesetController({
 
 export function DraftChangesetPanel({
   actionStatus,
-  changesetHandle,
   changesetId,
+  changesetLabel,
   currentPatchsetId,
   edits,
   errorMessage,
@@ -402,10 +397,9 @@ export function DraftChangesetPanel({
 }: DraftChangesetController) {
   const navigate = useNavigate();
   const [actionError, setActionError] = useState("");
-  const detailId = changesetHandle || changesetId;
-  // The visible label prefers the human handle, but the shareable /cs/<id> link
-  // uses the canonical changeset id.
-  const shareId = changesetId || changesetHandle;
+  const shareId = shortChangesetId(changesetId);
+  const detailId = shareId || changesetId;
+  const visibleLabel = changesetLabel || detailId;
   const isAdopting = saveStatus === "adopting";
   const isSaving = saveStatus === "saving";
   const isActionPending = actionStatus !== "idle";
@@ -421,7 +415,7 @@ export function DraftChangesetPanel({
       const id = await submitDraft();
       void navigate({
         to: "/cs/$id",
-        params: { id }
+        params: { id: shortChangesetId(id) }
       });
     } catch (error) {
       setActionError(errorMessageFromUnknown(error));
@@ -448,10 +442,10 @@ export function DraftChangesetPanel({
             {detailId ? (
               <Link
                 className="break-all font-mono text-zinc-900 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
-                params={{ id: shareId }}
+                params={{ id: detailId }}
                 to="/cs/$id"
               >
-                {detailId}
+                {visibleLabel}
               </Link>
             ) : (
               <span>Draft will be created with the first saved edit.</span>

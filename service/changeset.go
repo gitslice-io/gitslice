@@ -152,14 +152,11 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 		fromID = fromPatchset.Id
 	}
 	return &corev1.DiffChangesetResponse{
-		ChangesetId:        cs.Id,
-		FromPatchsetId:     fromID,
-		ToPatchsetId:       toPatchset.Id,
-		ChangedPaths:       paths,
-		Diff:               out.String(),
-		ChangesetHandle:    cs.Handle,
-		FromPatchsetHandle: patchsetHandle(fromPatchset),
-		ToPatchsetHandle:   patchsetHandle(toPatchset),
+		ChangesetId:    cs.Id,
+		FromPatchsetId: fromID,
+		ToPatchsetId:   toPatchset.Id,
+		ChangedPaths:   paths,
+		Diff:           out.String(),
 	}, nil
 }
 
@@ -200,9 +197,6 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	patchset, err = s.Changesets.AddPatchset(ctx, cs.Id, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
 		return nil, grpcError(err)
-	}
-	if patchset.Handle == "" && cs.Handle != "" {
-		patchset.Handle = storage.PatchsetHandle(cs.AuthoringSlice, cs.Number, patchset.Number)
 	}
 	if patchset.Author != "" {
 		usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{patchset.Author})
@@ -291,8 +285,8 @@ func selectChangesetPatchset(cs *corev1.Changeset, selector string) (*corev1.Pat
 		}
 		return nil, status.Errorf(codes.NotFound, "patchset number %d not found", n)
 	}
-	if account, sliceName, changesetNumber, n, ok := storage.ParsePatchsetHandle(selector); ok {
-		if cs.AuthoringSlice == nil || account != cs.AuthoringSlice.Account || sliceName != cs.AuthoringSlice.Slice || changesetNumber != cs.Number {
+	if changesetSelector, n, ok := parsePatchsetIDSelector(selector); ok {
+		if !changesetSelectorMatchesID(changesetSelector, cs.Id) {
 			return nil, status.Errorf(codes.NotFound, "patchset %s not found", selector)
 		}
 		for _, patchset := range cs.Patchsets {
@@ -310,11 +304,28 @@ func selectChangesetPatchset(cs *corev1.Changeset, selector string) (*corev1.Pat
 	return nil, status.Errorf(codes.NotFound, "patchset %s not found", selector)
 }
 
-func patchsetHandle(patchset *corev1.Patchset) string {
-	if patchset == nil {
-		return ""
+func parsePatchsetIDSelector(selector string) (changesetSelector string, patchsetNumber int64, ok bool) {
+	dot := strings.LastIndex(selector, ".")
+	if dot <= 0 || dot == len(selector)-1 {
+		return "", 0, false
 	}
-	return patchset.Handle
+	changesetSelector = selector[:dot]
+	if _, ok := storage.ChangesetIDLookupPrefix(changesetSelector); !ok {
+		return "", 0, false
+	}
+	n, err := strconv.ParseInt(selector[dot+1:], 10, 64)
+	if err != nil || n <= 0 {
+		return "", 0, false
+	}
+	return changesetSelector, n, true
+}
+
+func changesetSelectorMatchesID(selector, id string) bool {
+	prefix, ok := storage.ChangesetIDLookupPrefix(selector)
+	if !ok {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(id), prefix)
 }
 
 func changedPathsForDiff(from, to *corev1.Patchset) []string {
@@ -431,9 +442,6 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	res, err := s.Changesets.Submit(ctx, cs.Id, req.ExpectedCurrentPatchsetId)
 	if err != nil {
 		return nil, grpcError(err)
-	}
-	if res.ChangesetHandle == "" {
-		res.ChangesetHandle = cs.Handle
 	}
 	return res, nil
 }
