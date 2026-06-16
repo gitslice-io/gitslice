@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/storage"
@@ -58,6 +59,41 @@ func (s *FakeAccountService) ApproveSignup(ctx context.Context, req *corev1.Appr
 		SubjectId:   subjectID,
 		RedirectUrl: redirect.String(),
 	}, nil
+}
+
+func (s *AuthService) StartCliLogin(ctx context.Context, req *corev1.StartCliLoginRequest) (*corev1.StartCliLoginResponse, error) {
+	code, expiresAt, err := s.Auth.StartCliLogin(ctx)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.StartCliLoginResponse{
+		Code:                code,
+		ExpiresAt:           expiresAt.UTC().Format(time.RFC3339),
+		PollIntervalSeconds: 2,
+	}, nil
+}
+
+func (s *AuthService) PollCliLogin(ctx context.Context, req *corev1.PollCliLoginRequest) (*corev1.PollCliLoginResponse, error) {
+	loginStatus, token, subjectID, err := s.Auth.PollCliLogin(ctx, req.Code)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.PollCliLoginResponse{
+		Status:    loginStatus,
+		Token:     token,
+		SubjectId: subjectID,
+	}, nil
+}
+
+func (s *AuthService) CompleteCliLogin(ctx context.Context, req *corev1.CompleteCliLoginRequest) (*corev1.CompleteCliLoginResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Auth.CompleteCliLogin(ctx, req.Code, subjectID); err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.CompleteCliLoginResponse{SubjectId: subjectID}, nil
 }
 
 func (s *AuthService) GetAuthStatus(ctx context.Context, req *corev1.GetAuthStatusRequest) (*corev1.GetAuthStatusResponse, error) {

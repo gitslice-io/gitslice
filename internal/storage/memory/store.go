@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
@@ -38,6 +39,7 @@ type backend struct {
 	accountMembers   map[string]map[string]string
 	personalAccounts map[string]string
 	sessions         map[string]string
+	cliLoginSessions map[string]cliLoginSession
 
 	blobs   map[string]*corev1.BlobRecord
 	objects map[string][]byte
@@ -64,6 +66,13 @@ type backend struct {
 	entityChanges  map[string][]storage.HistoryEntityRef
 }
 
+type cliLoginSession struct {
+	status       string
+	subjectID    string
+	sessionToken string
+	expiresAt    time.Time
+}
+
 type AuthStore struct{ b *backend }
 type BlobStore struct{ b *backend }
 type ChangesetStore struct{ b *backend }
@@ -77,6 +86,7 @@ func New() *Stores {
 		accountMembers:          map[string]map[string]string{},
 		personalAccounts:        map[string]string{},
 		sessions:                map[string]string{},
+		cliLoginSessions:        map[string]cliLoginSession{},
 		blobs:                   map[string]*corev1.BlobRecord{},
 		objects:                 map[string][]byte{},
 		refs:                    map[string]*corev1.Ref{},
@@ -352,6 +362,11 @@ func memoryDefinitionHash(sliceID string, version int64, included []string, visi
 	return "mem_sha256:" + hex.EncodeToString(sum[:])
 }
 
+func memoryTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
 func (b *backend) resolveChangesetSelectorLocked(selector string) string {
 	account, sliceName, number, ok := storage.ParseChangesetHandle(selector)
 	if !ok {
@@ -436,6 +451,81 @@ func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, st
 	token := s.b.nextIDLocked("tok")
 	s.b.sessions[token] = subjectID
 	return token, subjectID, nil
+}
+
+func (s *AuthStore) StartCliLogin(ctx context.Context) (string, time.Time, error) {
+	code, err := objectid.RandomID("cli")
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	s.b.cliLoginSessions[memoryTokenHash(code)] = cliLoginSession{
+		status:    "pending",
+		expiresAt: expiresAt,
+	}
+	return code, expiresAt, nil
+}
+
+func (s *AuthStore) CompleteCliLogin(ctx context.Context, code, subjectID string) error {
+	code = strings.TrimSpace(code)
+	subjectID = strings.TrimSpace(subjectID)
+	if code == "" || subjectID == "" {
+		return storage.ErrNotFound
+	}
+	token, err := objectid.RandomID("clitok")
+	if err != nil {
+		return err
+	}
+
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if _, ok := s.b.subjects[subjectID]; !ok {
+		return storage.ErrNotFound
+	}
+	codeHash := memoryTokenHash(code)
+	session, ok := s.b.cliLoginSessions[codeHash]
+	if !ok || session.status != "pending" || !session.expiresAt.After(time.Now().UTC()) {
+		if ok {
+			delete(s.b.cliLoginSessions, codeHash)
+		}
+		return storage.ErrNotFound
+	}
+	s.b.sessions[token] = subjectID
+	session.status = "approved"
+	session.subjectID = subjectID
+	session.sessionToken = token
+	s.b.cliLoginSessions[codeHash] = session
+	return nil
+}
+
+func (s *AuthStore) PollCliLogin(ctx context.Context, code string) (string, string, string, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return "expired", "", "", nil
+	}
+
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	codeHash := memoryTokenHash(code)
+	session, ok := s.b.cliLoginSessions[codeHash]
+	if !ok {
+		return "expired", "", "", nil
+	}
+	if !session.expiresAt.After(time.Now().UTC()) {
+		delete(s.b.cliLoginSessions, codeHash)
+		return "expired", "", "", nil
+	}
+	if session.status == "pending" {
+		return "pending", "", "", nil
+	}
+	if session.status == "approved" {
+		delete(s.b.cliLoginSessions, codeHash)
+		return "approved", session.sessionToken, session.subjectID, nil
+	}
+	return "expired", "", "", nil
 }
 
 func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error) {
