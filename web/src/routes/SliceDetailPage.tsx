@@ -245,7 +245,7 @@ export function SliceDetailPage() {
           >
             Settings
           </Link>
-          <GitCloneDropdown cloneUrl={gitCloneHint.url} compact />
+          <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
         </div>
       </div>
 
@@ -367,47 +367,82 @@ export function SliceDetailPage() {
   );
 }
 
-function GitCloneDropdown({
-  cloneUrl,
-  compact = false
+function CheckoutMenu({
+  gitUrl,
+  sliceRef
 }: {
-  cloneUrl: string;
-  compact?: boolean;
+  gitUrl: string;
+  sliceRef: string;
 }) {
+  const gsCommand = `gs init ${sliceRef}`;
+
   return (
     <details className="group relative">
-      <summary
-        className={[
-          "flex cursor-pointer list-none items-center rounded-md border border-slate-300 bg-white font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]",
-          compact ? "px-2.5 py-1.5 text-xs" : "px-4 py-2 text-sm"
-        ].join(" ")}
-      >
-        Clone
+      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800">
+        Checkout
+        <span aria-hidden="true" className="text-[0.65rem] text-slate-400 transition group-open:rotate-180">
+          ▾
+        </span>
       </summary>
-      <div className="fixed left-4 right-4 z-20 mt-2 rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10 sm:absolute sm:left-auto sm:right-0 sm:w-[min(24rem,calc(100vw-2rem))]">
-        <label
-          className="block text-xs font-semibold uppercase tracking-normal text-slate-500"
-          htmlFor="git-clone-url"
-        >
-          Git endpoint
-        </label>
-        <div className="mt-2 flex min-w-0 items-stretch gap-2">
-          <input
-            className="min-w-0 flex-1 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-2 font-mono text-xs text-zinc-950"
-            id="git-clone-url"
-            readOnly
-            value={cloneUrl}
-          />
-          <button
-            className="rounded-md bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
-            onClick={() => void navigator.clipboard?.writeText(cloneUrl)}
-            type="button"
+      <div className="fixed left-4 right-4 z-20 mt-2 rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10 sm:absolute sm:left-auto sm:right-0 sm:w-[min(26rem,calc(100vw-2rem))]">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-normal text-slate-600">
+            gs CLI
+          </span>
+          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-normal text-emerald-700">
+            recommended
+          </span>
+        </div>
+        <CopyRow value={gsCommand} />
+        <p className="mt-1.5 text-xs leading-5 text-slate-500">
+          Creates a workspace for this slice. Sign in first with{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.7rem] text-slate-700">
+            gs auth login
+          </code>
+          . New to gs? See{" "}
+          <Link
+            className="text-slate-700 underline underline-offset-2 hover:text-zinc-950"
+            params={{ section: "cli" }}
+            to="/doc/$section"
           >
-            Copy
-          </button>
+            CLI docs
+          </Link>
+          .
+        </p>
+
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <span className="text-xs font-semibold uppercase tracking-normal text-slate-600">
+            Git
+          </span>
+          <CopyRow value={`git clone ${gitUrl}`} />
         </div>
       </div>
     </details>
+  );
+}
+
+function CopyRow({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="mt-2 flex min-w-0 items-stretch gap-2">
+      <input
+        className="min-w-0 flex-1 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-2 font-mono text-xs text-zinc-950"
+        readOnly
+        value={value}
+        onFocus={(event) => event.currentTarget.select()}
+      />
+      <button
+        className="shrink-0 rounded-md bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+        onClick={() => {
+          void navigator.clipboard?.writeText(value);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        }}
+        type="button"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
   );
 }
 
