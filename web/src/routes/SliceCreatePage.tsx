@@ -96,7 +96,7 @@ export function SliceCreatePage() {
   const isBusy = createMutation.isPending;
 
   return (
-    <section className="mx-auto w-full max-w-7xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <div className="mb-5">
         <Breadcrumb
           items={[

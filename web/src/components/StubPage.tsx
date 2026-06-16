@@ -4,7 +4,7 @@ interface StubPageProps {
 
 export function StubPage({ title }: StubPageProps) {
   return (
-    <section className="mx-auto w-full max-w-7xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <div className="border-b border-slate-200 pb-5">
         <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
           Gitslice Web

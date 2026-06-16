@@ -238,7 +238,7 @@ export function DocPage() {
   const section = normalizeSection(params.section);
 
   return (
-    <section className="mx-auto grid w-full max-w-7xl gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
+    <section className="mx-auto grid w-full max-w-[100rem] gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
       <aside className="lg:sticky lg:top-24 lg:self-start">
         <div className="grid gap-2">
           {docSections.map((item) => (

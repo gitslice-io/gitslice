@@ -50,7 +50,7 @@ export function SlicesPage() {
   const slices = slicesQuery.data ?? [];
 
   return (
-    <section className="mx-auto w-full max-w-7xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <SlicePageHeader
         actions={
           <Link
