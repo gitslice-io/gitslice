@@ -428,7 +428,49 @@ func (s *RepositoryService) GetCommit(ctx context.Context, req *corev1.GetCommit
 	if err := s.ensureCommitRead(ctx, subjectID, commit); err != nil {
 		return nil, err
 	}
+	if err := s.resolveCommitAuthors(ctx, commit); err != nil {
+		return nil, grpcError(err)
+	}
 	return commit, nil
+}
+
+// resolveCommitAuthors rewrites each Commit.Author from the internal subject id
+// to the author's username (personal account slug). Authors that don't resolve
+// to a personal account (e.g. imported git authors, system commits) are left
+// unchanged so the response still carries a stable identifier.
+func (s *RepositoryService) resolveCommitAuthors(ctx context.Context, commits ...*corev1.Commit) error {
+	seen := map[string]struct{}{}
+	var subjectIDs []string
+	for _, commit := range commits {
+		if commit == nil {
+			continue
+		}
+		author := strings.TrimSpace(commit.Author)
+		if author == "" {
+			continue
+		}
+		if _, ok := seen[author]; ok {
+			continue
+		}
+		seen[author] = struct{}{}
+		subjectIDs = append(subjectIDs, author)
+	}
+	if len(subjectIDs) == 0 {
+		return nil
+	}
+	usernames, err := s.Auth.UsernamesForSubjects(ctx, subjectIDs)
+	if err != nil {
+		return err
+	}
+	for _, commit := range commits {
+		if commit == nil {
+			continue
+		}
+		if username := usernames[commit.Author]; username != "" {
+			commit.Author = username
+		}
+	}
+	return nil
 }
 
 func (s *RepositoryService) ResolveCommit(ctx context.Context, req *corev1.ResolveCommitRequest) (*corev1.ResolveCommitResponse, error) {
@@ -467,6 +509,9 @@ func (s *RepositoryService) ResolveCommit(ctx context.Context, req *corev1.Resol
 	case 0:
 		return nil, status.Error(codes.NotFound, "commit not found")
 	case 1:
+		if err := s.resolveCommitAuthors(ctx, candidates[0]); err != nil {
+			return nil, grpcError(err)
+		}
 		return &corev1.ResolveCommitResponse{Commit: candidates[0], MatchedPrefix: matchedPrefix}, nil
 	default:
 		ids := make([]string, 0, len(candidates))
@@ -499,6 +544,9 @@ func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCom
 		page, err = s.Repository.ListCommitPageByPathPrefixes(ctx, req.RefName, filters.prefixes, int(req.Limit), req.PageToken)
 	}
 	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := s.resolveCommitAuthors(ctx, page.Commits...); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.ListCommitsResponse{Commits: page.Commits, NextPageToken: page.NextPageToken}, nil

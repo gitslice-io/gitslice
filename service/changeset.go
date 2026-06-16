@@ -64,6 +64,9 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	if err := s.resolveAuthors(ctx, cs); err != nil {
+		return nil, grpcError(err)
+	}
 	return cs, nil
 }
 
@@ -92,6 +95,9 @@ func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListC
 	}
 	for _, cs := range changesets {
 		storage.PopulateChangesetHandles(cs)
+	}
+	if err := s.resolveAuthors(ctx, changesets...); err != nil {
+		return nil, grpcError(err)
 	}
 	return &corev1.ListChangesetsResponse{Changesets: changesets}, nil
 }
@@ -198,7 +204,72 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if patchset.Handle == "" && cs.Handle != "" {
 		patchset.Handle = storage.PatchsetHandle(cs.AuthoringSlice, cs.Number, patchset.Number)
 	}
+	if patchset.Author != "" {
+		usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{patchset.Author})
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		if username := usernames[patchset.Author]; username != "" {
+			patchset.Author = username
+		}
+	}
 	return patchset, nil
+}
+
+// resolveAuthors rewrites every Changeset.Author and Patchset.Author from the
+// internal subject id to the author's username. Unresolved subjects (no personal
+// account) are left unchanged so the response still carries a stable identifier.
+func (s *ChangesetService) resolveAuthors(ctx context.Context, changesets ...*corev1.Changeset) error {
+	seen := map[string]struct{}{}
+	var subjectIDs []string
+	addSubject := func(subjectID string) {
+		subjectID = strings.TrimSpace(subjectID)
+		if subjectID == "" {
+			return
+		}
+		if _, ok := seen[subjectID]; ok {
+			return
+		}
+		seen[subjectID] = struct{}{}
+		subjectIDs = append(subjectIDs, subjectID)
+	}
+
+	for _, cs := range changesets {
+		if cs == nil {
+			continue
+		}
+		addSubject(cs.Author)
+		for _, patchset := range cs.Patchsets {
+			if patchset != nil {
+				addSubject(patchset.Author)
+			}
+		}
+	}
+	if len(subjectIDs) == 0 {
+		return nil
+	}
+
+	usernames, err := s.Auth.UsernamesForSubjects(ctx, subjectIDs)
+	if err != nil {
+		return err
+	}
+	for _, cs := range changesets {
+		if cs == nil {
+			continue
+		}
+		if username := usernames[cs.Author]; username != "" {
+			cs.Author = username
+		}
+		for _, patchset := range cs.Patchsets {
+			if patchset == nil {
+				continue
+			}
+			if username := usernames[patchset.Author]; username != "" {
+				patchset.Author = username
+			}
+		}
+	}
+	return nil
 }
 
 func selectChangesetPatchset(cs *corev1.Changeset, selector string) (*corev1.Patchset, error) {
@@ -415,7 +486,14 @@ func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.Aba
 }
 
 func (s *ChangesetService) getAuthorizedChangeset(ctx context.Context, subjectID, changesetID string) (*corev1.Changeset, error) {
-	return s.getChangesetForAction(ctx, subjectID, changesetID, authz.ActionRead)
+	cs, err := s.getChangesetForAction(ctx, subjectID, changesetID, authz.ActionRead)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.resolveAuthors(ctx, cs); err != nil {
+		return nil, grpcError(err)
+	}
+	return cs, nil
 }
 
 func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {

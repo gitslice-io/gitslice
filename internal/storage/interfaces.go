@@ -24,6 +24,9 @@ type AuthStore interface {
 	// account slug. It errors if the subject already has a personal account or
 	// the username is taken/invalid.
 	ChooseUsername(ctx context.Context, subjectID, username string) (account string, err error)
+	// UsernamesForSubjects maps each given subject id to its personal account slug
+	// (the username). Subject ids without a personal account are omitted from the map.
+	UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error)
 	SubjectForToken(ctx context.Context, token string) (*Subject, error)
 	EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error
 	AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error)

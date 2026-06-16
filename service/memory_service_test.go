@@ -363,6 +363,135 @@ func TestChooseUsernameCreatesHomeSliceInMemoryStorage(t *testing.T) {
 	}
 }
 
+func TestChangesetAuthorsResolveToPersonalUsernameInMemoryStorage(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_taylor", "taylor@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authctx.WithSubjectID(context.Background(), subjectID)
+	if _, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "Taylor_Name"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{RefName: storage.DefaultTargetRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "taylor-name", Slice: "home"},
+		TargetRef:      storage.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "show username",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.Author != "taylor-name" {
+		t.Fatalf("CreateChangeset author = %q, want taylor-name", cs.Author)
+	}
+
+	uploaded, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{
+		Data:  []byte("hello\n"),
+		Slice: &corev1.SliceRef{Account: "taylor-name", Slice: "home"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchset, err := handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        "/taylor-name/hello.txt",
+			BlobId:      uploaded.BlobId,
+			ContentHash: uploaded.ContentHash,
+			Mode:        0o100644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patchset.Author != "taylor-name" {
+		t.Fatalf("UpdateChangeset patchset author = %q, want taylor-name", patchset.Author)
+	}
+
+	got, err := handlers.Changeset.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: cs.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Author != "taylor-name" {
+		t.Fatalf("GetChangeset author = %q, want taylor-name", got.Author)
+	}
+	if len(got.Patchsets) != 1 || got.Patchsets[0].Author != "taylor-name" {
+		t.Fatalf("GetChangeset patchset authors = %#v, want taylor-name", got.Patchsets)
+	}
+
+	listed, err := handlers.Changeset.ListChangesets(ctx, &corev1.ListChangesetsRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "taylor-name", Slice: "home"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Changesets) != 1 || listed.Changesets[0].Author != "taylor-name" {
+		t.Fatalf("ListChangesets authors = %#v, want taylor-name", listed.Changesets)
+	}
+	if len(listed.Changesets[0].Patchsets) != 1 || listed.Changesets[0].Patchsets[0].Author != "taylor-name" {
+		t.Fatalf("ListChangesets patchset authors = %#v, want taylor-name", listed.Changesets[0].Patchsets)
+	}
+
+	unresolvedCtx := authctx.WithSubjectID(context.Background(), "user_alice")
+	unresolved, err := handlers.Changeset.CreateChangeset(unresolvedCtx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "home"},
+		TargetRef:      storage.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "fallback author",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unresolved.Author != "user_alice" {
+		t.Fatalf("unresolved CreateChangeset author = %q, want user_alice", unresolved.Author)
+	}
+	unresolvedGot, err := handlers.Changeset.GetChangeset(unresolvedCtx, &corev1.GetChangesetRequest{ChangesetId: unresolved.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unresolvedGot.Author != "user_alice" {
+		t.Fatalf("unresolved GetChangeset author = %q, want user_alice", unresolvedGot.Author)
+	}
+}
+
+func TestCommitAuthorsResolveToPersonalUsername(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_riley", "riley@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authctx.WithSubjectID(context.Background(), subjectID)
+	if _, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "riley"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A commit authored by a known subject resolves to the username; an unknown
+	// author (no personal account) is left as the raw subject id.
+	authored := &corev1.Commit{Id: "commit_known", Author: subjectID}
+	imported := &corev1.Commit{Id: "commit_unknown", Author: "user_ghost"}
+	authorless := &corev1.Commit{Id: "commit_none"}
+	if err := handlers.Repository.resolveCommitAuthors(ctx, authored, imported, authorless); err != nil {
+		t.Fatal(err)
+	}
+	if authored.Author != "riley" {
+		t.Fatalf("authored commit author = %q, want riley", authored.Author)
+	}
+	if imported.Author != "user_ghost" {
+		t.Fatalf("unresolved commit author = %q, want user_ghost", imported.Author)
+	}
+	if authorless.Author != "" {
+		t.Fatalf("authorless commit author = %q, want empty", authorless.Author)
+	}
+}
+
 func TestUpdateSliceDefinitionRejectsHomeIncludedPathChange(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nic", "nic@example.com")

@@ -3,6 +3,62 @@
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
+## 2026-06-16: Changeset Authors Resolve to Personal Usernames
+
+Request:
+
+- clients (web + CLI) should only ever see the username (personal account slug),
+  never the internal `user_ext_...` subject id, in `Changeset.author`,
+  `Patchset.author`, and `Commit.author`
+
+Implemented:
+
+- added `AuthStore.UsernamesForSubjects` and implemented it for PostgreSQL with
+  a single deduplicated `account_memberships join accounts` query over personal
+  accounts
+- implemented the same lookup in memory storage using `personalAccounts` under
+  the backend lock
+- resolved changeset and patchset authors in the changeset service only after
+  authorization and immediately before returning create/get/list responses
+- resolved the patchset returned by `UpdateChangeset`, while leaving write and
+  submit authorization paths on raw subject ids
+- resolved `Commit.author` the same way in the repository service for
+  `GetCommit`, `ResolveCommit`, and `ListCommits` (the git-log / slice commit
+  list also surfaced the raw subject id)
+- updated the web draft-adoption logic (`SliceEditing` /
+  `SliceDetailPage`): own-draft matching now compares `changeset.author` against
+  the signed-in user's username (`account`) instead of the subject id, because
+  the server now returns usernames as authors
+- added memory-backed service coverage for chosen username display, commit-author
+  resolution, and fallback to the raw subject id when no personal account exists
+
+Important decisions and learnings:
+
+- author resolution is intentionally a service read concern; persisted
+  `commits.author_subject_id` and changeset store authors remain stable subject
+  ids
+- unresolved subjects remain unchanged so legacy/system subjects (and imported
+  git authors) still have a stable author value
+- `subjects.display_name` is never sent to any client (no proto field carries
+  it), so it was intentionally left unchanged — the only client-visible leaks of
+  the subject id were the changeset/patchset and commit author fields
+- `go vet ./...` continues to report only pre-existing protobuf message copylock
+  diagnostics (16 on `main`, unchanged by this work); no new vet findings
+
+Verification:
+
+```bash
+gofmt -l .
+go build ./...
+go vet ./...        # only pre-existing copylock diagnostics (16, same as main)
+go test ./...
+( cd web && npm ci && npm run build )   # tsc -b typecheck + vite build
+```
+
+`gofmt -l .`, `go build ./...`, `go test ./...`, and the web `tsc`/`vite`
+build all passed. `go vet ./...` reports only the pre-existing protobuf
+copylock diagnostics that are also present on `main`.
+
 ## 2026-06-13: Account Root Directory Materialization
 
 Request:
