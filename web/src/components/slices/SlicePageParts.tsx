@@ -139,7 +139,7 @@ export function sliceDisplayName(slice?: Slice) {
   const slug = slice.ref?.slice;
 
   if (account && slug) {
-    return `${account}/${slug}`;
+    return `${account}:${slug}`;
   }
 
   return slug || slice.id || "Unknown slice";

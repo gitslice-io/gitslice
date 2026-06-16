@@ -43,7 +43,7 @@ const startSteps = [
     title: "Open your home slice",
     description:
       "Your personal account has a `home` slice rooted at /<you>. Use it for a first workflow.",
-    command: "gs init <you>/home\n# example: gs init nic/home"
+    command: "gs init <you>:home\n# example: gs init nic:home"
   },
   {
     title: "Make a local edit",
@@ -142,7 +142,7 @@ const commandGroups = [
   {
     title: "Workspace and source",
     commands: [
-      ["gs init <account>/<slice>", "Create a workspace for one slice."],
+      ["gs init <account>:<slice>", "Create a workspace for one slice."],
       ["gs shell", "Open the server-backed file shell."],
       ["gs status", "Show pending workspace edits."],
       ["gs diff", "Inspect pending content changes."],
@@ -420,7 +420,7 @@ function GitUsersDoc() {
           Familiar workflow, native submit
         </h2>
         <CommandBlock>{`gs auth login
-gs init <account>/<slice>
+gs init <account>:<slice>
 # edit files
 gs status
 gs cs create --title "change title"

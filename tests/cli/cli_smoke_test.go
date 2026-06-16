@@ -205,8 +205,8 @@ func TestServerShellInspectsServerFilesWithoutLocalFile(t *testing.T) {
 		t.Fatalf("expected empty shell stderr, got:\n%s", stderr)
 	}
 	for _, want := range []string{
-		"server shell: acme/payment @",
-		"gs acme/payment:/> /",
+		"server shell: acme:payment @",
+		"gs acme:payment:/> /",
 		"server_only.go",
 		"package payment\nconst ServerOnly = true\n",
 		"kind: file",
@@ -242,7 +242,7 @@ func TestServerShellNavigationAndSliceBoundary(t *testing.T) {
 	}, "\n")+"\n", "shell")
 	for _, want := range []string{
 		"nested/",
-		"gs acme/payment:/nested> /nested",
+		"gs acme:payment:/nested> /nested",
 		"a.go",
 		"deep/",
 		"package nested\nconst A = true\n",
@@ -318,7 +318,7 @@ func TestServerShellRunsOutsideWorkspace(t *testing.T) {
 		t.Fatalf("expected empty shell stderr, got:\n%s", stderr)
 	}
 	for _, want := range []string{
-		"server shell: acme/home @",
+		"server shell: acme:home @",
 		"gs /> /",
 		"acme/",
 		"payment/",
@@ -365,10 +365,10 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 		"quit",
 	}, "\n")+"\n", "shell", "--slice", "acme/new-slice")
 	for _, want := range []string{
-		"server shell: acme/new-slice @",
-		"gs acme/new-slice:/> /",
-		"gs acme/new-slice:/acme> /acme",
-		"gs acme/new-slice:/acme/payment/custom> /acme/payment/custom",
+		"server shell: acme:new-slice @",
+		"gs acme:new-slice:/> /",
+		"gs acme:new-slice:/acme> /acme",
+		"gs acme:new-slice:/acme/payment/custom> /acme/payment/custom",
 		"acme/",
 		"payment/",
 		"custom/",
@@ -433,7 +433,7 @@ func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("expected acme/payment slice in response: %#v", response)
+	t.Fatalf("expected acme:payment slice in response: %#v", response)
 }
 
 func TestCLISliceCRUD(t *testing.T) {
@@ -455,7 +455,7 @@ func TestCLISliceCRUD(t *testing.T) {
 	}
 
 	created := runCLI(t, home, workspace, "slice", "create", "acme/docs", "--include", "/acme/payment/docs", "--visibility", "private")
-	for _, want := range []string{"created slice acme/docs", "visibility: private", "/acme/payment/docs"} {
+	for _, want := range []string{"created slice acme:docs", "visibility: private", "/acme/payment/docs"} {
 		if !strings.Contains(created, want) {
 			t.Fatalf("created slice output missing %q:\n%s", want, created)
 		}
@@ -466,14 +466,14 @@ func TestCLISliceCRUD(t *testing.T) {
 	}
 
 	listed := runCLI(t, home, workspace, "slice", "list", "acme")
-	for _, want := range []string{"slices for account acme:", "acme/payment", "acme/docs", "visibility: private", "included paths: /acme/payment/docs"} {
+	for _, want := range []string{"slices for account acme:", "acme:payment", "acme:docs", "visibility: private", "included paths: /acme/payment/docs"} {
 		if !strings.Contains(listed, want) {
 			t.Fatalf("slice list output missing %q:\n%s", want, listed)
 		}
 	}
 
 	info := runCLI(t, home, workspace, "slice", "info", "acme/docs")
-	for _, want := range []string{"ref: acme/docs", "id: slice_acme_docs", "definition_hash:"} {
+	for _, want := range []string{"ref: acme:docs", "id: slice_acme_docs", "definition_hash:"} {
 		if !strings.Contains(info, want) {
 			t.Fatalf("slice info output missing %q:\n%s", want, info)
 		}
@@ -494,7 +494,7 @@ func TestCLISliceCRUD(t *testing.T) {
 		"--include", "/acme/payment/docs,/acme/payment/docs/archive",
 		"--visibility", "public",
 	)
-	for _, want := range []string{"updated slice acme/docs", "visibility: public", "/acme/payment/docs/archive"} {
+	for _, want := range []string{"updated slice acme:docs", "visibility: public", "/acme/payment/docs/archive"} {
 		if !strings.Contains(updated, want) {
 			t.Fatalf("slice update output missing %q:\n%s", want, updated)
 		}
@@ -506,7 +506,7 @@ func TestCLISliceCRUD(t *testing.T) {
 	}
 
 	deleted := runCLI(t, home, workspace, "slice", "delete", "acme/docs", "--yes")
-	if !strings.Contains(deleted, "deleted slice acme/docs") {
+	if !strings.Contains(deleted, "deleted slice acme:docs") {
 		t.Fatalf("unexpected delete output:\n%s", deleted)
 	}
 	_, stderr = runCLIFails(t, home, workspace, "slice", "info", "acme/docs")
@@ -525,7 +525,7 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 	runCLI(t, home, outsideWorkspace, "fs", "mkdir", "/other-user/docs")
 	runCLISignupThroughWeb(t, home, outsideWorkspace, ts, "shell_user")
 	initOutput := runCLI(t, home, homeWorkspace, "init", "home")
-	if !strings.Contains(initOutput, "initialized workspace for shell-user/home") {
+	if !strings.Contains(initOutput, "initialized workspace for shell-user:home") {
 		t.Fatalf("unexpected home workspace init output:\n%s", initOutput)
 	}
 	paths := strings.TrimSpace(runCLI(t, home, outsideWorkspace, "slice", "paths", "home"))
@@ -544,7 +544,7 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 		t.Fatalf("expected other-user to be hidden from shell-user home shell, got stderr:\n%s", stderr)
 	}
 	for _, want := range []string{
-		"server shell: shell-user/home @",
+		"server shell: shell-user:home @",
 		"shell-user/",
 		"/shell-user",
 	} {
@@ -559,7 +559,7 @@ func TestCLISignupShellDefaultsToPersonalHome(t *testing.T) {
 	if explicitStderr != "" {
 		t.Fatalf("expected empty explicit bare-slice shell stderr, got:\n%s", explicitStderr)
 	}
-	if !strings.Contains(explicit, "server shell: shell-user/home @") || !strings.Contains(explicit, "/") {
+	if !strings.Contains(explicit, "server shell: shell-user:home @") || !strings.Contains(explicit, "/") {
 		t.Fatalf("explicit bare-slice shell output missing home scope:\n%s", explicit)
 	}
 }
@@ -586,7 +586,7 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 		}
 	}
 	defaultFSList, defaultFSListStderr := runCLIStreams(t, home, dir, "fs", "ls")
-	if !strings.Contains(defaultFSListStderr, "remote: listing file-user/home at /file-user") {
+	if !strings.Contains(defaultFSListStderr, "remote: listing file-user:home at /file-user") {
 		t.Fatalf("default fs ls stderr should name the remote home root, got:\n%s", defaultFSListStderr)
 	}
 	for _, want := range []string{"archive/", "docs/"} {
@@ -699,7 +699,7 @@ func TestCLIUploadLargeDirectory(t *testing.T) {
 
 	output := runCLI(t, home, dir, "fs", "upload", sourceRoot, "/upload-user/bulk", "--recursive", "--concurrency", "8")
 	wantChangedPaths := totalFiles + 10
-	wantSummary := fmt.Sprintf("uploaded %d paths in upload-user/home", wantChangedPaths)
+	wantSummary := fmt.Sprintf("uploaded %d paths in upload-user:home", wantChangedPaths)
 	if !strings.Contains(output, wantSummary) {
 		t.Fatalf("unexpected upload output:\n%s", output)
 	}
@@ -1775,7 +1775,7 @@ func TestGitPushIntoChangesets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git push refs/changes/new failed: %v\nstderr:\n%s", err, stderr)
 	}
-	if !strings.Contains(stderr, "Created changeset acme/payment@") {
+	if !strings.Contains(stderr, "Created changeset acme:payment@") {
 		t.Fatalf("push output missing created changeset handle:\n%s", stderr)
 	}
 	draft := singleDraftChangeset(t, ctx, changesets)
