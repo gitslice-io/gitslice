@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 
@@ -375,9 +375,30 @@ function CheckoutMenu({
   sliceRef: string;
 }) {
   const gsCommand = `gs init ${sliceRef}`;
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    function close(event: Event) {
+      const el = detailsRef.current;
+      if (el?.open && !el.contains(event.target as Node)) {
+        el.open = false;
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && detailsRef.current?.open) {
+        detailsRef.current.open = false;
+      }
+    }
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   return (
-    <details className="group relative">
+    <details className="group relative" ref={detailsRef}>
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800">
         Checkout
         <span aria-hidden="true" className="text-[0.65rem] text-slate-400 transition group-open:rotate-180">
