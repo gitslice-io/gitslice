@@ -253,7 +253,7 @@ export function SliceDetailPage() {
       {pendingEdits.length ? (
         <PendingChangesBanner
           changesetRef={
-            draftChangeset.changesetHandle || draftChangeset.changesetId
+            draftChangeset.changesetId || draftChangeset.changesetHandle
           }
           count={pendingEdits.length}
           saveStatus={draftChangeset.saveStatus}
@@ -497,7 +497,7 @@ function PendingChangesBanner({
         <Link
           className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 active:scale-[0.98]"
           params={{ id: changesetRef }}
-          to="/changesets/$id"
+          to="/cs/$id"
         >
           Review changeset →
         </Link>
@@ -659,9 +659,9 @@ function HistoryDrawer({
                           className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700 transition hover:bg-white hover:text-zinc-950"
                           onClick={onClose}
                           params={{
-                            id: changeset.handle || changeset.id || ""
+                            id: changeset.id || changeset.handle || ""
                           }}
-                          to="/changesets/$id"
+                          to="/cs/$id"
                         >
                           {changeset.handle ||
                             (changeset.number

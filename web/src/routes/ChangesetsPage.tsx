@@ -163,7 +163,9 @@ function ChangesetRow({
 }) {
   const queryClient = useQueryClient();
   const changesetId = changeset.id ?? "";
-  const detailId = changeset.handle || changesetId;
+  // Prefer the canonical changeset id for the shareable /cs/<id> URL; fall back
+  // to the handle when an id is somehow absent (getChangeset resolves both).
+  const detailId = changesetId || changeset.handle || "";
   const label = changesetLabel(changeset);
   const mergeable = isMergeableStatus(changeset.status);
   const [rowError, setRowError] = useState("");
@@ -204,7 +206,7 @@ function ChangesetRow({
             <Link
               className="group min-w-0"
               params={{ id: detailId }}
-              to="/changesets/$id"
+              to="/cs/$id"
             >
               <span className="block break-words font-semibold text-zinc-950 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
                 {label}
@@ -338,7 +340,7 @@ function navigateToChangeset(navigate: ReturnType<typeof useNavigate>) {
   return (id: string) => {
     void navigate({
       params: { id },
-      to: "/changesets/$id"
+      to: "/cs/$id"
     });
   };
 }
