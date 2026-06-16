@@ -20,6 +20,7 @@ type Config struct {
 	DatabaseURL           string
 	ObjectStoreType       string
 	ObjectStoreRoot       string
+	ObjectCacheBytes      int64
 	R2                    r2.Config
 	AuthProvider          string
 	Clerk                 clerk.Config
@@ -43,6 +44,7 @@ func ConfigFromEnv() Config {
 		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),
 		ObjectStoreType:       os.Getenv("OBJECT_STORE_TYPE"),
 		ObjectStoreRoot:       os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),
+		ObjectCacheBytes:      int64ValueOrDefault(os.Getenv("GITSLICE_OBJECT_CACHE_BYTES"), 256<<20),
 		R2:                    r2.ConfigFromEnv(),
 		AuthProvider:          os.Getenv("AUTH_PROVIDER"),
 		Clerk:                 clerk.ConfigFromEnv(),
@@ -88,6 +90,20 @@ func intValueOrDefault(value string, fallback int) int {
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+// int64ValueOrDefault parses a non-negative int64 from value, falling back on
+// empty/invalid input. Unlike intValueOrDefault, 0 is allowed (it disables the
+// object cache).
+func int64ValueOrDefault(value string, fallback int64) int64 {
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 0 {
 		return fallback
 	}
 	return parsed
