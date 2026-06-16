@@ -1017,6 +1017,14 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 		}
 		previousGitCommitID = gitCommitID
 	}
+	// Drain the derived-index outbox once, after all commits are published, so
+	// imported history is queryable (gs log / slice history) when the import
+	// returns — without paying the drain on every commit's critical path.
+	if drainer, ok := s.Changesets.(storage.DerivedIndexStore); ok {
+		if err := drainer.WaitForOutboxDrain(ctx); err != nil {
+			return nil, grpcError(err)
+		}
+	}
 	if importID != "" && response.FinalCommitId != "" {
 		if err := s.Repository.CompleteGitImport(ctx, importID, response.FinalCommitId); err != nil {
 			return nil, grpcError(err)
@@ -1989,15 +1997,11 @@ func (s *RepositoryService) waitForImportPublished(ctx context.Context, changese
 			return "", err
 		}
 		if cs.Status == "submitted" && cs.CommitId != "" {
-			// History queries read derived indexes filled by the outbox
-			// worker; drain before returning so imported commits are
-			// immediately queryable through gs log and slice history.
-			// Stores without async derived indexes (memory) skip this.
-			if drainer, ok := s.Changesets.(storage.DerivedIndexStore); ok {
-				if err := drainer.WaitForOutboxDrain(ctx); err != nil {
-					return "", err
-				}
-			}
+			// Only wait for the commit to be published (the ref advances so the
+			// next commit can chain). The derived-index outbox is NOT drained
+			// per commit — that work is redundant per commit and is drained once
+			// after the whole import (see drainImportDerivedIndexes), keeping the
+			// per-commit critical path cheap for deep imports.
 			return cs.CommitId, nil
 		}
 		if _, err := s.Changesets.PublishPending(ctx, 128); err != nil && !errors.Is(err, storage.ErrConflict) {
