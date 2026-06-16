@@ -128,6 +128,16 @@ const changesetsRoute = createRoute({
   component: ChangesetsPage
 });
 
+// Primary, shareable changeset URL: /cs/<changeset id>. The canonical changeset
+// id (cs_...) is stable and URL-clean, so these links are safe to paste around.
+const changesetShortRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "cs/$id",
+  component: ChangesetDetailPage
+});
+
+// Kept as a backward-compatible alias so older /changesets/$id links (including
+// handle-based ones) still resolve to the same detail page.
 const changesetDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "changesets/$id",
@@ -146,6 +156,7 @@ const routeTree = rootRoute.addChildren([
     sliceDetailRoute,
     sliceSettingsRoute,
     changesetsRoute,
+    changesetShortRoute,
     changesetDetailRoute
   ])
 ]);

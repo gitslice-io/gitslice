@@ -403,6 +403,9 @@ export function DraftChangesetPanel({
   const navigate = useNavigate();
   const [actionError, setActionError] = useState("");
   const detailId = changesetHandle || changesetId;
+  // The visible label prefers the human handle, but the shareable /cs/<id> link
+  // uses the canonical changeset id.
+  const shareId = changesetId || changesetHandle;
   const isAdopting = saveStatus === "adopting";
   const isSaving = saveStatus === "saving";
   const isActionPending = actionStatus !== "idle";
@@ -417,7 +420,7 @@ export function DraftChangesetPanel({
     try {
       const id = await submitDraft();
       void navigate({
-        to: "/changesets/$id",
+        to: "/cs/$id",
         params: { id }
       });
     } catch (error) {
@@ -445,8 +448,8 @@ export function DraftChangesetPanel({
             {detailId ? (
               <Link
                 className="break-all font-mono text-zinc-900 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
-                params={{ id: detailId }}
-                to="/changesets/$id"
+                params={{ id: shareId }}
+                to="/cs/$id"
               >
                 {detailId}
               </Link>
