@@ -13,8 +13,8 @@ import (
 
 func TestRPCSubmitApprovalRequiredSliceBlocksUntilNonAuthorApproval(t *testing.T) {
 	ts := startRPCServer(t)
-	aliceToken := loginViaGRPC(t, ts.addr, "alice")
-	bobToken := loginViaGRPC(t, ts.addr, "bob")
+	aliceToken := ts.loginViaGRPC(t, "alice")
+	bobToken := ts.loginViaGRPC(t, "bob")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	aliceCtx := grpcAuthContext(aliceToken)
@@ -55,7 +55,7 @@ func TestRPCSubmitApprovalRequiredSliceBlocksUntilNonAuthorApproval(t *testing.T
 
 func TestRPCSubmitRequiredCheckBlocksUntilPassing(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -86,7 +86,7 @@ func TestRPCSubmitRequiredCheckBlocksUntilPassing(t *testing.T) {
 
 func TestRPCSubmitFailingRequiredCheckBlocks(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -109,7 +109,7 @@ func TestRPCSubmitFailingRequiredCheckBlocks(t *testing.T) {
 
 func TestRPCSubmitDefinitionHashDriftBlocksRefresh(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)

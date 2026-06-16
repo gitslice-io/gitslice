@@ -11,7 +11,7 @@ import (
 
 func TestRPCCommitHistoryFollowsExplicitFileMove(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -52,7 +52,7 @@ func TestRPCCommitHistoryFollowsExplicitFileMove(t *testing.T) {
 
 func TestRPCCommitHistoryInfersExactDeleteAddMove(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -96,7 +96,7 @@ func TestRPCCommitHistoryInfersExactDeleteAddMove(t *testing.T) {
 
 func TestRPCCommitHistoryIncludesAncestorDirectoryMove(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -137,7 +137,7 @@ func TestRPCCommitHistoryIncludesAncestorDirectoryMove(t *testing.T) {
 
 func TestRPCCommitHistoryFollowsMoveWithinCustomSlice(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -181,7 +181,7 @@ func TestRPCCommitHistoryFollowsMoveWithinCustomSlice(t *testing.T) {
 
 func TestRPCCommitHistoryDoesNotInferAmbiguousExactMove(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -216,7 +216,7 @@ func TestRPCCommitHistoryDoesNotInferAmbiguousExactMove(t *testing.T) {
 
 func TestRPCCommitHistoryDeleteRecreateSamePathStartsNewEntity(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
