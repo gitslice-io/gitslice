@@ -1453,7 +1453,7 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	importCmd.Flags().StringVar(&importMountPath, "mount", importMountPath, "absolute Gitslice path where the repository should be mounted")
-	importCmd.Flags().StringVar(&importSlice, "slice", importSlice, "authoring slice, defaults to current workspace slice")
+	importCmd.Flags().StringVar(&importSlice, "slice", importSlice, "authoring slice; defaults to the mount path's account home slice (e.g. /nic/... -> nic:home)")
 	importCmd.Flags().StringVar(&importMode, "mode", importMode, "import mode: shallow or deep")
 	importCmd.Flags().BoolVar(&importDeep, "deep", importDeep, "import every reachable Git commit")
 	importCmd.Flags().IntVar(&importMaxCommits, "max-commits", importMaxCommits, "maximum recent commits to import in deep mode")
@@ -6543,20 +6543,35 @@ func printIndentedPaths(w io.Writer, paths []string, indent string) {
 	}
 }
 
+// importAccountFromMount returns the account segment of an import mount path so
+// the authoring slice can default to that account's home slice without requiring
+// a workspace or an explicit --slice.
+func importAccountFromMount(mountPath string) (string, error) {
+	canonical, err := paths.Canonical(mountPath)
+	if err != nil {
+		return "", userError("invalid_mount", "invalid import mount path", "Use --mount /account/path, for example --mount /nic/gitslice.")
+	}
+	return strings.Split(strings.Trim(canonical, "/"), "/")[0], nil
+}
+
 func (r Runner) runImportGitRepository(ctx context.Context, opts commandOptions, source, mountPath, sliceRef, mode string, maxCommits int, resume bool) error {
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
 	}
 	if mountPath == "" {
-		return userError("missing_mount", "missing import mount path", "Use --mount /account:slice/path.")
+		return userError("missing_mount", "missing import mount path", "Use --mount /account/path, for example --mount /nic/gitslice.")
 	}
 	if sliceRef == "" {
-		ws, err := r.readWorkspaceConfig()
+		// Default the authoring slice from the mount path's account: its home
+		// slice covers the account root (/<account>), so it always covers the
+		// mount. This lets `gs import` run outside a workspace and without an
+		// explicit --slice. Pass --slice to author through a narrower slice.
+		account, err := importAccountFromMount(mountPath)
 		if err != nil {
 			return err
 		}
-		sliceRef = ws.Account + ":" + ws.Slice
+		sliceRef = account + ":home"
 	}
 	if maxCommits < 0 {
 		return userError("invalid_max_commits", "max commits must be non-negative", "Use --max-commits 0 for no limit.")
