@@ -15,6 +15,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -34,6 +35,8 @@ type diffValidator struct {
 	Repository storage.RepositoryStore
 	Slices     storage.SliceStore
 }
+
+const diffFileConcurrency = 16
 
 func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
 	subjectID, err := requireSubject(ctx)
@@ -127,22 +130,25 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 		}
 	}
 	paths := changedPathsForDiff(fromPatchset, toPatchset)
+	chunks := make([]string, len(paths))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(diffFileConcurrency)
+	for i, p := range paths {
+		i, p := i, p
+		group.Go(func() error {
+			oldFile, newFile, err := s.diffFileSides(groupCtx, fromPatchset, toPatchset, p)
+			if err != nil {
+				return err
+			}
+			chunks[i] = diffutil.UnifiedFileDiff(oldFile, newFile)
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
 	var out strings.Builder
-	for _, p := range paths {
-		var oldFile diffutil.File
-		if fromPatchset == nil {
-			oldFile, err = s.baseFile(ctx, toPatchset.BaseCommitId, p)
-		} else {
-			oldFile, err = s.patchsetFile(ctx, fromPatchset, p)
-		}
-		if err != nil {
-			return nil, err
-		}
-		newFile, err := s.patchsetFile(ctx, toPatchset, p)
-		if err != nil {
-			return nil, err
-		}
-		chunk := diffutil.UnifiedFileDiff(oldFile, newFile)
+	for _, chunk := range chunks {
 		if chunk != "" {
 			out.WriteString(chunk)
 		}
@@ -348,42 +354,110 @@ func changedPathsForDiff(from, to *corev1.Patchset) []string {
 	return out
 }
 
-func (s *ChangesetService) patchsetFile(ctx context.Context, patchset *corev1.Patchset, p string) (diffutil.File, error) {
-	file, err := s.baseFile(ctx, patchset.BaseCommitId, p)
-	if err != nil {
-		return diffutil.File{}, err
+type diffBaseFileKey struct {
+	commitID string
+	path     string
+}
+
+type diffContentReader func(context.Context, string) ([]byte, error)
+type diffBaseFileReader func(context.Context, string, string) (diffutil.File, error)
+
+func (s *ChangesetService) diffFileSides(ctx context.Context, from, to *corev1.Patchset, p string) (diffutil.File, diffutil.File, error) {
+	contentByHash := map[string][]byte{}
+	readContent := func(ctx context.Context, contentHash string) ([]byte, error) {
+		if data, ok := contentByHash[contentHash]; ok {
+			return data, nil
+		}
+		data, err := s.readContentHash(ctx, contentHash)
+		if err != nil {
+			return nil, err
+		}
+		contentByHash[contentHash] = data
+		return data, nil
 	}
+
+	// The object-store cache is write-through and does not cache read misses, so
+	// this request-local dedup is what removes duplicate base fetches while
+	// resolving the old and new sides for one changed path.
+	baseFiles := map[diffBaseFileKey]diffutil.File{}
+	readBase := func(ctx context.Context, commitID, p string) (diffutil.File, error) {
+		key := diffBaseFileKey{commitID: commitID, path: p}
+		if file, ok := baseFiles[key]; ok {
+			return file, nil
+		}
+		file, err := s.baseFileWithReader(ctx, commitID, p, readContent)
+		if err != nil {
+			return diffutil.File{}, err
+		}
+		baseFiles[key] = file
+		return file, nil
+	}
+
+	var oldFile diffutil.File
+	var err error
+	if from == nil {
+		oldFile, err = readBase(ctx, to.BaseCommitId, p)
+	} else {
+		oldFile, err = s.patchsetFileWithReaders(ctx, from, p, readBase, readContent)
+	}
+	if err != nil {
+		return diffutil.File{}, diffutil.File{}, err
+	}
+	newFile, err := s.patchsetFileWithReaders(ctx, to, p, readBase, readContent)
+	if err != nil {
+		return diffutil.File{}, diffutil.File{}, err
+	}
+	return oldFile, newFile, nil
+}
+
+func (s *ChangesetService) patchsetFile(ctx context.Context, patchset *corev1.Patchset, p string) (diffutil.File, error) {
+	return s.patchsetFileWithReaders(ctx, patchset, p, s.baseFile, s.readContentHash)
+}
+
+func (s *ChangesetService) patchsetFileWithReaders(ctx context.Context, patchset *corev1.Patchset, p string, readBase diffBaseFileReader, readContent diffContentReader) (diffutil.File, error) {
+	var file diffutil.File
+	fileSet := false
 	for _, edit := range patchset.FileEdits {
 		switch edit.Op {
 		case "delete":
 			if edit.Path == p {
 				file = diffutil.File{Path: p}
+				fileSet = true
 			}
 		case "rename":
 			if edit.OldPath == p {
 				file = diffutil.File{Path: p}
+				fileSet = true
 			}
 			if edit.Path == p {
 				if edit.BlobId != "" || edit.ContentHash != "" {
-					return s.editFile(ctx, edit, p)
+					return s.editFileWithReader(ctx, edit, p, readContent)
 				}
-				oldFile, err := s.baseFile(ctx, patchset.BaseCommitId, edit.OldPath)
+				oldFile, err := readBase(ctx, patchset.BaseCommitId, edit.OldPath)
 				if err != nil {
 					return diffutil.File{}, err
 				}
 				oldFile.Path = p
 				file = oldFile
+				fileSet = true
 			}
 		case "upsert", "add", "update":
 			if edit.Path == p {
-				return s.editFile(ctx, edit, p)
+				return s.editFileWithReader(ctx, edit, p, readContent)
 			}
 		}
+	}
+	if !fileSet {
+		return readBase(ctx, patchset.BaseCommitId, p)
 	}
 	return file, nil
 }
 
 func (s *ChangesetService) baseFile(ctx context.Context, commitID, p string) (diffutil.File, error) {
+	return s.baseFileWithReader(ctx, commitID, p, s.readContentHash)
+}
+
+func (s *ChangesetService) baseFileWithReader(ctx context.Context, commitID, p string, readContent diffContentReader) (diffutil.File, error) {
 	entry, err := s.Repository.GetFile(ctx, commitID, p)
 	if errors.Is(err, storage.ErrNotFound) {
 		return diffutil.File{Path: p}, nil
@@ -391,7 +465,7 @@ func (s *ChangesetService) baseFile(ctx context.Context, commitID, p string) (di
 	if err != nil {
 		return diffutil.File{}, grpcError(err)
 	}
-	data, err := s.readContentHash(ctx, entry.ContentHash)
+	data, err := readContent(ctx, entry.ContentHash)
 	if err != nil {
 		return diffutil.File{}, err
 	}
@@ -399,6 +473,10 @@ func (s *ChangesetService) baseFile(ctx context.Context, commitID, p string) (di
 }
 
 func (s *ChangesetService) editFile(ctx context.Context, edit *corev1.FileEdit, p string) (diffutil.File, error) {
+	return s.editFileWithReader(ctx, edit, p, s.readContentHash)
+}
+
+func (s *ChangesetService) editFileWithReader(ctx context.Context, edit *corev1.FileEdit, p string, readContent diffContentReader) (diffutil.File, error) {
 	contentHash := edit.ContentHash
 	if contentHash == "" && edit.BlobId != "" {
 		blob, err := s.Blobs.GetByID(ctx, edit.BlobId)
@@ -410,7 +488,7 @@ func (s *ChangesetService) editFile(ctx context.Context, edit *corev1.FileEdit, 
 	if contentHash == "" {
 		return diffutil.File{}, status.Errorf(codes.FailedPrecondition, "edit for %s has no content hash", p)
 	}
-	data, err := s.readContentHash(ctx, contentHash)
+	data, err := readContent(ctx, contentHash)
 	if err != nil {
 		return diffutil.File{}, err
 	}
