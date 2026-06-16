@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { cn } from "../../lib/cn";
+import { FileTypeIcon } from "../source/FileTypeIcon";
 import type { DiffFile, FileChangeKind } from "./parseDiff";
 
 interface ChangedFilesTreeProps {
@@ -185,8 +186,9 @@ function FileRow({
       >
         {statusGlyph(file.changeKind)}
       </span>
-      <span className="min-w-0 truncate" title={file.path}>
-        {name}
+      <span className="flex min-w-0 items-center gap-1.5" title={file.path}>
+        <FileTypeIcon name={name} />
+        <span className="min-w-0 truncate">{name}</span>
       </span>
       <span
         className={cn(
