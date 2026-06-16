@@ -72,6 +72,9 @@ export function DiffViewer({
   );
   const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
   const [activeId, setActiveId] = useState<string | undefined>();
+  // The file tree is collapsed by default on mobile so the diff is the first
+  // thing on screen; on `lg` up it always renders as the sticky sidebar.
+  const [showFileList, setShowFileList] = useState(false);
   const [mountedDiffBodies, setMountedDiffBodies] = useState<MountedDiffBodies>(
     () => ({
       files: [],
@@ -268,6 +271,8 @@ export function DiffViewer({
   const selectFile = (id: string) => {
     setActiveId(id);
     mountFileBody(id);
+    // Collapse the mobile file list so the tap jumps straight to the diff.
+    setShowFileList(false);
     document.getElementById(id)?.scrollIntoView({
       behavior: "smooth",
       block: "start"
@@ -311,11 +316,29 @@ export function DiffViewer({
       ) : hasTextualDiff ? (
         <div className="grid gap-4 p-4 md:p-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <aside className="lg:sticky lg:top-20 lg:self-start">
-            <ChangedFilesTree
-              activeId={activeId}
-              files={files}
-              onSelect={selectFile}
-            />
+            <button
+              aria-expanded={showFileList}
+              className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 lg:hidden"
+              onClick={() => setShowFileList((value) => !value)}
+              type="button"
+            >
+              <span>{changedCount} file(s) changed</span>
+              <span className="text-xs font-normal text-slate-500">
+                {showFileList ? "Hide files" : "Show files"}
+              </span>
+            </button>
+            <div
+              className={cn(
+                "mt-2 lg:mt-0 lg:block",
+                showFileList ? "block" : "hidden"
+              )}
+            >
+              <ChangedFilesTree
+                activeId={activeId}
+                files={files}
+                onSelect={selectFile}
+              />
+            </div>
           </aside>
           <div className="grid min-w-0 gap-4">
             {files.map((file) => (
