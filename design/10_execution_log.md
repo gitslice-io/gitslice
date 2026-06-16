@@ -4363,6 +4363,63 @@ git diff --check
 
 All listed commands passed.
 
+## 2026-06-16: E2E Tests Use Service-Token Auth Instead of Dev Login
+
+Request:
+
+- migrate the Go e2e test suites off dev-only fake-account login and onto the
+  existing EdDSA service-token JWT auth path, without removing server dev
+  scaffolding yet
+
+Implemented:
+
+- test server harnesses in `tests/cli`, `tests/rpc`, and `tests/load` now
+  generate an Ed25519 service-token keypair before server startup, configure
+  `server.Config.ServiceToken`, and keep the private key on the test server
+  struct for token minting
+- CLI, RPC, and load helpers mint one-hour service tokens and call
+  `AuthService.ChooseUsername` to provision service-token subjects before test
+  operations
+- e2e tests now bootstrap their own `acme` personal account and create the
+  non-home `acme/payment` and `acme/backend` slices in-test; dev signup tests
+  that explicitly exercise `FakeAccountService.ApproveSignup` were left on the
+  still-present dev service
+- tests that require a second `acme` member provision a second service-token
+  personal account and grant only the needed test membership in the isolated
+  schema
+
+Important decisions and learnings:
+
+- migrations still seed the dev `acme` org in each test schema, so the e2e
+  harness clears only those seeded account/slice rows from its isolated schema
+  before calling `ChooseUsername("acme")`; this keeps server seed code intact
+  while ensuring the test identity is service-token-provisioned
+- because a provisioned personal `acme/home` slice covers `/acme`, coverage
+  assertions now include the home slice where it legitimately overlaps custom
+  slices
+- the CLI Git-import history pagination now sees the in-test bootstrap commit
+  that created `/acme/payment` as an ancestor-path history entry, so the test
+  asserts that page explicitly
+
+Verification:
+
+```bash
+export GITSLICE_TEST_DATABASE_URL='postgres://nic@/gitslice_dev?host=/var/run/postgresql&sslmode=disable'
+gofmt -l -w tests/cli/cli_smoke_test.go tests/rpc/slice_test.go tests/rpc/rpc_custom_slice_test.go tests/rpc/commit_history_test.go tests/rpc/submit_requirements_test.go tests/load/load_test.go
+go build ./...
+go vet ./tests/... 2>&1 | head
+go test -count=1 ./tests/rpc ./tests/cli
+go test -tags load -run xxx_none ./tests/load
+```
+
+Results:
+
+- `go build ./...`: passed
+- `go vet ./tests/... 2>&1 | head`: passed with no output
+- `go test -count=1 ./tests/rpc ./tests/cli`: passed, 2 packages passed and 0
+  failed (`tests/rpc` 49.171s, `tests/cli` 89.317s)
+- `go test -tags load -run xxx_none ./tests/load`: passed
+
 ## 2026-06-15: First-Signup Username Choice Backend Foundation
 
 Request:

@@ -24,6 +24,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
 	"github.com/gitslice-io/gitslice/internal/cli"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
@@ -40,9 +41,9 @@ func TestMinimalCLIJourney(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	_, subjectID := loginTestCLI(t, ts, home, workspace)
 	authStatus := runCLI(t, home, workspace, "auth", "status")
-	if !strings.Contains(authStatus, "signed in as user_alice") || !strings.Contains(authStatus, "server: "+ts.addr) {
+	if !strings.Contains(authStatus, "signed in as "+subjectID) || !strings.Contains(authStatus, "server: "+ts.addr) {
 		t.Fatalf("unexpected auth status:\n%s", authStatus)
 	}
 	authStatusJSON := runCLI(t, home, workspace, "auth", "status", "--json")
@@ -90,7 +91,7 @@ func TestWorkspaceInitHydrateUsesGlobalClientObjectCache(t *testing.T) {
 	ts := startTestServer(t)
 	seedHome := t.TempDir()
 	seedWorkspace := t.TempDir()
-	runCLI(t, seedHome, seedWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, seedHome, seedWorkspace)
 	runCLI(t, seedHome, seedWorkspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, seedWorkspace, "cached.go", "package payment\nconst Cached = true\n")
 	runCLI(t, seedHome, seedWorkspace, "cs", "create", "--title", "seed cached")
@@ -99,7 +100,7 @@ func TestWorkspaceInitHydrateUsesGlobalClientObjectCache(t *testing.T) {
 	home := t.TempDir()
 	firstWorkspace := t.TempDir()
 	secondWorkspace := t.TempDir()
-	runCLI(t, home, firstWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, firstWorkspace)
 	first := runCLI(t, home, firstWorkspace, "workspace", "init", "acme/payment")
 	if !strings.Contains(first, "hydrated 1 file(s) through cache (0 hit(s), 1 miss(es))") {
 		t.Fatalf("expected first hydrate to miss cache, got:\n%s", first)
@@ -159,7 +160,7 @@ func TestWorkspaceCommandsWorkFromSubdirectories(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 
 	subdir := filepath.Join(workspace, "acme", "payment", "pkg")
@@ -184,7 +185,7 @@ func TestServerShellInspectsServerFilesWithoutLocalFile(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "server_only.go", "package payment\nconst ServerOnly = true\n")
 	runCLI(t, home, workspace, "cs", "create", "--title", "server shell seed")
@@ -221,7 +222,7 @@ func TestServerShellNavigationAndSliceBoundary(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "nested/a.go", "package nested\nconst A = true\n")
 	writeWorkspaceFile(t, workspace, "nested/deep/b.go", "package deep\nconst B = true\n")
@@ -262,7 +263,7 @@ func TestServerShellCommitPinning(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "versioned.go", "package payment\nconst Version = 1\n")
 	runCLI(t, home, workspace, "cs", "create", "--title", "server shell v1")
@@ -294,7 +295,7 @@ func TestServerShellRunsOutsideWorkspace(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	outsideWorkspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "global_shell.go", "package payment\nconst GlobalShell = true\n")
 	runCLI(t, home, workspace, "cs", "create", "--title", "global shell seed")
@@ -334,7 +335,7 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	outsideWorkspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "explicit.go", "package payment\nconst ExplicitShell = true\n")
 	writeWorkspaceFile(t, workspace, "custom/nested.go", "package custom\nconst Nested = true\n")
@@ -407,15 +408,9 @@ func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 		t.Fatalf("expected CORS allow-origin for web app, got %q", got)
 	}
 
-	login := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/Login", "", map[string]string{
-		"devUser": "alice",
-	})
-	token, _ := login["token"].(string)
-	if token == "" {
-		t.Fatalf("expected login token in response: %#v", login)
-	}
-	if subjectID, _ := login["subjectId"].(string); subjectID == "" {
-		t.Fatalf("expected subject id in response: %#v", login)
+	token, subjectID := ts.defaultAcmeCredentials(t)
+	if subjectID == "" {
+		t.Fatal("expected service-token provisioning to return subject id")
 	}
 
 	response := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", token, map[string]any{
@@ -442,7 +437,7 @@ func TestCLISliceCRUD(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "docs/seed.txt", "docs\n")
 	writeWorkspaceFile(t, workspace, "docs/archive/seed.txt", "archive\n")
@@ -874,13 +869,7 @@ func TestCLIUploadLargeDirectory(t *testing.T) {
 
 func TestHTTPGatewayWriteChangesetFlow(t *testing.T) {
 	ts := startTestServer(t)
-	login := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/Login", "", map[string]string{
-		"devUser": "alice",
-	})
-	token, _ := login["token"].(string)
-	if token == "" {
-		t.Fatalf("expected login token in response: %#v", login)
-	}
+	token, _ := ts.defaultAcmeCredentials(t)
 
 	content := []byte("package payment\nconst GatewayWrite = true\n")
 	upload := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/UploadBlob", token, map[string]any{
@@ -952,7 +941,7 @@ func TestChangesetUpdateAndDelete(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "draft.go", "package payment\nconst Version = 1\n")
 	runCLI(t, home, workspace, "cs", "create")
@@ -983,7 +972,7 @@ func TestChangesetWorkflowCommandsAndServerDiff(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 
 	writeWorkspaceFile(t, workspace, "workflow.go", "package payment\nconst Version = 1\n")
@@ -1080,7 +1069,7 @@ func TestChangesetStatusWatchAfterNoWatchSubmit(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "watch.go", "package payment\nconst Watch = true\n")
 	createOut := runCLI(t, home, workspace, "cs", "create", "--title", "watch submit", "--json")
@@ -1111,7 +1100,7 @@ func TestOutsideSliceEditRejected(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "acme/backend/app.go", "package backend\n")
 	_, stderr := runCLIFails(t, home, workspace, "status")
@@ -1125,7 +1114,7 @@ func TestDisjointStaleChangesetsCanSubmit(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	runCLI(t, home, workspaceA, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspaceA)
 	runCLI(t, home, workspaceA, "workspace", "init", "acme/payment")
 	runCLI(t, home, workspaceB, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspaceA, "a.go", "package payment\nconst A = 1\n")
@@ -1141,7 +1130,7 @@ func TestSamePathConflictRejected(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	runCLI(t, home, workspaceA, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspaceA)
 	runCLI(t, home, workspaceA, "workspace", "init", "acme/payment")
 	runCLI(t, home, workspaceB, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspaceA, "conflict.go", "package payment\nconst Conflict = 1\n")
@@ -1160,7 +1149,7 @@ func TestWorkspaceSyncUpdatesCleanWorkspace(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	runCLI(t, home, workspaceA, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspaceA)
 	runCLI(t, home, workspaceA, "workspace", "init", "acme/payment")
 	runCLI(t, home, workspaceB, "workspace", "init", "acme/payment")
 
@@ -1185,7 +1174,7 @@ func TestWorkspaceSyncRebasesDraftChangeset(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	runCLI(t, home, workspaceA, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspaceA)
 	runCLI(t, home, workspaceA, "workspace", "init", "acme/payment")
 	runCLI(t, home, workspaceB, "workspace", "init", "acme/payment")
 
@@ -1231,7 +1220,7 @@ func TestWorkspaceSyncLineMergesNonOverlappingTextByDefault(t *testing.T) {
 	seedWorkspace := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	runCLI(t, home, seedWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, seedWorkspace)
 	runCLI(t, home, seedWorkspace, "workspace", "init", "acme/payment")
 
 	const baseContent = "package payment\nconst LocalValue = \"base\"\nconst RemoteValue = \"base\"\n"
@@ -1281,7 +1270,7 @@ func TestWorkspaceSyncRecordsAndResolvesConflicts(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	runCLI(t, home, workspaceA, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspaceA)
 	runCLI(t, home, workspaceA, "workspace", "init", "acme/payment")
 	runCLI(t, home, workspaceB, "workspace", "init", "acme/payment")
 
@@ -1328,7 +1317,7 @@ func TestRepositoryReadAPIs(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	token := readToken(t, home)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	const content = "package api\nconst ReadAPI = true\n"
@@ -1403,13 +1392,13 @@ func TestSliceDefinitionUpdateConflict(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "docs/seed.txt", "docs\n")
 	runCLI(t, home, workspace, "cs", "create", "--title", "slice definition seed")
 	runCLI(t, home, workspace, "cs", "submit")
 
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -1453,7 +1442,7 @@ func TestSliceDefinitionUpdateConflict(t *testing.T) {
 
 func TestChangesetAbandonAndSubmitIdempotency(t *testing.T) {
 	ts := startTestServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -1510,7 +1499,7 @@ func TestWorkspaceServiceHelpers(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	token := readToken(t, home)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	const content = "package payment\nconst Hydrate = true\n"
@@ -1566,7 +1555,7 @@ func TestStaleDisjointUpdatePreservesFinalState(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	seedWorkspace := t.TempDir()
-	runCLI(t, home, seedWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, seedWorkspace)
 	token := readToken(t, home)
 	runCLI(t, home, seedWorkspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, seedWorkspace, "shared.go", "package payment\nconst Shared = true\n")
@@ -1602,7 +1591,7 @@ func TestDeleteUpdateConflicts(t *testing.T) {
 			ts := startTestServer(t)
 			home := t.TempDir()
 			seedWorkspace := t.TempDir()
-			runCLI(t, home, seedWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+			loginTestCLI(t, ts, home, seedWorkspace)
 			runCLI(t, home, seedWorkspace, "workspace", "init", "acme/payment")
 			writeWorkspaceFile(t, seedWorkspace, "du.go", "package payment\nconst Value = 1\n")
 			runCLI(t, home, seedWorkspace, "cs", "create", "--title", "seed du")
@@ -1636,7 +1625,7 @@ func TestSameNewPathConcurrentOnlyOneSubmitSucceeds(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	firstWorkspace := t.TempDir()
-	runCLI(t, home, firstWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, firstWorkspace)
 
 	const workers = 6
 	workspaces := make([]string, workers)
@@ -1682,7 +1671,7 @@ func TestConcurrentDisjointSubmitFinalProjection(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	firstWorkspace := t.TempDir()
-	runCLI(t, home, firstWorkspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, firstWorkspace)
 	token := readToken(t, home)
 
 	const workers = 10
@@ -1728,7 +1717,7 @@ func TestRestartPreservesSubmittedState(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "restart.go", "package payment\n")
 	runCLI(t, home, workspace, "cs", "create")
@@ -1742,7 +1731,7 @@ func TestRestartPreservesSubmittedState(t *testing.T) {
 
 func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 	ts := startTestServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -1761,15 +1750,8 @@ func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 		t.Fatalf("expected invalid token upload-pack discovery to return 401, got %d:\n%s", statusCode, string(body))
 	}
 
-	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
-		Username:    "git-public-outsider",
-		CallbackUrl: "http://127.0.0.1/callback",
-		State:       "state",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+signup.Token)
+	outsiderToken, _, _ := ts.provisionAccount(t, "git-public-outsider", "git-public-outsider")
+	statusCode, _, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+outsiderToken)
 	if statusCode != http.StatusForbidden {
 		t.Fatalf("expected private upload-pack discovery for outsider to return 403, got %d:\n%s", statusCode, string(body))
 	}
@@ -1789,7 +1771,7 @@ func TestGitHTTPAuthAndUnsupportedOperationMatrix(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+signup.Token)
+	statusCode, headers, body = gitHTTPRaw(t, ts.gitAddr, uploadInfoRefs, "Bearer "+outsiderToken)
 	if statusCode != http.StatusOK {
 		t.Fatalf("expected public upload-pack discovery for outsider to return 200, got %d:\n%s", statusCode, string(body))
 	}
@@ -1838,7 +1820,7 @@ func TestGitCloneProjection(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	token := readToken(t, home)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "git_layer.go", "package payment\nconst GitLayer = true\n")
@@ -1883,7 +1865,7 @@ func TestGitPushIntoChangesets(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	token := readToken(t, home)
 	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, workspace, "git_push_base.go", "package payment\nconst GitPushBase = true\n")
@@ -1951,15 +1933,8 @@ func TestGitPushIntoChangesets(t *testing.T) {
 		t.Fatalf("protected branch rejection did not guide to changes refs:\n%s", stderr)
 	}
 
-	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
-		Username:    "git-push-outsider",
-		CallbackUrl: "http://127.0.0.1/callback",
-		State:       "state",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+signup.Token, "push", "origin", "HEAD:refs/changes/new")
+	outsiderToken, _, _ := ts.provisionAccount(t, "git-push-outsider", "git-push-outsider")
+	_, stderr, err = runGitResult("", "-C", cloneDir, "-c", "http.extraHeader=Authorization: Bearer "+outsiderToken, "push", "origin", "HEAD:refs/changes/new")
 	if err == nil {
 		t.Fatal("expected unauthorized git push to be rejected")
 	}
@@ -1979,7 +1954,7 @@ func TestGitImportShallow(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	sourceRepo := createImportGitRepo(t)
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 
 	raw := runCLI(t, home, workspace,
 		"import", sourceRepo,
@@ -2016,7 +1991,7 @@ func TestGitImportProgressText(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	sourceRepo := createImportGitRepo(t)
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 
 	stdout, stderr := runCLIStreams(t, home, workspace,
 		"import", sourceRepo,
@@ -2040,7 +2015,7 @@ func TestGitImportDeepListAndInspectCommits(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	sourceRepo := createImportGitRepo(t)
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 	token := readToken(t, home)
 
 	raw := runCLI(t, home, workspace,
@@ -2112,8 +2087,23 @@ func TestGitImportDeepListAndInspectCommits(t *testing.T) {
 	if err := json.Unmarshal([]byte(secondPageRaw), &secondPage); err != nil {
 		t.Fatal(err)
 	}
-	if len(secondPage.Commits) != 1 || secondPage.Commits[0].Message != "first commit" || secondPage.NextPageToken != "" {
+	if len(secondPage.Commits) != 1 || secondPage.Commits[0].Message != "first commit" {
 		t.Fatalf("unexpected second commit page: %#v raw=%s", secondPage, secondPageRaw)
+	}
+	if secondPage.NextPageToken != "" {
+		thirdPageRaw := runCLI(t, home, workspace, "log", "--all", "--limit", "1", "--page-token", secondPage.NextPageToken, "--json", "--", "/acme/payment/imported/deep/README.md")
+		var thirdPage struct {
+			Commits []struct {
+				Message string `json:"message"`
+			} `json:"commits"`
+			NextPageToken string `json:"next_page_token"`
+		}
+		if err := json.Unmarshal([]byte(thirdPageRaw), &thirdPage); err != nil {
+			t.Fatal(err)
+		}
+		if len(thirdPage.Commits) != 1 || thirdPage.Commits[0].Message != "bootstrap acme test slices" || thirdPage.NextPageToken != "" {
+			t.Fatalf("unexpected third commit page: %#v raw=%s", thirdPage, thirdPageRaw)
+		}
 	}
 	show := runCLI(t, home, workspace, "show", secondShort)
 	if !strings.Contains(show, "commit "+secondShort) ||
@@ -2147,7 +2137,7 @@ func TestGitImportDeepMaxCommitsAndResume(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	sourceRepo := createImportGitRepo(t)
-	runCLI(t, home, workspace, "auth", "login", "--server", ts.addr, "--dev-user", "alice")
+	loginTestCLI(t, ts, home, workspace)
 
 	raw := runCLI(t, home, workspace,
 		"import", sourceRepo,
@@ -2199,6 +2189,14 @@ type testServer struct {
 	databaseURL string
 	schema      string
 	objectRoot  string
+	servicePriv string
+	servicePub  string
+
+	mu               sync.Mutex
+	defaultReady     bool
+	defaultToken     string
+	defaultSubjectID string
+	memberTokens     map[string]string
 }
 
 func startTestServer(t *testing.T) *testServer {
@@ -2209,13 +2207,20 @@ func startTestServer(t *testing.T) *testServer {
 	}
 	schema := uniqueSchema("gitslice_test_", t)
 	createSchema(t, databaseURL, schema)
+	servicePriv, servicePub, err := servicetoken.GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
 	ts := &testServer{
-		addr:        freeAddr(t),
-		httpAddr:    freeAddr(t),
-		gitAddr:     freeAddr(t),
-		databaseURL: databaseURL,
-		schema:      schema,
-		objectRoot:  t.TempDir(),
+		addr:         freeAddr(t),
+		httpAddr:     freeAddr(t),
+		gitAddr:      freeAddr(t),
+		databaseURL:  databaseURL,
+		schema:       schema,
+		objectRoot:   t.TempDir(),
+		servicePriv:  servicePriv,
+		servicePub:   servicePub,
+		memberTokens: map[string]string{},
 	}
 	ts.start(t, true)
 	t.Cleanup(func() {
@@ -2238,8 +2243,12 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 			GitCacheRoot:      filepath.Join(ts.objectRoot, "git-cache"),
 			DatabaseURL:       databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
 			ObjectStoreRoot:   ts.objectRoot,
-			RunMigrations:     migrate,
-			DevMode:           true,
+			ServiceToken: servicetoken.Config{
+				PublicKeyPEM: ts.servicePub,
+				Issuer:       servicetoken.DefaultIssuer,
+			},
+			RunMigrations: migrate,
+			DevMode:       true,
 		})
 	}()
 	waitForHealth(t, ts.addr)
@@ -2410,18 +2419,233 @@ func dialTestGRPC(t *testing.T, addr string) *grpc.ClientConn {
 	return conn
 }
 
-func loginViaGRPC(t *testing.T, addr, devUser string) string {
+func loginTestCLI(t *testing.T, ts *testServer, home, workspace string) (string, string) {
 	t.Helper()
-	conn := dialTestGRPC(t, addr)
-	defer conn.Close()
-	login, err := corev1.NewFakeAccountServiceClient(conn).Login(context.Background(), &corev1.LoginRequest{DevUser: devUser})
+	_ = workspace
+	token, subjectID := ts.defaultAcmeCredentials(t)
+	writeCLIAuthConfig(t, home, ts.addr, token, subjectID)
+	return token, subjectID
+}
+
+func writeCLIAuthConfig(t *testing.T, home, serverAddr, token, subjectID string) {
+	t.Helper()
+	configDir := filepath.Join(home, ".gitslice")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.MarshalIndent(cli.UserConfig{
+		ServerAddr: serverAddr,
+		Token:      token,
+		SubjectID:  subjectID,
+	}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if login.Token == "" {
-		t.Fatalf("empty token from login: %#v", login)
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	return login.Token
+}
+
+func (ts *testServer) loginViaGRPC(t *testing.T, user string) string {
+	t.Helper()
+	switch user {
+	case "alice", "acme":
+		token, _ := ts.defaultAcmeCredentials(t)
+		return token
+	case "bob":
+		return ts.acmeMemberToken(t, "bob", "writer")
+	default:
+		token, _, _ := ts.provisionAccount(t, user, user)
+		return token
+	}
+}
+
+func (ts *testServer) defaultAcmeCredentials(t *testing.T) (string, string) {
+	t.Helper()
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.defaultReady {
+		return ts.defaultToken, ts.defaultSubjectID
+	}
+	ts.clearSeedAcme(t)
+	token, account, subjectID := ts.provisionAccount(t, "acme", "acme-owner")
+	if account != "acme" {
+		t.Fatalf("provisioned account = %q, want acme", account)
+	}
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	ts.createDefaultAcmeSlices(t, ctx, conn)
+	ts.defaultToken = token
+	ts.defaultSubjectID = subjectID
+	ts.defaultReady = true
+	return token, subjectID
+}
+
+func (ts *testServer) acmeMemberToken(t *testing.T, username, role string) string {
+	t.Helper()
+	ts.defaultAcmeCredentials(t)
+	ts.mu.Lock()
+	if token := ts.memberTokens[username]; token != "" {
+		ts.mu.Unlock()
+		return token
+	}
+	ts.mu.Unlock()
+
+	token, _, subjectID := ts.provisionAccount(t, username, username)
+	ts.grantAccountRole(t, subjectID, "acme", role)
+
+	ts.mu.Lock()
+	ts.memberTokens[username] = token
+	ts.mu.Unlock()
+	return token
+}
+
+func (ts *testServer) mintToken(t *testing.T, subject, email string) string {
+	t.Helper()
+	token, err := servicetoken.Mint(ts.servicePriv, subject, email, servicetoken.DefaultIssuer, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func (ts *testServer) provisionAccount(t *testing.T, username, label string) (string, string, string) {
+	t.Helper()
+	subject := "svc_" + testTokenLabel(t, label)
+	email := testTokenLabel(t, label) + "@test.local"
+	token := ts.mintToken(t, subject, email)
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	chosen, err := corev1.NewAuthServiceClient(conn).ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: username})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chosen.Account == "" || chosen.SubjectId == "" {
+		t.Fatalf("incomplete ChooseUsername response: %#v", chosen)
+	}
+	return token, chosen.Account, chosen.SubjectId
+}
+
+func (ts *testServer) clearSeedAcme(t *testing.T) {
+	t.Helper()
+	db, err := sql.Open("pgx", databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`delete from slice_included_paths where slice_id in (select id from slices where account_id = 'acct_acme')`,
+		`delete from slice_definition_versions where slice_id in (select id from slices where account_id = 'acct_acme')`,
+		`delete from slices where account_id = 'acct_acme'`,
+		`delete from account_memberships where account_id = 'acct_acme'`,
+		`delete from current_path_entities where account_id = 'acct_acme'`,
+		`delete from commit_entity_changes where account_id = 'acct_acme'`,
+		`delete from fs_entities where account_id = 'acct_acme'`,
+		`delete from accounts where id = 'acct_acme' and slug = 'acme'`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			t.Fatalf("clear seeded acme: %v\nsql: %s", err, stmt)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (ts *testServer) createDefaultAcmeSlices(t *testing.T, ctx context.Context, conn *grpc.ClientConn) {
+	t.Helper()
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+	ref, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := clients.changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "home"},
+		TargetRef:      postgres.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "bootstrap acme test slices",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchset, err := clients.changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{
+			{Op: "mkdir", Path: "/acme/payment"},
+			{Op: "mkdir", Path: "/acme/payment/shared"},
+			{Op: "mkdir", Path: "/acme/backend"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clients.changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: patchset.Id,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForSubmittedChangeset(t, ctx, clients.changeset, cs.Id)
+	if _, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
+		Ref:           &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		IncludedPaths: []string{"/acme/payment"},
+		Visibility:    "private",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slices.CreateSlice(ctx, &corev1.CreateSliceRequest{
+		Ref:           &corev1.SliceRef{Account: "acme", Slice: "backend"},
+		IncludedPaths: []string{"/acme/backend", "/acme/payment/shared"},
+		Visibility:    "private",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (ts *testServer) grantAccountRole(t *testing.T, subjectID, account, role string) {
+	t.Helper()
+	db, err := sql.Open("pgx", databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	res, err := db.Exec(`
+		insert into account_memberships(account_id, subject_id, role, created_at)
+		select id, $1, $2, now()
+		from accounts
+		where slug = $3
+		on conflict do nothing
+	`, subjectID, role, account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		t.Fatalf("grant %s on %s to %s affected %d rows, err=%v", role, account, subjectID, n, err)
+	}
+}
+
+func testTokenLabel(t *testing.T, label string) string {
+	t.Helper()
+	raw := strings.ToLower(t.Name() + "_" + label)
+	var b strings.Builder
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 func grpcAuthContext(token string) context.Context {

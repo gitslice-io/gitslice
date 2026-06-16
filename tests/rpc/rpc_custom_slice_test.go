@@ -19,7 +19,7 @@ import (
 
 func TestRPCSliceServiceCustomSliceDefinitions(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -59,7 +59,7 @@ func TestRPCSliceServiceCustomSliceDefinitions(t *testing.T) {
 
 func TestRPCWorkspaceValidationUsesAllCustomSliceIncludedPaths(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -69,6 +69,7 @@ func TestRPCWorkspaceValidationUsesAllCustomSliceIncludedPaths(t *testing.T) {
 
 	payment := resolveTestSlice(t, ctx, slices, "payment")
 	backend := resolveTestSlice(t, ctx, slices, "backend")
+	home := resolveTestSlice(t, ctx, slices, "home")
 	ref, err := repository.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
 	if err != nil {
 		t.Fatal(err)
@@ -98,9 +99,9 @@ func TestRPCWorkspaceValidationUsesAllCustomSliceIncludedPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertStringSet(t, validation.AffectedPaths, "/acme/backend/rpc_backend.go", "/acme/payment/shared/rpc_shared.go", "/acme/payment/shared/deep/rpc_shared_deep.go")
-	assertPathCoverage(t, validation.Coverage, "/acme/backend/rpc_backend.go", backend.Id)
-	assertPathCoverage(t, validation.Coverage, "/acme/payment/shared/rpc_shared.go", payment.Id, backend.Id)
-	assertPathCoverage(t, validation.Coverage, "/acme/payment/shared/deep/rpc_shared_deep.go", payment.Id, backend.Id)
+	assertPathCoverage(t, validation.Coverage, "/acme/backend/rpc_backend.go", home.Id, backend.Id)
+	assertPathCoverage(t, validation.Coverage, "/acme/payment/shared/rpc_shared.go", home.Id, payment.Id, backend.Id)
+	assertPathCoverage(t, validation.Coverage, "/acme/payment/shared/deep/rpc_shared_deep.go", home.Id, payment.Id, backend.Id)
 	if validation.SubmitRequirements == nil || validation.SubmitRequirements.SourceSliceDefinitionHash != backend.DefinitionHash {
 		t.Fatalf("unexpected submit requirements: %#v", validation.SubmitRequirements)
 	}
@@ -117,7 +118,7 @@ func TestRPCWorkspaceValidationUsesAllCustomSliceIncludedPaths(t *testing.T) {
 
 func TestRPCChangesetCanWriteCustomSliceSecondIncludedPath(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -126,6 +127,7 @@ func TestRPCChangesetCanWriteCustomSliceSecondIncludedPath(t *testing.T) {
 
 	payment := resolveTestSlice(t, ctx, slices, "payment")
 	backend := resolveTestSlice(t, ctx, slices, "backend")
+	home := resolveTestSlice(t, ctx, slices, "home")
 	ref, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +163,7 @@ func TestRPCChangesetCanWriteCustomSliceSecondIncludedPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertStringSet(t, patchset.ChangedPaths, filePath)
-	assertPathCoverage(t, patchset.Coverage, filePath, payment.Id, backend.Id)
+	assertPathCoverage(t, patchset.Coverage, filePath, home.Id, payment.Id, backend.Id)
 	if patchset.SubmitRequirements == nil || patchset.SubmitRequirements.SourceSliceDefinitionHash != backend.DefinitionHash {
 		t.Fatalf("unexpected patchset submit requirements: %#v", patchset.SubmitRequirements)
 	}
@@ -184,7 +186,7 @@ func TestRPCChangesetCanWriteCustomSliceSecondIncludedPath(t *testing.T) {
 
 func TestRPCListDirectoryCanUseCustomSliceProjection(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -230,7 +232,7 @@ func TestRPCListDirectoryCanUseCustomSliceProjection(t *testing.T) {
 
 func TestRPCListCommitsSupportsPathAndCustomSlice(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -365,15 +367,8 @@ func TestRPCCustomSlicePublishIsConsistentWhenHomeObserves(t *testing.T) {
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 
-	signup, err := corev1.NewFakeAccountServiceClient(conn).ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
-		Username:    "history-home",
-		CallbackUrl: "http://127.0.0.1/callback",
-		State:       "state",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := grpcAuthContext(signup.Token)
+	token, _, _ := ts.provisionAccount(t, "history-home", "history-home")
+	ctx := grpcAuthContext(token)
 	clients := newTestCoreClients(conn)
 	slices := corev1.NewSliceServiceClient(conn)
 
@@ -441,7 +436,7 @@ func TestRPCCustomSlicePublishIsConsistentWhenHomeObserves(t *testing.T) {
 
 func TestRPCChangesetRejectsCustomSliceOutsidePath(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -482,7 +477,7 @@ func TestRPCChangesetRejectsCustomSliceOutsidePath(t *testing.T) {
 
 func TestRPCBlobStatusUploadAndHashValidation(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -532,7 +527,7 @@ func TestRPCBlobStatusUploadAndHashValidation(t *testing.T) {
 
 func TestRPCStreamingBlobUploadReadAndHashMismatch(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
@@ -566,7 +561,7 @@ func TestRPCStreamingBlobUploadReadAndHashMismatch(t *testing.T) {
 
 func TestRPCImportGitRepositoryCustomSliceMount(t *testing.T) {
 	ts := startRPCServer(t)
-	token := loginViaGRPC(t, ts.addr, "alice")
+	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	ctx := grpcAuthContext(token)
