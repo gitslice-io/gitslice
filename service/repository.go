@@ -2018,10 +2018,17 @@ func (s *RepositoryService) waitForImportPublished(ctx context.Context, changese
 	}
 }
 
+// importPublishTimeout bounds how long a single imported commit may take to
+// publish. The per-commit publish work itself is fast (a few seconds), but it
+// shares the target ref's publish lock with the background publisher, so an
+// occasional remote object-store latency spike can stall one commit for a
+// minute or more. Use a generous floor so transient slowness doesn't fail an
+// otherwise-healthy import, scaling modestly with the change size and capped to
+// avoid hanging forever on a genuinely stuck commit.
 func importPublishTimeout(changedFileCount int) time.Duration {
-	timeout := 30 * time.Second
+	timeout := 3 * time.Minute
 	if changedFileCount > 0 {
-		timeout += time.Duration(changedFileCount/250) * time.Second
+		timeout += time.Duration(changedFileCount/50) * time.Second
 	}
 	if timeout > 30*time.Minute {
 		return 30 * time.Minute
