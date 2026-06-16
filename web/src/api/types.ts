@@ -54,6 +54,14 @@ export interface ChooseUsernameResponse {
   account?: string;
 }
 
+export interface CompleteCliLoginRequest {
+  code?: string;
+}
+
+export interface CompleteCliLoginResponse {
+  subjectId?: string;
+}
+
 export interface Ref {
   name?: string;
   commitId?: string;

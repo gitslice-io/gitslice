@@ -752,6 +752,59 @@ func TestAuthChooseUsernameForExternalSubjectInMemoryStorage(t *testing.T) {
 	}
 }
 
+func TestAuthCLILoginDeviceFlowInMemoryStorage(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := context.Background()
+
+	start, err := handlers.Auth.StartCliLogin(ctx, &corev1.StartCliLoginRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if start.Code == "" || start.ExpiresAt == "" || start.PollIntervalSeconds != 2 {
+		t.Fatalf("start CLI login = %#v, want code, expiry, poll interval 2", start)
+	}
+
+	pending, err := handlers.Auth.PollCliLogin(ctx, &corev1.PollCliLoginRequest{Code: start.Code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Status != "pending" || pending.Token != "" || pending.SubjectId != "" {
+		t.Fatalf("pending poll = %#v, want pending without token", pending)
+	}
+
+	completeCtx := authctx.WithSubjectID(ctx, "user_alice")
+	complete, err := handlers.Auth.CompleteCliLogin(completeCtx, &corev1.CompleteCliLoginRequest{Code: start.Code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if complete.SubjectId != "user_alice" {
+		t.Fatalf("complete subject = %q, want user_alice", complete.SubjectId)
+	}
+
+	approved, err := handlers.Auth.PollCliLogin(ctx, &corev1.PollCliLoginRequest{Code: start.Code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != "approved" || approved.Token == "" || approved.SubjectId != "user_alice" {
+		t.Fatalf("approved poll = %#v, want approved token for user_alice", approved)
+	}
+	subject, err := mem.Auth.SubjectForToken(ctx, approved.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subject.ID != "user_alice" {
+		t.Fatalf("session subject = %q, want user_alice", subject.ID)
+	}
+
+	second, err := handlers.Auth.PollCliLogin(ctx, &corev1.PollCliLoginRequest{Code: start.Code})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Status != "expired" || second.Token != "" || second.SubjectId != "" {
+		t.Fatalf("second poll = %#v, want expired without token", second)
+	}
+}
+
 func newMemoryHandlers() (*memory.Stores, *Handlers) {
 	mem := memory.New()
 	mem.AddAccount("user_alice", "acme")

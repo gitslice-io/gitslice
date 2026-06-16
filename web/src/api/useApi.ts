@@ -13,6 +13,8 @@ import type {
   ChooseUsernameRequest,
   ChooseUsernameResponse,
   Commit,
+  CompleteCliLoginRequest,
+  CompleteCliLoginResponse,
   CreateChangesetRequest,
   CreateSliceRequest,
   DiffChangesetRequest,
@@ -61,6 +63,9 @@ export interface ApiClient {
   chooseUsername(
     request: ChooseUsernameRequest
   ): Promise<ChooseUsernameResponse>;
+  completeCliLogin(
+    request: CompleteCliLoginRequest
+  ): Promise<CompleteCliLoginResponse>;
   resolvePath(request: ResolvePathRequest): Promise<ResolvePathResponse>;
   listDirectory(
     request: ListDirectoryRequest
@@ -137,6 +142,12 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
         invoke<ChooseUsernameRequest, ChooseUsernameResponse>(
           "AuthService",
           "ChooseUsername",
+          request
+        ),
+      completeCliLogin: (request) =>
+        invoke<CompleteCliLoginRequest, CompleteCliLoginResponse>(
+          "AuthService",
+          "CompleteCliLogin",
           request
         ),
       resolvePath: (request) =>
