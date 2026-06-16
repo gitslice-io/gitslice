@@ -1871,6 +1871,39 @@ func TestGitImportShallow(t *testing.T) {
 	}
 }
 
+func TestGitImportDefaultsAuthoringSliceFromMount(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	sourceRepo := createImportGitRepo(t)
+	loginTestCLI(t, ts, home, workspace)
+
+	// No --slice and no workspace: the authoring slice defaults to the mount
+	// path's account home slice (acme:home), which covers /acme.
+	raw := runCLI(t, home, workspace,
+		"import", sourceRepo,
+		"--mount", "/acme/imported/no-slice",
+		"--mode", "shallow",
+		"--json",
+	)
+	var imported struct {
+		FinalCommitID string `json:"final_commit_id"`
+		Commits       []struct {
+			Message string `json:"message"`
+		} `json:"commits"`
+	}
+	if err := json.Unmarshal([]byte(raw), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if len(imported.Commits) != 1 {
+		t.Fatalf("default-slice import commits = %d, want 1: %s", len(imported.Commits), raw)
+	}
+	inspect := runCLI(t, home, workspace, "show", imported.FinalCommitID)
+	if !strings.Contains(inspect, "/acme/imported/no-slice/README.md") {
+		t.Fatalf("unexpected inspect output:\n%s", inspect)
+	}
+}
+
 func TestGitImportProgressText(t *testing.T) {
 	ts := startTestServer(t)
 	home := t.TempDir()
