@@ -4419,6 +4419,65 @@ git diff --check
 
 All listed commands passed.
 
+## 2026-06-16: Deprecated Changeset Handle Removal
+
+Request:
+
+- remove the deprecated changeset handle format `account:slice@number` from
+  server resolution, CLI output/state/selectors, web labels/fallbacks, and the
+  legacy `/changesets/$id` detail route while leaving the proto fields in place
+  but empty
+
+Decisions:
+
+- changed Postgres and in-memory changeset selector resolution to id or
+  validated short-id prefix only; handle-shaped selectors now fall through and
+  return not found
+- stopped populating deprecated changeset and patchset handle proto fields,
+  including submit and diff responses
+- removed the storage handle construction/parsing helpers once no production
+  code needed them; `PopulateChangesetHandles` remains as a no-op compatibility
+  shim while callers are still present
+- changed CLI workspace state and JSON output to use `changeset_id` and
+  `patchset_id` only; text output displays the short changeset id
+- changed Git push changeset progress and `refs/changes/<...>` update targets
+  to use changeset ids/short ids rather than slice-local numbers or handles
+- changed web labels, links, form placeholders, and draft state to use the short
+  changeset id, removed frontend handle type fields, and removed the legacy
+  `/changesets/$id` detail route registration
+
+Important findings:
+
+- added in-memory coverage proving `acme:payment@1` no longer resolves as a
+  changeset selector while the full id still resolves
+- the required scoped vet command still fails on existing protobuf `copylocks`
+  warnings in service request/edit copying, repository request cloning, memory
+  clone helpers, and CLI pagination request copying; these were intentionally
+  not fixed because this task explicitly forbids unrelated copylock/message
+  cloning cleanup
+- `npm ci` completed and reported existing audit advisories; the production web
+  build passed
+
+Verification:
+
+```bash
+gofmt -w $(git diff --name-only -- '*.go')
+go build ./...
+go vet ./internal/cli/... ./service/... ./internal/postgres/... ./internal/storage/...
+go test ./internal/... ./service/...
+cd web && npm ci && npm run build
+```
+
+Results:
+
+- `gofmt -w $(git diff --name-only -- '*.go')` passed
+- `go build ./...` passed
+- `go vet ./internal/cli/... ./service/... ./internal/postgres/... ./internal/storage/...`
+  failed on pre-existing protobuf `copylocks` warnings; left unchanged per
+  scope instruction
+- `go test ./internal/... ./service/...` passed
+- `cd web && npm ci && npm run build` passed
+
 ## 2026-06-16: E2E Tests Use Service-Token Auth Instead of Dev Login
 
 Request:
@@ -4739,6 +4798,56 @@ go test ./service ./internal/postgres ./internal/cli
 go test ./...
 go build ./cmd/...
 git diff --check
+```
+
+All listed commands passed.
+
+## 2026-06-16: Short Changeset ID Prefix URLs
+
+Request:
+
+- make `/cs/<id>` URLs use a short shareable changeset id prefix instead of the
+  full `cs_` plus 32-hex canonical id, while still resolving full ids, short
+  prefixes, and existing handles on the server
+
+Decisions:
+
+- defined `ShortChangesetIDLen = 10` in Go and mirrored the value in the web
+  helper so `/cs/3f9a2b1c4d` is the canonical shareable form
+- made the short code the first 10 characters of the hex body after `cs_`; the
+  full canonical id remains the storage and concurrency identity
+- added `ChangesetIDLookupPrefix` to validate user-supplied id selectors with a
+  minimum 4-hex prefix and maximum 32-hex full body, accepting optional `cs_`
+  and uppercase input by lowercasing for lookup
+- kept handle parsing first, then resolved id selectors through left-anchored
+  prefix lookup; Postgres uses `left(id, $2) = $1` rather than `LIKE`, returns
+  `NotFound` for zero matches, and wraps ambiguous prefixes with `ErrInvalid`
+  so the service layer maps them to `InvalidArgument`
+- kept the in-memory test store consistent with prefix resolution while
+  preserving its existing not-found fallback for zero or ambiguous matches
+- changed web `/cs/$id` route params to short changeset ids while preserving
+  visible labels such as `account:slice@number` and `#number`
+
+Important findings:
+
+- `go vet ./...` initially exposed existing protobuf `copylocks` warnings in
+  memory-store clone helpers, CLI pagination request copying, and service
+  request/edit cloning; these were fixed mechanically with `proto.Clone` and by
+  replacing normalized edit pointers instead of copying protobuf message structs
+- `npm ci` completed and reported existing audit advisories, but the production
+  web build passed
+- `go test ./...` passed in this environment; no packages failed due to a
+  missing database
+
+Verification:
+
+```bash
+gofmt -l internal | tee /dev/stderr
+go build ./...
+go vet ./...
+go test ./internal/storage/... ./internal/postgres/... ./service/...
+cd web && npm ci && npm run build
+go test ./...
 ```
 
 All listed commands passed.

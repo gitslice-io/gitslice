@@ -85,11 +85,9 @@ type WorkspaceConfig struct {
 }
 
 type WorkspaceState struct {
-	CurrentChangesetID     string `json:"current_changeset_id"`
-	CurrentPatchsetID      string `json:"current_patchset_id"`
-	CurrentChangesetHandle string `json:"current_changeset_handle,omitempty"`
-	CurrentPatchsetHandle  string `json:"current_patchset_handle,omitempty"`
-	BaseCommitID           string `json:"base_commit_id"`
+	CurrentChangesetID string `json:"current_changeset_id"`
+	CurrentPatchsetID  string `json:"current_patchset_id"`
+	BaseCommitID       string `json:"base_commit_id"`
 }
 
 type WorkspaceConflictState struct {
@@ -180,16 +178,13 @@ type errorBody struct {
 }
 
 type statusOutput struct {
-	Workspace             string   `json:"workspace"`
-	ChangedPathCount      int      `json:"changed_path_count"`
-	ChangedPaths          []string `json:"changed_paths"`
-	ConflictCount         int      `json:"conflict_count,omitempty"`
-	ConflictPaths         []string `json:"conflict_paths,omitempty"`
-	ChangesetHandle       string   `json:"changeset_handle,omitempty"`
-	PatchsetHandle        string   `json:"patchset_handle,omitempty"`
-	CurrentChangesetID    string   `json:"changeset_id,omitempty"`
-	CurrentPatchsetID     string   `json:"patchset_id,omitempty"`
-	CurrentPatchsetNumber int64    `json:"patchset_number,omitempty"`
+	Workspace          string   `json:"workspace"`
+	ChangedPathCount   int      `json:"changed_path_count"`
+	ChangedPaths       []string `json:"changed_paths"`
+	ConflictCount      int      `json:"conflict_count,omitempty"`
+	ConflictPaths      []string `json:"conflict_paths,omitempty"`
+	CurrentChangesetID string   `json:"changeset_id,omitempty"`
+	CurrentPatchsetID  string   `json:"patchset_id,omitempty"`
 }
 
 type workspaceSyncOutput struct {
@@ -206,16 +201,12 @@ type workspaceSyncOutput struct {
 	ConflictCount        int      `json:"conflict_count"`
 	ConflictPaths        []string `json:"conflict_paths"`
 	MergeStrategy        string   `json:"merge_strategy"`
-	ChangesetHandle      string   `json:"changeset_handle,omitempty"`
-	PatchsetHandle       string   `json:"patchset_handle,omitempty"`
 	ChangesetID          string   `json:"changeset_id,omitempty"`
 	PatchsetID           string   `json:"patchset_id,omitempty"`
 	PatchsetNumber       int64    `json:"patchset_number,omitempty"`
 }
 
 type changesetOutput struct {
-	ChangesetHandle     string                     `json:"changeset_handle,omitempty"`
-	PatchsetHandle      string                     `json:"patchset_handle,omitempty"`
 	ChangesetID         string                     `json:"changeset_id"`
 	PatchsetID          string                     `json:"patchset_id,omitempty"`
 	PatchsetNumber      int64                      `json:"patchset_number,omitempty"`
@@ -269,16 +260,14 @@ type contextOutput struct {
 }
 
 type contextWorkspaceOutput struct {
-	Root                   string   `json:"root"`
-	Ref                    string   `json:"ref"`
-	SliceID                string   `json:"slice_id"`
-	DefinitionHash         string   `json:"definition_hash,omitempty"`
-	IncludedPaths          []string `json:"included_paths,omitempty"`
-	BaseCommitID           string   `json:"base_commit_id,omitempty"`
-	CurrentChangesetHandle string   `json:"current_changeset_handle,omitempty"`
-	CurrentPatchsetHandle  string   `json:"current_patchset_handle,omitempty"`
-	CurrentChangesetID     string   `json:"current_changeset_id,omitempty"`
-	CurrentPatchsetID      string   `json:"current_patchset_id,omitempty"`
+	Root               string   `json:"root"`
+	Ref                string   `json:"ref"`
+	SliceID            string   `json:"slice_id"`
+	DefinitionHash     string   `json:"definition_hash,omitempty"`
+	IncludedPaths      []string `json:"included_paths,omitempty"`
+	BaseCommitID       string   `json:"base_commit_id,omitempty"`
+	CurrentChangesetID string   `json:"current_changeset_id,omitempty"`
+	CurrentPatchsetID  string   `json:"current_patchset_id,omitempty"`
 }
 
 type configOutput struct {
@@ -1148,8 +1137,8 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runDiff(cmd.Context(), *opts, args, diffFrom, diffTo, diffNameOnly, diffStat)
 		},
 	}
-	diffCmd.Flags().StringVar(&diffFrom, "from", diffFrom, "patchset number or handle to diff from")
-	diffCmd.Flags().StringVar(&diffTo, "to", diffTo, "patchset number or handle to diff to")
+	diffCmd.Flags().StringVar(&diffFrom, "from", diffFrom, "patchset number or id to diff from")
+	diffCmd.Flags().StringVar(&diffTo, "to", diffTo, "patchset number or id to diff to")
 	diffCmd.Flags().BoolVar(&diffNameOnly, "name-only", diffNameOnly, "show only changed path names")
 	diffCmd.Flags().BoolVar(&diffStat, "stat", diffStat, "show a compact changed-path summary")
 
@@ -1262,7 +1251,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	csDiffCmd := &cobra.Command{
 		Use:   "diff [changeset]",
 		Short: "Show a server-side changeset diff",
-		Args:  maxArgs(1, "gs cs diff [changeset] [--patchset n|handle] [--from n|handle --to n|handle]"),
+		Args:  maxArgs(1, "gs cs diff [changeset] [--patchset n|id] [--from n|id --to n|id]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {
@@ -1271,9 +1260,9 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runChangesetDiff(cmd.Context(), *opts, id, csDiffPatchset, csDiffFrom, csDiffTo, csDiffNameOnly, csDiffStat)
 		},
 	}
-	csDiffCmd.Flags().StringVar(&csDiffPatchset, "patchset", csDiffPatchset, "patchset number or handle to diff against its base")
-	csDiffCmd.Flags().StringVar(&csDiffFrom, "from", csDiffFrom, "patchset number or handle to diff from")
-	csDiffCmd.Flags().StringVar(&csDiffTo, "to", csDiffTo, "patchset number or handle to diff to")
+	csDiffCmd.Flags().StringVar(&csDiffPatchset, "patchset", csDiffPatchset, "patchset number or id to diff against its base")
+	csDiffCmd.Flags().StringVar(&csDiffFrom, "from", csDiffFrom, "patchset number or id to diff from")
+	csDiffCmd.Flags().StringVar(&csDiffTo, "to", csDiffTo, "patchset number or id to diff to")
 	csDiffCmd.Flags().BoolVar(&csDiffNameOnly, "name-only", csDiffNameOnly, "show only changed path names")
 	csDiffCmd.Flags().BoolVar(&csDiffStat, "stat", csDiffStat, "show a compact changed-path summary")
 	csApproveCmd := &cobra.Command{
@@ -2221,16 +2210,14 @@ func (r Runner) runContext(ctx context.Context, opts commandOptions) error {
 		}
 		ref := ws.Account + ":" + ws.Slice
 		out.Workspace = &contextWorkspaceOutput{
-			Root:                   root,
-			Ref:                    ref,
-			SliceID:                ws.SliceID,
-			DefinitionHash:         ws.DefinitionHash,
-			IncludedPaths:          ws.IncludedPaths,
-			BaseCommitID:           state.BaseCommitID,
-			CurrentChangesetID:     state.CurrentChangesetID,
-			CurrentPatchsetID:      state.CurrentPatchsetID,
-			CurrentChangesetHandle: state.CurrentChangesetHandle,
-			CurrentPatchsetHandle:  state.CurrentPatchsetHandle,
+			Root:               root,
+			Ref:                ref,
+			SliceID:            ws.SliceID,
+			DefinitionHash:     ws.DefinitionHash,
+			IncludedPaths:      ws.IncludedPaths,
+			BaseCommitID:       state.BaseCommitID,
+			CurrentChangesetID: state.CurrentChangesetID,
+			CurrentPatchsetID:  state.CurrentPatchsetID,
 		}
 		if out.Workspace.BaseCommitID == "" {
 			out.Workspace.BaseCommitID = ws.BaseCommitID
@@ -2279,8 +2266,8 @@ func (r Runner) writeContextText(out contextOutput) error {
 		if out.Workspace.BaseCommitID != "" {
 			fmt.Fprintf(r.Stdout, "base_commit: %s\n", out.Workspace.BaseCommitID)
 		}
-		if out.Workspace.CurrentChangesetHandle != "" || out.Workspace.CurrentChangesetID != "" {
-			fmt.Fprintf(r.Stdout, "current_changeset: %s\n", firstNonEmpty(out.Workspace.CurrentChangesetHandle, out.Workspace.CurrentChangesetID))
+		if out.Workspace.CurrentChangesetID != "" {
+			fmt.Fprintf(r.Stdout, "current_changeset: %s\n", firstNonEmpty(storage.ShortChangesetID(out.Workspace.CurrentChangesetID), out.Workspace.CurrentChangesetID))
 		}
 	} else {
 		fmt.Fprintln(r.Stdout, "workspace: none")
@@ -3352,12 +3339,6 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 			return err
 		}
 		state.CurrentPatchsetID = patchset.Id
-		state.CurrentPatchsetHandle = displayPatchsetHandle(patchset, state.CurrentChangesetHandle)
-		if state.CurrentChangesetHandle == "" {
-			state.CurrentChangesetHandle = firstNonEmpty(displayChangesetHandle(activeChangeset), changesetHandleFromPatchsetHandle(state.CurrentPatchsetHandle))
-		}
-		output.ChangesetHandle = state.CurrentChangesetHandle
-		output.PatchsetHandle = state.CurrentPatchsetHandle
 		output.ChangesetID = state.CurrentChangesetID
 		output.PatchsetID = patchset.Id
 		output.PatchsetNumber = patchset.Number
@@ -3414,7 +3395,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		fmt.Fprintf(r.Stdout, "merged %d path(s) with %s strategy\n", output.MergedPathCount, output.MergeStrategy)
 	}
 	if output.PatchsetID != "" {
-		fmt.Fprintf(r.Stdout, "created sync patchset %d for %s\n", output.PatchsetNumber, firstNonEmpty(output.ChangesetHandle, output.ChangesetID))
+		fmt.Fprintf(r.Stdout, "created sync patchset %d for %s\n", output.PatchsetNumber, firstNonEmpty(storage.ShortChangesetID(output.ChangesetID), output.ChangesetID))
 	}
 	if output.ConflictCount > 0 {
 		fmt.Fprintf(r.Stdout, "conflicts: %d path(s)\n", output.ConflictCount)
@@ -3457,16 +3438,13 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 		conflictPaths = workspaceConflictStatePaths(conflictState)
 	}
 	output := statusOutput{
-		Workspace:             ws.Account + ":" + ws.Slice,
-		ChangedPathCount:      len(validation.AffectedPaths),
-		ChangedPaths:          validation.AffectedPaths,
-		ConflictCount:         len(conflictPaths),
-		ConflictPaths:         conflictPaths,
-		ChangesetHandle:       state.CurrentChangesetHandle,
-		PatchsetHandle:        state.CurrentPatchsetHandle,
-		CurrentChangesetID:    state.CurrentChangesetID,
-		CurrentPatchsetID:     state.CurrentPatchsetID,
-		CurrentPatchsetNumber: patchsetNumberFromHandle(state.CurrentPatchsetHandle),
+		Workspace:          ws.Account + ":" + ws.Slice,
+		ChangedPathCount:   len(validation.AffectedPaths),
+		ChangedPaths:       validation.AffectedPaths,
+		ConflictCount:      len(conflictPaths),
+		ConflictPaths:      conflictPaths,
+		CurrentChangesetID: state.CurrentChangesetID,
+		CurrentPatchsetID:  state.CurrentPatchsetID,
 	}
 	if opts.jsonOutput() {
 		if output.ChangedPaths == nil {
@@ -4586,26 +4564,23 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	}
 	state.CurrentChangesetID = cs.Id
 	state.CurrentPatchsetID = patchset.Id
-	state.CurrentChangesetHandle = displayChangesetHandle(cs)
-	state.CurrentPatchsetHandle = displayPatchsetHandle(patchset, state.CurrentChangesetHandle)
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
-	webURL := webResourceURL("/changesets/" + cs.Id)
+	label := firstNonEmpty(displayChangesetID(cs), cs.Id)
+	webURL := webResourceURL("/cs/" + label)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
-			ChangesetHandle: state.CurrentChangesetHandle,
-			PatchsetHandle:  state.CurrentPatchsetHandle,
-			ChangesetID:     cs.Id,
-			PatchsetID:      patchset.Id,
-			PatchsetNumber:  patchset.Number,
-			WebURL:          webURL,
+			ChangesetID:    cs.Id,
+			PatchsetID:     patchset.Id,
+			PatchsetNumber: patchset.Number,
+			WebURL:         webURL,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "created changeset %s patchset %d\n", firstNonEmpty(state.CurrentChangesetHandle, cs.Id), patchset.Number)
+	fmt.Fprintf(r.Stdout, "created changeset %s patchset %d\n", label, patchset.Number)
 	if webURL != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
 	}
@@ -4627,7 +4602,7 @@ func (r Runner) guardChangesetCreate(ctx context.Context, cfg UserConfig, state 
 	case "submitted", "abandoned":
 		return nil
 	}
-	label := firstNonEmpty(displayChangesetHandle(cs), state.CurrentChangesetHandle, state.CurrentChangesetID)
+	label := firstNonEmpty(displayChangesetID(cs), storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
 	if cs.Status == "draft" || cs.Status == "" {
 		return userError(
 			"workspace_changeset_exists",
@@ -4684,10 +4659,6 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 		return err
 	}
 	state.CurrentPatchsetID = patchset.Id
-	state.CurrentPatchsetHandle = displayPatchsetHandle(patchset, state.CurrentChangesetHandle)
-	if state.CurrentChangesetHandle == "" {
-		state.CurrentChangesetHandle = changesetHandleFromPatchsetHandle(state.CurrentPatchsetHandle)
-	}
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
@@ -4696,21 +4667,20 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 			return err
 		}
 	}
-	webURL := webResourceURL("/changesets/" + state.CurrentChangesetID)
+	label := firstNonEmpty(storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
+	webURL := webResourceURL("/cs/" + label)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
-			ChangesetHandle: state.CurrentChangesetHandle,
-			PatchsetHandle:  state.CurrentPatchsetHandle,
-			ChangesetID:     state.CurrentChangesetID,
-			PatchsetID:      patchset.Id,
-			PatchsetNumber:  patchset.Number,
-			WebURL:          webURL,
+			ChangesetID:    state.CurrentChangesetID,
+			PatchsetID:     patchset.Id,
+			PatchsetNumber: patchset.Number,
+			WebURL:         webURL,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "updated changeset %s patchset %d\n", firstNonEmpty(state.CurrentChangesetHandle, state.CurrentChangesetID), patchset.Number)
+	fmt.Fprintf(r.Stdout, "updated changeset %s patchset %d\n", label, patchset.Number)
 	if webURL != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
 	}
@@ -4732,14 +4702,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	if err != nil {
 		return err
 	}
-	changesetHandle := displayChangesetHandle(cs)
-	if usingWorkspaceCurrent && hasWorkspace && changesetHandle != "" && state.CurrentChangesetHandle != changesetHandle {
-		state.CurrentChangesetHandle = changesetHandle
-		state.CurrentPatchsetHandle = displayCurrentPatchsetHandle(cs)
-		if err := r.writeWorkspaceState(state); err != nil {
-			return err
-		}
-	}
+	changesetLabel := firstNonEmpty(displayChangesetID(cs), changesetID)
 	expectedPatchsetID := cs.CurrentPatchsetId
 	if usingWorkspaceCurrent && state.CurrentPatchsetID != "" {
 		expectedPatchsetID = state.CurrentPatchsetID
@@ -4765,7 +4728,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	status := res.Status
 	if watch && (refCommitID == "" || res.Status == "pending_publish") {
 		var err error
-		commitID, refCommitID, err = r.waitForChangesetPublished(ctx, conn, cfg, changesetID, changesetHandle, watchTimeout, !opts.Quiet && !opts.jsonOutput())
+		commitID, refCommitID, err = r.waitForChangesetPublished(ctx, conn, cfg, changesetID, changesetLabel, watchTimeout, !opts.Quiet && !opts.jsonOutput())
 		if err != nil {
 			return err
 		}
@@ -4787,10 +4750,9 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			return err
 		}
 	}
-	webURL := webResourceURL("/changesets/" + changesetID)
+	webURL := webResourceURL("/cs/" + firstNonEmpty(storage.ShortChangesetID(changesetID), changesetID))
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
-			"changeset_handle":  firstNonEmpty(res.ChangesetHandle, changesetHandle),
 			"changeset_id":      cs.Id,
 			"commit_id":         commitID,
 			"target_ref":        res.TargetRef,
@@ -4803,7 +4765,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		return nil
 	}
 	if status != "submitted" {
-		label := firstNonEmpty(res.ChangesetHandle, changesetHandle, changesetID)
+		label := firstNonEmpty(changesetLabel, changesetID)
 		fmt.Fprintf(r.Stdout, "submit accepted for %s; status: %s\n", label, status)
 		fmt.Fprintf(r.Stdout, "Run gs cs status --watch %s to wait for publish.\n", label)
 		if webURL != "" {
@@ -4887,7 +4849,7 @@ func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.Client
 			return "", "", err
 		}
 		if progress && cs.Status != lastStatus {
-			fmt.Fprintf(r.stderr(), "changeset %s status: %s\n", firstNonEmpty(changesetLabel, displayChangesetHandle(cs), changesetID), cs.Status)
+			fmt.Fprintf(r.stderr(), "changeset %s status: %s\n", firstNonEmpty(changesetLabel, displayChangesetID(cs), changesetID), cs.Status)
 			lastStatus = cs.Status
 		}
 		if cs.Status == "submitted" && cs.CommitId != "" {
@@ -5746,7 +5708,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	commitID := res.CommitId
 	refCommitID := res.NewRefCommitId
 	if refCommitID == "" || res.Status == "pending_publish" {
-		commitID, refCommitID, err = m.runner.waitForChangesetPublished(ctx, m.conn, m.cfg, cs.Id, displayChangesetHandle(cs), mutationPublishTimeout(len(edits)), false)
+		commitID, refCommitID, err = m.runner.waitForChangesetPublished(ctx, m.conn, m.cfg, cs.Id, displayChangesetID(cs), mutationPublishTimeout(len(edits)), false)
 		if err != nil {
 			return err
 		}
@@ -5933,7 +5895,7 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return err
 	}
 	if watch && cs.Status != "submitted" {
-		if _, _, err := r.waitForChangesetPublished(ctx, conn, cfg, changesetID, displayChangesetHandle(cs), watchTimeout, !opts.Quiet && !opts.jsonOutput()); err != nil {
+		if _, _, err := r.waitForChangesetPublished(ctx, conn, cfg, changesetID, displayChangesetID(cs), watchTimeout, !opts.Quiet && !opts.jsonOutput()); err != nil {
 			return err
 		}
 		cs, err = changesetClient.GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
@@ -5942,8 +5904,6 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return err
 	}
 	output := changesetOutput{
-		ChangesetHandle:     displayChangesetHandle(cs),
-		PatchsetHandle:      displayCurrentPatchsetHandle(cs),
 		ChangesetID:         cs.Id,
 		PatchsetID:          cs.CurrentPatchsetId,
 		PatchsetNumber:      cs.CurrentPatchsetNumber,
@@ -5960,7 +5920,7 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		}
 		return userError("changeset_not_submitted", "changeset is not submitted", "Run gs cs status without --quiet for details.")
 	}
-	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\n", firstNonEmpty(output.ChangesetHandle, cs.Id), cs.Status)
+	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\n", firstNonEmpty(displayChangesetID(cs), cs.Id), cs.Status)
 	if cs.SubmitBlockedReason != "" {
 		fmt.Fprintf(r.Stdout, "submit_blocked_reason: %s\n", cs.SubmitBlockedReason)
 	}
@@ -6020,16 +5980,15 @@ func (r Runner) runChangesetVersions(ctx context.Context, opts commandOptions, r
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
-			"changeset_handle": displayChangesetHandle(cs),
-			"changeset_id":     cs.Id,
-			"patchsets":        cs.Patchsets,
+			"changeset_id": cs.Id,
+			"patchsets":    cs.Patchsets,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	color := r.colorEnabled(opts)
-	fmt.Fprintf(r.Stdout, "%s %s\n", colorize(color, ansiDim, "changeset:"), colorize(color, ansiGreen, firstNonEmpty(displayChangesetHandle(cs), cs.Id)))
+	fmt.Fprintf(r.Stdout, "%s %s\n", colorize(color, ansiDim, "changeset:"), colorize(color, ansiGreen, firstNonEmpty(displayChangesetID(cs), cs.Id)))
 	printPatchsetsColor(r.Stdout, cs, color)
 	return nil
 }
@@ -6096,19 +6055,17 @@ func (r Runner) runChangesetAbandon(ctx context.Context, opts commandOptions, re
 	if usingWorkspaceCurrent && hasWorkspace {
 		state.CurrentChangesetID = ""
 		state.CurrentPatchsetID = ""
-		state.CurrentChangesetHandle = ""
-		state.CurrentPatchsetHandle = ""
 		if err := r.writeWorkspaceState(state); err != nil {
 			return err
 		}
 	}
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, changesetOutput{ChangesetHandle: displayChangesetHandle(cs), ChangesetID: cs.Id, Status: "abandoned"})
+		return r.writeJSONOutput(opts, changesetOutput{ChangesetID: cs.Id, Status: "abandoned"})
 	}
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "abandoned changeset %s\n", firstNonEmpty(displayChangesetHandle(cs), changesetID))
+	fmt.Fprintf(r.Stdout, "abandoned changeset %s\n", firstNonEmpty(displayChangesetID(cs), changesetID))
 	return nil
 }
 
@@ -6177,7 +6134,7 @@ func (r Runner) resolveChangesetCommandState(requestedID string) (UserConfig, Wo
 			return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, false, "", false, err
 		}
 		if state.CurrentChangesetID == "" {
-			return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, false, "", false, userError("no_current_changeset", "no current changeset in workspace", "Run gs cs create first or pass a changeset handle.")
+			return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, false, "", false, userError("no_current_changeset", "no current changeset in workspace", "Run gs cs create first or pass a changeset id.")
 		}
 		return cfg, ws, state, true, state.CurrentChangesetID, true, nil
 	}
@@ -6196,12 +6153,7 @@ func (r Runner) resolveChangesetCommandState(requestedID string) (UserConfig, Wo
 			return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, false, "", false, err
 		}
 		hasWorkspace = true
-		if strings.HasPrefix(requestedID, "@") {
-			requestedID = ws.Account + ":" + ws.Slice + requestedID
-		} else if strings.HasPrefix(requestedID, "!") {
-			requestedID = ws.Account + ":" + ws.Slice + requestedID
-		}
-		usingWorkspaceCurrent = requestedID == state.CurrentChangesetID || sameChangesetSelector(requestedID, state.CurrentChangesetHandle)
+		usingWorkspaceCurrent = requestedID == state.CurrentChangesetID || sameChangesetSelector(requestedID, state.CurrentChangesetID)
 	} else if !isUserErrorCode(err, "not_in_workspace") {
 		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, false, "", false, err
 	}
@@ -6218,7 +6170,7 @@ func (r Runner) getChangeset(ctx context.Context, cfg UserConfig, changesetID st
 }
 
 func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
-	fmt.Fprintf(w, "changeset: %s\n", firstNonEmpty(displayChangesetHandle(cs), cs.Id))
+	fmt.Fprintf(w, "changeset: %s\n", firstNonEmpty(displayChangesetID(cs), cs.Id))
 	fmt.Fprintf(w, "status: %s\n", cs.Status)
 	if cs.SubmitBlockedReason != "" {
 		fmt.Fprintf(w, "submit_blocked_reason: %s\n", cs.SubmitBlockedReason)
@@ -6257,7 +6209,7 @@ func printChangesetOneLine(w io.Writer, cs *corev1.Changeset) {
 	if title == "" {
 		title = "(untitled)"
 	}
-	fmt.Fprintf(w, "  %s %s patchset=%d %s\n", firstNonEmpty(displayChangesetHandle(cs), cs.Id), cs.Status, cs.CurrentPatchsetNumber, title)
+	fmt.Fprintf(w, "  %s %s patchset=%d %s\n", firstNonEmpty(displayChangesetID(cs), cs.Id), cs.Status, cs.CurrentPatchsetNumber, title)
 }
 
 func printPatchsets(w io.Writer, cs *corev1.Changeset) {
@@ -6368,76 +6320,11 @@ func patchsetChangedPaths(patchset *corev1.Patchset) []string {
 	return changedPathsFromEdits(patchset.FileEdits)
 }
 
-func displayChangesetHandle(cs *corev1.Changeset) string {
+func displayChangesetID(cs *corev1.Changeset) string {
 	if cs == nil {
 		return ""
 	}
-	if cs.Handle != "" {
-		if handle := canonicalChangesetHandle(cs.Handle); handle != "" {
-			return handle
-		}
-		return cs.Handle
-	}
-	return storage.ChangesetHandle(cs.AuthoringSlice, cs.Number)
-}
-
-func displayPatchsetHandle(patchset *corev1.Patchset, changesetHandle string) string {
-	if patchset == nil {
-		return ""
-	}
-	if patchset.Handle != "" {
-		if handle := canonicalPatchsetHandle(patchset.Handle); handle != "" {
-			return handle
-		}
-		return patchset.Handle
-	}
-	if changesetHandle == "" || patchset.Number <= 0 {
-		return ""
-	}
-	if account, sliceName, changesetNumber, ok := storage.ParseChangesetHandle(changesetHandle); ok {
-		return storage.PatchsetHandle(&corev1.SliceRef{Account: account, Slice: sliceName}, changesetNumber, patchset.Number)
-	}
-	return fmt.Sprintf("%s.%d", changesetHandle, patchset.Number)
-}
-
-func displayCurrentPatchsetHandle(cs *corev1.Changeset) string {
-	changesetHandle := displayChangesetHandle(cs)
-	for _, patchset := range cs.GetPatchsets() {
-		if patchset.Id == cs.GetCurrentPatchsetId() {
-			return displayPatchsetHandle(patchset, changesetHandle)
-		}
-	}
-	if cs.GetCurrentPatchsetNumber() > 0 && changesetHandle != "" {
-		if account, sliceName, changesetNumber, ok := storage.ParseChangesetHandle(changesetHandle); ok {
-			return storage.PatchsetHandle(&corev1.SliceRef{Account: account, Slice: sliceName}, changesetNumber, cs.GetCurrentPatchsetNumber())
-		}
-		return fmt.Sprintf("%s.%d", changesetHandle, cs.GetCurrentPatchsetNumber())
-	}
-	return ""
-}
-
-func changesetHandleFromPatchsetHandle(handle string) string {
-	account, sliceName, changesetNumber, _, ok := storage.ParsePatchsetHandle(handle)
-	if !ok {
-		return ""
-	}
-	return storage.ChangesetHandle(&corev1.SliceRef{Account: account, Slice: sliceName}, changesetNumber)
-}
-
-func canonicalChangesetHandle(handle string) string {
-	account, sliceName, number, ok := storage.ParseChangesetHandle(handle)
-	if !ok {
-		return ""
-	}
-	return storage.ChangesetHandle(&corev1.SliceRef{Account: account, Slice: sliceName}, number)
-}
-
-func canonicalPatchsetHandle(handle string) string {
-	account, sliceName, changesetNumber, patchsetNumber, ok := storage.ParsePatchsetHandle(handle)
-	if !ok {
-		return ""
-	}
-	return storage.PatchsetHandle(&corev1.SliceRef{Account: account, Slice: sliceName}, changesetNumber, patchsetNumber)
+	return storage.ShortChangesetID(cs.Id)
 }
 
 func sameChangesetSelector(a, b string) bool {
@@ -6447,17 +6334,20 @@ func sameChangesetSelector(a, b string) bool {
 	if a == b {
 		return true
 	}
-	aAccount, aSlice, aNumber, aOK := storage.ParseChangesetHandle(a)
-	bAccount, bSlice, bNumber, bOK := storage.ParseChangesetHandle(b)
-	return aOK && bOK && aAccount == bAccount && aSlice == bSlice && aNumber == bNumber
+	aBody, aOK := changesetSelectorBody(a)
+	bBody, bOK := changesetSelectorBody(b)
+	if !aOK || !bOK {
+		return false
+	}
+	return strings.HasPrefix(aBody, bBody) || strings.HasPrefix(bBody, aBody)
 }
 
-func patchsetNumberFromHandle(handle string) int64 {
-	_, _, _, n, ok := storage.ParsePatchsetHandle(handle)
+func changesetSelectorBody(selector string) (string, bool) {
+	prefix, ok := storage.ChangesetIDLookupPrefix(selector)
 	if !ok {
-		return 0
+		return "", false
 	}
-	return n
+	return strings.TrimPrefix(prefix, "cs_"), true
 }
 
 func firstNonEmpty(values ...string) string {
@@ -8541,8 +8431,6 @@ func (r Runner) readWorkspaceState() (WorkspaceState, error) {
 	if err != nil {
 		return state, err
 	}
-	state.CurrentChangesetHandle = canonicalChangesetHandle(state.CurrentChangesetHandle)
-	state.CurrentPatchsetHandle = canonicalPatchsetHandle(state.CurrentPatchsetHandle)
 	return state, nil
 }
 
@@ -9035,14 +8923,14 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs changeset create"},
 				"flags":          []string{"--title"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "patchset_number", "changeset_id", "patchset_id"},
+				"machine_output": []string{"patchset_number", "changeset_id", "patchset_id"},
 			},
 			{
 				"use":            "gs cs update",
 				"summary":        "create a new patchset for the current changeset",
 				"aliases":        []string{"gs changeset update"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "patchset_number", "changeset_id", "patchset_id"},
+				"machine_output": []string{"patchset_number", "changeset_id", "patchset_id"},
 			},
 			{
 				"use":            "gs cs submit [changeset]",
@@ -9050,7 +8938,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs changeset submit [changeset]"},
 				"flags":          []string{"--no-watch", "--watch-timeout"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "changeset_id", "commit_id", "target_ref", "new_ref_commit_id", "status"},
+				"machine_output": []string{"changeset_id", "commit_id", "target_ref", "new_ref_commit_id", "status"},
 			},
 			{
 				"use":            "gs cs status [changeset]",
@@ -9058,7 +8946,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs changeset status [changeset]"},
 				"flags":          []string{"--watch", "--watch-timeout"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "patchset_number", "changeset_id", "patchset_id", "status", "submit_blocked_reason", "submit_requirements"},
+				"machine_output": []string{"patchset_number", "changeset_id", "patchset_id", "status", "submit_blocked_reason", "submit_requirements"},
 			},
 			{
 				"use":            "gs cs approve <changeset>",
@@ -9082,21 +8970,21 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"summary":        "show changeset details and patchsets",
 				"aliases":        []string{"gs changeset show [changeset]"},
 				"writes_stdout":  true,
-				"machine_output": []string{"handle", "id", "authoring_slice", "status", "patchsets", "current_patchset_number", "current_patchset_id"},
+				"machine_output": []string{"id", "authoring_slice", "status", "patchsets", "current_patchset_number", "current_patchset_id"},
 			},
 			{
 				"use":            "gs cs explain [changeset]",
 				"summary":        "show changeset validation inputs, requirements, read set, and write set",
 				"aliases":        []string{"gs changeset explain [changeset]"},
 				"writes_stdout":  true,
-				"machine_output": []string{"handle", "id", "submit_requirements", "patchsets"},
+				"machine_output": []string{"id", "submit_requirements", "patchsets"},
 			},
 			{
 				"use":            "gs cs versions [changeset]",
 				"summary":        "list patchset versions for a changeset",
 				"aliases":        []string{"gs changeset versions [changeset]", "gs cs patchsets", "gs changeset patchsets"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "changeset_id", "patchsets"},
+				"machine_output": []string{"changeset_id", "patchsets"},
 			},
 			{
 				"use":            "gs cs diff [changeset]",
@@ -9104,7 +8992,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs changeset diff [changeset]"},
 				"flags":          []string{"--patchset", "--from", "--to", "--name-only", "--stat"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "changeset_id", "from_patchset_handle", "to_patchset_handle", "from_patchset_id", "to_patchset_id", "changed_paths", "diff"},
+				"machine_output": []string{"changeset_id", "from_patchset_id", "to_patchset_id", "changed_paths", "diff"},
 			},
 			{
 				"use":            "gs cs list",
@@ -9120,7 +9008,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"aliases":        []string{"gs changeset abandon [changeset]"},
 				"flags":          []string{"--reason"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_handle", "changeset_id", "status"},
+				"machine_output": []string{"changeset_id", "status"},
 			},
 			{
 				"use":            "gs fs ls [remote-path]",

@@ -44,7 +44,7 @@ import {
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
-import { shortHash } from "../lib/objectId";
+import { shortChangesetId, shortHash } from "../lib/objectId";
 import { useSelection } from "../state/selection";
 
 interface SliceParams {
@@ -253,7 +253,8 @@ export function SliceDetailPage() {
       {pendingEdits.length ? (
         <PendingChangesBanner
           changesetRef={
-            draftChangeset.changesetId || draftChangeset.changesetHandle
+            draftChangeset.changesetLabel ||
+            shortChangesetId(draftChangeset.changesetId)
           }
           count={pendingEdits.length}
           saveStatus={draftChangeset.saveStatus}
@@ -659,11 +660,11 @@ function HistoryDrawer({
                           className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700 transition hover:bg-white hover:text-zinc-950"
                           onClick={onClose}
                           params={{
-                            id: changeset.id || changeset.handle || ""
+                            id: shortChangesetId(changeset.id ?? "") || ""
                           }}
                           to="/cs/$id"
                         >
-                          {changeset.handle ||
+                          {shortChangesetId(changeset.id ?? "") ||
                             (changeset.number
                               ? `#${changeset.number}`
                               : changeset.id)}

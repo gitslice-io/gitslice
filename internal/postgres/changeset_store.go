@@ -258,23 +258,43 @@ func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsReq
 }
 
 func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector string) (string, error) {
-	account, sliceName, number, ok := storage.ParseChangesetHandle(selector)
+	prefix, ok := storage.ChangesetIDLookupPrefix(selector)
 	if !ok {
 		return selector, nil
 	}
-	var id string
-	err := s.db.QueryRowContext(ctx, `
+
+	rows, err := s.db.QueryContext(ctx, `
 		select id
 		from changesets
-		where authoring_account = $1 and authoring_slice = $2 and number = $3
-	`, account, sliceName, number).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
+		where left(id, $2) = $1
+		order by id
+		limit 2
+	`, prefix, len(prefix))
 	if err != nil {
 		return "", err
 	}
-	return id, nil
+	defer rows.Close()
+
+	var matches []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", err
+		}
+		matches = append(matches, id)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", ErrNotFound
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("changeset id prefix %q is ambiguous: %w", selector, ErrInvalid)
+	}
 }
 
 func lockSliceForChangesetNumber(ctx context.Context, tx *sql.Tx, sliceID string) error {
@@ -310,15 +330,14 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	var currentPatchsetID sql.NullString
 	var currentNumber int64
 	var status string
-	var account, sliceName, sliceID string
-	var changesetNumber int64
+	var sliceID string
 	err = tx.QueryRowContext(ctx, `
 			select current_patchset_id, coalesce(current_patchset_number, 0), status,
-			       authoring_account, authoring_slice, authoring_slice_id, number
+			       authoring_slice_id
 			from changesets
 			where id = $1
 			for update
-		`, changesetID).Scan(&currentPatchsetID, &currentNumber, &status, &account, &sliceName, &sliceID, &changesetNumber)
+		`, changesetID).Scan(&currentPatchsetID, &currentNumber, &status, &sliceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -338,7 +357,6 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	patchset.Id = patchsetID
 	patchset.ChangesetId = changesetID
 	patchset.Number = currentNumber + 1
-	patchset.Handle = storage.PatchsetHandle(&corev1.SliceRef{Account: account, Slice: sliceName}, changesetNumber, patchset.Number)
 	createdAt := time.Now().UTC()
 	patchset.CreatedAt = formatTime(createdAt)
 	if patchset.SubmitRequirements == nil || patchset.SubmitRequirements.SourceSliceDefinitionHash == "" {
@@ -554,9 +572,8 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	if cs.Status == "abandoned" {
 		return nil, ErrConflict
 	}
-	handle := storage.ChangesetHandle(&corev1.SliceRef{Account: cs.Account, Slice: cs.Slice}, cs.Number)
 	if cs.Status == "submitted" && cs.CommitID.Valid {
-		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitID.String, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitID.String, Status: "submitted", ChangesetHandle: handle}, nil
+		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitID.String, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitID.String, Status: "submitted"}, nil
 	}
 	if cs.Status == "pending_publish" {
 		var pendingID string
@@ -566,7 +583,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 			where changeset_id = $1 and status = 'pending'
 			`, cs.ID).Scan(&pendingID)
 		if err == nil {
-			return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID, ChangesetHandle: handle}, nil
+			return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID}, nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
@@ -663,7 +680,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID, ChangesetHandle: handle}, nil
+	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID}, nil
 }
 
 func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (published int, err error) {
@@ -744,19 +761,16 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 	updatedBy := "publisher"
 	for _, row := range batch {
 		var cs struct {
-			Author  string
-			Title   string
-			Status  string
-			Account string
-			Slice   string
-			Number  int64
+			Author string
+			Title  string
+			Status string
 		}
 		err := tx.QueryRowContext(ctx, `
-				select author_subject_id, title, status, authoring_account, authoring_slice, number
+				select author_subject_id, title, status
 				from changesets
 				where id = $1
 				for update
-			`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Status, &cs.Account, &cs.Slice, &cs.Number)
+			`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Status)
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, ErrNotFound
 		}
@@ -785,7 +799,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 		now := baseTime.Add(time.Duration(published) * time.Microsecond)
 		message := cs.Title
 		if message == "" {
-			message = "Submit " + storage.ChangesetHandle(&corev1.SliceRef{Account: cs.Account, Slice: cs.Slice}, cs.Number)
+			message = "Submit " + storage.ShortChangesetID(row.ChangesetID)
 		}
 		commitID := objectid.CommitID(objectid.CommitObject{
 			ParentIDs:    []string{currentCommitID},

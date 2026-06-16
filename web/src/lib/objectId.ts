@@ -11,6 +11,7 @@ const ALGORITHM_PREFIX = /^[a-z0-9]+:/i;
 // a slightly longer prefix for sha256 to keep collisions unlikely while staying
 // scannable.
 export const SHORT_HASH_LENGTH = 12;
+const SHORT_CHANGESET_ID_LEN = 10;
 
 export function stripHashAlgorithm(id: string): string {
   return id.replace(ALGORITHM_PREFIX, "");
@@ -26,4 +27,13 @@ export function shortHash(
     return "";
   }
   return stripHashAlgorithm(id).slice(0, length);
+}
+
+// Strip an optional leading "cs_" and return the first SHORT_CHANGESET_ID_LEN
+// hex chars; returns "" for empty input.
+export function shortChangesetId(id: string): string {
+  if (!id) {
+    return "";
+  }
+  return id.replace(/^cs_/, "").slice(0, SHORT_CHANGESET_ID_LEN);
 }

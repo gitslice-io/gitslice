@@ -199,9 +199,9 @@ func (h *Handler) applyReceivePack(ctx, serviceCtx context.Context, repoPath str
 		if err != nil {
 			return rejectedReceivePack(cmd.Ref, userFacingError(err))
 		}
-		handle := firstNonEmpty(cs.Handle, storage.ChangesetHandle(cs.AuthoringSlice, cs.Number), cs.Id)
-		patchsetHandle := firstNonEmpty(patchset.Handle, storage.PatchsetHandle(cs.AuthoringSlice, cs.Number, patchset.Number), patchset.Id)
-		return acceptedReceivePack(cmd.Ref, fmt.Sprintf("Created changeset %s patchset %s\n", handle, patchsetHandle))
+		changesetLabel := firstNonEmpty(storage.ShortChangesetID(cs.Id), cs.Id)
+		patchsetLabel := patchsetPushLabel(cs.Id, patchset)
+		return acceptedReceivePack(cmd.Ref, fmt.Sprintf("Created changeset %s patchset %s\n", changesetLabel, patchsetLabel))
 	}
 
 	cs, err := h.changesets.GetChangeset(serviceCtx, &corev1.GetChangesetRequest{ChangesetId: target.Selector})
@@ -220,9 +220,20 @@ func (h *Handler) applyReceivePack(ctx, serviceCtx context.Context, repoPath str
 	if err != nil {
 		return rejectedReceivePack(cmd.Ref, userFacingError(err))
 	}
-	handle := firstNonEmpty(cs.Handle, storage.ChangesetHandle(cs.AuthoringSlice, cs.Number), cs.Id)
-	patchsetHandle := firstNonEmpty(patchset.Handle, storage.PatchsetHandle(cs.AuthoringSlice, cs.Number, patchset.Number), patchset.Id)
-	return acceptedReceivePack(cmd.Ref, fmt.Sprintf("Updated changeset %s patchset %s\n", handle, patchsetHandle))
+	changesetLabel := firstNonEmpty(storage.ShortChangesetID(cs.Id), cs.Id)
+	patchsetLabel := patchsetPushLabel(cs.Id, patchset)
+	return acceptedReceivePack(cmd.Ref, fmt.Sprintf("Updated changeset %s patchset %s\n", changesetLabel, patchsetLabel))
+}
+
+func patchsetPushLabel(changesetID string, patchset *corev1.Patchset) string {
+	if patchset == nil {
+		return ""
+	}
+	changesetLabel := storage.ShortChangesetID(changesetID)
+	if changesetLabel != "" && patchset.Number > 0 {
+		return fmt.Sprintf("%s.%d", changesetLabel, patchset.Number)
+	}
+	return patchset.Id
 }
 
 func (h *Handler) ensurePushEditsContained(ctx context.Context, sliceRef *corev1.SliceRef, edits []*corev1.FileEdit) error {
@@ -251,10 +262,7 @@ func parseChangesetPushTarget(ref, account, slice string) (changesetPushTarget, 
 	if strings.HasPrefix(ref, prefix) {
 		selector := strings.TrimPrefix(ref, prefix)
 		if selector == "" || strings.Contains(selector, "/") {
-			return changesetPushTarget{}, fmt.Errorf("push to %s is not supported; use refs/changes/new or refs/changes/<changeset-number-or-id>", ref)
-		}
-		if n, err := strconv.ParseInt(selector, 10, 64); err == nil && n > 0 {
-			selector = storage.ChangesetHandle(&corev1.SliceRef{Account: account, Slice: slice}, n)
+			return changesetPushTarget{}, fmt.Errorf("push to %s is not supported; use refs/changes/new or refs/changes/<changeset-id>", ref)
 		}
 		return changesetPushTarget{Selector: selector}, nil
 	}

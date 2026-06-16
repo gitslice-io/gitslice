@@ -7,7 +7,7 @@ import { useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
-import { shortHash } from "../lib/objectId";
+import { shortChangesetId, shortHash } from "../lib/objectId";
 
 export function ChangesetDetailPage() {
   const api = useApi();
@@ -202,7 +202,7 @@ function HeaderCard({
             </h1>
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-600">
               <span className="max-w-full break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
-                {changesetHandle(changeset)}
+                {changesetLabel(changeset)}
               </span>
               <span>{changeset.author || "author not returned"}</span>
               <StatusBadge status={changeset.status} />
@@ -375,19 +375,20 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
-// Copies the canonical, shareable /cs/<id> URL to the clipboard so reviewers can
+// Copies the short, shareable /cs/<id> URL to the clipboard so reviewers can
 // paste it around. Falls back silently when the clipboard API is unavailable.
 function CopyLinkButton({ changesetId }: { changesetId: string }) {
   const [copied, setCopied] = useState(false);
+  const shareId = shortChangesetId(changesetId);
 
-  if (!changesetId) {
+  if (!shareId) {
     return null;
   }
 
   const shareUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/cs/${changesetId}`
-      : `/cs/${changesetId}`;
+      ? `${window.location.origin}/cs/${shareId}`
+      : `/cs/${shareId}`;
 
   const copy = async () => {
     try {
@@ -448,14 +449,15 @@ function changesetBreadcrumbItems({
     });
   }
 
-  items.push({ label: changesetHandle(changeset) });
+  items.push({ label: changesetLabel(changeset) });
 
   return items;
 }
 
-function changesetHandle(changeset: Changeset) {
-  if (changeset.handle) {
-    return changeset.handle;
+function changesetLabel(changeset: Changeset) {
+  const shortId = shortChangesetId(changeset.id || "");
+  if (shortId) {
+    return shortId;
   }
   if (changeset.number !== undefined && changeset.number !== "") {
     return `#${changeset.number}`;

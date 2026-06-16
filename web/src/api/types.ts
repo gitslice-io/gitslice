@@ -282,7 +282,6 @@ export interface Patchset {
   pathBases?: PathBase[];
   readSet?: PathSetEntry[];
   writeSet?: PathSetEntry[];
-  handle?: string;
   conflicts?: PatchsetConflict[];
   kind?: string;
 }
@@ -304,7 +303,6 @@ export interface Changeset {
   commitId?: string;
   pendingPublishId?: string;
   number?: Int64String;
-  handle?: string;
   submitBlockedReason?: string;
 }
 
@@ -353,9 +351,6 @@ export interface DiffChangesetResponse {
   toPatchsetId?: string;
   changedPaths?: string[];
   diff?: string;
-  changesetHandle?: string;
-  fromPatchsetHandle?: string;
-  toPatchsetHandle?: string;
 }
 
 export interface UpdateChangesetRequest {
@@ -378,7 +373,6 @@ export interface SubmitChangesetResponse {
   newRefCommitId?: string;
   status?: string;
   pendingPublishId?: string;
-  changesetHandle?: string;
 }
 
 export interface AbandonChangesetRequest {

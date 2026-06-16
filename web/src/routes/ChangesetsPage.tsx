@@ -16,6 +16,7 @@ import {
   getErrorMessage
 } from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
+import { shortChangesetId } from "../lib/objectId";
 
 interface ChangesetsSearch {
   slice?: unknown;
@@ -141,7 +142,7 @@ function ChangesetsTable({
               <ChangesetRow
                 api={api}
                 changeset={changeset}
-                key={changeset.id || changeset.handle || changeset.number}
+                key={changeset.id || changeset.number}
                 queryKey={queryKey}
               />
             ))}
@@ -163,9 +164,7 @@ function ChangesetRow({
 }) {
   const queryClient = useQueryClient();
   const changesetId = changeset.id ?? "";
-  // Prefer the canonical changeset id for the shareable /cs/<id> URL; fall back
-  // to the handle when an id is somehow absent (getChangeset resolves both).
-  const detailId = changesetId || changeset.handle || "";
+  const detailId = shortChangesetId(changesetId) || changesetId;
   const label = changesetLabel(changeset);
   const mergeable = isMergeableStatus(changeset.status);
   const [rowError, setRowError] = useState("");
@@ -301,7 +300,7 @@ function OpenChangesetForm({ onOpen }: { onOpen(id: string): void }) {
     const id = changeset.trim();
 
     if (!id) {
-      setError("Enter a changeset id or handle.");
+      setError("Enter a changeset id.");
       return;
     }
 
@@ -319,7 +318,7 @@ function OpenChangesetForm({ onOpen }: { onOpen(id: string): void }) {
         <input
           className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
           onChange={(event) => setChangeset(event.target.value)}
-          placeholder="acme/payment@42"
+          placeholder="3f9a2b1c4d"
           value={changeset}
         />
       </label>
@@ -378,9 +377,7 @@ function sortChangesets(changesets: Changeset[]) {
       return rightNumber - leftNumber;
     }
 
-    return (right.handle || right.id || "").localeCompare(
-      left.handle || left.id || ""
-    );
+    return (right.id || "").localeCompare(left.id || "");
   });
 }
 
@@ -390,8 +387,9 @@ function changesetNumberValue(changeset: Changeset) {
 }
 
 function changesetLabel(changeset: Changeset) {
-  if (changeset.handle) {
-    return changeset.handle;
+  const shortId = shortChangesetId(changeset.id || "");
+  if (shortId) {
+    return shortId;
   }
   if (changeset.number !== undefined && changeset.number !== "") {
     return `#${changeset.number}`;
