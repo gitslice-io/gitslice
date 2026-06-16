@@ -64,7 +64,7 @@ const TOP_LEVEL_SLICE_FOLDER_TITLE =
 export function SliceDetailPage() {
   const api = useApi();
   const navigate = useNavigate();
-  const { subjectId } = useSelection();
+  const { account } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const search = useSearch({ strict: false }) as SliceSearch;
   const sliceId = params.id ?? "";
@@ -99,7 +99,7 @@ export function SliceDetailPage() {
     commitId,
     sliceLabel,
     sliceRef,
-    subjectId
+    authorUsername: account
   });
   const pendingEdits = draftChangeset.edits;
   const isProjectedDirectoryPath = isSliceProjectionDirectoryPath(

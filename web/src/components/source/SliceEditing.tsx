@@ -33,7 +33,10 @@ interface DraftChangesetControllerOptions {
   commitId: string;
   sliceLabel: string;
   sliceRef: SliceRef | undefined;
-  subjectId: string;
+  // The signed-in user's username (personal account slug). Changeset authors are
+  // returned as usernames, so own-draft adoption matches against this rather than
+  // the internal subject id.
+  authorUsername: string;
 }
 
 export interface DraftChangesetController {
@@ -69,7 +72,7 @@ export function useDraftChangesetController({
   commitId,
   sliceLabel,
   sliceRef,
-  subjectId
+  authorUsername
 }: DraftChangesetControllerOptions): DraftChangesetController {
   const defaultTitle = `Web edits to ${sliceLabel}`;
   const [changesetId, setChangesetId] = useState("");
@@ -128,7 +131,7 @@ export function useDraftChangesetController({
     setEdits([]);
     clearControllerError();
 
-    if (!commitId || !sliceRef?.account || !sliceRef?.slice || !subjectId) {
+    if (!commitId || !sliceRef?.account || !sliceRef?.slice || !authorUsername) {
       setSaveStatus("idle");
       return;
     }
@@ -144,7 +147,7 @@ export function useDraftChangesetController({
           limit: 50
         });
         const draft = (listed.changesets ?? []).find(
-          (changeset) => changeset.author === subjectId
+          (changeset) => changeset.author === authorUsername
         );
 
         if (cancelled || generationRef.current !== generation) {
@@ -190,7 +193,7 @@ export function useDraftChangesetController({
     return () => {
       cancelled = true;
     };
-  }, [api, clearControllerError, commitId, setControllerError, setDraftIdentity, sliceRef, subjectId]);
+  }, [api, clearControllerError, commitId, setControllerError, setDraftIdentity, sliceRef, authorUsername]);
 
   const clearDraftState = useCallback(() => {
     changesetIdRef.current = "";

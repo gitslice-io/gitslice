@@ -551,6 +551,23 @@ func (s *AuthStore) ChooseUsername(ctx context.Context, subjectID, username stri
 	return username, nil
 }
 
+func (s *AuthStore) UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+
+	out := map[string]string{}
+	for _, subjectID := range subjectIDs {
+		subjectID = strings.TrimSpace(subjectID)
+		if subjectID == "" {
+			continue
+		}
+		if username := s.b.personalAccounts[subjectID]; username != "" {
+			out[subjectID] = username
+		}
+	}
+	return out, nil
+}
+
 func (b *backend) provisionPersonalAccountLocked(subjectID, username, displayName string) {
 	if _, ok := b.subjects[subjectID]; !ok {
 		b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: displayName}

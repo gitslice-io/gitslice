@@ -364,6 +364,46 @@ func (s *AuthStore) ChooseUsername(ctx context.Context, subjectID, username stri
 	return username, nil
 }
 
+func (s *AuthStore) UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error) {
+	ids := make([]string, 0, len(subjectIDs))
+	seen := map[string]struct{}{}
+	for _, subjectID := range subjectIDs {
+		subjectID = strings.TrimSpace(subjectID)
+		if subjectID == "" {
+			continue
+		}
+		if _, ok := seen[subjectID]; ok {
+			continue
+		}
+		seen[subjectID] = struct{}{}
+		ids = append(ids, subjectID)
+	}
+	if len(ids) == 0 {
+		return map[string]string{}, nil
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		select m.subject_id, a.slug
+		from account_memberships m
+		join accounts a on a.id = m.account_id
+		where a.kind = 'personal' and m.subject_id = any($1)
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[string]string{}
+	for rows.Next() {
+		var subjectID, slug string
+		if err := rows.Scan(&subjectID, &slug); err != nil {
+			return nil, err
+		}
+		out[subjectID] = slug
+	}
+	return out, rows.Err()
+}
+
 func ensureAccountRootDirectoryTx(ctx context.Context, tx *sql.Tx, accountSlug, subjectID string, trees *treestore.Store) error {
 	accountSlug = strings.TrimSpace(accountSlug)
 	if accountSlug == "" {
