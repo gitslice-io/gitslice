@@ -15,6 +15,8 @@ require (
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/peterh/liner v1.2.2
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/net v0.28.0
+	golang.org/x/sync v0.8.0
 	golang.org/x/term v0.25.0
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.34.2
@@ -38,8 +40,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/crypto v0.27.0 // indirect
-	golang.org/x/net v0.28.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240814211410-ddb44dafa142 // indirect

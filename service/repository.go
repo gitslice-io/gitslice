@@ -21,6 +21,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -1803,7 +1804,30 @@ func (s *RepositoryService) currentMountedSnapshot(ctx context.Context, targetRe
 	return snapshot, nil
 }
 
+// Import commits can touch hundreds of files. Uploading their blobs to the
+// object store one at a time made a single ~200-file commit spend minutes in
+// serial round-trips to remote object storage (R2), long enough to trip stream
+// deadlines. Upload concurrently with a bounded worker pool, and give each
+// PutObject its own timeout + a few retries so one stalled connection fails
+// fast and recovers instead of hanging the whole import.
+const (
+	importBlobUploadConcurrency = 16
+	importBlobUploadTimeout     = 30 * time.Second
+	importBlobUploadAttempts    = 3
+)
+
 func (s *RepositoryService) uploadImportBlobs(ctx context.Context, edits []*corev1.FileEdit, snapshot importSnapshot) error {
+	type importBlob struct {
+		key         string
+		blobID      string
+		contentHash string
+		size        int64
+		data        []byte
+	}
+	// Deduplicate by content hash: many paths in a commit can share identical
+	// content, and the object key is content-addressed.
+	seen := make(map[string]struct{})
+	var blobs []importBlob
 	for _, edit := range edits {
 		if edit.Op == "delete" {
 			continue
@@ -1812,15 +1836,61 @@ func (s *RepositoryService) uploadImportBlobs(ctx context.Context, edits []*core
 		if !ok {
 			return fmt.Errorf("missing import file for %s", edit.Path)
 		}
-		key := filesystem.BlobKey(file.ContentHash)
-		if err := s.ObjectStore.Put(ctx, key, bytes.NewReader(file.Data)); err != nil {
-			return err
+		if _, dup := seen[file.ContentHash]; dup {
+			continue
 		}
-		if err := s.Blobs.Upsert(ctx, file.BlobID, file.ContentHash, file.Size, key); err != nil {
-			return err
+		seen[file.ContentHash] = struct{}{}
+		blobs = append(blobs, importBlob{
+			key:         filesystem.BlobKey(file.ContentHash),
+			blobID:      file.BlobID,
+			contentHash: file.ContentHash,
+			size:        file.Size,
+			data:        file.Data,
+		})
+	}
+	if len(blobs) == 0 {
+		return nil
+	}
+
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(importBlobUploadConcurrency)
+	for _, blob := range blobs {
+		blob := blob
+		group.Go(func() error {
+			if err := s.putImportBlob(groupCtx, blob.key, blob.data); err != nil {
+				return err
+			}
+			return s.Blobs.Upsert(groupCtx, blob.blobID, blob.contentHash, blob.size, blob.key)
+		})
+	}
+	return group.Wait()
+}
+
+// putImportBlob uploads a single import blob, bounding each attempt with its own
+// timeout and retrying transient failures with a short backoff.
+func (s *RepositoryService) putImportBlob(ctx context.Context, key string, data []byte) error {
+	var err error
+	for attempt := 0; attempt < importBlobUploadAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * 250 * time.Millisecond):
+			}
+		}
+		putCtx, cancel := context.WithTimeout(ctx, importBlobUploadTimeout)
+		err = s.ObjectStore.Put(putCtx, key, bytes.NewReader(data))
+		cancel()
+		if err == nil {
+			return nil
+		}
+		// Stop retrying when the parent context is done (the import was
+		// canceled or another upload failed).
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 	}
-	return nil
+	return err
 }
 
 func (s *RepositoryService) createImportPatchset(ctx context.Context, subjectID string, slice *corev1.Slice, targetRef, baseCommitID, message string, edits []*corev1.FileEdit) (*corev1.Patchset, error) {
