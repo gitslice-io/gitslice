@@ -192,15 +192,30 @@ function HeaderCard({
   onMerge(): void;
   terminal: boolean;
 }) {
+  // On small screens the diff is the priority, so the description, base commit,
+  // and review actions collapse behind a toggle. From `lg` up everything is
+  // always shown in the original two-column layout (the toggle is hidden).
+  const [showDetails, setShowDetails] = useState(false);
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="px-5 py-5 md:px-6">
+      <div className="px-5 py-4 md:px-6 md:py-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl md:text-3xl">
-              {changeset.title || "Untitled changeset"}
-            </h1>
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-600">
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl md:text-3xl">
+                {changeset.title || "Untitled changeset"}
+              </h1>
+              <button
+                aria-expanded={showDetails}
+                className="mt-1 shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 lg:hidden"
+                onClick={() => setShowDetails((value) => !value)}
+                type="button"
+              >
+                {showDetails ? "Hide details" : "Details"}
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-600 md:mt-3">
               <span className="max-w-full break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
                 {changesetLabel(changeset)}
               </span>
@@ -208,35 +223,44 @@ function HeaderCard({
               <StatusBadge status={changeset.status} />
               <CopyLinkButton changesetId={changeset.id || ""} />
             </div>
-            {changeset.description ? (
-              <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                {changeset.description}
-              </p>
-            ) : null}
-            {changeset.baseCommitId ? (
-              <p
-                className="mt-4 font-mono text-xs text-slate-500"
-                title={changeset.baseCommitId}
-              >
-                base {shortCommit(changeset.baseCommitId)}
-              </p>
-            ) : null}
+            <div className={cn("lg:block", showDetails ? "block" : "hidden")}>
+              {changeset.description ? (
+                <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                  {changeset.description}
+                </p>
+              ) : null}
+              {changeset.baseCommitId ? (
+                <p
+                  className="mt-4 font-mono text-xs text-slate-500"
+                  title={changeset.baseCommitId}
+                >
+                  base {shortCommit(changeset.baseCommitId)}
+                </p>
+              ) : null}
+            </div>
           </div>
 
-          <ReviewActions
-            abandonPending={abandonPending}
-            abandonReason={abandonReason}
-            actionBusy={actionBusy}
-            canMerge={
-              Boolean(changeset.currentPatchsetId) &&
-              isMergeableStatus(changeset.status)
-            }
-            mergePending={mergePending}
-            onAbandon={onAbandon}
-            onAbandonReasonChange={onAbandonReasonChange}
-            onMerge={onMerge}
-            terminal={terminal}
-          />
+          <div
+            className={cn(
+              "w-full shrink-0 lg:block lg:w-auto",
+              showDetails ? "block" : "hidden"
+            )}
+          >
+            <ReviewActions
+              abandonPending={abandonPending}
+              abandonReason={abandonReason}
+              actionBusy={actionBusy}
+              canMerge={
+                Boolean(changeset.currentPatchsetId) &&
+                isMergeableStatus(changeset.status)
+              }
+              mergePending={mergePending}
+              onAbandon={onAbandon}
+              onAbandonReasonChange={onAbandonReasonChange}
+              onMerge={onMerge}
+              terminal={terminal}
+            />
+          </div>
         </div>
 
         {changeset.submitBlockedReason ? (
