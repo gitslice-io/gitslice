@@ -222,6 +222,7 @@ type changesetOutput struct {
 	Status              string                     `json:"status,omitempty"`
 	SubmitBlockedReason string                     `json:"submit_blocked_reason,omitempty"`
 	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
+	WebURL              string                     `json:"web_url,omitempty"`
 }
 
 type versionOutput struct {
@@ -319,6 +320,7 @@ type sliceOutput struct {
 	RequiredApprovals int32    `json:"required_approvals"`
 	RequiredChecks    []string `json:"required_checks"`
 	DefinitionHash    string   `json:"definition_hash"`
+	WebURL            string   `json:"web_url,omitempty"`
 }
 
 type sliceDefinitionVersionOutput struct {
@@ -1973,6 +1975,17 @@ func (r Runner) runBrowse(opts commandOptions, webURL, route string, printOnly b
 	return nil
 }
 
+// webResourceURL builds a best-effort link into the web app for a created or
+// updated resource, using GS_WEB_URL / the default web app. Returns "" if it
+// cannot be built so callers can simply skip printing a link.
+func webResourceURL(route string) string {
+	link, err := webRouteURL(defaultWebURL(), route)
+	if err != nil {
+		return ""
+	}
+	return link
+}
+
 func webRouteURL(webURL, route string) (string, error) {
 	webURL = strings.TrimSpace(webURL)
 	if webURL == "" {
@@ -2686,6 +2699,9 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "created slice %s\n", sliceRefLabel(slice.Ref))
+	if link := webResourceURL("/slices/" + slice.Id); link != "" {
+		fmt.Fprintf(r.Stdout, "view: %s\n", link)
+	}
 	return writeSliceText(r.Stdout, slice)
 }
 
@@ -2913,6 +2929,9 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
+	if link := webResourceURL("/slices/" + updated.Id); link != "" {
+		fmt.Fprintf(r.Stdout, "view: %s\n", link)
+	}
 	return writeSliceText(r.Stdout, updated)
 }
 
@@ -3039,6 +3058,7 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 	out := sliceOutput{
 		ID:             slice.Id,
 		DefinitionHash: slice.DefinitionHash,
+		WebURL:         webResourceURL("/slices/" + slice.Id),
 	}
 	if slice.Ref != nil {
 		out.Account = slice.Ref.Account
@@ -4571,6 +4591,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
+	webURL := webResourceURL("/changesets/" + cs.Id)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetHandle: state.CurrentChangesetHandle,
@@ -4578,12 +4599,16 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 			ChangesetID:     cs.Id,
 			PatchsetID:      patchset.Id,
 			PatchsetNumber:  patchset.Number,
+			WebURL:          webURL,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "created changeset %s patchset %d\n", firstNonEmpty(state.CurrentChangesetHandle, cs.Id), patchset.Number)
+	if webURL != "" {
+		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
+	}
 	return nil
 }
 
@@ -4671,6 +4696,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 			return err
 		}
 	}
+	webURL := webResourceURL("/changesets/" + state.CurrentChangesetID)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetHandle: state.CurrentChangesetHandle,
@@ -4678,12 +4704,16 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 			ChangesetID:     state.CurrentChangesetID,
 			PatchsetID:      patchset.Id,
 			PatchsetNumber:  patchset.Number,
+			WebURL:          webURL,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "updated changeset %s patchset %d\n", firstNonEmpty(state.CurrentChangesetHandle, state.CurrentChangesetID), patchset.Number)
+	if webURL != "" {
+		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
+	}
 	return nil
 }
 
@@ -4757,6 +4787,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			return err
 		}
 	}
+	webURL := webResourceURL("/changesets/" + changesetID)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"changeset_handle":  firstNonEmpty(res.ChangesetHandle, changesetHandle),
@@ -4765,6 +4796,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			"target_ref":        res.TargetRef,
 			"new_ref_commit_id": refCommitID,
 			"status":            status,
+			"web_url":           webURL,
 		})
 	}
 	if opts.Quiet {
@@ -4774,9 +4806,15 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		label := firstNonEmpty(res.ChangesetHandle, changesetHandle, changesetID)
 		fmt.Fprintf(r.Stdout, "submit accepted for %s; status: %s\n", label, status)
 		fmt.Fprintf(r.Stdout, "Run gs cs status --watch %s to wait for publish.\n", label)
+		if webURL != "" {
+			fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
+		}
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", commitID, res.TargetRef)
+	if webURL != "" {
+		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
+	}
 	return nil
 }
 
