@@ -10,6 +10,7 @@ import type {
 import { type ApiClient, useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { ActionMenu } from "../components/source/ActionMenu";
+import { FileTypeIcon } from "../components/source/FileTypeIcon";
 import { SourceCodeViewer } from "../components/source/SourceCodeViewer";
 import {
   DirectoryCreateControls,
@@ -959,7 +960,7 @@ function TreeRow({
           title={buttonLabel}
           type="button"
         >
-          {isDirectory ? <FolderGlyph /> : <FileGlyph />}
+          {isDirectory ? <FolderGlyph /> : <FileTypeIcon name={node.name} />}
           <span
             className={[
               "truncate",
@@ -984,15 +985,6 @@ function FolderGlyph() {
     <span
       aria-hidden="true"
       className="relative h-3.5 w-4 shrink-0 rounded-[2px] border border-amber-400 bg-amber-100 before:absolute before:-top-1 before:left-0.5 before:h-1 before:w-2 before:rounded-t-[2px] before:border before:border-b-0 before:border-amber-400 before:bg-amber-100"
-    />
-  );
-}
-
-function FileGlyph() {
-  return (
-    <span
-      aria-hidden="true"
-      className="relative h-4 w-3 shrink-0 rounded-[2px] border border-slate-300 bg-white before:absolute before:right-0 before:top-0 before:h-1.5 before:w-1.5 before:border-b before:border-l before:border-slate-200 before:bg-slate-50"
     />
   );
 }
