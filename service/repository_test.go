@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
@@ -114,6 +116,40 @@ func TestImmediateDirectoryEntriesFiltersFilesOutsidePrefix(t *testing.T) {
 	assertImmediateEntryNames(t, immediateDirectoryEntries("/", files), "acme")
 }
 
+func TestSliceAncestorDirectoryListingIsShallow(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+
+	const included = "/acme/deep/root/one/two/three/four/five"
+	files := []storage.FileEntry{
+		{Path: "/acme/deep/outside.txt", Mode: 0o100644},
+	}
+	for i := range 40 {
+		files = append(files, storage.FileEntry{
+			Path: fmt.Sprintf("%s/dir_%02d/leaf.txt", included, i),
+			Mode: 0o100644,
+		})
+	}
+	mem.PutCommitWithFiles("commit_deep", files, nil)
+	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "deep"}, []string{included}, "private")
+
+	counting := &countingRepositoryStore{RepositoryStore: mem.Repository}
+	handlers.Repository.Repository = counting
+
+	listed, err := handlers.Repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: "commit_deep",
+		Path:     "/acme",
+		Slice:    &corev1.SliceRef{Account: "acme", Slice: "deep"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertImmediateEntryNames(t, listed.Entries, "deep")
+	if counting.listDirectoryCalls != 0 || counting.getEntryCalls != 1 {
+		t.Fatalf("repository reads: ListDirectory=%d GetEntry=%d, want shallow ancestor listing with 0 ListDirectory and 1 GetEntry", counting.listDirectoryCalls, counting.getEntryCalls)
+	}
+}
+
 func runGitTest(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -134,4 +170,20 @@ func assertImmediateEntryNames(t *testing.T, entries []*corev1.TreeEntry, want .
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("entry names = %#v, want %#v", got, want)
 	}
+}
+
+type countingRepositoryStore struct {
+	storage.RepositoryStore
+	getEntryCalls      int
+	listDirectoryCalls int
+}
+
+func (s *countingRepositoryStore) GetEntry(ctx context.Context, commitID, p string) (*storage.TreeEntry, error) {
+	s.getEntryCalls++
+	return s.RepositoryStore.GetEntry(ctx, commitID, p)
+}
+
+func (s *countingRepositoryStore) ListDirectory(ctx context.Context, commitID, p string) ([]storage.TreeEntry, error) {
+	s.listDirectoryCalls++
+	return s.RepositoryStore.ListDirectory(ctx, commitID, p)
 }
