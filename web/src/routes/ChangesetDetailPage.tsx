@@ -1,27 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
-import type { Changeset, DiffChangesetResponse } from "../api/types";
+import type { Changeset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
+import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
 import { shortHash } from "../lib/objectId";
-
-interface DiffFileSection {
-  additions: number;
-  deletions: number;
-  id: string;
-  lines: string[];
-  path: string;
-}
-
-interface DiffSectionDraft {
-  diffPath?: string;
-  lines: string[];
-  newPath?: string;
-  oldPath?: string;
-}
 
 export function ChangesetDetailPage() {
   const api = useApi();
@@ -59,15 +45,6 @@ export function ChangesetDetailPage() {
     queryKey: ["changesetDiff", changesetId],
     queryFn: () => api.diffChangeset({ changesetId: canonicalChangesetId })
   });
-
-  const diffSections = useMemo(
-    () =>
-      parseUnifiedDiff(
-        diffQuery.data?.diff ?? "",
-        diffQuery.data?.changedPaths ?? []
-      ),
-    [diffQuery.data?.changedPaths, diffQuery.data?.diff]
-  );
 
   const invalidateChangeset = async () => {
     await queryClient.invalidateQueries({
@@ -182,12 +159,11 @@ export function ChangesetDetailPage() {
         terminal={terminal}
       />
 
-      <DiffReview
+      <DiffViewer
         diffResponse={diffQuery.data}
         error={diffQuery.error}
         isError={diffQuery.isError}
         isLoading={diffQuery.isPending}
-        sections={diffSections}
       />
     </section>
   );
@@ -337,114 +313,6 @@ function ReviewActions({
   );
 }
 
-function DiffReview({
-  diffResponse,
-  error,
-  isError,
-  isLoading,
-  sections
-}: {
-  diffResponse?: DiffChangesetResponse;
-  error: unknown;
-  isError: boolean;
-  isLoading: boolean;
-  sections: DiffFileSection[];
-}) {
-  const changedPaths = diffResponse?.changedPaths ?? [];
-  const diff = diffResponse?.diff ?? "";
-  const hasTextualDiff = diff.trim().length > 0 && sections.length > 0;
-
-  return (
-    <section className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="border-b border-slate-200 px-5 py-4 md:px-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-base font-semibold tracking-normal text-zinc-950">
-              Changed files
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              {isLoading
-                ? "Loading file changes..."
-                : `${changedPaths.length} file(s) changed`}
-            </p>
-          </div>
-          {sections.length > 0 ? (
-            <nav className="flex max-w-full flex-wrap gap-2 md:justify-end">
-              {sections.map((section) => (
-                <a
-                  className="max-w-full truncate rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-zinc-950"
-                  href={`#${section.id}`}
-                  key={section.id}
-                >
-                  {section.path}
-                </a>
-              ))}
-            </nav>
-          ) : null}
-        </div>
-      </div>
-
-      {isLoading ? (
-        <DiffSkeleton />
-      ) : isError ? (
-        <div className="p-5 md:p-6">
-          <ErrorBox message={errorMessage(error)} />
-        </div>
-      ) : hasTextualDiff ? (
-        <div className="grid gap-4 p-4 md:p-5">
-          {sections.map((section) => (
-            <DiffFilePanel key={section.id} section={section} />
-          ))}
-        </div>
-      ) : (
-        <div className="p-5 md:p-6">
-          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-            No textual changes to display.
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function DiffFilePanel({ section }: { section: DiffFileSection }) {
-  return (
-    <article
-      className="overflow-hidden rounded-lg border border-slate-200 bg-white"
-      id={section.id}
-    >
-      <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="min-w-0 truncate font-mono text-sm font-semibold text-zinc-950">
-          {section.path}
-        </h3>
-        <div className="flex shrink-0 gap-2 font-mono text-xs">
-          <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-800">
-            +{section.additions}
-          </span>
-          <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">
-            -{section.deletions}
-          </span>
-        </div>
-      </div>
-      <pre className="overflow-x-auto bg-white text-xs leading-5 md:text-sm">
-        <code className="block min-w-full py-2">
-          {section.lines.map((line, index) => (
-            <span
-              className={cn(
-                "block min-h-5 whitespace-pre px-4 py-0.5",
-                diffLineClass(line)
-              )}
-              key={`${index}-${line}`}
-            >
-              {line || " "}
-            </span>
-          ))}
-        </code>
-      </pre>
-    </article>
-  );
-}
-
 function ErrorBox({
   className,
   message
@@ -493,29 +361,6 @@ function ChangesetSkeleton() {
   );
 }
 
-function DiffSkeleton() {
-  return (
-    <div className="grid gap-4 p-4 md:p-5">
-      {Array.from({ length: 2 }).map((_, index) => (
-        <div
-          className="overflow-hidden rounded-lg border border-slate-200"
-          key={index}
-        >
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="h-4 w-64 animate-pulse rounded bg-slate-200" />
-          </div>
-          <div className="space-y-2 p-4">
-            <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
-            <div className="h-4 w-11/12 animate-pulse rounded bg-slate-100" />
-            <div className="h-4 w-4/5 animate-pulse rounded bg-slate-100" />
-            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function StatusBadge({ status }: { status?: string }) {
   return (
     <span
@@ -527,142 +372,6 @@ function StatusBadge({ status }: { status?: string }) {
       {status || "unknown"}
     </span>
   );
-}
-
-function parseUnifiedDiff(diff: string, changedPaths: string[]) {
-  const normalized = diff.replace(/\r\n/g, "\n");
-  if (!normalized.trim()) {
-    return [];
-  }
-
-  const lines = normalized.split("\n");
-  if (lines[lines.length - 1] === "") {
-    lines.pop();
-  }
-
-  const drafts: DiffSectionDraft[] = [];
-  let current: DiffSectionDraft | null = null;
-
-  const startSection = () => {
-    current = { lines: [] };
-    drafts.push(current);
-  };
-
-  lines.forEach((line, index) => {
-    const nextLine = lines[index + 1] ?? "";
-    const startsGitFile = line.startsWith("diff --git ");
-    const startsUnifiedFile =
-      line.startsWith("--- ") &&
-      nextLine.startsWith("+++ ") &&
-      (!current || sectionHasBody(current));
-
-    if (startsGitFile || startsUnifiedFile || !current) {
-      startSection();
-    }
-
-    if (!current) {
-      return;
-    }
-
-    updateSectionPath(current, line);
-    current.lines.push(line);
-  });
-
-  return drafts
-    .filter((section) => section.lines.length > 0)
-    .map((section, index) => {
-      const path =
-        section.newPath ||
-        section.oldPath ||
-        section.diffPath ||
-        changedPaths[index] ||
-        `File ${index + 1}`;
-
-      return {
-        additions: section.lines.filter(isAdditionLine).length,
-        deletions: section.lines.filter(isDeletionLine).length,
-        id: `diff-file-${index + 1}`,
-        lines: section.lines,
-        path
-      };
-    });
-}
-
-function updateSectionPath(section: DiffSectionDraft, line: string) {
-  if (line.startsWith("diff --git ")) {
-    section.diffPath = parseDiffGitPath(line);
-    return;
-  }
-
-  if (line.startsWith("--- ")) {
-    section.oldPath = parseFileHeaderPath(line.slice(4));
-    return;
-  }
-
-  if (line.startsWith("+++ ")) {
-    section.newPath = parseFileHeaderPath(line.slice(4));
-  }
-}
-
-function parseDiffGitPath(line: string) {
-  const match = line.match(/^diff --git a\/(.+) b\/(.+)$/);
-  if (!match) {
-    return undefined;
-  }
-  return match[2] || match[1];
-}
-
-function parseFileHeaderPath(value: string) {
-  const path = value.trim().split("\t")[0];
-  if (!path || path === "/dev/null") {
-    return undefined;
-  }
-  return path.replace(/^[ab]\//, "");
-}
-
-function sectionHasBody(section: DiffSectionDraft) {
-  return section.lines.some(
-    (line) =>
-      line.startsWith("@@") || isAdditionLine(line) || isDeletionLine(line)
-  );
-}
-
-function diffLineClass(line: string) {
-  if (line.startsWith("@@")) {
-    return "bg-sky-50 text-sky-700";
-  }
-  if (isFileMetadataLine(line)) {
-    return "bg-slate-50 text-slate-500";
-  }
-  if (isAdditionLine(line)) {
-    return "bg-emerald-50 text-emerald-900";
-  }
-  if (isDeletionLine(line)) {
-    return "bg-rose-50 text-rose-900";
-  }
-  return "text-slate-700";
-}
-
-function isFileMetadataLine(line: string) {
-  return (
-    line.startsWith("diff --git ") ||
-    line.startsWith("index ") ||
-    line.startsWith("--- ") ||
-    line.startsWith("+++ ") ||
-    line.startsWith("new file mode ") ||
-    line.startsWith("deleted file mode ") ||
-    line.startsWith("similarity index ") ||
-    line.startsWith("rename from ") ||
-    line.startsWith("rename to ")
-  );
-}
-
-function isAdditionLine(line: string) {
-  return line.startsWith("+") && !line.startsWith("+++");
-}
-
-function isDeletionLine(line: string) {
-  return line.startsWith("-") && !line.startsWith("---");
 }
 
 function changesetSliceSearch(changeset: Changeset) {
