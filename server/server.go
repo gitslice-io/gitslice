@@ -16,6 +16,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/gitcompat"
 	"github.com/gitslice-io/gitslice/internal/indexworker"
+	"github.com/gitslice-io/gitslice/internal/objectstore/cache"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
 	"github.com/gitslice-io/gitslice/internal/objectstore/r2"
 	"github.com/gitslice-io/gitslice/internal/postgres"
@@ -73,6 +74,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
+	objectStore = cache.New(objectStore, cfg.ObjectCacheBytes, 4<<20)
 	resolveSubject, err := newSubjectResolver(db.Auth(), cfg)
 	if err != nil {
 		return err
