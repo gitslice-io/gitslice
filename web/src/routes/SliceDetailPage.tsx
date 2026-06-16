@@ -225,13 +225,6 @@ export function SliceDetailPage() {
           >
             Files
           </button>
-          <button
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-            onClick={() => setHistoryOpen(true)}
-            type="button"
-          >
-            History
-          </button>
           <Link
             className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
             search={{ slice: sliceLabel } as never}
@@ -347,6 +340,7 @@ export function SliceDetailPage() {
             isFileLoading={fileQuery.isPending}
             isLatestLoading={latestQuery.isPending}
             isPathLoading={pathQuery.isLoading}
+            onOpenHistory={() => setHistoryOpen(true)}
             onSelectPath={selectPath}
             onStageEdit={stagePendingEdit}
             pathError={pathQuery.error}
@@ -1171,6 +1165,7 @@ interface SliceSourceWorkspaceProps {
   isFileLoading: boolean;
   isLatestLoading: boolean;
   isPathLoading: boolean;
+  onOpenHistory(): void;
   onSelectPath(path: string): void;
   onStageEdit(edit: PendingEdit): void;
   pathError: Error | null;
@@ -1193,6 +1188,7 @@ function SliceSourceWorkspace({
   isFileLoading,
   isLatestLoading,
   isPathLoading,
+  onOpenHistory,
   onSelectPath,
   onStageEdit,
   pathError,
@@ -1252,6 +1248,7 @@ function SliceSourceWorkspace({
         <DirectoryHeader
           commitId={commitId}
           includedPaths={includedPaths}
+          onOpenHistory={onOpenHistory}
           onStageEdit={onStageEdit}
           selectedPath={selectedPath}
         />
@@ -1287,6 +1284,7 @@ function SliceSourceWorkspace({
         commitId={commitId}
         fileContent={fileContent}
         includedPaths={includedPaths}
+        onOpenHistory={onOpenHistory}
         onStageEdit={onStageEdit}
         pendingEdits={pendingEdits}
         selectedPath={entry.path ?? selectedPath}
@@ -1299,6 +1297,7 @@ function SliceSourceWorkspace({
       <DirectoryHeader
         commitId={commitId}
         includedPaths={includedPaths}
+        onOpenHistory={onOpenHistory}
         selectedPath={selectedPath}
       />
       <p className="mt-4 text-sm text-slate-600">
@@ -1312,6 +1311,7 @@ function SliceSourceWorkspace({
 function DirectoryHeader({
   commitId,
   includedPaths,
+  onOpenHistory,
   onStageEdit,
   selectedPath,
   actions,
@@ -1319,6 +1319,7 @@ function DirectoryHeader({
 }: {
   commitId: string;
   includedPaths: string[];
+  onOpenHistory?: () => void;
   onStageEdit?: (edit: PendingEdit) => void;
   selectedPath: string;
   actions?: ReactNode;
@@ -1367,6 +1368,17 @@ function DirectoryHeader({
     />
   ) : null;
   const rightActions = actions !== undefined ? actions : ownMenu;
+  // History is scoped to the path shown in this header, so it lives beside the
+  // current folder/file rather than in the page-level toolbar.
+  const historyButton = onOpenHistory ? (
+    <button
+      className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+      onClick={onOpenHistory}
+      type="button"
+    >
+      History
+    </button>
+  ) : null;
 
   return (
     <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
@@ -1382,7 +1394,12 @@ function DirectoryHeader({
             </span>
           </p>
         </div>
-        {rightActions ? <div className="shrink-0">{rightActions}</div> : null}
+        {historyButton || rightActions ? (
+          <div className="flex shrink-0 items-center gap-2">
+            {historyButton}
+            {rightActions}
+          </div>
+        ) : null}
       </div>
       {children}
       {actions === undefined && isRenaming && canModifySelectedPath ? (
@@ -1529,6 +1546,7 @@ function EditableFileView({
   commitId,
   fileContent,
   includedPaths,
+  onOpenHistory,
   onStageEdit,
   pendingEdits,
   selectedPath
@@ -1536,6 +1554,7 @@ function EditableFileView({
   commitId: string;
   fileContent: string;
   includedPaths: string[];
+  onOpenHistory(): void;
   onStageEdit(edit: PendingEdit): void;
   pendingEdits: PendingEdit[];
   selectedPath: string;
@@ -1620,6 +1639,7 @@ function EditableFileView({
           }
           commitId={commitId}
           includedPaths={includedPaths}
+          onOpenHistory={onOpenHistory}
           selectedPath={selectedPath}
         >
           {isRenaming && canModifySelectedPath ? (
