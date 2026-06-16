@@ -25,7 +25,6 @@ func main() {
 	flag.DurationVar(&cfg.PublishInterval, "publish-interval", cfg.PublishInterval, "pending publish poll interval")
 	flag.IntVar(&cfg.IndexBatchSize, "index-batch-size", cfg.IndexBatchSize, "derived-index outbox batch size")
 	flag.DurationVar(&cfg.IndexInterval, "index-interval", cfg.IndexInterval, "derived-index outbox poll interval")
-	flag.BoolVar(&cfg.DevMode, "dev", cfg.DevMode, "enable development-only diagnostics such as pprof on the HTTP listener")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

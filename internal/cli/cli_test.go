@@ -8,13 +8,10 @@ import (
 	"errors"
 	"io"
 	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gitslice-io/gitslice/internal/clientcache"
 	"github.com/gitslice-io/gitslice/internal/objectid"
@@ -582,7 +579,7 @@ func TestAuthTokenRejectsInvalidStoredToken(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("auth token printed invalid token:\n%s", stdout.String())
 	}
-	if !strings.Contains(err.Error(), "gs auth status") || !strings.Contains(err.Error(), "gs auth signup --username alice") {
+	if !strings.Contains(err.Error(), "gs auth status") || !strings.Contains(err.Error(), "gs auth login") {
 		t.Fatalf("expected recovery hint, got:\n%v", err)
 	}
 }
@@ -637,8 +634,8 @@ func TestUnauthenticatedErrorsIncludeRecoveryHint(t *testing.T) {
 	if !strings.Contains(err.Error(), "gs auth status") {
 		t.Fatalf("expected auth status recovery hint, got:\n%v", err)
 	}
-	if !strings.Contains(err.Error(), "gs auth signup --username alice") {
-		t.Fatalf("expected username-specific signup hint, got:\n%v", err)
+	if !strings.Contains(err.Error(), "gs auth login") {
+		t.Fatalf("expected login recovery hint, got:\n%v", err)
 	}
 }
 
@@ -978,71 +975,6 @@ func TestVersionCommandEmitsBuildInfo(t *testing.T) {
 	}
 }
 
-func TestAuthSignupStoresCallbackToken(t *testing.T) {
-	home := t.TempDir()
-	stdoutReader, stdoutWriter := io.Pipe()
-	var stderr bytes.Buffer
-	r := Runner{Home: home, Stdout: stdoutWriter, Stderr: &stderr}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		err := r.Run(ctx, []string{
-			"auth", "signup",
-			"--username", "New_User",
-			"--server", "127.0.0.1:50051",
-			"--web-url", "http://signup.example.invalid",
-			"--no-browser",
-		})
-		_ = stdoutWriter.Close()
-		errCh <- err
-	}()
-
-	approvalURL := readSignupApprovalURL(t, stdoutReader)
-	go io.Copy(io.Discard, stdoutReader)
-	parsed, err := url.Parse(approvalURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := parsed.Query()
-	if query.Get("username") != "New_User" {
-		t.Fatalf("approval username = %q, want New_User", query.Get("username"))
-	}
-	callbackURL := query.Get("callback_url")
-	state := query.Get("state")
-	if callbackURL == "" || state == "" {
-		t.Fatalf("approval URL missing callback/state: %s", approvalURL)
-	}
-	callback, err := url.Parse(callbackURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	callbackQuery := callback.Query()
-	callbackQuery.Set("token", "callback-token")
-	callbackQuery.Set("subject_id", "user_new_user")
-	callbackQuery.Set("state", state)
-	callback.RawQuery = callbackQuery.Encode()
-	resp, err := http.Get(callback.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("callback status = %d, want 200", resp.StatusCode)
-	}
-	if err := <-errCh; err != nil {
-		t.Fatalf("signup failed: %v\nstderr:\n%s", err, stderr.String())
-	}
-
-	var cfg UserConfig
-	if err := readJSONFile(filepath.Join(home, ".gitslice", "config.json"), &cfg); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ServerAddr != "127.0.0.1:50051" || cfg.Token != "callback-token" || cfg.SubjectID != "user_new_user" {
-		t.Fatalf("unexpected stored signup config: %#v", cfg)
-	}
-}
-
 func TestInvalidFormatReturnsStructuredCommandError(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	r := Runner{Stdout: &stdout, Stderr: &stderr}
@@ -1059,22 +991,21 @@ func TestInvalidFormatReturnsStructuredCommandError(t *testing.T) {
 	}
 }
 
-func TestResolveSliceRefInputAcceptsBareSignedInSlice(t *testing.T) {
+func TestResolveSliceRefInputAcceptsExplicitSliceOffline(t *testing.T) {
 	r := Runner{}
-	ref, err := r.resolveSliceRefInput(context.Background(), UserConfig{SubjectID: "user_alice"}, nil, "Payment_API")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ref.Account != "alice" || ref.Slice != "payment-api" {
-		t.Fatalf("unexpected bare slice ref: %#v", ref)
-	}
-
 	explicit, err := r.resolveSliceRefInput(context.Background(), UserConfig{SubjectID: "user_alice"}, nil, "acme/Payment_API")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if explicit.Account != "acme" || explicit.Slice != "payment-api" {
 		t.Fatalf("unexpected explicit slice ref: %#v", explicit)
+	}
+
+	// A bare slug now expands to the signed-in personal account via a server
+	// round-trip (the account is no longer derivable from the subject id), so
+	// offline resolution without a connection requires an explicit account.
+	if _, err := r.resolveSliceRefInput(context.Background(), UserConfig{SubjectID: "user_alice"}, nil, "Payment_API"); !isUserErrorCode(err, "account_required") {
+		t.Fatalf("bare slice ref offline = %v, want account_required", err)
 	}
 }
 

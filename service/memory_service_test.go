@@ -324,20 +324,20 @@ func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 	}
 }
 
-func TestFakeSignupUsesInMemoryAuthAndCreatesHomeSlice(t *testing.T) {
-	_, handlers := newMemoryHandlers()
-	res, err := handlers.FakeAccount.ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
-		Username:    "nic",
-		State:       "state-1",
-		CallbackUrl: "http://127.0.0.1:12345/callback",
-	})
+func TestChooseUsernameCreatesHomeSliceInMemoryStorage(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nic", "nic@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Token == "" || res.SubjectId != "user_nic" || !strings.Contains(res.RedirectUrl, "token=") {
-		t.Fatalf("unexpected signup response: %#v", res)
+	ctx := authctx.WithSubjectID(context.Background(), subjectID)
+	chosen, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "nic"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	ctx := authctx.WithSubjectID(context.Background(), res.SubjectId)
+	if chosen.SubjectId != subjectID || chosen.Account != "nic" {
+		t.Fatalf("unexpected choose-username response: %#v", chosen)
+	}
 	slice, err := handlers.Slice.ResolveSlice(ctx, &corev1.ResolveSliceRequest{
 		Ref: &corev1.SliceRef{Account: "nic", Slice: "home"},
 	})
@@ -364,16 +364,15 @@ func TestFakeSignupUsesInMemoryAuthAndCreatesHomeSlice(t *testing.T) {
 }
 
 func TestUpdateSliceDefinitionRejectsHomeIncludedPathChange(t *testing.T) {
-	_, handlers := newMemoryHandlers()
-	res, err := handlers.FakeAccount.ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
-		Username:    "nic",
-		State:       "state-1",
-		CallbackUrl: "http://127.0.0.1:12345/callback",
-	})
+	mem, handlers := newMemoryHandlers()
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nic", "nic@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := authctx.WithSubjectID(context.Background(), res.SubjectId)
+	ctx := authctx.WithSubjectID(context.Background(), subjectID)
+	if _, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "nic"}); err != nil {
+		t.Fatal(err)
+	}
 	home, err := handlers.Slice.ResolveSlice(ctx, &corev1.ResolveSliceRequest{
 		Ref: &corev1.SliceRef{Account: "nic", Slice: "home"},
 	})
@@ -414,20 +413,13 @@ func TestUpdateSliceDefinitionRejectsHomeIncludedPathChange(t *testing.T) {
 func TestSimpleServiceMethodsUseInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 
-	login, err := handlers.FakeAccount.Login(context.Background(), &corev1.LoginRequest{DevUser: "alice"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if login.Token == "" || login.SubjectId != "user_alice" {
-		t.Fatalf("unexpected login response: %#v", login)
-	}
-	ctx := authctx.WithSubjectID(context.Background(), login.SubjectId)
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	authStatus, err := handlers.Auth.GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if authStatus.SubjectId != login.SubjectId {
-		t.Fatalf("auth subject = %q, want %q", authStatus.SubjectId, login.SubjectId)
+	if authStatus.SubjectId != "user_alice" {
+		t.Fatalf("auth subject = %q, want user_alice", authStatus.SubjectId)
 	}
 
 	mem.AddAccountRole("user_alice", "alice", "admin")

@@ -17,7 +17,7 @@ func (d *DB) Migrate(ctx context.Context) error {
 			return err
 		}
 	}
-	return d.seedDevFixture(ctx)
+	return d.seedBootstrap(ctx)
 }
 
 //go:embed migrations/*.sql

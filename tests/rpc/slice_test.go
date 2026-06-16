@@ -320,25 +320,14 @@ func TestRPCAuthenticationBoundary(t *testing.T) {
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 
-	fakeAccounts := corev1.NewFakeAccountServiceClient(conn)
-	login, err := fakeAccounts.Login(context.Background(), &corev1.LoginRequest{DevUser: "alice"})
+	// StartCliLogin is a public (unauthenticated) method: the device-login code
+	// is the only secret, so it must be reachable without a bearer token.
+	start, err := corev1.NewAuthServiceClient(conn).StartCliLogin(context.Background(), &corev1.StartCliLoginRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if login.Token == "" || login.SubjectId != "user_alice" {
-		t.Fatalf("unexpected public login response: %#v", login)
-	}
-
-	signup, err := fakeAccounts.ApproveSignup(context.Background(), &corev1.ApproveSignupRequest{
-		Username:    "public-boundary",
-		CallbackUrl: "http://127.0.0.1/callback",
-		State:       "state",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if signup.Token == "" || signup.SubjectId != "user_public_boundary" {
-		t.Fatalf("unexpected public signup response: %#v", signup)
+	if start.Code == "" {
+		t.Fatalf("unexpected public StartCliLogin response: %#v", start)
 	}
 
 	health, err := healthv1.NewHealthClient(conn).Check(context.Background(), &healthv1.HealthCheckRequest{})
@@ -659,7 +648,6 @@ func (ts *testRPCServer) start(t *testing.T) {
 				Issuer:       servicetoken.DefaultIssuer,
 			},
 			RunMigrations: true,
-			DevMode:       true,
 		})
 	}()
 	waitForHealth(t, ts.addr)

@@ -16,8 +16,6 @@ import (
 const (
 	cliLoginTTL            = 10 * time.Minute
 	cliLoginSessionTTL     = 30 * 24 * time.Hour
-	defaultSessionTTL      = 24 * time.Hour
-	defaultTokenPrefix     = "devtok"
 	cliLoginTokenPrefix    = "clitok"
 	cliLoginStatusPending  = "pending"
 	cliLoginStatusApproved = "approved"
@@ -27,63 +25,6 @@ const (
 type AuthStore struct {
 	db    *sql.DB
 	trees *treestore.Store
-}
-
-func (s *AuthStore) LoginDevUser(ctx context.Context, devUser string) (string, string, error) {
-	subjectID := normalizeDevSubject(devUser)
-	var found string
-	err := s.db.QueryRowContext(ctx, `select id from subjects where id = $1`, subjectID).Scan(&found)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", ErrNotFound
-	}
-	if err != nil {
-		return "", "", err
-	}
-	token, sessionID, hashedToken, expiresAt, err := newSession(subjectID)
-	if err != nil {
-		return "", "", err
-	}
-	_, err = s.db.ExecContext(ctx, `
-		insert into sessions(id, subject_id, token_hash, expires_at)
-		values ($1, $2, $3, $4)
-	`, sessionID, subjectID, hashedToken, expiresAt)
-	if err != nil {
-		return "", "", err
-	}
-	return token, subjectID, nil
-}
-
-func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, string, error) {
-	username, err := normalizeSignupUsername(username)
-	if err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrInvalid, err)
-	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", "", err
-	}
-	defer tx.Rollback()
-
-	subjectID, _, err := s.provisionPersonalAccount(ctx, tx, username, username)
-	if err != nil {
-		return "", "", err
-	}
-
-	token, sessionID, hashedToken, expiresAt, err := newSession(subjectID)
-	if err != nil {
-		return "", "", err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		insert into sessions(id, subject_id, token_hash, expires_at)
-		values ($1, $2, $3, $4)
-	`, sessionID, subjectID, hashedToken, expiresAt); err != nil {
-		return "", "", err
-	}
-	if err := tx.Commit(); err != nil {
-		return "", "", err
-	}
-	return token, subjectID, nil
 }
 
 func (s *AuthStore) StartCliLogin(ctx context.Context) (string, time.Time, error) {
@@ -239,33 +180,10 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 	return subjectID, nil
 }
 
-// provisionPersonalAccount idempotently creates the subject, personal account,
-// admin membership, and home slice (with its definition version and path index)
-// for username within tx, returning the subject and account IDs. The caller owns
-// the transaction lifecycle.
-func (s *AuthStore) provisionPersonalAccount(ctx context.Context, tx *sql.Tx, username, displayName string) (string, string, error) {
-	subjectID := signupSubjectID(username)
-
-	if _, err := tx.ExecContext(ctx, `
-		insert into subjects(id, kind, display_name, created_at)
-		values ($1, 'user', $2, now())
-		on conflict (id) do nothing
-	`, subjectID, displayName); err != nil {
-		return "", "", err
-	}
-
-	accountID, err := s.provisionAccountForSubject(ctx, tx, subjectID, username, displayName)
-	if err != nil {
-		return "", "", err
-	}
-	return subjectID, accountID, nil
-}
-
 // provisionAccountForSubject creates the personal account, admin membership,
 // home slice (+ definition version + path index) and account-root directory for
-// an existing subjectID under the chosen username, within tx. It is the shared
-// core used by both SignupUser (subject derived from username) and
-// ChooseUsername (pre-existing external subject).
+// an existing subjectID under the chosen username, within tx. It backs
+// ChooseUsername (provisioning the account for a pre-existing external subject).
 func (s *AuthStore) provisionAccountForSubject(ctx context.Context, tx *sql.Tx, subjectID, username, displayName string) (accountID string, err error) {
 	accountID = signupAccountID(username)
 
@@ -612,10 +530,6 @@ func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID strin
 		out = append(out, slug)
 	}
 	return out, rows.Err()
-}
-
-func newSession(subjectID string) (token, sessionID, hashedToken string, expiresAt time.Time, err error) {
-	return newSessionWithTTL(subjectID, defaultTokenPrefix, defaultSessionTTL)
 }
 
 func newSessionWithTTL(subjectID, tokenPrefix string, ttl time.Duration) (token, sessionID, hashedToken string, expiresAt time.Time, err error) {
