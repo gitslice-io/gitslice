@@ -670,7 +670,7 @@ function changesetSliceSearch(changeset: Changeset) {
   if (!ref?.account || !ref.slice) {
     return "";
   }
-  return `${ref.account}/${ref.slice}`;
+  return `${ref.account}:${ref.slice}`;
 }
 
 function changesetBreadcrumbItems({

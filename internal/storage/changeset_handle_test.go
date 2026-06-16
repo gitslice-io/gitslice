@@ -8,16 +8,21 @@ import (
 
 func TestChangesetHandlesAreShellSafe(t *testing.T) {
 	ref := &corev1.SliceRef{Account: "alice", Slice: "first-one"}
-	if got := ChangesetHandle(ref, 4); got != "alice/first-one@4" {
+	if got := ChangesetHandle(ref, 4); got != "alice:first-one@4" {
 		t.Fatalf("ChangesetHandle() = %q", got)
 	}
-	if got := PatchsetHandle(ref, 4, 2); got != "alice/first-one@4.2" {
+	if got := PatchsetHandle(ref, 4, 2); got != "alice:first-one@4.2" {
 		t.Fatalf("PatchsetHandle() = %q", got)
 	}
 }
 
 func TestParseChangesetHandle(t *testing.T) {
+	// Canonical account:slice plus legacy account/slice for back-compat.
 	for _, selector := range []string{
+		"alice:first-one@4",
+		"alice:first-one@4.2",
+		"alice:first-one!4",
+		"alice:first-one!4@2",
 		"alice/first-one@4",
 		"alice/first-one@4.2",
 		"alice/first-one!4",
@@ -35,6 +40,8 @@ func TestParseChangesetHandle(t *testing.T) {
 
 func TestParsePatchsetHandle(t *testing.T) {
 	for _, selector := range []string{
+		"alice:first-one@4.2",
+		"alice:first-one!4@2",
 		"alice/first-one@4.2",
 		"alice/first-one!4@2",
 	} {

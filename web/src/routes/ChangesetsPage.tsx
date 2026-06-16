@@ -62,11 +62,11 @@ export function ChangesetsPage() {
     breadcrumbItems.push(
       resolvedSliceId
         ? {
-            label: `${account}/${slice}`,
+            label: `${account}:${slice}`,
             to: "/slices/$id",
             params: { id: resolvedSliceId }
           }
-        : { label: `${account}/${slice}` }
+        : { label: `${account}:${slice}` }
     );
   }
   breadcrumbItems.push({ label: "Changesets" });
@@ -78,7 +78,7 @@ export function ChangesetsPage() {
       </div>
       <SlicePageHeader
         eyebrow="Changesets"
-        title={sliceRef ? `${account}/${slice} · Changesets` : "Changesets"}
+        title={sliceRef ? `${account}:${slice} · Changesets` : "Changesets"}
         description={
           sliceRef
             ? "Review and merge changesets authored against this slice."
@@ -349,14 +349,16 @@ function parseSliceSearch(value: unknown): Required<SliceRef> | null {
   }
 
   const trimmed = value.trim();
-  const slashIndex = trimmed.indexOf("/");
+  // Canonical handle is account:slice; also accept the legacy account/slice.
+  const sep = trimmed.includes(":") ? ":" : "/";
+  const index = trimmed.indexOf(sep);
 
-  if (slashIndex <= 0) {
+  if (index <= 0) {
     return null;
   }
 
-  const account = trimmed.slice(0, slashIndex).trim();
-  const slice = trimmed.slice(slashIndex + 1).trim();
+  const account = trimmed.slice(0, index).trim();
+  const slice = trimmed.slice(index + 1).trim();
 
   if (!account || !slice) {
     return null;

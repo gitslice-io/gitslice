@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/objectid"
@@ -126,9 +125,9 @@ func sliceRefFromWorkspace(ref *corev1.WorkspaceRef) (*corev1.SliceRef, error) {
 	if ref == nil || ref.Id == "" {
 		return nil, fmt.Errorf("workspace id is required")
 	}
-	parts := strings.Split(ref.Id, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return nil, fmt.Errorf("workspace id must be account/slice")
+	account, slice, ok := storage.SplitSliceHandle(ref.Id)
+	if !ok {
+		return nil, fmt.Errorf("workspace id must be account:slice")
 	}
-	return &corev1.SliceRef{Account: parts[0], Slice: parts[1]}, nil
+	return &corev1.SliceRef{Account: account, Slice: slice}, nil
 }

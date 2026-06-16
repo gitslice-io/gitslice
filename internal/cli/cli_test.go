@@ -67,7 +67,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account/slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -691,10 +691,10 @@ func TestContextReportsAuthAndWorkspace(t *testing.T) {
 	if got.Workspace == nil {
 		t.Fatalf("expected workspace context: %#v", got)
 	}
-	if got.Workspace.Root != workspace || got.Workspace.Ref != "acme/payment" || got.Workspace.BaseCommitID != "cmt_state" {
+	if got.Workspace.Root != workspace || got.Workspace.Ref != "acme:payment" || got.Workspace.BaseCommitID != "cmt_state" {
 		t.Fatalf("unexpected workspace context: %#v", got.Workspace)
 	}
-	if got.ActiveSlice != "acme/payment" || got.ActiveSliceSource != "workspace" {
+	if got.ActiveSlice != "acme:payment" || got.ActiveSliceSource != "workspace" {
 		t.Fatalf("unexpected active slice: %#v", got)
 	}
 }
@@ -1018,7 +1018,7 @@ func TestResolveSliceRefInputRejectsBareSliceWithoutAccount(t *testing.T) {
 	if !isUserErrorCode(err, "account_required") {
 		t.Fatalf("expected account_required, got %T: %v", err, err)
 	}
-	if !strings.Contains(err.Error(), "account/slice") || !strings.Contains(err.Error(), "gs auth status") {
+	if !strings.Contains(err.Error(), "account:slice") || !strings.Contains(err.Error(), "gs auth status") {
 		t.Fatalf("expected bare slice recovery hint, got:\n%v", err)
 	}
 }
