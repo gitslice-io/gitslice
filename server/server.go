@@ -251,6 +251,11 @@ func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, er
 			return nil, err
 		}
 		primary = func(ctx context.Context, token string) (string, error) {
+			if subject, err := auth.SubjectForToken(ctx, token); err == nil {
+				return subject.ID, nil
+			} else if !errors.Is(err, storage.ErrUnauthenticated) {
+				return "", err
+			}
 			claims, err := clerkVerifier.Verify(ctx, token)
 			if err != nil {
 				return "", fmt.Errorf("%w: %v", storage.ErrUnauthenticated, err)
@@ -354,6 +359,8 @@ func authInterceptor(resolve subjectResolver) grpc.UnaryServerInterceptor {
 func isPublicMethod(method string) bool {
 	return method == "/gitslice.core.v1.FakeAccountService/Login" ||
 		method == "/gitslice.core.v1.FakeAccountService/ApproveSignup" ||
+		method == "/gitslice.core.v1.AuthService/StartCliLogin" ||
+		method == "/gitslice.core.v1.AuthService/PollCliLogin" ||
 		strings.HasPrefix(method, "/grpc.health.v1.Health/")
 }
 

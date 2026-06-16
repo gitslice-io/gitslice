@@ -10,6 +10,9 @@ service FakeAccountService {
 }
 
 service AuthService {
+  rpc StartCliLogin(StartCliLoginRequest) returns (StartCliLoginResponse);
+  rpc PollCliLogin(PollCliLoginRequest) returns (PollCliLoginResponse);
+  rpc CompleteCliLogin(CompleteCliLoginRequest) returns (CompleteCliLoginResponse);
   rpc GetAuthStatus(GetAuthStatusRequest) returns (GetAuthStatusResponse);
   rpc CheckUsernameAvailable(CheckUsernameAvailableRequest) returns (CheckUsernameAvailableResponse);
   rpc ChooseUsername(ChooseUsernameRequest) returns (ChooseUsernameResponse);
@@ -34,6 +37,32 @@ message ApproveSignupResponse {
   string token = 1;
   string subject_id = 2;
   string redirect_url = 3;
+}
+
+message StartCliLoginRequest {}
+
+message StartCliLoginResponse {
+  string code = 1;
+  string expires_at = 2;
+  int32 poll_interval_seconds = 3;
+}
+
+message PollCliLoginRequest {
+  string code = 1;
+}
+
+message PollCliLoginResponse {
+  string status = 1;
+  string token = 2;
+  string subject_id = 3;
+}
+
+message CompleteCliLoginRequest {
+  string code = 1;
+}
+
+message CompleteCliLoginResponse {
+  string subject_id = 1;
 }
 
 message GetAuthStatusRequest {}

@@ -144,6 +144,9 @@ var FakeAccountService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	AuthService_StartCliLogin_FullMethodName          = "/gitslice.core.v1.AuthService/StartCliLogin"
+	AuthService_PollCliLogin_FullMethodName           = "/gitslice.core.v1.AuthService/PollCliLogin"
+	AuthService_CompleteCliLogin_FullMethodName       = "/gitslice.core.v1.AuthService/CompleteCliLogin"
 	AuthService_GetAuthStatus_FullMethodName          = "/gitslice.core.v1.AuthService/GetAuthStatus"
 	AuthService_CheckUsernameAvailable_FullMethodName = "/gitslice.core.v1.AuthService/CheckUsernameAvailable"
 	AuthService_ChooseUsername_FullMethodName         = "/gitslice.core.v1.AuthService/ChooseUsername"
@@ -153,6 +156,9 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AuthServiceClient interface {
+	StartCliLogin(ctx context.Context, in *StartCliLoginRequest, opts ...grpc.CallOption) (*StartCliLoginResponse, error)
+	PollCliLogin(ctx context.Context, in *PollCliLoginRequest, opts ...grpc.CallOption) (*PollCliLoginResponse, error)
+	CompleteCliLogin(ctx context.Context, in *CompleteCliLoginRequest, opts ...grpc.CallOption) (*CompleteCliLoginResponse, error)
 	GetAuthStatus(ctx context.Context, in *GetAuthStatusRequest, opts ...grpc.CallOption) (*GetAuthStatusResponse, error)
 	CheckUsernameAvailable(ctx context.Context, in *CheckUsernameAvailableRequest, opts ...grpc.CallOption) (*CheckUsernameAvailableResponse, error)
 	ChooseUsername(ctx context.Context, in *ChooseUsernameRequest, opts ...grpc.CallOption) (*ChooseUsernameResponse, error)
@@ -164,6 +170,33 @@ type authServiceClient struct {
 
 func NewAuthServiceClient(cc grpc.ClientConnInterface) AuthServiceClient {
 	return &authServiceClient{cc}
+}
+
+func (c *authServiceClient) StartCliLogin(ctx context.Context, in *StartCliLoginRequest, opts ...grpc.CallOption) (*StartCliLoginResponse, error) {
+	out := new(StartCliLoginResponse)
+	err := c.cc.Invoke(ctx, AuthService_StartCliLogin_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) PollCliLogin(ctx context.Context, in *PollCliLoginRequest, opts ...grpc.CallOption) (*PollCliLoginResponse, error) {
+	out := new(PollCliLoginResponse)
+	err := c.cc.Invoke(ctx, AuthService_PollCliLogin_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) CompleteCliLogin(ctx context.Context, in *CompleteCliLoginRequest, opts ...grpc.CallOption) (*CompleteCliLoginResponse, error) {
+	out := new(CompleteCliLoginResponse)
+	err := c.cc.Invoke(ctx, AuthService_CompleteCliLogin_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *authServiceClient) GetAuthStatus(ctx context.Context, in *GetAuthStatusRequest, opts ...grpc.CallOption) (*GetAuthStatusResponse, error) {
@@ -197,6 +230,9 @@ func (c *authServiceClient) ChooseUsername(ctx context.Context, in *ChooseUserna
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
 type AuthServiceServer interface {
+	StartCliLogin(context.Context, *StartCliLoginRequest) (*StartCliLoginResponse, error)
+	PollCliLogin(context.Context, *PollCliLoginRequest) (*PollCliLoginResponse, error)
+	CompleteCliLogin(context.Context, *CompleteCliLoginRequest) (*CompleteCliLoginResponse, error)
 	GetAuthStatus(context.Context, *GetAuthStatusRequest) (*GetAuthStatusResponse, error)
 	CheckUsernameAvailable(context.Context, *CheckUsernameAvailableRequest) (*CheckUsernameAvailableResponse, error)
 	ChooseUsername(context.Context, *ChooseUsernameRequest) (*ChooseUsernameResponse, error)
@@ -206,6 +242,15 @@ type AuthServiceServer interface {
 type UnimplementedAuthServiceServer struct {
 }
 
+func (UnimplementedAuthServiceServer) StartCliLogin(context.Context, *StartCliLoginRequest) (*StartCliLoginResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartCliLogin not implemented")
+}
+func (UnimplementedAuthServiceServer) PollCliLogin(context.Context, *PollCliLoginRequest) (*PollCliLoginResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PollCliLogin not implemented")
+}
+func (UnimplementedAuthServiceServer) CompleteCliLogin(context.Context, *CompleteCliLoginRequest) (*CompleteCliLoginResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteCliLogin not implemented")
+}
 func (UnimplementedAuthServiceServer) GetAuthStatus(context.Context, *GetAuthStatusRequest) (*GetAuthStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAuthStatus not implemented")
 }
@@ -225,6 +270,60 @@ type UnsafeAuthServiceServer interface {
 
 func RegisterAuthServiceServer(s grpc.ServiceRegistrar, srv AuthServiceServer) {
 	s.RegisterService(&AuthService_ServiceDesc, srv)
+}
+
+func _AuthService_StartCliLogin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartCliLoginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).StartCliLogin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_StartCliLogin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).StartCliLogin(ctx, req.(*StartCliLoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_PollCliLogin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PollCliLoginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).PollCliLogin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_PollCliLogin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).PollCliLogin(ctx, req.(*PollCliLoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_CompleteCliLogin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteCliLoginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).CompleteCliLogin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_CompleteCliLogin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).CompleteCliLogin(ctx, req.(*CompleteCliLoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _AuthService_GetAuthStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -288,6 +387,18 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "gitslice.core.v1.AuthService",
 	HandlerType: (*AuthServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "StartCliLogin",
+			Handler:    _AuthService_StartCliLogin_Handler,
+		},
+		{
+			MethodName: "PollCliLogin",
+			Handler:    _AuthService_PollCliLogin_Handler,
+		},
+		{
+			MethodName: "CompleteCliLogin",
+			Handler:    _AuthService_CompleteCliLogin_Handler,
+		},
 		{
 			MethodName: "GetAuthStatus",
 			Handler:    _AuthService_GetAuthStatus_Handler,

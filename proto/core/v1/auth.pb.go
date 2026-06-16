@@ -237,6 +237,294 @@ func (x *ApproveSignupResponse) GetRedirectUrl() string {
 	return ""
 }
 
+type StartCliLoginRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartCliLoginRequest) Reset() {
+	*x = StartCliLoginRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartCliLoginRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartCliLoginRequest) ProtoMessage() {}
+
+func (x *StartCliLoginRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartCliLoginRequest.ProtoReflect.Descriptor instead.
+func (*StartCliLoginRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{4}
+}
+
+type StartCliLoginResponse struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Code                string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	ExpiresAt           string                 `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	PollIntervalSeconds int32                  `protobuf:"varint,3,opt,name=poll_interval_seconds,json=pollIntervalSeconds,proto3" json:"poll_interval_seconds,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *StartCliLoginResponse) Reset() {
+	*x = StartCliLoginResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartCliLoginResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartCliLoginResponse) ProtoMessage() {}
+
+func (x *StartCliLoginResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartCliLoginResponse.ProtoReflect.Descriptor instead.
+func (*StartCliLoginResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *StartCliLoginResponse) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *StartCliLoginResponse) GetExpiresAt() string {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return ""
+}
+
+func (x *StartCliLoginResponse) GetPollIntervalSeconds() int32 {
+	if x != nil {
+		return x.PollIntervalSeconds
+	}
+	return 0
+}
+
+type PollCliLoginRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PollCliLoginRequest) Reset() {
+	*x = PollCliLoginRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PollCliLoginRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PollCliLoginRequest) ProtoMessage() {}
+
+func (x *PollCliLoginRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PollCliLoginRequest.ProtoReflect.Descriptor instead.
+func (*PollCliLoginRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PollCliLoginRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+type PollCliLoginResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Token         string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	SubjectId     string                 `protobuf:"bytes,3,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PollCliLoginResponse) Reset() {
+	*x = PollCliLoginResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PollCliLoginResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PollCliLoginResponse) ProtoMessage() {}
+
+func (x *PollCliLoginResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PollCliLoginResponse.ProtoReflect.Descriptor instead.
+func (*PollCliLoginResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PollCliLoginResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *PollCliLoginResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *PollCliLoginResponse) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
+type CompleteCliLoginRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteCliLoginRequest) Reset() {
+	*x = CompleteCliLoginRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteCliLoginRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteCliLoginRequest) ProtoMessage() {}
+
+func (x *CompleteCliLoginRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteCliLoginRequest.ProtoReflect.Descriptor instead.
+func (*CompleteCliLoginRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *CompleteCliLoginRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+type CompleteCliLoginResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SubjectId     string                 `protobuf:"bytes,1,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteCliLoginResponse) Reset() {
+	*x = CompleteCliLoginResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteCliLoginResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteCliLoginResponse) ProtoMessage() {}
+
+func (x *CompleteCliLoginResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteCliLoginResponse.ProtoReflect.Descriptor instead.
+func (*CompleteCliLoginResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *CompleteCliLoginResponse) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
 type GetAuthStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -245,7 +533,7 @@ type GetAuthStatusRequest struct {
 
 func (x *GetAuthStatusRequest) Reset() {
 	*x = GetAuthStatusRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[4]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -257,7 +545,7 @@ func (x *GetAuthStatusRequest) String() string {
 func (*GetAuthStatusRequest) ProtoMessage() {}
 
 func (x *GetAuthStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[4]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -270,7 +558,7 @@ func (x *GetAuthStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAuthStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetAuthStatusRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{4}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{10}
 }
 
 type GetAuthStatusResponse struct {
@@ -288,7 +576,7 @@ type GetAuthStatusResponse struct {
 
 func (x *GetAuthStatusResponse) Reset() {
 	*x = GetAuthStatusResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[5]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -300,7 +588,7 @@ func (x *GetAuthStatusResponse) String() string {
 func (*GetAuthStatusResponse) ProtoMessage() {}
 
 func (x *GetAuthStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[5]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -313,7 +601,7 @@ func (x *GetAuthStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAuthStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetAuthStatusResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{5}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetAuthStatusResponse) GetSubjectId() string {
@@ -346,7 +634,7 @@ type CheckUsernameAvailableRequest struct {
 
 func (x *CheckUsernameAvailableRequest) Reset() {
 	*x = CheckUsernameAvailableRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[6]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -358,7 +646,7 @@ func (x *CheckUsernameAvailableRequest) String() string {
 func (*CheckUsernameAvailableRequest) ProtoMessage() {}
 
 func (x *CheckUsernameAvailableRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[6]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -371,7 +659,7 @@ func (x *CheckUsernameAvailableRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckUsernameAvailableRequest.ProtoReflect.Descriptor instead.
 func (*CheckUsernameAvailableRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{6}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CheckUsernameAvailableRequest) GetUsername() string {
@@ -395,7 +683,7 @@ type CheckUsernameAvailableResponse struct {
 
 func (x *CheckUsernameAvailableResponse) Reset() {
 	*x = CheckUsernameAvailableResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[7]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -407,7 +695,7 @@ func (x *CheckUsernameAvailableResponse) String() string {
 func (*CheckUsernameAvailableResponse) ProtoMessage() {}
 
 func (x *CheckUsernameAvailableResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[7]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -420,7 +708,7 @@ func (x *CheckUsernameAvailableResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckUsernameAvailableResponse.ProtoReflect.Descriptor instead.
 func (*CheckUsernameAvailableResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{7}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CheckUsernameAvailableResponse) GetAvailable() bool {
@@ -453,7 +741,7 @@ type ChooseUsernameRequest struct {
 
 func (x *ChooseUsernameRequest) Reset() {
 	*x = ChooseUsernameRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[8]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -465,7 +753,7 @@ func (x *ChooseUsernameRequest) String() string {
 func (*ChooseUsernameRequest) ProtoMessage() {}
 
 func (x *ChooseUsernameRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[8]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -478,7 +766,7 @@ func (x *ChooseUsernameRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChooseUsernameRequest.ProtoReflect.Descriptor instead.
 func (*ChooseUsernameRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ChooseUsernameRequest) GetUsername() string {
@@ -499,7 +787,7 @@ type ChooseUsernameResponse struct {
 
 func (x *ChooseUsernameResponse) Reset() {
 	*x = ChooseUsernameResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[9]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -511,7 +799,7 @@ func (x *ChooseUsernameResponse) String() string {
 func (*ChooseUsernameResponse) ProtoMessage() {}
 
 func (x *ChooseUsernameResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[9]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -524,7 +812,7 @@ func (x *ChooseUsernameResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChooseUsernameResponse.ProtoReflect.Descriptor instead.
 func (*ChooseUsernameResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ChooseUsernameResponse) GetSubjectId() string {
@@ -561,6 +849,24 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\n" +
 	"subject_id\x18\x02 \x01(\tR\tsubjectId\x12!\n" +
 	"\fredirect_url\x18\x03 \x01(\tR\vredirectUrl\"\x16\n" +
+	"\x14StartCliLoginRequest\"~\n" +
+	"\x15StartCliLoginResponse\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x02 \x01(\tR\texpiresAt\x122\n" +
+	"\x15poll_interval_seconds\x18\x03 \x01(\x05R\x13pollIntervalSeconds\")\n" +
+	"\x13PollCliLoginRequest\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\"c\n" +
+	"\x14PollCliLoginResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\x03 \x01(\tR\tsubjectId\"-\n" +
+	"\x17CompleteCliLoginRequest\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\"9\n" +
+	"\x18CompleteCliLoginResponse\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\x01 \x01(\tR\tsubjectId\"\x16\n" +
 	"\x14GetAuthStatusRequest\"y\n" +
 	"\x15GetAuthStatusResponse\x12\x1d\n" +
 	"\n" +
@@ -583,8 +889,11 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\aaccount\x18\x02 \x01(\tR\aaccount2\xc0\x01\n" +
 	"\x12FakeAccountService\x12H\n" +
 	"\x05Login\x12\x1e.gitslice.core.v1.LoginRequest\x1a\x1f.gitslice.core.v1.LoginResponse\x12`\n" +
-	"\rApproveSignup\x12&.gitslice.core.v1.ApproveSignupRequest\x1a'.gitslice.core.v1.ApproveSignupResponse2\xd1\x02\n" +
+	"\rApproveSignup\x12&.gitslice.core.v1.ApproveSignupRequest\x1a'.gitslice.core.v1.ApproveSignupResponse2\xfd\x04\n" +
 	"\vAuthService\x12`\n" +
+	"\rStartCliLogin\x12&.gitslice.core.v1.StartCliLoginRequest\x1a'.gitslice.core.v1.StartCliLoginResponse\x12]\n" +
+	"\fPollCliLogin\x12%.gitslice.core.v1.PollCliLoginRequest\x1a&.gitslice.core.v1.PollCliLoginResponse\x12i\n" +
+	"\x10CompleteCliLogin\x12).gitslice.core.v1.CompleteCliLoginRequest\x1a*.gitslice.core.v1.CompleteCliLoginResponse\x12`\n" +
 	"\rGetAuthStatus\x12&.gitslice.core.v1.GetAuthStatusRequest\x1a'.gitslice.core.v1.GetAuthStatusResponse\x12{\n" +
 	"\x16CheckUsernameAvailable\x12/.gitslice.core.v1.CheckUsernameAvailableRequest\x1a0.gitslice.core.v1.CheckUsernameAvailableResponse\x12c\n" +
 	"\x0eChooseUsername\x12'.gitslice.core.v1.ChooseUsernameRequest\x1a(.gitslice.core.v1.ChooseUsernameResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
@@ -601,35 +910,47 @@ func file_proto_core_v1_auth_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_auth_proto_rawDescData
 }
 
-var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*LoginRequest)(nil),                   // 0: gitslice.core.v1.LoginRequest
 	(*LoginResponse)(nil),                  // 1: gitslice.core.v1.LoginResponse
 	(*ApproveSignupRequest)(nil),           // 2: gitslice.core.v1.ApproveSignupRequest
 	(*ApproveSignupResponse)(nil),          // 3: gitslice.core.v1.ApproveSignupResponse
-	(*GetAuthStatusRequest)(nil),           // 4: gitslice.core.v1.GetAuthStatusRequest
-	(*GetAuthStatusResponse)(nil),          // 5: gitslice.core.v1.GetAuthStatusResponse
-	(*CheckUsernameAvailableRequest)(nil),  // 6: gitslice.core.v1.CheckUsernameAvailableRequest
-	(*CheckUsernameAvailableResponse)(nil), // 7: gitslice.core.v1.CheckUsernameAvailableResponse
-	(*ChooseUsernameRequest)(nil),          // 8: gitslice.core.v1.ChooseUsernameRequest
-	(*ChooseUsernameResponse)(nil),         // 9: gitslice.core.v1.ChooseUsernameResponse
+	(*StartCliLoginRequest)(nil),           // 4: gitslice.core.v1.StartCliLoginRequest
+	(*StartCliLoginResponse)(nil),          // 5: gitslice.core.v1.StartCliLoginResponse
+	(*PollCliLoginRequest)(nil),            // 6: gitslice.core.v1.PollCliLoginRequest
+	(*PollCliLoginResponse)(nil),           // 7: gitslice.core.v1.PollCliLoginResponse
+	(*CompleteCliLoginRequest)(nil),        // 8: gitslice.core.v1.CompleteCliLoginRequest
+	(*CompleteCliLoginResponse)(nil),       // 9: gitslice.core.v1.CompleteCliLoginResponse
+	(*GetAuthStatusRequest)(nil),           // 10: gitslice.core.v1.GetAuthStatusRequest
+	(*GetAuthStatusResponse)(nil),          // 11: gitslice.core.v1.GetAuthStatusResponse
+	(*CheckUsernameAvailableRequest)(nil),  // 12: gitslice.core.v1.CheckUsernameAvailableRequest
+	(*CheckUsernameAvailableResponse)(nil), // 13: gitslice.core.v1.CheckUsernameAvailableResponse
+	(*ChooseUsernameRequest)(nil),          // 14: gitslice.core.v1.ChooseUsernameRequest
+	(*ChooseUsernameResponse)(nil),         // 15: gitslice.core.v1.ChooseUsernameResponse
 }
 var file_proto_core_v1_auth_proto_depIdxs = []int32{
-	0, // 0: gitslice.core.v1.FakeAccountService.Login:input_type -> gitslice.core.v1.LoginRequest
-	2, // 1: gitslice.core.v1.FakeAccountService.ApproveSignup:input_type -> gitslice.core.v1.ApproveSignupRequest
-	4, // 2: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
-	6, // 3: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
-	8, // 4: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
-	1, // 5: gitslice.core.v1.FakeAccountService.Login:output_type -> gitslice.core.v1.LoginResponse
-	3, // 6: gitslice.core.v1.FakeAccountService.ApproveSignup:output_type -> gitslice.core.v1.ApproveSignupResponse
-	5, // 7: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
-	7, // 8: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
-	9, // 9: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
-	5, // [5:10] is the sub-list for method output_type
-	0, // [0:5] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0,  // 0: gitslice.core.v1.FakeAccountService.Login:input_type -> gitslice.core.v1.LoginRequest
+	2,  // 1: gitslice.core.v1.FakeAccountService.ApproveSignup:input_type -> gitslice.core.v1.ApproveSignupRequest
+	4,  // 2: gitslice.core.v1.AuthService.StartCliLogin:input_type -> gitslice.core.v1.StartCliLoginRequest
+	6,  // 3: gitslice.core.v1.AuthService.PollCliLogin:input_type -> gitslice.core.v1.PollCliLoginRequest
+	8,  // 4: gitslice.core.v1.AuthService.CompleteCliLogin:input_type -> gitslice.core.v1.CompleteCliLoginRequest
+	10, // 5: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
+	12, // 6: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
+	14, // 7: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
+	1,  // 8: gitslice.core.v1.FakeAccountService.Login:output_type -> gitslice.core.v1.LoginResponse
+	3,  // 9: gitslice.core.v1.FakeAccountService.ApproveSignup:output_type -> gitslice.core.v1.ApproveSignupResponse
+	5,  // 10: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
+	7,  // 11: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
+	9,  // 12: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
+	11, // 13: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
+	13, // 14: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
+	15, // 15: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
+	8,  // [8:16] is the sub-list for method output_type
+	0,  // [0:8] is the sub-list for method input_type
+	0,  // [0:0] is the sub-list for extension type_name
+	0,  // [0:0] is the sub-list for extension extendee
+	0,  // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_auth_proto_init() }
@@ -643,7 +964,7 @@ func file_proto_core_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_auth_proto_rawDesc), len(file_proto_core_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

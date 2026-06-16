@@ -1810,61 +1810,94 @@ func (r Runner) finishClerkLogin(ctx context.Context, opts commandOptions, serve
 }
 
 func (r Runner) runAuthLoginClerkBrowser(ctx context.Context, opts commandOptions, serverAddr, webURL string) error {
-	callbackLis, err := net.Listen("tcp", "127.0.0.1:0")
+	conn, err := dial(ctx, serverAddr)
 	if err != nil {
 		return err
 	}
-	defer callbackLis.Close()
+	defer conn.Close()
 
-	state, err := objectid.RandomID("clerkstate")
+	authClient := corev1.NewAuthServiceClient(conn)
+	start, err := authClient.StartCliLogin(ctx, &corev1.StartCliLoginRequest{})
 	if err != nil {
 		return err
 	}
-	callbackURL := "http://" + callbackLis.Addr().String() + "/callback"
-	loginURL, err := clerkLoginURL(webURL, callbackURL, state)
-	if err != nil {
-		return err
+	code := strings.TrimSpace(start.Code)
+	if code == "" {
+		return userError("clerk_login_failed", "server did not return a CLI login code", "Try gs auth login --clerk again.")
 	}
-
-	resultCh := make(chan clerkLoginCallbackResult, 1)
-	callbackServer := &http.Server{Handler: clerkLoginCallbackHandler(state, resultCh)}
-	go func() {
-		if err := callbackServer.Serve(callbackLis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			select {
-			case resultCh <- clerkLoginCallbackResult{Error: err.Error()}:
-			default:
-			}
-		}
-	}()
-	defer callbackServer.Shutdown(context.Background())
+	webURL = strings.TrimSpace(webURL)
+	if webURL == "" {
+		webURL = defaultWebURL()
+	}
+	if !strings.Contains(webURL, "://") {
+		webURL = "http://" + webURL
+	}
+	loginURL := strings.TrimRight(webURL, "/") + "/cli-login?code=" + url.QueryEscape(code)
 
 	promptWriter := r.stdout()
 	if opts.jsonOutput() {
 		promptWriter = r.stderr()
 	}
 	if !opts.Quiet {
-		fmt.Fprintln(promptWriter, "Open this URL to sign in with Clerk:")
+		fmt.Fprintln(promptWriter, "Open this URL on any device to sign in:")
 		fmt.Fprintln(promptWriter, loginURL)
 	}
-	if err := openBrowserURL(loginURL); err != nil && !opts.Quiet {
-		fmt.Fprintf(r.stderr(), "could not open browser automatically: %v\n", err)
-	}
+	_ = openBrowserURL(loginURL)
 	if !opts.Quiet {
-		fmt.Fprintln(promptWriter, "Waiting for browser sign-in...")
+		fmt.Fprintln(promptWriter, "Waiting for sign-in...")
 	}
 
-	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	deadline := time.Now().UTC().Add(10 * time.Minute)
+	if strings.TrimSpace(start.ExpiresAt) != "" {
+		if expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(start.ExpiresAt)); err == nil {
+			deadline = expiresAt
+		}
+	}
+	waitCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	var result clerkLoginCallbackResult
-	select {
-	case result = <-resultCh:
-	case <-waitCtx.Done():
-		return waitCtx.Err()
+
+	pollInterval := time.Duration(start.PollIntervalSeconds) * time.Second
+	if pollInterval < time.Second {
+		pollInterval = time.Second
 	}
-	if result.Error != "" {
-		return userError("clerk_login_failed", result.Error, "Try gs auth login --clerk again.")
+
+	for {
+		poll, err := authClient.PollCliLogin(waitCtx, &corev1.PollCliLoginRequest{Code: code})
+		if err != nil {
+			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+				return userError("cli_login_expired", "CLI login session expired", "Run gs auth login again to start a new sign-in.")
+			}
+			return err
+		}
+		switch poll.Status {
+		case "approved":
+			if strings.TrimSpace(poll.Token) == "" || strings.TrimSpace(poll.SubjectId) == "" {
+				return userError("clerk_login_failed", "server approved CLI login without a session token", "Try gs auth login --clerk again.")
+			}
+			return r.persistAndReportLogin(opts, UserConfig{ServerAddr: serverAddr, Token: poll.Token, SubjectID: poll.SubjectId})
+		case "expired":
+			return userError("cli_login_expired", "CLI login session expired", "Run gs auth login again to start a new sign-in.")
+		case "pending":
+		default:
+			return userError("clerk_login_failed", "server returned unknown CLI login status: "+poll.Status, "Try gs auth login --clerk again.")
+		}
+
+		timer := time.NewTimer(pollInterval)
+		select {
+		case <-timer.C:
+		case <-waitCtx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+				return userError("cli_login_expired", "CLI login session expired", "Run gs auth login again to start a new sign-in.")
+			}
+			return waitCtx.Err()
+		}
 	}
-	return r.finishClerkLogin(ctx, opts, serverAddr, result.Token)
 }
 
 // verifyToken dials serverAddr and calls AuthService.GetAuthStatus using token as
