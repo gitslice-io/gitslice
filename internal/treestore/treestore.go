@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/gitslice-io/gitslice/internal/objectid"
+	"golang.org/x/sync/errgroup"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -23,6 +25,81 @@ type ObjectStore interface {
 
 type Store struct {
 	objects ObjectStore
+}
+
+const treeFlushConcurrency = 16
+
+type bufferingObjectStore struct {
+	base   ObjectStore
+	mu     sync.Mutex
+	writes map[string][]byte
+}
+
+func newBufferingObjectStore(base ObjectStore) *bufferingObjectStore {
+	return &bufferingObjectStore{
+		base:   base,
+		writes: map[string][]byte{},
+	}
+}
+
+func (b *bufferingObjectStore) Put(_ context.Context, key string, r io.Reader) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.writes[key] = data
+	return nil
+}
+
+func (b *bufferingObjectStore) Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	b.mu.Lock()
+	data, ok := b.writes[key]
+	b.mu.Unlock()
+	if !ok {
+		return b.base.Get(ctx, key, offset, length)
+	}
+	start := offset
+	if start < 0 {
+		start = 0
+	}
+	if start > int64(len(data)) {
+		start = int64(len(data))
+	}
+	end := int64(len(data))
+	if length > 0 && start+length < end {
+		end = start + length
+	}
+	return io.NopCloser(bytes.NewReader(data[int(start):int(end)])), nil
+}
+
+func (b *bufferingObjectStore) flush(ctx context.Context) error {
+	b.mu.Lock()
+	writes := make(map[string][]byte, len(b.writes))
+	for key, data := range b.writes {
+		writes[key] = data
+	}
+	b.mu.Unlock()
+	if len(writes) == 0 {
+		return nil
+	}
+
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(treeFlushConcurrency)
+	for key, data := range writes {
+		key, data := key, data
+		group.Go(func() error {
+			return b.base.Put(groupCtx, key, bytes.NewReader(data))
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	b.writes = map[string][]byte{}
+	b.mu.Unlock()
+	return nil
 }
 
 type FileEntry struct {
@@ -205,6 +282,10 @@ func (s *Store) ApplyEdits(ctx context.Context, rootTreeID string, edits []FileE
 	if len(edits) == 0 {
 		return rootTreeID, nil
 	}
+	buf := newBufferingObjectStore(s.objects)
+	buffered := &Store{objects: buf}
+	var newRoot string
+	var err error
 	if canApplyEditsInBatch(edits) {
 		ops := make([]batchEdit, 0, len(edits))
 		for _, edit := range edits {
@@ -224,10 +305,17 @@ func (s *Store) ApplyEdits(ctx context.Context, rootTreeID string, edits []FileE
 			}
 			ops = append(ops, op)
 		}
-		newRoot, _, err := s.applyBatch(ctx, rootTreeID, ops)
-		return newRoot, err
+		newRoot, _, err = buffered.applyBatch(ctx, rootTreeID, ops)
+	} else {
+		newRoot, err = buffered.applyEditsSequential(ctx, rootTreeID, edits)
 	}
-	return s.applyEditsSequential(ctx, rootTreeID, edits)
+	if err != nil {
+		return "", err
+	}
+	if err := buf.flush(ctx); err != nil {
+		return "", err
+	}
+	return newRoot, nil
 }
 
 func (s *Store) applyEditsSequential(ctx context.Context, rootTreeID string, edits []FileEdit) (string, error) {
@@ -594,11 +682,11 @@ func (s *Store) readNode(ctx context.Context, treeID string) (Node, error) {
 	if treeID == "" {
 		treeID = EmptyRootID()
 	}
+	if treeID == EmptyRootID() {
+		return Node{Version: "gitslice.tree.v1"}, nil
+	}
 	rc, err := s.objects.Get(ctx, Key(treeID), 0, 0)
 	if err != nil {
-		if treeID == EmptyRootID() {
-			return Node{Version: "gitslice.tree.v1"}, nil
-		}
 		return Node{}, err
 	}
 	defer rc.Close()

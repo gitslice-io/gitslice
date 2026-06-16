@@ -3,9 +3,11 @@ package treestore
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sync"
 	"testing"
 )
@@ -132,6 +134,72 @@ func TestApplyEditsBatchesFilesAndEmptyDirectories(t *testing.T) {
 	}
 }
 
+func TestApplyEditsFlushesBufferedTreeNodesToBase(t *testing.T) {
+	ctx := context.Background()
+	edits := []FileEdit{{
+		Op:   "upsert",
+		Path: "/acme/payment/a.go",
+		File: &FileEntry{Path: "/acme/payment/a.go", BlobID: "blob-a", ContentHash: "sha256:a", Mode: 0o100644, Size: 1},
+	}, {
+		Op:   "upsert",
+		Path: "/acme/payment/nested/b.go",
+		File: &FileEntry{Path: "/acme/payment/nested/b.go", BlobID: "blob-b", ContentHash: "sha256:b", Mode: 0o100644, Size: 2},
+	}, {
+		Op:   "upsert",
+		Path: "/acme/billing/c.go",
+		File: &FileEntry{Path: "/acme/billing/c.go", BlobID: "blob-c", ContentHash: "sha256:c", Mode: 0o100644, Size: 3},
+	}, {
+		Op:   "upsert",
+		Path: "/zenith/ops/d.go",
+		File: &FileEntry{Path: "/zenith/ops/d.go", BlobID: "blob-d", ContentHash: "sha256:d", Mode: 0o100644, Size: 4},
+	}, {
+		Op:   "mkdir",
+		Path: "/acme/payment/empty",
+	}}
+
+	expectedObjects := newMemoryObjectStore()
+	expectedStore := New(expectedObjects)
+	expectedRoot, err := expectedStore.applyEditsSequential(ctx, EmptyRootID(), edits)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	objects := newMemoryObjectStore()
+	store := New(objects)
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), edits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != expectedRoot {
+		t.Fatalf("root = %s, want %s", root, expectedRoot)
+	}
+	if got := objects.getCount(Key(EmptyRootID())); got != 0 {
+		t.Fatalf("base Get(%q) count = %d, want 0", Key(EmptyRootID()), got)
+	}
+
+	gotFiles, err := store.ListFiles(ctx, root, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFiles, err := expectedStore.ListFiles(ctx, expectedRoot, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotFiles, wantFiles) {
+		t.Fatalf("files mismatch:\n got: %#v\nwant: %#v", gotFiles, wantFiles)
+	}
+
+	keys := walkTreeKeysFromBase(t, objects, root)
+	if len(keys) == 0 {
+		t.Fatal("expected at least one persisted tree node")
+	}
+	for _, key := range keys {
+		if !objects.hasObject(key) {
+			t.Fatalf("reachable tree node %q was not persisted to base", key)
+		}
+	}
+}
+
 func TestRenameAndDelete(t *testing.T) {
 	ctx := context.Background()
 	store := New(newMemoryObjectStore())
@@ -178,6 +246,8 @@ type memoryObjectStore struct {
 	mu      sync.Mutex
 	objects map[string][]byte
 	puts    int
+	putKeys []string
+	getKeys []string
 }
 
 func newMemoryObjectStore() *memoryObjectStore {
@@ -192,22 +262,89 @@ func (m *memoryObjectStore) Put(_ context.Context, key string, r io.Reader) erro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.puts++
+	m.putKeys = append(m.putKeys, key)
 	m.objects[key] = data
 	return nil
 }
 
-func (m *memoryObjectStore) Get(_ context.Context, key string, _, _ int64) (io.ReadCloser, error) {
+func (m *memoryObjectStore) Get(_ context.Context, key string, offset, length int64) (io.ReadCloser, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.getKeys = append(m.getKeys, key)
 	data, ok := m.objects[key]
 	if !ok {
 		return nil, errors.New("missing object")
 	}
-	return io.NopCloser(bytes.NewReader(data)), nil
+	start := offset
+	if start < 0 {
+		start = 0
+	}
+	if start > int64(len(data)) {
+		start = int64(len(data))
+	}
+	end := int64(len(data))
+	if length > 0 && start+length < end {
+		end = start + length
+	}
+	return io.NopCloser(bytes.NewReader(data[int(start):int(end)])), nil
 }
 
 func (m *memoryObjectStore) putCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.puts
+}
+
+func (m *memoryObjectStore) getCount(key string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var count int
+	for _, got := range m.getKeys {
+		if got == key {
+			count++
+		}
+	}
+	return count
+}
+
+func (m *memoryObjectStore) hasObject(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.objects[key]
+	return ok
+}
+
+func walkTreeKeysFromBase(t *testing.T, objects *memoryObjectStore, rootTreeID string) []string {
+	t.Helper()
+	visited := map[string]struct{}{}
+	var keys []string
+	var walk func(string)
+	walk = func(treeID string) {
+		t.Helper()
+		if treeID == "" || treeID == EmptyRootID() {
+			return
+		}
+		if _, ok := visited[treeID]; ok {
+			return
+		}
+		visited[treeID] = struct{}{}
+		key := Key(treeID)
+		rc, err := objects.Get(context.Background(), key, 0, 0)
+		if err != nil {
+			t.Fatalf("tree node %q was not gettable from base: %v", key, err)
+		}
+		defer rc.Close()
+		var node Node
+		if err := json.NewDecoder(rc).Decode(&node); err != nil {
+			t.Fatalf("decode tree node %q: %v", key, err)
+		}
+		keys = append(keys, key)
+		for _, entry := range node.Entries {
+			if entry.Kind == "directory" {
+				walk(entry.TreeID)
+			}
+		}
+	}
+	walk(rootTreeID)
+	return keys
 }
