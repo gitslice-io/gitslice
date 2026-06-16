@@ -82,7 +82,7 @@ export function DiffViewer({
       },
       {
         root: null,
-        rootMargin: "-7rem 0px -65% 0px",
+        rootMargin: "-112px 0px -65% 0px",
         threshold: [0, 0.05, 0.2]
       }
     );
