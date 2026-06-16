@@ -1,8 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 
 import type { DiffChangesetResponse } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { ChangedFilesTree } from "./ChangedFilesTree";
+import { computeSegments, type RevealState } from "./collapse";
 import {
   parseDiff,
   type DiffFile,
@@ -11,6 +19,27 @@ import {
   type DiffRow,
   type FileChangeKind
 } from "./parseDiff";
+
+// Show this many context lines next to each change; collapse the rest into
+// expandable gaps. Expanding up/down reveals a chunk at a time.
+const CONTEXT_LINES = 3;
+const EXPAND_CHUNK = 20;
+const EMPTY_REVEAL: RevealState = { top: 0, bottom: 0 };
+
+type ExpandAction = "up" | "down" | "all";
+type ExpandFn = (key: string, action: ExpandAction, hiddenTotal: number) => void;
+
+function gapKey(fileId: string, viewMode: ViewMode, gapIndex: number) {
+  return `${fileId}:${viewMode}:${gapIndex}`;
+}
+
+function rangeIndexes(start: number, end: number): number[] {
+  const out: number[] = [];
+  for (let index = start; index <= end; index += 1) {
+    out.push(index);
+  }
+  return out;
+}
 
 interface DiffViewerProps {
   diffResponse?: DiffChangesetResponse;
@@ -51,6 +80,7 @@ export function DiffViewer({
   );
   const mountedFileIds =
     mountedDiffBodies.files === files ? mountedDiffBodies.ids : undefined;
+  const [revealed, setRevealed] = useState<Record<string, RevealState>>({});
   const panelRefs = useRef<Record<string, HTMLElement | null>>({});
   const changedPathCount = diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
@@ -64,6 +94,32 @@ export function DiffViewer({
       window.localStorage.setItem(diffViewStorageKey, viewMode);
     }
   }, [viewMode]);
+
+  // Reset collapse state whenever a new diff loads.
+  useEffect(() => {
+    setRevealed({});
+  }, [files]);
+
+  const expandGap = useCallback<ExpandFn>((key, action, hiddenTotal) => {
+    setRevealed((current) => {
+      const reveal = current[key] ?? EMPTY_REVEAL;
+      let next: RevealState;
+      if (action === "all") {
+        next = { top: hiddenTotal, bottom: 0 };
+      } else if (action === "up") {
+        next = {
+          top: Math.min(hiddenTotal - reveal.bottom, reveal.top + EXPAND_CHUNK),
+          bottom: reveal.bottom
+        };
+      } else {
+        next = {
+          top: reveal.top,
+          bottom: Math.min(hiddenTotal - reveal.top, reveal.bottom + EXPAND_CHUNK)
+        };
+      }
+      return { ...current, [key]: next };
+    });
+  }, []);
 
   useEffect(() => {
     if (!files.length) {
@@ -267,9 +323,11 @@ export function DiffViewer({
                 file={file}
                 isBodyMounted={mountedFileIds?.has(file.id) ?? false}
                 key={file.id}
+                onExpand={expandGap}
                 refCallback={(node) => {
                   panelRefs.current[file.id] = node;
                 }}
+                revealed={revealed}
                 viewMode={viewMode}
               />
             ))}
@@ -318,12 +376,16 @@ function ViewModeToggle({
 function DiffFilePanel({
   file,
   isBodyMounted,
+  onExpand,
   refCallback,
+  revealed,
   viewMode
 }: {
   file: DiffFile;
   isBodyMounted: boolean;
+  onExpand: ExpandFn;
   refCallback(node: HTMLElement | null): void;
+  revealed: Record<string, RevealState>;
   viewMode: ViewMode;
 }) {
   return (
@@ -349,7 +411,12 @@ function DiffFilePanel({
         </div>
       </div>
       {isBodyMounted ? (
-        <DiffFileBody file={file} viewMode={viewMode} />
+        <DiffFileBody
+          file={file}
+          onExpand={onExpand}
+          revealed={revealed}
+          viewMode={viewMode}
+        />
       ) : (
         <DiffBodyPlaceholder file={file} viewMode={viewMode} />
       )}
@@ -359,15 +426,19 @@ function DiffFilePanel({
 
 function DiffFileBody({
   file,
+  onExpand,
+  revealed,
   viewMode
 }: {
   file: DiffFile;
+  onExpand: ExpandFn;
+  revealed: Record<string, RevealState>;
   viewMode: ViewMode;
 }) {
   return viewMode === "unified" ? (
-    <UnifiedDiff file={file} />
+    <UnifiedDiff file={file} onExpand={onExpand} revealed={revealed} />
   ) : (
-    <SplitDiff rows={file.rows} />
+    <SplitDiff file={file} onExpand={onExpand} revealed={revealed} />
   );
 }
 
@@ -387,33 +458,96 @@ function DiffBodyPlaceholder({
   );
 }
 
-function UnifiedDiff({ file }: { file: DiffFile }) {
+function UnifiedDiff({
+  file,
+  onExpand,
+  revealed
+}: {
+  file: DiffFile;
+  onExpand: ExpandFn;
+  revealed: Record<string, RevealState>;
+}) {
+  const segments = useMemo(
+    () =>
+      computeSegments(
+        file.lines.length,
+        (index) => file.lines[index].kind === "context",
+        (index) =>
+          file.lines[index].kind === "add" || file.lines[index].kind === "del",
+        CONTEXT_LINES,
+        (gapIndex) =>
+          revealed[gapKey(file.id, "unified", gapIndex)] ?? EMPTY_REVEAL
+      ),
+    [file.id, file.lines, revealed]
+  );
+
   return (
     <pre className="overflow-x-auto bg-white text-xs leading-5 md:text-sm">
       <code className="block min-w-max py-2">
-        {file.lines.map((line, index) => (
-          <span
-            className={cn(
-              "grid min-h-5 grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] whitespace-pre px-4 py-0.5",
-              diffLineClass(line.kind)
-            )}
-            key={`${index}-${line.text}`}
-          >
-            <span className="select-none pr-3 text-right text-slate-400">
-              {line.oldNumber ?? ""}
-            </span>
-            <span className="select-none pr-3 text-right text-slate-400">
-              {line.newNumber ?? ""}
-            </span>
-            <span>{line.text || " "}</span>
-          </span>
-        ))}
+        {segments.map((segment) =>
+          segment.type === "gap" ? (
+            <ExpandSeparator
+              gap={segment}
+              key={`gap-${segment.index}`}
+              keyFor={() => gapKey(file.id, "unified", segment.index)}
+              onExpand={onExpand}
+            />
+          ) : (
+            <Fragment key={`block-${segment.start}`}>
+              {rangeIndexes(segment.start, segment.end).map((index) => {
+                const line = file.lines[index];
+                return (
+                  <span
+                    className={cn(
+                      "grid min-h-5 grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] whitespace-pre px-4 py-0.5",
+                      diffLineClass(line.kind)
+                    )}
+                    key={`${index}-${line.text}`}
+                  >
+                    <span className="select-none pr-3 text-right text-slate-400">
+                      {line.oldNumber ?? ""}
+                    </span>
+                    <span className="select-none pr-3 text-right text-slate-400">
+                      {line.newNumber ?? ""}
+                    </span>
+                    <span>{line.text || " "}</span>
+                  </span>
+                );
+              })}
+            </Fragment>
+          )
+        )}
       </code>
     </pre>
   );
 }
 
-function SplitDiff({ rows }: { rows: DiffRow[] }) {
+function SplitDiff({
+  file,
+  onExpand,
+  revealed
+}: {
+  file: DiffFile;
+  onExpand: ExpandFn;
+  revealed: Record<string, RevealState>;
+}) {
+  const rows = file.rows;
+  const segments = useMemo(
+    () =>
+      computeSegments(
+        rows.length,
+        (index) => rows[index].kind === "context",
+        (index) =>
+          rows[index].kind === "add" ||
+          rows[index].kind === "del" ||
+          rows[index].kind === "replace",
+        CONTEXT_LINES,
+        (gapIndex) =>
+          revealed[gapKey(file.id, "split", gapIndex)] ?? EMPTY_REVEAL
+      ),
+    [file.id, rows, revealed]
+  );
+
   if (rows.length === 0) {
     return (
       <div className="bg-white px-4 py-5 text-sm text-slate-500">
@@ -425,45 +559,100 @@ function SplitDiff({ rows }: { rows: DiffRow[] }) {
   return (
     <div className="overflow-x-auto bg-white text-xs leading-5 md:text-sm">
       <div className="min-w-[48rem] py-2">
-        {rows.map((row, index) =>
-          row.kind === "hunk" ? (
-            <div
-              className={cn(
-                "border-t border-slate-100 px-4 py-1 font-mono first:border-t-0",
-                row.hunkText?.startsWith("@@")
-                  ? "bg-sky-50 text-sky-700"
-                  : "bg-slate-50 text-slate-500"
-              )}
-              key={`${index}-${row.hunkText}`}
-            >
-              {row.hunkText}
-            </div>
+        {segments.map((segment) =>
+          segment.type === "gap" ? (
+            <ExpandSeparator
+              gap={segment}
+              key={`gap-${segment.index}`}
+              keyFor={() => gapKey(file.id, "split", segment.index)}
+              onExpand={onExpand}
+            />
           ) : (
-            <div
-              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-t border-slate-100 first:border-t-0"
-              key={splitRowKey(row, index)}
-            >
-              <SplitCell
-                line={row.left}
-                tone={
-                  row.kind === "del" || row.kind === "replace"
-                    ? "del"
-                    : "context"
-                }
-              />
-              <SplitCell
-                line={row.right}
-                tone={
-                  row.kind === "add" || row.kind === "replace"
-                    ? "add"
-                    : "context"
-                }
-              />
-            </div>
+            <Fragment key={`block-${segment.start}`}>
+              {rangeIndexes(segment.start, segment.end).map((index) => (
+                <SplitRow index={index} key={index} row={rows[index]} />
+              ))}
+            </Fragment>
           )
         )}
       </div>
     </div>
+  );
+}
+
+function SplitRow({ index, row }: { index: number; row: DiffRow }) {
+  if (row.kind === "hunk") {
+    return (
+      <div
+        className={cn(
+          "border-t border-slate-100 px-4 py-1 font-mono first:border-t-0",
+          row.hunkText?.startsWith("@@")
+            ? "bg-sky-50 text-sky-700"
+            : "bg-slate-50 text-slate-500"
+        )}
+      >
+        {row.hunkText}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-t border-slate-100 first:border-t-0"
+      key={splitRowKey(row, index)}
+    >
+      <SplitCell
+        line={row.left}
+        tone={row.kind === "del" || row.kind === "replace" ? "del" : "context"}
+      />
+      <SplitCell
+        line={row.right}
+        tone={row.kind === "add" || row.kind === "replace" ? "add" : "context"}
+      />
+    </div>
+  );
+}
+
+// A full-width separator standing in for a collapsed run of unchanged lines, with
+// controls to reveal a chunk from the top, the whole gap, or a chunk from the
+// bottom. Rendered with `flex` so it works inside both the unified <pre><code>
+// and the split <div> bodies.
+function ExpandSeparator({
+  gap,
+  keyFor,
+  onExpand
+}: {
+  gap: { hiddenTotal: number; remaining: number };
+  keyFor(): string;
+  onExpand: ExpandFn;
+}) {
+  return (
+    <span className="flex w-full items-center justify-center gap-3 border-y border-slate-100 bg-sky-50/70 px-4 py-1 font-mono text-xs text-sky-700 first:border-t-0">
+      <button
+        aria-label={`Expand ${EXPAND_CHUNK} lines up`}
+        className="rounded px-1.5 hover:bg-sky-100"
+        onClick={() => onExpand(keyFor(), "up", gap.hiddenTotal)}
+        type="button"
+      >
+        ↑
+      </button>
+      <button
+        aria-label="Expand all hidden lines"
+        className="rounded px-2 hover:bg-sky-100 hover:underline"
+        onClick={() => onExpand(keyFor(), "all", gap.hiddenTotal)}
+        type="button"
+      >
+        ⋯ {gap.remaining} hidden {gap.remaining === 1 ? "line" : "lines"}
+      </button>
+      <button
+        aria-label={`Expand ${EXPAND_CHUNK} lines down`}
+        className="rounded px-1.5 hover:bg-sky-100"
+        onClick={() => onExpand(keyFor(), "down", gap.hiddenTotal)}
+        type="button"
+      >
+        ↓
+      </button>
+    </span>
   );
 }
 
