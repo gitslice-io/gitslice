@@ -109,7 +109,7 @@ export function SliceSettingsPage() {
 
   if (sliceQuery.isLoading) {
     return (
-      <section className="mx-auto w-full max-w-7xl">
+      <section className="mx-auto w-full max-w-[100rem]">
         <SliceLoadingBlock />
       </section>
     );
@@ -117,7 +117,7 @@ export function SliceSettingsPage() {
 
   if (sliceQuery.isError) {
     return (
-      <section className="mx-auto w-full max-w-7xl">
+      <section className="mx-auto w-full max-w-[100rem]">
         <SlicePageHeader title="Slice Settings" />
         <div className="mt-8">
           <SliceNotice title="Could not load slice" tone="error">
@@ -130,7 +130,7 @@ export function SliceSettingsPage() {
 
   if (!slice) {
     return (
-      <section className="mx-auto w-full max-w-7xl">
+      <section className="mx-auto w-full max-w-[100rem]">
         <SlicePageHeader title="Slice Settings" />
         <div className="mt-8">
           <SliceNotice title="Slice not found">
@@ -144,7 +144,7 @@ export function SliceSettingsPage() {
   const sliceLabel = sliceDisplayName(slice);
 
   return (
-    <section className="mx-auto w-full max-w-7xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <div className="mb-5">
         <Breadcrumb
           items={[

@@ -23,7 +23,7 @@ export function TopBar() {
 
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 backdrop-blur sm:px-4 md:px-6">
-      <div className="mx-auto flex min-h-14 w-full max-w-7xl flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2 sm:min-h-16 sm:flex-nowrap sm:py-0">
+      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2 sm:min-h-16 sm:flex-nowrap sm:py-0">
         <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <Link
             className="shrink-0 text-sm font-semibold tracking-normal text-zinc-950"

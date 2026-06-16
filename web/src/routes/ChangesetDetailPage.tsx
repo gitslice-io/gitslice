@@ -135,7 +135,7 @@ export function ChangesetDetailPage() {
   const resolvedSliceId = resolveSliceQuery.data?.id ?? "";
 
   return (
-    <section className="mx-auto w-full max-w-5xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <div className="mb-5">
         <Breadcrumb
           items={changesetBreadcrumbItems({
@@ -334,7 +334,7 @@ function ErrorBox({
 
 function PageMessage({ message, title }: { message: string; title: string }) {
   return (
-    <section className="mx-auto w-full max-w-5xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
         <h1 className="text-xl font-semibold tracking-normal text-zinc-950">
           {title}
@@ -347,7 +347,7 @@ function PageMessage({ message, title }: { message: string; title: string }) {
 
 function ChangesetSkeleton() {
   return (
-    <section className="mx-auto w-full max-w-5xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
         <div className="h-4 w-48 animate-pulse rounded bg-slate-200" />
         <div className="mt-5 h-8 w-2/3 animate-pulse rounded bg-slate-200" />

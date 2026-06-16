@@ -72,7 +72,7 @@ export function ChangesetsPage() {
   breadcrumbItems.push({ label: "Changesets" });
 
   return (
-    <section className="mx-auto w-full max-w-7xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       <div className="mb-4">
         <Breadcrumb items={breadcrumbItems} />
       </div>
