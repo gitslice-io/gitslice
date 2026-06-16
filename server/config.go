@@ -31,7 +31,6 @@ type Config struct {
 	IndexInterval         time.Duration
 	DisableAsyncPublisher bool
 	DisableIndexWorker    bool
-	DevMode               bool
 }
 
 func ConfigFromEnv() Config {
@@ -55,7 +54,6 @@ func ConfigFromEnv() Config {
 		IndexInterval:         time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_INTERVAL_MS"), 25)) * time.Millisecond,
 		DisableAsyncPublisher: os.Getenv("GITSLICE_DISABLE_ASYNC_PUBLISHER") == "1",
 		DisableIndexWorker:    os.Getenv("GITSLICE_DISABLE_INDEX_WORKER") == "1",
-		DevMode:               os.Getenv("GITSLICE_DEV_MODE") == "1",
 	}
 }
 

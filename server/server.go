@@ -107,13 +107,13 @@ func Run(ctx context.Context, cfg Config) error {
 		Slices:     db.Slices(),
 	}
 	handlers := service.New(stores, objectStore)
-	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg.DevMode)
+	grpcServer := NewGRPCServer(resolveSubject, handlers)
 	gatewayHandler, err := NewHTTPGateway(ctx, gatewayGRPCEndpoint(lis.Addr()))
 	if err != nil {
 		return err
 	}
 	combinedServer := &http.Server{
-		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg.DevMode)),
+		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin)),
 		ReadHeaderTimeout: gatewayReadHeaderTimeout,
 		IdleTimeout:       gatewayIdleTimeout,
 	}
@@ -125,7 +125,7 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		gatewayServer = &http.Server{
-			Handler:           NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg.DevMode),
+			Handler:           NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin),
 			ReadHeaderTimeout: gatewayReadHeaderTimeout,
 			ReadTimeout:       gatewayReadTimeout,
 			WriteTimeout:      gatewayWriteTimeout,
@@ -285,19 +285,13 @@ func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, er
 	}, nil
 }
 
-func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, devMode bool) *grpc.Server {
+func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers) *grpc.Server {
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve)),
 		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(resolve)),
 	)
-	// FakeAccountService mints session tokens with no credential check (dev
-	// login and self-serve signup). It is a prototype affordance and must never
-	// be exposed in a non-dev deployment, so it is only registered in dev mode.
-	if devMode {
-		corev1.RegisterFakeAccountServiceServer(grpcServer, handlers.FakeAccount)
-	}
 	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)
 	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
 	corev1.RegisterBlobServiceServer(grpcServer, handlers.Blob)
@@ -357,9 +351,7 @@ func authInterceptor(resolve subjectResolver) grpc.UnaryServerInterceptor {
 }
 
 func isPublicMethod(method string) bool {
-	return method == "/gitslice.core.v1.FakeAccountService/Login" ||
-		method == "/gitslice.core.v1.FakeAccountService/ApproveSignup" ||
-		method == "/gitslice.core.v1.AuthService/StartCliLogin" ||
+	return method == "/gitslice.core.v1.AuthService/StartCliLogin" ||
 		method == "/gitslice.core.v1.AuthService/PollCliLogin" ||
 		strings.HasPrefix(method, "/grpc.health.v1.Health/")
 }

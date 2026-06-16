@@ -421,38 +421,6 @@ func (s *ObjectStore) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *AuthStore) LoginDevUser(ctx context.Context, devUser string) (string, string, error) {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	subjectID := normalizeDevSubject(devUser)
-	if _, ok := s.b.subjects[subjectID]; !ok {
-		return "", "", storage.ErrNotFound
-	}
-	token := s.b.nextIDLocked("tok")
-	s.b.sessions[token] = subjectID
-	return token, subjectID, nil
-}
-
-func (s *AuthStore) SignupUser(ctx context.Context, username string) (string, string, error) {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	username, err := normalizeSignupUsername(username)
-	if err != nil {
-		return "", "", fmt.Errorf("%w: %v", storage.ErrInvalid, err)
-	}
-	subjectID := "user_" + strings.ReplaceAll(username, "-", "_")
-	if existing := s.b.personalAccounts[subjectID]; existing != "" && existing != username {
-		return "", "", fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
-	}
-	if existing := s.b.personalAccounts[subjectID]; existing == "" && s.b.accountSlugTakenLocked(username) {
-		return "", "", fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
-	}
-	s.b.provisionPersonalAccountLocked(subjectID, username, username)
-	token := s.b.nextIDLocked("tok")
-	s.b.sessions[token] = subjectID
-	return token, subjectID, nil
-}
-
 func (s *AuthStore) StartCliLogin(ctx context.Context) (string, time.Time, error) {
 	code, err := objectid.RandomID("cli")
 	if err != nil {
@@ -1565,18 +1533,6 @@ func normalizeSignupUsername(username string) (string, error) {
 		return "", fmt.Errorf("username may contain only letters, numbers, '-' or '_'")
 	}
 	return username, nil
-}
-
-func normalizeDevSubject(devUser string) string {
-	devUser = strings.TrimSpace(devUser)
-	if devUser == "" {
-		devUser = "alice"
-	}
-	devUser = strings.ReplaceAll(devUser, "-", "_")
-	if strings.HasPrefix(devUser, "user_") || strings.HasSuffix(devUser, "_bot") {
-		return devUser
-	}
-	return "user_" + devUser
 }
 
 func sliceID(account, slice string) string { return "slice_" + account + "_" + slice }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"net/http/pprof"
 	"strings"
 
 	"github.com/gitslice-io/gitslice/internal/metrics"
@@ -25,7 +24,6 @@ func NewHTTPGateway(ctx context.Context, grpcEndpoint string) (http.Handler, err
 		),
 	}
 	registerHandlers := []func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error{
-		corev1.RegisterFakeAccountServiceHandlerFromEndpoint,
 		corev1.RegisterAuthServiceHandlerFromEndpoint,
 		corev1.RegisterRepositoryServiceHandlerFromEndpoint,
 		corev1.RegisterBlobServiceHandlerFromEndpoint,
@@ -41,12 +39,9 @@ func NewHTTPGateway(ctx context.Context, grpcEndpoint string) (http.Handler, err
 	return mux, nil
 }
 
-func NewHTTPHandler(gateway http.Handler, allowedOrigin string, devMode bool) http.Handler {
+func NewHTTPHandler(gateway http.Handler, allowedOrigin string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics.Handler())
-	if devMode {
-		registerPprofHandlers(mux)
-	}
 	mux.Handle("/", withCORS(withMaxBody(gateway, rpclimits.MaxUnaryMessageBytes), allowedOrigin))
 	return mux
 }
@@ -61,14 +56,6 @@ func withMaxBody(handler http.Handler, max int64) http.Handler {
 		}
 		handler.ServeHTTP(w, r)
 	})
-}
-
-func registerPprofHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 func gatewayGRPCEndpoint(addr net.Addr) string {

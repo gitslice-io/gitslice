@@ -1,7 +1,6 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useCallback, useMemo } from "react";
 
-import { getDevToken } from "../auth/devAuth";
 import { callRpc, defaultApiBaseUrl, type RpcService } from "./client";
 import type {
   AbandonChangesetRequest,
@@ -112,7 +111,7 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
       method: string,
       request: TRequest
     ) => {
-      const token = getDevToken() ?? (await getToken());
+      const token = await getToken();
       return callRpc<TRequest, TResponse>(
         service,
         method,

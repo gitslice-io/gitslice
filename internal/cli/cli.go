@@ -241,10 +241,11 @@ type workspaceDiffOutput struct {
 }
 
 type authStatusOutput struct {
-	SignedIn   bool   `json:"signed_in"`
-	ServerAddr string `json:"server_addr,omitempty"`
-	SubjectID  string `json:"subject_id,omitempty"`
-	Reason     string `json:"reason,omitempty"`
+	SignedIn   bool     `json:"signed_in"`
+	ServerAddr string   `json:"server_addr,omitempty"`
+	SubjectID  string   `json:"subject_id,omitempty"`
+	Accounts   []string `json:"accounts,omitempty"`
+	Reason     string   `json:"reason,omitempty"`
 }
 
 type authTokenOutput struct {
@@ -746,14 +747,7 @@ func (r Runner) enhanceCommandError(err error) error {
 }
 
 func (r Runner) authRecoveryHint() string {
-	hint := "Run gs auth status to inspect the saved token."
-	var cfg UserConfig
-	if err := readJSONFile(r.userConfigPath(), &cfg); err == nil {
-		if account, ok := personalAccountSlugFromSubjectID(cfg.SubjectID); ok {
-			return hint + " If it is invalid, run gs auth signup --username " + account + "."
-		}
-	}
-	return hint + " If it is invalid, run gs auth signup --username <name>."
+	return "Run gs auth status to inspect the saved token. If it is invalid, run gs auth login."
 }
 
 func (r Runner) rootCommand() *cobra.Command {
@@ -807,18 +801,16 @@ func (r Runner) rootCommand() *cobra.Command {
 		RunE:  requireSubcommand("auth"),
 	}
 	loginServer := defaultServerAddr()
-	loginDevUser := ""
 	loginClerkToken := ""
 	loginClerkBrowser := false
 	loginWebURL := defaultWebURL()
 	loginCmd := &cobra.Command{
 		Use:   "login",
-		Short: "Log in to a Gitslice server (Clerk browser flow by default; --dev-user for local dev)",
-		Args:  noArgs("gs auth login [--server addr] [--clerk | --clerk-token JWT | --dev-user alice]"),
+		Short: "Log in to a Gitslice server (Clerk browser flow by default)",
+		Args:  noArgs("gs auth login [--server addr] [--clerk | --clerk-token JWT]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runAuthLogin(cmd.Context(), *opts, authLoginOptions{
 				serverAddr:   loginServer,
-				devUser:      loginDevUser,
 				clerkToken:   loginClerkToken,
 				clerkBrowser: loginClerkBrowser,
 				webURL:       loginWebURL,
@@ -826,26 +818,9 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 	loginCmd.Flags().StringVar(&loginServer, "server", loginServer, "server gRPC address")
-	loginCmd.Flags().StringVar(&loginDevUser, "dev-user", loginDevUser, "development user (dev/fake login)")
 	loginCmd.Flags().StringVar(&loginClerkToken, "clerk-token", loginClerkToken, "log in with a Clerk session JWT (use '-' to read from stdin)")
 	loginCmd.Flags().BoolVar(&loginClerkBrowser, "clerk", loginClerkBrowser, "log in via the browser-based Clerk flow")
 	loginCmd.Flags().StringVar(&loginWebURL, "web-url", loginWebURL, "web base URL for the --clerk browser flow")
-	signupServer := defaultServerAddr()
-	signupWebURL := defaultWebURL()
-	signupUsername := ""
-	signupNoBrowser := false
-	signupCmd := &cobra.Command{
-		Use:   "signup",
-		Short: "Sign up through the browser approval flow",
-		Args:  noArgs("gs auth signup --username name [--server addr] [--web-url url]"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runAuthSignup(cmd.Context(), *opts, signupServer, signupWebURL, signupUsername, !signupNoBrowser)
-		},
-	}
-	signupCmd.Flags().StringVar(&signupUsername, "username", signupUsername, "username to create or sign in")
-	signupCmd.Flags().StringVar(&signupServer, "server", signupServer, "server gRPC address to store after signup")
-	signupCmd.Flags().StringVar(&signupWebURL, "web-url", signupWebURL, "server web signup base URL")
-	signupCmd.Flags().BoolVar(&signupNoBrowser, "no-browser", signupNoBrowser, "print the approval URL without opening a browser")
 	authStatusCmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show current authentication status",
@@ -900,7 +875,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	mintServiceTokenCmd.Flags().StringVar(&mintIssuer, "issuer", mintIssuer, "issuer claim (must match server GITSLICE_SERVICE_JWT_ISSUER)")
 	mintServiceTokenCmd.Flags().DurationVar(&mintTTL, "ttl", mintTTL, "token lifetime")
 
-	authCmd.AddCommand(loginCmd, signupCmd, authStatusCmd, authTokenCmd, authLogoutCmd, genServiceKeyCmd, mintServiceTokenCmd)
+	authCmd.AddCommand(loginCmd, authStatusCmd, authTokenCmd, authLogoutCmd, genServiceKeyCmd, mintServiceTokenCmd)
 
 	initCmd := &cobra.Command{
 		Use:   "init <slice|account/slice>",
@@ -1747,15 +1722,13 @@ func (r Runner) runMintServiceToken(opts commandOptions, keyPath, subject, email
 
 type authLoginOptions struct {
 	serverAddr   string
-	devUser      string
 	clerkToken   string
 	clerkBrowser bool
 	webURL       string
 }
 
 // runAuthLogin dispatches to the selected login mode: a Clerk session JWT
-// (--clerk-token, or '-' for stdin), an explicit dev/fake account login
-// (--dev-user, for local dev servers), or the default browser-based Clerk flow.
+// (--clerk-token, or '-' for stdin) or the default browser-based Clerk flow.
 func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, in authLoginOptions) error {
 	switch {
 	case in.clerkToken != "":
@@ -1772,30 +1745,9 @@ func (r Runner) runAuthLogin(ctx context.Context, opts commandOptions, in authLo
 			return userError("invalid_args", "clerk token is empty", "Pass a Clerk session JWT to --clerk-token, or '-' to read it from stdin.")
 		}
 		return r.finishClerkLogin(ctx, opts, in.serverAddr, token)
-	case in.clerkBrowser:
-		return r.runAuthLoginClerkBrowser(ctx, opts, in.serverAddr, in.webURL)
-	case in.devUser != "":
-		return r.runAuthDevLogin(ctx, opts, in.serverAddr, in.devUser)
 	default:
-		// Default to the browser-based Clerk flow: the hosted/staging server
-		// uses Clerk and does not register the dev-only FakeAccountService, so a
-		// bare `gs auth login` must not attempt a dev login. Dev login is opt-in
-		// via --dev-user for local dev servers.
 		return r.runAuthLoginClerkBrowser(ctx, opts, in.serverAddr, in.webURL)
 	}
-}
-
-func (r Runner) runAuthDevLogin(ctx context.Context, opts commandOptions, serverAddr, devUser string) error {
-	conn, err := dial(ctx, serverAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	res, err := corev1.NewFakeAccountServiceClient(conn).Login(ctx, &corev1.LoginRequest{DevUser: devUser})
-	if err != nil {
-		return err
-	}
-	return r.persistAndReportLogin(opts, UserConfig{ServerAddr: serverAddr, Token: res.Token, SubjectID: res.SubjectId})
 }
 
 // finishClerkLogin stores a Clerk session JWT as the bearer credential and
@@ -1992,150 +1944,6 @@ func clerkLoginURL(webURL, callbackURL, state string) (string, error) {
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/cli-login"
 	query := parsed.Query()
 	query.Set("callback_url", callbackURL)
-	query.Set("state", state)
-	parsed.RawQuery = query.Encode()
-	return parsed.String(), nil
-}
-
-func (r Runner) runAuthSignup(ctx context.Context, opts commandOptions, serverAddr, webURL, username string, openBrowser bool) error {
-	username = strings.TrimSpace(username)
-	if username == "" {
-		return userError("invalid_args", "username is required", "Run gs auth signup --username <name>.")
-	}
-	callbackLis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return err
-	}
-	defer callbackLis.Close()
-
-	state, err := objectid.RandomID("signupstate")
-	if err != nil {
-		return err
-	}
-	callbackURL := "http://" + callbackLis.Addr().String() + "/callback"
-	approvalURL, err := signupApprovalURL(webURL, username, callbackURL, state)
-	if err != nil {
-		return err
-	}
-
-	resultCh := make(chan signupCallbackResult, 1)
-	callbackServer := &http.Server{Handler: signupCallbackHandler(state, resultCh)}
-	go func() {
-		if err := callbackServer.Serve(callbackLis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			select {
-			case resultCh <- signupCallbackResult{Error: err.Error()}:
-			default:
-			}
-		}
-	}()
-	defer callbackServer.Shutdown(context.Background())
-
-	promptWriter := r.stdout()
-	if opts.jsonOutput() {
-		promptWriter = r.stderr()
-	}
-	if !opts.Quiet || !openBrowser {
-		fmt.Fprintln(promptWriter, "Open this URL to approve signup:")
-		fmt.Fprintln(promptWriter, approvalURL)
-	}
-	if openBrowser {
-		if err := openBrowserURL(approvalURL); err != nil && !opts.Quiet {
-			fmt.Fprintf(r.stderr(), "could not open browser automatically: %v\n", err)
-		}
-	}
-	if !opts.Quiet {
-		fmt.Fprintln(promptWriter, "Waiting for browser approval...")
-	}
-
-	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	var result signupCallbackResult
-	select {
-	case result = <-resultCh:
-	case <-waitCtx.Done():
-		return waitCtx.Err()
-	}
-	if result.Error != "" {
-		return userError("signup_failed", result.Error, "Try gs auth signup again.")
-	}
-	cfg := UserConfig{ServerAddr: serverAddr, Token: result.Token, SubjectID: result.SubjectID}
-	if existing, err := r.readPartialUserConfig(); err == nil {
-		cfg.Aliases = existing.Aliases
-	}
-	if err := r.writeUserConfig(cfg); err != nil {
-		return err
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"server_addr": serverAddr,
-			"subject_id":  result.SubjectID,
-		})
-	}
-	if opts.Quiet {
-		return nil
-	}
-	fmt.Fprintf(r.Stdout, "signed up as %s\n", result.SubjectID)
-	return nil
-}
-
-type signupCallbackResult struct {
-	Token     string
-	SubjectID string
-	Error     string
-}
-
-func signupCallbackHandler(expectedState string, resultCh chan<- signupCallbackResult) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != "/callback" {
-			http.NotFound(w, req)
-			return
-		}
-		values := req.URL.Query()
-		if values.Get("state") != expectedState {
-			http.Error(w, "invalid signup state", http.StatusBadRequest)
-			return
-		}
-		result := signupCallbackResult{
-			Token:     values.Get("token"),
-			SubjectID: values.Get("subject_id"),
-			Error:     values.Get("error"),
-		}
-		if result.Error == "" && (result.Token == "" || result.SubjectID == "") {
-			result.Error = "signup callback did not include token and subject_id"
-		}
-		if result.Error == "" {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprintln(w, "<!doctype html><title>Gitslice Signup Complete</title><p>Signup complete. Return to your terminal.</p>")
-		} else {
-			http.Error(w, result.Error, http.StatusBadRequest)
-		}
-		select {
-		case resultCh <- result:
-		default:
-		}
-	})
-}
-
-func signupApprovalURL(webURL, username, callbackURL, state string) (string, error) {
-	webURL = strings.TrimSpace(webURL)
-	if webURL == "" {
-		webURL = defaultWebURL()
-	}
-	if !strings.Contains(webURL, "://") {
-		webURL = "http://" + webURL
-	}
-	parsed, err := url.Parse(webURL)
-	if err != nil {
-		return "", err
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("web-url must use http or https")
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/signup"
-	query := parsed.Query()
-	query.Set("username", username)
-	query.Set("callback_url", callbackURL)
-	query.Set("gateway_url", defaultGatewayURL())
 	query.Set("state", state)
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
@@ -2346,6 +2154,7 @@ func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
 		SignedIn:   true,
 		ServerAddr: cfg.ServerAddr,
 		SubjectID:  res.SubjectId,
+		Accounts:   res.Accounts,
 	}, nil
 }
 
@@ -2417,11 +2226,9 @@ func (r Runner) runContext(ctx context.Context, opts commandOptions) error {
 		out.ActiveSliceSource = "workspace"
 	} else if !isUserErrorCode(err, "not_in_workspace") {
 		return err
-	} else if authStatus.SignedIn {
-		if account, ok := personalAccountSlugFromSubjectID(authStatus.SubjectID); ok {
-			out.ActiveSlice = account + "/home"
-			out.ActiveSliceSource = "signed_in_home"
-		}
+	} else if authStatus.SignedIn && len(authStatus.Accounts) > 0 {
+		out.ActiveSlice = authStatus.Accounts[0] + "/home"
+		out.ActiveSliceSource = "signed_in_home"
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
@@ -3170,20 +2977,15 @@ func (r Runner) authenticatedConn(ctx context.Context) (UserConfig, *grpc.Client
 }
 
 func (r Runner) defaultSliceAccount(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (string, error) {
-	subjectID := cfg.SubjectID
-	if subjectID == "" {
-		if conn == nil {
+	if conn == nil {
+		return "", userError("account_required", "account is required", "Run gs slice list <account>.")
+	}
+	account, err := r.personalAccountSlug(ctx, conn)
+	if err != nil {
+		if isUserErrorCode(err, "no_account") {
 			return "", userError("account_required", "account is required", "Run gs slice list <account>.")
 		}
-		status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
-		if err != nil {
-			return "", err
-		}
-		subjectID = status.SubjectId
-	}
-	account, ok := personalAccountSlugFromSubjectID(subjectID)
-	if !ok {
-		return "", userError("account_required", "account is required", "Run gs slice list <account>.")
+		return "", err
 	}
 	return account, nil
 }
@@ -5489,25 +5291,31 @@ func (r Runner) homeFileMutator(ctx context.Context) (UserConfig, *grpc.ClientCo
 	return cfg, conn, &remoteFileMutator{runner: r, cfg: cfg, conn: conn, slice: slice}, nil
 }
 
-func (r Runner) personalHomeSlice(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (*corev1.Slice, error) {
-	subjectID := cfg.SubjectID
-	if subjectID == "" {
-		status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
-		if err != nil {
-			return nil, err
-		}
-		subjectID = status.SubjectId
+// personalAccountSlug returns the signed-in subject's personal account slug (the
+// first account from auth status). The account is the user's chosen username and
+// is NOT derivable from the subject id.
+func (r Runner) personalAccountSlug(ctx context.Context, conn *grpc.ClientConn) (string, error) {
+	status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		return "", err
 	}
-	accountSlug, ok := personalAccountSlugFromSubjectID(subjectID)
-	if !ok {
-		return nil, userError("no_home_slice", "signed-in subject does not have a personal home slice", "Run gs auth signup --username <name>.")
+	if len(status.Accounts) == 0 {
+		return "", userError("no_account", "signed-in subject has no personal account yet", "Choose a username in the web app to create your account.")
+	}
+	return status.Accounts[0], nil
+}
+
+func (r Runner) personalHomeSlice(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (*corev1.Slice, error) {
+	accountSlug, err := r.personalAccountSlug(ctx, conn)
+	if err != nil {
+		return nil, err
 	}
 	slice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(ctx, &corev1.ResolveSliceRequest{
 		Ref: &corev1.SliceRef{Account: accountSlug, Slice: "home"},
 	})
 	if err != nil {
 		if grpcstatus.Code(err) == codes.NotFound || grpcstatus.Code(err) == codes.PermissionDenied {
-			return nil, userError("no_home_slice", "personal home slice was not found for "+accountSlug, "Run gs auth signup --username "+accountSlug+".")
+			return nil, userError("no_home_slice", "personal home slice was not found for "+accountSlug, "Choose a username in the web app to create your account.")
 		}
 		return nil, err
 	}
@@ -7338,17 +7146,6 @@ func (r Runner) personalHomeShellScope(ctx context.Context, cfg UserConfig, conn
 	}, nil
 }
 
-func personalAccountSlugFromSubjectID(subjectID string) (string, bool) {
-	if !strings.HasPrefix(subjectID, "user_") {
-		return "", false
-	}
-	slug := strings.TrimPrefix(subjectID, "user_")
-	if slug == "" {
-		return "", false
-	}
-	return strings.ReplaceAll(slug, "_", "-"), true
-}
-
 func canonicalIncludedRoot(value string) (string, error) {
 	cleaned, err := cleanShellGlobalPath(value)
 	if err != nil {
@@ -8962,15 +8759,8 @@ func (r Runner) runSchema(opts commandOptions) error {
 		"commands": []map[string]any{
 			{
 				"use":            "gs auth login",
-				"summary":        "log in through the development account service",
-				"flags":          []string{"--server", "--dev-user"},
-				"writes_stdout":  true,
-				"machine_output": []string{"server_addr", "subject_id"},
-			},
-			{
-				"use":            "gs auth signup --username <name>",
-				"summary":        "sign up through the browser approval flow",
-				"flags":          []string{"--username", "--server", "--web-url", "--no-browser"},
+				"summary":        "log in via the Clerk browser flow",
+				"flags":          []string{"--server", "--clerk", "--clerk-token", "--web-url"},
 				"writes_stdout":  true,
 				"machine_output": []string{"server_addr", "subject_id"},
 			},

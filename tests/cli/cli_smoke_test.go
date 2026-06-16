@@ -301,6 +301,9 @@ func TestServerShellRunsOutsideWorkspace(t *testing.T) {
 	runCLI(t, home, workspace, "cs", "create", "--title", "global shell seed")
 	runCLI(t, home, workspace, "cs", "submit")
 
+	// Outside a workspace, the shell attaches to the signed-in user's personal
+	// home slice (the test identity's personal account is acme), scoped at the
+	// global root with the account projected in.
 	stdout, stderr := runCLIStreamsWithInput(t, home, outsideWorkspace, strings.Join([]string{
 		"pwd",
 		"ls /",
@@ -315,7 +318,7 @@ func TestServerShellRunsOutsideWorkspace(t *testing.T) {
 		t.Fatalf("expected empty shell stderr, got:\n%s", stderr)
 	}
 	for _, want := range []string{
-		"server shell: / @",
+		"server shell: acme/home @",
 		"gs /> /",
 		"acme/",
 		"payment/",
@@ -509,124 +512,6 @@ func TestCLISliceCRUD(t *testing.T) {
 	_, stderr = runCLIFails(t, home, workspace, "slice", "info", "acme/docs")
 	if !strings.Contains(stderr, "not found") {
 		t.Fatalf("slice info after delete stderr = %q, want not found", stderr)
-	}
-}
-
-func TestSignupWebApproveIssuesToken(t *testing.T) {
-	ts := startTestServer(t)
-	resp, err := http.Get("http://" + ts.httpAddr + "/signup")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("custom signup page status = %d, want 404 from gateway-only server:\n%s", resp.StatusCode, string(body))
-	}
-	signup := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
-		"username":    "signup_user",
-		"callbackUrl": "http://127.0.0.1:45555/callback",
-		"state":       "signup-state",
-	})
-	location, _ := signup["redirectUrl"].(string)
-	redirect, err := url.Parse(location)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := redirect.Query()
-	if query.Get("state") != "signup-state" {
-		t.Fatalf("redirect state = %q, want signup-state", query.Get("state"))
-	}
-	token, _ := signup["token"].(string)
-	if token == "" {
-		t.Fatalf("signup response did not include token: %#v", signup)
-	}
-	if query.Get("token") != token {
-		t.Fatalf("redirect token = %q, want response token", query.Get("token"))
-	}
-	if subjectID, _ := signup["subjectId"].(string); subjectID != "user_signup_user" {
-		t.Fatalf("response subject_id = %q, want user_signup_user", subjectID)
-	}
-	if query.Get("subject_id") != "user_signup_user" {
-		t.Fatalf("redirect subject_id = %q, want user_signup_user", query.Get("subject_id"))
-	}
-
-	statusCode, _, body := httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
-		"username":    "bad-callback",
-		"callbackUrl": "https://example.com/callback",
-		"state":       "signup-state",
-	})
-	if statusCode != http.StatusBadRequest {
-		t.Fatalf("remote callback signup status = %d, want 400:\n%s", statusCode, string(body))
-	}
-
-	conn := dialTestGRPC(t, ts.addr)
-	defer conn.Close()
-	status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(grpcAuthContext(token), &corev1.GetAuthStatusRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.SubjectId != "user_signup_user" {
-		t.Fatalf("auth status subject = %q, want user_signup_user", status.SubjectId)
-	}
-
-	ctx := grpcAuthContext(token)
-	homeSlice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(ctx, &corev1.ResolveSliceRequest{
-		Ref: &corev1.SliceRef{Account: "signup-user", Slice: "home"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if homeSlice.Ref.Account != "signup-user" || homeSlice.Ref.Slice != "home" {
-		t.Fatalf("home slice ref = %#v, want signup-user/home", homeSlice.Ref)
-	}
-	if got := homeSlice.Definition.IncludedPaths; len(got) != 1 || got[0] != "/signup-user" {
-		t.Fatalf("home slice included paths = %#v, want [/signup-user]", got)
-	}
-	repository := corev1.NewRepositoryServiceClient(conn)
-	ref, err := repository.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolvedRoot, err := repository.ResolvePath(ctx, &corev1.ResolvePathRequest{
-		CommitId: ref.CommitId,
-		Path:     "/signup-user",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolvedRoot.Entry == nil || resolvedRoot.Entry.Kind != corev1.EntryKind_ENTRY_KIND_DIRECTORY {
-		t.Fatalf("signup account root = %#v, want directory", resolvedRoot.Entry)
-	}
-	listedRoot, err := repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
-		CommitId: ref.CommitId,
-		Path:     "/",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasEntry(listedRoot.Entries, "signup-user", corev1.EntryKind_ENTRY_KIND_DIRECTORY) {
-		t.Fatalf("root entries missing signup-user: %#v", listedRoot.Entries)
-	}
-
-	workspaces := corev1.NewWorkspaceServiceClient(conn)
-	_, err = workspaces.ValidateWorkspaceDiff(ctx, &corev1.ValidateWorkspaceDiffRequest{
-		Workspace: &corev1.WorkspaceRef{Id: "signup-user/home"},
-		FileEdits: []*corev1.FileEdit{
-			{Path: "/signup-user/readme.md"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("validate home-path edit: %v", err)
-	}
-	_, err = workspaces.ValidateWorkspaceDiff(ctx, &corev1.ValidateWorkspaceDiffRequest{
-		Workspace: &corev1.WorkspaceRef{Id: "signup-user/home"},
-		FileEdits: []*corev1.FileEdit{
-			{Path: "/alice/readme.md"},
-		},
-	})
-	if grpcstatus.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("outside home-path validation error = %v, want FailedPrecondition", err)
 	}
 }
 
@@ -2248,7 +2133,6 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 				Issuer:       servicetoken.DefaultIssuer,
 			},
 			RunMigrations: migrate,
-			DevMode:       true,
 		})
 	}()
 	waitForHealth(t, ts.addr)
@@ -2326,56 +2210,15 @@ func runCLIResult(home, workspace string, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
+// runCLISignupThroughWeb provisions a brand-new account for username and writes
+// the CLI auth config so subsequent gs commands in `home` run as that user. It
+// mints a service token and calls ChooseUsername (the dev signup flow is gone);
+// the username is normalized to a slug exactly as the old signup path did.
 func runCLISignupThroughWeb(t *testing.T, home, dir string, ts *testServer, username string) {
 	t.Helper()
-	stdoutReader, stdoutWriter := io.Pipe()
-	var stderr bytes.Buffer
-	r := cli.Runner{Home: home, Dir: dir, Stdout: stdoutWriter, Stderr: &stderr}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		err := r.Run(ctx, []string{
-			"auth", "signup",
-			"--username", username,
-			"--server", ts.addr,
-			"--web-url", "http://" + ts.httpAddr,
-			"--no-browser",
-		})
-		_ = stdoutWriter.Close()
-		errCh <- err
-	}()
-
-	approvalURL := readSignupApprovalURL(t, stdoutReader)
-	drainDone := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(io.Discard, stdoutReader)
-		close(drainDone)
-	}()
-	parsed, err := url.Parse(approvalURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := parsed.Query()
-	signup := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.FakeAccountService/ApproveSignup", "", map[string]string{
-		"username":    query.Get("username"),
-		"callbackUrl": query.Get("callback_url"),
-		"state":       query.Get("state"),
-	})
-	redirectURL, _ := signup["redirectUrl"].(string)
-	resp, err := http.Get(redirectURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("signup callback status = %d, want 200:\n%s", resp.StatusCode, string(body))
-	}
-	if err := <-errCh; err != nil {
-		t.Fatalf("signup failed: %v\nstderr:\n%s", err, stderr.String())
-	}
-	<-drainDone
+	_ = dir
+	token, _, subjectID := ts.provisionAccount(t, username, username)
+	writeCLIAuthConfig(t, home, ts.addr, token, subjectID)
 }
 
 func readSignupApprovalURL(t *testing.T, r io.Reader) string {

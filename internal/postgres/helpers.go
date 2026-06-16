@@ -76,18 +76,6 @@ func MissingEntryFingerprint() string {
 	return "missing"
 }
 
-func normalizeDevSubject(devUser string) string {
-	devUser = strings.TrimSpace(devUser)
-	if devUser == "" {
-		devUser = "alice"
-	}
-	devUser = strings.ReplaceAll(devUser, "-", "_")
-	if strings.HasPrefix(devUser, "user_") || strings.HasSuffix(devUser, "_bot") {
-		return devUser
-	}
-	return "user_" + devUser
-}
-
 func normalizeSignupUsername(username string) (string, error) {
 	username = strings.ToLower(strings.TrimSpace(username))
 	username = strings.ReplaceAll(username, "_", "-")
@@ -107,10 +95,6 @@ func normalizeSignupUsername(username string) (string, error) {
 		return "", fmt.Errorf("username may contain only letters, numbers, '-' or '_'")
 	}
 	return username, nil
-}
-
-func signupSubjectID(username string) string {
-	return "user_" + strings.ReplaceAll(username, "-", "_")
 }
 
 func signupAccountID(username string) string {

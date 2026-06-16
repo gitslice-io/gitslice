@@ -8,8 +8,6 @@ import (
 )
 
 type AuthStore interface {
-	LoginDevUser(ctx context.Context, devUser string) (string, string, error)
-	SignupUser(ctx context.Context, username string) (string, string, error)
 	StartCliLogin(ctx context.Context) (code string, expiresAt time.Time, err error)
 	CompleteCliLogin(ctx context.Context, code, subjectID string) error
 	PollCliLogin(ctx context.Context, code string) (status, token, subjectID string, err error)

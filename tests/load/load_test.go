@@ -918,7 +918,6 @@ func startLoadServer(t *testing.T) *loadServer {
 				Issuer:       servicetoken.DefaultIssuer,
 			},
 			RunMigrations: true,
-			DevMode:       true,
 		})
 	}()
 	waitForHealth(t, ts.addr)
