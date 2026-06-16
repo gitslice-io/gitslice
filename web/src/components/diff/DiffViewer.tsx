@@ -21,7 +21,14 @@ interface DiffViewerProps {
 
 type ViewMode = "unified" | "split";
 
+interface MountedDiffBodies {
+  files: DiffFile[];
+  ids: Set<string>;
+}
+
 const diffViewStorageKey = "gitslice.diffView";
+const lazyDiffBodyRootMargin = "1200px 0px 1200px 0px";
+const minDiffBodyPlaceholderHeight = 48;
 
 export function DiffViewer({
   diffResponse,
@@ -36,6 +43,14 @@ export function DiffViewer({
   );
   const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
   const [activeId, setActiveId] = useState<string | undefined>();
+  const [mountedDiffBodies, setMountedDiffBodies] = useState<MountedDiffBodies>(
+    () => ({
+      files: [],
+      ids: new Set()
+    })
+  );
+  const mountedFileIds =
+    mountedDiffBodies.files === files ? mountedDiffBodies.ids : undefined;
   const panelRefs = useRef<Record<string, HTMLElement | null>>({});
   const changedPathCount = diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
@@ -59,6 +74,28 @@ export function DiffViewer({
     setActiveId((current) =>
       current && files.some((file) => file.id === current) ? current : files[0].id
     );
+  }, [files]);
+
+  useEffect(() => {
+    const fileIds = new Set(files.map((file) => file.id));
+
+    setMountedDiffBodies((current) => {
+      const currentIds =
+        current.files === files ? current.ids : new Set<string>();
+      const next = new Set<string>();
+
+      currentIds.forEach((id) => {
+        if (fileIds.has(id)) {
+          next.add(id);
+        }
+      });
+
+      if (current.files === files && next.size === currentIds.size) {
+        return current;
+      }
+
+      return { files, ids: next };
+    });
   }, [files]);
 
   useEffect(() => {
@@ -97,8 +134,84 @@ export function DiffViewer({
     return () => observer.disconnect();
   }, [files]);
 
+  useEffect(() => {
+    if (!files.length) {
+      return;
+    }
+
+    if (typeof IntersectionObserver === "undefined") {
+      setMountedDiffBodies({
+        files,
+        ids: new Set(files.map((file) => file.id))
+      });
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visibleIds = entries
+          .filter((entry) => entry.isIntersecting && entry.target.id)
+          .map((entry) => entry.target.id);
+
+        if (!visibleIds.length) {
+          return;
+        }
+
+        setMountedDiffBodies((current) => {
+          const currentIds =
+            current.files === files ? current.ids : new Set<string>();
+          const next = new Set(currentIds);
+          let changed = false;
+
+          visibleIds.forEach((id) => {
+            if (!next.has(id)) {
+              next.add(id);
+              changed = true;
+            }
+          });
+
+          if (current.files === files && !changed) {
+            return current;
+          }
+
+          return { files, ids: next };
+        });
+      },
+      {
+        root: null,
+        rootMargin: lazyDiffBodyRootMargin,
+        threshold: 0
+      }
+    );
+
+    files.forEach((file) => {
+      const panel = panelRefs.current[file.id];
+      if (panel) {
+        observer.observe(panel);
+      }
+    });
+
+    return () => observer.disconnect();
+  }, [files]);
+
+  const mountFileBody = (id: string) => {
+    setMountedDiffBodies((current) => {
+      const currentIds =
+        current.files === files ? current.ids : new Set<string>();
+
+      if (current.files === files && currentIds.has(id)) {
+        return current;
+      }
+
+      const next = new Set(currentIds);
+      next.add(id);
+      return { files, ids: next };
+    });
+  };
+
   const selectFile = (id: string) => {
     setActiveId(id);
+    mountFileBody(id);
     document.getElementById(id)?.scrollIntoView({
       behavior: "smooth",
       block: "start"
@@ -152,6 +265,7 @@ export function DiffViewer({
             {files.map((file) => (
               <DiffFilePanel
                 file={file}
+                isBodyMounted={mountedFileIds?.has(file.id) ?? false}
                 key={file.id}
                 refCallback={(node) => {
                   panelRefs.current[file.id] = node;
@@ -203,10 +317,12 @@ function ViewModeToggle({
 
 function DiffFilePanel({
   file,
+  isBodyMounted,
   refCallback,
   viewMode
 }: {
   file: DiffFile;
+  isBodyMounted: boolean;
   refCallback(node: HTMLElement | null): void;
   viewMode: ViewMode;
 }) {
@@ -232,12 +348,42 @@ function DiffFilePanel({
           </span>
         </div>
       </div>
-      {viewMode === "unified" ? (
-        <UnifiedDiff file={file} />
+      {isBodyMounted ? (
+        <DiffFileBody file={file} viewMode={viewMode} />
       ) : (
-        <SplitDiff rows={file.rows} />
+        <DiffBodyPlaceholder file={file} viewMode={viewMode} />
       )}
     </article>
+  );
+}
+
+function DiffFileBody({
+  file,
+  viewMode
+}: {
+  file: DiffFile;
+  viewMode: ViewMode;
+}) {
+  return viewMode === "unified" ? (
+    <UnifiedDiff file={file} />
+  ) : (
+    <SplitDiff rows={file.rows} />
+  );
+}
+
+function DiffBodyPlaceholder({
+  file,
+  viewMode
+}: {
+  file: DiffFile;
+  viewMode: ViewMode;
+}) {
+  return (
+    <div
+      aria-hidden="true"
+      className="bg-white"
+      style={{ height: estimatedDiffBodyHeight(file, viewMode) }}
+    />
   );
 }
 
@@ -425,6 +571,13 @@ function splitRowKey(row: DiffRow, index: number) {
   return `${index}-${row.left?.oldNumber ?? ""}-${row.right?.newNumber ?? ""}-${
     row.left?.text ?? row.right?.text ?? ""
   }`;
+}
+
+function estimatedDiffBodyHeight(file: DiffFile, viewMode: ViewMode) {
+  const estimatedHeight =
+    viewMode === "unified" ? file.lines.length * 20 : file.rows.length * 24;
+
+  return Math.max(minDiffBodyPlaceholderHeight, estimatedHeight);
 }
 
 function readStoredViewMode(): ViewMode {
