@@ -153,10 +153,10 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 // Authorization is checked against the slice account before resolving the slice
 // definition. The requested path is normalized with repositoryReadPath so
 // ancestor directories such as "/" and "/acme" remain browsable; the slice
-// definition's included paths are validated separately by sliceProjectedEntries.
-// The returned entries are synthesized from tree entries reachable through the
-// slice because a custom slice may include multiple disjoint prefixes that do
-// not map to one contiguous tree node.
+// definition's included paths are validated separately. A request inside an
+// included prefix exposes the real directory at that path. A request above one
+// or more included prefixes exposes only the immediate child on the way to each
+// included prefix without walking the projected descendants.
 func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID string, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
 	if req.Slice.Account == "" || req.Slice.Slice == "" {
 		return nil, status.Error(codes.InvalidArgument, "slice ref is required")
@@ -176,11 +176,10 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 		page, nextCursor := paginateDirectoryEntries(direct, req.PageSize, req.Cursor)
 		return &corev1.ListDirectoryResponse{Entries: page, NextCursor: nextCursor}, nil
 	}
-	entries, err := s.sliceProjectedEntries(ctx, slice, req.CommitId)
+	projected, err := s.sliceProjectedDirectoryEntriesShallow(ctx, slice, req.CommitId, p)
 	if err != nil {
 		return nil, err
 	}
-	projected := immediateProjectedDirectoryEntries(p, entries)
 	page, nextCursor := paginateDirectoryEntries(projected, req.PageSize, req.Cursor)
 	return &corev1.ListDirectoryResponse{Entries: page, NextCursor: nextCursor}, nil
 }
@@ -218,6 +217,52 @@ func (s *RepositoryService) sliceContainedDirectoryEntries(ctx context.Context, 
 		out = append(out, byPath[p])
 	}
 	return out, true, nil
+}
+
+func (s *RepositoryService) sliceProjectedDirectoryEntriesShallow(ctx context.Context, slice *corev1.Slice, commitID, p string) ([]*corev1.TreeEntry, error) {
+	byPath := map[string]*corev1.TreeEntry{}
+	for _, prefix := range slice.Definition.IncludedPaths {
+		canonical, err := repositoryReadPath(prefix)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		switch {
+		case repositoryPathContains(canonical, p):
+			entries, err := s.Repository.ListDirectory(ctx, commitID, p)
+			if err != nil {
+				return nil, grpcError(err)
+			}
+			for _, entry := range entries {
+				byPath[entry.Path] = treeEntryFromRepositoryEntry(entry)
+			}
+		case repositoryPathContains(p, canonical):
+			childPath, ok := immediateChildPath(p, canonical)
+			if !ok {
+				continue
+			}
+			if _, ok := byPath[childPath]; ok {
+				continue
+			}
+			entry, err := s.Repository.GetEntry(ctx, commitID, childPath)
+			if errors.Is(err, storage.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, grpcError(err)
+			}
+			byPath[childPath] = treeEntryFromRepositoryEntry(*entry)
+		}
+	}
+	paths := make([]string, 0, len(byPath))
+	for p := range byPath {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	out := make([]*corev1.TreeEntry, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, byPath[p])
+	}
+	return out, nil
 }
 
 // sliceProjectedEntries returns the tree entries visible through a slice at a
@@ -1198,6 +1243,18 @@ func relativeDirectoryPath(prefix, filePath string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimPrefix(filePath, prefix+"/"), true
+}
+
+func immediateChildPath(prefix, child string) (string, bool) {
+	rel, ok := relativeDirectoryPath(prefix, child)
+	if !ok || rel == "" {
+		return "", false
+	}
+	segment := strings.SplitN(rel, "/", 2)[0]
+	if prefix == "/" {
+		return "/" + segment, true
+	}
+	return strings.TrimRight(prefix, "/") + "/" + segment, true
 }
 
 func projectedDirectoryTreeID(prefix string, entries []storage.TreeEntry) string {
