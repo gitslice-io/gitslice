@@ -4851,3 +4851,59 @@ go test ./...
 ```
 
 All listed commands passed.
+
+## 2026-06-17: Stacked Changesets Design Note
+
+Request:
+
+- document the detailed CLI, server, and web changes needed to support stacked
+  changesets in the same workspace
+
+Decisions:
+
+- added `design/15_stacked_changesets.md` as a forward design amendment instead
+  of rewriting the older workspace and web docs in place
+- kept stacks limited to one authoring slice and one target ref, preserving the
+  current one-slice workspace and no cross-slice changeset rules
+- modeled stack entries as normal changesets, not patchsets, so every entry keeps
+  independent review, approval, check, submit, and audit state
+- defined dependency links as ordering and replay metadata only; stack submit is
+  ordered but not atomic, and partial submit must be visible to CLI and web users
+- required patchset preview trees through `base_tree_id` and `result_tree_id` so
+  child entries can use a parent patchset result as their base without turning
+  Git commits into the internal source of truth
+
+Verification:
+
+```bash
+git diff --check
+```
+
+## 2026-06-17: Stacked Changeset Tree and Graphite Lessons
+
+Request:
+
+- update the stacked changesets design to support a changeset tree now and
+  identify what Gitslice should learn from Graphite's stacked PR workflow
+
+Decisions:
+
+- changed `design/15_stacked_changesets.md` from linear-stack semantics to a
+  rooted same-slice, same-target-ref changeset tree
+- kept the MVP to a tree rather than a general DAG: one parent per non-root
+  entry, multiple children per parent, no cycles, and no multi-parent merges
+- replaced flat `position` semantics with `sibling_order`, `display_order`, and
+  `depth` so CLI and web clients can render parent/child structure directly
+- added explicit `gs stack child`, `gs stack move`, and `gs stack insert`
+  workflows, with subtree restack after parent changes or reparenting
+- updated submit to operate on a selected subtree in parent-before-child order
+  while preserving partial-submit visibility for accepted parents and siblings
+- added a "Lessons From Graphite" section covering atomic review units, ambiguous
+  child navigation, recursive restack, move/insert operations, stack
+  visualization, partial landing, and stack-aware merge queue behavior
+
+Verification:
+
+```bash
+git diff --check
+```
