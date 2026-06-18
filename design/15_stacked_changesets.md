@@ -110,6 +110,12 @@ ordered for display by `(parent_changeset_id, sibling_order)` and can be rendere
 as a preorder traversal, but correctness uses parent links rather than global
 position numbers.
 
+Stacks are named objects that remain available for audit, links, and web review
+history. A stack should automatically move to `closed` when every entry is in a
+terminal state such as `submitted` or `abandoned`. Closed stacks stay queryable
+by id or direct link, but default CLI and web active-stack views should hide
+them.
+
 Patchsets need explicit base-source metadata:
 
 ```text
@@ -279,8 +285,8 @@ Stack creation and entry mutation must enforce:
 8. Cycles are impossible, and arbitrary DAG merges are rejected.
 9. Moving or reparenting an entry must preserve slice, target-ref, and acyclic
    tree invariants.
-10. A parent cannot be abandoned while active children depend on its current
-   patchset unless the caller also abandons or detaches the descendants.
+10. A parent cannot be abandoned while active children depend on it. The caller
+   must explicitly abandon, detach, move, or restack descendants first.
 11. Submitted entries are immutable stack anchors. Restacking descendants may
    update their base to the submitted parent's commit, but must not rewrite the
    submitted parent.
@@ -357,6 +363,10 @@ subtrees that do not depend on `@43` may continue if their own parent chain is
 valid and required checks pass. The server must report per-entry status instead
 of rolling back already accepted parents.
 
+For the MVP, required checks run per changeset entry. A future stack-level check
+result may satisfy multiple entries only when dependency analysis proves the
+tested tree covers those entries and their parent path.
+
 ### 4.6 Publish
 
 The current publisher already supports ordered pending rows and commit chains.
@@ -405,9 +415,11 @@ requirements.
 
 ### 4.8 New States And Reasons
 
-Add stable status or blocked-reason values:
+Add stable stack statuses and blocked-reason values:
 
 ```text
+StackOpen
+StackClosed
 BlockedOnStackParent
 NeedsRestack
 StackParentAbandoned
@@ -415,9 +427,10 @@ StackParentPatchsetChanged
 StackSubmitPartial
 ```
 
-`StackSubmitPartial` belongs to stack-level reporting, not individual changeset
-status. Individual changesets should keep normal states such as `draft`,
-`pending_publish`, `submitted`, `needs_rebase`, or `failed`.
+`StackOpen`, `StackClosed`, and `StackSubmitPartial` belong to stack-level
+reporting, not individual changeset status. Individual changesets should keep
+normal states such as `draft`, `pending_publish`, `submitted`, `needs_rebase`,
+or `failed`.
 
 ## 5. CLI Changes
 
@@ -492,7 +505,10 @@ Command intent:
 - `gs submit` performs final server submit/admission for the active entry and any
   required unsubmitted ancestors. `--stack` submits the whole stack tree.
   `--subtree` submits one selected subtree.
-- `gs sync` advances the workspace base and restacks open stacks.
+- `gs sync` advances the workspace base and restacks open stacks when the target
+  ref moved cleanly and there are no unsnapshotted local edits. It stops on
+  conflicts or validation failures and reports the first entry that needs user
+  action.
 - `gs restack` replays descendants after parent, base, or tree changes.
 - `gs switch`, `gs up`, `gs down`, `gs top`, and `gs bottom` navigate stack
   entries.
@@ -565,6 +581,10 @@ Move or reparent:
 3. Update parent link and sibling order.
 4. Restack the moved entry and all recursive descendants.
 ```
+
+`gs move` moves one selected subtree by default. Moving multiple sibling
+subtrees should require an explicit future flag or interactive multi-select so
+the command never changes several review branches by accident.
 
 `gs create` should require either `--message` or an interactive prompt for title
 and description. It should not infer a changeset title from a file path. The
@@ -1029,7 +1049,7 @@ CLI tests:
 - move an entry and restack its descendants
 - restack clean and conflicted descendants across a subtree
 - submit stack with `--no-watch` and with polling
-- JSON output includes stack fields while preserving existing fields
+- JSON output uses the stack tree schema
 
 Web tests:
 
@@ -1039,16 +1059,19 @@ Web tests:
 - submit progress shows accepted, pending, submitted, and blocked entries
 - changeset detail links back to stack context
 
-## 11. Open Questions
+## 11. Resolved Decisions
 
-- Should stacks be named objects users can keep after all entries submit, or
-  should they auto-close when every entry reaches `submitted` or `abandoned`?
-- Should `gs sync` restack automatically when only the target ref moved and no
-  parent patchset changed, or should it always require explicit `gs stack
-  restack`?
-- Should checks run per entry only, or can a future check result cover the whole
-  stack when dependency analysis proves the same tested tree?
-- Should a parent abandon be allowed with automatic descendant detach, or should
-  the user explicitly abandon or restack descendants first?
-- Should `gs stack move` default to moving only one subtree, or offer a mode for
-  selecting multiple sibling subtrees at once?
+- Stacks are durable named objects, but they auto-close when every entry is
+  terminal. Closed stacks remain available by direct lookup and audit queries,
+  but are hidden from default active-stack views.
+- `gs sync` auto-restacks when the target ref moved cleanly and the workspace has
+  no unsnapshotted edits. Users still use `gs restack` for explicit replay or
+  after sync stops on conflicts.
+- Required checks run per entry for the MVP. Future stack-level check reuse is
+  allowed only when dependency analysis proves the checked tree covers every
+  satisfied entry.
+- Abandoning a parent never auto-detaches descendants. The user must explicitly
+  abandon, detach, move, or restack descendants before the parent can be
+  abandoned.
+- `gs move` moves one selected subtree by default. Multiple-sibling moves require
+  an explicit future mode such as an interactive multi-select or dedicated flag.

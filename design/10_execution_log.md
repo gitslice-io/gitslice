@@ -4939,3 +4939,33 @@ git diff --check
 LC_ALL=C rg -n "[^\x00-\x7F]" design/15_stacked_changesets.md
 rg -n "[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+@[0-9]+" design/15_stacked_changesets.md
 ```
+
+## 2026-06-18: Stacked Changeset Open Questions Resolved
+
+Request:
+
+- update the stacked changeset design with concrete answers to the remaining
+  open questions
+
+Decisions:
+
+- stacks remain durable named objects for audit, links, and web review history,
+  but automatically move to `closed` when every entry is terminal
+- `gs sync` should auto-restack when the target ref moved cleanly and there are
+  no unsnapshotted local edits, while stopping on conflicts or validation
+  failures
+- required checks run per entry for the MVP; future stack-level check reuse is
+  allowed only when dependency analysis proves the checked tree covers the
+  satisfied entries
+- parent abandon must be explicit and must not auto-detach descendants; callers
+  have to abandon, detach, move, or restack descendants first
+- `gs move` moves one selected subtree by default; multiple-sibling moves require
+  a future explicit mode
+
+Verification:
+
+```bash
+git diff --check
+LC_ALL=C rg -n "[^\x00-\x7F]" design/15_stacked_changesets.md
+rg -n "gs stack (restack|move)|Open Questions|account/slug@number" design/15_stacked_changesets.md
+```
