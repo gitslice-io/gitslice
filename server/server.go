@@ -300,6 +300,7 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers) *grpc.Se
 	corev1.RegisterSliceServiceServer(grpcServer, handlers.Slice)
 	corev1.RegisterWorkspaceServiceServer(grpcServer, handlers.Workspace)
 	corev1.RegisterChangesetServiceServer(grpcServer, handlers.Changeset)
+	corev1.RegisterChangesetStackServiceServer(grpcServer, handlers.Stack)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)

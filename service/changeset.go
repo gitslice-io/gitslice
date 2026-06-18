@@ -57,11 +57,14 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 		return nil, err
 	}
 	createReq := &corev1.CreateChangesetRequest{
-		AuthoringSlice: req.AuthoringSlice,
-		TargetRef:      targetRef,
-		BaseCommitId:   req.BaseCommitId,
-		Title:          req.Title,
-		Description:    req.Description,
+		AuthoringSlice:    req.AuthoringSlice,
+		TargetRef:         targetRef,
+		BaseCommitId:      req.BaseCommitId,
+		Title:             req.Title,
+		Description:       req.Description,
+		StackId:           req.StackId,
+		ParentChangesetId: req.ParentChangesetId,
+		ParentPatchsetId:  req.ParentPatchsetId,
 	}
 	cs, err := s.Changesets.Create(ctx, subjectID, createReq)
 	if err != nil {
@@ -183,22 +186,30 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if baseCommitID == "" {
 		baseCommitID = cs.BaseCommitId
 	}
-	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, req.FileEdits, true)
+	baseKind, basePatchsetID, baseTreeID, err := s.patchsetBaseSource(ctx, cs, req, baseCommitID)
+	if err != nil {
+		return nil, err
+	}
+	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, baseTreeID, req.FileEdits, true)
 	if err != nil {
 		return nil, err
 	}
 	patchset := &corev1.Patchset{
-		BaseCommitId:       baseCommitID,
-		Author:             subjectID,
-		ChangedPaths:       validation.AffectedPaths,
-		FileEdits:          req.FileEdits,
-		Coverage:           validation.Coverage,
-		SubmitRequirements: validation.SubmitRequirements,
-		PathBases:          validation.PathBases,
-		ReadSet:            validation.ReadSet,
-		WriteSet:           validation.WriteSet,
-		Conflicts:          req.Conflicts,
-		Kind:               req.PatchsetKind,
+		BaseCommitId:          baseCommitID,
+		Author:                subjectID,
+		ChangedPaths:          validation.AffectedPaths,
+		FileEdits:             req.FileEdits,
+		Coverage:              validation.Coverage,
+		SubmitRequirements:    validation.SubmitRequirements,
+		PathBases:             validation.PathBases,
+		ReadSet:               validation.ReadSet,
+		WriteSet:              validation.WriteSet,
+		Conflicts:             req.Conflicts,
+		Kind:                  req.PatchsetKind,
+		BaseKind:              baseKind,
+		BasePatchsetId:        basePatchsetID,
+		BaseTreeId:            baseTreeID,
+		StackParentPatchsetId: basePatchsetID,
 	}
 	patchset, err = s.Changesets.AddPatchset(ctx, cs.Id, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
@@ -214,6 +225,57 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		}
 	}
 	return patchset, nil
+}
+
+func (s *ChangesetService) patchsetBaseSource(ctx context.Context, cs *corev1.Changeset, req *corev1.UpdateChangesetRequest, baseCommitID string) (baseKind, basePatchsetID, baseTreeID string, err error) {
+	baseKind = strings.TrimSpace(req.BaseKind)
+	if baseKind == "" {
+		if req.BasePatchsetId != "" || cs.ParentChangesetId != "" {
+			baseKind = "patchset"
+		} else {
+			baseKind = "commit"
+		}
+	}
+	switch baseKind {
+	case "commit":
+		baseTreeID, err = s.Repository.RootTreeForCommit(ctx, baseCommitID)
+		if err != nil {
+			return "", "", "", grpcError(err)
+		}
+		return baseKind, "", baseTreeID, nil
+	case "patchset":
+		parentID := strings.TrimSpace(cs.ParentChangesetId)
+		if parentID == "" {
+			return "", "", "", status.Error(codes.InvalidArgument, "patchset base requires a parent changeset")
+		}
+		parent, err := s.Changesets.Get(ctx, parentID)
+		if err != nil {
+			return "", "", "", grpcError(err)
+		}
+		if cs.StackId == "" || parent.StackId != cs.StackId || parent.TargetRef != cs.TargetRef || !sameSliceRef(parent.AuthoringSlice, cs.AuthoringSlice) {
+			return "", "", "", status.Error(codes.FailedPrecondition, "parent changeset is not in the same stack")
+		}
+		currentParentPatchset := currentPatchset(parent)
+		if currentParentPatchset == nil {
+			return "", "", "", status.Error(codes.FailedPrecondition, "parent changeset has no current patchset")
+		}
+		basePatchsetID = strings.TrimSpace(req.BasePatchsetId)
+		if basePatchsetID == "" {
+			basePatchsetID = currentParentPatchset.Id
+		}
+		if req.ExpectedParentPatchsetId != "" && req.ExpectedParentPatchsetId != basePatchsetID {
+			return "", "", "", status.Error(codes.Aborted, "parent patchset changed")
+		}
+		if basePatchsetID != currentParentPatchset.Id {
+			return "", "", "", status.Error(codes.FailedPrecondition, "parent patchset is not current")
+		}
+		if currentParentPatchset.ResultTreeId == "" {
+			return "", "", "", status.Error(codes.FailedPrecondition, "parent patchset has no result tree")
+		}
+		return baseKind, basePatchsetID, currentParentPatchset.ResultTreeId, nil
+	default:
+		return "", "", "", status.Errorf(codes.InvalidArgument, "unsupported base kind %q", baseKind)
+	}
 }
 
 // resolveAuthors rewrites every Changeset.Author and Patchset.Author from the
@@ -310,6 +372,21 @@ func selectChangesetPatchset(cs *corev1.Changeset, selector string) (*corev1.Pat
 	return nil, status.Errorf(codes.NotFound, "patchset %s not found", selector)
 }
 
+func currentPatchset(cs *corev1.Changeset) *corev1.Patchset {
+	if cs == nil {
+		return nil
+	}
+	for _, patchset := range cs.Patchsets {
+		if patchset.Id == cs.CurrentPatchsetId {
+			return patchset
+		}
+	}
+	if len(cs.Patchsets) == 0 {
+		return nil
+	}
+	return cs.Patchsets[len(cs.Patchsets)-1]
+}
+
 func parsePatchsetIDSelector(selector string) (changesetSelector string, patchsetNumber int64, ok bool) {
 	dot := strings.LastIndex(selector, ".")
 	if dot <= 0 || dot == len(selector)-1 {
@@ -334,6 +411,13 @@ func changesetSelectorMatchesID(selector, id string) bool {
 	return strings.HasPrefix(strings.ToLower(id), prefix)
 }
 
+func sameSliceRef(a, b *corev1.SliceRef) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Account == b.Account && a.Slice == b.Slice
+}
+
 func changedPathsForDiff(from, to *corev1.Patchset) []string {
 	seen := map[string]struct{}{}
 	for _, patchset := range []*corev1.Patchset{from, to} {
@@ -356,11 +440,12 @@ func changedPathsForDiff(from, to *corev1.Patchset) []string {
 
 type diffBaseFileKey struct {
 	commitID string
+	treeID   string
 	path     string
 }
 
 type diffContentReader func(context.Context, string) ([]byte, error)
-type diffBaseFileReader func(context.Context, string, string) (diffutil.File, error)
+type diffBaseFileReader func(context.Context, string, string, string) (diffutil.File, error)
 
 func (s *ChangesetService) diffFileSides(ctx context.Context, from, to *corev1.Patchset, p string) (diffutil.File, diffutil.File, error) {
 	contentByHash := map[string][]byte{}
@@ -380,12 +465,12 @@ func (s *ChangesetService) diffFileSides(ctx context.Context, from, to *corev1.P
 	// this request-local dedup is what removes duplicate base fetches while
 	// resolving the old and new sides for one changed path.
 	baseFiles := map[diffBaseFileKey]diffutil.File{}
-	readBase := func(ctx context.Context, commitID, p string) (diffutil.File, error) {
-		key := diffBaseFileKey{commitID: commitID, path: p}
+	readBase := func(ctx context.Context, commitID, treeID, p string) (diffutil.File, error) {
+		key := diffBaseFileKey{commitID: commitID, treeID: treeID, path: p}
 		if file, ok := baseFiles[key]; ok {
 			return file, nil
 		}
-		file, err := s.baseFileWithReader(ctx, commitID, p, readContent)
+		file, err := s.baseFileWithReader(ctx, commitID, treeID, p, readContent)
 		if err != nil {
 			return diffutil.File{}, err
 		}
@@ -396,7 +481,7 @@ func (s *ChangesetService) diffFileSides(ctx context.Context, from, to *corev1.P
 	var oldFile diffutil.File
 	var err error
 	if from == nil {
-		oldFile, err = readBase(ctx, to.BaseCommitId, p)
+		oldFile, err = readBase(ctx, to.BaseCommitId, to.BaseTreeId, p)
 	} else {
 		oldFile, err = s.patchsetFileWithReaders(ctx, from, p, readBase, readContent)
 	}
@@ -411,7 +496,9 @@ func (s *ChangesetService) diffFileSides(ctx context.Context, from, to *corev1.P
 }
 
 func (s *ChangesetService) patchsetFile(ctx context.Context, patchset *corev1.Patchset, p string) (diffutil.File, error) {
-	return s.patchsetFileWithReaders(ctx, patchset, p, s.baseFile, s.readContentHash)
+	return s.patchsetFileWithReaders(ctx, patchset, p, func(ctx context.Context, commitID, treeID, p string) (diffutil.File, error) {
+		return s.baseFileWithReader(ctx, commitID, treeID, p, s.readContentHash)
+	}, s.readContentHash)
 }
 
 func (s *ChangesetService) patchsetFileWithReaders(ctx context.Context, patchset *corev1.Patchset, p string, readBase diffBaseFileReader, readContent diffContentReader) (diffutil.File, error) {
@@ -433,7 +520,7 @@ func (s *ChangesetService) patchsetFileWithReaders(ctx context.Context, patchset
 				if edit.BlobId != "" || edit.ContentHash != "" {
 					return s.editFileWithReader(ctx, edit, p, readContent)
 				}
-				oldFile, err := readBase(ctx, patchset.BaseCommitId, edit.OldPath)
+				oldFile, err := readBase(ctx, patchset.BaseCommitId, patchset.BaseTreeId, edit.OldPath)
 				if err != nil {
 					return diffutil.File{}, err
 				}
@@ -448,17 +535,23 @@ func (s *ChangesetService) patchsetFileWithReaders(ctx context.Context, patchset
 		}
 	}
 	if !fileSet {
-		return readBase(ctx, patchset.BaseCommitId, p)
+		return readBase(ctx, patchset.BaseCommitId, patchset.BaseTreeId, p)
 	}
 	return file, nil
 }
 
 func (s *ChangesetService) baseFile(ctx context.Context, commitID, p string) (diffutil.File, error) {
-	return s.baseFileWithReader(ctx, commitID, p, s.readContentHash)
+	return s.baseFileWithReader(ctx, commitID, "", p, s.readContentHash)
 }
 
-func (s *ChangesetService) baseFileWithReader(ctx context.Context, commitID, p string, readContent diffContentReader) (diffutil.File, error) {
-	entry, err := s.Repository.GetFile(ctx, commitID, p)
+func (s *ChangesetService) baseFileWithReader(ctx context.Context, commitID, treeID, p string, readContent diffContentReader) (diffutil.File, error) {
+	var entry *storage.FileEntry
+	var err error
+	if treeID != "" {
+		entry, err = s.Repository.GetFileAtTree(ctx, treeID, p)
+	} else {
+		entry, err = s.Repository.GetFile(ctx, commitID, p)
+	}
 	if errors.Is(err, storage.ErrNotFound) {
 		return diffutil.File{Path: p}, nil
 	}
@@ -624,7 +717,7 @@ func (s *ChangesetService) getChangesetForWriteOrAuthor(ctx context.Context, sub
 	return cs, nil
 }
 
-func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slice, baseCommitID string, edits []*corev1.FileEdit, requireBlob bool) (*corev1.ValidateWorkspaceDiffResponse, error) {
+func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slice, baseCommitID, baseTreeID string, edits []*corev1.FileEdit, requireBlob bool) (*corev1.ValidateWorkspaceDiffResponse, error) {
 	changed := map[string]struct{}{}
 	for _, edit := range edits {
 		normalized, err := normalizeEdit(edit, requireBlob)
@@ -659,7 +752,7 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 	writeSet := make([]*corev1.PathSetEntry, 0, len(affected))
 	for _, p := range affected {
 		coverage = append(coverage, &corev1.PathCoverage{Path: p, CoveringSliceIds: coverageByPath[p]})
-		base, err := v.pathBase(ctx, baseCommitID, p)
+		base, err := v.pathBase(ctx, baseCommitID, baseTreeID, p)
 		if err != nil {
 			return nil, err
 		}
@@ -696,14 +789,20 @@ func (v diffValidator) hydrateBlobMetadata(ctx context.Context, edit *corev1.Fil
 	return nil
 }
 
-func (v diffValidator) pathBase(ctx context.Context, baseCommitID, p string) (*corev1.PathBase, error) {
+func (v diffValidator) pathBase(ctx context.Context, baseCommitID, baseTreeID, p string) (*corev1.PathBase, error) {
 	base := &corev1.PathBase{
 		Path:             p,
 		BaseCommitId:     baseCommitID,
 		Check:            "entry_fingerprint",
 		EntryFingerprint: storage.MissingEntryFingerprint(),
 	}
-	entry, err := v.Repository.GetEntry(ctx, baseCommitID, p)
+	var entry *storage.TreeEntry
+	var err error
+	if baseTreeID != "" {
+		entry, err = v.Repository.GetEntryAtTree(ctx, baseTreeID, p)
+	} else {
+		entry, err = v.Repository.GetEntry(ctx, baseCommitID, p)
+	}
 	if errors.Is(err, storage.ErrNotFound) {
 		return base, nil
 	}

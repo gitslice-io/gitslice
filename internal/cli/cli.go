@@ -21,6 +21,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -88,6 +89,7 @@ type WorkspaceState struct {
 	CurrentChangesetID string `json:"current_changeset_id"`
 	CurrentPatchsetID  string `json:"current_patchset_id"`
 	BaseCommitID       string `json:"base_commit_id"`
+	ActiveStackID      string `json:"active_stack_id,omitempty"`
 }
 
 type WorkspaceConflictState struct {
@@ -178,13 +180,15 @@ type errorBody struct {
 }
 
 type statusOutput struct {
-	Workspace          string   `json:"workspace"`
-	ChangedPathCount   int      `json:"changed_path_count"`
-	ChangedPaths       []string `json:"changed_paths"`
-	ConflictCount      int      `json:"conflict_count,omitempty"`
-	ConflictPaths      []string `json:"conflict_paths,omitempty"`
-	CurrentChangesetID string   `json:"changeset_id,omitempty"`
-	CurrentPatchsetID  string   `json:"patchset_id,omitempty"`
+	Workspace          string       `json:"workspace"`
+	ChangedPathCount   int          `json:"changed_path_count"`
+	ChangedPaths       []string     `json:"changed_paths"`
+	ConflictCount      int          `json:"conflict_count,omitempty"`
+	ConflictPaths      []string     `json:"conflict_paths,omitempty"`
+	CurrentChangesetID string       `json:"changeset_id,omitempty"`
+	CurrentPatchsetID  string       `json:"patchset_id,omitempty"`
+	StackID            string       `json:"stack_id,omitempty"`
+	Stack              *stackOutput `json:"stack,omitempty"`
 }
 
 type workspaceSyncOutput struct {
@@ -204,6 +208,7 @@ type workspaceSyncOutput struct {
 	ChangesetID          string   `json:"changeset_id,omitempty"`
 	PatchsetID           string   `json:"patchset_id,omitempty"`
 	PatchsetNumber       int64    `json:"patchset_number,omitempty"`
+	RestackedChangesets  []string `json:"restacked_changesets,omitempty"`
 }
 
 type changesetOutput struct {
@@ -213,7 +218,32 @@ type changesetOutput struct {
 	Status              string                     `json:"status,omitempty"`
 	SubmitBlockedReason string                     `json:"submit_blocked_reason,omitempty"`
 	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
+	StackID             string                     `json:"stack_id,omitempty"`
 	WebURL              string                     `json:"web_url,omitempty"`
+}
+
+type stackOutput struct {
+	StackID             string             `json:"stack_id"`
+	Status              string             `json:"status"`
+	ActiveChangesetID   string             `json:"active_changeset_id,omitempty"`
+	RootChangesetID     string             `json:"root_changeset_id,omitempty"`
+	Entries             []stackEntryOutput `json:"entries"`
+	SubmitStatus        string             `json:"submit_status,omitempty"`
+	RestackedChangesets []string           `json:"restacked_changesets,omitempty"`
+}
+
+type stackEntryOutput struct {
+	ChangesetID       string `json:"changeset_id"`
+	ChangesetHandle   string `json:"changeset_handle,omitempty"`
+	PatchsetID        string `json:"patchset_id,omitempty"`
+	PatchsetNumber    int64  `json:"patchset_number,omitempty"`
+	ParentChangesetID string `json:"parent_changeset_id,omitempty"`
+	ParentPatchsetID  string `json:"parent_patchset_id,omitempty"`
+	DisplayOrder      int64  `json:"display_order"`
+	SiblingOrder      int64  `json:"sibling_order"`
+	Depth             int64  `json:"depth"`
+	State             string `json:"state"`
+	Status            string `json:"status,omitempty"`
 }
 
 type versionOutput struct {
@@ -748,7 +778,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "gs",
 		Short:         "Gitslice native CLI",
-		Example:       "  gs auth signup --username nic\n  gs shell\n  gs fs upload ./notes /nic/notes --recursive\n  gs init nic/home\n  gs status\n  gs cs create --title \"update notes\"\n  gs cs diff\n  gs cs submit",
+		Example:       "  gs auth signup --username nic\n  gs shell\n  gs fs upload ./notes /nic/notes --recursive\n  gs init nic/home\n  gs status\n  gs create --message \"update notes\"\n  gs diff\n  gs submit",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1146,6 +1176,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		Use:     "cs",
 		Aliases: []string{"changeset"},
 		Short:   "Manage changesets",
+		Hidden:  true,
 		RunE:    requireSubcommand("cs"),
 	}
 	createTitle := "CLI changeset"
@@ -1312,6 +1343,189 @@ func (r Runner) rootCommand() *cobra.Command {
 	csListCmd.Flags().StringVar(&csListStatus, "status", csListStatus, "status filter")
 	csListCmd.Flags().IntVar(&csListLimit, "limit", csListLimit, "maximum changesets to list")
 	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
+
+	createMessage := ""
+	createParent := ""
+	createRoot := false
+	createSibling := false
+	createAll := false
+	createCmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a stack entry from workspace edits",
+		Args:  noArgs("gs create --message title [--all] [--parent changeset] [--sibling] [--root]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll)
+		},
+	}
+	createCmd.Flags().StringVar(&createMessage, "message", createMessage, "changeset title")
+	createCmd.Flags().StringVar(&createParent, "parent", createParent, "parent changeset id or handle")
+	createCmd.Flags().BoolVar(&createRoot, "root", createRoot, "create a new root stack instead of a child entry")
+	createCmd.Flags().BoolVar(&createSibling, "sibling", createSibling, "create a sibling of the active entry")
+	createCmd.Flags().BoolVar(&createAll, "all", createAll, "snapshot all current workspace edits")
+
+	modifyMessage := ""
+	modifyNoRestack := false
+	modifyAll := false
+	modifyCmd := &cobra.Command{
+		Use:   "modify",
+		Short: "Create a new patchset for the active stack entry",
+		Args:  noArgs("gs modify [--all] [--message title] [--no-restack]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStackModify(cmd.Context(), *opts, modifyMessage, modifyNoRestack, modifyAll)
+		},
+	}
+	modifyCmd.Flags().StringVar(&modifyMessage, "message", modifyMessage, "replacement title is reserved for future use")
+	modifyCmd.Flags().BoolVar(&modifyNoRestack, "no-restack", modifyNoRestack, "do not restack descendants after modifying")
+	modifyCmd.Flags().BoolVar(&modifyAll, "all", modifyAll, "snapshot all current workspace edits")
+
+	submitStack := false
+	submitSubtree := ""
+	submitNoWatch := false
+	submitWatchTimeout := "5m"
+	submitCmd := &cobra.Command{
+		Use:   "submit [changeset]",
+		Short: "Submit the active changeset or stack",
+		Args:  maxArgs(1, "gs submit [changeset] [--stack] [--subtree changeset] [--no-watch]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := ""
+			if len(args) > 0 {
+				id = args[0]
+			}
+			watchTimeout, err := parsePositiveDurationFlag("watch-timeout", submitWatchTimeout)
+			if err != nil {
+				return err
+			}
+			return r.runStackSubmit(cmd.Context(), *opts, id, submitStack, submitSubtree, !submitNoWatch, watchTimeout)
+		},
+	}
+	submitCmd.Flags().BoolVar(&submitStack, "stack", submitStack, "submit the whole active stack")
+	submitCmd.Flags().StringVar(&submitSubtree, "subtree", submitSubtree, "submit one stack subtree")
+	submitCmd.Flags().BoolVar(&submitNoWatch, "no-watch", submitNoWatch, "return after submit is accepted without waiting for publish")
+	submitCmd.Flags().StringVar(&submitWatchTimeout, "watch-timeout", submitWatchTimeout, "maximum time to wait for publish")
+
+	stackCmd := &cobra.Command{
+		Use:   "stack [stack]",
+		Short: "Show the active stack",
+		Args:  maxArgs(1, "gs stack [stack]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := ""
+			if len(args) > 0 {
+				id = args[0]
+			}
+			return r.runStackShow(cmd.Context(), *opts, id)
+		},
+	}
+
+	restackChildren := false
+	restackAll := false
+	restackCmd := &cobra.Command{
+		Use:   "restack [entry]",
+		Short: "Replay stack descendants onto current parent patchsets",
+		Args:  maxArgs(1, "gs restack [entry] [--children|--all]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			entry := ""
+			if len(args) > 0 {
+				entry = args[0]
+			}
+			return r.runStackRestack(cmd.Context(), *opts, entry, restackChildren, restackAll)
+		},
+	}
+	restackCmd.Flags().BoolVar(&restackChildren, "children", restackChildren, "restack the selected entry and descendants")
+	restackCmd.Flags().BoolVar(&restackAll, "all", restackAll, "restack all sibling subtrees")
+
+	switchCmd := &cobra.Command{
+		Use:   "switch <entry>",
+		Short: "Set the active stack entry",
+		Args:  exactArgs(1, "gs switch <entry>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStackSwitch(cmd.Context(), *opts, args[0])
+		},
+	}
+
+	upCmd := &cobra.Command{
+		Use:   "up [entry]",
+		Short: "Switch to a child stack entry",
+		Args:  maxArgs(1, "gs up [entry]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			entry := ""
+			if len(args) > 0 {
+				entry = args[0]
+			}
+			return r.runStackUp(cmd.Context(), *opts, entry)
+		},
+	}
+
+	downCmd := &cobra.Command{
+		Use:   "down [steps]",
+		Short: "Switch to a parent stack entry",
+		Args:  maxArgs(1, "gs down [steps]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			steps := 1
+			if len(args) > 0 {
+				var err error
+				steps, err = parsePositiveIntArg("steps", args[0])
+				if err != nil {
+					return err
+				}
+			}
+			return r.runStackDown(cmd.Context(), *opts, steps)
+		},
+	}
+
+	topCmd := &cobra.Command{
+		Use:   "top",
+		Short: "Switch to the top descendant on the current stack path",
+		Args:  noArgs("gs top"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStackTop(cmd.Context(), *opts)
+		},
+	}
+
+	bottomCmd := &cobra.Command{
+		Use:   "bottom",
+		Short: "Switch to the root stack entry",
+		Args:  noArgs("gs bottom"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStackBottom(cmd.Context(), *opts)
+		},
+	}
+
+	moveOnto := ""
+	moveSiblingOrder := int64(0)
+	moveCmd := &cobra.Command{
+		Use:   "move <entry> --onto <parent|root>",
+		Short: "Move a stack entry to a new parent",
+		Args:  exactArgs(1, "gs move <entry> --onto <parent|root>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStackMove(cmd.Context(), *opts, args[0], moveOnto, moveSiblingOrder)
+		},
+	}
+	moveCmd.Flags().StringVar(&moveOnto, "onto", moveOnto, "new parent changeset or root")
+	moveCmd.Flags().Int64Var(&moveSiblingOrder, "order", moveSiblingOrder, "sibling order under the new parent")
+
+	insertParent := ""
+	insertMessage := ""
+	insertCmd := &cobra.Command{
+		Use:   "insert --parent <entry> --message <title>",
+		Short: "Insert a new stack entry between a parent and the active child",
+		Args:  noArgs("gs insert --parent <entry> --message <title>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStackInsert(cmd.Context(), *opts, insertParent, insertMessage)
+		},
+	}
+	insertCmd.Flags().StringVar(&insertParent, "parent", insertParent, "parent changeset id or handle")
+	insertCmd.Flags().StringVar(&insertMessage, "message", insertMessage, "changeset title")
+
+	detachMessage := ""
+	detachCmd := &cobra.Command{
+		Use:   "detach <entry>",
+		Short: "Detach a stack entry into a new stack",
+		Args:  exactArgs(1, "gs detach <entry>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runStackDetach(cmd.Context(), *opts, args[0], detachMessage)
+		},
+	}
+	detachCmd.Flags().StringVar(&detachMessage, "message", detachMessage, "new stack title")
 
 	fsCmd := &cobra.Command{
 		Use:     "fs",
@@ -1594,7 +1808,7 @@ home slice root, for example /nic/notes.`,
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd)
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, createCmd, modifyCmd, submitCmd, stackCmd, restackCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd)
 	return root
 }
 
@@ -3244,16 +3458,43 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		return err
 	}
 	localDirtyPaths := changedPathsFromSnapshot(base, current)
+	var activeStack *corev1.ChangesetStack
+	if state.ActiveStackID != "" {
+		activeStack, err = corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+		if err != nil {
+			return err
+		}
+		activeSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, activeStack, state.CurrentChangesetID)
+		if err != nil {
+			return err
+		}
+		activeEdits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, activeSnapshot, false)
+		if err != nil {
+			return err
+		}
+		if changed := changedPathsFromEdits(activeEdits); len(changed) > 0 {
+			return userError(
+				"sync_needs_modify",
+				"workspace has local changes not captured in the active stack entry",
+				"Run gs modify before syncing the stack.",
+			)
+		}
+		current = workingFilesFromSnapshot(base)
+		localDirtyPaths = nil
+	}
 	changesetClient := corev1.NewChangesetServiceClient(conn)
-	activeChangeset, err := r.activeWorkspaceChangeset(callCtx, changesetClient, state)
-	if err != nil {
-		return err
+	var activeChangeset *corev1.Changeset
+	if activeStack == nil {
+		activeChangeset, err = r.activeWorkspaceChangeset(callCtx, changesetClient, state)
+		if err != nil {
+			return err
+		}
 	}
 	if len(localDirtyPaths) > 0 && activeChangeset == nil {
 		return userError(
 			"sync_needs_changeset",
 			"workspace has local changes but no draft changeset",
-			"Run gs cs create first, then run gs sync again.",
+			"Run gs create --message <title> first, then run gs sync again.",
 		)
 	}
 	cache, err := r.objectCache()
@@ -3360,6 +3601,42 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 			return err
 		}
 	}
+	if activeStack != nil && oldBaseCommitID != newBaseCommitID && len(plan.Conflicts) == 0 {
+		stackClient := corev1.NewChangesetStackServiceClient(conn)
+		restacked, err := stackClient.Restack(callCtx, &corev1.RestackRequest{
+			StackId:            state.ActiveStackID,
+			TargetBaseCommitId: newBaseCommitID,
+		})
+		if err != nil {
+			return err
+		}
+		for _, cs := range restacked.Entries {
+			if cs == nil {
+				continue
+			}
+			output.RestackedChangesets = append(output.RestackedChangesets, cs.Id)
+			if cs.Id == state.CurrentChangesetID {
+				state.CurrentPatchsetID = cs.CurrentPatchsetId
+			}
+		}
+		activeStack, err = stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+		if err != nil {
+			return err
+		}
+		if state.CurrentChangesetID != "" {
+			if entry := stackEntryByChangesetSelector(activeStack, state.CurrentChangesetID); entry != nil && entry.Changeset != nil {
+				state.CurrentPatchsetID = entry.Changeset.CurrentPatchsetId
+			}
+			activeStack.BaseCommitId = newBaseCommitID
+			targetSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, activeStack, state.CurrentChangesetID)
+			if err != nil {
+				return err
+			}
+			if err := r.materializeWorkspaceSnapshot(ctx, conn, cfg, ws, targetSnapshot); err != nil {
+				return err
+			}
+		}
+	}
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
@@ -3397,12 +3674,15 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if output.PatchsetID != "" {
 		fmt.Fprintf(r.Stdout, "created sync patchset %d for %s\n", output.PatchsetNumber, firstNonEmpty(storage.ShortChangesetID(output.ChangesetID), output.ChangesetID))
 	}
+	if len(output.RestackedChangesets) > 0 {
+		fmt.Fprintf(r.Stdout, "restacked: %s\n", strings.Join(output.RestackedChangesets, ", "))
+	}
 	if output.ConflictCount > 0 {
 		fmt.Fprintf(r.Stdout, "conflicts: %d path(s)\n", output.ConflictCount)
 		for _, p := range output.ConflictPaths {
 			fmt.Fprintf(r.Stdout, "  %s\n", p)
 		}
-		fmt.Fprintln(r.Stdout, "resolve conflicts, then run gs cs update")
+		fmt.Fprintln(r.Stdout, "resolve conflicts, then run gs modify")
 	}
 	return nil
 }
@@ -3412,22 +3692,44 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 	if err != nil {
 		return err
 	}
-	edits, _, err := r.snapshotEdits(ctx, nil, cfg, ws, false)
-	if err != nil {
-		return err
-	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	validation, err := corev1.NewWorkspaceServiceClient(conn).ValidateWorkspaceDiff(authContext(ctx, cfg), &corev1.ValidateWorkspaceDiffRequest{
-		Workspace:    workspaceRef(ws),
-		BaseCommitId: state.BaseCommitID,
-		FileEdits:    edits,
-	})
+	callCtx := authContext(ctx, cfg)
+	var stack *corev1.ChangesetStack
+	if state.ActiveStackID != "" {
+		stack, err = corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+		if err != nil {
+			return err
+		}
+	}
+	activeBaseID := ""
+	if stack != nil && state.CurrentChangesetID != "" {
+		if entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID); entry != nil {
+			activeBaseID = entry.ParentChangesetId
+		}
+	}
+	base, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, activeBaseID)
 	if err != nil {
 		return err
+	}
+	edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, false)
+	if err != nil {
+		return err
+	}
+	changedPaths := changedPathsFromEdits(edits)
+	if stack == nil {
+		validation, err := corev1.NewWorkspaceServiceClient(conn).ValidateWorkspaceDiff(callCtx, &corev1.ValidateWorkspaceDiffRequest{
+			Workspace:    workspaceRef(ws),
+			BaseCommitId: state.BaseCommitID,
+			FileEdits:    edits,
+		})
+		if err != nil {
+			return err
+		}
+		changedPaths = validation.AffectedPaths
 	}
 	conflictState, hasConflicts, err := r.readWorkspaceConflictState()
 	if err != nil {
@@ -3439,12 +3741,17 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 	}
 	output := statusOutput{
 		Workspace:          ws.Account + ":" + ws.Slice,
-		ChangedPathCount:   len(validation.AffectedPaths),
-		ChangedPaths:       validation.AffectedPaths,
+		ChangedPathCount:   len(changedPaths),
+		ChangedPaths:       changedPaths,
 		ConflictCount:      len(conflictPaths),
 		ConflictPaths:      conflictPaths,
 		CurrentChangesetID: state.CurrentChangesetID,
 		CurrentPatchsetID:  state.CurrentPatchsetID,
+	}
+	if stack != nil {
+		stackOut := stackOutputFromProto(stack)
+		output.StackID = stack.Id
+		output.Stack = &stackOut
 	}
 	if opts.jsonOutput() {
 		if output.ChangedPaths == nil {
@@ -3459,6 +3766,13 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 		return userError("workspace_dirty", "workspace has local changes", "Run gs status without --quiet to list changed paths.")
 	}
 	fmt.Fprintf(r.Stdout, "workspace: %s\n", output.Workspace)
+	if stack != nil {
+		fmt.Fprintf(r.Stdout, "stack: %s\n", stack.Id)
+		if state.CurrentChangesetID != "" {
+			fmt.Fprintf(r.Stdout, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID))
+		}
+		printStack(r.Stdout, stack)
+	}
 	if output.ChangedPathCount == 0 && output.ConflictCount == 0 {
 		fmt.Fprintln(r.Stdout, "status: clean")
 		return nil
@@ -3697,6 +4011,14 @@ func changedPathsFromSnapshot(base BaseSnapshot, current map[string]workingFile)
 	return out
 }
 
+func workingFilesFromSnapshot(snapshot BaseSnapshot) map[string]workingFile {
+	out := make(map[string]workingFile, len(snapshot.Files))
+	for p, file := range snapshot.Files {
+		out[p] = workingFile{BaseSnapshotFile: file}
+	}
+	return out
+}
+
 func sameSnapshotFile(a BaseSnapshotFile, aOK bool, b BaseSnapshotFile, bOK bool) bool {
 	if aOK != bOK {
 		return false
@@ -3924,6 +4246,105 @@ func (r Runner) materializeWorkspaceConflict(ctx context.Context, repo corev1.Re
 	b.WriteString(conflictSideText("remote", remoteData, remoteExists))
 	b.WriteString(">>>>>>> gitslice remote\n")
 	return os.WriteFile(target, []byte(b.String()), fileModeFromSnapshot(firstNonZeroMode(localFile.Mode, remoteFile.Mode, baseFile.Mode)))
+}
+
+func (r Runner) materializeStackRestackConflicts(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, conflicts []WorkspaceConflict) error {
+	if len(conflicts) == 0 {
+		return nil
+	}
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return err
+	}
+	cache, err := r.objectCache()
+	if err != nil {
+		return err
+	}
+	blob := corev1.NewBlobServiceClient(conn)
+	callCtx := authContext(ctx, cfg)
+	sliceRef := &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}
+	for _, conflict := range conflicts {
+		if err := r.materializeStackRestackConflict(callCtx, blob, cache, sliceRef, root, ws, conflict); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r Runner) materializeStackRestackConflict(ctx context.Context, blob corev1.BlobServiceClient, cache *clientcache.ObjectCache, sliceRef *corev1.SliceRef, root string, ws WorkspaceConfig, conflict WorkspaceConflict) error {
+	rel, err := workspaceRelPath(ws, conflict.Path)
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	baseText, err := r.stackRestackConflictSide(ctx, blob, cache, sliceRef, "base", conflict.BaseContentHash)
+	if err != nil {
+		return err
+	}
+	localText, err := r.stackRestackConflictSide(ctx, blob, cache, sliceRef, "local", conflict.LocalContentHash)
+	if err != nil {
+		return err
+	}
+	remoteText, err := r.stackRestackConflictSide(ctx, blob, cache, sliceRef, "remote", conflict.RemoteContentHash)
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("<<<<<<< gitslice restack local\n")
+	b.WriteString(localText)
+	b.WriteString("||||||| gitslice restack base\n")
+	b.WriteString(baseText)
+	b.WriteString("=======\n")
+	b.WriteString(remoteText)
+	b.WriteString(">>>>>>> gitslice restack remote\n")
+	return os.WriteFile(target, []byte(b.String()), 0o100644)
+}
+
+func (r Runner) stackRestackConflictSide(ctx context.Context, blob corev1.BlobServiceClient, cache *clientcache.ObjectCache, sliceRef *corev1.SliceRef, label, contentHash string) (string, error) {
+	contentHash = strings.TrimSpace(contentHash)
+	if contentHash == "" {
+		return "(" + label + " side content was not returned)\n", nil
+	}
+	data, ok, err := r.readConflictContentHash(ctx, blob, cache, sliceRef, contentHash)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "(" + label + " side content is unavailable: " + contentHash + ")\n", nil
+	}
+	if !utf8.Valid(data) || bytes.Contains(data, []byte{0}) {
+		return "(" + label + " side is binary: " + contentHash + ")\n", nil
+	}
+	text := string(data)
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return text, nil
+}
+
+func (r Runner) readConflictContentHash(ctx context.Context, blob corev1.BlobServiceClient, cache *clientcache.ObjectCache, sliceRef *corev1.SliceRef, contentHash string) ([]byte, bool, error) {
+	if cache.Exists(contentHash) {
+		data, err := cache.Read(contentHash)
+		return data, err == nil, err
+	}
+	data, err := readBlobStreamBytes(ctx, blob, sliceRef, contentHash, 0, 0)
+	if grpcstatus.Code(err) == codes.NotFound {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	cached, err := cache.PutBytes(data)
+	if err != nil {
+		return nil, false, err
+	}
+	if cached.ContentHash != contentHash {
+		return nil, false, fmt.Errorf("conflict content hash mismatch: got %s, want %s", cached.ContentHash, contentHash)
+	}
+	return data, true, nil
 }
 
 func (r Runner) remoteFileBytes(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, commitID string, file BaseSnapshotFile, exists bool) ([]byte, bool, error) {
@@ -4210,6 +4631,28 @@ func workspaceConflictsToProto(conflicts []WorkspaceConflict) []*corev1.Patchset
 	return out
 }
 
+func workspaceConflictsFromProto(conflicts []*corev1.PatchsetConflict) []WorkspaceConflict {
+	out := make([]WorkspaceConflict, 0, len(conflicts))
+	for _, conflict := range conflicts {
+		if conflict == nil {
+			continue
+		}
+		out = append(out, WorkspaceConflict{
+			Path:              conflict.Path,
+			ConflictClass:     conflict.ConflictClass,
+			OldBaseCommitID:   conflict.OldBaseCommitId,
+			NewBaseCommitID:   conflict.NewBaseCommitId,
+			BaseFingerprint:   conflict.BaseFingerprint,
+			LocalFingerprint:  conflict.LocalFingerprint,
+			RemoteFingerprint: conflict.RemoteFingerprint,
+			BaseContentHash:   conflict.BaseContentHash,
+			LocalContentHash:  conflict.LocalContentHash,
+			RemoteContentHash: conflict.RemoteContentHash,
+		})
+	}
+	return out
+}
+
 func workspaceConflictPaths(conflicts []WorkspaceConflict) []string {
 	out := make([]string, 0, len(conflicts))
 	for _, conflict := range conflicts {
@@ -4259,7 +4702,7 @@ func hasWorkspaceConflictMarkers(data []byte) bool {
 func (r Runner) runDiff(ctx context.Context, opts commandOptions, commitArgs []string, from, to string, nameOnly, stat bool) error {
 	if len(commitArgs) > 0 {
 		if strings.TrimSpace(from) != "" || strings.TrimSpace(to) != "" {
-			return userError("invalid_args", "commit ids cannot be combined with --from or --to", "Use gs diff <commit> [commit] or gs cs diff --from <patchset> --to <patchset>.")
+			return userError("invalid_args", "commit ids cannot be combined with --from or --to", "Use gs diff <commit> [commit] or gs diff --from <patchset> --to <patchset>.")
 		}
 		return r.runCommitDiff(ctx, opts, commitArgs, nameOnly, stat)
 	}
@@ -4322,6 +4765,28 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	if err != nil {
 		return err
 	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	var stack *corev1.ChangesetStack
+	if state.ActiveStackID != "" {
+		stack, err = corev1.NewChangesetStackServiceClient(conn).GetStack(authContext(ctx, cfg), &corev1.GetStackRequest{StackId: state.ActiveStackID})
+		if err != nil {
+			return err
+		}
+	}
+	if stack != nil && state.CurrentChangesetID != "" {
+		activeBaseID := ""
+		if entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID); entry != nil {
+			activeBaseID = entry.ParentChangesetId
+		}
+		base, err = r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, activeBaseID)
+		if err != nil {
+			return err
+		}
+	}
 	baseCommitID := state.BaseCommitID
 	if baseCommitID == "" {
 		baseCommitID = base.CommitID
@@ -4332,13 +4797,13 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	if baseCommitID == "" {
 		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs init <slice|account:slice> again.")
 	}
-	edits, current, err := r.snapshotEdits(ctx, nil, cfg, ws, false)
+	edits, current, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, false)
 	if err != nil {
 		return err
 	}
 	changed := changedPathsFromEdits(edits)
 	if opts.jsonOutput() {
-		diffText, err := r.workspaceDiffText(ctx, cfg, base, baseCommitID, current, changed)
+		diffText, err := r.workspaceDiffText(ctx, cfg, ws, base, baseCommitID, current, changed)
 		if err != nil {
 			return err
 		}
@@ -4361,7 +4826,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 		printPathStatColor(r.Stdout, changed, r.colorEnabled(opts))
 		return nil
 	}
-	diffText, err := r.workspaceDiffText(ctx, cfg, base, baseCommitID, current, changed)
+	diffText, err := r.workspaceDiffText(ctx, cfg, ws, base, baseCommitID, current, changed)
 	if err != nil {
 		return err
 	}
@@ -4369,7 +4834,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	return err
 }
 
-func (r Runner) workspaceDiffText(ctx context.Context, cfg UserConfig, base BaseSnapshot, baseCommitID string, current map[string]workingFile, changed []string) (string, error) {
+func (r Runner) workspaceDiffText(ctx context.Context, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, baseCommitID string, current map[string]workingFile, changed []string) (string, error) {
 	if len(changed) == 0 {
 		return "", nil
 	}
@@ -4379,13 +4844,14 @@ func (r Runner) workspaceDiffText(ctx context.Context, cfg UserConfig, base Base
 	}
 	defer conn.Close()
 	repo := corev1.NewRepositoryServiceClient(conn)
+	blob := corev1.NewBlobServiceClient(conn)
 	cache, err := r.objectCache()
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
 	for _, p := range changed {
-		oldFile, err := r.workspaceBaseDiffFile(authContext(ctx, cfg), repo, cache, base, baseCommitID, p)
+		oldFile, err := r.workspaceBaseDiffFile(authContext(ctx, cfg), repo, blob, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, base, baseCommitID, p)
 		if err != nil {
 			return "", err
 		}
@@ -4506,7 +4972,7 @@ func oldCommitID(commit *corev1.Commit) string {
 	return commit.Id
 }
 
-func (r Runner) workspaceBaseDiffFile(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, base BaseSnapshot, baseCommitID, p string) (diffutil.File, error) {
+func (r Runner) workspaceBaseDiffFile(ctx context.Context, repo corev1.RepositoryServiceClient, blob corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, base BaseSnapshot, baseCommitID, p string) (diffutil.File, error) {
 	if file, ok := base.Files[p]; ok && file.ContentHash != "" {
 		if cache.Exists(file.ContentHash) {
 			data, err := cache.Read(file.ContentHash)
@@ -4514,6 +4980,18 @@ func (r Runner) workspaceBaseDiffFile(ctx context.Context, repo corev1.Repositor
 				return diffutil.File{}, err
 			}
 			return diffutil.File{Path: p, Exists: true, Data: data}, nil
+		}
+		if blob != nil && sliceRef != nil {
+			data, err := readBlobStreamBytes(ctx, blob, sliceRef, file.ContentHash, 0, 0)
+			if err == nil {
+				if _, cacheErr := cache.PutBytes(data); cacheErr != nil {
+					return diffutil.File{}, cacheErr
+				}
+				return diffutil.File{Path: p, Exists: true, Data: data}, nil
+			}
+			if grpcstatus.Code(err) != codes.NotFound {
+				return diffutil.File{}, err
+			}
 		}
 	}
 	read, err := repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: baseCommitID, Path: p})
@@ -4585,6 +5063,146 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
 	}
 	return nil
+}
+
+func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool) error {
+	_ = all
+	title, err := r.requiredCommandMessage(opts, title, "Changeset title: ", "create requires --message", "Run gs create --message <title>.")
+	if err != nil {
+		return err
+	}
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	stackClient := corev1.NewChangesetStackServiceClient(conn)
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+
+	stackID := state.ActiveStackID
+	var stack *corev1.ChangesetStack
+	if root || stackID == "" {
+		stack, err = stackClient.CreateStack(callCtx, &corev1.CreateStackRequest{
+			AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+			TargetRef:      postgres.DefaultTargetRef,
+			BaseCommitId:   state.BaseCommitID,
+			Title:          title,
+		})
+		if err != nil {
+			return err
+		}
+		stackID = stack.Id
+	} else {
+		stack, err = stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: stackID})
+		if err != nil {
+			return err
+		}
+	}
+
+	parentID := strings.TrimSpace(parentSelector)
+	parentPatchsetID := ""
+	if !root && parentID == "" && state.CurrentChangesetID != "" {
+		parentID = state.CurrentChangesetID
+	}
+	if sibling && parentID != "" {
+		parentEntry := stackEntryByChangesetSelector(stack, parentID)
+		if parentEntry == nil {
+			return userError("stack_entry_not_found", "active stack entry not found", "Run gs stack to inspect available entries.")
+		}
+		parentID = parentEntry.ParentChangesetId
+	}
+	if parentID != "" {
+		parent, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: parentID})
+		if err != nil {
+			return err
+		}
+		parentID = parent.Id
+		parentPatchsetID = parent.CurrentPatchsetId
+		if parentPatchsetID == "" {
+			return userError("parent_has_no_patchset", "parent changeset has no current patchset", "Run gs modify on the parent before creating a child.")
+		}
+	}
+
+	base, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, parentID)
+	if err != nil {
+		return err
+	}
+	edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, true)
+	if err != nil {
+		return err
+	}
+	cs, err := stackClient.AddStackEntry(callCtx, &corev1.AddStackEntryRequest{
+		StackId:           stackID,
+		Title:             title,
+		ParentChangesetId: parentID,
+		ParentPatchsetId:  parentPatchsetID,
+	})
+	if err != nil {
+		return err
+	}
+	updateReq := &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: state.BaseCommitID,
+		FileEdits:    edits,
+	}
+	if parentPatchsetID != "" {
+		updateReq.BaseKind = "patchset"
+		updateReq.BasePatchsetId = parentPatchsetID
+		updateReq.ExpectedParentPatchsetId = parentPatchsetID
+	}
+	patchset, err := changesetClient.UpdateChangeset(callCtx, updateReq)
+	if err != nil {
+		return err
+	}
+	state.ActiveStackID = stackID
+	state.CurrentChangesetID = cs.Id
+	state.CurrentPatchsetID = patchset.Id
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, changesetOutput{
+			ChangesetID:    cs.Id,
+			PatchsetID:     patchset.Id,
+			PatchsetNumber: patchset.Number,
+			StackID:        stackID,
+			WebURL:         webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(cs), cs.Id)),
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "created %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
+	fmt.Fprintf(r.Stdout, "stack: %s\n", stackID)
+	return nil
+}
+
+func (r Runner) requiredCommandMessage(opts commandOptions, value, prompt, message, hint string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value, nil
+	}
+	if opts.Quiet || opts.NonInteractive || os.Getenv("TERM") == "dumb" || !isTerminal(r.stdin()) {
+		return "", userError("message_required", message, hint)
+	}
+	fmt.Fprint(r.stderr(), prompt)
+	line, err := bufio.NewReader(r.stdin()).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	value = strings.TrimSpace(line)
+	if value == "" {
+		return "", userError("message_required", message, hint)
+	}
+	return value, nil
 }
 
 func (r Runner) guardChangesetCreate(ctx context.Context, cfg UserConfig, state WorkspaceState, changesetClient corev1.ChangesetServiceClient) error {
@@ -4684,6 +5302,106 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 	if webURL != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
 	}
+	return nil
+}
+
+func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message string, noRestack, all bool) error {
+	_ = all
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	if state.CurrentChangesetID == "" {
+		return userError("no_current_changeset", "no current changeset in workspace", "Run gs create first.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	cs, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: state.CurrentChangesetID})
+	if err != nil {
+		return err
+	}
+	updateReq := &corev1.UpdateChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: state.CurrentPatchsetID,
+		BaseCommitId:              state.BaseCommitID,
+	}
+	var stack *corev1.ChangesetStack
+	if cs.StackId != "" {
+		stack, err = corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: cs.StackId})
+		if err != nil {
+			return err
+		}
+	}
+	if cs.ParentChangesetId != "" {
+		parent, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: cs.ParentChangesetId})
+		if err != nil {
+			return err
+		}
+		if parent.CurrentPatchsetId == "" {
+			return userError("parent_has_no_patchset", "parent changeset has no current patchset", "Run gs restack after the parent has a patchset.")
+		}
+		updateReq.BaseKind = "patchset"
+		updateReq.BasePatchsetId = parent.CurrentPatchsetId
+		updateReq.ExpectedParentPatchsetId = parent.CurrentPatchsetId
+	}
+	base, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, cs.ParentChangesetId)
+	if err != nil {
+		return err
+	}
+	edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, true)
+	if err != nil {
+		return err
+	}
+	updateReq.FileEdits = edits
+	patchset, err := changesetClient.UpdateChangeset(callCtx, updateReq)
+	if err != nil {
+		return err
+	}
+	state.CurrentPatchsetID = patchset.Id
+	if cs.StackId != "" {
+		state.ActiveStackID = cs.StackId
+	}
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	restacked := []string{}
+	if cs.StackId != "" && !noRestack {
+		res, err := corev1.NewChangesetStackServiceClient(conn).Restack(callCtx, &corev1.RestackRequest{
+			StackId:          cs.StackId,
+			StartChangesetId: cs.Id,
+		})
+		if err != nil {
+			return err
+		}
+		for _, entry := range res.Entries {
+			restacked = append(restacked, entry.Id)
+		}
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, changesetOutput{
+			ChangesetID:    cs.Id,
+			PatchsetID:     patchset.Id,
+			PatchsetNumber: patchset.Number,
+			StackID:        cs.StackId,
+			WebURL:         webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(cs), cs.Id)),
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "updated %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
+	if len(restacked) > 0 {
+		fmt.Fprintf(r.Stdout, "restacked descendants: %s\n", strings.Join(restacked, ", "))
+	}
+	_ = message
 	return nil
 }
 
@@ -5931,6 +6649,875 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 	return nil
 }
 
+func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, requestedID string, stackFlag bool, subtree string, watch bool, watchTimeout time.Duration) error {
+	if !stackFlag && strings.TrimSpace(subtree) == "" {
+		if strings.TrimSpace(requestedID) == "" {
+			cfg, _, state, err := r.loadLocalState()
+			if err != nil {
+				return err
+			}
+			if err := rejectPreStackWorkspaceState(state); err != nil {
+				return err
+			}
+			if state.ActiveStackID != "" && state.CurrentChangesetID != "" {
+				return r.runStackSubmitActivePath(ctx, opts, cfg, state, watch, watchTimeout)
+			}
+		}
+		return r.runChangesetSubmit(ctx, opts, requestedID, watch, watchTimeout)
+	}
+	cfg, _, state, _, _, _, err := r.resolveChangesetCommandState(requestedID)
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	stackID := state.ActiveStackID
+	if stackID == "" {
+		if requestedID != "" {
+			cs, err := r.getChangeset(ctx, cfg, requestedID)
+			if err != nil {
+				return err
+			}
+			stackID = cs.StackId
+		}
+	}
+	if stackID == "" {
+		return userError("no_active_stack", "no active stack in workspace", "Run gs create first or pass a stack changeset id.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	res, err := corev1.NewChangesetStackServiceClient(conn).SubmitStack(authContext(ctx, cfg), &corev1.SubmitStackRequest{
+		StackId:                stackID,
+		SubtreeRootChangesetId: strings.TrimSpace(subtree),
+	})
+	if err != nil {
+		return err
+	}
+	if watch {
+		changesetClient := corev1.NewChangesetServiceClient(conn)
+		for _, result := range res.Results {
+			if result.Status == "pending_publish" || result.Status == "submitted" {
+				_, _, _ = r.waitForChangesetPublished(ctx, conn, cfg, result.ChangesetId, result.ChangesetId, watchTimeout, false)
+				_, _ = changesetClient.GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: result.ChangesetId})
+			}
+		}
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, res)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	for _, result := range res.Results {
+		if result.BlockedReason != "" {
+			fmt.Fprintf(r.Stdout, "blocked %s: %s\n", firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId), result.BlockedReason)
+			continue
+		}
+		fmt.Fprintf(r.Stdout, "%s %s\n", result.Status, firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId))
+	}
+	if res.Status == "partial" {
+		fmt.Fprintln(r.Stdout, "stack partially submitted")
+	}
+	return nil
+}
+
+func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOptions, cfg UserConfig, state WorkspaceState, watch bool, watchTimeout time.Duration) error {
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	stack, err := corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	if err != nil {
+		return err
+	}
+	entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID)
+	if entry == nil {
+		return userError("stack_entry_not_found", "active stack entry not found", "Run gs stack to inspect available entries.")
+	}
+	entriesByID := map[string]*corev1.ChangesetStackEntry{}
+	for _, item := range stack.Entries {
+		if item != nil {
+			entriesByID[item.ChangesetId] = item
+		}
+	}
+	pathEntries := []*corev1.ChangesetStackEntry{}
+	for entry != nil {
+		pathEntries = append(pathEntries, entry)
+		if entry.ParentChangesetId == "" {
+			break
+		}
+		entry = entriesByID[entry.ParentChangesetId]
+	}
+	for i, j := 0, len(pathEntries)-1; i < j; i, j = i+1, j-1 {
+		pathEntries[i], pathEntries[j] = pathEntries[j], pathEntries[i]
+	}
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	res := &corev1.SubmitStackResponse{StackId: state.ActiveStackID, Status: "submitted"}
+	blocked := false
+	for _, item := range pathEntries {
+		if item.State == "needs_restack" {
+			blocked = true
+			res.Results = append(res.Results, &corev1.SubmitStackEntryResult{
+				ChangesetId:   item.ChangesetId,
+				Status:        "blocked",
+				BlockedReason: "NeedsRestack",
+			})
+			continue
+		}
+		cs := item.Changeset
+		if cs == nil {
+			cs, err = changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: item.ChangesetId})
+			if err != nil {
+				return err
+			}
+		}
+		if cs.Status == "submitted" {
+			res.Results = append(res.Results, &corev1.SubmitStackEntryResult{ChangesetId: cs.Id, Status: "submitted", CommitId: cs.CommitId})
+			continue
+		}
+		submitted, err := changesetClient.SubmitChangeset(callCtx, &corev1.SubmitChangesetRequest{ChangesetId: cs.Id, ExpectedCurrentPatchsetId: cs.CurrentPatchsetId})
+		if err != nil {
+			blocked = true
+			res.Results = append(res.Results, &corev1.SubmitStackEntryResult{ChangesetId: cs.Id, Status: "blocked", BlockedReason: cliSubmitBlockReason(err)})
+			continue
+		}
+		if watch && (submitted.Status == "pending_publish" || submitted.Status == "submitted") {
+			_, _, _ = r.waitForChangesetPublished(ctx, conn, cfg, cs.Id, cs.Id, watchTimeout, false)
+		}
+		res.Results = append(res.Results, &corev1.SubmitStackEntryResult{
+			ChangesetId:      cs.Id,
+			Status:           submitted.Status,
+			CommitId:         submitted.CommitId,
+			PendingPublishId: submitted.PendingPublishId,
+		})
+	}
+	if blocked {
+		res.Status = "partial"
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, res)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	for _, result := range res.Results {
+		if result.BlockedReason != "" {
+			fmt.Fprintf(r.Stdout, "blocked %s: %s\n", firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId), result.BlockedReason)
+			continue
+		}
+		fmt.Fprintf(r.Stdout, "%s %s\n", result.Status, firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId))
+	}
+	if res.Status == "partial" {
+		fmt.Fprintln(r.Stdout, "stack partially submitted")
+	}
+	return nil
+}
+
+func cliSubmitBlockReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	if st, ok := grpcstatus.FromError(err); ok {
+		if st.Message() != "" {
+			return st.Message()
+		}
+		return st.Code().String()
+	}
+	return err.Error()
+}
+
+func (r Runner) runStackShow(ctx context.Context, opts commandOptions, requestedStackID string) error {
+	cfg, _, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	stackID := strings.TrimSpace(requestedStackID)
+	if stackID == "" {
+		stackID = state.ActiveStackID
+	}
+	if stackID == "" {
+		return userError("no_active_stack", "no active stack in workspace", "Run gs create first or pass a stack id.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	stack, err := corev1.NewChangesetStackServiceClient(conn).GetStack(authContext(ctx, cfg), &corev1.GetStackRequest{StackId: stackID})
+	if err != nil {
+		return err
+	}
+	out := stackOutputFromProto(stack)
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	printStack(r.Stdout, stack)
+	return nil
+}
+
+func (r Runner) runStackRestack(ctx context.Context, opts commandOptions, entry string, children, all bool) error {
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	if state.ActiveStackID == "" {
+		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+	}
+	start := strings.TrimSpace(entry)
+	if start == "" && children {
+		start = state.CurrentChangesetID
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	stackClient := corev1.NewChangesetStackServiceClient(conn)
+	res, err := stackClient.Restack(callCtx, &corev1.RestackRequest{
+		StackId:          state.ActiveStackID,
+		StartChangesetId: start,
+		IncludeSiblings:  all,
+	})
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(res.Entries))
+	var firstConflict *corev1.Changeset
+	var firstConflictPatchset *corev1.Patchset
+	for _, cs := range res.Entries {
+		ids = append(ids, cs.Id)
+		if cs.Id == state.CurrentChangesetID {
+			state.CurrentPatchsetID = cs.CurrentPatchsetId
+		}
+		if firstConflict == nil {
+			if patchset := currentPatchset(cs); patchset != nil && len(patchset.Conflicts) > 0 {
+				firstConflict = cs
+				firstConflictPatchset = patchset
+			}
+		}
+	}
+	if firstConflict != nil && firstConflictPatchset != nil {
+		state.CurrentChangesetID = firstConflict.Id
+		state.CurrentPatchsetID = firstConflictPatchset.Id
+		conflictState := WorkspaceConflictState{
+			OldBaseCommitID: firstNonEmpty(firstConflictPatchset.BaseCommitId, state.BaseCommitID),
+			NewBaseCommitID: firstNonEmpty(firstConflictPatchset.BaseCommitId, state.BaseCommitID),
+			ChangesetID:     firstConflict.Id,
+			PatchsetID:      firstConflictPatchset.Id,
+			Conflicts:       workspaceConflictsFromProto(firstConflictPatchset.Conflicts),
+		}
+		if err := r.writeWorkspaceConflictState(conflictState); err != nil {
+			return err
+		}
+		stack, err := stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+		if err != nil {
+			return err
+		}
+		targetSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, firstConflict.Id)
+		if err != nil {
+			return err
+		}
+		if err := r.materializeWorkspaceSnapshot(ctx, conn, cfg, ws, targetSnapshot); err != nil {
+			return err
+		}
+		if err := r.materializeStackRestackConflicts(ctx, conn, cfg, ws, conflictState.Conflicts); err != nil {
+			return err
+		}
+	}
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, stackOutput{StackID: res.StackId, Status: res.Status, RestackedChangesets: ids})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if len(ids) == 0 {
+		fmt.Fprintln(r.Stdout, "nothing to restack")
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "restacked: %s\n", strings.Join(ids, ", "))
+	if firstConflict != nil {
+		fmt.Fprintf(r.Stdout, "conflicts: %s\n", firstNonEmpty(storage.ShortChangesetID(firstConflict.Id), firstConflict.Id))
+	}
+	return nil
+}
+
+func (r Runner) runStackSwitch(ctx context.Context, opts commandOptions, entry string) error {
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	if state.ActiveStackID == "" {
+		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	stack, err := corev1.NewChangesetStackServiceClient(conn).GetStack(authContext(ctx, cfg), &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	if err != nil {
+		return err
+	}
+	stackEntry := stackEntryByChangesetSelector(stack, entry)
+	if stackEntry == nil || stackEntry.Changeset == nil {
+		return userError("stack_entry_not_found", "stack entry not found", "Run gs stack to inspect available entries.")
+	}
+	if state.CurrentChangesetID != "" {
+		currentSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, state.CurrentChangesetID)
+		if err != nil {
+			return err
+		}
+		edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, currentSnapshot, false)
+		if err != nil {
+			return err
+		}
+		if changed := changedPathsFromEdits(edits); len(changed) > 0 {
+			return userError("workspace_dirty", "workspace has local changes not captured in the active entry", "Run gs modify before switching entries.")
+		}
+	}
+	targetSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, stackEntry.ChangesetId)
+	if err != nil {
+		return err
+	}
+	if err := r.materializeWorkspaceSnapshot(ctx, conn, cfg, ws, targetSnapshot); err != nil {
+		return err
+	}
+	state.CurrentChangesetID = stackEntry.ChangesetId
+	state.CurrentPatchsetID = stackEntry.Changeset.CurrentPatchsetId
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, changesetOutput{
+			ChangesetID:    state.CurrentChangesetID,
+			PatchsetID:     state.CurrentPatchsetID,
+			PatchsetNumber: stackEntry.Changeset.CurrentPatchsetNumber,
+			StackID:        state.ActiveStackID,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "active: %s\n", firstNonEmpty(displayChangesetID(stackEntry.Changeset), stackEntry.ChangesetId))
+	return nil
+}
+
+func (r Runner) runStackUp(ctx context.Context, opts commandOptions, entry string) error {
+	_, _, state, stack, err := r.activeStack(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(entry) != "" {
+		return r.runStackSwitch(ctx, opts, entry)
+	}
+	children := stackChildren(stack, state.CurrentChangesetID)
+	if len(children) == 0 {
+		return userError("stack_entry_not_found", "active stack entry has no children", "Run gs stack to inspect available entries.")
+	}
+	if len(children) > 1 {
+		return userError("ambiguous_stack_navigation", "active stack entry has multiple children", "Run gs up <entry> with the child to activate.")
+	}
+	return r.runStackSwitch(ctx, opts, children[0].ChangesetId)
+}
+
+func (r Runner) runStackDown(ctx context.Context, opts commandOptions, steps int) error {
+	_, _, state, stack, err := r.activeStack(ctx)
+	if err != nil {
+		return err
+	}
+	entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID)
+	if entry == nil {
+		return userError("stack_entry_not_found", "active stack entry not found", "Run gs stack to inspect available entries.")
+	}
+	for i := 0; i < steps && entry.ParentChangesetId != ""; i++ {
+		parent := stackEntryByChangesetSelector(stack, entry.ParentChangesetId)
+		if parent == nil {
+			break
+		}
+		entry = parent
+	}
+	return r.runStackSwitch(ctx, opts, entry.ChangesetId)
+}
+
+func (r Runner) runStackTop(ctx context.Context, opts commandOptions) error {
+	_, _, state, stack, err := r.activeStack(ctx)
+	if err != nil {
+		return err
+	}
+	entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID)
+	if entry == nil {
+		entry = stackEntryByChangesetSelector(stack, stack.RootEntryId)
+	}
+	if entry == nil {
+		return userError("stack_entry_not_found", "stack has no root entry", "Run gs stack to inspect available entries.")
+	}
+	for {
+		children := stackChildren(stack, entry.ChangesetId)
+		if len(children) == 0 {
+			return r.runStackSwitch(ctx, opts, entry.ChangesetId)
+		}
+		if len(children) > 1 {
+			return userError("ambiguous_stack_navigation", "stack path has multiple children", "Run gs up <entry> with the child to activate.")
+		}
+		entry = children[0]
+	}
+}
+
+func (r Runner) runStackBottom(ctx context.Context, opts commandOptions) error {
+	_, _, _, stack, err := r.activeStack(ctx)
+	if err != nil {
+		return err
+	}
+	if stack.RootEntryId == "" {
+		return userError("stack_entry_not_found", "stack has no root entry", "Run gs stack to inspect available entries.")
+	}
+	return r.runStackSwitch(ctx, opts, stack.RootEntryId)
+}
+
+func (r Runner) activeStack(ctx context.Context) (UserConfig, WorkspaceConfig, WorkspaceState, *corev1.ChangesetStack, error) {
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, nil, err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, nil, err
+	}
+	if state.ActiveStackID == "" {
+		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, nil, userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, nil, err
+	}
+	defer conn.Close()
+	stack, err := corev1.NewChangesetStackServiceClient(conn).GetStack(authContext(ctx, cfg), &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	if err != nil {
+		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, nil, err
+	}
+	return cfg, ws, state, stack, nil
+}
+
+func (r Runner) materializeWorkspaceSnapshot(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, snapshot BaseSnapshot) error {
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return err
+	}
+	current, err := r.scanWorkspaceFiles(ws)
+	if err != nil {
+		return err
+	}
+	for p := range current {
+		if _, ok := snapshot.Files[p]; !ok {
+			if err := removeWorkspaceFile(root, ws, current, p); err != nil {
+				return err
+			}
+		}
+	}
+	cache, err := r.objectCache()
+	if err != nil {
+		return err
+	}
+	blob := corev1.NewBlobServiceClient(conn)
+	paths := make([]string, 0, len(snapshot.Files))
+	for p := range snapshot.Files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		file := snapshot.Files[p]
+		if err := r.writeSnapshotFile(ctx, blob, cache, cfg, ws, root, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r Runner) writeSnapshotFile(ctx context.Context, blob corev1.BlobServiceClient, cache *clientcache.ObjectCache, cfg UserConfig, ws WorkspaceConfig, root string, file BaseSnapshotFile) error {
+	if file.ContentHash == "" {
+		return nil
+	}
+	rel := file.RelPath
+	if rel == "" {
+		var err error
+		rel, err = workspaceRelPath(ws, file.Path)
+		if err != nil {
+			return err
+		}
+	}
+	target := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if cache.Exists(file.ContentHash) {
+		f, err := cache.Open(file.ContentHash)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = writeWorkspaceFile(target, file.Mode, f)
+		return err
+	}
+	data, err := readBlobStreamBytes(authContext(ctx, cfg), blob, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, file.ContentHash, 0, 0)
+	if err != nil {
+		return err
+	}
+	cached, err := cache.PutBytes(data)
+	if err != nil {
+		return err
+	}
+	if cached.ContentHash != file.ContentHash {
+		return fmt.Errorf("snapshot content hash mismatch for %s: got %s, want %s", file.Path, cached.ContentHash, file.ContentHash)
+	}
+	_, err = writeWorkspaceFile(target, file.Mode, bytes.NewReader(data))
+	return err
+}
+
+func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, onto string, order int64) error {
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	if state.ActiveStackID == "" {
+		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	stackClient := corev1.NewChangesetStackServiceClient(conn)
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	stack, err := stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	if err != nil {
+		return err
+	}
+	moved := stackEntryByChangesetSelector(stack, entry)
+	if moved == nil {
+		return userError("stack_entry_not_found", "stack entry not found", "Run gs stack to inspect available entries.")
+	}
+	if state.CurrentChangesetID != "" {
+		currentSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, state.CurrentChangesetID)
+		if err != nil {
+			return err
+		}
+		edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, currentSnapshot, false)
+		if err != nil {
+			return err
+		}
+		if changed := changedPathsFromEdits(edits); len(changed) > 0 {
+			return userError("workspace_dirty", "workspace has local changes not captured in the active entry", "Run gs modify before moving entries.")
+		}
+	}
+	parentID := ""
+	parentPatchsetID := ""
+	if strings.TrimSpace(onto) != "" && strings.TrimSpace(onto) != "root" {
+		parent, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: onto})
+		if err != nil {
+			return err
+		}
+		parentID = parent.Id
+		parentPatchsetID = parent.CurrentPatchsetId
+	}
+	updated, err := stackClient.ReparentStackEntry(callCtx, &corev1.ReparentStackEntryRequest{
+		StackId:              state.ActiveStackID,
+		ChangesetId:          moved.ChangesetId,
+		NewParentChangesetId: parentID,
+		NewParentPatchsetId:  parentPatchsetID,
+		SiblingOrder:         order,
+	})
+	if err != nil {
+		return err
+	}
+	restacked, err := stackClient.Restack(callCtx, &corev1.RestackRequest{
+		StackId:          state.ActiveStackID,
+		StartChangesetId: moved.ChangesetId,
+	})
+	if err != nil {
+		return err
+	}
+	restackedIDs := make([]string, 0, len(restacked.Entries))
+	for _, cs := range restacked.Entries {
+		if cs == nil {
+			continue
+		}
+		restackedIDs = append(restackedIDs, cs.Id)
+		if cs.Id == moved.ChangesetId {
+			state.CurrentPatchsetID = cs.CurrentPatchsetId
+		}
+	}
+	updated, err = stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	if err != nil {
+		return err
+	}
+	state.CurrentChangesetID = moved.ChangesetId
+	if finalEntry := stackEntryByChangesetSelector(updated, moved.ChangesetId); finalEntry != nil && finalEntry.Changeset != nil {
+		state.CurrentPatchsetID = finalEntry.Changeset.CurrentPatchsetId
+	}
+	targetSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, updated, moved.ChangesetId)
+	if err != nil {
+		return err
+	}
+	if err := r.materializeWorkspaceSnapshot(ctx, conn, cfg, ws, targetSnapshot); err != nil {
+		return err
+	}
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		out := stackOutputFromProto(updated)
+		out.RestackedChangesets = restackedIDs
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	printStack(r.Stdout, updated)
+	if len(restackedIDs) > 0 {
+		fmt.Fprintf(r.Stdout, "restacked: %s\n", strings.Join(restackedIDs, ", "))
+	}
+	return nil
+}
+
+func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, title string) error {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return userError("invalid_args", "detach requires an entry", "Run gs detach <entry>.")
+	}
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	if state.ActiveStackID == "" {
+		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	stackClient := corev1.NewChangesetStackServiceClient(conn)
+	stack, err := stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	if err != nil {
+		return err
+	}
+	detachedEntry := stackEntryByChangesetSelector(stack, entry)
+	if detachedEntry == nil {
+		return userError("stack_entry_not_found", "stack entry not found", "Run gs stack to inspect available entries.")
+	}
+	if detachedEntry.ParentChangesetId == "" {
+		return userError("cannot_detach_root", "cannot detach the root stack entry", "Choose a child entry, or keep using the existing stack.")
+	}
+	if state.CurrentChangesetID != "" {
+		currentSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, state.CurrentChangesetID)
+		if err != nil {
+			return err
+		}
+		edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, currentSnapshot, false)
+		if err != nil {
+			return err
+		}
+		if changed := changedPathsFromEdits(edits); len(changed) > 0 {
+			return userError("workspace_dirty", "workspace has local changes not captured in the active entry", "Run gs modify before detaching entries.")
+		}
+	}
+	res, err := stackClient.DetachStackEntry(callCtx, &corev1.DetachStackEntryRequest{
+		StackId:     state.ActiveStackID,
+		ChangesetId: detachedEntry.ChangesetId,
+		Title:       strings.TrimSpace(title),
+	})
+	if err != nil {
+		return err
+	}
+	if res.DetachedStack == nil || res.DetachedStack.Id == "" {
+		return userError("detach_failed", "detach did not return a detached stack", "Retry the operation or inspect the stack with gs stack.")
+	}
+	restacked, err := stackClient.Restack(callCtx, &corev1.RestackRequest{
+		StackId:            res.DetachedStack.Id,
+		StartChangesetId:   detachedEntry.ChangesetId,
+		TargetBaseCommitId: res.DetachedStack.BaseCommitId,
+	})
+	if err != nil {
+		return err
+	}
+	restackedIDs := make([]string, 0, len(restacked.Entries))
+	for _, cs := range restacked.Entries {
+		if cs != nil {
+			restackedIDs = append(restackedIDs, cs.Id)
+		}
+	}
+	detachedStack, err := stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: res.DetachedStack.Id})
+	if err != nil {
+		return err
+	}
+	state.ActiveStackID = detachedStack.Id
+	state.CurrentChangesetID = detachedEntry.ChangesetId
+	if finalEntry := stackEntryByChangesetSelector(detachedStack, detachedEntry.ChangesetId); finalEntry != nil && finalEntry.Changeset != nil {
+		state.CurrentPatchsetID = finalEntry.Changeset.CurrentPatchsetId
+	}
+	targetSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, detachedStack, detachedEntry.ChangesetId)
+	if err != nil {
+		return err
+	}
+	if err := r.materializeWorkspaceSnapshot(ctx, conn, cfg, ws, targetSnapshot); err != nil {
+		return err
+	}
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		out := stackOutputFromProto(detachedStack)
+		out.RestackedChangesets = restackedIDs
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "detached stack: %s\n", detachedStack.Id)
+	printStack(r.Stdout, detachedStack)
+	if len(restackedIDs) > 0 {
+		fmt.Fprintf(r.Stdout, "restacked: %s\n", strings.Join(restackedIDs, ", "))
+	}
+	return nil
+}
+
+func (r Runner) runStackInsert(ctx context.Context, opts commandOptions, parentSelector, title string) error {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return userError("invalid_args", "insert requires --message", "Run gs insert --parent <entry> --message <title>.")
+	}
+	parentSelector = strings.TrimSpace(parentSelector)
+	if parentSelector == "" {
+		return userError("invalid_args", "insert requires --parent", "Run gs insert --parent <entry> --message <title>.")
+	}
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	if err := rejectPreStackWorkspaceState(state); err != nil {
+		return err
+	}
+	if state.ActiveStackID == "" {
+		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	stackClient := corev1.NewChangesetStackServiceClient(conn)
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	stack, err := stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	if err != nil {
+		return err
+	}
+	parentEntry := stackEntryByChangesetSelector(stack, parentSelector)
+	if parentEntry == nil {
+		return userError("stack_entry_not_found", "parent stack entry not found", "Run gs stack to inspect available entries.")
+	}
+	parent, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: parentEntry.ChangesetId})
+	if err != nil {
+		return err
+	}
+	if parent.CurrentPatchsetId == "" {
+		return userError("parent_has_no_patchset", "parent changeset has no current patchset", "Run gs modify on the parent before inserting a child.")
+	}
+	base, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, parent.Id)
+	if err != nil {
+		return err
+	}
+	edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, true)
+	if err != nil {
+		return err
+	}
+	inserted, err := stackClient.AddStackEntry(callCtx, &corev1.AddStackEntryRequest{
+		StackId:           state.ActiveStackID,
+		Title:             title,
+		ParentChangesetId: parent.Id,
+		ParentPatchsetId:  parent.CurrentPatchsetId,
+	})
+	if err != nil {
+		return err
+	}
+	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
+		ChangesetId:              inserted.Id,
+		BaseCommitId:             state.BaseCommitID,
+		BaseKind:                 "patchset",
+		BasePatchsetId:           parent.CurrentPatchsetId,
+		ExpectedParentPatchsetId: parent.CurrentPatchsetId,
+		FileEdits:                edits,
+	})
+	if err != nil {
+		return err
+	}
+	if activeEntry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID); activeEntry != nil && activeEntry.ParentChangesetId == parent.Id {
+		if _, err := stackClient.ReparentStackEntry(callCtx, &corev1.ReparentStackEntryRequest{
+			StackId:              state.ActiveStackID,
+			ChangesetId:          activeEntry.ChangesetId,
+			NewParentChangesetId: inserted.Id,
+			NewParentPatchsetId:  patchset.Id,
+			SiblingOrder:         1,
+		}); err != nil {
+			return err
+		}
+		if _, err := stackClient.Restack(callCtx, &corev1.RestackRequest{
+			StackId:          state.ActiveStackID,
+			StartChangesetId: inserted.Id,
+		}); err != nil {
+			return err
+		}
+	}
+	state.CurrentChangesetID = inserted.Id
+	state.CurrentPatchsetID = patchset.Id
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, changesetOutput{
+			ChangesetID:    inserted.Id,
+			PatchsetID:     patchset.Id,
+			PatchsetNumber: patchset.Number,
+			StackID:        state.ActiveStackID,
+			WebURL:         webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(inserted), inserted.Id)),
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "inserted %s patchset %d\n", firstNonEmpty(displayChangesetID(inserted), inserted.Id), patchset.Number)
+	return nil
+}
+
 func (r Runner) runChangesetShow(ctx context.Context, opts commandOptions, requestedID string) error {
 	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
 	if err != nil {
@@ -6325,6 +7912,107 @@ func displayChangesetID(cs *corev1.Changeset) string {
 		return ""
 	}
 	return storage.ShortChangesetID(cs.Id)
+}
+
+func stackOutputFromProto(stack *corev1.ChangesetStack) stackOutput {
+	out := stackOutput{
+		StackID:           stack.Id,
+		Status:            stack.Status,
+		ActiveChangesetID: stack.ActiveEntryId,
+		RootChangesetID:   stack.RootEntryId,
+		Entries:           make([]stackEntryOutput, 0, len(stack.Entries)),
+	}
+	for _, entry := range stack.Entries {
+		item := stackEntryOutput{
+			ChangesetID:       entry.ChangesetId,
+			ParentChangesetID: entry.ParentChangesetId,
+			ParentPatchsetID:  entry.ParentPatchsetId,
+			DisplayOrder:      entry.DisplayOrder,
+			SiblingOrder:      entry.SiblingOrder,
+			Depth:             entry.Depth,
+			State:             entry.State,
+		}
+		if entry.Changeset != nil {
+			item.ChangesetHandle = displayChangesetID(entry.Changeset)
+			item.PatchsetID = entry.Changeset.CurrentPatchsetId
+			item.PatchsetNumber = entry.Changeset.CurrentPatchsetNumber
+			item.Status = entry.Changeset.Status
+		}
+		out.Entries = append(out.Entries, item)
+	}
+	return out
+}
+
+func printStack(w io.Writer, stack *corev1.ChangesetStack) {
+	fmt.Fprintf(w, "stack: %s\n", stack.Id)
+	fmt.Fprintf(w, "status: %s\n", stack.Status)
+	if stack.ActiveEntryId != "" {
+		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(stack.ActiveEntryId), stack.ActiveEntryId))
+	}
+	fmt.Fprintln(w, "entries:")
+	if len(stack.Entries) == 0 {
+		fmt.Fprintln(w, "  none")
+		return
+	}
+	for _, entry := range stack.Entries {
+		label := firstNonEmpty(storage.ShortChangesetID(entry.ChangesetId), entry.ChangesetId)
+		status := entry.State
+		patchset := int64(0)
+		if entry.Changeset != nil {
+			label = firstNonEmpty(displayChangesetID(entry.Changeset), label)
+			if entry.Changeset.Status != "" {
+				status = entry.Changeset.Status
+			}
+			patchset = entry.Changeset.CurrentPatchsetNumber
+		}
+		prefix := strings.Repeat("  ", int(entry.Depth)+1)
+		if patchset > 0 {
+			fmt.Fprintf(w, "%s%s patchset %d %s\n", prefix, label, patchset, status)
+		} else {
+			fmt.Fprintf(w, "%s%s %s\n", prefix, label, status)
+		}
+	}
+}
+
+func stackEntryByChangesetSelector(stack *corev1.ChangesetStack, selector string) *corev1.ChangesetStackEntry {
+	selector = strings.TrimSpace(selector)
+	if selector == "" || stack == nil {
+		return nil
+	}
+	for _, entry := range stack.Entries {
+		if entry == nil {
+			continue
+		}
+		if sameChangesetSelector(selector, entry.ChangesetId) {
+			return entry
+		}
+		if entry.Changeset != nil && sameChangesetSelector(selector, displayChangesetID(entry.Changeset)) {
+			return entry
+		}
+	}
+	return nil
+}
+
+func stackChildren(stack *corev1.ChangesetStack, parentChangesetID string) []*corev1.ChangesetStackEntry {
+	if stack == nil {
+		return nil
+	}
+	out := []*corev1.ChangesetStackEntry{}
+	for _, entry := range stack.Entries {
+		if entry == nil {
+			continue
+		}
+		if entry.ParentChangesetId == parentChangesetID {
+			out = append(out, entry)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SiblingOrder == out[j].SiblingOrder {
+			return out[i].ChangesetId < out[j].ChangesetId
+		}
+		return out[i].SiblingOrder < out[j].SiblingOrder
+	})
+	return out
 }
 
 func sameChangesetSelector(a, b string) bool {
@@ -8156,6 +9844,10 @@ func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg Us
 	if err != nil {
 		return nil, nil, err
 	}
+	return r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, upload)
+}
+
+func (r Runner) snapshotEditsAgainstBase(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {
 	current, err := r.scanWorkspaceFiles(ws)
 	if err != nil {
 		return nil, nil, err
@@ -8194,6 +9886,146 @@ func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg Us
 	}
 	sortFileEdits(edits)
 	return edits, current, nil
+}
+
+func (r Runner) stackBaseSnapshotThroughChangeset(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, stack *corev1.ChangesetStack, throughChangesetID string) (BaseSnapshot, error) {
+	base, err := r.readBaseSnapshot()
+	if err != nil {
+		return BaseSnapshot{}, err
+	}
+	if base.Files == nil {
+		base.Files = map[string]BaseSnapshotFile{}
+	}
+	if stack == nil || strings.TrimSpace(throughChangesetID) == "" {
+		return base, nil
+	}
+	if base.CommitID != "" && stack.BaseCommitId != "" && base.CommitID != stack.BaseCommitId {
+		return BaseSnapshot{}, userError(
+			"workspace_base_mismatch",
+			"workspace base does not match the active stack base",
+			"Run gs sync before editing this stack, or initialize a fresh workspace.",
+		)
+	}
+	entries := map[string]*corev1.ChangesetStackEntry{}
+	for _, entry := range stack.Entries {
+		if entry == nil || entry.ChangesetId == "" {
+			continue
+		}
+		entries[entry.ChangesetId] = entry
+	}
+	entry := entries[strings.TrimSpace(throughChangesetID)]
+	if entry == nil {
+		return BaseSnapshot{}, userError("stack_entry_not_found", "stack entry not found", "Run gs stack to inspect available entries.")
+	}
+	pathEntries := []*corev1.ChangesetStackEntry{}
+	for entry != nil {
+		pathEntries = append(pathEntries, entry)
+		if entry.ParentChangesetId == "" {
+			break
+		}
+		entry = entries[entry.ParentChangesetId]
+	}
+	for i, j := 0, len(pathEntries)-1; i < j; i, j = i+1, j-1 {
+		pathEntries[i], pathEntries[j] = pathEntries[j], pathEntries[i]
+	}
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+	callCtx := authContext(ctx, cfg)
+	for _, pathEntry := range pathEntries {
+		cs := pathEntry.Changeset
+		if cs == nil {
+			var err error
+			cs, err = changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: pathEntry.ChangesetId})
+			if err != nil {
+				return BaseSnapshot{}, err
+			}
+		}
+		if err := applyCurrentPatchsetToSnapshot(ws, &base, cs); err != nil {
+			return BaseSnapshot{}, err
+		}
+	}
+	return base, nil
+}
+
+func applyCurrentPatchsetToSnapshot(ws WorkspaceConfig, base *BaseSnapshot, cs *corev1.Changeset) error {
+	patchset := currentPatchset(cs)
+	if patchset == nil {
+		return nil
+	}
+	return applyFileEditsToSnapshot(ws, base, patchset.FileEdits)
+}
+
+func applyFileEditsToSnapshot(ws WorkspaceConfig, base *BaseSnapshot, edits []*corev1.FileEdit) error {
+	if base.Files == nil {
+		base.Files = map[string]BaseSnapshotFile{}
+	}
+	for _, edit := range edits {
+		if edit == nil {
+			continue
+		}
+		switch edit.Op {
+		case "delete":
+			deleteSnapshotPath(base.Files, edit.Path)
+		case "rename":
+			if err := renameSnapshotPath(ws, base.Files, edit.OldPath, edit.Path); err != nil {
+				return err
+			}
+		case "mkdir":
+			continue
+		default:
+			if edit.ContentHash == "" {
+				return userError("invalid_patchset", "patchset file edit has no content hash", "Restack the changeset before switching or modifying it.")
+			}
+			rel, err := workspaceRelPath(ws, edit.Path)
+			if err != nil {
+				return err
+			}
+			mode := edit.Mode
+			if mode == 0 {
+				mode = 0o100644
+			}
+			base.Files[edit.Path] = BaseSnapshotFile{
+				Path:        edit.Path,
+				RelPath:     rel,
+				ContentHash: edit.ContentHash,
+				Mode:        mode,
+			}
+		}
+	}
+	return nil
+}
+
+func deleteSnapshotPath(files map[string]BaseSnapshotFile, p string) {
+	delete(files, p)
+	prefix := strings.TrimRight(p, "/") + "/"
+	for existing := range files {
+		if strings.HasPrefix(existing, prefix) {
+			delete(files, existing)
+		}
+	}
+}
+
+func renameSnapshotPath(ws WorkspaceConfig, files map[string]BaseSnapshotFile, oldPath, newPath string) error {
+	oldPrefix := strings.TrimRight(oldPath, "/") + "/"
+	for existing, file := range files {
+		nextPath := ""
+		switch {
+		case existing == oldPath:
+			nextPath = newPath
+		case strings.HasPrefix(existing, oldPrefix):
+			nextPath = strings.TrimRight(newPath, "/") + strings.TrimPrefix(existing, strings.TrimRight(oldPath, "/"))
+		default:
+			continue
+		}
+		delete(files, existing)
+		rel, err := workspaceRelPath(ws, nextPath)
+		if err != nil {
+			return err
+		}
+		file.Path = nextPath
+		file.RelPath = rel
+		files[nextPath] = file
+	}
+	return nil
 }
 
 func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, error) {
@@ -8351,6 +10183,17 @@ func (r Runner) loadLocalState() (UserConfig, WorkspaceConfig, WorkspaceState, e
 		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, err
 	}
 	return cfg, ws, state, nil
+}
+
+func rejectPreStackWorkspaceState(state WorkspaceState) error {
+	if state.ActiveStackID == "" && (state.CurrentChangesetID != "" || state.CurrentPatchsetID != "") {
+		return userError(
+			"unsupported_workspace_state",
+			"workspace metadata is from an unsupported pre-stack format",
+			"Run gs init in a new directory or use a one-time migration tool.",
+		)
+	}
+	return nil
 }
 
 func (r Runner) readUserConfig() (UserConfig, error) {
@@ -8858,6 +10701,99 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"workspace", "base_commit_id", "from_commit_id", "to_commit_id", "changed_path_count", "changed_paths", "diff"},
 			},
 			{
+				"use":            "gs create",
+				"summary":        "create a stack entry and first patchset from workspace edits",
+				"flags":          []string{"--message", "--all", "--parent", "--sibling", "--root"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id", "web_url"},
+			},
+			{
+				"use":            "gs modify",
+				"summary":        "create a new patchset for the active stack entry",
+				"flags":          []string{"--all", "--message", "--no-restack"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id", "web_url"},
+			},
+			{
+				"use":            "gs submit [changeset]",
+				"summary":        "submit the active changeset, a stack subtree, or the whole stack",
+				"args":           []string{"changeset"},
+				"flags":          []string{"--stack", "--subtree", "--no-watch", "--watch-timeout"},
+				"writes_stdout":  true,
+				"machine_output": []string{"stack_id", "status", "results"},
+			},
+			{
+				"use":            "gs stack [stack]",
+				"summary":        "show the active stack tree",
+				"args":           []string{"stack"},
+				"writes_stdout":  true,
+				"machine_output": []string{"stack_id", "status", "active_changeset_id", "root_changeset_id", "entries"},
+			},
+			{
+				"use":            "gs restack [entry]",
+				"summary":        "replay stack descendants onto current parent patchsets",
+				"args":           []string{"entry"},
+				"flags":          []string{"--children", "--all"},
+				"writes_stdout":  true,
+				"machine_output": []string{"stack_id", "status", "restacked_changesets"},
+			},
+			{
+				"use":            "gs switch <entry>",
+				"summary":        "set the active stack entry",
+				"args":           []string{"entry"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+			},
+			{
+				"use":            "gs up [entry]",
+				"summary":        "switch to a child stack entry",
+				"args":           []string{"entry"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+			},
+			{
+				"use":            "gs down [steps]",
+				"summary":        "switch to a parent stack entry",
+				"args":           []string{"steps"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+			},
+			{
+				"use":            "gs top",
+				"summary":        "switch to the top descendant on the current stack path",
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+			},
+			{
+				"use":            "gs bottom",
+				"summary":        "switch to the root stack entry",
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+			},
+			{
+				"use":            "gs move <entry> --onto <parent|root>",
+				"summary":        "move a stack entry to a new parent",
+				"args":           []string{"entry"},
+				"flags":          []string{"--onto", "--order"},
+				"writes_stdout":  true,
+				"machine_output": []string{"stack_id", "status", "active_changeset_id", "root_changeset_id", "entries"},
+			},
+			{
+				"use":            "gs insert --parent <entry> --message <title>",
+				"summary":        "insert a new stack entry between a parent and the active child",
+				"flags":          []string{"--parent", "--message"},
+				"writes_stdout":  true,
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id", "web_url"},
+			},
+			{
+				"use":            "gs detach <entry>",
+				"summary":        "detach a stack entry into a new stack",
+				"args":           []string{"entry"},
+				"flags":          []string{"--message"},
+				"writes_stdout":  true,
+				"machine_output": []string{"stack_id", "status", "active_changeset_id", "root_changeset_id", "entries"},
+			},
+			{
 				"use":            "gs slice create <slice|account:slice>",
 				"summary":        "create a slice",
 				"aliases":        []string{"gs slices create <slice|account:slice>"},
@@ -8916,99 +10852,6 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"flags":          []string{"--yes"},
 				"writes_stdout":  true,
 				"machine_output": []string{"slice_id", "ref"},
-			},
-			{
-				"use":            "gs cs create",
-				"summary":        "create a changeset and first patchset from workspace edits",
-				"aliases":        []string{"gs changeset create"},
-				"flags":          []string{"--title"},
-				"writes_stdout":  true,
-				"machine_output": []string{"patchset_number", "changeset_id", "patchset_id"},
-			},
-			{
-				"use":            "gs cs update",
-				"summary":        "create a new patchset for the current changeset",
-				"aliases":        []string{"gs changeset update"},
-				"writes_stdout":  true,
-				"machine_output": []string{"patchset_number", "changeset_id", "patchset_id"},
-			},
-			{
-				"use":            "gs cs submit [changeset]",
-				"summary":        "submit the current or named changeset through server-side validation",
-				"aliases":        []string{"gs changeset submit [changeset]"},
-				"flags":          []string{"--no-watch", "--watch-timeout"},
-				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "commit_id", "target_ref", "new_ref_commit_id", "status"},
-			},
-			{
-				"use":            "gs cs status [changeset]",
-				"summary":        "show the current or named changeset status",
-				"aliases":        []string{"gs changeset status [changeset]"},
-				"flags":          []string{"--watch", "--watch-timeout"},
-				"writes_stdout":  true,
-				"machine_output": []string{"patchset_number", "changeset_id", "patchset_id", "status", "submit_blocked_reason", "submit_requirements"},
-			},
-			{
-				"use":            "gs cs approve <changeset>",
-				"summary":        "approve the current patchset of a changeset",
-				"aliases":        []string{"gs changeset approve <changeset>"},
-				"args":           []string{"changeset"},
-				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "subject_id"},
-			},
-			{
-				"use":            "gs cs check <changeset> <check-name>",
-				"summary":        "report a changeset check result",
-				"aliases":        []string{"gs changeset check <changeset> <check-name>"},
-				"args":           []string{"changeset", "check-name"},
-				"flags":          []string{"--status"},
-				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "check_name", "status"},
-			},
-			{
-				"use":            "gs cs show [changeset]",
-				"summary":        "show changeset details and patchsets",
-				"aliases":        []string{"gs changeset show [changeset]"},
-				"writes_stdout":  true,
-				"machine_output": []string{"id", "authoring_slice", "status", "patchsets", "current_patchset_number", "current_patchset_id"},
-			},
-			{
-				"use":            "gs cs explain [changeset]",
-				"summary":        "show changeset validation inputs, requirements, read set, and write set",
-				"aliases":        []string{"gs changeset explain [changeset]"},
-				"writes_stdout":  true,
-				"machine_output": []string{"id", "submit_requirements", "patchsets"},
-			},
-			{
-				"use":            "gs cs versions [changeset]",
-				"summary":        "list patchset versions for a changeset",
-				"aliases":        []string{"gs changeset versions [changeset]", "gs cs patchsets", "gs changeset patchsets"},
-				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchsets"},
-			},
-			{
-				"use":            "gs cs diff [changeset]",
-				"summary":        "show a server-side diff for one patchset or between two patchsets",
-				"aliases":        []string{"gs changeset diff [changeset]"},
-				"flags":          []string{"--patchset", "--from", "--to", "--name-only", "--stat"},
-				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "from_patchset_id", "to_patchset_id", "changed_paths", "diff"},
-			},
-			{
-				"use":            "gs cs list",
-				"summary":        "list changesets for a slice",
-				"aliases":        []string{"gs changeset list"},
-				"flags":          []string{"--slice", "--status", "--limit"},
-				"writes_stdout":  true,
-				"machine_output": []string{"changesets"},
-			},
-			{
-				"use":            "gs cs abandon [changeset]",
-				"summary":        "abandon the current or named draft changeset",
-				"aliases":        []string{"gs changeset abandon [changeset]"},
-				"flags":          []string{"--reason"},
-				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "status"},
 			},
 			{
 				"use":            "gs fs ls [remote-path]",
@@ -9443,6 +11286,15 @@ func parsePositiveDurationFlag(name, value string) (time.Duration, error) {
 		return 0, userError("invalid_duration", "invalid --"+name+" duration "+value, "Use a positive duration such as 10s, 2m, or 500ms.")
 	}
 	return duration, nil
+}
+
+func parsePositiveIntArg(name, value string) (int, error) {
+	trimmed := strings.TrimSpace(value)
+	parsed, err := strconv.Atoi(trimmed)
+	if err != nil || parsed <= 0 {
+		return 0, userError("invalid_args", "invalid "+name+" "+value, "Use a positive integer.")
+	}
+	return parsed, nil
 }
 
 func splitAliasExpansion(value string) ([]string, error) {

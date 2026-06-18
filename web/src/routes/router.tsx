@@ -20,6 +20,11 @@ import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceDetailPage } from "./SliceDetailPage";
 import { SliceSettingsPage } from "./SliceSettingsPage";
 import { SlicesPage } from "./SlicesPage";
+import { StackCreatePage } from "./StackCreatePage";
+import { StackDetailPage } from "./StackDetailPage";
+import { StackRestackPage } from "./StackRestackPage";
+import { StackSubmitPage } from "./StackSubmitPage";
+import { StacksPage } from "./StacksPage";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />
@@ -128,6 +133,36 @@ const changesetsRoute = createRoute({
   component: ChangesetsPage
 });
 
+const stacksRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "stacks",
+  component: StacksPage
+});
+
+const stackCreateRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "stacks/new",
+  component: StackCreatePage
+});
+
+const stackDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "stacks/$id",
+  component: StackDetailPage
+});
+
+const stackRestackRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "stacks/$id/restack",
+  component: StackRestackPage
+});
+
+const stackSubmitRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "stacks/$id/submit",
+  component: StackSubmitPage
+});
+
 // Primary, shareable changeset URL: /cs/<short changeset id>.
 const changesetShortRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -147,6 +182,11 @@ const routeTree = rootRoute.addChildren([
     sliceDetailRoute,
     sliceSettingsRoute,
     changesetsRoute,
+    stacksRoute,
+    stackCreateRoute,
+    stackDetailRoute,
+    stackRestackRoute,
+    stackSubmitRoute,
     changesetShortRoute
   ])
 ]);

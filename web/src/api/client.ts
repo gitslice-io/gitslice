@@ -3,7 +3,8 @@ export type RpcService =
   | "RepositoryService"
   | "BlobService"
   | "SliceService"
-  | "ChangesetService";
+  | "ChangesetService"
+  | "ChangesetStackService";
 
 export interface RpcErrorBody {
   code?: string | number;

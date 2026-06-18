@@ -182,9 +182,12 @@ func (x *Commit) GetChangedPaths() []string {
 }
 
 type ResolvePathRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CommitId      string                 `protobuf:"bytes,1,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
-	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	CommitId string                 `protobuf:"bytes,1,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
+	Path     string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	// Optional immutable tree root. When set, the read resolves against this tree
+	// instead of commit_id. This is used for patchset preview trees.
+	RootTreeId    string `protobuf:"bytes,3,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -229,6 +232,13 @@ func (x *ResolvePathRequest) GetCommitId() string {
 func (x *ResolvePathRequest) GetPath() string {
 	if x != nil {
 		return x.Path
+	}
+	return ""
+}
+
+func (x *ResolvePathRequest) GetRootTreeId() string {
+	if x != nil {
+		return x.RootTreeId
 	}
 	return ""
 }
@@ -285,7 +295,10 @@ type ListDirectoryRequest struct {
 	PageSize int32                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// Optional slice projection. When set, directory entries are filtered to
 	// paths included by this slice while preserving canonical global paths.
-	Slice         *SliceRef `protobuf:"bytes,5,opt,name=slice,proto3" json:"slice,omitempty"`
+	Slice *SliceRef `protobuf:"bytes,5,opt,name=slice,proto3" json:"slice,omitempty"`
+	// Optional immutable tree root. When set, the read resolves against this tree
+	// instead of commit_id. This is used for patchset preview trees.
+	RootTreeId    string `protobuf:"bytes,6,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -355,6 +368,13 @@ func (x *ListDirectoryRequest) GetSlice() *SliceRef {
 	return nil
 }
 
+func (x *ListDirectoryRequest) GetRootTreeId() string {
+	if x != nil {
+		return x.RootTreeId
+	}
+	return ""
+}
+
 type ListDirectoryResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Entries       []*TreeEntry           `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
@@ -408,11 +428,14 @@ func (x *ListDirectoryResponse) GetNextCursor() string {
 }
 
 type ReadFileRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CommitId      string                 `protobuf:"bytes,1,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
-	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	Offset        int64                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
-	Length        int64                  `protobuf:"varint,4,opt,name=length,proto3" json:"length,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	CommitId string                 `protobuf:"bytes,1,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
+	Path     string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	Offset   int64                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	Length   int64                  `protobuf:"varint,4,opt,name=length,proto3" json:"length,omitempty"`
+	// Optional immutable tree root. When set, the read resolves against this tree
+	// instead of commit_id. This is used for patchset preview trees.
+	RootTreeId    string `protobuf:"bytes,5,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -473,6 +496,13 @@ func (x *ReadFileRequest) GetLength() int64 {
 		return x.Length
 	}
 	return 0
+}
+
+func (x *ReadFileRequest) GetRootTreeId() string {
+	if x != nil {
+		return x.RootTreeId
+	}
+	return ""
 }
 
 type ReadFileResponse struct {
@@ -1260,27 +1290,33 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\amessage\x18\x05 \x01(\tR\amessage\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12#\n" +
-	"\rchanged_paths\x18\a \x03(\tR\fchangedPaths\"E\n" +
+	"\rchanged_paths\x18\a \x03(\tR\fchangedPaths\"g\n" +
 	"\x12ResolvePathRequest\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x12\n" +
-	"\x04path\x18\x02 \x01(\tR\x04path\"H\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\x12 \n" +
+	"\froot_tree_id\x18\x03 \x01(\tR\n" +
+	"rootTreeId\"H\n" +
 	"\x13ResolvePathResponse\x121\n" +
-	"\x05entry\x18\x01 \x01(\v2\x1b.gitslice.core.v1.TreeEntryR\x05entry\"\xae\x01\n" +
+	"\x05entry\x18\x01 \x01(\v2\x1b.gitslice.core.v1.TreeEntryR\x05entry\"\xd0\x01\n" +
 	"\x14ListDirectoryRequest\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x16\n" +
 	"\x06cursor\x18\x03 \x01(\tR\x06cursor\x12\x1b\n" +
 	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\x120\n" +
-	"\x05slice\x18\x05 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"o\n" +
+	"\x05slice\x18\x05 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12 \n" +
+	"\froot_tree_id\x18\x06 \x01(\tR\n" +
+	"rootTreeId\"o\n" +
 	"\x15ListDirectoryResponse\x125\n" +
 	"\aentries\x18\x01 \x03(\v2\x1b.gitslice.core.v1.TreeEntryR\aentries\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\"r\n" +
+	"nextCursor\"\x94\x01\n" +
 	"\x0fReadFileRequest\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x16\n" +
 	"\x06offset\x18\x03 \x01(\x03R\x06offset\x12\x16\n" +
-	"\x06length\x18\x04 \x01(\x03R\x06length\"a\n" +
+	"\x06length\x18\x04 \x01(\x03R\x06length\x12 \n" +
+	"\froot_tree_id\x18\x05 \x01(\tR\n" +
+	"rootTreeId\"a\n" +
 	"\x10ReadFileResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x03R\x06offset\x12!\n" +

@@ -54,7 +54,12 @@ type backend struct {
 	sliceDefinitionVersions map[string][]*corev1.SliceDefinitionVersion
 
 	changesets        map[string]*corev1.Changeset
+	stacks            map[string]*corev1.ChangesetStack
+	previewFiles      map[string]map[string]storage.FileEntry
+	previewDirs       map[string]map[string]struct{}
 	pendingAcceptedAt map[string]time.Time
+	pendingSequence   map[string]int64
+	nextPendingSeq    int64
 	approvals         map[string]map[string]struct{}
 	checkResults      map[string]map[string]string
 
@@ -97,7 +102,11 @@ func New() *Stores {
 		sliceRefs:               map[string]string{},
 		sliceDefinitionVersions: map[string][]*corev1.SliceDefinitionVersion{},
 		changesets:              map[string]*corev1.Changeset{},
+		stacks:                  map[string]*corev1.ChangesetStack{},
+		previewFiles:            map[string]map[string]storage.FileEntry{},
+		previewDirs:             map[string]map[string]struct{}{},
 		pendingAcceptedAt:       map[string]time.Time{},
+		pendingSequence:         map[string]int64{},
 		approvals:               map[string]map[string]struct{}{},
 		checkResults:            map[string]map[string]string{},
 		imports:                 map[string]*storage.GitImportRecord{},
@@ -684,6 +693,283 @@ func (s *BlobStore) GetByContentHash(ctx context.Context, hashes []string) ([]*c
 	return out, nil
 }
 
+func (s *ChangesetStore) CreateStack(ctx context.Context, subjectID string, req *corev1.CreateStackRequest) (*corev1.ChangesetStack, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if req.AuthoringSlice == nil {
+		return nil, storage.ErrInvalid
+	}
+	sliceID := s.b.sliceRefs[sliceRefKey(req.AuthoringSlice)]
+	if sliceID == "" {
+		return nil, storage.ErrNotFound
+	}
+	targetRef := req.TargetRef
+	if targetRef == "" {
+		targetRef = storage.DefaultTargetRef
+	}
+	baseCommitID := req.BaseCommitId
+	if baseCommitID == "" {
+		ref := s.b.refs[targetRef]
+		if ref == nil {
+			return nil, storage.ErrNotFound
+		}
+		baseCommitID = ref.CommitId
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	stack := &corev1.ChangesetStack{
+		Id:             s.b.nextIDLocked("stk"),
+		AuthoringSlice: cloneSliceRef(req.AuthoringSlice),
+		TargetRef:      targetRef,
+		BaseCommitId:   baseCommitID,
+		Title:          strings.TrimSpace(req.Title),
+		Status:         "open",
+		CreatedBy:      strings.TrimSpace(subjectID),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.b.stacks[stack.Id] = cloneStack(stack)
+	return cloneStack(stack), nil
+}
+
+func (s *ChangesetStore) GetStack(ctx context.Context, stackID string) (*corev1.ChangesetStack, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	stack := s.b.stacks[strings.TrimSpace(stackID)]
+	if stack == nil {
+		return nil, storage.ErrNotFound
+	}
+	return s.b.hydrateStackLocked(stack), nil
+}
+
+func (s *ChangesetStore) ListStacks(ctx context.Context, req *corev1.ListStacksRequest) ([]*corev1.ChangesetStack, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	limit := int(req.Limit)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	status := strings.TrimSpace(req.Status)
+	out := make([]*corev1.ChangesetStack, 0, len(s.b.stacks))
+	for _, stack := range s.b.stacks {
+		if req.AuthoringSlice != nil && !sameSliceRef(stack.AuthoringSlice, req.AuthoringSlice) {
+			continue
+		}
+		if status != "" && stack.Status != status {
+			continue
+		}
+		if status == "" && stack.Status == "closed" {
+			continue
+		}
+		out = append(out, s.b.hydrateStackLocked(stack))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].UpdatedAt == out[j].UpdatedAt {
+			return out[i].Id < out[j].Id
+		}
+		return out[i].UpdatedAt > out[j].UpdatedAt
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *ChangesetStore) SetStackStatus(ctx context.Context, stackID, stackStatus string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	stack := s.b.stacks[strings.TrimSpace(stackID)]
+	if stack == nil {
+		return storage.ErrNotFound
+	}
+	stackStatus = strings.TrimSpace(stackStatus)
+	if stackStatus == "" {
+		return storage.ErrInvalid
+	}
+	stack.Status = stackStatus
+	stack.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return nil
+}
+
+func (s *ChangesetStore) MoveStackEntry(ctx context.Context, req *corev1.MoveStackEntryRequest) (*corev1.ChangesetStack, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	stack := s.b.stacks[strings.TrimSpace(req.StackId)]
+	if stack == nil {
+		return nil, storage.ErrNotFound
+	}
+	entry := stackEntryByChangeset(stack, strings.TrimSpace(req.ChangesetId))
+	if entry == nil {
+		return nil, storage.ErrNotFound
+	}
+	if cs := s.b.changesets[entry.ChangesetId]; cs == nil {
+		return nil, storage.ErrNotFound
+	} else if cs.Status == "submitted" {
+		return nil, storage.ErrConflict
+	}
+	s.b.reorderStackSiblingLocked(stack, entry, req.SiblingOrder)
+	s.b.recomputeStackDisplayLocked(stack)
+	stack.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return s.b.hydrateStackLocked(stack), nil
+}
+
+func (s *ChangesetStore) ReparentStackEntry(ctx context.Context, req *corev1.ReparentStackEntryRequest) (*corev1.ChangesetStack, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	stack := s.b.stacks[strings.TrimSpace(req.StackId)]
+	if stack == nil {
+		return nil, storage.ErrNotFound
+	}
+	entry := stackEntryByChangeset(stack, strings.TrimSpace(req.ChangesetId))
+	if entry == nil {
+		return nil, storage.ErrNotFound
+	}
+	cs := s.b.changesets[entry.ChangesetId]
+	if cs == nil {
+		return nil, storage.ErrNotFound
+	}
+	if cs.Status == "submitted" {
+		return nil, storage.ErrConflict
+	}
+	newParentID := strings.TrimSpace(req.NewParentChangesetId)
+	newParentPatchsetID := strings.TrimSpace(req.NewParentPatchsetId)
+	if newParentID == "" {
+		if stack.RootEntryId != "" && stack.RootEntryId != entry.ChangesetId {
+			return nil, storage.ErrConflict
+		}
+		newParentPatchsetID = ""
+	} else {
+		parentEntry := stackEntryByChangeset(stack, newParentID)
+		parent := s.b.changesets[newParentID]
+		if parentEntry == nil || parent == nil {
+			return nil, storage.ErrInvalid
+		}
+		if s.b.stackEntryHasAncestorLocked(stack, newParentID, entry.ChangesetId) {
+			return nil, storage.ErrConflict
+		}
+		if newParentPatchsetID == "" {
+			newParentPatchsetID = parent.CurrentPatchsetId
+		}
+		if newParentPatchsetID == "" || newParentPatchsetID != parent.CurrentPatchsetId {
+			return nil, storage.ErrConflict
+		}
+	}
+	entry.ParentChangesetId = newParentID
+	entry.ParentPatchsetId = newParentPatchsetID
+	entry.State = "needs_restack"
+	cs.ParentChangesetId = newParentID
+	cs.ParentPatchsetId = newParentPatchsetID
+	if newParentID == "" {
+		cs.BaseKind = "commit"
+		stack.RootEntryId = entry.ChangesetId
+	} else {
+		cs.BaseKind = "patchset"
+	}
+	s.b.markSubtreeStateLocked(stack, entry.ChangesetId, "needs_restack")
+	s.b.reorderStackSiblingLocked(stack, entry, req.SiblingOrder)
+	s.b.recomputeStackDisplayLocked(stack)
+	stack.ActiveEntryId = entry.ChangesetId
+	stack.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return s.b.hydrateStackLocked(stack), nil
+}
+
+func (s *ChangesetStore) DetachStackEntry(ctx context.Context, subjectID string, req *corev1.DetachStackEntryRequest) (*corev1.DetachStackEntryResponse, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	source := s.b.stacks[strings.TrimSpace(req.StackId)]
+	if source == nil {
+		return nil, storage.ErrNotFound
+	}
+	entry := stackEntryByChangeset(source, strings.TrimSpace(req.ChangesetId))
+	if entry == nil {
+		return nil, storage.ErrNotFound
+	}
+	if entry.ParentChangesetId == "" {
+		return nil, storage.ErrInvalid
+	}
+	cs := s.b.changesets[entry.ChangesetId]
+	if cs == nil {
+		return nil, storage.ErrNotFound
+	}
+	if cs.Status == "submitted" {
+		return nil, storage.ErrConflict
+	}
+
+	descendants := s.b.stackSubtreeIDsLocked(source, entry.ChangesetId)
+	for id := range descendants {
+		child := s.b.changesets[id]
+		if child == nil {
+			return nil, storage.ErrNotFound
+		}
+		if child.Status == "submitted" {
+			return nil, storage.ErrConflict
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = strings.TrimSpace(cs.Title)
+	}
+	if title == "" {
+		title = strings.TrimSpace(source.Title)
+	}
+	if title == "" {
+		title = "Detached stack"
+	}
+	detached := &corev1.ChangesetStack{
+		Id:             s.b.nextIDLocked("stk"),
+		AuthoringSlice: cloneSliceRef(source.AuthoringSlice),
+		TargetRef:      source.TargetRef,
+		BaseCommitId:   source.BaseCommitId,
+		Title:          title,
+		Status:         "open",
+		ActiveEntryId:  entry.ChangesetId,
+		RootEntryId:    entry.ChangesetId,
+		CreatedBy:      strings.TrimSpace(subjectID),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	remaining := make([]*corev1.ChangesetStackEntry, 0, len(source.Entries)-len(descendants))
+	for _, candidate := range source.Entries {
+		if candidate == nil {
+			continue
+		}
+		if _, ok := descendants[candidate.ChangesetId]; ok {
+			next := cloneStackEntry(candidate)
+			next.StackId = detached.Id
+			next.State = "needs_restack"
+			if next.ChangesetId == entry.ChangesetId {
+				next.ParentChangesetId = ""
+				next.ParentPatchsetId = ""
+				next.SiblingOrder = 1
+			}
+			detached.Entries = append(detached.Entries, next)
+			if child := s.b.changesets[next.ChangesetId]; child != nil {
+				child.StackId = detached.Id
+				child.ParentChangesetId = next.ParentChangesetId
+				child.ParentPatchsetId = next.ParentPatchsetId
+				if next.ChangesetId == entry.ChangesetId {
+					child.BaseKind = "commit"
+				}
+			}
+			continue
+		}
+		remaining = append(remaining, candidate)
+	}
+	source.Entries = remaining
+	if _, ok := descendants[source.ActiveEntryId]; ok {
+		source.ActiveEntryId = source.RootEntryId
+	}
+	source.UpdatedAt = now
+	s.b.stacks[detached.Id] = detached
+	s.b.recomputeStackDisplayLocked(source)
+	s.b.recomputeStackDisplayLocked(detached)
+	return &corev1.DetachStackEntryResponse{
+		SourceStack:   s.b.hydrateStackLocked(source),
+		DetachedStack: s.b.hydrateStackLocked(detached),
+	}, nil
+}
+
 func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
@@ -718,6 +1004,11 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 		Status:         "draft",
 		Title:          req.Title,
 		Number:         number,
+	}
+	if req.StackId != "" {
+		if err := s.b.attachChangesetToStackLocked(cs, req.StackId, req.ParentChangesetId, req.ParentPatchsetId); err != nil {
+			return nil, err
+		}
 	}
 	storage.PopulateChangesetHandles(cs)
 	s.b.changesets[id] = cloneChangeset(cs)
@@ -769,6 +1060,25 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		return nil, storage.ErrConflict
 	}
 	next := clonePatchset(patchset)
+	if next.BaseKind == "" {
+		next.BaseKind = "commit"
+	}
+	if next.BaseKind == "patchset" && next.BasePatchsetId == "" {
+		next.BasePatchsetId = next.StackParentPatchsetId
+	}
+	if next.StackParentPatchsetId == "" && next.BaseKind == "patchset" {
+		next.StackParentPatchsetId = next.BasePatchsetId
+	}
+	baseTreeID, err := s.b.baseTreeForPatchsetLocked(next)
+	if err != nil {
+		return nil, err
+	}
+	next.BaseTreeId = baseTreeID
+	resultTreeID, err := s.b.previewTreeForPatchsetLocked(baseTreeID, next.FileEdits)
+	if err != nil {
+		return nil, err
+	}
+	next.ResultTreeId = resultTreeID
 	next.Id = s.b.nextIDLocked("ps")
 	next.ChangesetId = changesetID
 	next.Number = int64(len(cs.Patchsets) + 1)
@@ -781,6 +1091,19 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	cs.CurrentPatchsetId = next.Id
 	cs.CurrentPatchsetNumber = next.Number
 	cs.SubmitBlockedReason = ""
+	if cs.StackId != "" {
+		if stack := s.b.stacks[cs.StackId]; stack != nil {
+			if entry := stackEntryByChangeset(stack, cs.Id); entry != nil {
+				if next.BaseKind == "patchset" {
+					entry.ParentPatchsetId = next.BasePatchsetId
+					cs.ParentPatchsetId = next.BasePatchsetId
+				}
+				entry.State = "draft"
+				stack.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+			}
+		}
+		s.b.markChildrenStaleLocked(cs.StackId, cs.Id, next.Id)
+	}
 	return clonePatchset(next), nil
 }
 
@@ -852,9 +1175,21 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetId != expectedCurrentPatchsetID {
 		return nil, storage.ErrConflict
 	}
+	if cs.Status == "pending_publish" {
+		return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id}, nil
+	}
 	patchset := currentPatchset(cs)
 	if patchset == nil {
 		return nil, storage.ErrConflict
+	}
+	if cs.ParentChangesetId != "" {
+		parent := s.b.changesets[cs.ParentChangesetId]
+		if parent == nil {
+			return nil, storage.ErrNotFound
+		}
+		if parent.Status != "submitted" && parent.Status != "pending_publish" {
+			return nil, s.b.blockSubmitLocked(cs, "BlockedOnStackParent")
+		}
 	}
 	if len(patchset.Conflicts) > 0 {
 		return nil, fmt.Errorf("%w: unresolved patchset conflicts", storage.ErrConflict)
@@ -888,6 +1223,8 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	cs.Status = "pending_publish"
 	cs.SubmitBlockedReason = ""
 	s.b.pendingAcceptedAt[cs.Id] = time.Now()
+	s.b.nextPendingSeq++
+	s.b.pendingSequence[cs.Id] = s.b.nextPendingSeq
 	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id}, nil
 }
 
@@ -900,7 +1237,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 	if limit <= 0 {
 		limit = 128
 	}
-	for _, cs := range sortedChangesets(s.b.changesets) {
+	for _, cs := range s.b.pendingChangesetsInSequenceLocked() {
 		if published >= limit {
 			break
 		}
@@ -961,7 +1298,9 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			storage.ObservePublishLatency(time.Since(acceptedAt))
 			delete(s.b.pendingAcceptedAt, cs.Id)
 		}
+		delete(s.b.pendingSequence, cs.Id)
 		published++
+		s.b.refreshStackStatusLocked(cs.StackId)
 	}
 	return published, nil
 }
@@ -988,7 +1327,13 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 	if cs.Status == "submitted" {
 		return storage.ErrConflict
 	}
+	for _, child := range s.b.changesets {
+		if child != nil && child.ParentChangesetId == changesetID && child.Status != "submitted" && child.Status != "abandoned" {
+			return storage.ErrConflict
+		}
+	}
 	cs.Status = "abandoned"
+	s.b.refreshStackStatusLocked(cs.StackId)
 	return nil
 }
 
@@ -1003,6 +1348,57 @@ func (s *RepositoryStore) GetRef(ctx context.Context, name string) (*corev1.Ref,
 		return nil, storage.ErrNotFound
 	}
 	return cloneRef(ref), nil
+}
+
+func (s *RepositoryStore) RootTreeForCommit(ctx context.Context, commitID string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	commit := s.b.commits[commitID]
+	if commit == nil {
+		return "", storage.ErrNotFound
+	}
+	return commit.RootTreeId, nil
+}
+
+func (s *RepositoryStore) GetFileAtTree(ctx context.Context, rootTreeID, p string) (*storage.FileEntry, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	files, _, ok := s.b.filesAndDirsForRootTreeLocked(rootTreeID)
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	file, ok := files[p]
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	return cloneFile(file), nil
+}
+
+func (s *RepositoryStore) GetEntryAtTree(ctx context.Context, rootTreeID, p string) (*storage.TreeEntry, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	files, dirs, ok := s.b.filesAndDirsForRootTreeLocked(rootTreeID)
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	return treeEntryFromMemorySnapshot(files, dirs, p)
+}
+
+func (s *RepositoryStore) ListDirectoryAtTree(ctx context.Context, rootTreeID, p string) ([]storage.TreeEntry, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	files, dirs, ok := s.b.filesAndDirsForRootTreeLocked(rootTreeID)
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	entries := directoryEntries(p, files, dirs)
+	if len(entries) == 0 && p != "/" && !hasDescendant(files, p) && !hasDescendantDir(dirs, p) {
+		if _, ok := dirs[p]; ok {
+			return nil, nil
+		}
+		return nil, storage.ErrNotFound
+	}
+	return entries, nil
 }
 
 func (s *RepositoryStore) GetOrCreateGitImport(ctx context.Context, subjectID, source, mountPath string, sliceRef *corev1.SliceRef, sliceID, targetRef, mode string, totalCommits int) (*storage.GitImportRecord, error) {
@@ -1600,6 +1996,438 @@ func patchsetRequirementKey(changesetID, patchsetID string) string {
 	return changesetID + "\x00" + patchsetID
 }
 
+func (b *backend) hydrateStackLocked(stack *corev1.ChangesetStack) *corev1.ChangesetStack {
+	out := cloneStack(stack)
+	sort.Slice(out.Entries, func(i, j int) bool {
+		if out.Entries[i].DisplayOrder == out.Entries[j].DisplayOrder {
+			return out.Entries[i].ChangesetId < out.Entries[j].ChangesetId
+		}
+		return out.Entries[i].DisplayOrder < out.Entries[j].DisplayOrder
+	})
+	for _, entry := range out.Entries {
+		if cs := b.changesets[entry.ChangesetId]; cs != nil {
+			entry.Changeset = cloneChangeset(cs)
+			storage.PopulateChangesetHandles(entry.Changeset)
+		}
+	}
+	return out
+}
+
+func (b *backend) attachChangesetToStackLocked(cs *corev1.Changeset, stackID, parentChangesetID, parentPatchsetID string) error {
+	stack := b.stacks[strings.TrimSpace(stackID)]
+	if stack == nil {
+		return storage.ErrNotFound
+	}
+	if !sameSliceRef(stack.AuthoringSlice, cs.AuthoringSlice) || stack.TargetRef != cs.TargetRef {
+		return storage.ErrInvalid
+	}
+	parentChangesetID = strings.TrimSpace(parentChangesetID)
+	parentPatchsetID = strings.TrimSpace(parentPatchsetID)
+
+	var parentEntry *corev1.ChangesetStackEntry
+	if parentChangesetID != "" {
+		parent := b.changesets[parentChangesetID]
+		if parent == nil || parent.StackId != stack.Id {
+			return storage.ErrInvalid
+		}
+		parentEntry = stackEntryByChangeset(stack, parentChangesetID)
+		if parentEntry == nil {
+			return storage.ErrInvalid
+		}
+		if parentPatchsetID == "" {
+			parentPatchsetID = parent.CurrentPatchsetId
+		}
+		if parentPatchsetID == "" || parentPatchsetID != parent.CurrentPatchsetId {
+			return storage.ErrConflict
+		}
+	} else if stack.RootEntryId != "" {
+		return storage.ErrConflict
+	}
+
+	displayOrder := int64(1)
+	siblingOrder := int64(1)
+	for _, entry := range stack.Entries {
+		if entry.DisplayOrder >= displayOrder {
+			displayOrder = entry.DisplayOrder + 1
+		}
+		if entry.ParentChangesetId == parentChangesetID && entry.SiblingOrder >= siblingOrder {
+			siblingOrder = entry.SiblingOrder + 1
+		}
+	}
+	depth := int64(0)
+	if parentEntry != nil {
+		depth = parentEntry.Depth + 1
+	}
+	entry := &corev1.ChangesetStackEntry{
+		StackId:           stack.Id,
+		ChangesetId:       cs.Id,
+		ParentChangesetId: parentChangesetID,
+		ParentPatchsetId:  parentPatchsetID,
+		SiblingOrder:      siblingOrder,
+		DisplayOrder:      displayOrder,
+		Depth:             depth,
+		State:             "draft",
+	}
+	cs.StackId = stack.Id
+	cs.StackOrder = displayOrder
+	cs.StackDepth = depth
+	cs.SiblingOrder = siblingOrder
+	cs.ParentChangesetId = parentChangesetID
+	cs.ParentPatchsetId = parentPatchsetID
+	if parentChangesetID == "" {
+		cs.BaseKind = "commit"
+		stack.RootEntryId = cs.Id
+	} else {
+		cs.BaseKind = "patchset"
+	}
+	stack.ActiveEntryId = cs.Id
+	stack.Entries = append(stack.Entries, cloneStackEntry(entry))
+	stack.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return nil
+}
+
+func stackEntryByChangeset(stack *corev1.ChangesetStack, changesetID string) *corev1.ChangesetStackEntry {
+	if stack == nil {
+		return nil
+	}
+	for _, entry := range stack.Entries {
+		if entry.ChangesetId == changesetID {
+			return entry
+		}
+	}
+	return nil
+}
+
+func (b *backend) markChildrenStaleLocked(stackID, parentChangesetID, newParentPatchsetID string) {
+	stack := b.stacks[stackID]
+	if stack == nil {
+		return
+	}
+	for _, entry := range stack.Entries {
+		if entry.ParentChangesetId == parentChangesetID && entry.ParentPatchsetId != "" && entry.ParentPatchsetId != newParentPatchsetID {
+			entry.State = "needs_restack"
+		}
+	}
+}
+
+func (b *backend) markSubtreeStateLocked(stack *corev1.ChangesetStack, rootChangesetID, state string) {
+	descendants := map[string]struct{}{rootChangesetID: {}}
+	changed := true
+	for changed {
+		changed = false
+		for _, entry := range stack.Entries {
+			if entry == nil {
+				continue
+			}
+			if _, ok := descendants[entry.ChangesetId]; ok {
+				continue
+			}
+			if _, ok := descendants[entry.ParentChangesetId]; ok {
+				descendants[entry.ChangesetId] = struct{}{}
+				changed = true
+			}
+		}
+	}
+	for _, entry := range stack.Entries {
+		if _, ok := descendants[entry.ChangesetId]; ok {
+			entry.State = state
+		}
+	}
+}
+
+func (b *backend) stackSubtreeIDsLocked(stack *corev1.ChangesetStack, rootChangesetID string) map[string]struct{} {
+	descendants := map[string]struct{}{rootChangesetID: {}}
+	changed := true
+	for changed {
+		changed = false
+		for _, entry := range stack.Entries {
+			if entry == nil {
+				continue
+			}
+			if _, ok := descendants[entry.ChangesetId]; ok {
+				continue
+			}
+			if _, ok := descendants[entry.ParentChangesetId]; ok {
+				descendants[entry.ChangesetId] = struct{}{}
+				changed = true
+			}
+		}
+	}
+	return descendants
+}
+
+func (b *backend) refreshStackStatusLocked(stackID string) {
+	if stackID == "" {
+		return
+	}
+	stack := b.stacks[stackID]
+	if stack == nil || len(stack.Entries) == 0 {
+		return
+	}
+	for _, entry := range stack.Entries {
+		if entry == nil {
+			continue
+		}
+		cs := b.changesets[entry.ChangesetId]
+		if cs == nil || (cs.Status != "submitted" && cs.Status != "abandoned") {
+			return
+		}
+	}
+	stack.Status = "closed"
+	stack.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+}
+
+func (b *backend) stackEntryHasAncestorLocked(stack *corev1.ChangesetStack, changesetID, ancestorID string) bool {
+	for changesetID != "" {
+		if changesetID == ancestorID {
+			return true
+		}
+		entry := stackEntryByChangeset(stack, changesetID)
+		if entry == nil {
+			return false
+		}
+		changesetID = entry.ParentChangesetId
+	}
+	return false
+}
+
+func (b *backend) reorderStackSiblingLocked(stack *corev1.ChangesetStack, moved *corev1.ChangesetStackEntry, requestedOrder int64) {
+	if moved == nil {
+		return
+	}
+	siblings := make([]*corev1.ChangesetStackEntry, 0)
+	for _, entry := range stack.Entries {
+		if entry == nil || entry.ChangesetId == moved.ChangesetId || entry.ParentChangesetId != moved.ParentChangesetId {
+			continue
+		}
+		siblings = append(siblings, entry)
+	}
+	sort.Slice(siblings, func(i, j int) bool {
+		if siblings[i].SiblingOrder == siblings[j].SiblingOrder {
+			return siblings[i].ChangesetId < siblings[j].ChangesetId
+		}
+		return siblings[i].SiblingOrder < siblings[j].SiblingOrder
+	})
+	if requestedOrder <= 0 {
+		requestedOrder = int64(len(siblings) + 1)
+	}
+	index := int(requestedOrder - 1)
+	if index < 0 {
+		index = 0
+	}
+	if index > len(siblings) {
+		index = len(siblings)
+	}
+	siblings = append(siblings, nil)
+	copy(siblings[index+1:], siblings[index:])
+	siblings[index] = moved
+	for i, entry := range siblings {
+		entry.SiblingOrder = int64(i + 1)
+		if cs := b.changesets[entry.ChangesetId]; cs != nil {
+			cs.SiblingOrder = entry.SiblingOrder
+		}
+	}
+}
+
+func (b *backend) recomputeStackDisplayLocked(stack *corev1.ChangesetStack) {
+	children := map[string][]*corev1.ChangesetStackEntry{}
+	var roots []*corev1.ChangesetStackEntry
+	for _, entry := range stack.Entries {
+		if entry == nil {
+			continue
+		}
+		if entry.ParentChangesetId == "" {
+			roots = append(roots, entry)
+		} else {
+			children[entry.ParentChangesetId] = append(children[entry.ParentChangesetId], entry)
+		}
+	}
+	sortStackEntriesBySibling(roots)
+	for parent := range children {
+		sortStackEntriesBySibling(children[parent])
+	}
+	var order int64
+	var walk func(entries []*corev1.ChangesetStackEntry, depth int64)
+	walk = func(entries []*corev1.ChangesetStackEntry, depth int64) {
+		for _, entry := range entries {
+			order++
+			entry.DisplayOrder = order
+			entry.Depth = depth
+			if cs := b.changesets[entry.ChangesetId]; cs != nil {
+				cs.StackOrder = order
+				cs.StackDepth = depth
+				cs.ParentChangesetId = entry.ParentChangesetId
+				cs.ParentPatchsetId = entry.ParentPatchsetId
+			}
+			walk(children[entry.ChangesetId], depth+1)
+		}
+	}
+	walk(roots, 0)
+}
+
+func sortStackEntriesBySibling(entries []*corev1.ChangesetStackEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].SiblingOrder == entries[j].SiblingOrder {
+			return entries[i].ChangesetId < entries[j].ChangesetId
+		}
+		return entries[i].SiblingOrder < entries[j].SiblingOrder
+	})
+}
+
+func (b *backend) baseTreeForPatchsetLocked(patchset *corev1.Patchset) (string, error) {
+	if patchset.BaseTreeId != "" {
+		return patchset.BaseTreeId, nil
+	}
+	if patchset.BaseKind == "patchset" {
+		basePatchset := b.patchsetByIDLocked(patchset.BasePatchsetId)
+		if basePatchset == nil || basePatchset.ResultTreeId == "" {
+			return "", storage.ErrConflict
+		}
+		return basePatchset.ResultTreeId, nil
+	}
+	commit := b.commits[patchset.BaseCommitId]
+	if commit == nil {
+		return "", storage.ErrNotFound
+	}
+	return commit.RootTreeId, nil
+}
+
+func (b *backend) patchsetByIDLocked(patchsetID string) *corev1.Patchset {
+	for _, cs := range b.changesets {
+		for _, patchset := range cs.Patchsets {
+			if patchset.Id == patchsetID {
+				return patchset
+			}
+		}
+	}
+	return nil
+}
+
+func (b *backend) previewTreeForPatchsetLocked(baseTreeID string, edits []*corev1.FileEdit) (string, error) {
+	files, dirs, ok := b.filesAndDirsForRootTreeLocked(baseTreeID)
+	if !ok {
+		return "", storage.ErrNotFound
+	}
+	for _, edit := range edits {
+		if edit == nil {
+			continue
+		}
+		switch edit.Op {
+		case "delete":
+			deleteMemoryPath(files, dirs, edit.Path)
+		case "rename":
+			renameMemoryPath(files, dirs, edit.OldPath, edit.Path)
+		case "mkdir":
+			ensureMemoryDir(dirs, edit.Path)
+		default:
+			blob := b.blobs[edit.BlobId]
+			contentHash := edit.ContentHash
+			size := int64(0)
+			if blob != nil {
+				contentHash = blob.ContentHash
+				size = blob.Size
+			}
+			if contentHash == "" {
+				return "", storage.ErrNotFound
+			}
+			ensureMemoryParentDirs(dirs, edit.Path)
+			files[edit.Path] = storage.FileEntry{Path: edit.Path, BlobID: edit.BlobId, ContentHash: contentHash, Mode: edit.Mode, Size: size}
+		}
+	}
+	if len(edits) == 0 {
+		return baseTreeID, nil
+	}
+	treeID := b.nextIDLocked("mem_tree_preview")
+	b.previewFiles[treeID] = files
+	b.previewDirs[treeID] = dirs
+	return treeID, nil
+}
+
+func (b *backend) filesAndDirsForRootTreeLocked(rootTreeID string) (map[string]storage.FileEntry, map[string]struct{}, bool) {
+	if files, ok := b.previewFiles[rootTreeID]; ok {
+		return cloneFileMap(files), cloneDirSet(b.previewDirs[rootTreeID]), true
+	}
+	for commitID, commit := range b.commits {
+		if commit != nil && commit.RootTreeId == rootTreeID {
+			return cloneFileMap(b.commitFiles[commitID]), cloneDirSet(b.commitDirs[commitID]), true
+		}
+	}
+	return nil, nil, false
+}
+
+func deleteMemoryPath(files map[string]storage.FileEntry, dirs map[string]struct{}, p string) {
+	delete(files, p)
+	delete(dirs, p)
+	for filePath := range files {
+		if pathContains(p, filePath) {
+			delete(files, filePath)
+		}
+	}
+	for dirPath := range dirs {
+		if pathContains(p, dirPath) {
+			delete(dirs, dirPath)
+		}
+	}
+}
+
+func renameMemoryPath(files map[string]storage.FileEntry, dirs map[string]struct{}, oldPath, newPath string) {
+	if file, ok := files[oldPath]; ok {
+		delete(files, oldPath)
+		file.Path = newPath
+		files[newPath] = file
+		ensureMemoryParentDirs(dirs, newPath)
+	}
+	if _, ok := dirs[oldPath]; ok {
+		delete(dirs, oldPath)
+		dirs[newPath] = struct{}{}
+	}
+	for filePath, file := range cloneFileMap(files) {
+		if !pathContains(oldPath, filePath) || filePath == oldPath {
+			continue
+		}
+		delete(files, filePath)
+		renamed := strings.TrimRight(newPath, "/") + strings.TrimPrefix(filePath, strings.TrimRight(oldPath, "/"))
+		file.Path = renamed
+		files[renamed] = file
+	}
+	for dirPath := range cloneDirSet(dirs) {
+		if !pathContains(oldPath, dirPath) || dirPath == oldPath {
+			continue
+		}
+		delete(dirs, dirPath)
+		renamed := strings.TrimRight(newPath, "/") + strings.TrimPrefix(dirPath, strings.TrimRight(oldPath, "/"))
+		dirs[renamed] = struct{}{}
+	}
+	ensureMemoryParentDirs(dirs, newPath)
+}
+
+func ensureMemoryDir(dirs map[string]struct{}, p string) {
+	if p == "" || p == "/" || p == "." {
+		return
+	}
+	dirs[p] = struct{}{}
+	ensureMemoryParentDirs(dirs, p)
+}
+
+func ensureMemoryParentDirs(dirs map[string]struct{}, p string) {
+	for parent := path.Dir(p); parent != "" && parent != "/" && parent != "."; parent = path.Dir(parent) {
+		dirs[parent] = struct{}{}
+	}
+}
+
+func treeEntryFromMemorySnapshot(files map[string]storage.FileEntry, dirs map[string]struct{}, p string) (*storage.TreeEntry, error) {
+	if file, ok := files[p]; ok {
+		return &storage.TreeEntry{Path: file.Path, Name: path.Base(file.Path), Kind: "file", Mode: file.Mode, BlobID: file.BlobID, ContentHash: file.ContentHash, Size: file.Size}, nil
+	}
+	if p == "/" || hasDescendant(files, p) || hasDescendantDir(dirs, p) {
+		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: "mem_tree_" + strings.Trim(p, "/")}, nil
+	}
+	if _, ok := dirs[p]; ok {
+		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: "mem_tree_" + strings.Trim(p, "/")}, nil
+	}
+	return nil, storage.ErrNotFound
+}
+
 func submitRequirementsForMemorySlice(slice *corev1.Slice) *corev1.SubmitRequirements {
 	req := &corev1.SubmitRequirements{}
 	if slice == nil {
@@ -1761,6 +2589,29 @@ func sortedChangesets(changesets map[string]*corev1.Changeset) []*corev1.Changes
 	return out
 }
 
+func (b *backend) pendingChangesetsInSequenceLocked() []*corev1.Changeset {
+	out := make([]*corev1.Changeset, 0, len(b.changesets))
+	for _, cs := range b.changesets {
+		if cs != nil && cs.Status == "pending_publish" {
+			out = append(out, cs)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		leftSeq := b.pendingSequence[out[i].Id]
+		rightSeq := b.pendingSequence[out[j].Id]
+		if leftSeq == rightSeq {
+			leftAt := b.pendingAcceptedAt[out[i].Id]
+			rightAt := b.pendingAcceptedAt[out[j].Id]
+			if leftAt.Equal(rightAt) {
+				return out[i].Id < out[j].Id
+			}
+			return leftAt.Before(rightAt)
+		}
+		return leftSeq < rightSeq
+	})
+	return out
+}
+
 func currentPatchset(cs *corev1.Changeset) *corev1.Patchset {
 	for _, patchset := range cs.Patchsets {
 		if patchset.Id == cs.CurrentPatchsetId {
@@ -1870,6 +2721,28 @@ func clonePatchset(in *corev1.Patchset) *corev1.Patchset {
 		req.RequiredChecks = append([]string(nil), in.SubmitRequirements.RequiredChecks...)
 		req.PathLockIds = append([]string(nil), in.SubmitRequirements.PathLockIds...)
 		out.SubmitRequirements = &req
+	}
+	return &out
+}
+
+func cloneStackEntry(in *corev1.ChangesetStackEntry) *corev1.ChangesetStackEntry {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Changeset = cloneChangeset(in.Changeset)
+	return &out
+}
+
+func cloneStack(in *corev1.ChangesetStack) *corev1.ChangesetStack {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.AuthoringSlice = cloneSliceRef(in.AuthoringSlice)
+	out.Entries = make([]*corev1.ChangesetStackEntry, 0, len(in.Entries))
+	for _, entry := range in.Entries {
+		out.Entries = append(out.Entries, cloneStackEntry(entry))
 	}
 	return &out
 }

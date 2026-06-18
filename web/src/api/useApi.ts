@@ -7,6 +7,7 @@ import type {
   ApproveChangesetRequest,
   ApproveChangesetResponse,
   Changeset,
+  ChangesetStack,
   CheckUsernameAvailableRequest,
   CheckUsernameAvailableResponse,
   ChooseUsernameRequest,
@@ -14,8 +15,12 @@ import type {
   Commit,
   CompleteCliLoginRequest,
   CompleteCliLoginResponse,
+  AddStackEntryRequest,
   CreateChangesetRequest,
+  CreateStackRequest,
   CreateSliceRequest,
+  DetachStackEntryRequest,
+  DetachStackEntryResponse,
   DiffChangesetRequest,
   DiffChangesetResponse,
   Empty,
@@ -27,6 +32,7 @@ import type {
   GetCommitRequest,
   GetRefRequest,
   GetSliceRequest,
+  GetStackRequest,
   ListCommitsRequest,
   ListCommitsResponse,
   ListChangesetsRequest,
@@ -35,14 +41,22 @@ import type {
   ListDirectoryResponse,
   ListSlicesRequest,
   ListSlicesResponse,
+  ListStacksRequest,
+  ListStacksResponse,
+  MoveStackEntryRequest,
   Patchset,
   ReadFileRequest,
   ReadFileResponse,
+  ReparentStackEntryRequest,
   Ref,
+  RestackRequest,
+  RestackResponse,
   ResolvePathRequest,
   ResolvePathResponse,
   ResolveSliceRequest,
   Slice,
+  SubmitStackRequest,
+  SubmitStackResponse,
   SubmitChangesetRequest,
   SubmitChangesetResponse,
   UpdateChangesetRequest,
@@ -100,6 +114,19 @@ export interface ApiClient {
     request: SubmitChangesetRequest
   ): Promise<SubmitChangesetResponse>;
   abandonChangeset(request: AbandonChangesetRequest): Promise<Empty>;
+  createStack(request: CreateStackRequest): Promise<ChangesetStack>;
+  getStack(request: GetStackRequest): Promise<ChangesetStack>;
+  listStacks(request: ListStacksRequest): Promise<ListStacksResponse>;
+  addStackEntry(request: AddStackEntryRequest): Promise<Changeset>;
+  moveStackEntry(request: MoveStackEntryRequest): Promise<ChangesetStack>;
+  reparentStackEntry(
+    request: ReparentStackEntryRequest
+  ): Promise<ChangesetStack>;
+  detachStackEntry(
+    request: DetachStackEntryRequest
+  ): Promise<DetachStackEntryResponse>;
+  restack(request: RestackRequest): Promise<RestackResponse>;
+  submitStack(request: SubmitStackRequest): Promise<SubmitStackResponse>;
 }
 
 export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
@@ -265,6 +292,60 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
         invoke<AbandonChangesetRequest, Empty>(
           "ChangesetService",
           "AbandonChangeset",
+          request
+        ),
+      createStack: (request) =>
+        invoke<CreateStackRequest, ChangesetStack>(
+          "ChangesetStackService",
+          "CreateStack",
+          request
+        ),
+      getStack: (request) =>
+        invoke<GetStackRequest, ChangesetStack>(
+          "ChangesetStackService",
+          "GetStack",
+          request
+        ),
+      listStacks: (request) =>
+        invoke<ListStacksRequest, ListStacksResponse>(
+          "ChangesetStackService",
+          "ListStacks",
+          request
+        ),
+      addStackEntry: (request) =>
+        invoke<AddStackEntryRequest, Changeset>(
+          "ChangesetStackService",
+          "AddStackEntry",
+          request
+        ),
+      moveStackEntry: (request) =>
+        invoke<MoveStackEntryRequest, ChangesetStack>(
+          "ChangesetStackService",
+          "MoveStackEntry",
+          request
+        ),
+      reparentStackEntry: (request) =>
+        invoke<ReparentStackEntryRequest, ChangesetStack>(
+          "ChangesetStackService",
+          "ReparentStackEntry",
+          request
+        ),
+      detachStackEntry: (request) =>
+        invoke<DetachStackEntryRequest, DetachStackEntryResponse>(
+          "ChangesetStackService",
+          "DetachStackEntry",
+          request
+        ),
+      restack: (request) =>
+        invoke<RestackRequest, RestackResponse>(
+          "ChangesetStackService",
+          "Restack",
+          request
+        ),
+      submitStack: (request) =>
+        invoke<SubmitStackRequest, SubmitStackResponse>(
+          "ChangesetStackService",
+          "SubmitStack",
           request
         )
     }),
