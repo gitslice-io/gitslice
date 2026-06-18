@@ -4851,3 +4851,121 @@ go test ./...
 ```
 
 All listed commands passed.
+
+## 2026-06-17: Stacked Changesets Design Note
+
+Request:
+
+- document the detailed CLI, server, and web changes needed to support stacked
+  changesets in the same workspace
+
+Decisions:
+
+- added `design/15_stacked_changesets.md` as a forward design amendment instead
+  of rewriting the older workspace and web docs in place
+- kept stacks limited to one authoring slice and one target ref, preserving the
+  current one-slice workspace and no cross-slice changeset rules
+- modeled stack entries as normal changesets, not patchsets, so every entry keeps
+  independent review, approval, check, submit, and audit state
+- defined dependency links as ordering and replay metadata only; stack submit is
+  ordered but not atomic, and partial submit must be visible to CLI and web users
+- required patchset preview trees through `base_tree_id` and `result_tree_id` so
+  child entries can use a parent patchset result as their base without turning
+  Git commits into the internal source of truth
+
+Verification:
+
+```bash
+git diff --check
+```
+
+## 2026-06-17: Stacked Changeset Tree and Graphite Lessons
+
+Request:
+
+- update the stacked changesets design to support a changeset tree now and
+  identify what Gitslice should learn from Graphite's stacked PR workflow
+
+Decisions:
+
+- changed `design/15_stacked_changesets.md` from linear-stack semantics to a
+  rooted same-slice, same-target-ref changeset tree
+- kept the MVP to a tree rather than a general DAG: one parent per non-root
+  entry, multiple children per parent, no cycles, and no multi-parent merges
+- replaced flat `position` semantics with `sibling_order`, `display_order`, and
+  `depth` so CLI and web clients can render parent/child structure directly
+- added explicit `gs stack child`, `gs stack move`, and `gs stack insert`
+  workflows, with subtree restack after parent changes or reparenting
+- updated submit to operate on a selected subtree in parent-before-child order
+  while preserving partial-submit visibility for accepted parents and siblings
+- added a "Lessons From Graphite" section covering atomic review units, ambiguous
+  child navigation, recursive restack, move/insert operations, stack
+  visualization, partial landing, and stack-aware merge queue behavior
+
+Verification:
+
+```bash
+git diff --check
+```
+
+## 2026-06-18: Stacked Changeset CLI Cleanup and Handle Format
+
+Request:
+
+- improve the stacked changeset CLI design without preserving deprecated
+  workflow compatibility, keep `gs submit` instead of introducing `gs land`, and
+  update examples to the current changeset handle format
+
+Decisions:
+
+- made the canonical stack workflow use top-level commands such as `gs create`,
+  `gs modify`, `gs submit`, `gs restack`, `gs switch`, `gs move`, and
+  `gs insert`, instead of keeping the older `gs cs ...` namespace for the normal
+  edit loop
+- removed the silent compatibility path for old single-current workspace
+  metadata; pre-stack `.gs/state.json` files should fail fast with a clear
+  unsupported-format message
+- kept `gs submit` as the final user action because Gitslice submit is native
+  source-graph admission, while `gs create` and `gs modify` already create or
+  update server-visible changesets and patchsets
+- corrected stacked changeset examples to use `account:slug@number` handles,
+  for example `acme:payment@42`, instead of the legacy
+  `account/slug@number` spelling
+
+Verification:
+
+```bash
+git diff --check
+LC_ALL=C rg -n "[^\x00-\x7F]" design/15_stacked_changesets.md
+rg -n "[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+@[0-9]+" design/15_stacked_changesets.md
+```
+
+## 2026-06-18: Stacked Changeset Open Questions Resolved
+
+Request:
+
+- update the stacked changeset design with concrete answers to the remaining
+  open questions
+
+Decisions:
+
+- stacks remain durable named objects for audit, links, and web review history,
+  but automatically move to `closed` when every entry is terminal
+- `gs sync` should auto-restack when the target ref moved cleanly and there are
+  no unsnapshotted local edits, while stopping on conflicts or validation
+  failures
+- required checks run per entry for the MVP; future stack-level check reuse is
+  allowed only when dependency analysis proves the checked tree covers the
+  satisfied entries
+- parent abandon must be explicit and must not auto-detach descendants; callers
+  have to abandon, detach, move, or restack descendants first
+- `gs move` moves one selected subtree by default; multiple-sibling moves require
+  a future explicit mode
+
+Verification:
+
+```bash
+git diff --check
+LC_ALL=C rg -n "[^\x00-\x7F]" design/15_stacked_changesets.md
+rg -n "gs stack (restack|move)|Open Questions|account/slug@number" design/15_stacked_changesets.md
+```
