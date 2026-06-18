@@ -4907,3 +4907,35 @@ Verification:
 ```bash
 git diff --check
 ```
+
+## 2026-06-18: Stacked Changeset CLI Cleanup and Handle Format
+
+Request:
+
+- improve the stacked changeset CLI design without preserving deprecated
+  workflow compatibility, keep `gs submit` instead of introducing `gs land`, and
+  update examples to the current changeset handle format
+
+Decisions:
+
+- made the canonical stack workflow use top-level commands such as `gs create`,
+  `gs modify`, `gs submit`, `gs restack`, `gs switch`, `gs move`, and
+  `gs insert`, instead of keeping the older `gs cs ...` namespace for the normal
+  edit loop
+- removed the silent compatibility path for old single-current workspace
+  metadata; pre-stack `.gs/state.json` files should fail fast with a clear
+  unsupported-format message
+- kept `gs submit` as the final user action because Gitslice submit is native
+  source-graph admission, while `gs create` and `gs modify` already create or
+  update server-visible changesets and patchsets
+- corrected stacked changeset examples to use `account:slug@number` handles,
+  for example `acme:payment@42`, instead of the legacy
+  `account/slug@number` spelling
+
+Verification:
+
+```bash
+git diff --check
+LC_ALL=C rg -n "[^\x00-\x7F]" design/15_stacked_changesets.md
+rg -n "[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+@[0-9]+" design/15_stacked_changesets.md
+```

@@ -24,10 +24,10 @@ workspace, including sibling branches under the same parent, for example:
 ```text
 refs/global/main at A
 
-acme/payment@42: introduce payment parser
-  acme/payment@43: use parser in payment API
-    acme/payment@45: update tests for API behavior
-  acme/payment@44: expose parser metrics
+acme:payment@42: introduce payment parser
+  acme:payment@43: use parser in payment API
+    acme:payment@45: update tests for API behavior
+  acme:payment@44: expose parser metrics
 ```
 
 The workspace materialized tree for a selected leaf follows only that entry's
@@ -183,9 +183,11 @@ service ChangesetStackService {
 }
 ```
 
-The existing `ChangesetService` remains valid. A stack-aware client can create
-and update entries through the new service, while older clients can continue to
-operate on individual changesets.
+`ChangesetService` remains the object-level service for direct changeset reads,
+diffs, approval/check state, and low-level administrative mutations.
+Stack-creating and stack-mutating client workflows should go through
+`ChangesetStackService`; do not preserve separate legacy create/update flows for
+normal product use.
 
 ### 4.2 Storage
 
@@ -421,7 +423,7 @@ status. Individual changesets should keep normal states such as `draft`,
 
 ### 5.1 Workspace State
 
-Replace the single-current changeset shape with stack-aware state:
+Use stack-aware workspace state as the only supported shape:
 
 ```json
 {
@@ -432,7 +434,7 @@ Replace the single-current changeset shape with stack-aware state:
   "stack_entries": [
     {
       "changeset_id": "cs_...",
-      "changeset_handle": "acme/payment@42",
+      "changeset_handle": "acme:payment@42",
       "patchset_id": "ps_...",
       "patchset_number": 1,
       "parent_changeset_id": "",
@@ -445,52 +447,76 @@ Replace the single-current changeset shape with stack-aware state:
 }
 ```
 
-The CLI should read older `.gs/state.json` files and migrate in memory:
-
-```text
-current_changeset_id -> active_changeset_id
-current_patchset_id  -> active_patchset_id
-no active_stack_id   -> single-entry implicit stack
-```
-
 The workspace still has exactly one bound slice. Stack state does not change
 slice binding.
 
-### 5.2 Commands
+There is no compatibility promise for older single-current `.gs/state.json`
+files. A workspace using the old shape should fail fast with a clear message:
 
-Add stack commands:
-
-```bash
-gs stack create --title <title>
-gs stack list [--status <status>]
-gs stack show [stack]
-gs stack switch <changeset>
-gs stack child [--parent <changeset>] --title <title>
-gs stack move <changeset> --onto <parent|root>
-gs stack insert --parent <changeset> --title <title>
-gs stack restack [--from <changeset>] [--all-children]
-gs stack submit [--from <changeset>] [--subtree] [--no-watch] [--watch-timeout <duration>]
-gs stack detach <changeset>
+```text
+workspace metadata is from an unsupported pre-stack format
+run `gs init` in a new directory or use a one-time migration tool
 ```
 
-Keep changeset commands usable:
+The CLI should not silently reinterpret old metadata. Hidden migration paths make
+stack behavior hard to reason about and create ambiguous local state.
+
+### 5.2 Canonical Commands
+
+The primary workflow should be small and Graphite-like:
 
 ```bash
-gs cs create --title <title>          # create first stack entry when no stack exists
-gs cs create --stack --title <title>  # create child of current stack entry
-gs cs update                          # update active stack entry
-gs cs submit [changeset]              # submit one entry, with parent checks
-gs cs status [changeset]
-gs cs diff [changeset]
+gs create --message <title> [--all] [--parent <entry>] [--sibling] [--root]
+gs modify [--all] [--message <title>] [--no-restack]
+gs submit [--stack] [--subtree <entry>] [--no-watch] [--watch-timeout <duration>]
+gs sync
+gs restack [entry] [--children|--all]
+gs switch [entry]
+gs up [entry]
+gs down [steps]
+gs top
+gs bottom
+gs stack
+gs move <entry> --onto <parent|root>
+gs insert --parent <entry> --message <title>
+gs detach <entry>
 ```
 
-The CLI should not make `gs cs create` silently create a child when an active
-entry exists. Require `--stack` or `gs stack child` so users do not accidentally
-split a patchset revision into a dependent changeset.
+Command intent:
 
-### 5.3 Create And Child Flow
+- `gs create` creates a new changeset entry from the current workspace edits.
+  With an active entry, it creates a child by default. With no active entry, it
+  creates the root entry of a new stack.
+- `gs modify` creates a new patchset on the active entry and restacks descendants
+  by default.
+- `gs submit` performs final server submit/admission for the active entry and any
+  required unsubmitted ancestors. `--stack` submits the whole stack tree.
+  `--subtree` submits one selected subtree.
+- `gs sync` advances the workspace base and restacks open stacks.
+- `gs restack` replays descendants after parent, base, or tree changes.
+- `gs switch`, `gs up`, `gs down`, `gs top`, and `gs bottom` navigate stack
+  entries.
+- `gs stack` is an inspection command, not the normal namespace for every stack
+  action.
+- `gs move`, `gs insert`, and `gs detach` are tree-editing commands.
 
-First entry:
+Remove the older `gs cs ...` stack workflow from the design. The user-facing unit
+is still a changeset, but the CLI should not require users to type a noun-heavy
+namespace for normal edit loops. Diagnostic RPC and low-level admin tools may
+still expose raw changeset ids, but product help, examples, and schema output
+should advertise only the canonical commands above.
+
+Keep `gs submit` as the user-facing final action. This intentionally differs from
+Graphite: Graphite's `gt submit` creates or updates PRs, while Gitslice's
+`gs submit` admits native changesets into the accepted source graph. In Gitslice,
+`gs create` and `gs modify` already create or update server-visible changesets
+and patchsets, so a separate publish verb is unnecessary in the core loop.
+
+### 5.3 Create Flow
+
+`gs create` turns current workspace edits into a new stack entry.
+
+Root entry:
 
 ```text
 1. Scan workspace edits.
@@ -501,10 +527,10 @@ First entry:
 6. Store stack and active entry state.
 ```
 
-Create child:
+Child entry:
 
 ```text
-1. Resolve the requested parent, defaulting to the active stack entry.
+1. Resolve the requested parent, defaulting to the active entry.
 2. Require the parent to have a current patchset with `result_tree_id`.
 3. Materialize workspace as the parent ancestor path plus local edits.
 4. Scan local edits relative to that materialized tree.
@@ -514,10 +540,10 @@ Create child:
 7. Switch active entry to the new child.
 ```
 
-Create sibling:
+Sibling entry:
 
 ```text
-1. Resolve the active entry's parent.
+1. Resolve the active entry's parent through `--sibling`.
 2. Materialize workspace as that parent ancestor path.
 3. Create a new child under the same parent.
 4. Assign `sibling_order` after the active entry unless explicitly requested.
@@ -540,9 +566,15 @@ Move or reparent:
 4. Restack the moved entry and all recursive descendants.
 ```
 
+`gs create` should require either `--message` or an interactive prompt for title
+and description. It should not infer a changeset title from a file path. The
+`--all` flag means "snapshot all current workspace edits"; without `--all`, the
+CLI may prompt with a path selector, but the result is still one immutable
+patchset, not a Git-style staging area.
+
 ### 5.4 Workspace Materialization
 
-`gs status`, `gs diff`, `gs cs update`, and `gs sync` must calculate local edits
+`gs status`, `gs diff`, `gs modify`, `gs create`, and `gs sync` must calculate local edits
 against the active entry's base snapshot, not only the target ref commit.
 
 ```text
@@ -569,9 +601,9 @@ Before switching, the CLI must stop if uncommitted local edits are not captured
 in the active entry's latest patchset, unless the user passes an explicit future
 force or stash-like option. The MVP should avoid hidden local stash behavior.
 
-### 5.5 Update Flow
+### 5.5 Modify Flow
 
-`gs cs update` updates the active entry only.
+`gs modify` updates the active entry only by creating a new patchset.
 
 For a parent entry update, every child subtree depending on the old parent
 patchset becomes stale:
@@ -584,37 +616,48 @@ patchset becomes stale:
 @44 state becomes NeedsRestack
 ```
 
+By default, `gs modify` should immediately restack stale descendants. This copies
+Graphite's best ergonomic choice while keeping the operation explicit in
+Gitslice history: every descendant restack creates a durable patchset, and any
+conflict is recorded as patchset conflict metadata.
+
 The CLI should show:
 
 ```text
-updated changeset acme/payment@42 patchset 2
-descendants need restack: acme/payment@43, acme/payment@44
+updated changeset acme:payment@42 patchset 2
+restacked descendants: acme:payment@43, acme:payment@44
 ```
+
+If `--no-restack` is passed, descendants remain `NeedsRestack` and `gs submit`
+must refuse to submit them until `gs restack` runs.
 
 ### 5.6 Restack Flow
 
-`gs stack restack` calls the server `Restack` RPC and then updates local
-workspace state from the returned entries.
+`gs restack` calls the server `Restack` RPC and then updates local workspace
+state from the returned entries.
 
 Text output should be per entry:
 
 ```text
-restacked acme/payment@43 patchset 3
-restacked acme/payment@45 patchset 2 with conflicts
+restacked acme:payment@43 patchset 3
+restacked acme:payment@45 patchset 2 with conflicts
 ```
 
 If any restacked patchset has conflicts, the active workspace should switch to
 the first conflicted entry and materialize the conflict state in `.gs/` plus the
-working tree. `gs stack submit` must reject until conflicts are resolved and
-`gs cs update` creates a normal patchset.
+working tree. `gs submit` must reject until conflicts are resolved and
+`gs modify` creates a normal patchset.
 
 ### 5.7 Submit Flow
 
-`gs stack submit`:
+`gs submit`:
 
 ```text
 1. Load stack state.
-2. Resolve the selected subtree; default is the whole stack.
+2. Resolve the submit set:
+   - default: active entry plus unsubmitted ancestors
+   - --stack: whole stack tree
+   - --subtree <entry>: selected subtree
 3. Refresh every entry from the server.
 4. Stop if any entry in the selected subtree needs restack or has unresolved
    conflicts.
@@ -628,10 +671,10 @@ working tree. `gs stack submit` must reject until conflicts are resolved and
 Example output:
 
 ```text
-submitted acme/payment@42 pending publish
-submitted acme/payment@43 pending publish
-blocked acme/payment@45: required check unit failed
-submitted acme/payment@44 pending publish
+submitted acme:payment@42 pending publish
+submitted acme:payment@43 pending publish
+blocked acme:payment@45: required check unit failed
+submitted acme:payment@44 pending publish
 stack partially submitted: 3 submitted, 1 blocked
 ```
 
@@ -643,42 +686,56 @@ stack partially submitted: 3 submitted, 1 blocked
 slice: acme/payment
 base: sha256:abc123
 stack: stk_123
-active: acme/payment@43
+active: acme:payment@43
 
 stack:
-  1 acme/payment@42 patchset 2 draft
-  +- acme/payment@43 patchset 1 draft needs_update
-* |  `- acme/payment@45 patchset 1 draft
-  `- acme/payment@44 patchset 1 needs_restack
+  1 acme:payment@42 patchset 2 draft
+  +- acme:payment@43 patchset 1 draft needs_update
+* |  `- acme:payment@45 patchset 1 draft
+  `- acme:payment@44 patchset 1 needs_restack
 
 changed paths:
   /acme/payment/api.go
 ```
 
 `gs diff` without arguments diffs local edits against the active entry base
-snapshot. `gs cs diff @43` delegates to server-side changeset diff and uses the
+snapshot. `gs diff @43` delegates to server-side changeset diff and uses the
 patchset's own base snapshot.
 
-### 5.9 JSON Compatibility
+### 5.9 Machine Output
 
-Machine-readable output should add fields without removing existing ones:
+Machine-readable output should expose the stack tree directly:
 
 ```json
 {
-  "changeset_id": "cs_...",
-  "patchset_id": "ps_...",
   "stack_id": "stk_...",
-  "stack_order": 3,
-  "stack_depth": 2,
-  "sibling_order": 1,
-  "parent_changeset_id": "cs_...",
-  "parent_patchset_id": "ps_...",
-  "needs_restack": false
+  "active_changeset_id": "cs_45",
+  "entries": [
+    {
+      "changeset_id": "cs_42",
+      "patchset_id": "ps_42_2",
+      "parent_changeset_id": "",
+      "parent_patchset_id": "",
+      "display_order": 1,
+      "depth": 0,
+      "state": "draft"
+    },
+    {
+      "changeset_id": "cs_43",
+      "patchset_id": "ps_43_1",
+      "parent_changeset_id": "cs_42",
+      "parent_patchset_id": "ps_42_2",
+      "display_order": 2,
+      "depth": 1,
+      "state": "needs_restack"
+    }
+  ]
 }
 ```
 
-Older scripts that only read `changeset_id` and `patchset_id` should continue to
-work for single-entry changesets.
+Do not preserve old JSON field names solely for compatibility. Every machine
+output contract for the stack-aware CLI should be versioned in command schema
+metadata and documented from the new shape.
 
 ## 6. Web Changes
 
@@ -722,14 +779,14 @@ present on the loaded changeset.
 The stack detail page should show a compact tree of entries:
 
 ```text
-acme/payment stack: payment parser rollout
+acme:payment stack: payment parser rollout
 target: refs/global/main   base: sha256:abc123
 
 Entries
-  acme/payment@42  draft            patchset 2
-  +- acme/payment@43  needs_restack patchset 1
-  |  `- acme/payment@45 blocked     patchset 1
-  `- acme/payment@44  draft         patchset 1
+  acme:payment@42  draft            patchset 2
+  +- acme:payment@43  needs_restack patchset 1
+  |  `- acme:payment@45 blocked     patchset 1
+  `- acme:payment@44  draft         patchset 1
 
 [Restack] [Submit Stack]
 ```
@@ -781,12 +838,12 @@ preview the affected subtree and state that descendants will be restacked.
 Restack should be a deliberate action with a preview:
 
 ```text
-Restack from: acme/payment@43
-Parent changed: acme/payment@42.1 -> acme/payment@42.2
+Restack from: acme:payment@43
+Parent changed: acme:payment@42.1 -> acme:payment@42.2
 
 Affected entries:
-  acme/payment@43
-    acme/payment@45
+  acme:payment@43
+    acme:payment@45
 
 [Restack]
 ```
@@ -808,10 +865,10 @@ Stack submit should show progress by entry:
 
 ```text
 Submitting stack
-  acme/payment@42  accepted, pending publish
-  +- acme/payment@43  accepted, pending publish
-  |  `- acme/payment@45  blocked: required check unit failed
-  `- acme/payment@44  accepted, pending publish
+  acme:payment@42  accepted, pending publish
+  +- acme:payment@43  accepted, pending publish
+  |  `- acme:payment@45  blocked: required check unit failed
+  `- acme:payment@44  accepted, pending publish
 ```
 
 The UI must make partial submit visible. It should not imply rollback when a
@@ -881,16 +938,19 @@ Useful lessons:
   conflict metadata rather than hidden Git rebase state.
 - Provide explicit move and insert operations. Graphite has `move`, `reorder`,
   and `create --insert` flows for changing dependencies. Gitslice should expose
-  `gs stack move` and `gs stack insert`, with subtree restack and conflict
-  reporting.
+  `gs move` and `gs insert`, with subtree restack and conflict reporting.
 - Keep visualization central. Graphite's `log --stack` focuses on ancestors and
   descendants ([Visualize a stack](https://www.graphite.com/docs/visualize-stack)).
-  Gitslice `gs status`, `gs stack show`, and the web stack page should show the
+  Gitslice `gs status`, `gs stack`, and the web stack page should show the
   active entry in its ancestor/descendant context, not as an unstructured list.
 - Make partial landing explicit. Graphite's docs describe merging only part of a
   stack and then syncing/restacking remaining branches. Gitslice should allow
   parent or sibling entries to remain accepted/submitted when a later descendant
   fails.
+- Keep `submit`, but define it differently. Graphite's `gt submit` creates or
+  updates PRs; Gitslice's `gs submit` performs final source-graph admission
+  because `gs create` and `gs modify` already update server-visible native
+  changesets.
 - Make the submit path stack-aware. Graphite's merge queue is stack-aware and can
   validate stacks with optimized batching
   ([Merge Queue](https://www.graphite.com/docs/graphite-merge-queue)). Gitslice
@@ -930,15 +990,17 @@ Git commits the internal source of truth.
 2. Teach patchset creation to compute and store `base_tree_id` and
    `result_tree_id` for normal single changesets.
 3. Add `ChangesetStackService` and stack-aware validation.
-4. Update CLI state handling with backward-compatible single-entry migration.
-5. Add `gs stack show`, `gs stack child`, `gs stack switch`, `gs stack move`,
-   and `gs stack restack`.
-6. Add `gs stack submit` after ordered submit is covered by tests.
+4. Replace workspace state with the stack-aware shape and reject old metadata.
+5. Add canonical CLI commands: `gs create`, `gs modify`, `gs submit`,
+   `gs sync`, `gs restack`, `gs switch`, `gs up`, `gs down`, `gs stack`,
+   `gs move`, and `gs insert`.
+6. Add stack submit after ordered submit admission is covered by tests.
 7. Add web stack lookup/detail after grpc-gateway exposes the stack service.
 8. Add web create/restack/submit actions after the CLI path is stable.
 
-This order keeps existing single-changeset behavior working while the server
-learns preview trees and parent links.
+This order intentionally removes the legacy single-current-changeset workspace
+shape from the target design. The CLI should fail loudly on old local metadata
+instead of carrying compatibility code through the stack rollout.
 
 ## 10. Verification
 
@@ -959,7 +1021,7 @@ Server tests:
 
 CLI tests:
 
-- migrate old `.gs/state.json` into implicit single-entry state
+- reject old `.gs/state.json` with a clear unsupported-format error
 - create first entry, add child, add sibling, switch entries, update active entry
 - show `gs status` stack output
 - block switch with unsnapshotted local edits
