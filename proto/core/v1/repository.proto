@@ -38,6 +38,9 @@ message Commit {
 message ResolvePathRequest {
   string commit_id = 1;
   string path = 2;
+  // Optional immutable tree root. When set, the read resolves against this tree
+  // instead of commit_id. This is used for patchset preview trees.
+  string root_tree_id = 3;
 }
 
 message ResolvePathResponse {
@@ -52,6 +55,9 @@ message ListDirectoryRequest {
   // Optional slice projection. When set, directory entries are filtered to
   // paths included by this slice while preserving canonical global paths.
   SliceRef slice = 5;
+  // Optional immutable tree root. When set, the read resolves against this tree
+  // instead of commit_id. This is used for patchset preview trees.
+  string root_tree_id = 6;
 }
 
 message ListDirectoryResponse {
@@ -64,6 +70,9 @@ message ReadFileRequest {
   string path = 2;
   int64 offset = 3;
   int64 length = 4;
+  // Optional immutable tree root. When set, the read resolves against this tree
+  // instead of commit_id. This is used for patchset preview trees.
+  string root_tree_id = 5;
 }
 
 message ReadFileResponse {

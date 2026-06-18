@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 
 import type { Changeset } from "../api/types";
@@ -8,11 +8,17 @@ import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
+import { shortStackId } from "./stackPageUtils";
+
+interface ChangesetSearch {
+  stack?: unknown;
+}
 
 export function ChangesetDetailPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const params = useParams({ strict: false }) as { id?: string };
+  const search = useSearch({ strict: false }) as ChangesetSearch;
   const changesetId = params.id ?? "";
   const [abandonReason, setAbandonReason] = useState("");
   const [actionError, setActionError] = useState("");
@@ -30,6 +36,9 @@ export function ChangesetDetailPage() {
   const authoringAccount = changeset?.authoringSlice?.account ?? "";
   const authoringSlice = changeset?.authoringSlice?.slice ?? "";
   const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";
+  const stackId =
+    changeset?.stackId ||
+    (typeof search.stack === "string" ? search.stack.trim() : "");
 
   const resolveSliceQuery = useQuery({
     enabled: Boolean(authoringAccount && authoringSlice),
@@ -141,7 +150,8 @@ export function ChangesetDetailPage() {
           items={changesetBreadcrumbItems({
             changeset,
             resolvedSliceId,
-            sliceSearch
+            sliceSearch,
+            stackId
           })}
         />
       </div>
@@ -156,6 +166,7 @@ export function ChangesetDetailPage() {
         onAbandon={submitAbandon}
         onAbandonReasonChange={setAbandonReason}
         onMerge={() => mergeMutation.mutate()}
+        stackId={stackId}
         terminal={terminal}
       />
 
@@ -179,6 +190,7 @@ function HeaderCard({
   onAbandon,
   onAbandonReasonChange,
   onMerge,
+  stackId,
   terminal
 }: {
   abandonPending: boolean;
@@ -190,6 +202,7 @@ function HeaderCard({
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
   onMerge(): void;
+  stackId: string;
   terminal: boolean;
 }) {
   // On small screens the diff is the priority, so the description, base commit,
@@ -221,6 +234,15 @@ function HeaderCard({
               </span>
               <span>{changeset.author || "author not returned"}</span>
               <StatusBadge status={changeset.status} />
+              {stackId ? (
+                <Link
+                  className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950"
+                  params={{ id: stackId }}
+                  to="/stacks/$id"
+                >
+                  Stack {shortStackId(stackId) || stackId}
+                </Link>
+              ) : null}
               <CopyLinkButton changesetId={changeset.id || ""} />
             </div>
             <div className={cn("lg:block", showDetails ? "block" : "hidden")}>
@@ -448,11 +470,13 @@ function changesetSliceSearch(changeset: Changeset) {
 function changesetBreadcrumbItems({
   changeset,
   resolvedSliceId,
-  sliceSearch
+  sliceSearch,
+  stackId
 }: {
   changeset: Changeset;
   resolvedSliceId: string;
   sliceSearch: string;
+  stackId: string;
 }): Crumb[] {
   const items: Crumb[] = [{ label: "Slices", to: "/slices" }];
 
@@ -470,6 +494,14 @@ function changesetBreadcrumbItems({
       label: `${sliceSearch} changesets`,
       search: { slice: sliceSearch },
       to: "/changesets"
+    });
+  }
+
+  if (stackId) {
+    items.push({
+      label: `stack ${shortStackId(stackId) || stackId}`,
+      params: { id: stackId },
+      to: "/stacks/$id"
     });
   }
 

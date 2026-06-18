@@ -20,6 +20,7 @@ type Handlers struct {
 	Slice      *SliceService
 	Workspace  *WorkspaceService
 	Changeset  *ChangesetService
+	Stack      *ChangesetStackService
 }
 
 type Stores struct {
@@ -61,6 +62,15 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			validator:   validator,
 		},
 		Changeset: &ChangesetService{
+			Auth:        stores.Auth,
+			Blobs:       stores.Blobs,
+			Changesets:  stores.Changesets,
+			Repository:  stores.Repository,
+			Slices:      stores.Slices,
+			ObjectStore: objectStore,
+			validator:   validator,
+		},
+		Stack: &ChangesetStackService{
 			Auth:        stores.Auth,
 			Blobs:       stores.Blobs,
 			Changesets:  stores.Changesets,

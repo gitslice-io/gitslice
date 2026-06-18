@@ -54,7 +54,7 @@ const startSteps = [
     title: "Create and submit a changeset",
     description:
       "A changeset is the review and submit unit. When it lands, it is included in the accepted main tree.",
-    command: 'gs cs create --title "my first change"\ngs cs submit\ngs cs status --watch'
+    command: 'gs create --message "my first change"\ngs submit\ngs status'
   }
 ];
 
@@ -162,11 +162,11 @@ const commandGroups = [
   {
     title: "Changesets",
     commands: [
-      ["gs cs create", "Create a changeset from pending edits."],
-      ["gs cs diff", "Review changeset content."],
-      ["gs cs submit", "Submit for validation and publish."],
-      ["gs cs status --watch", "Wait for pending publish to finish."],
-      ["gs cs abandon", "Close a changeset without landing it."]
+      ["gs create --message <title>", "Create a stack entry from pending edits."],
+      ["gs modify", "Create a new patchset on the active entry."],
+      ["gs diff", "Review workspace or changeset content."],
+      ["gs submit", "Submit for validation and publish."],
+      ["gs stack", "Inspect the active stack tree."]
     ]
   },
   {
@@ -423,8 +423,8 @@ function GitUsersDoc() {
 gs init <account>:<slice>
 # edit files
 gs status
-gs cs create --title "change title"
-gs cs submit`}</CommandBlock>
+gs create --message "change title"
+gs submit`}</CommandBlock>
         <p className="mt-3 text-sm leading-6 text-slate-600">
           The important shift: you do not need to create a local commit before
           review. A changeset is the review unit, and submit creates the accepted

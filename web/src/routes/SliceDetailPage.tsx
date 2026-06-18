@@ -234,6 +234,13 @@ export function SliceDetailPage() {
           </Link>
           <Link
             className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+            search={{ slice: sliceLabel } as never}
+            to="/stacks"
+          >
+            Stacks
+          </Link>
+          <Link
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
             params={{ id: sliceId }}
             to="/slices/$id/settings"
           >

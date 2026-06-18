@@ -103,7 +103,7 @@ func (s *WorkspaceService) ValidateWorkspaceDiff(ctx context.Context, req *corev
 		}
 		baseCommitID = target.CommitId
 	}
-	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, req.FileEdits, false)
+	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, "", req.FileEdits, false)
 	if err != nil {
 		return nil, err
 	}

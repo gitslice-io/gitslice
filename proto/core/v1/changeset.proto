@@ -18,6 +18,18 @@ service ChangesetService {
   rpc AbandonChangeset(AbandonChangesetRequest) returns (Empty);
 }
 
+service ChangesetStackService {
+  rpc CreateStack(CreateStackRequest) returns (ChangesetStack);
+  rpc GetStack(GetStackRequest) returns (ChangesetStack);
+  rpc ListStacks(ListStacksRequest) returns (ListStacksResponse);
+  rpc AddStackEntry(AddStackEntryRequest) returns (Changeset);
+  rpc MoveStackEntry(MoveStackEntryRequest) returns (ChangesetStack);
+  rpc ReparentStackEntry(ReparentStackEntryRequest) returns (ChangesetStack);
+  rpc DetachStackEntry(DetachStackEntryRequest) returns (DetachStackEntryResponse);
+  rpc Restack(RestackRequest) returns (RestackResponse);
+  rpc SubmitStack(SubmitStackRequest) returns (SubmitStackResponse);
+}
+
 message Changeset {
   string id = 1;
   SliceRef authoring_slice = 2;
@@ -37,6 +49,13 @@ message Changeset {
   int64 number = 16;
   string handle = 17;
   string submit_blocked_reason = 18;
+  string stack_id = 19;
+  int64 stack_order = 20;
+  string parent_changeset_id = 21;
+  string parent_patchset_id = 22;
+  string base_kind = 23;
+  int64 stack_depth = 24;
+  int64 sibling_order = 25;
 }
 
 message Patchset {
@@ -56,6 +75,38 @@ message Patchset {
   string handle = 14;
   repeated PatchsetConflict conflicts = 15;
   string kind = 16;
+  string base_kind = 17;
+  string base_patchset_id = 18;
+  string base_tree_id = 19;
+  string result_tree_id = 20;
+  string stack_parent_patchset_id = 21;
+}
+
+message ChangesetStack {
+  string id = 1;
+  SliceRef authoring_slice = 2;
+  string target_ref = 3;
+  string base_commit_id = 4;
+  string title = 5;
+  string status = 6;
+  string active_entry_id = 7;
+  string root_entry_id = 8;
+  repeated ChangesetStackEntry entries = 9;
+  string created_by = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message ChangesetStackEntry {
+  string stack_id = 1;
+  string changeset_id = 2;
+  string parent_changeset_id = 3;
+  string parent_patchset_id = 4;
+  int64 sibling_order = 5;
+  int64 display_order = 6;
+  int64 depth = 7;
+  string state = 8;
+  Changeset changeset = 9;
 }
 
 message FileEdit {
@@ -120,6 +171,9 @@ message CreateChangesetRequest {
   string base_commit_id = 3;
   string title = 4;
   string description = 5;
+  string stack_id = 6;
+  string parent_changeset_id = 7;
+  string parent_patchset_id = 8;
 }
 
 message GetChangesetRequest {
@@ -163,6 +217,9 @@ message UpdateChangesetRequest {
   repeated FileEdit file_edits = 4;
   repeated PatchsetConflict conflicts = 5;
   string patchset_kind = 6;
+  string base_kind = 7;
+  string base_patchset_id = 8;
+  string expected_parent_patchset_id = 9;
 }
 
 message SubmitChangesetRequest {
@@ -205,4 +262,91 @@ message SubmitChangesetResponse {
 message AbandonChangesetRequest {
   string changeset_id = 1;
   string reason = 2;
+}
+
+message CreateStackRequest {
+  SliceRef authoring_slice = 1;
+  string target_ref = 2;
+  string base_commit_id = 3;
+  string title = 4;
+}
+
+message GetStackRequest {
+  string stack_id = 1;
+}
+
+message ListStacksRequest {
+  SliceRef authoring_slice = 1;
+  string status = 2;
+  int32 limit = 3;
+}
+
+message ListStacksResponse {
+  repeated ChangesetStack stacks = 1;
+}
+
+message AddStackEntryRequest {
+  string stack_id = 1;
+  string title = 2;
+  string description = 3;
+  string parent_changeset_id = 4;
+  string parent_patchset_id = 5;
+  int64 sibling_order = 6;
+}
+
+message MoveStackEntryRequest {
+  string stack_id = 1;
+  string changeset_id = 2;
+  int64 sibling_order = 3;
+}
+
+message ReparentStackEntryRequest {
+  string stack_id = 1;
+  string changeset_id = 2;
+  string new_parent_changeset_id = 3;
+  string new_parent_patchset_id = 4;
+  int64 sibling_order = 5;
+}
+
+message DetachStackEntryRequest {
+  string stack_id = 1;
+  string changeset_id = 2;
+  string title = 3;
+}
+
+message DetachStackEntryResponse {
+  ChangesetStack source_stack = 1;
+  ChangesetStack detached_stack = 2;
+}
+
+message RestackRequest {
+  string stack_id = 1;
+  string start_changeset_id = 2;
+  bool include_siblings = 3;
+  string target_base_commit_id = 4;
+}
+
+message RestackResponse {
+  string stack_id = 1;
+  repeated Changeset entries = 2;
+  string status = 3;
+}
+
+message SubmitStackRequest {
+  string stack_id = 1;
+  string subtree_root_changeset_id = 2;
+}
+
+message SubmitStackEntryResult {
+  string changeset_id = 1;
+  string status = 2;
+  string commit_id = 3;
+  string pending_publish_id = 4;
+  string blocked_reason = 5;
+}
+
+message SubmitStackResponse {
+  string stack_id = 1;
+  string status = 2;
+  repeated SubmitStackEntryResult results = 3;
 }

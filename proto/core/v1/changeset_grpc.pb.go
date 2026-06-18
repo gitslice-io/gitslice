@@ -401,3 +401,387 @@ var ChangesetService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/core/v1/changeset.proto",
 }
+
+const (
+	ChangesetStackService_CreateStack_FullMethodName        = "/gitslice.core.v1.ChangesetStackService/CreateStack"
+	ChangesetStackService_GetStack_FullMethodName           = "/gitslice.core.v1.ChangesetStackService/GetStack"
+	ChangesetStackService_ListStacks_FullMethodName         = "/gitslice.core.v1.ChangesetStackService/ListStacks"
+	ChangesetStackService_AddStackEntry_FullMethodName      = "/gitslice.core.v1.ChangesetStackService/AddStackEntry"
+	ChangesetStackService_MoveStackEntry_FullMethodName     = "/gitslice.core.v1.ChangesetStackService/MoveStackEntry"
+	ChangesetStackService_ReparentStackEntry_FullMethodName = "/gitslice.core.v1.ChangesetStackService/ReparentStackEntry"
+	ChangesetStackService_DetachStackEntry_FullMethodName   = "/gitslice.core.v1.ChangesetStackService/DetachStackEntry"
+	ChangesetStackService_Restack_FullMethodName            = "/gitslice.core.v1.ChangesetStackService/Restack"
+	ChangesetStackService_SubmitStack_FullMethodName        = "/gitslice.core.v1.ChangesetStackService/SubmitStack"
+)
+
+// ChangesetStackServiceClient is the client API for ChangesetStackService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ChangesetStackServiceClient interface {
+	CreateStack(ctx context.Context, in *CreateStackRequest, opts ...grpc.CallOption) (*ChangesetStack, error)
+	GetStack(ctx context.Context, in *GetStackRequest, opts ...grpc.CallOption) (*ChangesetStack, error)
+	ListStacks(ctx context.Context, in *ListStacksRequest, opts ...grpc.CallOption) (*ListStacksResponse, error)
+	AddStackEntry(ctx context.Context, in *AddStackEntryRequest, opts ...grpc.CallOption) (*Changeset, error)
+	MoveStackEntry(ctx context.Context, in *MoveStackEntryRequest, opts ...grpc.CallOption) (*ChangesetStack, error)
+	ReparentStackEntry(ctx context.Context, in *ReparentStackEntryRequest, opts ...grpc.CallOption) (*ChangesetStack, error)
+	DetachStackEntry(ctx context.Context, in *DetachStackEntryRequest, opts ...grpc.CallOption) (*DetachStackEntryResponse, error)
+	Restack(ctx context.Context, in *RestackRequest, opts ...grpc.CallOption) (*RestackResponse, error)
+	SubmitStack(ctx context.Context, in *SubmitStackRequest, opts ...grpc.CallOption) (*SubmitStackResponse, error)
+}
+
+type changesetStackServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewChangesetStackServiceClient(cc grpc.ClientConnInterface) ChangesetStackServiceClient {
+	return &changesetStackServiceClient{cc}
+}
+
+func (c *changesetStackServiceClient) CreateStack(ctx context.Context, in *CreateStackRequest, opts ...grpc.CallOption) (*ChangesetStack, error) {
+	out := new(ChangesetStack)
+	err := c.cc.Invoke(ctx, ChangesetStackService_CreateStack_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetStackServiceClient) GetStack(ctx context.Context, in *GetStackRequest, opts ...grpc.CallOption) (*ChangesetStack, error) {
+	out := new(ChangesetStack)
+	err := c.cc.Invoke(ctx, ChangesetStackService_GetStack_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetStackServiceClient) ListStacks(ctx context.Context, in *ListStacksRequest, opts ...grpc.CallOption) (*ListStacksResponse, error) {
+	out := new(ListStacksResponse)
+	err := c.cc.Invoke(ctx, ChangesetStackService_ListStacks_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetStackServiceClient) AddStackEntry(ctx context.Context, in *AddStackEntryRequest, opts ...grpc.CallOption) (*Changeset, error) {
+	out := new(Changeset)
+	err := c.cc.Invoke(ctx, ChangesetStackService_AddStackEntry_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetStackServiceClient) MoveStackEntry(ctx context.Context, in *MoveStackEntryRequest, opts ...grpc.CallOption) (*ChangesetStack, error) {
+	out := new(ChangesetStack)
+	err := c.cc.Invoke(ctx, ChangesetStackService_MoveStackEntry_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetStackServiceClient) ReparentStackEntry(ctx context.Context, in *ReparentStackEntryRequest, opts ...grpc.CallOption) (*ChangesetStack, error) {
+	out := new(ChangesetStack)
+	err := c.cc.Invoke(ctx, ChangesetStackService_ReparentStackEntry_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetStackServiceClient) DetachStackEntry(ctx context.Context, in *DetachStackEntryRequest, opts ...grpc.CallOption) (*DetachStackEntryResponse, error) {
+	out := new(DetachStackEntryResponse)
+	err := c.cc.Invoke(ctx, ChangesetStackService_DetachStackEntry_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetStackServiceClient) Restack(ctx context.Context, in *RestackRequest, opts ...grpc.CallOption) (*RestackResponse, error) {
+	out := new(RestackResponse)
+	err := c.cc.Invoke(ctx, ChangesetStackService_Restack_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetStackServiceClient) SubmitStack(ctx context.Context, in *SubmitStackRequest, opts ...grpc.CallOption) (*SubmitStackResponse, error) {
+	out := new(SubmitStackResponse)
+	err := c.cc.Invoke(ctx, ChangesetStackService_SubmitStack_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ChangesetStackServiceServer is the server API for ChangesetStackService service.
+// All implementations should embed UnimplementedChangesetStackServiceServer
+// for forward compatibility
+type ChangesetStackServiceServer interface {
+	CreateStack(context.Context, *CreateStackRequest) (*ChangesetStack, error)
+	GetStack(context.Context, *GetStackRequest) (*ChangesetStack, error)
+	ListStacks(context.Context, *ListStacksRequest) (*ListStacksResponse, error)
+	AddStackEntry(context.Context, *AddStackEntryRequest) (*Changeset, error)
+	MoveStackEntry(context.Context, *MoveStackEntryRequest) (*ChangesetStack, error)
+	ReparentStackEntry(context.Context, *ReparentStackEntryRequest) (*ChangesetStack, error)
+	DetachStackEntry(context.Context, *DetachStackEntryRequest) (*DetachStackEntryResponse, error)
+	Restack(context.Context, *RestackRequest) (*RestackResponse, error)
+	SubmitStack(context.Context, *SubmitStackRequest) (*SubmitStackResponse, error)
+}
+
+// UnimplementedChangesetStackServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedChangesetStackServiceServer struct {
+}
+
+func (UnimplementedChangesetStackServiceServer) CreateStack(context.Context, *CreateStackRequest) (*ChangesetStack, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateStack not implemented")
+}
+func (UnimplementedChangesetStackServiceServer) GetStack(context.Context, *GetStackRequest) (*ChangesetStack, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStack not implemented")
+}
+func (UnimplementedChangesetStackServiceServer) ListStacks(context.Context, *ListStacksRequest) (*ListStacksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListStacks not implemented")
+}
+func (UnimplementedChangesetStackServiceServer) AddStackEntry(context.Context, *AddStackEntryRequest) (*Changeset, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddStackEntry not implemented")
+}
+func (UnimplementedChangesetStackServiceServer) MoveStackEntry(context.Context, *MoveStackEntryRequest) (*ChangesetStack, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MoveStackEntry not implemented")
+}
+func (UnimplementedChangesetStackServiceServer) ReparentStackEntry(context.Context, *ReparentStackEntryRequest) (*ChangesetStack, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReparentStackEntry not implemented")
+}
+func (UnimplementedChangesetStackServiceServer) DetachStackEntry(context.Context, *DetachStackEntryRequest) (*DetachStackEntryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DetachStackEntry not implemented")
+}
+func (UnimplementedChangesetStackServiceServer) Restack(context.Context, *RestackRequest) (*RestackResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Restack not implemented")
+}
+func (UnimplementedChangesetStackServiceServer) SubmitStack(context.Context, *SubmitStackRequest) (*SubmitStackResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitStack not implemented")
+}
+
+// UnsafeChangesetStackServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ChangesetStackServiceServer will
+// result in compilation errors.
+type UnsafeChangesetStackServiceServer interface {
+	mustEmbedUnimplementedChangesetStackServiceServer()
+}
+
+func RegisterChangesetStackServiceServer(s grpc.ServiceRegistrar, srv ChangesetStackServiceServer) {
+	s.RegisterService(&ChangesetStackService_ServiceDesc, srv)
+}
+
+func _ChangesetStackService_CreateStack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateStackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).CreateStack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_CreateStack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).CreateStack(ctx, req.(*CreateStackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetStackService_GetStack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).GetStack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_GetStack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).GetStack(ctx, req.(*GetStackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetStackService_ListStacks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListStacksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).ListStacks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_ListStacks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).ListStacks(ctx, req.(*ListStacksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetStackService_AddStackEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddStackEntryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).AddStackEntry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_AddStackEntry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).AddStackEntry(ctx, req.(*AddStackEntryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetStackService_MoveStackEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MoveStackEntryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).MoveStackEntry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_MoveStackEntry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).MoveStackEntry(ctx, req.(*MoveStackEntryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetStackService_ReparentStackEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReparentStackEntryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).ReparentStackEntry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_ReparentStackEntry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).ReparentStackEntry(ctx, req.(*ReparentStackEntryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetStackService_DetachStackEntry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DetachStackEntryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).DetachStackEntry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_DetachStackEntry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).DetachStackEntry(ctx, req.(*DetachStackEntryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetStackService_Restack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).Restack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_Restack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).Restack(ctx, req.(*RestackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetStackService_SubmitStack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitStackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetStackServiceServer).SubmitStack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetStackService_SubmitStack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetStackServiceServer).SubmitStack(ctx, req.(*SubmitStackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ChangesetStackService_ServiceDesc is the grpc.ServiceDesc for ChangesetStackService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ChangesetStackService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "gitslice.core.v1.ChangesetStackService",
+	HandlerType: (*ChangesetStackServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateStack",
+			Handler:    _ChangesetStackService_CreateStack_Handler,
+		},
+		{
+			MethodName: "GetStack",
+			Handler:    _ChangesetStackService_GetStack_Handler,
+		},
+		{
+			MethodName: "ListStacks",
+			Handler:    _ChangesetStackService_ListStacks_Handler,
+		},
+		{
+			MethodName: "AddStackEntry",
+			Handler:    _ChangesetStackService_AddStackEntry_Handler,
+		},
+		{
+			MethodName: "MoveStackEntry",
+			Handler:    _ChangesetStackService_MoveStackEntry_Handler,
+		},
+		{
+			MethodName: "ReparentStackEntry",
+			Handler:    _ChangesetStackService_ReparentStackEntry_Handler,
+		},
+		{
+			MethodName: "DetachStackEntry",
+			Handler:    _ChangesetStackService_DetachStackEntry_Handler,
+		},
+		{
+			MethodName: "Restack",
+			Handler:    _ChangesetStackService_Restack_Handler,
+		},
+		{
+			MethodName: "SubmitStack",
+			Handler:    _ChangesetStackService_SubmitStack_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "proto/core/v1/changeset.proto",
+}

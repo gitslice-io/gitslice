@@ -877,6 +877,22 @@ func (s *RepositoryStore) GetFile(ctx context.Context, commitID, p string) (*Fil
 	return s.getFileFromTree(ctx, rootTreeID, p)
 }
 
+func (s *RepositoryStore) RootTreeForCommit(ctx context.Context, commitID string) (string, error) {
+	return s.rootTreeIDForCommit(ctx, commitID)
+}
+
+func (s *RepositoryStore) GetFileAtTree(ctx context.Context, rootTreeID, p string) (*FileEntry, error) {
+	return s.getFileFromTree(ctx, rootTreeID, p)
+}
+
+func (s *RepositoryStore) GetEntryAtTree(ctx context.Context, rootTreeID, p string) (*TreeEntry, error) {
+	return s.getEntryFromTree(ctx, rootTreeID, p)
+}
+
+func (s *RepositoryStore) ListDirectoryAtTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error) {
+	return s.listDirectoryFromTree(ctx, rootTreeID, p)
+}
+
 func (s *RepositoryStore) GetEntry(ctx context.Context, commitID, p string) (*TreeEntry, error) {
 	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
 	if err != nil {

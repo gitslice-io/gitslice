@@ -41,6 +41,13 @@ type Changeset struct {
 	Number                int64                  `protobuf:"varint,16,opt,name=number,proto3" json:"number,omitempty"`
 	Handle                string                 `protobuf:"bytes,17,opt,name=handle,proto3" json:"handle,omitempty"`
 	SubmitBlockedReason   string                 `protobuf:"bytes,18,opt,name=submit_blocked_reason,json=submitBlockedReason,proto3" json:"submit_blocked_reason,omitempty"`
+	StackId               string                 `protobuf:"bytes,19,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	StackOrder            int64                  `protobuf:"varint,20,opt,name=stack_order,json=stackOrder,proto3" json:"stack_order,omitempty"`
+	ParentChangesetId     string                 `protobuf:"bytes,21,opt,name=parent_changeset_id,json=parentChangesetId,proto3" json:"parent_changeset_id,omitempty"`
+	ParentPatchsetId      string                 `protobuf:"bytes,22,opt,name=parent_patchset_id,json=parentPatchsetId,proto3" json:"parent_patchset_id,omitempty"`
+	BaseKind              string                 `protobuf:"bytes,23,opt,name=base_kind,json=baseKind,proto3" json:"base_kind,omitempty"`
+	StackDepth            int64                  `protobuf:"varint,24,opt,name=stack_depth,json=stackDepth,proto3" json:"stack_depth,omitempty"`
+	SiblingOrder          int64                  `protobuf:"varint,25,opt,name=sibling_order,json=siblingOrder,proto3" json:"sibling_order,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -201,26 +208,80 @@ func (x *Changeset) GetSubmitBlockedReason() string {
 	return ""
 }
 
+func (x *Changeset) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *Changeset) GetStackOrder() int64 {
+	if x != nil {
+		return x.StackOrder
+	}
+	return 0
+}
+
+func (x *Changeset) GetParentChangesetId() string {
+	if x != nil {
+		return x.ParentChangesetId
+	}
+	return ""
+}
+
+func (x *Changeset) GetParentPatchsetId() string {
+	if x != nil {
+		return x.ParentPatchsetId
+	}
+	return ""
+}
+
+func (x *Changeset) GetBaseKind() string {
+	if x != nil {
+		return x.BaseKind
+	}
+	return ""
+}
+
+func (x *Changeset) GetStackDepth() int64 {
+	if x != nil {
+		return x.StackDepth
+	}
+	return 0
+}
+
+func (x *Changeset) GetSiblingOrder() int64 {
+	if x != nil {
+		return x.SiblingOrder
+	}
+	return 0
+}
+
 type Patchset struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ChangesetId        string                 `protobuf:"bytes,2,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
-	Number             int64                  `protobuf:"varint,3,opt,name=number,proto3" json:"number,omitempty"`
-	BaseCommitId       string                 `protobuf:"bytes,4,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
-	Author             string                 `protobuf:"bytes,5,opt,name=author,proto3" json:"author,omitempty"`
-	CreatedAt          string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	ChangedPaths       []string               `protobuf:"bytes,7,rep,name=changed_paths,json=changedPaths,proto3" json:"changed_paths,omitempty"`
-	FileEdits          []*FileEdit            `protobuf:"bytes,8,rep,name=file_edits,json=fileEdits,proto3" json:"file_edits,omitempty"`
-	Coverage           []*PathCoverage        `protobuf:"bytes,9,rep,name=coverage,proto3" json:"coverage,omitempty"`
-	SubmitRequirements *SubmitRequirements    `protobuf:"bytes,10,opt,name=submit_requirements,json=submitRequirements,proto3" json:"submit_requirements,omitempty"`
-	PathBases          []*PathBase            `protobuf:"bytes,11,rep,name=path_bases,json=pathBases,proto3" json:"path_bases,omitempty"`
-	ReadSet            []*PathSetEntry        `protobuf:"bytes,12,rep,name=read_set,json=readSet,proto3" json:"read_set,omitempty"`
-	WriteSet           []*PathSetEntry        `protobuf:"bytes,13,rep,name=write_set,json=writeSet,proto3" json:"write_set,omitempty"`
-	Handle             string                 `protobuf:"bytes,14,opt,name=handle,proto3" json:"handle,omitempty"`
-	Conflicts          []*PatchsetConflict    `protobuf:"bytes,15,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
-	Kind               string                 `protobuf:"bytes,16,opt,name=kind,proto3" json:"kind,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ChangesetId           string                 `protobuf:"bytes,2,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
+	Number                int64                  `protobuf:"varint,3,opt,name=number,proto3" json:"number,omitempty"`
+	BaseCommitId          string                 `protobuf:"bytes,4,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
+	Author                string                 `protobuf:"bytes,5,opt,name=author,proto3" json:"author,omitempty"`
+	CreatedAt             string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ChangedPaths          []string               `protobuf:"bytes,7,rep,name=changed_paths,json=changedPaths,proto3" json:"changed_paths,omitempty"`
+	FileEdits             []*FileEdit            `protobuf:"bytes,8,rep,name=file_edits,json=fileEdits,proto3" json:"file_edits,omitempty"`
+	Coverage              []*PathCoverage        `protobuf:"bytes,9,rep,name=coverage,proto3" json:"coverage,omitempty"`
+	SubmitRequirements    *SubmitRequirements    `protobuf:"bytes,10,opt,name=submit_requirements,json=submitRequirements,proto3" json:"submit_requirements,omitempty"`
+	PathBases             []*PathBase            `protobuf:"bytes,11,rep,name=path_bases,json=pathBases,proto3" json:"path_bases,omitempty"`
+	ReadSet               []*PathSetEntry        `protobuf:"bytes,12,rep,name=read_set,json=readSet,proto3" json:"read_set,omitempty"`
+	WriteSet              []*PathSetEntry        `protobuf:"bytes,13,rep,name=write_set,json=writeSet,proto3" json:"write_set,omitempty"`
+	Handle                string                 `protobuf:"bytes,14,opt,name=handle,proto3" json:"handle,omitempty"`
+	Conflicts             []*PatchsetConflict    `protobuf:"bytes,15,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
+	Kind                  string                 `protobuf:"bytes,16,opt,name=kind,proto3" json:"kind,omitempty"`
+	BaseKind              string                 `protobuf:"bytes,17,opt,name=base_kind,json=baseKind,proto3" json:"base_kind,omitempty"`
+	BasePatchsetId        string                 `protobuf:"bytes,18,opt,name=base_patchset_id,json=basePatchsetId,proto3" json:"base_patchset_id,omitempty"`
+	BaseTreeId            string                 `protobuf:"bytes,19,opt,name=base_tree_id,json=baseTreeId,proto3" json:"base_tree_id,omitempty"`
+	ResultTreeId          string                 `protobuf:"bytes,20,opt,name=result_tree_id,json=resultTreeId,proto3" json:"result_tree_id,omitempty"`
+	StackParentPatchsetId string                 `protobuf:"bytes,21,opt,name=stack_parent_patchset_id,json=stackParentPatchsetId,proto3" json:"stack_parent_patchset_id,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Patchset) Reset() {
@@ -365,6 +426,281 @@ func (x *Patchset) GetKind() string {
 	return ""
 }
 
+func (x *Patchset) GetBaseKind() string {
+	if x != nil {
+		return x.BaseKind
+	}
+	return ""
+}
+
+func (x *Patchset) GetBasePatchsetId() string {
+	if x != nil {
+		return x.BasePatchsetId
+	}
+	return ""
+}
+
+func (x *Patchset) GetBaseTreeId() string {
+	if x != nil {
+		return x.BaseTreeId
+	}
+	return ""
+}
+
+func (x *Patchset) GetResultTreeId() string {
+	if x != nil {
+		return x.ResultTreeId
+	}
+	return ""
+}
+
+func (x *Patchset) GetStackParentPatchsetId() string {
+	if x != nil {
+		return x.StackParentPatchsetId
+	}
+	return ""
+}
+
+type ChangesetStack struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	AuthoringSlice *SliceRef              `protobuf:"bytes,2,opt,name=authoring_slice,json=authoringSlice,proto3" json:"authoring_slice,omitempty"`
+	TargetRef      string                 `protobuf:"bytes,3,opt,name=target_ref,json=targetRef,proto3" json:"target_ref,omitempty"`
+	BaseCommitId   string                 `protobuf:"bytes,4,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
+	Title          string                 `protobuf:"bytes,5,opt,name=title,proto3" json:"title,omitempty"`
+	Status         string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	ActiveEntryId  string                 `protobuf:"bytes,7,opt,name=active_entry_id,json=activeEntryId,proto3" json:"active_entry_id,omitempty"`
+	RootEntryId    string                 `protobuf:"bytes,8,opt,name=root_entry_id,json=rootEntryId,proto3" json:"root_entry_id,omitempty"`
+	Entries        []*ChangesetStackEntry `protobuf:"bytes,9,rep,name=entries,proto3" json:"entries,omitempty"`
+	CreatedBy      string                 `protobuf:"bytes,10,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	CreatedAt      string                 `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt      string                 `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ChangesetStack) Reset() {
+	*x = ChangesetStack{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChangesetStack) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangesetStack) ProtoMessage() {}
+
+func (x *ChangesetStack) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangesetStack.ProtoReflect.Descriptor instead.
+func (*ChangesetStack) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ChangesetStack) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetAuthoringSlice() *SliceRef {
+	if x != nil {
+		return x.AuthoringSlice
+	}
+	return nil
+}
+
+func (x *ChangesetStack) GetTargetRef() string {
+	if x != nil {
+		return x.TargetRef
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetBaseCommitId() string {
+	if x != nil {
+		return x.BaseCommitId
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetActiveEntryId() string {
+	if x != nil {
+		return x.ActiveEntryId
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetRootEntryId() string {
+	if x != nil {
+		return x.RootEntryId
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetEntries() []*ChangesetStackEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *ChangesetStack) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *ChangesetStack) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+type ChangesetStackEntry struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	StackId           string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	ChangesetId       string                 `protobuf:"bytes,2,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
+	ParentChangesetId string                 `protobuf:"bytes,3,opt,name=parent_changeset_id,json=parentChangesetId,proto3" json:"parent_changeset_id,omitempty"`
+	ParentPatchsetId  string                 `protobuf:"bytes,4,opt,name=parent_patchset_id,json=parentPatchsetId,proto3" json:"parent_patchset_id,omitempty"`
+	SiblingOrder      int64                  `protobuf:"varint,5,opt,name=sibling_order,json=siblingOrder,proto3" json:"sibling_order,omitempty"`
+	DisplayOrder      int64                  `protobuf:"varint,6,opt,name=display_order,json=displayOrder,proto3" json:"display_order,omitempty"`
+	Depth             int64                  `protobuf:"varint,7,opt,name=depth,proto3" json:"depth,omitempty"`
+	State             string                 `protobuf:"bytes,8,opt,name=state,proto3" json:"state,omitempty"`
+	Changeset         *Changeset             `protobuf:"bytes,9,opt,name=changeset,proto3" json:"changeset,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ChangesetStackEntry) Reset() {
+	*x = ChangesetStackEntry{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChangesetStackEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangesetStackEntry) ProtoMessage() {}
+
+func (x *ChangesetStackEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangesetStackEntry.ProtoReflect.Descriptor instead.
+func (*ChangesetStackEntry) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ChangesetStackEntry) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *ChangesetStackEntry) GetChangesetId() string {
+	if x != nil {
+		return x.ChangesetId
+	}
+	return ""
+}
+
+func (x *ChangesetStackEntry) GetParentChangesetId() string {
+	if x != nil {
+		return x.ParentChangesetId
+	}
+	return ""
+}
+
+func (x *ChangesetStackEntry) GetParentPatchsetId() string {
+	if x != nil {
+		return x.ParentPatchsetId
+	}
+	return ""
+}
+
+func (x *ChangesetStackEntry) GetSiblingOrder() int64 {
+	if x != nil {
+		return x.SiblingOrder
+	}
+	return 0
+}
+
+func (x *ChangesetStackEntry) GetDisplayOrder() int64 {
+	if x != nil {
+		return x.DisplayOrder
+	}
+	return 0
+}
+
+func (x *ChangesetStackEntry) GetDepth() int64 {
+	if x != nil {
+		return x.Depth
+	}
+	return 0
+}
+
+func (x *ChangesetStackEntry) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ChangesetStackEntry) GetChangeset() *Changeset {
+	if x != nil {
+		return x.Changeset
+	}
+	return nil
+}
+
 type FileEdit struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Op            string                 `protobuf:"bytes,1,opt,name=op,proto3" json:"op,omitempty"`
@@ -379,7 +715,7 @@ type FileEdit struct {
 
 func (x *FileEdit) Reset() {
 	*x = FileEdit{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[2]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -391,7 +727,7 @@ func (x *FileEdit) String() string {
 func (*FileEdit) ProtoMessage() {}
 
 func (x *FileEdit) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[2]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -404,7 +740,7 @@ func (x *FileEdit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileEdit.ProtoReflect.Descriptor instead.
 func (*FileEdit) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{2}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FileEdit) GetOp() string {
@@ -459,7 +795,7 @@ type PathCoverage struct {
 
 func (x *PathCoverage) Reset() {
 	*x = PathCoverage{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[3]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -471,7 +807,7 @@ func (x *PathCoverage) String() string {
 func (*PathCoverage) ProtoMessage() {}
 
 func (x *PathCoverage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[3]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -484,7 +820,7 @@ func (x *PathCoverage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PathCoverage.ProtoReflect.Descriptor instead.
 func (*PathCoverage) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{3}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PathCoverage) GetPath() string {
@@ -520,7 +856,7 @@ type PathBase struct {
 
 func (x *PathBase) Reset() {
 	*x = PathBase{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[4]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -532,7 +868,7 @@ func (x *PathBase) String() string {
 func (*PathBase) ProtoMessage() {}
 
 func (x *PathBase) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[4]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -545,7 +881,7 @@ func (x *PathBase) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PathBase.ProtoReflect.Descriptor instead.
 func (*PathBase) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{4}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PathBase) GetPath() string {
@@ -643,7 +979,7 @@ type PatchsetConflict struct {
 
 func (x *PatchsetConflict) Reset() {
 	*x = PatchsetConflict{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[5]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -655,7 +991,7 @@ func (x *PatchsetConflict) String() string {
 func (*PatchsetConflict) ProtoMessage() {}
 
 func (x *PatchsetConflict) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[5]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -668,7 +1004,7 @@ func (x *PatchsetConflict) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PatchsetConflict.ProtoReflect.Descriptor instead.
 func (*PatchsetConflict) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{5}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PatchsetConflict) GetPath() string {
@@ -751,7 +1087,7 @@ type PathSetEntry struct {
 
 func (x *PathSetEntry) Reset() {
 	*x = PathSetEntry{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[6]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -763,7 +1099,7 @@ func (x *PathSetEntry) String() string {
 func (*PathSetEntry) ProtoMessage() {}
 
 func (x *PathSetEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[6]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -776,7 +1112,7 @@ func (x *PathSetEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PathSetEntry.ProtoReflect.Descriptor instead.
 func (*PathSetEntry) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{6}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PathSetEntry) GetPath() string {
@@ -806,7 +1142,7 @@ type SubmitRequirements struct {
 
 func (x *SubmitRequirements) Reset() {
 	*x = SubmitRequirements{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[7]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -818,7 +1154,7 @@ func (x *SubmitRequirements) String() string {
 func (*SubmitRequirements) ProtoMessage() {}
 
 func (x *SubmitRequirements) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[7]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -831,7 +1167,7 @@ func (x *SubmitRequirements) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitRequirements.ProtoReflect.Descriptor instead.
 func (*SubmitRequirements) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{7}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SubmitRequirements) GetRequiredApprovals() int32 {
@@ -874,17 +1210,20 @@ type CreateChangesetRequest struct {
 	AuthoringSlice *SliceRef              `protobuf:"bytes,1,opt,name=authoring_slice,json=authoringSlice,proto3" json:"authoring_slice,omitempty"`
 	// Reserved for future branch support. Currently optional; when provided it
 	// must be the single global ref, refs/global/main.
-	TargetRef     string `protobuf:"bytes,2,opt,name=target_ref,json=targetRef,proto3" json:"target_ref,omitempty"`
-	BaseCommitId  string `protobuf:"bytes,3,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
-	Title         string `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
-	Description   string `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	TargetRef         string `protobuf:"bytes,2,opt,name=target_ref,json=targetRef,proto3" json:"target_ref,omitempty"`
+	BaseCommitId      string `protobuf:"bytes,3,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
+	Title             string `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
+	Description       string `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	StackId           string `protobuf:"bytes,6,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	ParentChangesetId string `protobuf:"bytes,7,opt,name=parent_changeset_id,json=parentChangesetId,proto3" json:"parent_changeset_id,omitempty"`
+	ParentPatchsetId  string `protobuf:"bytes,8,opt,name=parent_patchset_id,json=parentPatchsetId,proto3" json:"parent_patchset_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CreateChangesetRequest) Reset() {
 	*x = CreateChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[8]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -896,7 +1235,7 @@ func (x *CreateChangesetRequest) String() string {
 func (*CreateChangesetRequest) ProtoMessage() {}
 
 func (x *CreateChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[8]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -909,7 +1248,7 @@ func (x *CreateChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateChangesetRequest.ProtoReflect.Descriptor instead.
 func (*CreateChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CreateChangesetRequest) GetAuthoringSlice() *SliceRef {
@@ -947,6 +1286,27 @@ func (x *CreateChangesetRequest) GetDescription() string {
 	return ""
 }
 
+func (x *CreateChangesetRequest) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *CreateChangesetRequest) GetParentChangesetId() string {
+	if x != nil {
+		return x.ParentChangesetId
+	}
+	return ""
+}
+
+func (x *CreateChangesetRequest) GetParentPatchsetId() string {
+	if x != nil {
+		return x.ParentPatchsetId
+	}
+	return ""
+}
+
 type GetChangesetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ChangesetId   string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
@@ -956,7 +1316,7 @@ type GetChangesetRequest struct {
 
 func (x *GetChangesetRequest) Reset() {
 	*x = GetChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[9]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -968,7 +1328,7 @@ func (x *GetChangesetRequest) String() string {
 func (*GetChangesetRequest) ProtoMessage() {}
 
 func (x *GetChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[9]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -981,7 +1341,7 @@ func (x *GetChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetChangesetRequest.ProtoReflect.Descriptor instead.
 func (*GetChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetChangesetRequest) GetChangesetId() string {
@@ -1002,7 +1362,7 @@ type ListChangesetsRequest struct {
 
 func (x *ListChangesetsRequest) Reset() {
 	*x = ListChangesetsRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[10]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1014,7 +1374,7 @@ func (x *ListChangesetsRequest) String() string {
 func (*ListChangesetsRequest) ProtoMessage() {}
 
 func (x *ListChangesetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[10]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1027,7 +1387,7 @@ func (x *ListChangesetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListChangesetsRequest.ProtoReflect.Descriptor instead.
 func (*ListChangesetsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{10}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListChangesetsRequest) GetAuthoringSlice() *SliceRef {
@@ -1060,7 +1420,7 @@ type ListChangesetsResponse struct {
 
 func (x *ListChangesetsResponse) Reset() {
 	*x = ListChangesetsResponse{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[11]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1072,7 +1432,7 @@ func (x *ListChangesetsResponse) String() string {
 func (*ListChangesetsResponse) ProtoMessage() {}
 
 func (x *ListChangesetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[11]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1085,7 +1445,7 @@ func (x *ListChangesetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListChangesetsResponse.ProtoReflect.Descriptor instead.
 func (*ListChangesetsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{11}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListChangesetsResponse) GetChangesets() []*Changeset {
@@ -1109,7 +1469,7 @@ type DiffChangesetRequest struct {
 
 func (x *DiffChangesetRequest) Reset() {
 	*x = DiffChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[12]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1121,7 +1481,7 @@ func (x *DiffChangesetRequest) String() string {
 func (*DiffChangesetRequest) ProtoMessage() {}
 
 func (x *DiffChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[12]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1134,7 +1494,7 @@ func (x *DiffChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffChangesetRequest.ProtoReflect.Descriptor instead.
 func (*DiffChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{12}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DiffChangesetRequest) GetChangesetId() string {
@@ -1181,7 +1541,7 @@ type DiffChangesetResponse struct {
 
 func (x *DiffChangesetResponse) Reset() {
 	*x = DiffChangesetResponse{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[13]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1193,7 +1553,7 @@ func (x *DiffChangesetResponse) String() string {
 func (*DiffChangesetResponse) ProtoMessage() {}
 
 func (x *DiffChangesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[13]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1206,7 +1566,7 @@ func (x *DiffChangesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffChangesetResponse.ProtoReflect.Descriptor instead.
 func (*DiffChangesetResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{13}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DiffChangesetResponse) GetChangesetId() string {
@@ -1273,13 +1633,16 @@ type UpdateChangesetRequest struct {
 	FileEdits                 []*FileEdit            `protobuf:"bytes,4,rep,name=file_edits,json=fileEdits,proto3" json:"file_edits,omitempty"`
 	Conflicts                 []*PatchsetConflict    `protobuf:"bytes,5,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
 	PatchsetKind              string                 `protobuf:"bytes,6,opt,name=patchset_kind,json=patchsetKind,proto3" json:"patchset_kind,omitempty"`
+	BaseKind                  string                 `protobuf:"bytes,7,opt,name=base_kind,json=baseKind,proto3" json:"base_kind,omitempty"`
+	BasePatchsetId            string                 `protobuf:"bytes,8,opt,name=base_patchset_id,json=basePatchsetId,proto3" json:"base_patchset_id,omitempty"`
+	ExpectedParentPatchsetId  string                 `protobuf:"bytes,9,opt,name=expected_parent_patchset_id,json=expectedParentPatchsetId,proto3" json:"expected_parent_patchset_id,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *UpdateChangesetRequest) Reset() {
 	*x = UpdateChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[14]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1291,7 +1654,7 @@ func (x *UpdateChangesetRequest) String() string {
 func (*UpdateChangesetRequest) ProtoMessage() {}
 
 func (x *UpdateChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[14]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1304,7 +1667,7 @@ func (x *UpdateChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateChangesetRequest.ProtoReflect.Descriptor instead.
 func (*UpdateChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{14}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UpdateChangesetRequest) GetChangesetId() string {
@@ -1349,6 +1712,27 @@ func (x *UpdateChangesetRequest) GetPatchsetKind() string {
 	return ""
 }
 
+func (x *UpdateChangesetRequest) GetBaseKind() string {
+	if x != nil {
+		return x.BaseKind
+	}
+	return ""
+}
+
+func (x *UpdateChangesetRequest) GetBasePatchsetId() string {
+	if x != nil {
+		return x.BasePatchsetId
+	}
+	return ""
+}
+
+func (x *UpdateChangesetRequest) GetExpectedParentPatchsetId() string {
+	if x != nil {
+		return x.ExpectedParentPatchsetId
+	}
+	return ""
+}
+
 type SubmitChangesetRequest struct {
 	state                     protoimpl.MessageState `protogen:"open.v1"`
 	ChangesetId               string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
@@ -1359,7 +1743,7 @@ type SubmitChangesetRequest struct {
 
 func (x *SubmitChangesetRequest) Reset() {
 	*x = SubmitChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[15]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1371,7 +1755,7 @@ func (x *SubmitChangesetRequest) String() string {
 func (*SubmitChangesetRequest) ProtoMessage() {}
 
 func (x *SubmitChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[15]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1384,7 +1768,7 @@ func (x *SubmitChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitChangesetRequest.ProtoReflect.Descriptor instead.
 func (*SubmitChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{15}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *SubmitChangesetRequest) GetChangesetId() string {
@@ -1410,7 +1794,7 @@ type ApproveChangesetRequest struct {
 
 func (x *ApproveChangesetRequest) Reset() {
 	*x = ApproveChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[16]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1422,7 +1806,7 @@ func (x *ApproveChangesetRequest) String() string {
 func (*ApproveChangesetRequest) ProtoMessage() {}
 
 func (x *ApproveChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[16]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1435,7 +1819,7 @@ func (x *ApproveChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApproveChangesetRequest.ProtoReflect.Descriptor instead.
 func (*ApproveChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{16}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ApproveChangesetRequest) GetChangesetId() string {
@@ -1456,7 +1840,7 @@ type ApproveChangesetResponse struct {
 
 func (x *ApproveChangesetResponse) Reset() {
 	*x = ApproveChangesetResponse{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[17]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1468,7 +1852,7 @@ func (x *ApproveChangesetResponse) String() string {
 func (*ApproveChangesetResponse) ProtoMessage() {}
 
 func (x *ApproveChangesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[17]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1481,7 +1865,7 @@ func (x *ApproveChangesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApproveChangesetResponse.ProtoReflect.Descriptor instead.
 func (*ApproveChangesetResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{17}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ApproveChangesetResponse) GetChangesetId() string {
@@ -1516,7 +1900,7 @@ type ReportCheckResultRequest struct {
 
 func (x *ReportCheckResultRequest) Reset() {
 	*x = ReportCheckResultRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[18]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1528,7 +1912,7 @@ func (x *ReportCheckResultRequest) String() string {
 func (*ReportCheckResultRequest) ProtoMessage() {}
 
 func (x *ReportCheckResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[18]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1541,7 +1925,7 @@ func (x *ReportCheckResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportCheckResultRequest.ProtoReflect.Descriptor instead.
 func (*ReportCheckResultRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{18}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ReportCheckResultRequest) GetChangesetId() string {
@@ -1577,7 +1961,7 @@ type ReportCheckResultResponse struct {
 
 func (x *ReportCheckResultResponse) Reset() {
 	*x = ReportCheckResultResponse{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[19]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1589,7 +1973,7 @@ func (x *ReportCheckResultResponse) String() string {
 func (*ReportCheckResultResponse) ProtoMessage() {}
 
 func (x *ReportCheckResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[19]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1602,7 +1986,7 @@ func (x *ReportCheckResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportCheckResultResponse.ProtoReflect.Descriptor instead.
 func (*ReportCheckResultResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{19}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ReportCheckResultResponse) GetChangesetId() string {
@@ -1647,7 +2031,7 @@ type SubmitChangesetResponse struct {
 
 func (x *SubmitChangesetResponse) Reset() {
 	*x = SubmitChangesetResponse{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[20]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1659,7 +2043,7 @@ func (x *SubmitChangesetResponse) String() string {
 func (*SubmitChangesetResponse) ProtoMessage() {}
 
 func (x *SubmitChangesetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[20]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1672,7 +2056,7 @@ func (x *SubmitChangesetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitChangesetResponse.ProtoReflect.Descriptor instead.
 func (*SubmitChangesetResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{20}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *SubmitChangesetResponse) GetCommitId() string {
@@ -1727,7 +2111,7 @@ type AbandonChangesetRequest struct {
 
 func (x *AbandonChangesetRequest) Reset() {
 	*x = AbandonChangesetRequest{}
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[21]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1739,7 +2123,7 @@ func (x *AbandonChangesetRequest) String() string {
 func (*AbandonChangesetRequest) ProtoMessage() {}
 
 func (x *AbandonChangesetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_changeset_proto_msgTypes[21]
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1752,7 +2136,7 @@ func (x *AbandonChangesetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AbandonChangesetRequest.ProtoReflect.Descriptor instead.
 func (*AbandonChangesetRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{21}
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AbandonChangesetRequest) GetChangesetId() string {
@@ -1769,11 +2153,875 @@ func (x *AbandonChangesetRequest) GetReason() string {
 	return ""
 }
 
+type CreateStackRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AuthoringSlice *SliceRef              `protobuf:"bytes,1,opt,name=authoring_slice,json=authoringSlice,proto3" json:"authoring_slice,omitempty"`
+	TargetRef      string                 `protobuf:"bytes,2,opt,name=target_ref,json=targetRef,proto3" json:"target_ref,omitempty"`
+	BaseCommitId   string                 `protobuf:"bytes,3,opt,name=base_commit_id,json=baseCommitId,proto3" json:"base_commit_id,omitempty"`
+	Title          string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *CreateStackRequest) Reset() {
+	*x = CreateStackRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateStackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateStackRequest) ProtoMessage() {}
+
+func (x *CreateStackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateStackRequest.ProtoReflect.Descriptor instead.
+func (*CreateStackRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *CreateStackRequest) GetAuthoringSlice() *SliceRef {
+	if x != nil {
+		return x.AuthoringSlice
+	}
+	return nil
+}
+
+func (x *CreateStackRequest) GetTargetRef() string {
+	if x != nil {
+		return x.TargetRef
+	}
+	return ""
+}
+
+func (x *CreateStackRequest) GetBaseCommitId() string {
+	if x != nil {
+		return x.BaseCommitId
+	}
+	return ""
+}
+
+func (x *CreateStackRequest) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+type GetStackRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StackId       string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStackRequest) Reset() {
+	*x = GetStackRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStackRequest) ProtoMessage() {}
+
+func (x *GetStackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStackRequest.ProtoReflect.Descriptor instead.
+func (*GetStackRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GetStackRequest) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+type ListStacksRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AuthoringSlice *SliceRef              `protobuf:"bytes,1,opt,name=authoring_slice,json=authoringSlice,proto3" json:"authoring_slice,omitempty"`
+	Status         string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Limit          int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListStacksRequest) Reset() {
+	*x = ListStacksRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStacksRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStacksRequest) ProtoMessage() {}
+
+func (x *ListStacksRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStacksRequest.ProtoReflect.Descriptor instead.
+func (*ListStacksRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ListStacksRequest) GetAuthoringSlice() *SliceRef {
+	if x != nil {
+		return x.AuthoringSlice
+	}
+	return nil
+}
+
+func (x *ListStacksRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListStacksRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ListStacksResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Stacks        []*ChangesetStack      `protobuf:"bytes,1,rep,name=stacks,proto3" json:"stacks,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStacksResponse) Reset() {
+	*x = ListStacksResponse{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStacksResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStacksResponse) ProtoMessage() {}
+
+func (x *ListStacksResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStacksResponse.ProtoReflect.Descriptor instead.
+func (*ListStacksResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ListStacksResponse) GetStacks() []*ChangesetStack {
+	if x != nil {
+		return x.Stacks
+	}
+	return nil
+}
+
+type AddStackEntryRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	StackId           string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	Title             string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Description       string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	ParentChangesetId string                 `protobuf:"bytes,4,opt,name=parent_changeset_id,json=parentChangesetId,proto3" json:"parent_changeset_id,omitempty"`
+	ParentPatchsetId  string                 `protobuf:"bytes,5,opt,name=parent_patchset_id,json=parentPatchsetId,proto3" json:"parent_patchset_id,omitempty"`
+	SiblingOrder      int64                  `protobuf:"varint,6,opt,name=sibling_order,json=siblingOrder,proto3" json:"sibling_order,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *AddStackEntryRequest) Reset() {
+	*x = AddStackEntryRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddStackEntryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddStackEntryRequest) ProtoMessage() {}
+
+func (x *AddStackEntryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddStackEntryRequest.ProtoReflect.Descriptor instead.
+func (*AddStackEntryRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *AddStackEntryRequest) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *AddStackEntryRequest) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *AddStackEntryRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AddStackEntryRequest) GetParentChangesetId() string {
+	if x != nil {
+		return x.ParentChangesetId
+	}
+	return ""
+}
+
+func (x *AddStackEntryRequest) GetParentPatchsetId() string {
+	if x != nil {
+		return x.ParentPatchsetId
+	}
+	return ""
+}
+
+func (x *AddStackEntryRequest) GetSiblingOrder() int64 {
+	if x != nil {
+		return x.SiblingOrder
+	}
+	return 0
+}
+
+type MoveStackEntryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StackId       string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	ChangesetId   string                 `protobuf:"bytes,2,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
+	SiblingOrder  int64                  `protobuf:"varint,3,opt,name=sibling_order,json=siblingOrder,proto3" json:"sibling_order,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MoveStackEntryRequest) Reset() {
+	*x = MoveStackEntryRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MoveStackEntryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MoveStackEntryRequest) ProtoMessage() {}
+
+func (x *MoveStackEntryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MoveStackEntryRequest.ProtoReflect.Descriptor instead.
+func (*MoveStackEntryRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *MoveStackEntryRequest) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *MoveStackEntryRequest) GetChangesetId() string {
+	if x != nil {
+		return x.ChangesetId
+	}
+	return ""
+}
+
+func (x *MoveStackEntryRequest) GetSiblingOrder() int64 {
+	if x != nil {
+		return x.SiblingOrder
+	}
+	return 0
+}
+
+type ReparentStackEntryRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	StackId              string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	ChangesetId          string                 `protobuf:"bytes,2,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
+	NewParentChangesetId string                 `protobuf:"bytes,3,opt,name=new_parent_changeset_id,json=newParentChangesetId,proto3" json:"new_parent_changeset_id,omitempty"`
+	NewParentPatchsetId  string                 `protobuf:"bytes,4,opt,name=new_parent_patchset_id,json=newParentPatchsetId,proto3" json:"new_parent_patchset_id,omitempty"`
+	SiblingOrder         int64                  `protobuf:"varint,5,opt,name=sibling_order,json=siblingOrder,proto3" json:"sibling_order,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *ReparentStackEntryRequest) Reset() {
+	*x = ReparentStackEntryRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReparentStackEntryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReparentStackEntryRequest) ProtoMessage() {}
+
+func (x *ReparentStackEntryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReparentStackEntryRequest.ProtoReflect.Descriptor instead.
+func (*ReparentStackEntryRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ReparentStackEntryRequest) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *ReparentStackEntryRequest) GetChangesetId() string {
+	if x != nil {
+		return x.ChangesetId
+	}
+	return ""
+}
+
+func (x *ReparentStackEntryRequest) GetNewParentChangesetId() string {
+	if x != nil {
+		return x.NewParentChangesetId
+	}
+	return ""
+}
+
+func (x *ReparentStackEntryRequest) GetNewParentPatchsetId() string {
+	if x != nil {
+		return x.NewParentPatchsetId
+	}
+	return ""
+}
+
+func (x *ReparentStackEntryRequest) GetSiblingOrder() int64 {
+	if x != nil {
+		return x.SiblingOrder
+	}
+	return 0
+}
+
+type DetachStackEntryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StackId       string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	ChangesetId   string                 `protobuf:"bytes,2,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
+	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DetachStackEntryRequest) Reset() {
+	*x = DetachStackEntryRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DetachStackEntryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DetachStackEntryRequest) ProtoMessage() {}
+
+func (x *DetachStackEntryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DetachStackEntryRequest.ProtoReflect.Descriptor instead.
+func (*DetachStackEntryRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *DetachStackEntryRequest) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *DetachStackEntryRequest) GetChangesetId() string {
+	if x != nil {
+		return x.ChangesetId
+	}
+	return ""
+}
+
+func (x *DetachStackEntryRequest) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+type DetachStackEntryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SourceStack   *ChangesetStack        `protobuf:"bytes,1,opt,name=source_stack,json=sourceStack,proto3" json:"source_stack,omitempty"`
+	DetachedStack *ChangesetStack        `protobuf:"bytes,2,opt,name=detached_stack,json=detachedStack,proto3" json:"detached_stack,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DetachStackEntryResponse) Reset() {
+	*x = DetachStackEntryResponse{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DetachStackEntryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DetachStackEntryResponse) ProtoMessage() {}
+
+func (x *DetachStackEntryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DetachStackEntryResponse.ProtoReflect.Descriptor instead.
+func (*DetachStackEntryResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *DetachStackEntryResponse) GetSourceStack() *ChangesetStack {
+	if x != nil {
+		return x.SourceStack
+	}
+	return nil
+}
+
+func (x *DetachStackEntryResponse) GetDetachedStack() *ChangesetStack {
+	if x != nil {
+		return x.DetachedStack
+	}
+	return nil
+}
+
+type RestackRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	StackId            string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	StartChangesetId   string                 `protobuf:"bytes,2,opt,name=start_changeset_id,json=startChangesetId,proto3" json:"start_changeset_id,omitempty"`
+	IncludeSiblings    bool                   `protobuf:"varint,3,opt,name=include_siblings,json=includeSiblings,proto3" json:"include_siblings,omitempty"`
+	TargetBaseCommitId string                 `protobuf:"bytes,4,opt,name=target_base_commit_id,json=targetBaseCommitId,proto3" json:"target_base_commit_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RestackRequest) Reset() {
+	*x = RestackRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestackRequest) ProtoMessage() {}
+
+func (x *RestackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestackRequest.ProtoReflect.Descriptor instead.
+func (*RestackRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *RestackRequest) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *RestackRequest) GetStartChangesetId() string {
+	if x != nil {
+		return x.StartChangesetId
+	}
+	return ""
+}
+
+func (x *RestackRequest) GetIncludeSiblings() bool {
+	if x != nil {
+		return x.IncludeSiblings
+	}
+	return false
+}
+
+func (x *RestackRequest) GetTargetBaseCommitId() string {
+	if x != nil {
+		return x.TargetBaseCommitId
+	}
+	return ""
+}
+
+type RestackResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StackId       string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	Entries       []*Changeset           `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestackResponse) Reset() {
+	*x = RestackResponse{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestackResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestackResponse) ProtoMessage() {}
+
+func (x *RestackResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestackResponse.ProtoReflect.Descriptor instead.
+func (*RestackResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *RestackResponse) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *RestackResponse) GetEntries() []*Changeset {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *RestackResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type SubmitStackRequest struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	StackId                string                 `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	SubtreeRootChangesetId string                 `protobuf:"bytes,2,opt,name=subtree_root_changeset_id,json=subtreeRootChangesetId,proto3" json:"subtree_root_changeset_id,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *SubmitStackRequest) Reset() {
+	*x = SubmitStackRequest{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitStackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitStackRequest) ProtoMessage() {}
+
+func (x *SubmitStackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitStackRequest.ProtoReflect.Descriptor instead.
+func (*SubmitStackRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *SubmitStackRequest) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *SubmitStackRequest) GetSubtreeRootChangesetId() string {
+	if x != nil {
+		return x.SubtreeRootChangesetId
+	}
+	return ""
+}
+
+type SubmitStackEntryResult struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ChangesetId      string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
+	Status           string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	CommitId         string                 `protobuf:"bytes,3,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
+	PendingPublishId string                 `protobuf:"bytes,4,opt,name=pending_publish_id,json=pendingPublishId,proto3" json:"pending_publish_id,omitempty"`
+	BlockedReason    string                 `protobuf:"bytes,5,opt,name=blocked_reason,json=blockedReason,proto3" json:"blocked_reason,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SubmitStackEntryResult) Reset() {
+	*x = SubmitStackEntryResult{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitStackEntryResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitStackEntryResult) ProtoMessage() {}
+
+func (x *SubmitStackEntryResult) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitStackEntryResult.ProtoReflect.Descriptor instead.
+func (*SubmitStackEntryResult) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *SubmitStackEntryResult) GetChangesetId() string {
+	if x != nil {
+		return x.ChangesetId
+	}
+	return ""
+}
+
+func (x *SubmitStackEntryResult) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *SubmitStackEntryResult) GetCommitId() string {
+	if x != nil {
+		return x.CommitId
+	}
+	return ""
+}
+
+func (x *SubmitStackEntryResult) GetPendingPublishId() string {
+	if x != nil {
+		return x.PendingPublishId
+	}
+	return ""
+}
+
+func (x *SubmitStackEntryResult) GetBlockedReason() string {
+	if x != nil {
+		return x.BlockedReason
+	}
+	return ""
+}
+
+type SubmitStackResponse struct {
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	StackId       string                    `protobuf:"bytes,1,opt,name=stack_id,json=stackId,proto3" json:"stack_id,omitempty"`
+	Status        string                    `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Results       []*SubmitStackEntryResult `protobuf:"bytes,3,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubmitStackResponse) Reset() {
+	*x = SubmitStackResponse{}
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubmitStackResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubmitStackResponse) ProtoMessage() {}
+
+func (x *SubmitStackResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_changeset_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubmitStackResponse.ProtoReflect.Descriptor instead.
+func (*SubmitStackResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_changeset_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *SubmitStackResponse) GetStackId() string {
+	if x != nil {
+		return x.StackId
+	}
+	return ""
+}
+
+func (x *SubmitStackResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *SubmitStackResponse) GetResults() []*SubmitStackEntryResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
 var File_proto_core_v1_changeset_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\n" +
-	"\x1dproto/core/v1/changeset.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xdc\x05\n" +
+	"\x1dproto/core/v1/changeset.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xd9\a\n" +
 	"\tChangeset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12C\n" +
 	"\x0fauthoring_slice\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x16\n" +
@@ -1794,7 +3042,16 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x12pending_publish_id\x18\x0f \x01(\tR\x10pendingPublishId\x12\x16\n" +
 	"\x06number\x18\x10 \x01(\x03R\x06number\x12\x16\n" +
 	"\x06handle\x18\x11 \x01(\tR\x06handle\x122\n" +
-	"\x15submit_blocked_reason\x18\x12 \x01(\tR\x13submitBlockedReason\"\xc6\x05\n" +
+	"\x15submit_blocked_reason\x18\x12 \x01(\tR\x13submitBlockedReason\x12\x19\n" +
+	"\bstack_id\x18\x13 \x01(\tR\astackId\x12\x1f\n" +
+	"\vstack_order\x18\x14 \x01(\x03R\n" +
+	"stackOrder\x12.\n" +
+	"\x13parent_changeset_id\x18\x15 \x01(\tR\x11parentChangesetId\x12,\n" +
+	"\x12parent_patchset_id\x18\x16 \x01(\tR\x10parentPatchsetId\x12\x1b\n" +
+	"\tbase_kind\x18\x17 \x01(\tR\bbaseKind\x12\x1f\n" +
+	"\vstack_depth\x18\x18 \x01(\x03R\n" +
+	"stackDepth\x12#\n" +
+	"\rsibling_order\x18\x19 \x01(\x03R\fsiblingOrder\"\x8e\a\n" +
 	"\bPatchset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x16\n" +
@@ -1815,7 +3072,41 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\twrite_set\x18\r \x03(\v2\x1e.gitslice.core.v1.PathSetEntryR\bwriteSet\x12\x16\n" +
 	"\x06handle\x18\x0e \x01(\tR\x06handle\x12@\n" +
 	"\tconflicts\x18\x0f \x03(\v2\".gitslice.core.v1.PatchsetConflictR\tconflicts\x12\x12\n" +
-	"\x04kind\x18\x10 \x01(\tR\x04kind\"\x99\x01\n" +
+	"\x04kind\x18\x10 \x01(\tR\x04kind\x12\x1b\n" +
+	"\tbase_kind\x18\x11 \x01(\tR\bbaseKind\x12(\n" +
+	"\x10base_patchset_id\x18\x12 \x01(\tR\x0ebasePatchsetId\x12 \n" +
+	"\fbase_tree_id\x18\x13 \x01(\tR\n" +
+	"baseTreeId\x12$\n" +
+	"\x0eresult_tree_id\x18\x14 \x01(\tR\fresultTreeId\x127\n" +
+	"\x18stack_parent_patchset_id\x18\x15 \x01(\tR\x15stackParentPatchsetId\"\xc2\x03\n" +
+	"\x0eChangesetStack\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12C\n" +
+	"\x0fauthoring_slice\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x1d\n" +
+	"\n" +
+	"target_ref\x18\x03 \x01(\tR\ttargetRef\x12$\n" +
+	"\x0ebase_commit_id\x18\x04 \x01(\tR\fbaseCommitId\x12\x14\n" +
+	"\x05title\x18\x05 \x01(\tR\x05title\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12&\n" +
+	"\x0factive_entry_id\x18\a \x01(\tR\ractiveEntryId\x12\"\n" +
+	"\rroot_entry_id\x18\b \x01(\tR\vrootEntryId\x12?\n" +
+	"\aentries\x18\t \x03(\v2%.gitslice.core.v1.ChangesetStackEntryR\aentries\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\n" +
+	" \x01(\tR\tcreatedBy\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\v \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\f \x01(\tR\tupdatedAt\"\xe2\x02\n" +
+	"\x13ChangesetStackEntry\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x12!\n" +
+	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12.\n" +
+	"\x13parent_changeset_id\x18\x03 \x01(\tR\x11parentChangesetId\x12,\n" +
+	"\x12parent_patchset_id\x18\x04 \x01(\tR\x10parentPatchsetId\x12#\n" +
+	"\rsibling_order\x18\x05 \x01(\x03R\fsiblingOrder\x12#\n" +
+	"\rdisplay_order\x18\x06 \x01(\x03R\fdisplayOrder\x12\x14\n" +
+	"\x05depth\x18\a \x01(\x03R\x05depth\x12\x14\n" +
+	"\x05state\x18\b \x01(\tR\x05state\x129\n" +
+	"\tchangeset\x18\t \x01(\v2\x1b.gitslice.core.v1.ChangesetR\tchangeset\"\x99\x01\n" +
 	"\bFileEdit\x12\x0e\n" +
 	"\x02op\x18\x01 \x01(\tR\x02op\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x19\n" +
@@ -1860,14 +3151,17 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x0frequired_checks\x18\x02 \x03(\tR\x0erequiredChecks\x12\"\n" +
 	"\rpath_lock_ids\x18\x03 \x03(\tR\vpathLockIds\x12?\n" +
 	"\x1csource_slice_definition_hash\x18\x04 \x01(\tR\x19sourceSliceDefinitionHash\x128\n" +
-	"\x19source_path_lock_set_hash\x18\x05 \x01(\tR\x15sourcePathLockSetHash\"\xda\x01\n" +
+	"\x19source_path_lock_set_hash\x18\x05 \x01(\tR\x15sourcePathLockSetHash\"\xd3\x02\n" +
 	"\x16CreateChangesetRequest\x12C\n" +
 	"\x0fauthoring_slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x1d\n" +
 	"\n" +
 	"target_ref\x18\x02 \x01(\tR\ttargetRef\x12$\n" +
 	"\x0ebase_commit_id\x18\x03 \x01(\tR\fbaseCommitId\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12 \n" +
-	"\vdescription\x18\x05 \x01(\tR\vdescription\"8\n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x19\n" +
+	"\bstack_id\x18\x06 \x01(\tR\astackId\x12.\n" +
+	"\x13parent_changeset_id\x18\a \x01(\tR\x11parentChangesetId\x12,\n" +
+	"\x12parent_patchset_id\x18\b \x01(\tR\x10parentPatchsetId\"8\n" +
 	"\x13GetChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\"\x8a\x01\n" +
 	"\x15ListChangesetsRequest\x12C\n" +
@@ -1892,7 +3186,7 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x04diff\x18\x05 \x01(\tR\x04diff\x12)\n" +
 	"\x10changeset_handle\x18\x06 \x01(\tR\x0fchangesetHandle\x120\n" +
 	"\x14from_patchset_handle\x18\a \x01(\tR\x12fromPatchsetHandle\x12,\n" +
-	"\x12to_patchset_handle\x18\b \x01(\tR\x10toPatchsetHandle\"\xc4\x02\n" +
+	"\x12to_patchset_handle\x18\b \x01(\tR\x10toPatchsetHandle\"\xca\x03\n" +
 	"\x16UpdateChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12?\n" +
 	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\x12$\n" +
@@ -1900,7 +3194,10 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\n" +
 	"file_edits\x18\x04 \x03(\v2\x1a.gitslice.core.v1.FileEditR\tfileEdits\x12@\n" +
 	"\tconflicts\x18\x05 \x03(\v2\".gitslice.core.v1.PatchsetConflictR\tconflicts\x12#\n" +
-	"\rpatchset_kind\x18\x06 \x01(\tR\fpatchsetKind\"|\n" +
+	"\rpatchset_kind\x18\x06 \x01(\tR\fpatchsetKind\x12\x1b\n" +
+	"\tbase_kind\x18\a \x01(\tR\bbaseKind\x12(\n" +
+	"\x10base_patchset_id\x18\b \x01(\tR\x0ebasePatchsetId\x12=\n" +
+	"\x1bexpected_parent_patchset_id\x18\t \x01(\tR\x18expectedParentPatchsetId\"|\n" +
 	"\x16SubmitChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12?\n" +
 	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\"<\n" +
@@ -1934,7 +3231,67 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x10changeset_handle\x18\x06 \x01(\tR\x0fchangesetHandle\"T\n" +
 	"\x17AbandonChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason2\xf9\x06\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xb4\x01\n" +
+	"\x12CreateStackRequest\x12C\n" +
+	"\x0fauthoring_slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x1d\n" +
+	"\n" +
+	"target_ref\x18\x02 \x01(\tR\ttargetRef\x12$\n" +
+	"\x0ebase_commit_id\x18\x03 \x01(\tR\fbaseCommitId\x12\x14\n" +
+	"\x05title\x18\x04 \x01(\tR\x05title\",\n" +
+	"\x0fGetStackRequest\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\"\x86\x01\n" +
+	"\x11ListStacksRequest\x12C\n" +
+	"\x0fauthoring_slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\"N\n" +
+	"\x12ListStacksResponse\x128\n" +
+	"\x06stacks\x18\x01 \x03(\v2 .gitslice.core.v1.ChangesetStackR\x06stacks\"\xec\x01\n" +
+	"\x14AddStackEntryRequest\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12.\n" +
+	"\x13parent_changeset_id\x18\x04 \x01(\tR\x11parentChangesetId\x12,\n" +
+	"\x12parent_patchset_id\x18\x05 \x01(\tR\x10parentPatchsetId\x12#\n" +
+	"\rsibling_order\x18\x06 \x01(\x03R\fsiblingOrder\"z\n" +
+	"\x15MoveStackEntryRequest\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x12!\n" +
+	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12#\n" +
+	"\rsibling_order\x18\x03 \x01(\x03R\fsiblingOrder\"\xea\x01\n" +
+	"\x19ReparentStackEntryRequest\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x12!\n" +
+	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x125\n" +
+	"\x17new_parent_changeset_id\x18\x03 \x01(\tR\x14newParentChangesetId\x123\n" +
+	"\x16new_parent_patchset_id\x18\x04 \x01(\tR\x13newParentPatchsetId\x12#\n" +
+	"\rsibling_order\x18\x05 \x01(\x03R\fsiblingOrder\"m\n" +
+	"\x17DetachStackEntryRequest\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x12!\n" +
+	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x14\n" +
+	"\x05title\x18\x03 \x01(\tR\x05title\"\xa8\x01\n" +
+	"\x18DetachStackEntryResponse\x12C\n" +
+	"\fsource_stack\x18\x01 \x01(\v2 .gitslice.core.v1.ChangesetStackR\vsourceStack\x12G\n" +
+	"\x0edetached_stack\x18\x02 \x01(\v2 .gitslice.core.v1.ChangesetStackR\rdetachedStack\"\xb7\x01\n" +
+	"\x0eRestackRequest\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x12,\n" +
+	"\x12start_changeset_id\x18\x02 \x01(\tR\x10startChangesetId\x12)\n" +
+	"\x10include_siblings\x18\x03 \x01(\bR\x0fincludeSiblings\x121\n" +
+	"\x15target_base_commit_id\x18\x04 \x01(\tR\x12targetBaseCommitId\"{\n" +
+	"\x0fRestackResponse\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x125\n" +
+	"\aentries\x18\x02 \x03(\v2\x1b.gitslice.core.v1.ChangesetR\aentries\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"j\n" +
+	"\x12SubmitStackRequest\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x129\n" +
+	"\x19subtree_root_changeset_id\x18\x02 \x01(\tR\x16subtreeRootChangesetId\"\xc5\x01\n" +
+	"\x16SubmitStackEntryResult\x12!\n" +
+	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1b\n" +
+	"\tcommit_id\x18\x03 \x01(\tR\bcommitId\x12,\n" +
+	"\x12pending_publish_id\x18\x04 \x01(\tR\x10pendingPublishId\x12%\n" +
+	"\x0eblocked_reason\x18\x05 \x01(\tR\rblockedReason\"\x8c\x01\n" +
+	"\x13SubmitStackResponse\x12\x19\n" +
+	"\bstack_id\x18\x01 \x01(\tR\astackId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12B\n" +
+	"\aresults\x18\x03 \x03(\v2(.gitslice.core.v1.SubmitStackEntryResultR\aresults2\xf9\x06\n" +
 	"\x10ChangesetService\x12X\n" +
 	"\x0fCreateChangeset\x12(.gitslice.core.v1.CreateChangesetRequest\x1a\x1b.gitslice.core.v1.Changeset\x12R\n" +
 	"\fGetChangeset\x12%.gitslice.core.v1.GetChangesetRequest\x1a\x1b.gitslice.core.v1.Changeset\x12c\n" +
@@ -1944,7 +3301,18 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x10ApproveChangeset\x12).gitslice.core.v1.ApproveChangesetRequest\x1a*.gitslice.core.v1.ApproveChangesetResponse\x12l\n" +
 	"\x11ReportCheckResult\x12*.gitslice.core.v1.ReportCheckResultRequest\x1a+.gitslice.core.v1.ReportCheckResultResponse\x12f\n" +
 	"\x0fSubmitChangeset\x12(.gitslice.core.v1.SubmitChangesetRequest\x1a).gitslice.core.v1.SubmitChangesetResponse\x12V\n" +
-	"\x10AbandonChangeset\x12).gitslice.core.v1.AbandonChangesetRequest\x1a\x17.gitslice.core.v1.EmptyB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x10AbandonChangeset\x12).gitslice.core.v1.AbandonChangesetRequest\x1a\x17.gitslice.core.v1.Empty2\xc7\x06\n" +
+	"\x15ChangesetStackService\x12U\n" +
+	"\vCreateStack\x12$.gitslice.core.v1.CreateStackRequest\x1a .gitslice.core.v1.ChangesetStack\x12O\n" +
+	"\bGetStack\x12!.gitslice.core.v1.GetStackRequest\x1a .gitslice.core.v1.ChangesetStack\x12W\n" +
+	"\n" +
+	"ListStacks\x12#.gitslice.core.v1.ListStacksRequest\x1a$.gitslice.core.v1.ListStacksResponse\x12T\n" +
+	"\rAddStackEntry\x12&.gitslice.core.v1.AddStackEntryRequest\x1a\x1b.gitslice.core.v1.Changeset\x12[\n" +
+	"\x0eMoveStackEntry\x12'.gitslice.core.v1.MoveStackEntryRequest\x1a .gitslice.core.v1.ChangesetStack\x12c\n" +
+	"\x12ReparentStackEntry\x12+.gitslice.core.v1.ReparentStackEntryRequest\x1a .gitslice.core.v1.ChangesetStack\x12i\n" +
+	"\x10DetachStackEntry\x12).gitslice.core.v1.DetachStackEntryRequest\x1a*.gitslice.core.v1.DetachStackEntryResponse\x12N\n" +
+	"\aRestack\x12 .gitslice.core.v1.RestackRequest\x1a!.gitslice.core.v1.RestackResponse\x12Z\n" +
+	"\vSubmitStack\x12$.gitslice.core.v1.SubmitStackRequest\x1a%.gitslice.core.v1.SubmitStackResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_changeset_proto_rawDescOnce sync.Once
@@ -1958,72 +3326,116 @@ func file_proto_core_v1_changeset_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_changeset_proto_rawDescData
 }
 
-var file_proto_core_v1_changeset_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_proto_core_v1_changeset_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_proto_core_v1_changeset_proto_goTypes = []any{
 	(*Changeset)(nil),                 // 0: gitslice.core.v1.Changeset
 	(*Patchset)(nil),                  // 1: gitslice.core.v1.Patchset
-	(*FileEdit)(nil),                  // 2: gitslice.core.v1.FileEdit
-	(*PathCoverage)(nil),              // 3: gitslice.core.v1.PathCoverage
-	(*PathBase)(nil),                  // 4: gitslice.core.v1.PathBase
-	(*PatchsetConflict)(nil),          // 5: gitslice.core.v1.PatchsetConflict
-	(*PathSetEntry)(nil),              // 6: gitslice.core.v1.PathSetEntry
-	(*SubmitRequirements)(nil),        // 7: gitslice.core.v1.SubmitRequirements
-	(*CreateChangesetRequest)(nil),    // 8: gitslice.core.v1.CreateChangesetRequest
-	(*GetChangesetRequest)(nil),       // 9: gitslice.core.v1.GetChangesetRequest
-	(*ListChangesetsRequest)(nil),     // 10: gitslice.core.v1.ListChangesetsRequest
-	(*ListChangesetsResponse)(nil),    // 11: gitslice.core.v1.ListChangesetsResponse
-	(*DiffChangesetRequest)(nil),      // 12: gitslice.core.v1.DiffChangesetRequest
-	(*DiffChangesetResponse)(nil),     // 13: gitslice.core.v1.DiffChangesetResponse
-	(*UpdateChangesetRequest)(nil),    // 14: gitslice.core.v1.UpdateChangesetRequest
-	(*SubmitChangesetRequest)(nil),    // 15: gitslice.core.v1.SubmitChangesetRequest
-	(*ApproveChangesetRequest)(nil),   // 16: gitslice.core.v1.ApproveChangesetRequest
-	(*ApproveChangesetResponse)(nil),  // 17: gitslice.core.v1.ApproveChangesetResponse
-	(*ReportCheckResultRequest)(nil),  // 18: gitslice.core.v1.ReportCheckResultRequest
-	(*ReportCheckResultResponse)(nil), // 19: gitslice.core.v1.ReportCheckResultResponse
-	(*SubmitChangesetResponse)(nil),   // 20: gitslice.core.v1.SubmitChangesetResponse
-	(*AbandonChangesetRequest)(nil),   // 21: gitslice.core.v1.AbandonChangesetRequest
-	(*SliceRef)(nil),                  // 22: gitslice.core.v1.SliceRef
-	(*Empty)(nil),                     // 23: gitslice.core.v1.Empty
+	(*ChangesetStack)(nil),            // 2: gitslice.core.v1.ChangesetStack
+	(*ChangesetStackEntry)(nil),       // 3: gitslice.core.v1.ChangesetStackEntry
+	(*FileEdit)(nil),                  // 4: gitslice.core.v1.FileEdit
+	(*PathCoverage)(nil),              // 5: gitslice.core.v1.PathCoverage
+	(*PathBase)(nil),                  // 6: gitslice.core.v1.PathBase
+	(*PatchsetConflict)(nil),          // 7: gitslice.core.v1.PatchsetConflict
+	(*PathSetEntry)(nil),              // 8: gitslice.core.v1.PathSetEntry
+	(*SubmitRequirements)(nil),        // 9: gitslice.core.v1.SubmitRequirements
+	(*CreateChangesetRequest)(nil),    // 10: gitslice.core.v1.CreateChangesetRequest
+	(*GetChangesetRequest)(nil),       // 11: gitslice.core.v1.GetChangesetRequest
+	(*ListChangesetsRequest)(nil),     // 12: gitslice.core.v1.ListChangesetsRequest
+	(*ListChangesetsResponse)(nil),    // 13: gitslice.core.v1.ListChangesetsResponse
+	(*DiffChangesetRequest)(nil),      // 14: gitslice.core.v1.DiffChangesetRequest
+	(*DiffChangesetResponse)(nil),     // 15: gitslice.core.v1.DiffChangesetResponse
+	(*UpdateChangesetRequest)(nil),    // 16: gitslice.core.v1.UpdateChangesetRequest
+	(*SubmitChangesetRequest)(nil),    // 17: gitslice.core.v1.SubmitChangesetRequest
+	(*ApproveChangesetRequest)(nil),   // 18: gitslice.core.v1.ApproveChangesetRequest
+	(*ApproveChangesetResponse)(nil),  // 19: gitslice.core.v1.ApproveChangesetResponse
+	(*ReportCheckResultRequest)(nil),  // 20: gitslice.core.v1.ReportCheckResultRequest
+	(*ReportCheckResultResponse)(nil), // 21: gitslice.core.v1.ReportCheckResultResponse
+	(*SubmitChangesetResponse)(nil),   // 22: gitslice.core.v1.SubmitChangesetResponse
+	(*AbandonChangesetRequest)(nil),   // 23: gitslice.core.v1.AbandonChangesetRequest
+	(*CreateStackRequest)(nil),        // 24: gitslice.core.v1.CreateStackRequest
+	(*GetStackRequest)(nil),           // 25: gitslice.core.v1.GetStackRequest
+	(*ListStacksRequest)(nil),         // 26: gitslice.core.v1.ListStacksRequest
+	(*ListStacksResponse)(nil),        // 27: gitslice.core.v1.ListStacksResponse
+	(*AddStackEntryRequest)(nil),      // 28: gitslice.core.v1.AddStackEntryRequest
+	(*MoveStackEntryRequest)(nil),     // 29: gitslice.core.v1.MoveStackEntryRequest
+	(*ReparentStackEntryRequest)(nil), // 30: gitslice.core.v1.ReparentStackEntryRequest
+	(*DetachStackEntryRequest)(nil),   // 31: gitslice.core.v1.DetachStackEntryRequest
+	(*DetachStackEntryResponse)(nil),  // 32: gitslice.core.v1.DetachStackEntryResponse
+	(*RestackRequest)(nil),            // 33: gitslice.core.v1.RestackRequest
+	(*RestackResponse)(nil),           // 34: gitslice.core.v1.RestackResponse
+	(*SubmitStackRequest)(nil),        // 35: gitslice.core.v1.SubmitStackRequest
+	(*SubmitStackEntryResult)(nil),    // 36: gitslice.core.v1.SubmitStackEntryResult
+	(*SubmitStackResponse)(nil),       // 37: gitslice.core.v1.SubmitStackResponse
+	(*SliceRef)(nil),                  // 38: gitslice.core.v1.SliceRef
+	(*Empty)(nil),                     // 39: gitslice.core.v1.Empty
 }
 var file_proto_core_v1_changeset_proto_depIdxs = []int32{
-	22, // 0: gitslice.core.v1.Changeset.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	38, // 0: gitslice.core.v1.Changeset.authoring_slice:type_name -> gitslice.core.v1.SliceRef
 	1,  // 1: gitslice.core.v1.Changeset.patchsets:type_name -> gitslice.core.v1.Patchset
-	7,  // 2: gitslice.core.v1.Changeset.submit_requirements:type_name -> gitslice.core.v1.SubmitRequirements
-	2,  // 3: gitslice.core.v1.Patchset.file_edits:type_name -> gitslice.core.v1.FileEdit
-	3,  // 4: gitslice.core.v1.Patchset.coverage:type_name -> gitslice.core.v1.PathCoverage
-	7,  // 5: gitslice.core.v1.Patchset.submit_requirements:type_name -> gitslice.core.v1.SubmitRequirements
-	4,  // 6: gitslice.core.v1.Patchset.path_bases:type_name -> gitslice.core.v1.PathBase
-	6,  // 7: gitslice.core.v1.Patchset.read_set:type_name -> gitslice.core.v1.PathSetEntry
-	6,  // 8: gitslice.core.v1.Patchset.write_set:type_name -> gitslice.core.v1.PathSetEntry
-	5,  // 9: gitslice.core.v1.Patchset.conflicts:type_name -> gitslice.core.v1.PatchsetConflict
-	22, // 10: gitslice.core.v1.CreateChangesetRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
-	22, // 11: gitslice.core.v1.ListChangesetsRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
-	0,  // 12: gitslice.core.v1.ListChangesetsResponse.changesets:type_name -> gitslice.core.v1.Changeset
-	2,  // 13: gitslice.core.v1.UpdateChangesetRequest.file_edits:type_name -> gitslice.core.v1.FileEdit
-	5,  // 14: gitslice.core.v1.UpdateChangesetRequest.conflicts:type_name -> gitslice.core.v1.PatchsetConflict
-	8,  // 15: gitslice.core.v1.ChangesetService.CreateChangeset:input_type -> gitslice.core.v1.CreateChangesetRequest
-	9,  // 16: gitslice.core.v1.ChangesetService.GetChangeset:input_type -> gitslice.core.v1.GetChangesetRequest
-	10, // 17: gitslice.core.v1.ChangesetService.ListChangesets:input_type -> gitslice.core.v1.ListChangesetsRequest
-	12, // 18: gitslice.core.v1.ChangesetService.DiffChangeset:input_type -> gitslice.core.v1.DiffChangesetRequest
-	14, // 19: gitslice.core.v1.ChangesetService.UpdateChangeset:input_type -> gitslice.core.v1.UpdateChangesetRequest
-	16, // 20: gitslice.core.v1.ChangesetService.ApproveChangeset:input_type -> gitslice.core.v1.ApproveChangesetRequest
-	18, // 21: gitslice.core.v1.ChangesetService.ReportCheckResult:input_type -> gitslice.core.v1.ReportCheckResultRequest
-	15, // 22: gitslice.core.v1.ChangesetService.SubmitChangeset:input_type -> gitslice.core.v1.SubmitChangesetRequest
-	21, // 23: gitslice.core.v1.ChangesetService.AbandonChangeset:input_type -> gitslice.core.v1.AbandonChangesetRequest
-	0,  // 24: gitslice.core.v1.ChangesetService.CreateChangeset:output_type -> gitslice.core.v1.Changeset
-	0,  // 25: gitslice.core.v1.ChangesetService.GetChangeset:output_type -> gitslice.core.v1.Changeset
-	11, // 26: gitslice.core.v1.ChangesetService.ListChangesets:output_type -> gitslice.core.v1.ListChangesetsResponse
-	13, // 27: gitslice.core.v1.ChangesetService.DiffChangeset:output_type -> gitslice.core.v1.DiffChangesetResponse
-	1,  // 28: gitslice.core.v1.ChangesetService.UpdateChangeset:output_type -> gitslice.core.v1.Patchset
-	17, // 29: gitslice.core.v1.ChangesetService.ApproveChangeset:output_type -> gitslice.core.v1.ApproveChangesetResponse
-	19, // 30: gitslice.core.v1.ChangesetService.ReportCheckResult:output_type -> gitslice.core.v1.ReportCheckResultResponse
-	20, // 31: gitslice.core.v1.ChangesetService.SubmitChangeset:output_type -> gitslice.core.v1.SubmitChangesetResponse
-	23, // 32: gitslice.core.v1.ChangesetService.AbandonChangeset:output_type -> gitslice.core.v1.Empty
-	24, // [24:33] is the sub-list for method output_type
-	15, // [15:24] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	9,  // 2: gitslice.core.v1.Changeset.submit_requirements:type_name -> gitslice.core.v1.SubmitRequirements
+	4,  // 3: gitslice.core.v1.Patchset.file_edits:type_name -> gitslice.core.v1.FileEdit
+	5,  // 4: gitslice.core.v1.Patchset.coverage:type_name -> gitslice.core.v1.PathCoverage
+	9,  // 5: gitslice.core.v1.Patchset.submit_requirements:type_name -> gitslice.core.v1.SubmitRequirements
+	6,  // 6: gitslice.core.v1.Patchset.path_bases:type_name -> gitslice.core.v1.PathBase
+	8,  // 7: gitslice.core.v1.Patchset.read_set:type_name -> gitslice.core.v1.PathSetEntry
+	8,  // 8: gitslice.core.v1.Patchset.write_set:type_name -> gitslice.core.v1.PathSetEntry
+	7,  // 9: gitslice.core.v1.Patchset.conflicts:type_name -> gitslice.core.v1.PatchsetConflict
+	38, // 10: gitslice.core.v1.ChangesetStack.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	3,  // 11: gitslice.core.v1.ChangesetStack.entries:type_name -> gitslice.core.v1.ChangesetStackEntry
+	0,  // 12: gitslice.core.v1.ChangesetStackEntry.changeset:type_name -> gitslice.core.v1.Changeset
+	38, // 13: gitslice.core.v1.CreateChangesetRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	38, // 14: gitslice.core.v1.ListChangesetsRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	0,  // 15: gitslice.core.v1.ListChangesetsResponse.changesets:type_name -> gitslice.core.v1.Changeset
+	4,  // 16: gitslice.core.v1.UpdateChangesetRequest.file_edits:type_name -> gitslice.core.v1.FileEdit
+	7,  // 17: gitslice.core.v1.UpdateChangesetRequest.conflicts:type_name -> gitslice.core.v1.PatchsetConflict
+	38, // 18: gitslice.core.v1.CreateStackRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	38, // 19: gitslice.core.v1.ListStacksRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	2,  // 20: gitslice.core.v1.ListStacksResponse.stacks:type_name -> gitslice.core.v1.ChangesetStack
+	2,  // 21: gitslice.core.v1.DetachStackEntryResponse.source_stack:type_name -> gitslice.core.v1.ChangesetStack
+	2,  // 22: gitslice.core.v1.DetachStackEntryResponse.detached_stack:type_name -> gitslice.core.v1.ChangesetStack
+	0,  // 23: gitslice.core.v1.RestackResponse.entries:type_name -> gitslice.core.v1.Changeset
+	36, // 24: gitslice.core.v1.SubmitStackResponse.results:type_name -> gitslice.core.v1.SubmitStackEntryResult
+	10, // 25: gitslice.core.v1.ChangesetService.CreateChangeset:input_type -> gitslice.core.v1.CreateChangesetRequest
+	11, // 26: gitslice.core.v1.ChangesetService.GetChangeset:input_type -> gitslice.core.v1.GetChangesetRequest
+	12, // 27: gitslice.core.v1.ChangesetService.ListChangesets:input_type -> gitslice.core.v1.ListChangesetsRequest
+	14, // 28: gitslice.core.v1.ChangesetService.DiffChangeset:input_type -> gitslice.core.v1.DiffChangesetRequest
+	16, // 29: gitslice.core.v1.ChangesetService.UpdateChangeset:input_type -> gitslice.core.v1.UpdateChangesetRequest
+	18, // 30: gitslice.core.v1.ChangesetService.ApproveChangeset:input_type -> gitslice.core.v1.ApproveChangesetRequest
+	20, // 31: gitslice.core.v1.ChangesetService.ReportCheckResult:input_type -> gitslice.core.v1.ReportCheckResultRequest
+	17, // 32: gitslice.core.v1.ChangesetService.SubmitChangeset:input_type -> gitslice.core.v1.SubmitChangesetRequest
+	23, // 33: gitslice.core.v1.ChangesetService.AbandonChangeset:input_type -> gitslice.core.v1.AbandonChangesetRequest
+	24, // 34: gitslice.core.v1.ChangesetStackService.CreateStack:input_type -> gitslice.core.v1.CreateStackRequest
+	25, // 35: gitslice.core.v1.ChangesetStackService.GetStack:input_type -> gitslice.core.v1.GetStackRequest
+	26, // 36: gitslice.core.v1.ChangesetStackService.ListStacks:input_type -> gitslice.core.v1.ListStacksRequest
+	28, // 37: gitslice.core.v1.ChangesetStackService.AddStackEntry:input_type -> gitslice.core.v1.AddStackEntryRequest
+	29, // 38: gitslice.core.v1.ChangesetStackService.MoveStackEntry:input_type -> gitslice.core.v1.MoveStackEntryRequest
+	30, // 39: gitslice.core.v1.ChangesetStackService.ReparentStackEntry:input_type -> gitslice.core.v1.ReparentStackEntryRequest
+	31, // 40: gitslice.core.v1.ChangesetStackService.DetachStackEntry:input_type -> gitslice.core.v1.DetachStackEntryRequest
+	33, // 41: gitslice.core.v1.ChangesetStackService.Restack:input_type -> gitslice.core.v1.RestackRequest
+	35, // 42: gitslice.core.v1.ChangesetStackService.SubmitStack:input_type -> gitslice.core.v1.SubmitStackRequest
+	0,  // 43: gitslice.core.v1.ChangesetService.CreateChangeset:output_type -> gitslice.core.v1.Changeset
+	0,  // 44: gitslice.core.v1.ChangesetService.GetChangeset:output_type -> gitslice.core.v1.Changeset
+	13, // 45: gitslice.core.v1.ChangesetService.ListChangesets:output_type -> gitslice.core.v1.ListChangesetsResponse
+	15, // 46: gitslice.core.v1.ChangesetService.DiffChangeset:output_type -> gitslice.core.v1.DiffChangesetResponse
+	1,  // 47: gitslice.core.v1.ChangesetService.UpdateChangeset:output_type -> gitslice.core.v1.Patchset
+	19, // 48: gitslice.core.v1.ChangesetService.ApproveChangeset:output_type -> gitslice.core.v1.ApproveChangesetResponse
+	21, // 49: gitslice.core.v1.ChangesetService.ReportCheckResult:output_type -> gitslice.core.v1.ReportCheckResultResponse
+	22, // 50: gitslice.core.v1.ChangesetService.SubmitChangeset:output_type -> gitslice.core.v1.SubmitChangesetResponse
+	39, // 51: gitslice.core.v1.ChangesetService.AbandonChangeset:output_type -> gitslice.core.v1.Empty
+	2,  // 52: gitslice.core.v1.ChangesetStackService.CreateStack:output_type -> gitslice.core.v1.ChangesetStack
+	2,  // 53: gitslice.core.v1.ChangesetStackService.GetStack:output_type -> gitslice.core.v1.ChangesetStack
+	27, // 54: gitslice.core.v1.ChangesetStackService.ListStacks:output_type -> gitslice.core.v1.ListStacksResponse
+	0,  // 55: gitslice.core.v1.ChangesetStackService.AddStackEntry:output_type -> gitslice.core.v1.Changeset
+	2,  // 56: gitslice.core.v1.ChangesetStackService.MoveStackEntry:output_type -> gitslice.core.v1.ChangesetStack
+	2,  // 57: gitslice.core.v1.ChangesetStackService.ReparentStackEntry:output_type -> gitslice.core.v1.ChangesetStack
+	32, // 58: gitslice.core.v1.ChangesetStackService.DetachStackEntry:output_type -> gitslice.core.v1.DetachStackEntryResponse
+	34, // 59: gitslice.core.v1.ChangesetStackService.Restack:output_type -> gitslice.core.v1.RestackResponse
+	37, // 60: gitslice.core.v1.ChangesetStackService.SubmitStack:output_type -> gitslice.core.v1.SubmitStackResponse
+	43, // [43:61] is the sub-list for method output_type
+	25, // [25:43] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_changeset_proto_init() }
@@ -2038,9 +3450,9 @@ func file_proto_core_v1_changeset_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_changeset_proto_rawDesc), len(file_proto_core_v1_changeset_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   38,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_proto_core_v1_changeset_proto_goTypes,
 		DependencyIndexes: file_proto_core_v1_changeset_proto_depIdxs,

@@ -1,0 +1,349 @@
+import "@testing-library/jest-dom/vitest";
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { Changeset, ChangesetStack, PatchsetConflict } from "../api/types";
+import { ChangesetDetailPage } from "./ChangesetDetailPage";
+import { StackDetailPage } from "./StackDetailPage";
+import { StackRestackPage } from "./StackRestackPage";
+import { StackSubmitPage } from "./StackSubmitPage";
+
+const apiMock = vi.hoisted(() => ({
+  current: {} as Record<string, unknown>
+}));
+
+const routerMock = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  params: {} as Record<string, string>,
+  search: {} as Record<string, unknown>
+}));
+
+vi.mock("../api/useApi", () => ({
+  useApi: () => apiMock.current
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
+  useNavigate: () => routerMock.navigate,
+  useParams: () => routerMock.params,
+  useSearch: () => routerMock.search
+}));
+
+vi.mock("../components/diff/DiffViewer", () => ({
+  DiffViewer: () => <div data-testid="diff-viewer">Diff viewer</div>
+}));
+
+describe("stack route pages", () => {
+  beforeEach(() => {
+    routerMock.navigate = vi.fn();
+    routerMock.params = { id: "stk_parser" };
+    routerMock.search = {};
+    apiMock.current = makeApi();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("renders stack entry order, parent links, active detail, and separate actions", async () => {
+    renderRoute(<StackDetailPage />);
+
+    expect(await screen.findByText("payment parser rollout")).toBeInTheDocument();
+    expect(screen.getByText("Entries")).toBeInTheDocument();
+    expect(screen.getByText("introduce parser")).toBeInTheDocument();
+    expect(screen.getAllByText("use parser in payment API").length).toBeGreaterThan(0);
+    expect(screen.getByText("expose parser metrics")).toBeInTheDocument();
+    expect(screen.getByText("Parent patchset")).toBeInTheDocument();
+    expect(screen.getAllByText("NeedsRestack").length).toBeGreaterThan(0);
+
+    expect(screen.getByRole("heading", { name: "Add patchset" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add patchset" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Add entry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Child" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add child" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sibling" }));
+    expect(screen.getByRole("button", { name: "Add sibling" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Move and restack" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move and restack" })).toBeInTheDocument();
+  });
+
+  it("shows clean and conflicted restack results with conflict metadata", async () => {
+    const api = makeApi();
+    api.restack = vi.fn().mockResolvedValue({
+      entries: [
+        changeset("cs_child", "use parser in payment API", {
+          patchsetId: "ps_child_2",
+          patchsetNumber: "2",
+          status: "draft"
+        }),
+        changeset("cs_grandchild", "update tests for API behavior", {
+          conflicts: [
+            {
+              conflictClass: "restack",
+              newBaseCommitId: "commit_new",
+              oldBaseCommitId: "commit_old",
+              path: "/acme/payment/conflict.go",
+              remoteFingerprint: "sha256:remote"
+            }
+          ],
+          patchsetId: "ps_grandchild_2",
+          patchsetNumber: "2",
+          status: "draft"
+        })
+      ],
+      stackId: "stk_parser",
+      status: "conflicts"
+    });
+    apiMock.current = api;
+
+    renderRoute(<StackRestackPage />);
+
+    expect(await screen.findByText("Affected entries")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Restack" }));
+
+    expect(await screen.findByText("Restack result")).toBeInTheDocument();
+    expect(screen.getAllByText("use parser in payment API").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("update tests for API behavior").length).toBeGreaterThan(0);
+    expect(screen.getByText("Conflict details")).toBeInTheDocument();
+    expect(screen.getByText("/acme/payment/conflict.go")).toBeInTheDocument();
+    expect(screen.getByText("restack")).toBeInTheDocument();
+    expect(screen.getByText("sha256:remote")).toBeInTheDocument();
+  });
+
+  it("shows stack submit progress for accepted, pending, submitted, and blocked entries", async () => {
+    const api = makeApi();
+    api.submitStack = vi.fn().mockResolvedValue({
+      results: [
+        { changesetId: "cs_root", commitId: "commit_root", status: "accepted" },
+        {
+          changesetId: "cs_child",
+          pendingPublishId: "pending_child",
+          status: "pending_publish"
+        },
+        { changesetId: "cs_grandchild", commitId: "commit_grandchild", status: "submitted" },
+        {
+          blockedReason: "required check unit failed",
+          changesetId: "cs_sibling",
+          status: "blocked"
+        }
+      ],
+      stackId: "stk_parser",
+      status: "partial"
+    });
+    apiMock.current = api;
+
+    renderRoute(<StackSubmitPage />);
+
+    expect(await screen.findByText("Submit order")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Submit stack" }));
+
+    expect(await screen.findByText("Submit result")).toBeInTheDocument();
+    expect(screen.getByText("accepted")).toBeInTheDocument();
+    expect(screen.getByText("pending_publish")).toBeInTheDocument();
+    expect(screen.getByText("submitted")).toBeInTheDocument();
+    expect(screen.getByText("blocked")).toBeInTheDocument();
+    expect(screen.getByText("required check unit failed")).toBeInTheDocument();
+  });
+
+  it("links changeset detail back to stack context", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = { stack: "stk_parser" };
+    apiMock.current = {
+      ...makeApi(),
+      getChangeset: vi.fn().mockResolvedValue(
+        changeset("cs_child", "use parser in payment API", {
+          parentChangesetId: "cs_root",
+          parentPatchsetId: "ps_root_1",
+          stackId: "stk_parser"
+        })
+      )
+    };
+
+    renderRoute(<ChangesetDetailPage />);
+
+    expect(await screen.findByText("use parser in payment API")).toBeInTheDocument();
+    expect(screen.getByText(/^Stack /)).toBeInTheDocument();
+    expect(screen.getByText(/^stack /)).toBeInTheDocument();
+  });
+});
+
+function renderRoute(element: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { retry: false },
+      queries: { retry: false }
+    }
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>{element}</QueryClientProvider>
+  );
+}
+
+function makeApi() {
+  return {
+    addStackEntry: vi.fn(),
+    diffChangeset: vi.fn().mockResolvedValue({ changedPaths: [], diff: "" }),
+    getChangeset: vi.fn().mockResolvedValue(
+      changeset("cs_child", "use parser in payment API", {
+        parentChangesetId: "cs_root",
+        parentPatchsetId: "ps_root_1",
+        stackId: "stk_parser"
+      })
+    ),
+    getStack: vi.fn().mockResolvedValue(stackFixture()),
+    listDirectory: vi.fn().mockResolvedValue({
+      entries: [
+        {
+          kind: "ENTRY_KIND_FILE",
+          name: "parser.go",
+          path: "/acme/payment/parser.go"
+        }
+      ]
+    }),
+    readFile: vi.fn().mockResolvedValue({ data: btoa("package payment\n") }),
+    reparentStackEntry: vi.fn(),
+    resolvePath: vi.fn().mockResolvedValue({
+      entry: { kind: "ENTRY_KIND_DIRECTORY", path: "/" }
+    }),
+    resolveSlice: vi.fn().mockResolvedValue({ id: "slice_payment" }),
+    restack: vi.fn(),
+    submitStack: vi.fn(),
+    updateChangeset: vi.fn(),
+    uploadBlob: vi.fn()
+  };
+}
+
+function stackFixture(): ChangesetStack {
+  return {
+    activeEntryId: "cs_child",
+    authoringSlice: { account: "acme", slice: "payment" },
+    baseCommitId: "commit_base",
+    createdAt: "2026-06-18T00:00:00Z",
+    id: "stk_parser",
+    rootEntryId: "cs_root",
+    status: "open",
+    targetRef: "refs/global/main",
+    title: "payment parser rollout",
+    updatedAt: "2026-06-18T00:01:00Z",
+    entries: [
+      {
+        changeset: changeset("cs_root", "introduce parser", {
+          patchsetId: "ps_root_1",
+          patchsetNumber: "1"
+        }),
+        changesetId: "cs_root",
+        depth: "0",
+        displayOrder: "1",
+        siblingOrder: "1",
+        stackId: "stk_parser",
+        state: "draft"
+      },
+      {
+        changeset: changeset("cs_child", "use parser in payment API", {
+          parentChangesetId: "cs_root",
+          parentPatchsetId: "ps_root_1",
+          patchsetId: "ps_child_1",
+          patchsetNumber: "1",
+          submitBlockedReason: "NeedsRestack"
+        }),
+        changesetId: "cs_child",
+        depth: "1",
+        displayOrder: "2",
+        parentChangesetId: "cs_root",
+        parentPatchsetId: "ps_root_1",
+        siblingOrder: "1",
+        stackId: "stk_parser",
+        state: "needs_restack"
+      },
+      {
+        changeset: changeset("cs_grandchild", "update tests for API behavior", {
+          parentChangesetId: "cs_child",
+          parentPatchsetId: "ps_child_1",
+          patchsetId: "ps_grandchild_1",
+          patchsetNumber: "1"
+        }),
+        changesetId: "cs_grandchild",
+        depth: "2",
+        displayOrder: "3",
+        parentChangesetId: "cs_child",
+        parentPatchsetId: "ps_child_1",
+        siblingOrder: "1",
+        stackId: "stk_parser",
+        state: "draft"
+      },
+      {
+        changeset: changeset("cs_sibling", "expose parser metrics", {
+          parentChangesetId: "cs_root",
+          parentPatchsetId: "ps_root_1",
+          patchsetId: "ps_sibling_1",
+          patchsetNumber: "1"
+        }),
+        changesetId: "cs_sibling",
+        depth: "1",
+        displayOrder: "4",
+        parentChangesetId: "cs_root",
+        parentPatchsetId: "ps_root_1",
+        siblingOrder: "2",
+        stackId: "stk_parser",
+        state: "draft"
+      }
+    ]
+  };
+}
+
+function changeset(
+  id: string,
+  title: string,
+  options: {
+    conflicts?: PatchsetConflict[];
+    parentChangesetId?: string;
+    parentPatchsetId?: string;
+    patchsetId?: string;
+    patchsetNumber?: string;
+    stackId?: string;
+    status?: string;
+    submitBlockedReason?: string;
+  } = {}
+): Changeset {
+  const patchsetId = options.patchsetId ?? `ps_${id}_1`;
+  const patchsetNumber = options.patchsetNumber ?? "1";
+
+  return {
+    affectedPaths: [`/acme/payment/${id}.go`],
+    author: "alice",
+    authoringSlice: { account: "acme", slice: "payment" },
+    baseCommitId: "commit_base",
+    baseKind: options.parentChangesetId ? "patchset" : "commit",
+    currentPatchsetId: patchsetId,
+    currentPatchsetNumber: patchsetNumber,
+    handle: `acme:payment@${id.replace("cs_", "")}`,
+    id,
+    parentChangesetId: options.parentChangesetId,
+    parentPatchsetId: options.parentPatchsetId,
+    patchsets: [
+      {
+        baseCommitId: "commit_base",
+        baseKind: options.parentChangesetId ? "patchset" : "commit",
+        basePatchsetId: options.parentPatchsetId,
+        changedPaths: [`/acme/payment/${id}.go`],
+        changesetId: id,
+        conflicts: options.conflicts,
+        fileEdits: [],
+        id: patchsetId,
+        number: patchsetNumber,
+        resultTreeId: `tree_${id}`
+      }
+    ],
+    stackId: options.stackId ?? "stk_parser",
+    status: options.status ?? "draft",
+    submitBlockedReason: options.submitBlockedReason,
+    targetRef: "refs/global/main",
+    title
+  };
+}

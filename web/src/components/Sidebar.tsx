@@ -5,7 +5,8 @@ import { cn } from "../lib/cn";
 const navItems = [
   { label: "Home", to: "/" },
   { label: "Slices", to: "/slices" },
-  { label: "Changeset", to: "/changesets" }
+  { label: "Changesets", to: "/changesets" },
+  { label: "Stacks", to: "/stacks" }
 ] as const;
 
 export function Sidebar() {

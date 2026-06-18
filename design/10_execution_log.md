@@ -4969,3 +4969,487 @@ git diff --check
 LC_ALL=C rg -n "[^\x00-\x7F]" design/15_stacked_changesets.md
 rg -n "gs stack (restack|move)|Open Questions|account/slug@number" design/15_stacked_changesets.md
 ```
+
+## 2026-06-18: Stacked Changeset Server MVP
+
+Request:
+
+- implement `design/15_stacked_changesets.md`
+
+Decisions:
+
+- added the stack-aware protobuf fields, `ChangesetStackService`, generated Go
+  stubs, and gateway bindings instead of hand-written gRPC code
+- added durable Postgres stack tables and patchset base/result tree metadata in
+  a forward migration; memory storage mirrors the same behavior for local tests
+- kept stack entry creation atomic with changeset creation so a stack-linked
+  changeset cannot exist without its entry row
+- made `UpdateChangeset` validate child patchsets against the parent patchset
+  preview tree and store `base_tree_id`/`result_tree_id` for future child
+  materialization and review diffs
+- allowed child submit only when the parent is already accepted
+  (`pending_publish`) or submitted; draft parents set `BlockedOnStackParent`
+- implemented stack create/get/list/add-entry/submit RPCs for the MVP, while
+  move, reparent, and restack RPCs currently return `Unimplemented` until replay
+  semantics are implemented safely
+- preserved the existing path-head admission and publisher sequence as the
+  correctness boundary; `SubmitStack` submits entries in parent-before-child
+  display order and reports per-entry partial results
+
+Verification:
+
+```bash
+go test ./service -run TestStackedChangesetsUseParentPreviewInMemoryStorage -v
+go test -count=1 ./tests/rpc -run TestStackedChangesetsChildUsesParentPreviewAndSubmitOrder -v
+go test ./service ./internal/storage/memory ./internal/postgres
+go test ./...
+go build ./cmd/...
+```
+
+Notes:
+
+- the focused RPC test was added, but it skipped locally because
+  `GITSLICE_TEST_DATABASE_URL` is not set in this environment
+
+## 2026-06-18: Stack Mutation And Restack RPCs
+
+Request:
+
+- continue stacked changeset implementation until the exposed server RPCs are
+  no longer placeholders
+
+Decisions:
+
+- implemented `MoveStackEntry` as a sibling-order mutation that preserves the
+  existing parent and recomputes preorder display metadata
+- implemented `ReparentStackEntry` with same-stack validation, submitted-entry
+  rejection, parent-current-patchset validation, cycle prevention, one-root
+  preservation, and `needs_restack` marking for the moved subtree
+- implemented `Restack` in the service layer by replaying each selected entry's
+  current file edits through normal `UpdateChangeset` validation, which creates
+  durable patchsets and refreshed preview tree metadata
+- kept restack conflict handling limited to the current validation model; the
+  operation now replays cleanly through preview trees, but richer semantic
+  conflict generation remains future work
+- added in-memory service coverage for move, reparent, cycle rejection, restack,
+  child preview diffs, and stack submit ordering so the default local gate
+  exercises stack behavior without requiring Postgres e2e configuration
+
+Verification:
+
+```bash
+go test ./service -run 'TestStack(Mutation|ed)' -v
+go test ./service ./internal/storage/memory ./internal/postgres
+go test ./... && go build ./cmd/...
+```
+
+## 2026-06-18: Stack-Aware CLI Workflow
+
+Request:
+
+- continue `design/15_stacked_changesets.md` through the canonical CLI workflow
+
+Decisions:
+
+- added canonical top-level stack commands for `gs create`, `gs modify`,
+  `gs submit`, `gs stack`, `gs restack`, `gs switch`, `gs up`, `gs down`,
+  `gs top`, `gs bottom`, `gs move`, and `gs insert`, while keeping `gs cs ...`
+  available as lower-level compatibility commands
+- made stack-aware edit snapshotting replay ancestor patchset file edits over
+  the workspace base snapshot so child `create`, `modify`, `status`, and `diff`
+  use the parent preview as their old side
+- made `gs switch` and navigation commands block dirty working trees before
+  changing active entries, then rematerialize files from the selected stack path
+  using the local object cache or blob reads
+- made plain `gs submit` stack-aware when a stack is active by submitting the
+  active entry's ancestor path; `--stack` and `--subtree` continue to use the
+  stack submit RPC
+- rejected pre-stack local workspace state for the new canonical stack commands
+  instead of silently treating an old current changeset as a stack
+- left `gs detach` out of this pass because splitting an entry into a new stack
+  needs an explicit storage/API operation; reparent-to-root is not equivalent
+  because stacks intentionally have one root
+
+Verification:
+
+```bash
+go test ./internal/cli ./cmd/gs
+go test ./service ./internal/storage/memory ./internal/postgres ./internal/cli
+go test -count=1 ./internal/cli ./service ./internal/storage/memory ./internal/postgres
+go test -count=1 ./tests/rpc -run TestStackedChangesetsChildUsesParentPreviewAndSubmitOrder -v
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+Notes:
+
+- the focused real Postgres RPC test still skips locally because
+  `GITSLICE_TEST_DATABASE_URL` is not set in this environment
+
+## 2026-06-18: CLI Move And Sync Restack Follow-Through
+
+Request:
+
+- continue until the stacked changesets design is fully implemented
+
+Decisions:
+
+- changed `gs move` so it no longer stops after reparenting; it now blocks
+  unsnapped local edits, reparents the selected subtree, calls `Restack` for the
+  moved entry, refreshes local active patchset state, and rematerializes the
+  workspace onto the moved entry
+- changed stack-aware `gs sync` so a clean target-ref base advance verifies the
+  disk matches the active stack snapshot, advances the workspace base snapshot,
+  calls `Restack` with `target_base_commit_id`, refreshes active patchset state,
+  and rematerializes the active stack path
+- kept legacy non-stack `gs sync` behavior on the existing path; the stack branch
+  is selected only when `active_stack_id` is present
+- added CLI boundary tests with fake gRPC services for both `gs move` and
+  stack-aware `gs sync` so command behavior is verified without requiring a
+  Postgres e2e environment
+
+Verification:
+
+```bash
+go test -count=1 ./internal/cli -run 'Test(StackMoveRestacksAndUpdatesWorkspaceState|WorkspaceSyncRestacksActiveStackOnCleanBaseAdvance)' -v
+go test -count=1 ./internal/cli ./service ./internal/storage/memory ./internal/postgres
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+## 2026-06-18: Web Stack Review Surface
+
+Request:
+
+- continue `design/15_stacked_changesets.md` through the web stack UI
+
+Decisions:
+
+- added typed browser client methods for `ChangesetStackService` while keeping
+  the existing grpc-gateway bearer-token request path
+- added `/stacks`, `/stacks/new`, `/stacks/$id`,
+  `/stacks/$id/restack`, and `/stacks/$id/submit` routes for stack lookup/list,
+  creation, detail inspection, restack confirmation/results, and submit progress
+- made the stack detail page render the stack as a compact tree, expose selected
+  entry metadata, reuse the existing diff viewer for entry diffs, and link each
+  entry back to its normal changeset detail
+- added lightweight tree mutation controls for creating a child entry and
+  reparenting an entry; reparenting immediately calls server restack for the
+  moved subtree to match the CLI behavior
+- added changeset-detail backlinks to the owning stack when `stack_id` is
+  returned by the API or supplied through `?stack=...`
+- kept browser stack creation scoped to stack metadata plus an optional first
+  changeset entry; adding file edits still depends on the existing source editor,
+  which is not yet a stack-aware patchset creation flow
+
+Verification:
+
+```bash
+npm --prefix web run build
+git diff --check
+go test ./...
+go build ./cmd/...
+```
+
+## 2026-06-18: Stack Lifecycle Status
+
+Request:
+
+- continue the stacked changesets design after the web stack UI pass
+
+Decisions:
+
+- made `SubmitStack` persist stack status `partial` when a selected submit set
+  has blocked entries, so list/detail views reflect partial landing instead of
+  only the RPC response
+- added storage-level stack status updates and automatic transition to `closed`
+  after all entries in a non-empty stack are terminal (`submitted` or
+  `abandoned`)
+- refreshed stack closure after publish and abandon paths in both Postgres and
+  in-memory storage
+- changed default `ListStacks` behavior to hide closed stacks, while preserving
+  direct lookup and explicit `status=closed` listing for audit/history views
+- kept clean restack and successful retry paths able to clear an old `partial`
+  stack status back to `open`
+
+Verification:
+
+```bash
+go test -count=1 ./service -run 'Test(StackedChangesetsUseParentPreviewInMemoryStorage|SubmitStackMarksPartialStatusInMemoryStorage)' -v
+go test -count=1 ./internal/storage/memory ./internal/postgres
+go test ./...
+go build ./cmd/...
+npm --prefix web run build
+git diff --check
+```
+
+## 2026-06-18: Web Stack Create Patchset
+
+Request:
+
+- continue closing stacked changeset design gaps after the web stack route pass
+
+Decisions:
+
+- extended `/stacks/new` so the first stack entry can include one explicit file
+  path plus text content, upload the content through the existing browser blob
+  API, and create the root entry's first patchset with `base_kind=commit`
+- kept the form explicit: a file edit requires a first changeset title, and the
+  route still allows metadata-only stack creation when no file content is
+  supplied
+- reused the source editor's UTF-8 to base64 upload strategy rather than adding
+  a second browser blob path
+- left full stack-materialized source browsing for child entries as a remaining
+  frontend expansion; that requires reading and editing from parent preview
+  trees, not only from the latest accepted commit
+
+Verification:
+
+```bash
+npm --prefix web run build
+git diff --check
+```
+
+## 2026-06-18: Stack Detach Workflow
+
+Request:
+
+- continue until `design/15_stacked_changesets.md` is implemented
+
+Decisions:
+
+- added `DetachStackEntry` to the stack service contract, Postgres storage, and
+  in-memory storage so a non-root stack entry plus its descendants can move into
+  a new same-slice stack
+- rejected root detach and submitted entries in the detached subtree; submitted
+  changesets remain immutable stack anchors
+- preserved review objects and patchsets during detach, but marked the moved
+  subtree `needs_restack`; the detached root is converted back to a commit-based
+  root and the caller restacks it onto the detached stack base
+- added `gs detach <entry> [--message]`; the CLI blocks dirty workspace state,
+  calls detach, restacks the new stack, switches the workspace to the detached
+  stack, refreshes the active patchset id, and rematerializes the selected entry
+- added browser API typing for `DetachStackEntry`; no visible web detach action
+  was added in this pass
+
+Verification:
+
+```bash
+go test -count=1 ./service -run 'TestDetachStackEntryMovesSubtreeInMemoryStorage|TestStackMutationAndRestackUseInMemoryStorage' -v
+go test -count=1 ./internal/cli -run 'TestStackDetachRestacksNewStackAndUpdatesWorkspaceState|TestStackMoveRestacksAndUpdatesWorkspaceState|TestSchemaCommandEmitsMachineReadableContract' -v
+go test -count=1 ./service ./internal/cli ./tests/rpc -run 'TestDetachStackEntryMovesSubtreeInMemoryStorage|TestStackDetachRestacksNewStackAndUpdatesWorkspaceState|TestStackDetachEntryCreatesNewStack' -v
+go test ./...
+go build ./cmd/...
+npm --prefix web run build
+git diff --check
+```
+
+Notes:
+
+- the RPC detach test compiled and was skipped locally because
+  `GITSLICE_TEST_DATABASE_URL` was not set
+- `npm --prefix web run build` still emits the pre-existing large chunk warning
+  for syntax-highlighting/application bundles
+
+## 2026-06-18: Stack Workflow Final Polish
+
+Request:
+
+- answer what is next from the stacked changesets design and keep closing gaps
+
+Decisions:
+
+- hid the legacy `gs cs ...` namespace from Cobra help and removed it from the
+  machine-readable command schema, while leaving the low-level commands callable
+  for compatibility and diagnostics
+- made canonical `gs create` require an explicit `--message` or an interactive
+  title prompt; non-interactive/quiet/dumb-terminal runs now fail before doing
+  workspace or server work
+- added explicit `--all` flags to `gs create` and `gs modify`; the current
+  implementation already snapshots all edits, and the flag now makes that
+  behavior visible in help/schema
+- changed stack-facing CLI/web docs and hints to use canonical commands instead
+  of the hidden `gs cs ...` namespace
+- added a conservative restack fallback that records a conflict patchset when
+  replaying a child entry onto a new base fails, and made `gs restack` switch
+  local state to the first conflicted returned entry plus write `.gs/conflicts.json`
+- added a web stack-detail child/sibling segmented control so creating a sibling
+  is a distinct tree action from creating a child
+
+Verification:
+
+```bash
+go test -count=1 ./internal/cli ./service -run 'Test(StackRestackWritesConflictStateAndSwitchesActiveEntry|StackDetachRestacksNewStackAndUpdatesWorkspaceState|SchemaCommandEmitsMachineReadableContract|RequiredCommandMessageRejectsNonInteractiveEmptyValue|RestackConflictsFromEditsRecordsAttemptedPaths|StackMutationAndRestackUseInMemoryStorage)' -v
+go test ./...
+go build ./cmd/...
+npm --prefix web run build
+git diff --check
+```
+
+## 2026-06-18: Web Stack Patchset And Conflict Details
+
+Request:
+
+- continue closing remaining stacked changeset design gaps after the final
+  polish pass
+
+Decisions:
+
+- added a stack detail `Add patchset` panel for the selected stack entry so the
+  web surface now exposes separate patchset, child, and sibling actions
+- kept the patchset panel intentionally narrow: it uploads one explicit file
+  edit through the existing blob API and uses parent patchset metadata when
+  updating a child entry
+- expanded the restack result view to render server-returned conflict metadata
+  from patchsets, including path, class, fingerprint, ours/theirs blob ids, and
+  nearest clean ancestor
+- left full stack-materialized source browsing/editing as a remaining web
+  expansion because it requires reading child entries from parent preview trees
+  rather than only accepting an explicit path/content pair
+
+Verification:
+
+```bash
+npm --prefix web run build
+```
+
+## 2026-06-18: Stack Restack Conflict Materialization
+
+Request:
+
+- continue closing the remaining stacked changeset design gaps
+
+Decisions:
+
+- changed restack conflict recording to preserve a child edit's content hash when
+  the replay failure can be tied back to an upsert edit
+- made `gs restack` materialize the first conflicted returned entry into the
+  workspace, write `.gs/conflicts.json`, and overlay deterministic restack
+  conflict markers into the affected working-tree paths
+- reused the existing text conflict marker convention, but kept restack marker
+  sides explicit when the server did not return side content; this keeps the
+  workspace visibly blocked without pretending a full three-way merge was
+  available
+
+Verification:
+
+```bash
+go test -count=1 ./internal/cli -run 'TestStackRestackWritesConflictStateAndSwitchesActiveEntry' -v
+go test -count=1 ./service -run 'TestRestackConflictsFromEditsRecordsAttemptedPaths' -v
+```
+
+## 2026-06-18: Stack Preview Tree Reads
+
+Request:
+
+- continue toward full stacked changeset design completion
+
+Decisions:
+
+- added optional `root_tree_id` inputs to repository resolve, list-directory,
+  and read-file requests so clients can browse patchset preview trees without
+  waiting for the patchset to publish as a commit
+- exposed tree-root directory listing through both Postgres and in-memory
+  storage using the existing immutable tree store paths
+- added a stack detail preview-tree panel that reads the selected entry's
+  current patchset `result_tree_id`, browses directories, and opens file
+  contents from the materialized stack tree
+- kept the existing commit-based source editor unchanged; the new panel provides
+  stack-materialized inspection, while richer in-place editing can build on the
+  same tree-read API
+
+Verification:
+
+```bash
+go test -count=1 ./service -run 'TestServicesRunAgainstInMemoryStorage' -v
+go test -count=1 ./internal/storage/memory ./internal/postgres
+npm --prefix web run build
+git diff --check
+go test ./...
+go build ./cmd/...
+```
+
+## 2026-06-18: Stack Verification Closure
+
+Request:
+
+- finish the remaining stacked changeset design verification and answer what is
+  next from the design
+
+Decisions:
+
+- preserved in-memory publish ordering by recording the admission sequence when
+  a changeset first transitions to `pending_publish`; publishing now emits
+  commit chains in that admission order instead of sorting pending rows by
+  timestamp or id
+- added direct service coverage for cross-slice stack rejection, stale
+  `expected_parent_patchset_id` rejection, and the rule that active descendants
+  block parent abandon
+- added CLI coverage for ambiguous upward navigation from a multi-child parent,
+  stack-tree JSON schema output, and both no-watch and polling submit paths
+- added Vitest and Testing Library coverage for the web stack routes so entry
+  order, parent links, active entry detail, separate child/sibling/move/patchset
+  actions, restack conflict metadata, submit progress, and changeset stack
+  backlinks are asserted
+- found the real PostgreSQL e2e URL in `.env.local`; a first forced CLI/RPC run
+  exposed that already-applied local databases were missing the changeset-level
+  `base_kind` column
+- added `0013_changeset_base_kind.sql` as an idempotent repair migration and
+  also corrected `0012_stacked_changesets.sql` for fresh databases
+- reran the stacked RPC e2e tests and the full real PostgreSQL CLI/RPC e2e gate
+  successfully after the schema repair
+
+Verification:
+
+```bash
+npm --prefix web test
+go test -count=1 ./service -run 'Test(StackValidationRejectsMismatchedSliceStaleParentAndParentAbandon|InMemoryPublishPendingPreservesAdmissionOrder)' -v
+go test -count=1 ./internal/cli -run 'Test(StackUpRequiresExplicitChildWhenMultipleChildren|StackCommandJSONUsesStackTreeSchema|StackSubmitNoWatchAndPolling)' -v
+npm --prefix web run build
+gofmt -w $(git diff --name-only -- '*.go')
+git diff --check
+go test ./...
+go build ./cmd/...
+npm --prefix web test
+go test -count=1 ./tests/cli ./tests/rpc -v
+set -a; . ./.env.local; set +a; go test -count=1 ./tests/rpc -run 'TestStackedChangesets|TestStackDetachEntryCreatesNewStack' -v
+set -a; . ./.env.local; set +a; go test -count=1 ./tests/cli ./tests/rpc -v
+git diff --check
+go test ./...
+go build ./cmd/...
+npm --prefix web run build
+npm --prefix web test
+```
+
+## 2026-06-18: Stacked Changesets Staging Deploy
+
+Request:
+
+- deploy the completed stacked changesets implementation to staging
+
+Actions:
+
+- built fresh `bin/gitslice-server` and `bin/gs` binaries from the current
+  workspace
+- restarted the existing PM2 staging process `gitslice-rewrite-staging`; it came
+  back online on the expected gRPC and gateway addresses
+- deployed the staging web app with Wrangler through `npm --prefix web run
+  deploy:staging`
+- staged Worker version: `de107331-86ac-4240-9844-23d5623e9e08`
+
+Verification:
+
+```bash
+go build -o bin/gitslice-server ./cmd/gitslice-server
+go build -o bin/gs ./cmd/gs
+npx --yes pm2 restart gitslice-rewrite-staging --update-env
+curl -sS -i --max-time 20 -X POST https://api.agenttools.dev/gitslice.core.v1.AuthService/GetAuthStatus -H 'Content-Type: application/json' --data '{}'
+curl -sS -i --max-time 20 -X OPTIONS https://api.agenttools.dev/gitslice.core.v1.AuthService/GetAuthStatus -H 'Origin: https://agenttools.dev' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,content-type'
+npm --prefix web run deploy:staging
+curl -sS -i --max-time 20 https://agenttools.dev/stacks
+curl -sSL --max-time 20 https://agenttools.dev/assets/index-BqxZn2nl.js | rg -o 'https://api\.agenttools\.dev|/stacks|ChangesetStackService/ListStacks' | sort -u
+curl -sS -i --max-time 20 -X POST https://api.agenttools.dev/gitslice.core.v1.ChangesetStackService/ListStacks -H 'Content-Type: application/json' --data '{}'
+npx --yes pm2 list
+```

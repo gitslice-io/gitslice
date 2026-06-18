@@ -40,6 +40,13 @@ type BlobStore interface {
 }
 
 type ChangesetStore interface {
+	CreateStack(ctx context.Context, subjectID string, req *corev1.CreateStackRequest) (*corev1.ChangesetStack, error)
+	GetStack(ctx context.Context, stackID string) (*corev1.ChangesetStack, error)
+	ListStacks(ctx context.Context, req *corev1.ListStacksRequest) ([]*corev1.ChangesetStack, error)
+	SetStackStatus(ctx context.Context, stackID, stackStatus string) error
+	MoveStackEntry(ctx context.Context, req *corev1.MoveStackEntryRequest) (*corev1.ChangesetStack, error)
+	ReparentStackEntry(ctx context.Context, req *corev1.ReparentStackEntryRequest) (*corev1.ChangesetStack, error)
+	DetachStackEntry(ctx context.Context, subjectID string, req *corev1.DetachStackEntryRequest) (*corev1.DetachStackEntryResponse, error)
 	Create(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error)
 	Get(ctx context.Context, changesetID string) (*corev1.Changeset, error)
 	List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error)
@@ -80,6 +87,10 @@ type CommitResolveFilter struct {
 
 type RepositoryStore interface {
 	GetRef(ctx context.Context, name string) (*corev1.Ref, error)
+	RootTreeForCommit(ctx context.Context, commitID string) (string, error)
+	GetFileAtTree(ctx context.Context, rootTreeID, p string) (*FileEntry, error)
+	GetEntryAtTree(ctx context.Context, rootTreeID, p string) (*TreeEntry, error)
+	ListDirectoryAtTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error)
 	GetOrCreateGitImport(ctx context.Context, subjectID, source, mountPath string, sliceRef *corev1.SliceRef, sliceID, targetRef, mode string, totalCommits int) (*GitImportRecord, error)
 	GetGitImport(ctx context.Context, source, mountPath, sliceID, targetRef, mode string) (*GitImportRecord, error)
 	ListGitImportCommits(ctx context.Context, importID string) ([]GitImportedCommitRecord, error)

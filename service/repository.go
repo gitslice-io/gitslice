@@ -59,7 +59,7 @@ func resolvePath(ctx context.Context, repository storage.RepositoryStore, req *c
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if p == "/" {
-		entries, err := repository.ListDirectory(ctx, req.CommitId, p)
+		entries, err := repositoryListDirectoryAtSource(ctx, repository, req.CommitId, req.RootTreeId, p)
 		if err != nil {
 			return nil, grpcError(err)
 		}
@@ -73,7 +73,7 @@ func resolvePath(ctx context.Context, repository storage.RepositoryStore, req *c
 			TreeId: directoryTreeIDFromEntries(entries),
 		}}, nil
 	}
-	entry, err := repository.GetEntry(ctx, req.CommitId, p)
+	entry, err := repositoryGetEntryAtSource(ctx, repository, req.CommitId, req.RootTreeId, p)
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil, status.Error(codes.NotFound, "path not found")
 	}
@@ -105,6 +105,30 @@ func repositoryReadPath(p string) (string, error) {
 	return cleaned, nil
 }
 
+func repositoryGetEntryAtSource(ctx context.Context, repository storage.RepositoryStore, commitID, rootTreeID, p string) (*storage.TreeEntry, error) {
+	rootTreeID = strings.TrimSpace(rootTreeID)
+	if rootTreeID != "" {
+		return repository.GetEntryAtTree(ctx, rootTreeID, p)
+	}
+	return repository.GetEntry(ctx, commitID, p)
+}
+
+func repositoryListDirectoryAtSource(ctx context.Context, repository storage.RepositoryStore, commitID, rootTreeID, p string) ([]storage.TreeEntry, error) {
+	rootTreeID = strings.TrimSpace(rootTreeID)
+	if rootTreeID != "" {
+		return repository.ListDirectoryAtTree(ctx, rootTreeID, p)
+	}
+	return repository.ListDirectory(ctx, commitID, p)
+}
+
+func repositoryGetFileAtSource(ctx context.Context, repository storage.RepositoryStore, commitID, rootTreeID, p string) (*storage.FileEntry, error) {
+	rootTreeID = strings.TrimSpace(rootTreeID)
+	if rootTreeID != "" {
+		return repository.GetFileAtTree(ctx, rootTreeID, p)
+	}
+	return repository.GetFile(ctx, commitID, p)
+}
+
 // ListDirectory lists direct children at a repository path.
 //
 // Without req.Slice, this is a normal global-tree directory read backed by the
@@ -130,7 +154,7 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 	if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
 		return nil, err
 	}
-	entries, err := s.Repository.ListDirectory(ctx, req.CommitId, p)
+	entries, err := repositoryListDirectoryAtSource(ctx, s.Repository, req.CommitId, req.RootTreeId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -169,14 +193,14 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if direct, ok, err := s.sliceContainedDirectoryEntries(ctx, slice, req.CommitId, p); ok || err != nil {
+	if direct, ok, err := s.sliceContainedDirectoryEntries(ctx, slice, req.CommitId, req.RootTreeId, p); ok || err != nil {
 		if err != nil {
 			return nil, err
 		}
 		page, nextCursor := paginateDirectoryEntries(direct, req.PageSize, req.Cursor)
 		return &corev1.ListDirectoryResponse{Entries: page, NextCursor: nextCursor}, nil
 	}
-	projected, err := s.sliceProjectedDirectoryEntriesShallow(ctx, slice, req.CommitId, p)
+	projected, err := s.sliceProjectedDirectoryEntriesShallow(ctx, slice, req.CommitId, req.RootTreeId, p)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +208,7 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	return &corev1.ListDirectoryResponse{Entries: page, NextCursor: nextCursor}, nil
 }
 
-func (s *RepositoryService) sliceContainedDirectoryEntries(ctx context.Context, slice *corev1.Slice, commitID, p string) ([]*corev1.TreeEntry, bool, error) {
+func (s *RepositoryService) sliceContainedDirectoryEntries(ctx context.Context, slice *corev1.Slice, commitID, rootTreeID, p string) ([]*corev1.TreeEntry, bool, error) {
 	byPath := map[string]*corev1.TreeEntry{}
 	matched := false
 	for _, prefix := range slice.Definition.IncludedPaths {
@@ -196,7 +220,7 @@ func (s *RepositoryService) sliceContainedDirectoryEntries(ctx context.Context, 
 			continue
 		}
 		matched = true
-		entries, err := s.Repository.ListDirectory(ctx, commitID, p)
+		entries, err := repositoryListDirectoryAtSource(ctx, s.Repository, commitID, rootTreeID, p)
 		if err != nil {
 			return nil, true, grpcError(err)
 		}
@@ -219,7 +243,7 @@ func (s *RepositoryService) sliceContainedDirectoryEntries(ctx context.Context, 
 	return out, true, nil
 }
 
-func (s *RepositoryService) sliceProjectedDirectoryEntriesShallow(ctx context.Context, slice *corev1.Slice, commitID, p string) ([]*corev1.TreeEntry, error) {
+func (s *RepositoryService) sliceProjectedDirectoryEntriesShallow(ctx context.Context, slice *corev1.Slice, commitID, rootTreeID, p string) ([]*corev1.TreeEntry, error) {
 	byPath := map[string]*corev1.TreeEntry{}
 	for _, prefix := range slice.Definition.IncludedPaths {
 		canonical, err := repositoryReadPath(prefix)
@@ -228,7 +252,7 @@ func (s *RepositoryService) sliceProjectedDirectoryEntriesShallow(ctx context.Co
 		}
 		switch {
 		case repositoryPathContains(canonical, p):
-			entries, err := s.Repository.ListDirectory(ctx, commitID, p)
+			entries, err := repositoryListDirectoryAtSource(ctx, s.Repository, commitID, rootTreeID, p)
 			if err != nil {
 				return nil, grpcError(err)
 			}
@@ -243,7 +267,7 @@ func (s *RepositoryService) sliceProjectedDirectoryEntriesShallow(ctx context.Co
 			if _, ok := byPath[childPath]; ok {
 				continue
 			}
-			entry, err := s.Repository.GetEntry(ctx, commitID, childPath)
+			entry, err := repositoryGetEntryAtSource(ctx, s.Repository, commitID, rootTreeID, childPath)
 			if errors.Is(err, storage.ErrNotFound) {
 				continue
 			}
@@ -446,7 +470,7 @@ func readFile(ctx context.Context, repository storage.RepositoryStore, objectSto
 	if req.Length < 0 {
 		return nil, status.Error(codes.InvalidArgument, "length must be non-negative")
 	}
-	entry, err := repository.GetFile(ctx, req.CommitId, p)
+	entry, err := repositoryGetFileAtSource(ctx, repository, req.CommitId, req.RootTreeId, p)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -1959,7 +1983,7 @@ func (s *RepositoryService) putImportBlob(ctx context.Context, key string, data 
 }
 
 func (s *RepositoryService) createImportPatchset(ctx context.Context, subjectID string, slice *corev1.Slice, targetRef, baseCommitID, message string, edits []*corev1.FileEdit) (*corev1.Patchset, error) {
-	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, edits, true)
+	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, "", edits, true)
 	if err != nil {
 		return nil, err
 	}

@@ -82,6 +82,7 @@ export interface Commit {
 export interface ResolvePathRequest {
   commitId?: string;
   path?: string;
+  rootTreeId?: string;
 }
 
 export interface ResolvePathResponse {
@@ -94,6 +95,7 @@ export interface ListDirectoryRequest {
   cursor?: string;
   pageSize?: number;
   slice?: SliceRef;
+  rootTreeId?: string;
 }
 
 export interface ListDirectoryResponse {
@@ -106,6 +108,7 @@ export interface ReadFileRequest {
   path?: string;
   offset?: Int64String;
   length?: Int64String;
+  rootTreeId?: string;
 }
 
 export interface ReadFileResponse {
@@ -284,6 +287,11 @@ export interface Patchset {
   writeSet?: PathSetEntry[];
   conflicts?: PatchsetConflict[];
   kind?: string;
+  baseKind?: string;
+  basePatchsetId?: string;
+  baseTreeId?: string;
+  resultTreeId?: string;
+  stackParentPatchsetId?: string;
 }
 
 export interface Changeset {
@@ -303,7 +311,42 @@ export interface Changeset {
   commitId?: string;
   pendingPublishId?: string;
   number?: Int64String;
+  handle?: string;
   submitBlockedReason?: string;
+  stackId?: string;
+  stackOrder?: Int64String;
+  parentChangesetId?: string;
+  parentPatchsetId?: string;
+  baseKind?: string;
+  stackDepth?: Int64String;
+  siblingOrder?: Int64String;
+}
+
+export interface ChangesetStack {
+  id?: string;
+  authoringSlice?: SliceRef;
+  targetRef?: string;
+  baseCommitId?: string;
+  title?: string;
+  status?: string;
+  activeEntryId?: string;
+  rootEntryId?: string;
+  entries?: ChangesetStackEntry[];
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ChangesetStackEntry {
+  stackId?: string;
+  changesetId?: string;
+  parentChangesetId?: string;
+  parentPatchsetId?: string;
+  siblingOrder?: Int64String;
+  displayOrder?: Int64String;
+  depth?: Int64String;
+  state?: string;
+  changeset?: Changeset;
 }
 
 export interface ListChangesetsRequest {
@@ -314,6 +357,93 @@ export interface ListChangesetsRequest {
 
 export interface ListChangesetsResponse {
   changesets?: Changeset[];
+}
+
+export interface CreateStackRequest {
+  authoringSlice?: SliceRef;
+  targetRef?: string;
+  baseCommitId?: string;
+  title?: string;
+}
+
+export interface GetStackRequest {
+  stackId?: string;
+}
+
+export interface ListStacksRequest {
+  authoringSlice?: SliceRef;
+  status?: string;
+  limit?: number;
+}
+
+export interface ListStacksResponse {
+  stacks?: ChangesetStack[];
+}
+
+export interface AddStackEntryRequest {
+  stackId?: string;
+  title?: string;
+  description?: string;
+  parentChangesetId?: string;
+  parentPatchsetId?: string;
+  siblingOrder?: Int64String;
+}
+
+export interface MoveStackEntryRequest {
+  stackId?: string;
+  changesetId?: string;
+  siblingOrder?: Int64String;
+}
+
+export interface ReparentStackEntryRequest {
+  stackId?: string;
+  changesetId?: string;
+  newParentChangesetId?: string;
+  newParentPatchsetId?: string;
+  siblingOrder?: Int64String;
+}
+
+export interface DetachStackEntryRequest {
+  stackId?: string;
+  changesetId?: string;
+  title?: string;
+}
+
+export interface DetachStackEntryResponse {
+  sourceStack?: ChangesetStack;
+  detachedStack?: ChangesetStack;
+}
+
+export interface RestackRequest {
+  stackId?: string;
+  startChangesetId?: string;
+  includeSiblings?: boolean;
+  targetBaseCommitId?: string;
+}
+
+export interface RestackResponse {
+  stackId?: string;
+  entries?: Changeset[];
+  status?: string;
+}
+
+export interface SubmitStackRequest {
+  stackId?: string;
+  subtreeRootChangesetId?: string;
+}
+
+export interface SubmitStackEntryResult {
+  changesetId?: string;
+  status?: string;
+  commitId?: string;
+  pendingPublishId?: string;
+  blockedReason?: string;
+}
+
+export interface SubmitStackResponse {
+  stackId?: string;
+  status?: string;
+  results?: SubmitStackEntryResult[];
 }
 
 export interface ApproveChangesetRequest {
@@ -332,6 +462,9 @@ export interface CreateChangesetRequest {
   baseCommitId?: string;
   title?: string;
   description?: string;
+  stackId?: string;
+  parentChangesetId?: string;
+  parentPatchsetId?: string;
 }
 
 export interface GetChangesetRequest {
@@ -351,6 +484,9 @@ export interface DiffChangesetResponse {
   toPatchsetId?: string;
   changedPaths?: string[];
   diff?: string;
+  changesetHandle?: string;
+  fromPatchsetHandle?: string;
+  toPatchsetHandle?: string;
 }
 
 export interface UpdateChangesetRequest {
@@ -360,6 +496,9 @@ export interface UpdateChangesetRequest {
   fileEdits?: FileEdit[];
   conflicts?: PatchsetConflict[];
   patchsetKind?: string;
+  baseKind?: string;
+  basePatchsetId?: string;
+  expectedParentPatchsetId?: string;
 }
 
 export interface SubmitChangesetRequest {
@@ -373,6 +512,7 @@ export interface SubmitChangesetResponse {
   newRefCommitId?: string;
   status?: string;
   pendingPublishId?: string;
+  changesetHandle?: string;
 }
 
 export interface AbandonChangesetRequest {

@@ -689,6 +689,7 @@ type testCoreClients struct {
 	repository corev1.RepositoryServiceClient
 	blob       corev1.BlobServiceClient
 	changeset  corev1.ChangesetServiceClient
+	stack      corev1.ChangesetStackServiceClient
 }
 
 func newTestCoreClients(conn *grpc.ClientConn) testCoreClients {
@@ -696,6 +697,7 @@ func newTestCoreClients(conn *grpc.ClientConn) testCoreClients {
 		repository: corev1.NewRepositoryServiceClient(conn),
 		blob:       corev1.NewBlobServiceClient(conn),
 		changeset:  corev1.NewChangesetServiceClient(conn),
+		stack:      corev1.NewChangesetStackServiceClient(conn),
 	}
 }
 
