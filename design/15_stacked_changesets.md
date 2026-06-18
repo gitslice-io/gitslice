@@ -765,18 +765,24 @@ server APIs exist. Until then, it can only show stack fields embedded in
 
 ### 6.1 Navigation
 
-Add a Stack section under the existing changeset area:
+Expose stacks as a subview of the existing changesets area, not as a separate
+top-level product tab. The primary navigation should continue to point users at
+Changesets; the Changesets surface can then switch between individual
+changesets and stack review trees.
 
 ```text
-Sidebar:
+Primary navigation:
   Source
   Slices
+  Changesets
+
+Changesets view switcher:
   Changesets
   Stacks
 ```
 
-Do not show stacks in slice detail until `ListStacks` or stack-filtered
-`ListChangesets` exists.
+Slice detail should link to the slice-scoped Changesets surface. That page
+should preserve the slice scope when switching to Stacks.
 
 ### 6.2 Routes
 

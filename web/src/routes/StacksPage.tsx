@@ -5,6 +5,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { ChangesetStack, SliceRef } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { ChangesetWorkflowTabs } from "../components/ChangesetWorkflowTabs";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -84,8 +85,12 @@ export function StacksPage() {
         eyebrow="Stacks"
         title={sliceLabel ? `${sliceLabel} · Stacks` : "Stacks"}
       />
+      <ChangesetWorkflowTabs
+        active="stacks"
+        sliceLabel={sliceLabel || undefined}
+      />
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0">
           {!sliceRef ? (
             <SliceNotice title="Choose a slice to list stacks">

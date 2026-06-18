@@ -5453,3 +5453,29 @@ curl -sSL --max-time 20 https://agenttools.dev/assets/index-BqxZn2nl.js | rg -o 
 curl -sS -i --max-time 20 -X POST https://api.agenttools.dev/gitslice.core.v1.ChangesetStackService/ListStacks -H 'Content-Type: application/json' --data '{}'
 npx --yes pm2 list
 ```
+
+## 2026-06-18: Changesets and Stacks UI Grouping
+
+Request:
+
+- fold stack discovery into the changesets workflow instead of presenting
+  Stacks as an equal top-level UI concept
+
+Decisions:
+
+- removed the standalone Stacks entry from primary navigation and from the slice
+  detail action row
+- added a shared Changesets/Stacks view switcher to the Changesets and Stacks
+  list pages so stacks remain discoverable inside the changeset review surface
+- preserved the existing `/stacks` routes for direct stack links, create,
+  restack, and submit flows
+- marked `/stacks` and `/cs` URLs as part of the Slices section in the top bar,
+  matching the existing Changesets behavior
+
+Verification:
+
+```bash
+npm --prefix web test
+npm --prefix web run build
+git diff --check
+```

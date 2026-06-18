@@ -9,6 +9,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
+import { ChangesetWorkflowTabs } from "../components/ChangesetWorkflowTabs";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -86,8 +87,12 @@ export function ChangesetsPage() {
             : "Open a slice and use its Changesets tab to see the slice-scoped review queue."
         }
       />
+      <ChangesetWorkflowTabs
+        active="changesets"
+        sliceLabel={sliceRef ? `${account}:${slice}` : undefined}
+      />
 
-      <div className="mt-8">
+      <div className="mt-6">
         {!sliceRef ? (
           <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
         ) : changesetsQuery.isLoading ? (
