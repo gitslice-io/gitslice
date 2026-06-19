@@ -5767,3 +5767,26 @@ Build note:
 
 - `npm --prefix web run build` completed successfully and still reports the
   existing Vite large-chunk warning for generated assets.
+
+## 2026-06-19: Public Slice Changesets Link
+
+Request:
+
+- make the changeset button visible on public slice detail pages
+
+Decision:
+
+- changed the slice detail toolbar so `Changesets` is visible to all readers,
+  while keeping `Settings` and mutation controls behind edit authorization
+
+Verification:
+
+```bash
+npm --prefix web test -- StackPages.test.tsx
+npm --prefix /tmp/gitslice-slice-link-build.*/web run build
+```
+
+Build note:
+
+- the production web build was run in a clean temporary worktree with only this
+  patch applied because the main workspace contains unrelated dirty web edits.
