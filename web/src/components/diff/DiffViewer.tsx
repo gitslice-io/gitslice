@@ -11,6 +11,7 @@ import type { DiffChangesetResponse } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { computeSegments, type RevealState } from "./collapse";
+import { FilePickerSheet, MobileFileSwitcher } from "./FileSwitcher";
 import {
   parseDiff,
   type DiffFile,
@@ -78,16 +79,29 @@ export function DiffViewer({
       ids: new Set()
     })
   );
+  const [filePickerOpen, setFilePickerOpen] = useState(false);
   const mountedFileIds =
     mountedDiffBodies.files === files ? mountedDiffBodies.ids : undefined;
   const [revealed, setRevealed] = useState<Record<string, RevealState>>({});
   const panelRefs = useRef<Record<string, HTMLElement | null>>({});
+  // When the user explicitly picks a file (prev/next or the picker), pin it as
+  // active so the scroll-spy doesn't immediately reassign it — e.g. jumping to a
+  // short trailing file would otherwise report the preceding panel as active.
+  // The pin is released on the next real scroll gesture (below).
+  const pinnedActiveIdRef = useRef<string | null>(null);
   const changedPathCount = diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
   const totalAdditions = files.reduce((total, file) => total + file.additions, 0);
   const totalDeletions = files.reduce((total, file) => total + file.deletions, 0);
   const hasTextualDiff =
     (diffResponse?.diff ?? "").trim().length > 0 && files.length > 0;
+  const canUseMobileFileSwitcher =
+    !isLoading && hasTextualDiff && files.length > 0;
+  const activeFileIndex = files.findIndex((file) => file.id === activeId);
+  const currentActiveId =
+    files[activeFileIndex >= 0 ? activeFileIndex : 0]?.id;
+  const openFilePicker = useCallback(() => setFilePickerOpen(true), []);
+  const closeFilePicker = useCallback(() => setFilePickerOpen(false), []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -99,6 +113,12 @@ export function DiffViewer({
   useEffect(() => {
     setRevealed({});
   }, [files]);
+
+  useEffect(() => {
+    if (!canUseMobileFileSwitcher) {
+      setFilePickerOpen(false);
+    }
+  }, [canUseMobileFileSwitcher]);
 
   const expandGap = useCallback<ExpandFn>((key, action, hiddenTotal) => {
     setRevealed((current) => {
@@ -122,6 +142,8 @@ export function DiffViewer({
   }, []);
 
   useEffect(() => {
+    pinnedActiveIdRef.current = null;
+
     if (!files.length) {
       setActiveId(undefined);
       return;
@@ -131,6 +153,24 @@ export function DiffViewer({
       current && files.some((file) => file.id === current) ? current : files[0].id
     );
   }, [files]);
+
+  // Release the active-file pin as soon as the user scrolls themselves, so the
+  // scroll-spy resumes tracking whatever they scroll to. Programmatic
+  // scrollIntoView does not emit these input events, so the pin survives the
+  // jump it was set for.
+  useEffect(() => {
+    const release = () => {
+      pinnedActiveIdRef.current = null;
+    };
+    window.addEventListener("wheel", release, { passive: true });
+    window.addEventListener("touchmove", release, { passive: true });
+    window.addEventListener("keydown", release);
+    return () => {
+      window.removeEventListener("wheel", release);
+      window.removeEventListener("touchmove", release);
+      window.removeEventListener("keydown", release);
+    };
+  }, []);
 
   useEffect(() => {
     const fileIds = new Set(files.map((file) => file.id));
@@ -167,6 +207,11 @@ export function DiffViewer({
             (left, right) =>
               left.boundingClientRect.top - right.boundingClientRect.top
           );
+
+        // Honor an explicit selection until the user scrolls (see selectFile).
+        if (pinnedActiveIdRef.current) {
+          return;
+        }
 
         const topEntry = visibleEntries[0];
         if (topEntry?.target.id) {
@@ -266,6 +311,7 @@ export function DiffViewer({
   };
 
   const selectFile = (id: string) => {
+    pinnedActiveIdRef.current = id;
     setActiveId(id);
     mountFileBody(id);
     window.setTimeout(() => {
@@ -277,78 +323,102 @@ export function DiffViewer({
   };
 
   return (
-    <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
-      <div className="sticky top-14 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:top-16 md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white lg:py-3 lg:backdrop-blur-none">
-        <div className="flex items-center justify-between gap-2 md:gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 md:text-base">
-                Files
-              </h2>
-              <span className="text-xs text-slate-500 md:text-sm">
-                {isLoading
-                  ? "Loading…"
-                  : `${changedCount} changed`}
-              </span>
-              {!isLoading && files.length > 0 ? (
-                <span className="flex gap-1.5 font-mono text-xs">
-                  <span className="text-emerald-700">+{totalAdditions}</span>
-                  <span className="text-rose-700">-{totalDeletions}</span>
+    <>
+      <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
+        <div className="sticky top-14 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:top-16 md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white lg:py-3 lg:backdrop-blur-none">
+          <div className="flex items-center justify-between gap-2 md:gap-3">
+            <div className="min-w-0 flex-1 lg:flex-none">
+              <div className="hidden flex-wrap items-baseline gap-x-2 gap-y-0.5 lg:flex">
+                <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 md:text-base">
+                  Files
+                </h2>
+                <span className="text-xs text-slate-500 md:text-sm">
+                  {isLoading ? "Loading…" : `${changedCount} changed`}
                 </span>
+                {!isLoading && files.length > 0 ? (
+                  <span className="flex gap-1.5 font-mono text-xs">
+                    <span className="text-emerald-700">+{totalAdditions}</span>
+                    <span className="text-rose-700">-{totalDeletions}</span>
+                  </span>
+                ) : null}
+              </div>
+              {canUseMobileFileSwitcher ? (
+                <MobileFileSwitcher
+                  activeId={currentActiveId}
+                  files={files}
+                  onOpenPicker={openFilePicker}
+                  onSelectFile={selectFile}
+                />
+              ) : (
+                <div className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-0.5 lg:hidden">
+                  <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950">
+                    Files
+                  </h2>
+                  <span className="text-xs text-slate-500">
+                    {isLoading ? "Loading…" : `${changedCount} changed`}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center justify-end gap-1.5 md:gap-2">
+              {!isLoading && hasTextualDiff ? (
+                <ViewModeToggle value={viewMode} onChange={setViewMode} />
               ) : null}
             </div>
           </div>
-          <div className="flex shrink-0 items-center justify-end gap-1.5 md:gap-2">
-            {!isLoading && hasTextualDiff ? (
-              <ViewModeToggle value={viewMode} onChange={setViewMode} />
-            ) : null}
-          </div>
         </div>
-      </div>
 
-      {isLoading ? (
-        <DiffSkeleton />
-      ) : isError ? (
-        <div className="p-5 md:p-6">
-          <DiffErrorBox message={errorMessage(error)} />
-        </div>
-      ) : hasTextualDiff ? (
-        <div className="grid gap-3 p-3 md:p-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
-          <aside className="lg:sticky lg:top-20 lg:self-start">
-            <ChangedFilesTree
-              activeId={activeId}
-              changedCount={changedCount}
-              files={files}
-              mobileCompact
-              onSelect={selectFile}
-              totalAdditions={totalAdditions}
-              totalDeletions={totalDeletions}
-            />
-          </aside>
-          <div className="grid min-w-0 gap-3 md:gap-4">
-            {files.map((file) => (
-              <DiffFilePanel
-                file={file}
-                isBodyMounted={mountedFileIds?.has(file.id) ?? false}
-                key={file.id}
-                onExpand={expandGap}
-                refCallback={(node) => {
-                  panelRefs.current[file.id] = node;
-                }}
-                revealed={revealed}
-                viewMode={viewMode}
+        {isLoading ? (
+          <DiffSkeleton />
+        ) : isError ? (
+          <div className="p-5 md:p-6">
+            <DiffErrorBox message={errorMessage(error)} />
+          </div>
+        ) : hasTextualDiff ? (
+          <div className="grid gap-3 p-3 md:p-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+            <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
+              <ChangedFilesTree
+                activeId={activeId}
+                files={files}
+                onSelect={selectFile}
               />
-            ))}
+            </aside>
+            <div className="grid min-w-0 gap-3 md:gap-4">
+              {files.map((file) => (
+                <DiffFilePanel
+                  file={file}
+                  isBodyMounted={mountedFileIds?.has(file.id) ?? false}
+                  key={file.id}
+                  onExpand={expandGap}
+                  refCallback={(node) => {
+                    panelRefs.current[file.id] = node;
+                  }}
+                  revealed={revealed}
+                  viewMode={viewMode}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="p-5 md:p-6">
-          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-            No textual changes to display.
+        ) : (
+          <div className="p-5 md:p-6">
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+              No textual changes to display.
+            </div>
           </div>
-        </div>
-      )}
-    </section>
+        )}
+      </section>
+
+      {filePickerOpen && canUseMobileFileSwitcher ? (
+        <FilePickerSheet
+          activeId={currentActiveId}
+          files={files}
+          onClose={closeFilePicker}
+          onSelectFile={selectFile}
+          totalAdditions={totalAdditions}
+          totalDeletions={totalDeletions}
+        />
+      ) : null}
+    </>
   );
 }
 
