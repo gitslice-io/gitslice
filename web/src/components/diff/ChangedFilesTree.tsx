@@ -7,6 +7,7 @@ import type { DiffFile, FileChangeKind } from "./parseDiff";
 interface ChangedFilesTreeProps {
   activeId?: string;
   files: DiffFile[];
+  mobileCompact?: boolean;
   onSelect(id: string): void;
 }
 
@@ -36,6 +37,7 @@ interface BuildDirectory {
 export function ChangedFilesTree({
   activeId,
   files,
+  mobileCompact,
   onSelect
 }: ChangedFilesTreeProps) {
   const tree = useMemo(() => buildTree(files), [files]);
@@ -68,7 +70,14 @@ export function ChangedFilesTree({
       <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
         Files
       </div>
-      <div className="max-h-[68dvh] overflow-auto py-1 font-mono text-xs lg:max-h-[calc(100dvh-15rem)]">
+      <div
+        className={cn(
+          "overflow-auto py-1 font-mono text-xs",
+          mobileCompact
+            ? "max-h-44 lg:max-h-[calc(100dvh-15rem)]"
+            : "max-h-[68dvh] lg:max-h-[calc(100dvh-15rem)]"
+        )}
+      >
         {tree.map((node) => (
           <TreeNodeRow
             activeId={activeId}

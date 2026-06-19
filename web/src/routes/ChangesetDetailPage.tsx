@@ -199,6 +199,7 @@ export function ChangesetDetailPage() {
       />
 
       <PatchsetComparePanel
+        currentPatchsetId={changeset.currentPatchsetId}
         fromPatchset={fromPatchset}
         onFromPatchsetChange={setFromPatchset}
         onToPatchsetChange={setToPatchset}
@@ -245,45 +246,67 @@ function HeaderCard({
   // and review actions collapse behind a toggle. From `lg` up everything is
   // always shown in the original two-column layout (the toggle is hidden).
   const [showDetails, setShowDetails] = useState(false);
+  const publishing = isPublishing(changeset.status);
+  const hasExpandableContent = Boolean(
+    changeset.description ||
+      changeset.baseCommitId ||
+      canUseReviewActions
+  );
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="px-3 py-3 md:px-5 md:py-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div className="px-3 py-2.5 md:px-5 md:py-4">
+        {publishing ? (
+          <div className="mb-2.5 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 md:mb-3 md:px-3 md:py-2 md:text-sm">
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"
+            />
+            Publishing changeset…
+          </div>
+        ) : null}
+        <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between lg:gap-3">
           <div className="min-w-0">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
               <h1
-                className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-xl md:text-2xl"
+                className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg md:text-2xl"
                 title={changeset.title || "Untitled changeset"}
               >
                 {changeset.title || "Untitled changeset"}
               </h1>
-              <button
-                aria-expanded={showDetails}
-                className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 lg:hidden"
-                onClick={() => setShowDetails((value) => !value)}
-                type="button"
-              >
-                {showDetails ? "Hide" : canUseReviewActions ? "Actions" : "Details"}
-              </button>
+              {hasExpandableContent ? (
+                <button
+                  aria-expanded={showDetails}
+                  aria-label={showDetails ? "Hide details" : "Show details"}
+                  className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 lg:hidden"
+                  onClick={() => setShowDetails((value) => !value)}
+                  type="button"
+                >
+                  {showDetails ? "Hide" : canUseReviewActions ? "Actions" : "Details"}
+                </button>
+              ) : null}
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-slate-600 md:text-sm">
-              <span className="max-w-full break-all rounded-md bg-slate-100 px-1.5 py-1 font-mono text-[11px] text-slate-700 md:px-2 md:text-xs">
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-slate-600 md:mt-2 md:gap-x-2 md:gap-y-1.5 md:text-xs">
+              <span
+                className="max-w-[12rem] truncate rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-700 md:px-2 md:py-1"
+                title={changesetLabel(changeset)}
+              >
                 {changesetLabel(changeset)}
               </span>
               <StatusBadge status={changeset.status} />
               {changeset.parentChangesetId ? (
                 <Link
-                  className="inline-flex max-w-full items-center truncate rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 md:px-2 md:text-xs"
+                  className="inline-flex max-w-[12rem] items-center gap-1 truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 md:max-w-[14rem] md:px-2 md:py-1"
                   params={{
                     id:
                       shortChangesetId(changeset.parentChangesetId) ||
                       changeset.parentChangesetId
                   }}
+                  title={`Base changeset ${changeset.parentChangesetId}`}
                   to="/cs/$id"
                 >
-                  Base changeset{" "}
-                  <span className="truncate">
+                  <span className="shrink-0">Base changeset</span>
+                  <span className="truncate font-mono">
                     {shortChangesetId(changeset.parentChangesetId) ||
                       changeset.parentChangesetId}
                   </span>
@@ -291,15 +314,16 @@ function HeaderCard({
               ) : null}
               <CopyLinkButton changesetId={changeset.id || ""} />
             </div>
+            <ChangesetMetaLine changeset={changeset} />
             <div className={cn("lg:block", showDetails ? "block" : "hidden")}>
               {changeset.description ? (
-                <p className="mt-4 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                <p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700 md:mt-4">
                   {changeset.description}
                 </p>
               ) : null}
               {changeset.baseCommitId ? (
                 <p
-                  className="mt-4 font-mono text-xs text-slate-500"
+                  className="mt-3 font-mono text-xs text-slate-500 md:mt-4"
                   title={changeset.baseCommitId}
                 >
                   base {shortCommit(changeset.baseCommitId)}
@@ -334,12 +358,12 @@ function HeaderCard({
         </div>
 
         {changeset.submitBlockedReason ? (
-          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="mt-2.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 md:mt-3 md:text-sm">
             {displaySubmitBlockedReason(changeset.submitBlockedReason)}
           </div>
         ) : null}
         {actionError ? (
-          <ErrorBox className="mt-5" message={actionError} />
+          <ErrorBox className="mt-4 md:mt-5" message={actionError} />
         ) : null}
       </div>
     </div>
@@ -409,51 +433,84 @@ function ReviewActions({
 }
 
 function PatchsetComparePanel({
+  currentPatchsetId,
   fromPatchset,
   onFromPatchsetChange,
   onToPatchsetChange,
   patchsets,
   toPatchset
 }: {
+  currentPatchsetId?: string;
   fromPatchset: string;
   onFromPatchsetChange(value: string): void;
   onToPatchsetChange(value: string): void;
   patchsets: Patchset[];
   toPatchset: string;
 }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
   const fromLabel = fromPatchset
     ? patchsetOptionLabel(findPatchset(patchsets, fromPatchset))
     : "Recorded base";
   const toLabel = patchsetOptionLabel(findPatchset(patchsets, toPatchset));
 
   return (
-    <section className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm shadow-slate-200/50 md:px-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-          Patchsets
-        </h2>
-        <p className="min-w-0 truncate text-xs font-medium text-zinc-950">
-          {fromLabel} to {toLabel || "selected patchset"}
-        </p>
+    <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 md:px-5 md:py-3">
+        <button
+          aria-controls="patchset-timeline"
+          aria-expanded={mobileOpen}
+          className="-mx-1 flex min-w-0 flex-1 items-center gap-2 rounded px-1 text-left lg:cursor-default lg:pointer-events-none"
+          onClick={() => setMobileOpen((value) => !value)}
+          type="button"
+        >
+          <h2 className="text-[11px] font-semibold uppercase tracking-normal text-slate-500 md:text-xs">
+            Patchsets
+          </h2>
+          <span
+            aria-hidden="true"
+            className={cn(
+              "inline-block shrink-0 text-[10px] text-slate-400 transition-transform lg:hidden",
+              mobileOpen && "rotate-90"
+            )}
+          >
+            ▶
+          </span>
+          <p className="min-w-0 truncate text-[11px] font-medium text-zinc-950 md:text-xs">
+            <span className="text-slate-500">{fromLabel}</span>
+            <span className="mx-1 text-slate-400">→</span>
+            <span>{toLabel || "selected patchset"}</span>
+          </p>
+        </button>
       </div>
-      <PatchsetTimeline
-        fromPatchset={fromPatchset}
-        onFromPatchsetChange={onFromPatchsetChange}
-        onToPatchsetChange={onToPatchsetChange}
-        patchsets={patchsets}
-        toPatchset={toPatchset}
-      />
+      <div
+        className={cn(
+          "px-3 pb-2 md:px-5 md:pb-3",
+          mobileOpen ? "block" : "hidden lg:block"
+        )}
+        id="patchset-timeline"
+      >
+        <PatchsetTimeline
+          currentPatchsetId={currentPatchsetId}
+          fromPatchset={fromPatchset}
+          onFromPatchsetChange={onFromPatchsetChange}
+          onToPatchsetChange={onToPatchsetChange}
+          patchsets={patchsets}
+          toPatchset={toPatchset}
+        />
+      </div>
     </section>
   );
 }
 
 function PatchsetTimeline({
+  currentPatchsetId,
   fromPatchset,
   onFromPatchsetChange,
   onToPatchsetChange,
   patchsets,
   toPatchset
 }: {
+  currentPatchsetId?: string;
   fromPatchset: string;
   onFromPatchsetChange(value: string): void;
   onToPatchsetChange(value: string): void;
@@ -596,37 +653,54 @@ function PatchsetTimeline({
         </label>
       </div>
 
-      <div className="relative h-20 px-5">
+      <div className="relative h-20 px-4 md:px-5">
         <div className="relative h-full" ref={trackRef}>
           <div className="absolute inset-x-0 top-9 h-px bg-slate-300" />
           <div className="absolute inset-x-0 top-6 flex items-center justify-between">
-            {steps.map((step, index) => (
-              <button
-                aria-label={
-                  index === 0
-                    ? "Use recorded base as diff base"
-                    : `Compare to ${patchsetOptionLabel(step.patchset)}`
-                }
-                className="group flex min-w-8 -translate-y-0.5 flex-col items-center gap-1 text-[10px] font-medium text-slate-500"
-                key={step.id || "base"}
-                onClick={() =>
-                  index === 0
-                    ? onFromPatchsetChange("")
-                    : onToPatchsetChange(step.id)
-                }
-                type="button"
-              >
-                <span
-                  className={cn(
-                    "h-3 w-3 rounded-full border-2 bg-white transition group-hover:border-zinc-950",
-                    index === fromIndex || index === toIndex
-                      ? "border-zinc-950"
-                      : "border-slate-300"
-                  )}
-                />
-                <span>{step.label}</span>
-              </button>
-            ))}
+            {steps.map((step, index) => {
+              const isCurrent =
+                currentPatchsetId && step.id === currentPatchsetId;
+              return (
+                <button
+                  aria-current={index === toIndex ? "true" : undefined}
+                  aria-label={
+                    index === 0
+                      ? "Use recorded base as diff base"
+                      : `Compare to ${patchsetOptionLabel(step.patchset)}`
+                  }
+                  className="group flex min-w-7 -translate-y-0.5 flex-col items-center gap-1 text-[10px] font-medium text-slate-500 md:min-w-8"
+                  key={step.id || "base"}
+                  onClick={() =>
+                    index === 0
+                      ? onFromPatchsetChange("")
+                      : onToPatchsetChange(step.id)
+                  }
+                  type="button"
+                >
+                  <span
+                    className={cn(
+                      "rounded-full border-2 bg-white transition group-hover:border-zinc-950",
+                      index === fromIndex || index === toIndex
+                        ? "h-3.5 w-3.5 border-zinc-950"
+                        : "h-3 w-3 border-slate-300",
+                      isCurrent &&
+                        !(index === fromIndex || index === toIndex) &&
+                        "border-emerald-500 ring-2 ring-emerald-100"
+                    )}
+                    title={isCurrent ? "Current patchset" : undefined}
+                  />
+                  <span
+                    className={cn(
+                      isCurrent &&
+                        !(index === fromIndex || index === toIndex) &&
+                        "text-emerald-700"
+                    )}
+                  >
+                    {step.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           <TimelineHandleButton
@@ -709,7 +783,7 @@ function TimelineHandleButton({
       style={{
         left: timelinePosition(index, maxIndex),
         touchAction: "none",
-        transform: "translateX(-50%)"
+        transform: handleTransform(index, maxIndex)
       }}
       type="button"
     >
@@ -767,16 +841,84 @@ function ChangesetSkeleton() {
 }
 
 function StatusBadge({ status }: { status?: string }) {
+  const label = humanizeStatus(status);
   return (
     <span
       className={cn(
-        "inline-flex rounded-md border px-2 py-1 text-xs font-semibold",
+        "inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold md:py-1 md:text-xs",
         statusClass(status)
       )}
+      title={status || "unknown"}
     >
-      {status || "unknown"}
+      {label}
     </span>
   );
+}
+
+// Compact one-line summary of author and target ref. Each field renders only
+// when the API returned it. The authoring slice is intentionally omitted here
+// because the breadcrumb already surfaces it. On mobile this stays on a single
+// truncated line so it never pushes the diff down.
+function ChangesetMetaLine({ changeset }: { changeset: Changeset }) {
+  const author = changeset.author;
+  const ref = changeset.targetRef;
+  const refLabel = ref ? compactRef(ref) : "";
+  const parts: { label: string; title?: string }[] = [];
+  if (author) parts.push({ label: author, title: `Author ${author}` });
+  if (refLabel) parts.push({ label: refLabel, title: `Target ref ${ref}` });
+
+  if (!parts.length) {
+    return null;
+  }
+
+  return (
+    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500 md:mt-1.5 md:text-xs">
+      {parts.map((part, index) => (
+        <span className="flex min-w-0 items-center gap-1.5" key={index}>
+          {index > 0 ? (
+            <span aria-hidden="true" className="text-slate-300">
+              ·
+            </span>
+          ) : null}
+          <span className="truncate" title={part.title}>
+            {part.label}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function compactRef(ref: string) {
+  const stripped = ref.replace(/^refs\/(heads|tags|remotes)\//, "");
+  return stripped || ref;
+}
+
+function humanizeStatus(status?: string) {
+  const normalized = (status || "").toLowerCase();
+  switch (normalized) {
+    case "":
+    case "draft":
+      return "Draft";
+    case "open":
+      return "Open";
+    case "pending_publish":
+      return "Publishing";
+    case "published":
+      return "Published";
+    case "submitted":
+      return "Submitted";
+    case "merged":
+      return "Merged";
+    case "abandoned":
+      return "Abandoned";
+    default:
+      return status || "Unknown";
+  }
+}
+
+function isPublishing(status?: string) {
+  return (status || "").toLowerCase() === "pending_publish";
 }
 
 // Copies the short, shareable /cs/<id> URL to the clipboard so reviewers can
@@ -956,6 +1098,19 @@ function timelinePosition(index: number, maxIndex: number) {
     return "0%";
   }
   return `${(index / maxIndex) * 100}%`;
+}
+
+// Shifts the handle's box at the start/end of the track so its label cannot
+// overflow the container. At the left edge the box left-aligns with the dot; at
+// the right edge it right-aligns; everywhere else it centers on the dot.
+function handleTransform(index: number, maxIndex: number) {
+  if (index <= 0) {
+    return "translateX(0)";
+  }
+  if (maxIndex > 0 && index >= maxIndex) {
+    return "translateX(-100%)";
+  }
+  return "translateX(-50%)";
 }
 
 function clamp(value: number, min: number, max: number) {
