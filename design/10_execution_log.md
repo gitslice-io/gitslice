@@ -5553,6 +5553,34 @@ Build note:
 - `npm --prefix web run build` completed successfully and still reports the
   existing Vite large-chunk warning for generated assets.
 
+## 2026-06-19: Gs CLI Agent Skill Draft
+
+Request:
+
+- draft an agent skill for operating the `gs` CLI
+
+Decisions:
+
+- added a self-contained draft skill at `skills/gs-cli/SKILL.md` with
+  `agents/openai.yaml` metadata rather than installing it into the user's global
+  skills directory
+- based the command guidance on the implemented `gs schema` surface instead of
+  older design examples when they disagreed
+- documented top-level changeset commands such as `gs create`, `gs modify`, and
+  `gs submit`, while calling out that sync conflict cleanup currently still uses
+  the hidden compatibility command `gs cs update`
+- added explicit concurrent-agent guidance: allocate one disposable workspace per
+  logical task, avoid concurrent mutation of the same `.gs/` state, share the
+  object cache only as an optimization, and coordinate multi-agent review through
+  separate changesets or dependent changesets
+
+Verification:
+
+```bash
+python3 /home/nic/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/nic/workspace/slices/skills/gs-cli
+go run ./cmd/gs schema --jq '.commands[] | select(.use == "gs create" or .use == "gs modify" or .use == "gs submit [changeset]" or .use == "gs slice update <slice|account:slice>") | {use, flags}'
+```
+
 ## 2026-06-19: Anonymous Public Slice Reads
 
 Request:
