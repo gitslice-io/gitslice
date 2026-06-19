@@ -5722,3 +5722,48 @@ Build note:
 
 - `npm --prefix web run build` completed successfully and still reports the
   existing Vite large-chunk warning for generated assets.
+
+## 2026-06-19: Public Slice History And Changesets
+
+Request:
+
+- if a slice is public, its changeset list and history should also be public
+
+Decisions:
+
+- changed changeset read RPCs (`GetChangeset`, `ListChangesets`, and
+  `DiffChangeset`) to accept an optional subject and rely on existing
+  slice-scoped read authorization, so anonymous reads are allowed only when the
+  authoring slice is public
+- kept changeset write and review actions authenticated; the web changeset
+  detail route is public for read-only access, but submit/review controls are
+  hidden for signed-out users
+- updated the slice history drawer to always request slice-scoped changesets
+  for the current slice when opened; public slices can now show commit history
+  and related changesets without requiring sign-in
+- documented that changeset list/detail/diff visibility follows the authoring
+  slice's read visibility
+
+Verification:
+
+```bash
+gofmt -w service/changeset.go service/memory_service_test.go tests/rpc/slice_test.go
+go test ./service -run TestPublicSliceReadsAllowAnonymousContext
+set -a; . ./.env.local; set +a; go test -count=1 ./tests/rpc -run TestRPCSliceVisibilityRolesAndBlobScopeAuthorization -v
+npm --prefix web test -- StackPages.test.tsx
+go build ./cmd/...
+go test ./...
+npm --prefix web run build
+npm --prefix web test
+git diff --check
+```
+
+Test note:
+
+- an initial full `npm --prefix web test` run timed out while the web build was
+  running at the same time; rerunning the full web test suite by itself passed.
+
+Build note:
+
+- `npm --prefix web run build` completed successfully and still reports the
+  existing Vite large-chunk warning for generated assets.

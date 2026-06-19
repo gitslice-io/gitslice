@@ -404,7 +404,6 @@ export function SliceDetailPage() {
         api={api}
         commitId={commitId}
         onClose={() => setHistoryOpen(false)}
-        canLoadChangesets={Boolean(isLoaded && isSignedIn)}
         open={historyOpen}
         selectedPath={selectedPath}
         sliceId={sliceId || sliceRouteKey}
@@ -559,7 +558,6 @@ function PendingChangesBanner({
 
 interface HistoryDrawerProps {
   api: ApiClient;
-  canLoadChangesets: boolean;
   commitId: string;
   onClose(): void;
   open: boolean;
@@ -571,7 +569,6 @@ interface HistoryDrawerProps {
 
 function HistoryDrawer({
   api,
-  canLoadChangesets,
   commitId,
   onClose,
   open,
@@ -600,7 +597,7 @@ function HistoryDrawer({
   });
 
   const changesetsQuery = useQuery({
-    enabled: Boolean(canLoadChangesets && open && sliceRef?.account && sliceRef?.slice),
+    enabled: Boolean(open && sliceRef?.account && sliceRef?.slice),
     queryKey: ["sliceHistoryChangesets", sliceRef?.account, sliceRef?.slice],
     queryFn: () =>
       api.listChangesets({

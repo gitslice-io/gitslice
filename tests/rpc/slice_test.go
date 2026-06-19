@@ -501,7 +501,7 @@ func TestRPCSliceVisibilityRolesAndBlobScopeAuthorization(t *testing.T) {
 	clients := newTestCoreClients(conn)
 	slices := corev1.NewSliceServiceClient(conn)
 
-	submitDirectFile(t, aliceCtx, clients, "/acme/payment/authz_visibility.go", "package payment\nconst Visibility = true\n", "visibility authz")
+	visibilityChangeset := submitDirectFile(t, aliceCtx, clients, "/acme/payment/authz_visibility.go", "package payment\nconst Visibility = true\n", "visibility authz")
 	payment, err := slices.ResolveSlice(aliceCtx, &corev1.ResolveSliceRequest{Ref: testPaymentSliceRef()})
 	if err != nil {
 		t.Fatal(err)
@@ -584,6 +584,40 @@ func TestRPCSliceVisibilityRolesAndBlobScopeAuthorization(t *testing.T) {
 	}
 	if !treeEntriesContainName(listed.Entries, "authz_visibility.go") {
 		t.Fatalf("public slice listing missing authz_visibility.go: %#v", listed.Entries)
+	}
+	anonymousCtx := context.Background()
+	anonymousHistory, err := clients.repository.ListCommits(anonymousCtx, &corev1.ListCommitsRequest{
+		RefName: postgres.DefaultTargetRef,
+		Slice:   testPaymentSliceRef(),
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCommitSetIncludes(t, anonymousHistory.Commits, visibilityChangeset.CommitId)
+	anonymousChangesets, err := clients.changeset.ListChangesets(anonymousCtx, &corev1.ListChangesetsRequest{
+		AuthoringSlice: testPaymentSliceRef(),
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changesetListContains(anonymousChangesets.Changesets, visibilityChangeset.Id) {
+		t.Fatalf("anonymous public changesets missing %s: %#v", visibilityChangeset.Id, anonymousChangesets.Changesets)
+	}
+	anonymousChangeset, err := clients.changeset.GetChangeset(anonymousCtx, &corev1.GetChangesetRequest{ChangesetId: visibilityChangeset.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if anonymousChangeset.Id != visibilityChangeset.Id {
+		t.Fatalf("anonymous GetChangeset id = %q, want %q", anonymousChangeset.Id, visibilityChangeset.Id)
+	}
+	anonymousDiff, err := clients.changeset.DiffChangeset(anonymousCtx, &corev1.DiffChangesetRequest{ChangesetId: visibilityChangeset.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(anonymousDiff.ChangedPaths, "/acme/payment/authz_visibility.go") {
+		t.Fatalf("anonymous public changeset diff paths = %#v", anonymousDiff.ChangedPaths)
 	}
 }
 

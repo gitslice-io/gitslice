@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
+import { useAuth } from "@clerk/clerk-react";
 import {
   useEffect,
   useMemo,
@@ -22,6 +23,7 @@ import { displaySubmitBlockedReason } from "./stackPageUtils";
 export function ChangesetDetailPage() {
   const api = useApi();
   const queryClient = useQueryClient();
+  const { isLoaded, isSignedIn } = useAuth();
   const params = useParams({ strict: false }) as { id?: string };
   const changesetId = params.id ?? "";
   const [abandonReason, setAbandonReason] = useState("");
@@ -187,6 +189,7 @@ export function ChangesetDetailPage() {
         actionBusy={actionBusy}
         actionError={actionError}
         abandonPending={abandonMutation.isPending}
+        canUseReviewActions={Boolean(isLoaded && isSignedIn)}
         changeset={changeset}
         mergePending={mergeMutation.isPending}
         onAbandon={submitAbandon}
@@ -219,6 +222,7 @@ function HeaderCard({
   actionBusy,
   actionError,
   changeset,
+  canUseReviewActions,
   mergePending,
   onAbandon,
   onAbandonReasonChange,
@@ -230,6 +234,7 @@ function HeaderCard({
   actionBusy: boolean;
   actionError: string;
   changeset: Changeset;
+  canUseReviewActions: boolean;
   mergePending: boolean;
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
@@ -259,7 +264,7 @@ function HeaderCard({
                 onClick={() => setShowDetails((value) => !value)}
                 type="button"
               >
-                {showDetails ? "Hide" : "Actions"}
+                {showDetails ? "Hide" : canUseReviewActions ? "Actions" : "Details"}
               </button>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-slate-600 md:text-sm">
@@ -303,27 +308,29 @@ function HeaderCard({
             </div>
           </div>
 
-          <div
-            className={cn(
-              "w-full shrink-0 lg:block lg:w-auto",
-              showDetails ? "block" : "hidden"
-            )}
-          >
-            <ReviewActions
-              abandonPending={abandonPending}
-              abandonReason={abandonReason}
-              actionBusy={actionBusy}
-              canMerge={
-                Boolean(changeset.currentPatchsetId) &&
-                isMergeableStatus(changeset.status)
-              }
-              mergePending={mergePending}
-              onAbandon={onAbandon}
-              onAbandonReasonChange={onAbandonReasonChange}
-              onMerge={onMerge}
-              terminal={terminal}
-            />
-          </div>
+          {canUseReviewActions ? (
+            <div
+              className={cn(
+                "w-full shrink-0 lg:block lg:w-auto",
+                showDetails ? "block" : "hidden"
+              )}
+            >
+              <ReviewActions
+                abandonPending={abandonPending}
+                abandonReason={abandonReason}
+                actionBusy={actionBusy}
+                canMerge={
+                  Boolean(changeset.currentPatchsetId) &&
+                  isMergeableStatus(changeset.status)
+                }
+                mergePending={mergePending}
+                onAbandon={onAbandon}
+                onAbandonReasonChange={onAbandonReasonChange}
+                onMerge={onMerge}
+                terminal={terminal}
+              />
+            </div>
+          ) : null}
         </div>
 
         {changeset.submitBlockedReason ? (
