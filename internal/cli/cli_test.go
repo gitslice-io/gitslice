@@ -67,7 +67,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs create", "gs modify", "gs submit [changeset]", "gs stack [stack]", "gs restack [entry]", "gs switch <entry>", "gs up [entry]", "gs down [steps]", "gs top", "gs bottom", "gs move <entry> --onto <parent|root>", "gs insert --parent <entry> --message <title>", "gs detach <entry>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs create", "gs modify", "gs submit [changeset]", "gs deps [dependency-tree]", "gs update-dependents [changeset]", "gs switch <changeset>", "gs up [changeset]", "gs down [steps]", "gs top", "gs bottom", "gs move <changeset> --onto <base|root>", "gs insert --base <changeset> --message <title>", "gs detach <changeset>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -142,9 +142,9 @@ func TestCanonicalStackCommandsRejectPreStackWorkspaceState(t *testing.T) {
 		BaseCommitID:       "cmt_123",
 	})
 	if err == nil {
-		t.Fatal("pre-stack workspace state unexpectedly passed")
+		t.Fatal("pre-dependency workspace state unexpectedly passed")
 	}
-	if !strings.Contains(err.Error(), "unsupported pre-stack format") {
+	if !strings.Contains(err.Error(), "unsupported pre-dependency format") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -370,8 +370,8 @@ func TestStackRestackWritesConflictStateAndSwitchesActiveEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := r.Run(context.Background(), []string{"restack", "cs_child"}); err != nil {
-		t.Fatalf("restack failed: %v\nstderr:\n%s", err, stderr.String())
+	if err := r.Run(context.Background(), []string{"update-dependents", "cs_child"}); err != nil {
+		t.Fatalf("update-dependents failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	state, err := r.readWorkspaceState()
 	if err != nil {
@@ -395,11 +395,11 @@ func TestStackRestackWritesConflictStateAndSwitchesActiveEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"<<<<<<< gitslice restack local",
+		"<<<<<<< gitslice update local",
 		"(local side content was not returned)",
-		"||||||| gitslice restack base",
+		"||||||| gitslice update base",
 		"=======",
-		">>>>>>> gitslice restack remote",
+		">>>>>>> gitslice update remote",
 	} {
 		if !strings.Contains(string(marker), want) {
 			t.Fatalf("conflict marker missing %q:\n%s", want, string(marker))
@@ -523,8 +523,8 @@ func TestStackCommandJSONUsesStackTreeSchema(t *testing.T) {
 	}
 	writeStackWorkspaceForTest(t, workspace, "stk_1", "cs_moved", "ps_moved_1")
 
-	if err := r.Run(context.Background(), []string{"stack", "--json"}); err != nil {
-		t.Fatalf("stack --json failed: %v\nstderr:\n%s", err, stderr.String())
+	if err := r.Run(context.Background(), []string{"deps", "--json"}); err != nil {
+		t.Fatalf("deps --json failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	var out stackOutput
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
@@ -553,16 +553,16 @@ func TestStackSubmitNoWatchAndPolling(t *testing.T) {
 	}
 	writeStackWorkspaceForTest(t, workspace, "stk_1", "cs_root", "ps_root_1")
 
-	if err := r.Run(context.Background(), []string{"submit", "--stack", "--no-watch", "--json"}); err != nil {
-		t.Fatalf("submit --stack --no-watch failed: %v\nstderr:\n%s", err, stderr.String())
+	if err := r.Run(context.Background(), []string{"submit", "--with-dependencies", "--no-watch", "--json"}); err != nil {
+		t.Fatalf("submit --with-dependencies --no-watch failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	if server.submitReq == nil || server.submitReq.StackId != "stk_1" {
 		t.Fatalf("unexpected no-watch submit request: %#v", server.submitReq)
 	}
 	var noWatchOut struct {
-		StackID string `json:"stack_id"`
-		Status  string `json:"status"`
-		Results []struct {
+		DependencyID string `json:"dependency_id"`
+		Status       string `json:"status"`
+		Results      []struct {
 			ChangesetID string `json:"changeset_id"`
 			Status      string `json:"status"`
 		} `json:"results"`
@@ -570,7 +570,7 @@ func TestStackSubmitNoWatchAndPolling(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &noWatchOut); err != nil {
 		t.Fatalf("submit no-watch output is not JSON: %v\n%s", err, stdout.String())
 	}
-	if noWatchOut.StackID != "stk_1" || noWatchOut.Status != "submitted" || len(noWatchOut.Results) != 1 || noWatchOut.Results[0].Status != "pending_publish" {
+	if noWatchOut.DependencyID != "stk_1" || noWatchOut.Status != "submitted" || len(noWatchOut.Results) != 1 || noWatchOut.Results[0].Status != "pending_publish" {
 		t.Fatalf("unexpected no-watch submit output: %#v", noWatchOut)
 	}
 
@@ -579,8 +579,8 @@ func TestStackSubmitNoWatchAndPolling(t *testing.T) {
 	server.submitReq = nil
 	server.getChangesetCalls = 0
 	server.getRefCalls = 0
-	if err := r.Run(context.Background(), []string{"submit", "--stack", "--watch-timeout", "200ms"}); err != nil {
-		t.Fatalf("submit --stack with polling failed: %v\nstderr:\n%s", err, stderr.String())
+	if err := r.Run(context.Background(), []string{"submit", "--with-dependencies", "--watch-timeout", "200ms"}); err != nil {
+		t.Fatalf("submit --with-dependencies with polling failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	if server.submitReq == nil || server.submitReq.StackId != "stk_1" {
 		t.Fatalf("unexpected watched submit request: %#v", server.submitReq)

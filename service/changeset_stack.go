@@ -382,7 +382,7 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 			response.Results = append(response.Results, &corev1.SubmitStackEntryResult{
 				ChangesetId:   entry.ChangesetId,
 				Status:        "blocked",
-				BlockedReason: "NeedsRestack",
+				BlockedReason: "NeedsBaseUpdate",
 			})
 			continue
 		}

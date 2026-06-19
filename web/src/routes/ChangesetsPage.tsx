@@ -9,7 +9,6 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
-import { ChangesetWorkflowTabs } from "../components/ChangesetWorkflowTabs";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -18,6 +17,7 @@ import {
 } from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
+import { displaySubmitBlockedReason } from "./stackPageUtils";
 
 interface ChangesetsSearch {
   slice?: unknown;
@@ -87,11 +87,6 @@ export function ChangesetsPage() {
             : "Open a slice and use its Changesets tab to see the slice-scoped review queue."
         }
       />
-      <ChangesetWorkflowTabs
-        active="changesets"
-        sliceLabel={sliceRef ? `${account}:${slice}` : undefined}
-      />
-
       <div className="mt-6">
         {!sliceRef ? (
           <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
@@ -234,7 +229,7 @@ function ChangesetRow({
           ) : null}
           {changeset.submitBlockedReason ? (
             <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs leading-5 text-amber-900 md:hidden">
-              {changeset.submitBlockedReason}
+              {displaySubmitBlockedReason(changeset.submitBlockedReason)}
             </p>
           ) : null}
           {rowError ? (
@@ -255,7 +250,7 @@ function ChangesetRow({
       </td>
       <td className="hidden max-w-sm px-4 py-4 text-slate-700 md:table-cell">
         {changeset.submitBlockedReason ? (
-          <span>{changeset.submitBlockedReason}</span>
+          <span>{displaySubmitBlockedReason(changeset.submitBlockedReason)}</span>
         ) : (
           <span className="text-slate-400">None</span>
         )}

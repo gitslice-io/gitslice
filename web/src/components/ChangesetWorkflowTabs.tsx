@@ -1,38 +1,21 @@
-import { Link } from "@tanstack/react-router";
-
 import { cn } from "../lib/cn";
 
-type ChangesetWorkflowView = "changesets" | "stacks";
+type ChangesetWorkflowView = "changesets";
 
 export function ChangesetWorkflowTabs({
-  active,
-  sliceLabel
+  active
 }: {
   active: ChangesetWorkflowView;
-  sliceLabel?: string;
 }) {
-  const sliceSearch = sliceLabel ? ({ slice: sliceLabel } as never) : undefined;
-
   return (
     <div className="mt-6 border-b border-slate-200">
       <nav
         aria-label="Changeset workflow views"
         className="-mb-px flex min-w-0 gap-1 overflow-x-auto"
       >
-        <Link
-          className={tabClass(active === "changesets")}
-          search={sliceSearch}
-          to="/changesets"
-        >
+        <span className={tabClass(active === "changesets")}>
           Changesets
-        </Link>
-        <Link
-          className={tabClass(active === "stacks")}
-          search={sliceSearch}
-          to="/stacks"
-        >
-          Stacks
-        </Link>
+        </span>
       </nav>
     </div>
   );

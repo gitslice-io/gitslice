@@ -5479,3 +5479,41 @@ npm --prefix web test
 npm --prefix web run build
 git diff --check
 ```
+
+## 2026-06-19: Dependent Changesets Product Model
+
+Request:
+
+- remove the public stack concept, stop preserving backward compatibility for
+  stack/restack labels, update the implementation plan, and update the stacked
+  changesets design document
+
+Decisions:
+
+- made dependent changesets and base changesets the public product model; stack
+  remains an internal service/storage implementation detail for this pass
+- changed visible CLI commands to `gs deps`, `gs update-dependents`,
+  `gs create --base`, `gs insert --base`, and
+  `gs submit --with-dependencies`
+- changed visible web routes/copy from stacks/restack to dependency trees,
+  dependent updates, and base changesets
+- removed the separate Changesets/Stacks UI tab surface from the changesets
+  workflow
+- changed CLI structured output and schema to expose `dependency_id`,
+  `dependency_tree`, `changesets`, `base_changeset_id`,
+  `base_patchset_id`, and `updated_changesets`
+- changed user-visible submit block reasons from stack-parent/restack language
+  to base-changeset/base-update language while preserving old-code display
+  mapping for any existing data
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go internal/cli/cli_test.go service/changeset_stack.go service/memory_service_test.go internal/storage/memory/store.go internal/postgres/changeset_store.go tests/rpc/stacked_changesets_test.go
+go test ./internal/cli ./service
+npm --prefix web test -- StackPages.test.tsx
+go test ./...
+go build ./cmd/...
+npm --prefix web run build
+npm --prefix web test
+```

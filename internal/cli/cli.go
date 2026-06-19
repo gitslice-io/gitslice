@@ -187,8 +187,8 @@ type statusOutput struct {
 	ConflictPaths      []string     `json:"conflict_paths,omitempty"`
 	CurrentChangesetID string       `json:"changeset_id,omitempty"`
 	CurrentPatchsetID  string       `json:"patchset_id,omitempty"`
-	StackID            string       `json:"stack_id,omitempty"`
-	Stack              *stackOutput `json:"stack,omitempty"`
+	StackID            string       `json:"dependency_id,omitempty"`
+	Stack              *stackOutput `json:"dependency_tree,omitempty"`
 }
 
 type workspaceSyncOutput struct {
@@ -208,7 +208,7 @@ type workspaceSyncOutput struct {
 	ChangesetID          string   `json:"changeset_id,omitempty"`
 	PatchsetID           string   `json:"patchset_id,omitempty"`
 	PatchsetNumber       int64    `json:"patchset_number,omitempty"`
-	RestackedChangesets  []string `json:"restacked_changesets,omitempty"`
+	RestackedChangesets  []string `json:"updated_changesets,omitempty"`
 }
 
 type changesetOutput struct {
@@ -218,18 +218,18 @@ type changesetOutput struct {
 	Status              string                     `json:"status,omitempty"`
 	SubmitBlockedReason string                     `json:"submit_blocked_reason,omitempty"`
 	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
-	StackID             string                     `json:"stack_id,omitempty"`
+	StackID             string                     `json:"dependency_id,omitempty"`
 	WebURL              string                     `json:"web_url,omitempty"`
 }
 
 type stackOutput struct {
-	StackID             string             `json:"stack_id"`
+	StackID             string             `json:"dependency_id"`
 	Status              string             `json:"status"`
 	ActiveChangesetID   string             `json:"active_changeset_id,omitempty"`
 	RootChangesetID     string             `json:"root_changeset_id,omitempty"`
-	Entries             []stackEntryOutput `json:"entries"`
+	Entries             []stackEntryOutput `json:"changesets"`
 	SubmitStatus        string             `json:"submit_status,omitempty"`
-	RestackedChangesets []string           `json:"restacked_changesets,omitempty"`
+	RestackedChangesets []string           `json:"updated_changesets,omitempty"`
 }
 
 type stackEntryOutput struct {
@@ -237,13 +237,27 @@ type stackEntryOutput struct {
 	ChangesetHandle   string `json:"changeset_handle,omitempty"`
 	PatchsetID        string `json:"patchset_id,omitempty"`
 	PatchsetNumber    int64  `json:"patchset_number,omitempty"`
-	ParentChangesetID string `json:"parent_changeset_id,omitempty"`
-	ParentPatchsetID  string `json:"parent_patchset_id,omitempty"`
+	ParentChangesetID string `json:"base_changeset_id,omitempty"`
+	ParentPatchsetID  string `json:"base_patchset_id,omitempty"`
 	DisplayOrder      int64  `json:"display_order"`
 	SiblingOrder      int64  `json:"sibling_order"`
 	Depth             int64  `json:"depth"`
 	State             string `json:"state"`
 	Status            string `json:"status,omitempty"`
+}
+
+type submitDependenciesOutput struct {
+	DependencyID string                         `json:"dependency_id"`
+	Status       string                         `json:"status"`
+	Results      []submitDependencyResultOutput `json:"results"`
+}
+
+type submitDependencyResultOutput struct {
+	ChangesetID      string `json:"changeset_id"`
+	Status           string `json:"status"`
+	CommitID         string `json:"commit_id,omitempty"`
+	PendingPublishID string `json:"pending_publish_id,omitempty"`
+	BlockedReason    string `json:"blocked_reason,omitempty"`
 }
 
 type versionOutput struct {
@@ -1351,16 +1365,16 @@ func (r Runner) rootCommand() *cobra.Command {
 	createAll := false
 	createCmd := &cobra.Command{
 		Use:   "create",
-		Short: "Create a stack entry from workspace edits",
-		Args:  noArgs("gs create --message title [--all] [--parent changeset] [--sibling] [--root]"),
+		Short: "Create a changeset from workspace edits",
+		Args:  noArgs("gs create --message title [--all] [--base changeset] [--sibling] [--root]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll)
 		},
 	}
 	createCmd.Flags().StringVar(&createMessage, "message", createMessage, "changeset title")
-	createCmd.Flags().StringVar(&createParent, "parent", createParent, "parent changeset id or handle")
-	createCmd.Flags().BoolVar(&createRoot, "root", createRoot, "create a new root stack instead of a child entry")
-	createCmd.Flags().BoolVar(&createSibling, "sibling", createSibling, "create a sibling of the active entry")
+	createCmd.Flags().StringVar(&createParent, "base", createParent, "base changeset id or handle")
+	createCmd.Flags().BoolVar(&createRoot, "root", createRoot, "create a new root changeset")
+	createCmd.Flags().BoolVar(&createSibling, "sibling", createSibling, "create a sibling of the active changeset")
 	createCmd.Flags().BoolVar(&createAll, "all", createAll, "snapshot all current workspace edits")
 
 	modifyMessage := ""
@@ -1368,14 +1382,14 @@ func (r Runner) rootCommand() *cobra.Command {
 	modifyAll := false
 	modifyCmd := &cobra.Command{
 		Use:   "modify",
-		Short: "Create a new patchset for the active stack entry",
-		Args:  noArgs("gs modify [--all] [--message title] [--no-restack]"),
+		Short: "Create a new patchset for the active changeset",
+		Args:  noArgs("gs modify [--all] [--message title] [--no-update-dependents]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStackModify(cmd.Context(), *opts, modifyMessage, modifyNoRestack, modifyAll)
 		},
 	}
 	modifyCmd.Flags().StringVar(&modifyMessage, "message", modifyMessage, "replacement title is reserved for future use")
-	modifyCmd.Flags().BoolVar(&modifyNoRestack, "no-restack", modifyNoRestack, "do not restack descendants after modifying")
+	modifyCmd.Flags().BoolVar(&modifyNoRestack, "no-update-dependents", modifyNoRestack, "do not update dependent changesets after modifying")
 	modifyCmd.Flags().BoolVar(&modifyAll, "all", modifyAll, "snapshot all current workspace edits")
 
 	submitStack := false
@@ -1384,8 +1398,8 @@ func (r Runner) rootCommand() *cobra.Command {
 	submitWatchTimeout := "5m"
 	submitCmd := &cobra.Command{
 		Use:   "submit [changeset]",
-		Short: "Submit the active changeset or stack",
-		Args:  maxArgs(1, "gs submit [changeset] [--stack] [--subtree changeset] [--no-watch]"),
+		Short: "Submit the active changeset or dependent changesets",
+		Args:  maxArgs(1, "gs submit [changeset] [--with-dependencies] [--subtree changeset] [--no-watch]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {
@@ -1398,15 +1412,15 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runStackSubmit(cmd.Context(), *opts, id, submitStack, submitSubtree, !submitNoWatch, watchTimeout)
 		},
 	}
-	submitCmd.Flags().BoolVar(&submitStack, "stack", submitStack, "submit the whole active stack")
-	submitCmd.Flags().StringVar(&submitSubtree, "subtree", submitSubtree, "submit one stack subtree")
+	submitCmd.Flags().BoolVar(&submitStack, "with-dependencies", submitStack, "submit dependent changesets together")
+	submitCmd.Flags().StringVar(&submitSubtree, "subtree", submitSubtree, "submit one dependency subtree")
 	submitCmd.Flags().BoolVar(&submitNoWatch, "no-watch", submitNoWatch, "return after submit is accepted without waiting for publish")
 	submitCmd.Flags().StringVar(&submitWatchTimeout, "watch-timeout", submitWatchTimeout, "maximum time to wait for publish")
 
-	stackCmd := &cobra.Command{
-		Use:   "stack [stack]",
-		Short: "Show the active stack",
-		Args:  maxArgs(1, "gs stack [stack]"),
+	depsCmd := &cobra.Command{
+		Use:   "deps [dependency-tree]",
+		Short: "Show dependent changesets",
+		Args:  maxArgs(1, "gs deps [dependency-tree]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {
@@ -1418,10 +1432,10 @@ func (r Runner) rootCommand() *cobra.Command {
 
 	restackChildren := false
 	restackAll := false
-	restackCmd := &cobra.Command{
-		Use:   "restack [entry]",
-		Short: "Replay stack descendants onto current parent patchsets",
-		Args:  maxArgs(1, "gs restack [entry] [--children|--all]"),
+	updateDependentsCmd := &cobra.Command{
+		Use:   "update-dependents [changeset]",
+		Short: "Replay dependent changesets onto current base patchsets",
+		Args:  maxArgs(1, "gs update-dependents [changeset] [--children|--all]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			entry := ""
 			if len(args) > 0 {
@@ -1430,22 +1444,22 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runStackRestack(cmd.Context(), *opts, entry, restackChildren, restackAll)
 		},
 	}
-	restackCmd.Flags().BoolVar(&restackChildren, "children", restackChildren, "restack the selected entry and descendants")
-	restackCmd.Flags().BoolVar(&restackAll, "all", restackAll, "restack all sibling subtrees")
+	updateDependentsCmd.Flags().BoolVar(&restackChildren, "children", restackChildren, "update the selected changeset and dependents")
+	updateDependentsCmd.Flags().BoolVar(&restackAll, "all", restackAll, "update all sibling dependency subtrees")
 
 	switchCmd := &cobra.Command{
-		Use:   "switch <entry>",
-		Short: "Set the active stack entry",
-		Args:  exactArgs(1, "gs switch <entry>"),
+		Use:   "switch <changeset>",
+		Short: "Set the active changeset",
+		Args:  exactArgs(1, "gs switch <changeset>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStackSwitch(cmd.Context(), *opts, args[0])
 		},
 	}
 
 	upCmd := &cobra.Command{
-		Use:   "up [entry]",
-		Short: "Switch to a child stack entry",
-		Args:  maxArgs(1, "gs up [entry]"),
+		Use:   "up [changeset]",
+		Short: "Switch to a dependent changeset",
+		Args:  maxArgs(1, "gs up [changeset]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			entry := ""
 			if len(args) > 0 {
@@ -1457,7 +1471,7 @@ func (r Runner) rootCommand() *cobra.Command {
 
 	downCmd := &cobra.Command{
 		Use:   "down [steps]",
-		Short: "Switch to a parent stack entry",
+		Short: "Switch to a base changeset",
 		Args:  maxArgs(1, "gs down [steps]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			steps := 1
@@ -1474,7 +1488,7 @@ func (r Runner) rootCommand() *cobra.Command {
 
 	topCmd := &cobra.Command{
 		Use:   "top",
-		Short: "Switch to the top descendant on the current stack path",
+		Short: "Switch to the top dependent changeset on the current path",
 		Args:  noArgs("gs top"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStackTop(cmd.Context(), *opts)
@@ -1483,7 +1497,7 @@ func (r Runner) rootCommand() *cobra.Command {
 
 	bottomCmd := &cobra.Command{
 		Use:   "bottom",
-		Short: "Switch to the root stack entry",
+		Short: "Switch to the root changeset",
 		Args:  noArgs("gs bottom"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStackBottom(cmd.Context(), *opts)
@@ -1493,39 +1507,39 @@ func (r Runner) rootCommand() *cobra.Command {
 	moveOnto := ""
 	moveSiblingOrder := int64(0)
 	moveCmd := &cobra.Command{
-		Use:   "move <entry> --onto <parent|root>",
-		Short: "Move a stack entry to a new parent",
-		Args:  exactArgs(1, "gs move <entry> --onto <parent|root>"),
+		Use:   "move <changeset> --onto <base|root>",
+		Short: "Move a changeset to a new base",
+		Args:  exactArgs(1, "gs move <changeset> --onto <base|root>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStackMove(cmd.Context(), *opts, args[0], moveOnto, moveSiblingOrder)
 		},
 	}
-	moveCmd.Flags().StringVar(&moveOnto, "onto", moveOnto, "new parent changeset or root")
-	moveCmd.Flags().Int64Var(&moveSiblingOrder, "order", moveSiblingOrder, "sibling order under the new parent")
+	moveCmd.Flags().StringVar(&moveOnto, "onto", moveOnto, "new base changeset or root")
+	moveCmd.Flags().Int64Var(&moveSiblingOrder, "order", moveSiblingOrder, "sibling order under the new base")
 
 	insertParent := ""
 	insertMessage := ""
 	insertCmd := &cobra.Command{
-		Use:   "insert --parent <entry> --message <title>",
-		Short: "Insert a new stack entry between a parent and the active child",
-		Args:  noArgs("gs insert --parent <entry> --message <title>"),
+		Use:   "insert --base <changeset> --message <title>",
+		Short: "Insert a new base changeset before the active dependent",
+		Args:  noArgs("gs insert --base <changeset> --message <title>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStackInsert(cmd.Context(), *opts, insertParent, insertMessage)
 		},
 	}
-	insertCmd.Flags().StringVar(&insertParent, "parent", insertParent, "parent changeset id or handle")
+	insertCmd.Flags().StringVar(&insertParent, "base", insertParent, "base changeset id or handle")
 	insertCmd.Flags().StringVar(&insertMessage, "message", insertMessage, "changeset title")
 
 	detachMessage := ""
 	detachCmd := &cobra.Command{
-		Use:   "detach <entry>",
-		Short: "Detach a stack entry into a new stack",
-		Args:  exactArgs(1, "gs detach <entry>"),
+		Use:   "detach <changeset>",
+		Short: "Detach a dependent changeset into a new dependency tree",
+		Args:  exactArgs(1, "gs detach <changeset>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runStackDetach(cmd.Context(), *opts, args[0], detachMessage)
 		},
 	}
-	detachCmd.Flags().StringVar(&detachMessage, "message", detachMessage, "new stack title")
+	detachCmd.Flags().StringVar(&detachMessage, "message", detachMessage, "new dependency title")
 
 	fsCmd := &cobra.Command{
 		Use:     "fs",
@@ -1808,7 +1822,7 @@ home slice root, for example /nic/notes.`,
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, createCmd, modifyCmd, submitCmd, stackCmd, restackCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd)
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd)
 	return root
 }
 
@@ -3475,8 +3489,8 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		if changed := changedPathsFromEdits(activeEdits); len(changed) > 0 {
 			return userError(
 				"sync_needs_modify",
-				"workspace has local changes not captured in the active stack entry",
-				"Run gs modify before syncing the stack.",
+				"workspace has local changes not captured in the active changeset",
+				"Run gs modify before syncing dependencies.",
 			)
 		}
 		current = workingFilesFromSnapshot(base)
@@ -3675,7 +3689,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		fmt.Fprintf(r.Stdout, "created sync patchset %d for %s\n", output.PatchsetNumber, firstNonEmpty(storage.ShortChangesetID(output.ChangesetID), output.ChangesetID))
 	}
 	if len(output.RestackedChangesets) > 0 {
-		fmt.Fprintf(r.Stdout, "restacked: %s\n", strings.Join(output.RestackedChangesets, ", "))
+		fmt.Fprintf(r.Stdout, "updated: %s\n", strings.Join(output.RestackedChangesets, ", "))
 	}
 	if output.ConflictCount > 0 {
 		fmt.Fprintf(r.Stdout, "conflicts: %d path(s)\n", output.ConflictCount)
@@ -3767,7 +3781,7 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 	}
 	fmt.Fprintf(r.Stdout, "workspace: %s\n", output.Workspace)
 	if stack != nil {
-		fmt.Fprintf(r.Stdout, "stack: %s\n", stack.Id)
+		fmt.Fprintf(r.Stdout, "dependencies: %s\n", stack.Id)
 		if state.CurrentChangesetID != "" {
 			fmt.Fprintf(r.Stdout, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID))
 		}
@@ -4293,13 +4307,13 @@ func (r Runner) materializeStackRestackConflict(ctx context.Context, blob corev1
 		return err
 	}
 	var b strings.Builder
-	b.WriteString("<<<<<<< gitslice restack local\n")
+	b.WriteString("<<<<<<< gitslice update local\n")
 	b.WriteString(localText)
-	b.WriteString("||||||| gitslice restack base\n")
+	b.WriteString("||||||| gitslice update base\n")
 	b.WriteString(baseText)
 	b.WriteString("=======\n")
 	b.WriteString(remoteText)
-	b.WriteString(">>>>>>> gitslice restack remote\n")
+	b.WriteString(">>>>>>> gitslice update remote\n")
 	return os.WriteFile(target, []byte(b.String()), 0o100644)
 }
 
@@ -5115,7 +5129,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 	if sibling && parentID != "" {
 		parentEntry := stackEntryByChangesetSelector(stack, parentID)
 		if parentEntry == nil {
-			return userError("stack_entry_not_found", "active stack entry not found", "Run gs stack to inspect available entries.")
+			return userError("stack_entry_not_found", "active changeset not found", "Run gs deps to inspect available changesets.")
 		}
 		parentID = parentEntry.ParentChangesetId
 	}
@@ -5127,7 +5141,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 		parentID = parent.Id
 		parentPatchsetID = parent.CurrentPatchsetId
 		if parentPatchsetID == "" {
-			return userError("parent_has_no_patchset", "parent changeset has no current patchset", "Run gs modify on the parent before creating a child.")
+			return userError("parent_has_no_patchset", "base changeset has no current patchset", "Run gs modify on the parent before creating a child.")
 		}
 	}
 
@@ -5181,7 +5195,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "created %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
-	fmt.Fprintf(r.Stdout, "stack: %s\n", stackID)
+	fmt.Fprintf(r.Stdout, "dependencies: %s\n", stackID)
 	return nil
 }
 
@@ -5346,7 +5360,7 @@ func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message
 			return err
 		}
 		if parent.CurrentPatchsetId == "" {
-			return userError("parent_has_no_patchset", "parent changeset has no current patchset", "Run gs restack after the parent has a patchset.")
+			return userError("parent_has_no_patchset", "base changeset has no current patchset", "Run gs update-dependents after the parent has a patchset.")
 		}
 		updateReq.BaseKind = "patchset"
 		updateReq.BasePatchsetId = parent.CurrentPatchsetId
@@ -5399,7 +5413,7 @@ func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message
 	}
 	fmt.Fprintf(r.Stdout, "updated %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
 	if len(restacked) > 0 {
-		fmt.Fprintf(r.Stdout, "restacked descendants: %s\n", strings.Join(restacked, ", "))
+		fmt.Fprintf(r.Stdout, "updated dependents: %s\n", strings.Join(restacked, ", "))
 	}
 	_ = message
 	return nil
@@ -6626,7 +6640,7 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		PatchsetID:          cs.CurrentPatchsetId,
 		PatchsetNumber:      cs.CurrentPatchsetNumber,
 		Status:              cs.Status,
-		SubmitBlockedReason: cs.SubmitBlockedReason,
+		SubmitBlockedReason: displaySubmitBlockedReason(cs.SubmitBlockedReason),
 		SubmitRequirements:  currentPatchsetSubmitRequirements(cs),
 	}
 	if opts.jsonOutput() {
@@ -6640,7 +6654,7 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 	}
 	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\n", firstNonEmpty(displayChangesetID(cs), cs.Id), cs.Status)
 	if cs.SubmitBlockedReason != "" {
-		fmt.Fprintf(r.Stdout, "submit_blocked_reason: %s\n", cs.SubmitBlockedReason)
+		fmt.Fprintf(r.Stdout, "submit_blocked_reason: %s\n", displaySubmitBlockedReason(cs.SubmitBlockedReason))
 	}
 	if cs.CurrentPatchsetNumber > 0 {
 		fmt.Fprintf(r.Stdout, "patchset: %d\n", cs.CurrentPatchsetNumber)
@@ -6683,7 +6697,7 @@ func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, request
 		}
 	}
 	if stackID == "" {
-		return userError("no_active_stack", "no active stack in workspace", "Run gs create first or pass a stack changeset id.")
+		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first or pass a dependent changeset id.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -6706,8 +6720,9 @@ func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, request
 			}
 		}
 	}
+	displaySubmitStackResponse(res)
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, res)
+		return r.writeJSONOutput(opts, submitDependenciesOutputFromProto(res))
 	}
 	if opts.Quiet {
 		return nil
@@ -6720,7 +6735,7 @@ func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, request
 		fmt.Fprintf(r.Stdout, "%s %s\n", result.Status, firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId))
 	}
 	if res.Status == "partial" {
-		fmt.Fprintln(r.Stdout, "stack partially submitted")
+		fmt.Fprintln(r.Stdout, "dependencies partially submitted")
 	}
 	return nil
 }
@@ -6738,7 +6753,7 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 	}
 	entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID)
 	if entry == nil {
-		return userError("stack_entry_not_found", "active stack entry not found", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "active changeset not found", "Run gs deps to inspect available changesets.")
 	}
 	entriesByID := map[string]*corev1.ChangesetStackEntry{}
 	for _, item := range stack.Entries {
@@ -6766,7 +6781,7 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 			res.Results = append(res.Results, &corev1.SubmitStackEntryResult{
 				ChangesetId:   item.ChangesetId,
 				Status:        "blocked",
-				BlockedReason: "NeedsRestack",
+				BlockedReason: "NeedsBaseUpdate",
 			})
 			continue
 		}
@@ -6800,8 +6815,9 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 	if blocked {
 		res.Status = "partial"
 	}
+	displaySubmitStackResponse(res)
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, res)
+		return r.writeJSONOutput(opts, submitDependenciesOutputFromProto(res))
 	}
 	if opts.Quiet {
 		return nil
@@ -6814,7 +6830,7 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 		fmt.Fprintf(r.Stdout, "%s %s\n", result.Status, firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId))
 	}
 	if res.Status == "partial" {
-		fmt.Fprintln(r.Stdout, "stack partially submitted")
+		fmt.Fprintln(r.Stdout, "dependencies partially submitted")
 	}
 	return nil
 }
@@ -6832,6 +6848,51 @@ func cliSubmitBlockReason(err error) string {
 	return err.Error()
 }
 
+func displaySubmitStackResponse(res *corev1.SubmitStackResponse) {
+	if res == nil {
+		return
+	}
+	for _, result := range res.Results {
+		if result != nil {
+			result.BlockedReason = displaySubmitBlockedReason(result.BlockedReason)
+		}
+	}
+}
+
+func submitDependenciesOutputFromProto(res *corev1.SubmitStackResponse) submitDependenciesOutput {
+	out := submitDependenciesOutput{}
+	if res == nil {
+		return out
+	}
+	out.DependencyID = res.StackId
+	out.Status = res.Status
+	out.Results = make([]submitDependencyResultOutput, 0, len(res.Results))
+	for _, result := range res.Results {
+		if result == nil {
+			continue
+		}
+		out.Results = append(out.Results, submitDependencyResultOutput{
+			ChangesetID:      result.ChangesetId,
+			Status:           result.Status,
+			CommitID:         result.CommitId,
+			PendingPublishID: result.PendingPublishId,
+			BlockedReason:    displaySubmitBlockedReason(result.BlockedReason),
+		})
+	}
+	return out
+}
+
+func displaySubmitBlockedReason(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case "NeedsRestack", "NeedsBaseUpdate":
+		return "needs base update"
+	case "BlockedOnStackParent", "BlockedOnBaseChangeset":
+		return "base changeset has not landed"
+	default:
+		return reason
+	}
+}
+
 func (r Runner) runStackShow(ctx context.Context, opts commandOptions, requestedStackID string) error {
 	cfg, _, state, err := r.loadLocalState()
 	if err != nil {
@@ -6845,7 +6906,7 @@ func (r Runner) runStackShow(ctx context.Context, opts commandOptions, requested
 		stackID = state.ActiveStackID
 	}
 	if stackID == "" {
-		return userError("no_active_stack", "no active stack in workspace", "Run gs create first or pass a stack id.")
+		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first or pass a dependency tree id.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -6876,7 +6937,7 @@ func (r Runner) runStackRestack(ctx context.Context, opts commandOptions, entry 
 		return err
 	}
 	if state.ActiveStackID == "" {
-		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
 	start := strings.TrimSpace(entry)
 	if start == "" && children {
@@ -6950,10 +7011,10 @@ func (r Runner) runStackRestack(ctx context.Context, opts commandOptions, entry 
 		return nil
 	}
 	if len(ids) == 0 {
-		fmt.Fprintln(r.Stdout, "nothing to restack")
+		fmt.Fprintln(r.Stdout, "nothing to update")
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "restacked: %s\n", strings.Join(ids, ", "))
+	fmt.Fprintf(r.Stdout, "updated: %s\n", strings.Join(ids, ", "))
 	if firstConflict != nil {
 		fmt.Fprintf(r.Stdout, "conflicts: %s\n", firstNonEmpty(storage.ShortChangesetID(firstConflict.Id), firstConflict.Id))
 	}
@@ -6969,7 +7030,7 @@ func (r Runner) runStackSwitch(ctx context.Context, opts commandOptions, entry s
 		return err
 	}
 	if state.ActiveStackID == "" {
-		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -6982,7 +7043,7 @@ func (r Runner) runStackSwitch(ctx context.Context, opts commandOptions, entry s
 	}
 	stackEntry := stackEntryByChangesetSelector(stack, entry)
 	if stackEntry == nil || stackEntry.Changeset == nil {
-		return userError("stack_entry_not_found", "stack entry not found", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "changeset not found", "Run gs deps to inspect available changesets.")
 	}
 	if state.CurrentChangesetID != "" {
 		currentSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, state.CurrentChangesetID)
@@ -7034,10 +7095,10 @@ func (r Runner) runStackUp(ctx context.Context, opts commandOptions, entry strin
 	}
 	children := stackChildren(stack, state.CurrentChangesetID)
 	if len(children) == 0 {
-		return userError("stack_entry_not_found", "active stack entry has no children", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "active changeset has no dependents", "Run gs deps to inspect available changesets.")
 	}
 	if len(children) > 1 {
-		return userError("ambiguous_stack_navigation", "active stack entry has multiple children", "Run gs up <entry> with the child to activate.")
+		return userError("ambiguous_stack_navigation", "active changeset has multiple dependents", "Run gs up <changeset> with the dependent changeset to activate.")
 	}
 	return r.runStackSwitch(ctx, opts, children[0].ChangesetId)
 }
@@ -7049,7 +7110,7 @@ func (r Runner) runStackDown(ctx context.Context, opts commandOptions, steps int
 	}
 	entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID)
 	if entry == nil {
-		return userError("stack_entry_not_found", "active stack entry not found", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "active changeset not found", "Run gs deps to inspect available changesets.")
 	}
 	for i := 0; i < steps && entry.ParentChangesetId != ""; i++ {
 		parent := stackEntryByChangesetSelector(stack, entry.ParentChangesetId)
@@ -7071,7 +7132,7 @@ func (r Runner) runStackTop(ctx context.Context, opts commandOptions) error {
 		entry = stackEntryByChangesetSelector(stack, stack.RootEntryId)
 	}
 	if entry == nil {
-		return userError("stack_entry_not_found", "stack has no root entry", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "dependency tree has no root changeset", "Run gs deps to inspect available changesets.")
 	}
 	for {
 		children := stackChildren(stack, entry.ChangesetId)
@@ -7079,7 +7140,7 @@ func (r Runner) runStackTop(ctx context.Context, opts commandOptions) error {
 			return r.runStackSwitch(ctx, opts, entry.ChangesetId)
 		}
 		if len(children) > 1 {
-			return userError("ambiguous_stack_navigation", "stack path has multiple children", "Run gs up <entry> with the child to activate.")
+			return userError("ambiguous_stack_navigation", "dependency path has multiple dependents", "Run gs up <changeset> with the dependent changeset to activate.")
 		}
 		entry = children[0]
 	}
@@ -7091,7 +7152,7 @@ func (r Runner) runStackBottom(ctx context.Context, opts commandOptions) error {
 		return err
 	}
 	if stack.RootEntryId == "" {
-		return userError("stack_entry_not_found", "stack has no root entry", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "dependency tree has no root changeset", "Run gs deps to inspect available changesets.")
 	}
 	return r.runStackSwitch(ctx, opts, stack.RootEntryId)
 }
@@ -7105,7 +7166,7 @@ func (r Runner) activeStack(ctx context.Context) (UserConfig, WorkspaceConfig, W
 		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, nil, err
 	}
 	if state.ActiveStackID == "" {
-		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, nil, userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+		return UserConfig{}, WorkspaceConfig{}, WorkspaceState{}, nil, userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -7203,7 +7264,7 @@ func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, on
 		return err
 	}
 	if state.ActiveStackID == "" {
-		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -7219,7 +7280,7 @@ func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, on
 	}
 	moved := stackEntryByChangesetSelector(stack, entry)
 	if moved == nil {
-		return userError("stack_entry_not_found", "stack entry not found", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "changeset not found", "Run gs deps to inspect available changesets.")
 	}
 	if state.CurrentChangesetID != "" {
 		currentSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, state.CurrentChangesetID)
@@ -7299,7 +7360,7 @@ func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, on
 	}
 	printStack(r.Stdout, updated)
 	if len(restackedIDs) > 0 {
-		fmt.Fprintf(r.Stdout, "restacked: %s\n", strings.Join(restackedIDs, ", "))
+		fmt.Fprintf(r.Stdout, "updated: %s\n", strings.Join(restackedIDs, ", "))
 	}
 	return nil
 }
@@ -7307,7 +7368,7 @@ func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, on
 func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, title string) error {
 	entry = strings.TrimSpace(entry)
 	if entry == "" {
-		return userError("invalid_args", "detach requires an entry", "Run gs detach <entry>.")
+		return userError("invalid_args", "detach requires a changeset", "Run gs detach <changeset>.")
 	}
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
@@ -7317,7 +7378,7 @@ func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, 
 		return err
 	}
 	if state.ActiveStackID == "" {
-		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -7332,10 +7393,10 @@ func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, 
 	}
 	detachedEntry := stackEntryByChangesetSelector(stack, entry)
 	if detachedEntry == nil {
-		return userError("stack_entry_not_found", "stack entry not found", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "changeset not found", "Run gs deps to inspect available changesets.")
 	}
 	if detachedEntry.ParentChangesetId == "" {
-		return userError("cannot_detach_root", "cannot detach the root stack entry", "Choose a child entry, or keep using the existing stack.")
+		return userError("cannot_detach_root", "cannot detach the root changeset", "Choose a dependent changeset, or keep using the existing dependency tree.")
 	}
 	if state.CurrentChangesetID != "" {
 		currentSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, state.CurrentChangesetID)
@@ -7359,7 +7420,7 @@ func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, 
 		return err
 	}
 	if res.DetachedStack == nil || res.DetachedStack.Id == "" {
-		return userError("detach_failed", "detach did not return a detached stack", "Retry the operation or inspect the stack with gs stack.")
+		return userError("detach_failed", "detach did not return a detached dependency tree", "Retry the operation or inspect dependencies with gs deps.")
 	}
 	restacked, err := stackClient.Restack(callCtx, &corev1.RestackRequest{
 		StackId:            res.DetachedStack.Id,
@@ -7402,10 +7463,10 @@ func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, 
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "detached stack: %s\n", detachedStack.Id)
+	fmt.Fprintf(r.Stdout, "detached dependencies: %s\n", detachedStack.Id)
 	printStack(r.Stdout, detachedStack)
 	if len(restackedIDs) > 0 {
-		fmt.Fprintf(r.Stdout, "restacked: %s\n", strings.Join(restackedIDs, ", "))
+		fmt.Fprintf(r.Stdout, "updated: %s\n", strings.Join(restackedIDs, ", "))
 	}
 	return nil
 }
@@ -7413,11 +7474,11 @@ func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, 
 func (r Runner) runStackInsert(ctx context.Context, opts commandOptions, parentSelector, title string) error {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return userError("invalid_args", "insert requires --message", "Run gs insert --parent <entry> --message <title>.")
+		return userError("invalid_args", "insert requires --message", "Run gs insert --base <changeset> --message <title>.")
 	}
 	parentSelector = strings.TrimSpace(parentSelector)
 	if parentSelector == "" {
-		return userError("invalid_args", "insert requires --parent", "Run gs insert --parent <entry> --message <title>.")
+		return userError("invalid_args", "insert requires --base", "Run gs insert --base <changeset> --message <title>.")
 	}
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
@@ -7427,7 +7488,7 @@ func (r Runner) runStackInsert(ctx context.Context, opts commandOptions, parentS
 		return err
 	}
 	if state.ActiveStackID == "" {
-		return userError("no_active_stack", "no active stack in workspace", "Run gs create first.")
+		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
@@ -7443,14 +7504,14 @@ func (r Runner) runStackInsert(ctx context.Context, opts commandOptions, parentS
 	}
 	parentEntry := stackEntryByChangesetSelector(stack, parentSelector)
 	if parentEntry == nil {
-		return userError("stack_entry_not_found", "parent stack entry not found", "Run gs stack to inspect available entries.")
+		return userError("stack_entry_not_found", "base changeset not found", "Run gs deps to inspect available changesets.")
 	}
 	parent, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: parentEntry.ChangesetId})
 	if err != nil {
 		return err
 	}
 	if parent.CurrentPatchsetId == "" {
-		return userError("parent_has_no_patchset", "parent changeset has no current patchset", "Run gs modify on the parent before inserting a child.")
+		return userError("parent_has_no_patchset", "base changeset has no current patchset", "Run gs modify on the base changeset before inserting a dependent.")
 	}
 	base, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, parent.Id)
 	if err != nil {
@@ -7527,6 +7588,7 @@ func (r Runner) runChangesetShow(ctx context.Context, opts commandOptions, reque
 	if err != nil {
 		return err
 	}
+	cs.SubmitBlockedReason = displaySubmitBlockedReason(cs.SubmitBlockedReason)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, cs)
 	}
@@ -7546,6 +7608,7 @@ func (r Runner) runChangesetExplain(ctx context.Context, opts commandOptions, re
 	if err != nil {
 		return err
 	}
+	cs.SubmitBlockedReason = displaySubmitBlockedReason(cs.SubmitBlockedReason)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, cs)
 	}
@@ -7760,7 +7823,7 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	fmt.Fprintf(w, "changeset: %s\n", firstNonEmpty(displayChangesetID(cs), cs.Id))
 	fmt.Fprintf(w, "status: %s\n", cs.Status)
 	if cs.SubmitBlockedReason != "" {
-		fmt.Fprintf(w, "submit_blocked_reason: %s\n", cs.SubmitBlockedReason)
+		fmt.Fprintf(w, "submit_blocked_reason: %s\n", displaySubmitBlockedReason(cs.SubmitBlockedReason))
 	}
 	if cs.Title != "" {
 		fmt.Fprintf(w, "title: %s\n", cs.Title)
@@ -7930,7 +7993,7 @@ func stackOutputFromProto(stack *corev1.ChangesetStack) stackOutput {
 			DisplayOrder:      entry.DisplayOrder,
 			SiblingOrder:      entry.SiblingOrder,
 			Depth:             entry.Depth,
-			State:             entry.State,
+			State:             displayDependencyState(entry.State),
 		}
 		if entry.Changeset != nil {
 			item.ChangesetHandle = displayChangesetID(entry.Changeset)
@@ -7944,19 +8007,19 @@ func stackOutputFromProto(stack *corev1.ChangesetStack) stackOutput {
 }
 
 func printStack(w io.Writer, stack *corev1.ChangesetStack) {
-	fmt.Fprintf(w, "stack: %s\n", stack.Id)
+	fmt.Fprintf(w, "dependencies: %s\n", stack.Id)
 	fmt.Fprintf(w, "status: %s\n", stack.Status)
 	if stack.ActiveEntryId != "" {
 		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(stack.ActiveEntryId), stack.ActiveEntryId))
 	}
-	fmt.Fprintln(w, "entries:")
+	fmt.Fprintln(w, "changesets:")
 	if len(stack.Entries) == 0 {
 		fmt.Fprintln(w, "  none")
 		return
 	}
 	for _, entry := range stack.Entries {
 		label := firstNonEmpty(storage.ShortChangesetID(entry.ChangesetId), entry.ChangesetId)
-		status := entry.State
+		status := displayDependencyState(entry.State)
 		patchset := int64(0)
 		if entry.Changeset != nil {
 			label = firstNonEmpty(displayChangesetID(entry.Changeset), label)
@@ -7971,6 +8034,15 @@ func printStack(w io.Writer, stack *corev1.ChangesetStack) {
 		} else {
 			fmt.Fprintf(w, "%s%s %s\n", prefix, label, status)
 		}
+	}
+}
+
+func displayDependencyState(state string) string {
+	switch strings.TrimSpace(state) {
+	case "needs_restack":
+		return "needs_base_update"
+	default:
+		return state
 	}
 }
 
@@ -9902,8 +9974,8 @@ func (r Runner) stackBaseSnapshotThroughChangeset(ctx context.Context, conn *grp
 	if base.CommitID != "" && stack.BaseCommitId != "" && base.CommitID != stack.BaseCommitId {
 		return BaseSnapshot{}, userError(
 			"workspace_base_mismatch",
-			"workspace base does not match the active stack base",
-			"Run gs sync before editing this stack, or initialize a fresh workspace.",
+			"workspace base does not match the active dependency tree base",
+			"Run gs sync before editing these dependencies, or initialize a fresh workspace.",
 		)
 	}
 	entries := map[string]*corev1.ChangesetStackEntry{}
@@ -9915,7 +9987,7 @@ func (r Runner) stackBaseSnapshotThroughChangeset(ctx context.Context, conn *grp
 	}
 	entry := entries[strings.TrimSpace(throughChangesetID)]
 	if entry == nil {
-		return BaseSnapshot{}, userError("stack_entry_not_found", "stack entry not found", "Run gs stack to inspect available entries.")
+		return BaseSnapshot{}, userError("stack_entry_not_found", "changeset not found", "Run gs deps to inspect available changesets.")
 	}
 	pathEntries := []*corev1.ChangesetStackEntry{}
 	for entry != nil {
@@ -9973,7 +10045,7 @@ func applyFileEditsToSnapshot(ws WorkspaceConfig, base *BaseSnapshot, edits []*c
 			continue
 		default:
 			if edit.ContentHash == "" {
-				return userError("invalid_patchset", "patchset file edit has no content hash", "Restack the changeset before switching or modifying it.")
+				return userError("invalid_patchset", "patchset file edit has no content hash", "Run gs update-dependents before switching or modifying it.")
 			}
 			rel, err := workspaceRelPath(ws, edit.Path)
 			if err != nil {
@@ -10189,7 +10261,7 @@ func rejectPreStackWorkspaceState(state WorkspaceState) error {
 	if state.ActiveStackID == "" && (state.CurrentChangesetID != "" || state.CurrentPatchsetID != "") {
 		return userError(
 			"unsupported_workspace_state",
-			"workspace metadata is from an unsupported pre-stack format",
+			"workspace metadata is from an unsupported pre-dependency format",
 			"Run gs init in a new directory or use a one-time migration tool.",
 		)
 	}
@@ -10702,96 +10774,96 @@ func (r Runner) runSchema(opts commandOptions) error {
 			},
 			{
 				"use":            "gs create",
-				"summary":        "create a stack entry and first patchset from workspace edits",
-				"flags":          []string{"--message", "--all", "--parent", "--sibling", "--root"},
+				"summary":        "create a changeset and first patchset from workspace edits",
+				"flags":          []string{"--message", "--all", "--base", "--sibling", "--root"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id", "web_url"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url"},
 			},
 			{
 				"use":            "gs modify",
-				"summary":        "create a new patchset for the active stack entry",
-				"flags":          []string{"--all", "--message", "--no-restack"},
+				"summary":        "create a new patchset for the active changeset",
+				"flags":          []string{"--all", "--message", "--no-update-dependents"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id", "web_url"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url"},
 			},
 			{
 				"use":            "gs submit [changeset]",
-				"summary":        "submit the active changeset, a stack subtree, or the whole stack",
+				"summary":        "submit the active changeset, a dependency subtree, or all dependent changesets",
 				"args":           []string{"changeset"},
-				"flags":          []string{"--stack", "--subtree", "--no-watch", "--watch-timeout"},
+				"flags":          []string{"--with-dependencies", "--subtree", "--no-watch", "--watch-timeout"},
 				"writes_stdout":  true,
-				"machine_output": []string{"stack_id", "status", "results"},
+				"machine_output": []string{"dependency_id", "status", "results"},
 			},
 			{
-				"use":            "gs stack [stack]",
-				"summary":        "show the active stack tree",
-				"args":           []string{"stack"},
+				"use":            "gs deps [dependency-tree]",
+				"summary":        "show the active dependency tree",
+				"args":           []string{"dependency-tree"},
 				"writes_stdout":  true,
-				"machine_output": []string{"stack_id", "status", "active_changeset_id", "root_changeset_id", "entries"},
+				"machine_output": []string{"dependency_id", "status", "active_changeset_id", "root_changeset_id", "changesets"},
 			},
 			{
-				"use":            "gs restack [entry]",
-				"summary":        "replay stack descendants onto current parent patchsets",
-				"args":           []string{"entry"},
+				"use":            "gs update-dependents [changeset]",
+				"summary":        "replay dependent changesets onto current base patchsets",
+				"args":           []string{"changeset"},
 				"flags":          []string{"--children", "--all"},
 				"writes_stdout":  true,
-				"machine_output": []string{"stack_id", "status", "restacked_changesets"},
+				"machine_output": []string{"dependency_id", "status", "updated_changesets"},
 			},
 			{
-				"use":            "gs switch <entry>",
-				"summary":        "set the active stack entry",
-				"args":           []string{"entry"},
+				"use":            "gs switch <changeset>",
+				"summary":        "set the active changeset",
+				"args":           []string{"changeset"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id"},
 			},
 			{
-				"use":            "gs up [entry]",
-				"summary":        "switch to a child stack entry",
-				"args":           []string{"entry"},
+				"use":            "gs up [changeset]",
+				"summary":        "switch to a dependent changeset",
+				"args":           []string{"changeset"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id"},
 			},
 			{
 				"use":            "gs down [steps]",
-				"summary":        "switch to a parent stack entry",
+				"summary":        "switch to a base changeset",
 				"args":           []string{"steps"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id"},
 			},
 			{
 				"use":            "gs top",
-				"summary":        "switch to the top descendant on the current stack path",
+				"summary":        "switch to the top dependent on the current dependency path",
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id"},
 			},
 			{
 				"use":            "gs bottom",
-				"summary":        "switch to the root stack entry",
+				"summary":        "switch to the root changeset",
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id"},
 			},
 			{
-				"use":            "gs move <entry> --onto <parent|root>",
-				"summary":        "move a stack entry to a new parent",
-				"args":           []string{"entry"},
+				"use":            "gs move <changeset> --onto <base|root>",
+				"summary":        "move a changeset to a new base",
+				"args":           []string{"changeset"},
 				"flags":          []string{"--onto", "--order"},
 				"writes_stdout":  true,
-				"machine_output": []string{"stack_id", "status", "active_changeset_id", "root_changeset_id", "entries"},
+				"machine_output": []string{"dependency_id", "status", "active_changeset_id", "root_changeset_id", "changesets"},
 			},
 			{
-				"use":            "gs insert --parent <entry> --message <title>",
-				"summary":        "insert a new stack entry between a parent and the active child",
-				"flags":          []string{"--parent", "--message"},
+				"use":            "gs insert --base <changeset> --message <title>",
+				"summary":        "insert a new base changeset before the active dependent",
+				"flags":          []string{"--base", "--message"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "stack_id", "web_url"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url"},
 			},
 			{
-				"use":            "gs detach <entry>",
-				"summary":        "detach a stack entry into a new stack",
-				"args":           []string{"entry"},
+				"use":            "gs detach <changeset>",
+				"summary":        "detach a changeset into a new dependency tree",
+				"args":           []string{"changeset"},
 				"flags":          []string{"--message"},
 				"writes_stdout":  true,
-				"machine_output": []string{"stack_id", "status", "active_changeset_id", "root_changeset_id", "entries"},
+				"machine_output": []string{"dependency_id", "status", "active_changeset_id", "root_changeset_id", "changesets"},
 			},
 			{
 				"use":            "gs slice create <slice|account:slice>",

@@ -15,6 +15,7 @@ import {
   affectedSubtreeEntries,
   changedPathCount,
   currentPatchsetNumber,
+  displaySubmitBlockedReason,
   entryByChangesetId,
   entryDepth,
   entryLabel,
@@ -86,13 +87,13 @@ export function StackSubmitPage() {
     return (
       <ActionMessage
         message={getErrorMessage(stackQuery.error)}
-        title="Unable to load stack"
+        title="Unable to load dependencies"
       />
     );
   }
 
   if (!stack) {
-    return <ActionMessage message="The API returned no stack." title="Stack not found" />;
+    return <ActionMessage message="The API returned no dependency tree." title="Dependency tree not found" />;
   }
 
   return (
@@ -100,11 +101,11 @@ export function StackSubmitPage() {
       <div className="mb-4">
         <Breadcrumb
           items={[
-            { label: "Stacks", to: "/stacks" },
+            { label: "Dependencies", to: "/dependencies" },
             {
               label: shortStackId(stack.id) || stackDisplayName(stack),
               params: { id: stackId },
-              to: "/stacks/$id"
+              to: "/dependencies/$id"
             },
             { label: "Submit" }
           ]}
@@ -116,15 +117,15 @@ export function StackSubmitPage() {
           <button
             className={secondaryButtonClass}
             onClick={() => {
-              void navigate({ params: { id: stackId }, to: "/stacks/$id" });
+              void navigate({ params: { id: stackId }, to: "/dependencies/$id" });
             }}
             type="button"
           >
-            Back to stack
+            Back to dependencies
           </button>
         }
-        description={`Submit parent-before-child against ${stack.targetRef || "the target ref"} from base ${formatCommit(stack.baseCommitId)}.`}
-        eyebrow="Stack submit"
+        description={`Submit base-before-dependent against ${stack.targetRef || "the target ref"} from base ${formatCommit(stack.baseCommitId)}.`}
+        eyebrow="Submit dependencies"
         title={stackDisplayName(stack)}
       />
 
@@ -155,7 +156,7 @@ export function StackSubmitPage() {
               onChange={(event) => setSubtreeRoot(event.target.value)}
               value={subtreeRoot}
             >
-              <option value="">Whole stack</option>
+              <option value="">All dependencies</option>
               {entries.map((entry) => (
                 <option key={entry.changesetId} value={entry.changesetId}>
                   {entryLabel(entry)}
@@ -168,7 +169,7 @@ export function StackSubmitPage() {
             disabled={!submitRoot || submitMutation.isPending}
             type="submit"
           >
-            {submitMutation.isPending ? "Submitting..." : "Submit stack"}
+            {submitMutation.isPending ? "Submitting..." : "Submit dependencies"}
           </button>
         </form>
       </div>
@@ -183,8 +184,8 @@ function SubmitPreview({
 }) {
   if (!entries.length) {
     return (
-      <SliceNotice title="No submit entries">
-        This stack has no entries in the selected submit set.
+      <SliceNotice title="No submit changesets">
+        This dependency tree has no changesets in the selected submit set.
       </SliceNotice>
     );
   }
@@ -228,7 +229,7 @@ function SubmitResultPanel({
   if (!results.length) {
     return (
       <SliceNotice title="No submit result yet">
-        Run submit to see accepted, pending, submitted, and blocked entries.
+        Run submit to see accepted, pending, submitted, and blocked changesets.
       </SliceNotice>
     );
   }
@@ -279,13 +280,13 @@ function SubmitResultPanel({
                     {formatCommit(result.commitId)}
                   </td>
                   <td className="hidden max-w-sm px-4 py-4 text-slate-700 lg:table-cell">
-                    {result.blockedReason || "None"}
+                    {displaySubmitBlockedReason(result.blockedReason) || "None"}
                   </td>
                   <td className="px-4 py-4 text-right">
                     <Link
                       className={secondaryButtonClass}
                       params={{ id: detailId }}
-                      search={{ stack: stackId } as never}
+                      search={{ dependency: stackId } as never}
                       to="/cs/$id"
                     >
                       Detail

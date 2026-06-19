@@ -123,8 +123,8 @@ func TestStackedChangesetsChildUsesParentPreviewAndSubmitOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if blockedChild.SubmitBlockedReason != "BlockedOnStackParent" {
-		t.Fatalf("child blocked reason = %q, want BlockedOnStackParent", blockedChild.SubmitBlockedReason)
+	if blockedChild.SubmitBlockedReason != "BlockedOnBaseChangeset" {
+		t.Fatalf("child blocked reason = %q, want BlockedOnBaseChangeset", blockedChild.SubmitBlockedReason)
 	}
 
 	updatedStack, err := clients.stack.GetStack(ctx, &corev1.GetStackRequest{StackId: stack.Id})

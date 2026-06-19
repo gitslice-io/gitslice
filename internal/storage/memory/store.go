@@ -1188,7 +1188,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 			return nil, storage.ErrNotFound
 		}
 		if parent.Status != "submitted" && parent.Status != "pending_publish" {
-			return nil, s.b.blockSubmitLocked(cs, "BlockedOnStackParent")
+			return nil, s.b.blockSubmitLocked(cs, "BlockedOnBaseChangeset")
 		}
 	}
 	if len(patchset.Conflicts) > 0 {

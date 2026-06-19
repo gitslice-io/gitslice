@@ -8,10 +8,10 @@ import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
-import { shortStackId } from "./stackPageUtils";
+import { displaySubmitBlockedReason, shortStackId } from "./stackPageUtils";
 
 interface ChangesetSearch {
-  stack?: unknown;
+  dependency?: unknown;
 }
 
 export function ChangesetDetailPage() {
@@ -38,7 +38,7 @@ export function ChangesetDetailPage() {
   const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";
   const stackId =
     changeset?.stackId ||
-    (typeof search.stack === "string" ? search.stack.trim() : "");
+    (typeof search.dependency === "string" ? search.dependency.trim() : "");
 
   const resolveSliceQuery = useQuery({
     enabled: Boolean(authoringAccount && authoringSlice),
@@ -238,9 +238,9 @@ function HeaderCard({
                 <Link
                   className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950"
                   params={{ id: stackId }}
-                  to="/stacks/$id"
+                  to="/dependencies/$id"
                 >
-                  Stack {shortStackId(stackId) || stackId}
+                  Dependencies {shortStackId(stackId) || stackId}
                 </Link>
               ) : null}
               <CopyLinkButton changesetId={changeset.id || ""} />
@@ -287,7 +287,7 @@ function HeaderCard({
 
         {changeset.submitBlockedReason ? (
           <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {changeset.submitBlockedReason}
+            {displaySubmitBlockedReason(changeset.submitBlockedReason)}
           </div>
         ) : null}
         {actionError ? (
@@ -499,9 +499,9 @@ function changesetBreadcrumbItems({
 
   if (stackId) {
     items.push({
-      label: `stack ${shortStackId(stackId) || stackId}`,
+      label: `dependencies ${shortStackId(stackId) || stackId}`,
       params: { id: stackId },
-      to: "/stacks/$id"
+      to: "/dependencies/$id"
     });
   }
 

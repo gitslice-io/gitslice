@@ -162,11 +162,11 @@ const commandGroups = [
   {
     title: "Changesets",
     commands: [
-      ["gs create --message <title>", "Create a stack entry from pending edits."],
-      ["gs modify", "Create a new patchset on the active entry."],
+      ["gs create --message <title>", "Create a changeset from pending edits."],
+      ["gs modify", "Create a new patchset on the active changeset."],
       ["gs diff", "Review workspace or changeset content."],
       ["gs submit", "Submit for validation and publish."],
-      ["gs stack", "Inspect the active stack tree."]
+      ["gs deps", "Inspect dependent changesets."]
     ]
   },
   {

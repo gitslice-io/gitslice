@@ -10,7 +10,9 @@ in [03_core_api.md](03_core_api.md). CLI behavior is in
 [06_indexing.md](06_indexing.md). Conflict resolution and batched submit are in
 [07_conflict_resolution.md](07_conflict_resolution.md). Concrete Go
 implementation details and test harness requirements are in
-[08_mvp_implementation.md](08_mvp_implementation.md).
+[08_mvp_implementation.md](08_mvp_implementation.md). Dependent changeset UX and
+base changeset behavior are in
+[15_stacked_changesets.md](15_stacked_changesets.md).
 
 ## 1. MVP Phases
 
@@ -147,6 +149,32 @@ Exit criteria:
   stale-path-base rejection, and outside-slice rejection through the CLI.
 - Load tests cover concurrent changeset creation and concurrent submit against
   one local target ref.
+
+### Phase 4.5: Dependent Changesets
+
+- Changesets may be based on another changeset's current patchset instead of
+  only a target-ref commit.
+- The public model is dependent changesets and base changesets; do not expose a
+  separate stack concept in the CLI or web UI.
+- Creating a dependent changeset records its base changeset and base patchset.
+- Modifying a base changeset can update dependent patchsets or mark them as
+  needing an explicit dependent update.
+- Navigation, move, detach, and submit operate on changesets and dependency
+  subtrees.
+- Submit orders base-before-dependent and blocks dependents whose base
+  patchsets are stale or whose base changesets have not landed.
+
+Exit criteria:
+
+- `gs create --base`, `gs deps`, `gs update-dependents`, `gs move`,
+  `gs insert --base`, `gs detach`, and `gs submit --with-dependencies` present
+  dependency language in help, schema, and normal output.
+- Web navigation exposes dependency routes and actions from changeset surfaces
+  without a separate "Stacks" tab.
+- Changeset detail pages can link back to dependency context with
+  `?dependency=...`.
+- Focused CLI, RPC, and web tests cover dependency ordering, update conflicts,
+  submit order, and dependency-context links.
 
 ### Phase 5: Git Read Compatibility
 
@@ -291,19 +319,28 @@ vim nicholas/services/identity/auth.go
 ### 3.3 Create Changeset
 
 ```bash
-gs cs create
+gs create --message "Update auth flow"
 ```
 
 ### 3.4 Update Changeset
 
 ```bash
-gs cs update
+gs modify
 ```
 
 ### 3.5 Submit
 
 ```bash
-gs cs submit
+gs submit
+```
+
+### 3.6 Create A Dependent Changeset
+
+```bash
+gs create --base <changeset> --message "Update callers"
+gs deps
+gs update-dependents
+gs submit --with-dependencies
 ```
 
 Server behavior:

@@ -56,9 +56,9 @@ export function shortStackId(id?: string | null) {
 
 export function stackDisplayName(stack?: ChangesetStack | null) {
   if (!stack) {
-    return "Unknown stack";
+    return "Unknown dependency tree";
   }
-  return stack.title || shortStackId(stack.id) || stack.id || "Untitled stack";
+  return stack.title || shortStackId(stack.id) || stack.id || "Untitled dependency tree";
 }
 
 export function changesetLabel(changeset?: Changeset | null) {
@@ -253,6 +253,13 @@ export function isTerminalChangesetStatus(status?: string) {
 }
 
 export function StackStatusBadge({ status }: { status?: string }) {
+  const label =
+    status === "needs_restack"
+      ? "needs update"
+      : status === "needs_rebase"
+        ? "needs update"
+        : status || "unknown";
+
   return (
     <span
       className={cn(
@@ -260,9 +267,22 @@ export function StackStatusBadge({ status }: { status?: string }) {
         statusClass(status)
       )}
     >
-      {status || "unknown"}
+      {label}
     </span>
   );
+}
+
+export function displaySubmitBlockedReason(reason?: string) {
+  switch ((reason || "").trim()) {
+    case "NeedsRestack":
+    case "NeedsBaseUpdate":
+      return "needs base update";
+    case "BlockedOnStackParent":
+    case "BlockedOnBaseChangeset":
+      return "base changeset has not landed";
+    default:
+      return reason || "";
+  }
 }
 
 export function statusClass(status?: string) {
