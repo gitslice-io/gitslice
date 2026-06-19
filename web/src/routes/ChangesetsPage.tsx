@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/clerk-react";
 import {
   useMutation,
   useQuery,
@@ -28,6 +29,8 @@ type ChangesetsQueryKey = readonly ["changesets", string, string];
 
 export function ChangesetsPage() {
   const api = useApi();
+  const { isLoaded, isSignedIn } = useAuth();
+  const canManage = Boolean(isLoaded && isSignedIn);
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as ChangesetsSearch;
   const sliceRef = parseSliceSearch(search.slice);
@@ -97,6 +100,7 @@ export function ChangesetsPage() {
         ) : (
           <ChangesetsTable
             api={api}
+            canManage={canManage}
             changesets={changesets}
             queryKey={queryKey}
           />
@@ -108,10 +112,12 @@ export function ChangesetsPage() {
 
 function ChangesetsTable({
   api,
+  canManage,
   changesets,
   queryKey
 }: {
   api: ApiClient;
+  canManage: boolean;
   changesets: Changeset[];
   queryKey: ChangesetsQueryKey;
 }) {
@@ -128,13 +134,16 @@ function ChangesetsTable({
               <th className="hidden px-4 py-3 md:table-cell">
                 Blocked reason
               </th>
-              <th className="px-3 py-3 text-right sm:px-4">Actions</th>
+              {canManage ? (
+                <th className="px-3 py-3 text-right sm:px-4">Actions</th>
+              ) : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {changesets.map((changeset) => (
               <ChangesetRow
                 api={api}
+                canManage={canManage}
                 changeset={changeset}
                 key={changeset.id || changeset.number}
                 queryKey={queryKey}
@@ -149,10 +158,12 @@ function ChangesetsTable({
 
 function ChangesetRow({
   api,
+  canManage,
   changeset,
   queryKey
 }: {
   api: ApiClient;
+  canManage: boolean;
   changeset: Changeset;
   queryKey: ChangesetsQueryKey;
 }) {
@@ -254,18 +265,20 @@ function ChangesetRow({
           </p>
         ) : null}
       </td>
-      <td className="px-3 py-4 sm:px-4">
-        <div className="flex flex-wrap justify-end gap-2">
-          <button
-            className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={busy || !changesetId || !mergeable}
-            onClick={() => mergeMutation.mutate()}
-            type="button"
-          >
-            {mergeMutation.isPending ? "Merging..." : "Merge"}
-          </button>
-        </div>
-      </td>
+      {canManage ? (
+        <td className="px-3 py-4 sm:px-4">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={busy || !changesetId || !mergeable}
+              onClick={() => mergeMutation.mutate()}
+              type="button"
+            >
+              {mergeMutation.isPending ? "Merging..." : "Merge"}
+            </button>
+          </div>
+        </td>
+      ) : null}
     </tr>
   );
 }

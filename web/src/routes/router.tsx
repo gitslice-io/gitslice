@@ -137,8 +137,10 @@ const sliceSettingsRoute = createRoute({
   component: SliceSettingsPage
 });
 
+// Public, shareable changeset list URL: /changesets?slice=<account:slice>.
+// Readable anonymously for public slices; write actions stay gated behind auth.
 const changesetsRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => publicAppRoute,
   path: "changesets",
   component: ChangesetsPage
 });
@@ -190,14 +192,17 @@ const routeTree = rootRoute.addChildren([
     slicesRoute,
     sliceCreateRoute,
     sliceSettingsRoute,
-    changesetsRoute,
     stacksRoute,
     stackCreateRoute,
     stackDetailRoute,
     stackRestackRoute,
     stackSubmitRoute
   ]),
-  publicAppRoute.addChildren([sliceDetailRoute, changesetShortRoute])
+  publicAppRoute.addChildren([
+    sliceDetailRoute,
+    changesetsRoute,
+    changesetShortRoute
+  ])
 ]);
 
 export const router = createRouter({
