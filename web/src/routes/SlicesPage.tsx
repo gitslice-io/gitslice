@@ -12,6 +12,7 @@ import {
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
+import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
 interface SlicesSearch {
@@ -106,6 +107,7 @@ export function SlicesPage() {
                   {slices.map((slice) => {
                     const paths = slice.definition?.includedPaths ?? [];
                     const sliceId = slice.id ?? "";
+                    const routeParams = toSliceRouteParams(slice.ref);
 
                     return (
                       <tr
@@ -113,11 +115,11 @@ export function SlicesPage() {
                         key={sliceId || sliceDisplayName(slice)}
                       >
                         <td className="max-w-[12rem] px-3 py-3 font-medium text-zinc-950 sm:max-w-none sm:px-4">
-                          {sliceId ? (
+                          {routeParams ? (
                             <Link
                               className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
-                              params={{ id: sliceId }}
-                              to="/slices/$id"
+                              params={routeParams}
+                              to="/slices/$account/$slice"
                             >
                               {sliceDisplayName(slice)}
                             </Link>

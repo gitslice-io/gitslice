@@ -17,6 +17,7 @@ import {
 } from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
+import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { displaySubmitBlockedReason } from "./stackPageUtils";
 
 interface ChangesetsSearch {
@@ -51,22 +52,15 @@ export function ChangesetsPage() {
     [changesetsQuery.data?.changesets]
   );
 
-  // Resolve the slice id so the breadcrumb can link back to the slice page.
-  const resolveSliceQuery = useQuery({
-    enabled: Boolean(account && slice),
-    queryKey: ["resolveSlice", account, slice],
-    queryFn: () => api.resolveSlice({ ref: { account, slice } })
-  });
-  const resolvedSliceId = resolveSliceQuery.data?.id ?? "";
-
   const breadcrumbItems: Crumb[] = [{ label: "Slices", to: "/slices" }];
   if (sliceRef) {
+    const routeParams = toSliceRouteParams(sliceRef);
     breadcrumbItems.push(
-      resolvedSliceId
+      routeParams
         ? {
             label: `${account}:${slice}`,
-            to: "/slices/$id",
-            params: { id: resolvedSliceId }
+            to: "/slices/$account/$slice",
+            params: routeParams
           }
         : { label: `${account}:${slice}` }
     );

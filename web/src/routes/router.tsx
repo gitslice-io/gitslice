@@ -127,13 +127,13 @@ const sliceCreateRoute = createRoute({
 
 const sliceDetailRoute = createRoute({
   getParentRoute: () => publicAppRoute,
-  path: "slices/$id",
+  path: "slices/$account/$slice",
   component: SliceDetailPage
 });
 
 const sliceSettingsRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "slices/$id/settings",
+  path: "slices/$account/$slice/settings",
   component: SliceSettingsPage
 });
 
