@@ -289,34 +289,32 @@ export function DiffViewer({
   };
 
   return (
-    <section className="mt-3 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="border-b border-slate-200 px-3 py-3 md:px-5">
-        <div className="flex items-center justify-between gap-3">
+    <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
+      <div className="sticky top-14 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:top-16 md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white lg:py-3 lg:backdrop-blur-none">
+        <div className="flex items-center justify-between gap-2 md:gap-3">
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 md:text-base">
-              Files
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-600 md:text-sm">
-              {isLoading
-                ? "Loading file changes..."
-                : `${changedCount} file(s) changed`}
-            </p>
-            {!isLoading && files.length > 0 ? (
-              <div className="mt-1 flex gap-2 font-mono text-xs">
-                <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-800">
-                  +{totalAdditions}
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 md:text-base">
+                Files
+              </h2>
+              <span className="text-xs text-slate-500 md:text-sm">
+                {isLoading
+                  ? "Loading…"
+                  : `${changedCount} changed`}
+              </span>
+              {!isLoading && files.length > 0 ? (
+                <span className="flex gap-1.5 font-mono text-xs">
+                  <span className="text-emerald-700">+{totalAdditions}</span>
+                  <span className="text-rose-700">-{totalDeletions}</span>
                 </span>
-                <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">
-                  -{totalDeletions}
-                </span>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
-          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-1.5 md:gap-2">
             <button
               aria-pressed={showDiffs}
               className={cn(
-                "h-9 rounded-md border px-3 text-sm font-medium transition active:scale-[0.98]",
+                "h-8 rounded-md border px-2.5 text-xs font-medium transition active:scale-[0.98] md:h-9 md:px-3 md:text-sm",
                 showDiffs
                   ? "border-zinc-950 bg-zinc-950 text-white"
                   : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
@@ -356,6 +354,7 @@ export function DiffViewer({
             <ChangedFilesTree
               activeId={activeId}
               files={files}
+              mobileCompact={showDiffs}
               onSelect={selectFile}
             />
           </aside>
@@ -396,12 +395,12 @@ function ViewModeToggle({
   value: ViewMode;
 }) {
   return (
-    <div className="inline-flex h-9 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5">
+    <div className="inline-flex h-8 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 md:h-9">
       {(["unified", "split"] as const).map((mode) => (
         <button
           aria-pressed={value === mode}
           className={cn(
-            "rounded px-3 text-sm font-medium capitalize transition",
+            "rounded px-2.5 text-xs font-medium capitalize transition md:px-3 md:text-sm",
             value === mode
               ? "bg-white text-zinc-950 shadow-sm"
               : "text-slate-600 hover:text-zinc-950"
@@ -434,22 +433,22 @@ function DiffFilePanel({
 }) {
   return (
     <article
-      className="scroll-mt-28 overflow-hidden rounded-lg border border-slate-200 bg-white"
+      className="scroll-mt-32 overflow-hidden rounded-lg border border-slate-200 bg-white lg:scroll-mt-28"
       id={file.id}
       ref={refCallback}
     >
-      <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-1.5 border-b border-slate-200 bg-slate-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4 sm:py-3">
         <div className="flex min-w-0 items-center gap-2">
           <ChangeKindBadge kind={file.changeKind} />
-          <h3 className="min-w-0 truncate font-mono text-sm font-semibold text-zinc-950">
+          <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-950 sm:text-sm">
             {file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}
           </h3>
         </div>
         <div className="flex shrink-0 gap-2 font-mono text-xs">
-          <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-800">
+          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-800 sm:px-2 sm:py-1">
             +{file.additions}
           </span>
-          <span className="rounded bg-rose-50 px-2 py-1 text-rose-800">
+          <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-800 sm:px-2 sm:py-1">
             -{file.deletions}
           </span>
         </div>
@@ -543,15 +542,15 @@ function UnifiedDiff({
                 return (
                   <span
                     className={cn(
-                      "grid min-h-5 grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] whitespace-pre px-4 py-0.5",
+                      "grid min-h-5 grid-cols-[1.75rem_1.75rem_minmax(0,1fr)] whitespace-pre px-2 py-0.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
                       diffLineClass(line.kind)
                     )}
                     key={`${index}-${line.text}`}
                   >
-                    <span className="select-none pr-3 text-right text-slate-400">
+                    <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
                       {line.oldNumber ?? ""}
                     </span>
-                    <span className="select-none pr-3 text-right text-slate-400">
+                    <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
                       {line.newNumber ?? ""}
                     </span>
                     <span>{line.text || " "}</span>
@@ -714,13 +713,13 @@ function SplitCell({
   return (
     <div
       className={cn(
-        "grid min-h-6 grid-cols-[3.5rem_minmax(0,1fr)] overflow-x-auto whitespace-pre px-4 py-0.5 font-mono",
+        "grid min-h-6 grid-cols-[1.75rem_minmax(0,1fr)] overflow-x-auto whitespace-pre px-2 py-0.5 font-mono sm:grid-cols-[3.5rem_minmax(0,1fr)] sm:px-4",
         tone === "add" && "bg-emerald-50 text-emerald-900",
         tone === "del" && "bg-rose-50 text-rose-900",
         tone === "context" && "text-slate-700"
       )}
     >
-      <span className="select-none pr-3 text-right text-slate-400">
+      <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
         {tone === "add" ? line.newNumber : line.oldNumber}
       </span>
       <span>{line.content || " "}</span>
