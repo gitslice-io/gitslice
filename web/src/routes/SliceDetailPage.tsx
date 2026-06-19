@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "@clerk/clerk-react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQueries, useQuery } from "@tanstack/react-query";
 
@@ -65,6 +66,7 @@ const TOP_LEVEL_SLICE_FOLDER_TITLE =
 export function SliceDetailPage() {
   const api = useApi();
   const navigate = useNavigate();
+  const { isLoaded, isSignedIn } = useAuth();
   const { account } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const search = useSearch({ strict: false }) as SliceSearch;
@@ -73,6 +75,7 @@ export function SliceDetailPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showTree, setShowTree] = useState(true);
   const [mobileFilesOpen, setMobileFilesOpen] = useState(false);
+  const canEdit = Boolean(isLoaded && isSignedIn && account);
 
   const sliceQuery = useQuery({
     enabled: sliceId.length > 0,
@@ -100,7 +103,7 @@ export function SliceDetailPage() {
     commitId,
     sliceLabel,
     sliceRef,
-    authorUsername: account
+    authorUsername: canEdit ? account : ""
   });
   const pendingEdits = draftChangeset.edits;
   const isProjectedDirectoryPath = isSliceProjectionDirectoryPath(
@@ -109,9 +112,22 @@ export function SliceDetailPage() {
   );
 
   const pathQuery = useQuery({
-    enabled: Boolean(commitId && selectedPath && !isProjectedDirectoryPath),
-    queryKey: ["slicePath", sliceId, commitId, selectedPath],
-    queryFn: () => api.resolvePath({ commitId, path: selectedPath })
+    enabled: Boolean(
+      commitId &&
+        selectedPath &&
+        !isProjectedDirectoryPath &&
+        sliceRef?.account &&
+        sliceRef?.slice
+    ),
+    queryKey: [
+      "slicePath",
+      sliceId,
+      commitId,
+      selectedPath,
+      sliceRef?.account,
+      sliceRef?.slice
+    ],
+    queryFn: () => api.resolvePath({ commitId, path: selectedPath, slice: sliceRef })
   });
 
   const entry = isProjectedDirectoryPath
@@ -140,9 +156,18 @@ export function SliceDetailPage() {
   });
 
   const fileQuery = useQuery({
-    enabled: Boolean(commitId && selectedPath && isFile),
-    queryKey: ["sliceFile", sliceId, commitId, selectedPath],
-    queryFn: () => api.readFile({ commitId, path: selectedPath })
+    enabled: Boolean(
+      commitId && selectedPath && isFile && sliceRef?.account && sliceRef?.slice
+    ),
+    queryKey: [
+      "sliceFile",
+      sliceId,
+      commitId,
+      selectedPath,
+      sliceRef?.account,
+      sliceRef?.slice
+    ],
+    queryFn: () => api.readFile({ commitId, path: selectedPath, slice: sliceRef })
   });
 
   function selectPath(path: string) {
@@ -154,6 +179,9 @@ export function SliceDetailPage() {
   }
 
   function stagePendingEdit(edit: PendingEdit) {
+    if (!canEdit) {
+      return;
+    }
     draftChangeset.stageEdit(edit);
   }
 
@@ -225,20 +253,24 @@ export function SliceDetailPage() {
           >
             Files
           </button>
-          <Link
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-            search={{ slice: sliceLabel } as never}
-            to="/changesets"
-          >
-            Changesets
-          </Link>
-          <Link
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-            params={{ id: sliceId }}
-            to="/slices/$id/settings"
-          >
-            Settings
-          </Link>
+          {canEdit ? (
+            <>
+              <Link
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                search={{ slice: sliceLabel } as never}
+                to="/changesets"
+              >
+                Changesets
+              </Link>
+              <Link
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                params={{ id: sliceId }}
+                to="/slices/$id/settings"
+              >
+                Settings
+              </Link>
+            </>
+          ) : null}
           <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
         </div>
       </div>
@@ -342,7 +374,7 @@ export function SliceDetailPage() {
             isPathLoading={pathQuery.isLoading}
             onOpenHistory={() => setHistoryOpen(true)}
             onSelectPath={selectPath}
-            onStageEdit={stagePendingEdit}
+            onStageEdit={canEdit ? stagePendingEdit : undefined}
             pathError={pathQuery.error}
             pendingEdits={pendingEdits}
             selectedPath={selectedPath}
@@ -353,6 +385,7 @@ export function SliceDetailPage() {
         api={api}
         commitId={commitId}
         onClose={() => setHistoryOpen(false)}
+        canLoadChangesets={Boolean(isLoaded && isSignedIn)}
         open={historyOpen}
         selectedPath={selectedPath}
         sliceId={sliceId}
@@ -507,6 +540,7 @@ function PendingChangesBanner({
 
 interface HistoryDrawerProps {
   api: ApiClient;
+  canLoadChangesets: boolean;
   commitId: string;
   onClose(): void;
   open: boolean;
@@ -518,6 +552,7 @@ interface HistoryDrawerProps {
 
 function HistoryDrawer({
   api,
+  canLoadChangesets,
   commitId,
   onClose,
   open,
@@ -546,7 +581,7 @@ function HistoryDrawer({
   });
 
   const changesetsQuery = useQuery({
-    enabled: Boolean(open && sliceRef?.account && sliceRef?.slice),
+    enabled: Boolean(canLoadChangesets && open && sliceRef?.account && sliceRef?.slice),
     queryKey: ["sliceHistoryChangesets", sliceRef?.account, sliceRef?.slice],
     queryFn: () =>
       api.listChangesets({
@@ -1167,7 +1202,7 @@ interface SliceSourceWorkspaceProps {
   isPathLoading: boolean;
   onOpenHistory(): void;
   onSelectPath(path: string): void;
-  onStageEdit(edit: PendingEdit): void;
+  onStageEdit?: (edit: PendingEdit) => void;
   pathError: Error | null;
   pendingEdits: PendingEdit[];
   selectedPath: string;
@@ -1252,11 +1287,13 @@ function SliceSourceWorkspace({
           onStageEdit={onStageEdit}
           selectedPath={selectedPath}
         />
-        <DirectoryCreateControls
-          directoryPath={createDirectory}
-          includedPaths={includedPaths}
-          onStageEdit={onStageEdit}
-        />
+        {onStageEdit ? (
+          <DirectoryCreateControls
+            directoryPath={createDirectory}
+            includedPaths={includedPaths}
+            onStageEdit={onStageEdit}
+          />
+        ) : null}
         <SliceDirectoryTable
           entries={directoryEntries}
           includedPaths={includedPaths}
@@ -1425,10 +1462,11 @@ function SliceDirectoryTable({
   entries: TreeEntry[];
   includedPaths: string[];
   onSelectPath(path: string): void;
-  onStageEdit(edit: PendingEdit): void;
+  onStageEdit?: (edit: PendingEdit) => void;
 }) {
   const [renamingPath, setRenamingPath] = useState("");
   const sortedEntries = sortEntries(entries);
+  const showActions = Boolean(onStageEdit);
 
   if (!sortedEntries.length) {
     return (
@@ -1447,7 +1485,9 @@ function SliceDirectoryTable({
             <th className="hidden px-4 py-3 md:table-cell">Kind</th>
             <th className="hidden px-4 py-3 md:table-cell">Size</th>
             <th className="hidden px-4 py-3 md:table-cell">Content hash</th>
-            <th className="px-4 py-3 text-right sm:px-5">Actions</th>
+            {showActions ? (
+              <th className="px-4 py-3 text-right sm:px-5">Actions</th>
+            ) : null}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -1493,46 +1533,48 @@ function SliceDirectoryTable({
                     ""
                   )}
                 </td>
-                <td className="min-w-40 px-4 py-3 text-right sm:min-w-48 sm:px-5">
-                  {isRenaming && canModifyEntryPath ? (
-                    <InlineRenameForm
-                      directoryPath={editingParentRepositoryPath(path)}
-                      onCancel={() => setRenamingPath("")}
-                      onSave={(name) => {
-                        onStageEdit({
-                          kind: "rename",
-                          oldPath: path,
-                          path: joinRepositoryPath(
-                            editingParentRepositoryPath(path),
-                            name
-                          )
-                        });
-                        setRenamingPath("");
-                      }}
-                      originalName={displayName}
-                    />
-                  ) : (
-                    <ActionMenu
-                      items={[
-                        {
-                          label: "Rename",
-                          disabled: !canModifyEntryPath,
-                          onSelect: () => setRenamingPath(path),
-                          title: modifyDisabledTitle
-                        },
-                        {
-                          label: "Delete",
-                          disabled: !canModifyEntryPath,
-                          onSelect: () =>
-                            onStageEdit({ kind: "delete", path }),
-                          title: modifyDisabledTitle,
-                          tone: "danger"
-                        }
-                      ]}
-                      label={`Actions for ${displayName}`}
-                    />
-                  )}
-                </td>
+                {showActions ? (
+                  <td className="min-w-40 px-4 py-3 text-right sm:min-w-48 sm:px-5">
+                    {isRenaming && canModifyEntryPath ? (
+                      <InlineRenameForm
+                        directoryPath={editingParentRepositoryPath(path)}
+                        onCancel={() => setRenamingPath("")}
+                        onSave={(name) => {
+                          onStageEdit?.({
+                            kind: "rename",
+                            oldPath: path,
+                            path: joinRepositoryPath(
+                              editingParentRepositoryPath(path),
+                              name
+                            )
+                          });
+                          setRenamingPath("");
+                        }}
+                        originalName={displayName}
+                      />
+                    ) : (
+                      <ActionMenu
+                        items={[
+                          {
+                            label: "Rename",
+                            disabled: !canModifyEntryPath,
+                            onSelect: () => setRenamingPath(path),
+                            title: modifyDisabledTitle
+                          },
+                          {
+                            label: "Delete",
+                            disabled: !canModifyEntryPath,
+                            onSelect: () =>
+                              onStageEdit?.({ kind: "delete", path }),
+                            title: modifyDisabledTitle,
+                            tone: "danger"
+                          }
+                        ]}
+                        label={`Actions for ${displayName}`}
+                      />
+                    )}
+                  </td>
+                ) : null}
               </tr>
             );
           })}
@@ -1555,7 +1597,7 @@ function EditableFileView({
   fileContent: string;
   includedPaths: string[];
   onOpenHistory(): void;
-  onStageEdit(edit: PendingEdit): void;
+  onStageEdit?: (edit: PendingEdit) => void;
   pendingEdits: PendingEdit[];
   selectedPath: string;
 }) {
@@ -1581,6 +1623,9 @@ function EditableFileView({
   }, [displayedContent, selectedPath]);
 
   function saveEdit() {
+    if (!onStageEdit) {
+      return;
+    }
     onStageEdit({
       kind: "write",
       path: selectedPath,
@@ -1591,6 +1636,9 @@ function EditableFileView({
   }
 
   function saveRename(name: string) {
+    if (!onStageEdit) {
+      return;
+    }
     const validationError = validateEntryName(name);
     if (validationError) {
       setRenameError(validationError);
@@ -1610,32 +1658,34 @@ function EditableFileView({
       <SlicePanel className="p-0">
         <DirectoryHeader
           actions={
-            <ActionMenu
-              items={[
-                {
-                  label: "Edit",
-                  onSelect: () => {
-                    setDraft(displayedContent);
-                    setIsEditing(true);
+            onStageEdit ? (
+              <ActionMenu
+                items={[
+                  {
+                    label: "Edit",
+                    onSelect: () => {
+                      setDraft(displayedContent);
+                      setIsEditing(true);
+                    }
+                  },
+                  {
+                    label: "Rename",
+                    disabled: !canModifySelectedPath,
+                    onSelect: () => setIsRenaming(true),
+                    title: modifyDisabledTitle
+                  },
+                  {
+                    label: "Delete",
+                    disabled: !canModifySelectedPath,
+                    onSelect: () =>
+                      onStageEdit({ kind: "delete", path: selectedPath }),
+                    title: modifyDisabledTitle,
+                    tone: "danger"
                   }
-                },
-                {
-                  label: "Rename",
-                  disabled: !canModifySelectedPath,
-                  onSelect: () => setIsRenaming(true),
-                  title: modifyDisabledTitle
-                },
-                {
-                  label: "Delete",
-                  disabled: !canModifySelectedPath,
-                  onSelect: () =>
-                    onStageEdit({ kind: "delete", path: selectedPath }),
-                  title: modifyDisabledTitle,
-                  tone: "danger"
-                }
-              ]}
-              label="File actions"
-            />
+                ]}
+                label="File actions"
+              />
+            ) : undefined
           }
           commitId={commitId}
           includedPaths={includedPaths}

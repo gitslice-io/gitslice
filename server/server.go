@@ -312,17 +312,13 @@ func authStreamInterceptor(resolve subjectResolver) grpc.StreamServerInterceptor
 		if isPublicMethod(info.FullMethod) {
 			return handler(srv, stream)
 		}
-		token, err := bearerToken(stream.Context())
+		ctx, err := authenticatedContext(stream.Context(), resolve)
 		if err != nil {
 			return err
 		}
-		subjectID, err := resolve(stream.Context(), token)
-		if err != nil {
-			return grpcAuthError(err)
-		}
 		return handler(srv, &contextServerStream{
 			ServerStream: stream,
-			ctx:          authctx.WithSubjectID(stream.Context(), subjectID),
+			ctx:          ctx,
 		})
 	}
 }
@@ -341,15 +337,11 @@ func authInterceptor(resolve subjectResolver) grpc.UnaryServerInterceptor {
 		if isPublicMethod(info.FullMethod) {
 			return handler(ctx, req)
 		}
-		token, err := bearerToken(ctx)
+		ctx, err := authenticatedContext(ctx, resolve)
 		if err != nil {
 			return nil, err
 		}
-		subjectID, err := resolve(ctx, token)
-		if err != nil {
-			return nil, grpcAuthError(err)
-		}
-		return handler(authctx.WithSubjectID(ctx, subjectID), req)
+		return handler(ctx, req)
 	}
 }
 
@@ -360,24 +352,50 @@ func isPublicMethod(method string) bool {
 }
 
 func bearerToken(ctx context.Context) (string, error) {
+	token, ok, err := optionalBearerToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "missing authorization bearer token")
+	}
+	return token, nil
+}
+
+func authenticatedContext(ctx context.Context, resolve subjectResolver) (context.Context, error) {
+	token, ok, err := optionalBearerToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return ctx, nil
+	}
+	subjectID, err := resolve(ctx, token)
+	if err != nil {
+		return nil, grpcAuthError(err)
+	}
+	return authctx.WithSubjectID(ctx, subjectID), nil
+}
+
+func optionalBearerToken(ctx context.Context) (string, bool, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return "", status.Error(codes.Unauthenticated, "missing metadata")
+		return "", false, nil
 	}
 	values := md.Get("authorization")
 	if len(values) == 0 {
-		return "", status.Error(codes.Unauthenticated, "missing authorization bearer token")
+		return "", false, nil
 	}
 	const prefix = "bearer "
 	value := strings.TrimSpace(values[0])
 	if !strings.HasPrefix(strings.ToLower(value), prefix) {
-		return "", status.Error(codes.Unauthenticated, "authorization must be a bearer token")
+		return "", false, status.Error(codes.Unauthenticated, "authorization must be a bearer token")
 	}
 	token := strings.TrimSpace(value[len(prefix):])
 	if token == "" {
-		return "", status.Error(codes.Unauthenticated, "empty bearer token")
+		return "", false, status.Error(codes.Unauthenticated, "empty bearer token")
 	}
-	return token, nil
+	return token, true, nil
 }
 
 func grpcAuthError(err error) error {

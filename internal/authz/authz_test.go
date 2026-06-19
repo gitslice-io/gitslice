@@ -15,8 +15,14 @@ func TestAuthorizeReadVisibility(t *testing.T) {
 	mem.AddAccountRole("user_member", "acme", "member")
 	authorizer := New(mem.Auth)
 
+	if err := authorizer.Authorize(context.Background(), "", authzTestSlice("public"), ActionRead); err != nil {
+		t.Fatalf("public read for anonymous subject = %v, want nil", err)
+	}
 	if err := authorizer.Authorize(context.Background(), "user_outsider", authzTestSlice("public"), ActionRead); err != nil {
 		t.Fatalf("public read for outsider = %v, want nil", err)
+	}
+	if err := authorizer.Authorize(context.Background(), "", authzTestSlice("private"), ActionRead); !errors.Is(err, storage.ErrUnauthenticated) {
+		t.Fatalf("private read for anonymous subject = %v, want unauthenticated", err)
 	}
 	if err := authorizer.Authorize(context.Background(), "user_outsider", authzTestSlice("private"), ActionRead); !errors.Is(err, storage.ErrUnauthorized) {
 		t.Fatalf("private read for outsider = %v, want unauthorized", err)

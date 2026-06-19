@@ -26,9 +26,6 @@ func New(auth storage.AuthStore) Authorizer {
 }
 
 func (a Authorizer) Authorize(ctx context.Context, subjectID string, slice *corev1.Slice, action Action) error {
-	if strings.TrimSpace(subjectID) == "" {
-		return storage.ErrUnauthenticated
-	}
 	if slice == nil || slice.Ref == nil || slice.Ref.Account == "" || slice.Definition == nil {
 		return storage.ErrInvalid
 	}
@@ -38,6 +35,9 @@ func (a Authorizer) Authorize(ctx context.Context, subjectID string, slice *core
 	}
 	if action == ActionRead && visibility == "public" {
 		return nil
+	}
+	if strings.TrimSpace(subjectID) == "" {
+		return storage.ErrUnauthenticated
 	}
 	role, ok, err := a.accountRole(ctx, subjectID, slice.Ref.Account)
 	if err != nil {

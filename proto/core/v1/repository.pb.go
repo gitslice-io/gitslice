@@ -187,7 +187,10 @@ type ResolvePathRequest struct {
 	Path     string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
 	// Optional immutable tree root. When set, the read resolves against this tree
 	// instead of commit_id. This is used for patchset preview trees.
-	RootTreeId    string `protobuf:"bytes,3,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
+	RootTreeId string `protobuf:"bytes,3,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
+	// Optional slice projection. When set, read authorization is evaluated
+	// through this slice and the requested path must be visible through it.
+	Slice         *SliceRef `protobuf:"bytes,4,opt,name=slice,proto3" json:"slice,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -241,6 +244,13 @@ func (x *ResolvePathRequest) GetRootTreeId() string {
 		return x.RootTreeId
 	}
 	return ""
+}
+
+func (x *ResolvePathRequest) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
+	}
+	return nil
 }
 
 type ResolvePathResponse struct {
@@ -435,7 +445,10 @@ type ReadFileRequest struct {
 	Length   int64                  `protobuf:"varint,4,opt,name=length,proto3" json:"length,omitempty"`
 	// Optional immutable tree root. When set, the read resolves against this tree
 	// instead of commit_id. This is used for patchset preview trees.
-	RootTreeId    string `protobuf:"bytes,5,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
+	RootTreeId string `protobuf:"bytes,5,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
+	// Optional slice projection. When set, read authorization is evaluated
+	// through this slice and the requested file must be included by it.
+	Slice         *SliceRef `protobuf:"bytes,6,opt,name=slice,proto3" json:"slice,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -503,6 +516,13 @@ func (x *ReadFileRequest) GetRootTreeId() string {
 		return x.RootTreeId
 	}
 	return ""
+}
+
+func (x *ReadFileRequest) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
+	}
+	return nil
 }
 
 type ReadFileResponse struct {
@@ -1290,12 +1310,13 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\amessage\x18\x05 \x01(\tR\amessage\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12#\n" +
-	"\rchanged_paths\x18\a \x03(\tR\fchangedPaths\"g\n" +
+	"\rchanged_paths\x18\a \x03(\tR\fchangedPaths\"\x99\x01\n" +
 	"\x12ResolvePathRequest\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12 \n" +
 	"\froot_tree_id\x18\x03 \x01(\tR\n" +
-	"rootTreeId\"H\n" +
+	"rootTreeId\x120\n" +
+	"\x05slice\x18\x04 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"H\n" +
 	"\x13ResolvePathResponse\x121\n" +
 	"\x05entry\x18\x01 \x01(\v2\x1b.gitslice.core.v1.TreeEntryR\x05entry\"\xd0\x01\n" +
 	"\x14ListDirectoryRequest\x12\x1b\n" +
@@ -1309,14 +1330,15 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\x15ListDirectoryResponse\x125\n" +
 	"\aentries\x18\x01 \x03(\v2\x1b.gitslice.core.v1.TreeEntryR\aentries\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\"\x94\x01\n" +
+	"nextCursor\"\xc6\x01\n" +
 	"\x0fReadFileRequest\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x16\n" +
 	"\x06offset\x18\x03 \x01(\x03R\x06offset\x12\x16\n" +
 	"\x06length\x18\x04 \x01(\x03R\x06length\x12 \n" +
 	"\froot_tree_id\x18\x05 \x01(\tR\n" +
-	"rootTreeId\"a\n" +
+	"rootTreeId\x120\n" +
+	"\x05slice\x18\x06 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"a\n" +
 	"\x10ReadFileResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x03R\x06offset\x12!\n" +
@@ -1423,43 +1445,45 @@ var file_proto_core_v1_repository_proto_goTypes = []any{
 	(*ImportedGitCommit)(nil),           // 15: gitslice.core.v1.ImportedGitCommit
 	(*ImportGitRepositoryResponse)(nil), // 16: gitslice.core.v1.ImportGitRepositoryResponse
 	(*ImportGitRepositoryProgress)(nil), // 17: gitslice.core.v1.ImportGitRepositoryProgress
-	(*TreeEntry)(nil),                   // 18: gitslice.core.v1.TreeEntry
-	(*SliceRef)(nil),                    // 19: gitslice.core.v1.SliceRef
+	(*SliceRef)(nil),                    // 18: gitslice.core.v1.SliceRef
+	(*TreeEntry)(nil),                   // 19: gitslice.core.v1.TreeEntry
 }
 var file_proto_core_v1_repository_proto_depIdxs = []int32{
-	18, // 0: gitslice.core.v1.ResolvePathResponse.entry:type_name -> gitslice.core.v1.TreeEntry
-	19, // 1: gitslice.core.v1.ListDirectoryRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	18, // 2: gitslice.core.v1.ListDirectoryResponse.entries:type_name -> gitslice.core.v1.TreeEntry
-	19, // 3: gitslice.core.v1.ResolveCommitRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	1,  // 4: gitslice.core.v1.ResolveCommitResponse.commit:type_name -> gitslice.core.v1.Commit
-	19, // 5: gitslice.core.v1.ListCommitsRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	1,  // 6: gitslice.core.v1.ListCommitsResponse.commits:type_name -> gitslice.core.v1.Commit
-	19, // 7: gitslice.core.v1.ImportGitRepositoryRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
-	15, // 8: gitslice.core.v1.ImportGitRepositoryResponse.commits:type_name -> gitslice.core.v1.ImportedGitCommit
-	16, // 9: gitslice.core.v1.ImportGitRepositoryProgress.result:type_name -> gitslice.core.v1.ImportGitRepositoryResponse
-	2,  // 10: gitslice.core.v1.RepositoryService.ResolvePath:input_type -> gitslice.core.v1.ResolvePathRequest
-	4,  // 11: gitslice.core.v1.RepositoryService.ListDirectory:input_type -> gitslice.core.v1.ListDirectoryRequest
-	6,  // 12: gitslice.core.v1.RepositoryService.ReadFile:input_type -> gitslice.core.v1.ReadFileRequest
-	8,  // 13: gitslice.core.v1.RepositoryService.GetCommit:input_type -> gitslice.core.v1.GetCommitRequest
-	9,  // 14: gitslice.core.v1.RepositoryService.ResolveCommit:input_type -> gitslice.core.v1.ResolveCommitRequest
-	11, // 15: gitslice.core.v1.RepositoryService.ListCommits:input_type -> gitslice.core.v1.ListCommitsRequest
-	13, // 16: gitslice.core.v1.RepositoryService.GetRef:input_type -> gitslice.core.v1.GetRefRequest
-	14, // 17: gitslice.core.v1.RepositoryService.ImportGitRepository:input_type -> gitslice.core.v1.ImportGitRepositoryRequest
-	14, // 18: gitslice.core.v1.RepositoryService.ImportGitRepositoryStream:input_type -> gitslice.core.v1.ImportGitRepositoryRequest
-	3,  // 19: gitslice.core.v1.RepositoryService.ResolvePath:output_type -> gitslice.core.v1.ResolvePathResponse
-	5,  // 20: gitslice.core.v1.RepositoryService.ListDirectory:output_type -> gitslice.core.v1.ListDirectoryResponse
-	7,  // 21: gitslice.core.v1.RepositoryService.ReadFile:output_type -> gitslice.core.v1.ReadFileResponse
-	1,  // 22: gitslice.core.v1.RepositoryService.GetCommit:output_type -> gitslice.core.v1.Commit
-	10, // 23: gitslice.core.v1.RepositoryService.ResolveCommit:output_type -> gitslice.core.v1.ResolveCommitResponse
-	12, // 24: gitslice.core.v1.RepositoryService.ListCommits:output_type -> gitslice.core.v1.ListCommitsResponse
-	0,  // 25: gitslice.core.v1.RepositoryService.GetRef:output_type -> gitslice.core.v1.Ref
-	16, // 26: gitslice.core.v1.RepositoryService.ImportGitRepository:output_type -> gitslice.core.v1.ImportGitRepositoryResponse
-	17, // 27: gitslice.core.v1.RepositoryService.ImportGitRepositoryStream:output_type -> gitslice.core.v1.ImportGitRepositoryProgress
-	19, // [19:28] is the sub-list for method output_type
-	10, // [10:19] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	18, // 0: gitslice.core.v1.ResolvePathRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	19, // 1: gitslice.core.v1.ResolvePathResponse.entry:type_name -> gitslice.core.v1.TreeEntry
+	18, // 2: gitslice.core.v1.ListDirectoryRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	19, // 3: gitslice.core.v1.ListDirectoryResponse.entries:type_name -> gitslice.core.v1.TreeEntry
+	18, // 4: gitslice.core.v1.ReadFileRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	18, // 5: gitslice.core.v1.ResolveCommitRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	1,  // 6: gitslice.core.v1.ResolveCommitResponse.commit:type_name -> gitslice.core.v1.Commit
+	18, // 7: gitslice.core.v1.ListCommitsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	1,  // 8: gitslice.core.v1.ListCommitsResponse.commits:type_name -> gitslice.core.v1.Commit
+	18, // 9: gitslice.core.v1.ImportGitRepositoryRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	15, // 10: gitslice.core.v1.ImportGitRepositoryResponse.commits:type_name -> gitslice.core.v1.ImportedGitCommit
+	16, // 11: gitslice.core.v1.ImportGitRepositoryProgress.result:type_name -> gitslice.core.v1.ImportGitRepositoryResponse
+	2,  // 12: gitslice.core.v1.RepositoryService.ResolvePath:input_type -> gitslice.core.v1.ResolvePathRequest
+	4,  // 13: gitslice.core.v1.RepositoryService.ListDirectory:input_type -> gitslice.core.v1.ListDirectoryRequest
+	6,  // 14: gitslice.core.v1.RepositoryService.ReadFile:input_type -> gitslice.core.v1.ReadFileRequest
+	8,  // 15: gitslice.core.v1.RepositoryService.GetCommit:input_type -> gitslice.core.v1.GetCommitRequest
+	9,  // 16: gitslice.core.v1.RepositoryService.ResolveCommit:input_type -> gitslice.core.v1.ResolveCommitRequest
+	11, // 17: gitslice.core.v1.RepositoryService.ListCommits:input_type -> gitslice.core.v1.ListCommitsRequest
+	13, // 18: gitslice.core.v1.RepositoryService.GetRef:input_type -> gitslice.core.v1.GetRefRequest
+	14, // 19: gitslice.core.v1.RepositoryService.ImportGitRepository:input_type -> gitslice.core.v1.ImportGitRepositoryRequest
+	14, // 20: gitslice.core.v1.RepositoryService.ImportGitRepositoryStream:input_type -> gitslice.core.v1.ImportGitRepositoryRequest
+	3,  // 21: gitslice.core.v1.RepositoryService.ResolvePath:output_type -> gitslice.core.v1.ResolvePathResponse
+	5,  // 22: gitslice.core.v1.RepositoryService.ListDirectory:output_type -> gitslice.core.v1.ListDirectoryResponse
+	7,  // 23: gitslice.core.v1.RepositoryService.ReadFile:output_type -> gitslice.core.v1.ReadFileResponse
+	1,  // 24: gitslice.core.v1.RepositoryService.GetCommit:output_type -> gitslice.core.v1.Commit
+	10, // 25: gitslice.core.v1.RepositoryService.ResolveCommit:output_type -> gitslice.core.v1.ResolveCommitResponse
+	12, // 26: gitslice.core.v1.RepositoryService.ListCommits:output_type -> gitslice.core.v1.ListCommitsResponse
+	0,  // 27: gitslice.core.v1.RepositoryService.GetRef:output_type -> gitslice.core.v1.Ref
+	16, // 28: gitslice.core.v1.RepositoryService.ImportGitRepository:output_type -> gitslice.core.v1.ImportGitRepositoryResponse
+	17, // 29: gitslice.core.v1.RepositoryService.ImportGitRepositoryStream:output_type -> gitslice.core.v1.ImportGitRepositoryProgress
+	21, // [21:30] is the sub-list for method output_type
+	12, // [12:21] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_repository_proto_init() }

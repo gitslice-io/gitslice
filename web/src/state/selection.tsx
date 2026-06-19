@@ -22,8 +22,9 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   const isAuthReady = isLoaded && Boolean(isSignedIn);
+  const shouldLoadAuthStatus = isAuthReady;
   const { data, error, isError, isLoading } = useQuery({
-    enabled: isAuthReady,
+    enabled: shouldLoadAuthStatus,
     queryKey: ["authStatus"],
     queryFn: () => api.getAuthStatus({})
   });
@@ -37,9 +38,9 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
     () => ({
       account,
       accounts,
-      error: isError ? error : null,
-      isLoading: !isAuthReady || isLoading,
-      needsUsername,
+      error: isAuthReady && isError ? error : null,
+      isLoading: !isLoaded || (isAuthReady && isLoading),
+      needsUsername: isAuthReady && needsUsername,
       subjectId
     }),
     [
@@ -47,6 +48,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       accounts.join(" "),
       error,
       isAuthReady,
+      isLoaded,
       isError,
       isLoading,
       needsUsername,

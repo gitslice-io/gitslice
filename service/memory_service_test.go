@@ -1162,6 +1162,114 @@ func TestSimpleServiceMethodsUseInMemoryStorage(t *testing.T) {
 	}
 }
 
+func TestPublicSliceReadsAllowAnonymousContext(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := context.Background()
+
+	publicData := []byte("public readme\n")
+	publicHash := objectid.RawContentHash(publicData)
+	privateData := []byte("private secret\n")
+	privateHash := objectid.RawContentHash(privateData)
+	mem.PutObject(filesystem.BlobKey(publicHash), publicData)
+	mem.PutObject(filesystem.BlobKey(privateHash), privateData)
+	mem.PutCommitWithFiles("commit_public_slice", []storage.FileEntry{
+		{
+			Path:        "/acme/public/readme.txt",
+			BlobID:      objectid.BlobID(publicData),
+			ContentHash: publicHash,
+			Mode:        0o100644,
+			Size:        int64(len(publicData)),
+		},
+		{
+			Path:        "/acme/private/secret.txt",
+			BlobID:      objectid.BlobID(privateData),
+			ContentHash: privateHash,
+			Mode:        0o100644,
+			Size:        int64(len(privateData)),
+		},
+	}, []string{"/acme/public/readme.txt", "/acme/private/secret.txt"})
+	publicSlice := mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "public"}, []string{"/acme/public"}, "public")
+	privateSlice := mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "private"}, []string{"/acme/private"}, "private")
+
+	resolvedSlice, err := handlers.Slice.GetSlice(ctx, &corev1.GetSliceRequest{SliceId: publicSlice.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedSlice.Definition.GetVisibility() != "public" {
+		t.Fatalf("public slice visibility = %q", resolvedSlice.Definition.GetVisibility())
+	}
+	if _, err := handlers.Slice.GetSlice(ctx, &corev1.GetSliceRequest{SliceId: privateSlice.Id}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("private anonymous GetSlice error = %v, want Unauthenticated", err)
+	}
+
+	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.CommitId != "commit_public_slice" {
+		t.Fatalf("ref commit = %q, want commit_public_slice", ref.CommitId)
+	}
+	listed, err := handlers.Repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{
+		CommitId: ref.CommitId,
+		Path:     "/acme/public",
+		Slice:    publicSlice.Ref,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Entries) != 1 || listed.Entries[0].Name != "readme.txt" {
+		t.Fatalf("public listed entries = %#v, want readme.txt", listed.Entries)
+	}
+	resolvedPath, err := handlers.Repository.ResolvePath(ctx, &corev1.ResolvePathRequest{
+		CommitId: ref.CommitId,
+		Path:     "/acme/public/readme.txt",
+		Slice:    publicSlice.Ref,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedPath.Entry.GetKind() != corev1.EntryKind_ENTRY_KIND_FILE {
+		t.Fatalf("resolved public path = %#v", resolvedPath.Entry)
+	}
+	read, err := handlers.Repository.ReadFile(ctx, &corev1.ReadFileRequest{
+		CommitId: ref.CommitId,
+		Path:     "/acme/public/readme.txt",
+		Slice:    publicSlice.Ref,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(read.Data) != string(publicData) {
+		t.Fatalf("public read data = %q", string(read.Data))
+	}
+	history, err := handlers.Repository.ListCommits(ctx, &corev1.ListCommitsRequest{
+		Slice: publicSlice.Ref,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Commits) != 1 || history.Commits[0].Id != "commit_public_slice" {
+		t.Fatalf("public history = %#v, want commit_public_slice", history.Commits)
+	}
+
+	_, err = handlers.Repository.ResolvePath(ctx, &corev1.ResolvePathRequest{
+		CommitId: ref.CommitId,
+		Path:     "/acme/private/secret.txt",
+		Slice:    publicSlice.Ref,
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("outside public slice ResolvePath error = %v, want PermissionDenied", err)
+	}
+	_, err = handlers.Repository.ReadFile(ctx, &corev1.ReadFileRequest{
+		CommitId: ref.CommitId,
+		Path:     "/acme/public/readme.txt",
+	})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("anonymous unscoped ReadFile error = %v, want Unauthenticated", err)
+	}
+}
+
 func TestRepositoryListDirectoryPaginationUsesCursor(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")

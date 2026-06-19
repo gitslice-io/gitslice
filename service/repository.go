@@ -37,16 +37,23 @@ type RepositoryService struct {
 }
 
 func (s *RepositoryService) ResolvePath(ctx context.Context, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	p, err := repositoryReadPath(req.Path)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
-		return nil, err
+	if req.Slice != nil {
+		slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureRepositoryPathInSlice(slice, p); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
+			return nil, err
+		}
 	}
 	req = cloneResolvePathRequest(req)
 	req.Path = p
@@ -139,14 +146,12 @@ func repositoryGetFileAtSource(ctx context.Context, repository storage.Repositor
 // clients use to browse a custom slice without seeing unrelated repository
 // folders.
 func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	if req.Slice != nil {
 		return s.listSliceDirectory(ctx, subjectID, req)
 	}
 	p := req.Path
+	var err error
 	p, err = repositoryReadPath(p)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -349,16 +354,23 @@ func (s *RepositoryService) collectProjectedEntries(ctx context.Context, commitI
 }
 
 func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	p, err := paths.Canonical(req.Path)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
-		return nil, err
+	if req.Slice != nil {
+		slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
+		if err != nil {
+			return nil, err
+		}
+		if err := ensureRepositoryPathInSlice(slice, p); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
+			return nil, err
+		}
 	}
 	req = cloneReadFileRequest(req)
 	req.Path = p
@@ -441,6 +453,16 @@ func accountSlugForRepositoryPath(p string) string {
 		return ""
 	}
 	return strings.Split(trimmed, "/")[0]
+}
+
+func ensureRepositoryPathInSlice(slice *corev1.Slice, p string) error {
+	if slice == nil || slice.Definition == nil {
+		return status.Error(codes.InvalidArgument, "slice definition is required")
+	}
+	if paths.InAnyPrefix(slice.Definition.IncludedPaths, p) {
+		return nil
+	}
+	return status.Errorf(codes.PermissionDenied, "path %s is outside slice %s/%s", p, slice.Ref.GetAccount(), slice.Ref.GetSlice())
 }
 
 func cloneResolvePathRequest(req *corev1.ResolvePathRequest) *corev1.ResolvePathRequest {
@@ -544,10 +566,7 @@ func (s *RepositoryService) resolveCommitAuthors(ctx context.Context, commits ..
 }
 
 func (s *RepositoryService) ResolveCommit(ctx context.Context, req *corev1.ResolveCommitRequest) (*corev1.ResolveCommitResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	idPrefix, matchedPrefix, err := normalizeCommitIDPrefix(req.CommitId)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -593,10 +612,7 @@ func (s *RepositoryService) ResolveCommit(ctx context.Context, req *corev1.Resol
 }
 
 func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCommitsRequest) (*corev1.ListCommitsResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	filters, err := s.listCommitFilters(ctx, subjectID, req)
 	if err != nil {
 		return nil, err
@@ -807,9 +823,6 @@ func shortCommitIDForMessage(id string) string {
 }
 
 func (s *RepositoryService) GetRef(ctx context.Context, req *corev1.GetRefRequest) (*corev1.Ref, error) {
-	if _, err := requireSubject(ctx); err != nil {
-		return nil, err
-	}
 	refName := req.RefName
 	if refName == "" {
 		refName = storage.DefaultTargetRef
