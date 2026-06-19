@@ -84,6 +84,11 @@ export function DiffViewer({
     mountedDiffBodies.files === files ? mountedDiffBodies.ids : undefined;
   const [revealed, setRevealed] = useState<Record<string, RevealState>>({});
   const panelRefs = useRef<Record<string, HTMLElement | null>>({});
+  // When the user explicitly picks a file (prev/next or the picker), pin it as
+  // active so the scroll-spy doesn't immediately reassign it — e.g. jumping to a
+  // short trailing file would otherwise report the preceding panel as active.
+  // The pin is released on the next real scroll gesture (below).
+  const pinnedActiveIdRef = useRef<string | null>(null);
   const changedPathCount = diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
   const totalAdditions = files.reduce((total, file) => total + file.additions, 0);
@@ -137,6 +142,8 @@ export function DiffViewer({
   }, []);
 
   useEffect(() => {
+    pinnedActiveIdRef.current = null;
+
     if (!files.length) {
       setActiveId(undefined);
       return;
@@ -146,6 +153,24 @@ export function DiffViewer({
       current && files.some((file) => file.id === current) ? current : files[0].id
     );
   }, [files]);
+
+  // Release the active-file pin as soon as the user scrolls themselves, so the
+  // scroll-spy resumes tracking whatever they scroll to. Programmatic
+  // scrollIntoView does not emit these input events, so the pin survives the
+  // jump it was set for.
+  useEffect(() => {
+    const release = () => {
+      pinnedActiveIdRef.current = null;
+    };
+    window.addEventListener("wheel", release, { passive: true });
+    window.addEventListener("touchmove", release, { passive: true });
+    window.addEventListener("keydown", release);
+    return () => {
+      window.removeEventListener("wheel", release);
+      window.removeEventListener("touchmove", release);
+      window.removeEventListener("keydown", release);
+    };
+  }, []);
 
   useEffect(() => {
     const fileIds = new Set(files.map((file) => file.id));
@@ -182,6 +207,11 @@ export function DiffViewer({
             (left, right) =>
               left.boundingClientRect.top - right.boundingClientRect.top
           );
+
+        // Honor an explicit selection until the user scrolls (see selectFile).
+        if (pinnedActiveIdRef.current) {
+          return;
+        }
 
         const topEntry = visibleEntries[0];
         if (topEntry?.target.id) {
@@ -281,6 +311,7 @@ export function DiffViewer({
   };
 
   const selectFile = (id: string) => {
+    pinnedActiveIdRef.current = id;
     setActiveId(id);
     mountFileBody(id);
     window.setTimeout(() => {
