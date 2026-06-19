@@ -21,16 +21,23 @@ import {
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
+import { toSliceRouteParams } from "../lib/sliceRoutes";
 
 interface SliceParams {
-  id?: string;
+  account?: string;
+  slice?: string;
 }
 
 export function SliceSettingsPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const params = useParams({ strict: false }) as SliceParams;
-  const sliceId = params.id ?? "";
+  const routeAccount = params.account ?? "";
+  const routeSlice = params.slice ?? "";
+  const routeSliceRef =
+    routeAccount && routeSlice
+      ? { account: routeAccount, slice: routeSlice }
+      : undefined;
   const [visibility, setVisibility] = useState<VisibilityOption>("private");
   const [includedPaths, setIncludedPaths] = useState<string[]>([]);
   const [clientErrors, setClientErrors] = useState<string[]>([]);
@@ -38,12 +45,17 @@ export function SliceSettingsPage() {
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
 
   const sliceQuery = useQuery({
-    enabled: sliceId.length > 0,
-    queryKey: ["slice", sliceId],
-    queryFn: () => api.getSlice({ sliceId })
+    enabled: Boolean(routeSliceRef),
+    queryKey: ["sliceRef", routeAccount, routeSlice],
+    queryFn: () => api.resolveSlice({ ref: routeSliceRef })
   });
 
   const slice = sliceQuery.data;
+  const sliceId = slice?.id ?? "";
+  const sliceRouteParams = toSliceRouteParams(slice?.ref ?? routeSliceRef);
+  const sliceRouteKey = sliceRouteParams
+    ? `${sliceRouteParams.account}:${sliceRouteParams.slice}`
+    : `${routeAccount}:${routeSlice}`;
 
   useEffect(() => {
     if (!slice) {
@@ -60,18 +72,21 @@ export function SliceSettingsPage() {
       if (!slice) {
         throw new Error("Slice has not loaded yet.");
       }
+      if (!slice.id) {
+        throw new Error("Slice has no internal id.");
+      }
 
       const definition: SliceDefinition = {
         ...(slice.definition ?? {}),
         includedPaths: normalizedPaths,
-        sliceId: slice.definition?.sliceId || slice.id || sliceId,
+        sliceId: slice.definition?.sliceId || slice.id,
         visibility
       };
 
       return api.updateSliceDefinition({
         definition,
         expectedDefinitionHash: slice.definitionHash,
-        sliceId
+        sliceId: slice.id
       });
     },
     onError: (error) => {
@@ -81,13 +96,17 @@ export function SliceSettingsPage() {
         setConflictMessage(
           "The slice definition changed on the server. The latest definition has been reloaded; review it and save again."
         );
-        void queryClient.invalidateQueries({ queryKey: ["slice", sliceId] });
+        void queryClient.invalidateQueries({
+          queryKey: ["sliceRef", routeAccount, routeSlice]
+        });
       }
     },
     onSuccess: async () => {
       setConflictMessage(null);
       setSaveMessage("Definition saved.");
-      await queryClient.invalidateQueries({ queryKey: ["slice", sliceId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["sliceRef", routeAccount, routeSlice]
+      });
       await queryClient.invalidateQueries({ queryKey: ["slices"] });
     }
   });
@@ -134,7 +153,7 @@ export function SliceSettingsPage() {
         <SlicePageHeader title="Slice Settings" />
         <div className="mt-8">
           <SliceNotice title="Slice not found">
-            No slice was returned for id {sliceId || "unknown"}.
+            No slice was returned for {sliceRouteKey || "unknown"}.
           </SliceNotice>
         </div>
       </section>
@@ -149,11 +168,13 @@ export function SliceSettingsPage() {
         <Breadcrumb
           items={[
             { label: "Slices", to: "/slices" },
-            {
-              label: sliceLabel,
-              params: { id: sliceId },
-              to: "/slices/$id"
-            },
+            sliceRouteParams
+              ? {
+                  label: sliceLabel,
+                  params: sliceRouteParams,
+                  to: "/slices/$account/$slice"
+                }
+              : { label: sliceLabel },
             { label: "Settings" }
           ]}
         />

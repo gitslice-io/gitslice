@@ -15,6 +15,7 @@ import {
   SlicePanel,
   getErrorMessage
 } from "../components/slices/SlicePageParts";
+import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
 export function SliceCreatePage() {
@@ -57,16 +58,20 @@ export function SliceCreatePage() {
       setServerError("");
     },
     onSuccess: async (created) => {
-      const sliceId = created.id;
+      const routeParams =
+        toSliceRouteParams(created.ref) || {
+          account,
+          slice: sliceName.trim()
+        };
 
-      if (!sliceId) {
+      if (!routeParams.account || !routeParams.slice) {
         return;
       }
 
       await queryClient.invalidateQueries({ queryKey: ["slices"] });
       void navigate({
-        params: { id: sliceId },
-        to: "/slices/$id"
+        params: routeParams,
+        to: "/slices/$account/$slice"
       });
     }
   });

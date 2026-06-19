@@ -245,7 +245,7 @@ Columns:
 
 No "new slice" action until a create-slice API exists.
 
-### 3.5 Slice Detail (`/slices/{id}`)
+### 3.5 Slice Detail (`/slices/{account}/{slice}`)
 
 Shows the current slice definition and a source browser scoped by its included
 paths.
@@ -266,7 +266,9 @@ paths.
 
 Supported behavior:
 
-- Load the slice with `SliceService.GetSlice`.
+- Load the slice with `SliceService.ResolveSlice` using the public
+  `account/slice` route params. The internal `slice_...` id may be used in RPC
+  payloads that require it, but must not be the browser URL identifier.
 - Browse the selected slice through `RepositoryService.ListDirectory` with the
   optional `slice` projection, so custom slices show only included folders.
 - Link each included path to the source browser.
@@ -276,7 +278,7 @@ Supported behavior:
 Do not show recent changesets, roles, submit settings, reviewers, or check
 summaries; those require APIs or fields that do not exist yet.
 
-### 3.6 Slice Settings (`/slices/{id}/settings`)
+### 3.6 Slice Settings (`/slices/{account}/{slice}/settings`)
 
 Allows direct edits to the currently supported slice definition fields:
 visibility and included paths.
@@ -437,8 +439,8 @@ Not supported:
 /login                                 Dev login
 /source/{account}/[...path]            Source browser
 /slices?account={account}              Slice list
-/slices/{id}                           Slice detail
-/slices/{id}/settings                  Slice settings
+/slices/{account}/{slice}              Slice detail
+/slices/{account}/{slice}/settings     Slice settings
 /changesets                            Changeset lookup
 /changesets/new                        Create changeset
 /changesets/{id}                       Changeset detail

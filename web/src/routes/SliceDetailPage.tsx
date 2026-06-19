@@ -46,10 +46,12 @@ import {
 } from "../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
+import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
 interface SliceParams {
-  id?: string;
+  account?: string;
+  slice?: string;
 }
 
 interface SliceSearch {
@@ -70,7 +72,12 @@ export function SliceDetailPage() {
   const { account } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const search = useSearch({ strict: false }) as SliceSearch;
-  const sliceId = params.id ?? "";
+  const routeAccount = params.account ?? "";
+  const routeSlice = params.slice ?? "";
+  const routeSliceRef =
+    routeAccount && routeSlice
+      ? { account: routeAccount, slice: routeSlice }
+      : undefined;
   const selectedPath = pathSearchValue(search.path);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showTree, setShowTree] = useState(true);
@@ -78,9 +85,9 @@ export function SliceDetailPage() {
   const canEdit = Boolean(isLoaded && isSignedIn && account);
 
   const sliceQuery = useQuery({
-    enabled: sliceId.length > 0,
-    queryKey: ["slice", sliceId],
-    queryFn: () => api.getSlice({ sliceId })
+    enabled: Boolean(routeSliceRef),
+    queryKey: ["sliceRef", routeAccount, routeSlice],
+    queryFn: () => api.resolveSlice({ ref: routeSliceRef })
   });
 
   const latestQuery = useQuery({
@@ -95,7 +102,12 @@ export function SliceDetailPage() {
   });
 
   const slice = sliceQuery.data;
-  const sliceRef = slice?.ref;
+  const sliceRef = slice?.ref ?? routeSliceRef;
+  const sliceId = slice?.id ?? "";
+  const sliceRouteParams = toSliceRouteParams(sliceRef);
+  const sliceRouteKey = sliceRouteParams
+    ? `${sliceRouteParams.account}:${sliceRouteParams.slice}`
+    : `${routeAccount}:${routeSlice}`;
   const sliceLabel = sliceDisplayName(slice);
   const commitId = latestQuery.data?.commitId ?? "";
   const draftChangeset = useDraftChangesetController({
@@ -121,7 +133,7 @@ export function SliceDetailPage() {
     ),
     queryKey: [
       "slicePath",
-      sliceId,
+      sliceRouteKey,
       commitId,
       selectedPath,
       sliceRef?.account,
@@ -140,7 +152,7 @@ export function SliceDetailPage() {
     enabled: Boolean(commitId && sliceRef?.account && sliceRef?.slice && isDirectory),
     queryKey: [
       "sliceDirectory",
-      sliceId,
+      sliceRouteKey,
       commitId,
       selectedPath,
       sliceRef?.account,
@@ -161,7 +173,7 @@ export function SliceDetailPage() {
     ),
     queryKey: [
       "sliceFile",
-      sliceId,
+      sliceRouteKey,
       commitId,
       selectedPath,
       sliceRef?.account,
@@ -171,10 +183,14 @@ export function SliceDetailPage() {
   });
 
   function selectPath(path: string) {
+    if (!sliceRouteParams) {
+      return;
+    }
+
     void navigate({
-      params: { id: sliceId } as never,
+      params: sliceRouteParams as never,
       search: path ? ({ path } as never) : ({} as never),
-      to: "/slices/$id"
+      to: "/slices/$account/$slice"
     });
   }
 
@@ -212,7 +228,7 @@ export function SliceDetailPage() {
         <SlicePageHeader title="Slice Home" />
         <div className="mt-8">
           <SliceNotice title="Slice not found">
-            No slice was returned for id {sliceId || "unknown"}.
+            No slice was returned for {sliceRouteKey || "unknown"}.
           </SliceNotice>
         </div>
       </section>
@@ -262,13 +278,15 @@ export function SliceDetailPage() {
               >
                 Changesets
               </Link>
-              <Link
-                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                params={{ id: sliceId }}
-                to="/slices/$id/settings"
-              >
-                Settings
-              </Link>
+              {sliceRouteParams ? (
+                <Link
+                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                  params={sliceRouteParams as never}
+                  to="/slices/$account/$slice/settings"
+                >
+                  Settings
+                </Link>
+              ) : null}
             </>
           ) : null}
           <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
@@ -352,7 +370,7 @@ export function SliceDetailPage() {
               setMobileFilesOpen(false);
             }}
             selectedPath={selectedPath}
-            sliceId={sliceId}
+            sliceId={sliceId || sliceRouteKey}
             sliceRef={sliceRef}
           />
         </aside>
@@ -388,7 +406,7 @@ export function SliceDetailPage() {
         canLoadChangesets={Boolean(isLoaded && isSignedIn)}
         open={historyOpen}
         selectedPath={selectedPath}
-        sliceId={sliceId}
+        sliceId={sliceId || sliceRouteKey}
         sliceLabel={sliceLabel}
         sliceRef={sliceRef}
       />

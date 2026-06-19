@@ -2914,7 +2914,7 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "created slice %s\n", sliceRefLabel(slice.Ref))
-	if link := webResourceURL("/slices/" + slice.Id); link != "" {
+	if link := webSliceResourceURL(slice.Ref); link != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", link)
 	}
 	return writeSliceText(r.Stdout, slice)
@@ -3144,7 +3144,7 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
-	if link := webResourceURL("/slices/" + updated.Id); link != "" {
+	if link := webSliceResourceURL(updated.Ref); link != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", link)
 	}
 	return writeSliceText(r.Stdout, updated)
@@ -3273,7 +3273,7 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 	out := sliceOutput{
 		ID:             slice.Id,
 		DefinitionHash: slice.DefinitionHash,
-		WebURL:         webResourceURL("/slices/" + slice.Id),
+		WebURL:         webSliceResourceURL(slice.Ref),
 	}
 	if slice.Ref != nil {
 		out.Account = slice.Ref.Account
@@ -3312,6 +3312,13 @@ func sliceRefLabel(ref *corev1.SliceRef) string {
 		return ""
 	}
 	return ref.Account + ":" + ref.Slice
+}
+
+func webSliceResourceURL(ref *corev1.SliceRef) string {
+	if ref == nil || strings.TrimSpace(ref.Account) == "" || strings.TrimSpace(ref.Slice) == "" {
+		return ""
+	}
+	return webResourceURL("/slices/" + url.PathEscape(ref.Account) + "/" + url.PathEscape(ref.Slice))
 }
 
 func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, sliceRef string) error {

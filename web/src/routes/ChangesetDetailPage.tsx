@@ -16,6 +16,7 @@ import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
+import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { displaySubmitBlockedReason } from "./stackPageUtils";
 
 export function ChangesetDetailPage() {
@@ -38,8 +39,6 @@ export function ChangesetDetailPage() {
 
   const changeset = changesetQuery.data;
   const canonicalChangesetId = changeset?.id || changesetId;
-  const authoringAccount = changeset?.authoringSlice?.account ?? "";
-  const authoringSlice = changeset?.authoringSlice?.slice ?? "";
   const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";
   const patchsets = useMemo(() => sortedPatchsets(changeset), [changeset]);
   const patchsetIdsKey = patchsets.map((patchset) => patchset.id || "").join("|");
@@ -69,15 +68,6 @@ export function ChangesetDetailPage() {
     );
     setToPatchset((current) => (current && ids.has(current) ? current : defaultTo));
   }, [changeset, patchsetIdsKey, patchsets]);
-
-  const resolveSliceQuery = useQuery({
-    enabled: Boolean(authoringAccount && authoringSlice),
-    queryKey: ["resolveSlice", authoringAccount, authoringSlice],
-    queryFn: () =>
-      api.resolveSlice({
-        ref: { account: authoringAccount, slice: authoringSlice }
-      })
-  });
 
   const diffQuery = useQuery({
     enabled: Boolean(changeset && canonicalChangesetId),
@@ -181,15 +171,12 @@ export function ChangesetDetailPage() {
 
   const terminal = isTerminalStatus(changeset.status);
   const actionBusy = mergeMutation.isPending || abandonMutation.isPending;
-  const resolvedSliceId = resolveSliceQuery.data?.id ?? "";
-
   return (
     <section className="mx-auto w-full max-w-[100rem]">
       <div className="mb-3 hidden sm:block">
         <Breadcrumb
           items={changesetBreadcrumbItems({
             changeset,
-            resolvedSliceId,
             sliceSearch
           })}
         />
@@ -833,22 +820,21 @@ function changesetSliceSearch(changeset: Changeset) {
 
 function changesetBreadcrumbItems({
   changeset,
-  resolvedSliceId,
   sliceSearch
 }: {
   changeset: Changeset;
-  resolvedSliceId: string;
   sliceSearch: string;
 }): Crumb[] {
   const items: Crumb[] = [{ label: "Slices", to: "/slices" }];
 
   if (sliceSearch) {
+    const routeParams = toSliceRouteParams(changeset.authoringSlice);
     items.push(
-      resolvedSliceId
+      routeParams
         ? {
             label: sliceSearch,
-            params: { id: resolvedSliceId },
-            to: "/slices/$id"
+            params: routeParams,
+            to: "/slices/$account/$slice"
           }
         : { label: sliceSearch }
     );

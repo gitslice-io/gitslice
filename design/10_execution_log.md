@@ -5626,3 +5626,38 @@ Build note:
 
 - `npm --prefix web run build` completed successfully and still reports the
   existing Vite large-chunk warning for generated assets.
+
+## 2026-06-19: Public Slice Refs In Web URLs
+
+Request:
+
+- stop exposing internal `slice_...` ids in web slice URLs
+
+Decisions:
+
+- changed slice detail and settings routes from internal-id URLs to public
+  `account/slice` URLs: `/slices/{account}/{slice}` and
+  `/slices/{account}/{slice}/settings`
+- kept internal slice ids in the RPC layer where required by mutation APIs; web
+  pages now resolve public route params through `SliceService.ResolveSlice` and
+  use `slice.id` only after the slice loads
+- updated slice list/create redirects, changeset breadcrumbs, and CLI-generated
+  `web_url`/`view:` links to build URLs from `SliceRef` instead of `slice.Id`
+- TypeScript verification caught that `Breadcrumb` required indexed record
+  params, so its `params`/`search` props were loosened to match the component's
+  router pass-through behavior
+
+Verification:
+
+```bash
+gofmt -w internal/cli/cli.go
+go test ./internal/cli
+npm --prefix web run build
+npm --prefix web test
+git diff --check
+```
+
+Build note:
+
+- `npm --prefix web run build` completed successfully and still reports the
+  existing Vite large-chunk warning for generated assets.

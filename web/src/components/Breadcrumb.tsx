@@ -3,8 +3,8 @@ import { Link } from "@tanstack/react-router";
 export interface Crumb {
   label: string;
   to?: string;
-  params?: Record<string, unknown>;
-  search?: Record<string, unknown>;
+  params?: unknown;
+  search?: unknown;
 }
 
 export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
