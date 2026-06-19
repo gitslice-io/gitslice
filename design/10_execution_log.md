@@ -5552,3 +5552,37 @@ Build note:
 
 - `npm --prefix web run build` completed successfully and still reports the
   existing Vite large-chunk warning for generated assets.
+
+## 2026-06-19: Mobile Changeset Review Layout
+
+Request:
+
+- simplify changeset detail for mobile diff review by reducing header and
+  patchset metadata weight, making patchset comparison draggable, and
+  prioritizing the changed-file list
+
+Decisions:
+
+- constrained the changeset title to one visible line and moved secondary
+  actions behind a compact mobile actions toggle
+- replaced the patchset metadata list with a horizontal timeline of patchset
+  dots and draggable `From`/`To` handles; hidden selects remain for exact
+  keyboard/screen-reader selection and existing test coverage
+- changed the diff viewer to show the changed-file tree by default on mobile,
+  with diff bodies behind a `Show diff`/`Hide diff` toggle; selecting a file
+  reveals its diff
+- increased the mobile file-tree viewport height so the file list, not metadata,
+  gets the majority of the screen
+
+Verification:
+
+```bash
+npm --prefix web test -- StackPages.test.tsx
+npm --prefix web run build
+git diff --check
+```
+
+Build note:
+
+- `npm --prefix web run build` completed successfully and still reports the
+  existing Vite large-chunk warning for generated assets.

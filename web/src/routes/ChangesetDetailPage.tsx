@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type PointerEvent
+} from "react";
 
 import type { Changeset, Patchset } from "../api/types";
 import { useApi } from "../api/useApi";
@@ -8,7 +16,7 @@ import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
-import { displaySubmitBlockedReason, formatTimestamp } from "./stackPageUtils";
+import { displaySubmitBlockedReason } from "./stackPageUtils";
 
 export function ChangesetDetailPage() {
   const api = useApi();
@@ -177,7 +185,7 @@ export function ChangesetDetailPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="mb-5">
+      <div className="mb-3 hidden sm:block">
         <Breadcrumb
           items={changesetBreadcrumbItems({
             changeset,
@@ -201,7 +209,6 @@ export function ChangesetDetailPage() {
       />
 
       <PatchsetComparePanel
-        changeset={changeset}
         fromPatchset={fromPatchset}
         onFromPatchsetChange={setFromPatchset}
         onToPatchsetChange={setToPatchset}
@@ -249,31 +256,33 @@ function HeaderCard({
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="px-5 py-4 md:px-6 md:py-5">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+      <div className="px-3 py-3 md:px-5 md:py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="flex items-start justify-between gap-3">
-              <h1 className="text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl md:text-3xl">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+              <h1
+                className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-xl md:text-2xl"
+                title={changeset.title || "Untitled changeset"}
+              >
                 {changeset.title || "Untitled changeset"}
               </h1>
               <button
                 aria-expanded={showDetails}
-                className="mt-1 shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 lg:hidden"
+                className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 lg:hidden"
                 onClick={() => setShowDetails((value) => !value)}
                 type="button"
               >
-                {showDetails ? "Hide details" : "Details"}
+                {showDetails ? "Hide" : "Actions"}
               </button>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-600 md:mt-3">
-              <span className="max-w-full break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-slate-600 md:text-sm">
+              <span className="max-w-full break-all rounded-md bg-slate-100 px-1.5 py-1 font-mono text-[11px] text-slate-700 md:px-2 md:text-xs">
                 {changesetLabel(changeset)}
               </span>
-              <span>{changeset.author || "author not returned"}</span>
               <StatusBadge status={changeset.status} />
               {changeset.parentChangesetId ? (
                 <Link
-                  className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950"
+                  className="inline-flex max-w-full items-center truncate rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 md:px-2 md:text-xs"
                   params={{
                     id:
                       shortChangesetId(changeset.parentChangesetId) ||
@@ -282,8 +291,10 @@ function HeaderCard({
                   to="/cs/$id"
                 >
                   Base changeset{" "}
-                  {shortChangesetId(changeset.parentChangesetId) ||
-                    changeset.parentChangesetId}
+                  <span className="truncate">
+                    {shortChangesetId(changeset.parentChangesetId) ||
+                      changeset.parentChangesetId}
+                  </span>
                 </Link>
               ) : null}
               <CopyLinkButton changesetId={changeset.id || ""} />
@@ -329,7 +340,7 @@ function HeaderCard({
         </div>
 
         {changeset.submitBlockedReason ? (
-          <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {displaySubmitBlockedReason(changeset.submitBlockedReason)}
           </div>
         ) : null}
@@ -404,246 +415,312 @@ function ReviewActions({
 }
 
 function PatchsetComparePanel({
-  changeset,
   fromPatchset,
   onFromPatchsetChange,
   onToPatchsetChange,
   patchsets,
   toPatchset
 }: {
-  changeset: Changeset;
   fromPatchset: string;
   onFromPatchsetChange(value: string): void;
   onToPatchsetChange(value: string): void;
   patchsets: Patchset[];
   toPatchset: string;
 }) {
-  const currentPatchsetId = changeset.currentPatchsetId || "";
   const fromLabel = fromPatchset
     ? patchsetOptionLabel(findPatchset(patchsets, fromPatchset))
     : "Recorded base";
   const toLabel = patchsetOptionLabel(findPatchset(patchsets, toPatchset));
 
   return (
-    <section className="mt-5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="border-b border-slate-200 px-5 py-4 md:px-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold uppercase tracking-normal text-slate-500">
-              Patchsets
-            </h2>
-            <p className="mt-2 break-words text-sm font-medium text-zinc-950">
-              Diff {fromLabel} to {toLabel || "selected patchset"}
-            </p>
-          </div>
-
-          <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-[30rem]">
-            <label className="grid gap-1 text-xs font-medium text-slate-600">
-              Diff base
-              <select
-                aria-label="Diff base"
-                className={selectClass}
-                onChange={(event) => onFromPatchsetChange(event.target.value)}
-                value={fromPatchset}
-              >
-                <option value="">Recorded base</option>
-                {patchsets.map((patchset) => (
-                  <option
-                    disabled={!patchset.id}
-                    key={`from-${patchsetKey(patchset)}`}
-                    value={patchset.id || ""}
-                  >
-                    {patchsetOptionLabel(patchset)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="grid gap-1 text-xs font-medium text-slate-600">
-              Target patchset
-              <select
-                aria-label="Target patchset"
-                className={selectClass}
-                disabled={patchsets.length === 0}
-                onChange={(event) => onToPatchsetChange(event.target.value)}
-                value={toPatchset}
-              >
-                {patchsets.length ? (
-                  patchsets.map((patchset) => (
-                    <option
-                      disabled={!patchset.id}
-                      key={`to-${patchsetKey(patchset)}`}
-                      value={patchset.id || ""}
-                    >
-                      {patchsetOptionLabel(patchset)}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">No patchsets</option>
-                )}
-              </select>
-            </label>
-          </div>
-        </div>
+    <section className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm shadow-slate-200/50 md:px-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+          Patchsets
+        </h2>
+        <p className="min-w-0 truncate text-xs font-medium text-zinc-950">
+          {fromLabel} to {toLabel || "selected patchset"}
+        </p>
       </div>
-
-      {patchsets.length ? (
-        <div className="divide-y divide-slate-100">
-          {patchsets.map((patchset) => (
-            <PatchsetRow
-              currentPatchsetId={currentPatchsetId}
-              fromPatchset={fromPatchset}
-              key={patchsetKey(patchset)}
-              onFromPatchsetChange={onFromPatchsetChange}
-              onToPatchsetChange={onToPatchsetChange}
-              patchset={patchset}
-              toPatchset={toPatchset}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="px-5 py-4 text-sm text-slate-600 md:px-6">
-          No patchsets returned.
-        </div>
-      )}
+      <PatchsetTimeline
+        fromPatchset={fromPatchset}
+        onFromPatchsetChange={onFromPatchsetChange}
+        onToPatchsetChange={onToPatchsetChange}
+        patchsets={patchsets}
+        toPatchset={toPatchset}
+      />
     </section>
   );
 }
 
-function PatchsetRow({
-  currentPatchsetId,
+function PatchsetTimeline({
   fromPatchset,
   onFromPatchsetChange,
   onToPatchsetChange,
-  patchset,
+  patchsets,
   toPatchset
 }: {
-  currentPatchsetId: string;
   fromPatchset: string;
   onFromPatchsetChange(value: string): void;
   onToPatchsetChange(value: string): void;
-  patchset: Patchset;
+  patchsets: Patchset[];
   toPatchset: string;
 }) {
-  const id = patchset.id || "";
-  const label = patchsetOptionLabel(patchset);
-  const changedPaths = patchset.changedPaths || [];
-  const conflictCount = patchset.conflicts?.length || 0;
-
-  return (
-    <article className="px-5 py-4 md:px-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-zinc-950">{label}</h3>
-            {id && id === currentPatchsetId ? (
-              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                Current
-              </span>
-            ) : null}
-            {conflictCount ? (
-              <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
-                {conflictCount} conflict{conflictCount === 1 ? "" : "s"}
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 text-xs text-slate-500">
-            {patchset.author || "author not returned"} -{" "}
-            {formatTimestamp(patchset.createdAt)}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            aria-label={`Use ${label} as diff base`}
-            className={secondaryButtonClass}
-            disabled={!id || fromPatchset === id}
-            onClick={() => onFromPatchsetChange(id)}
-            type="button"
-          >
-            Diff base
-          </button>
-          <button
-            aria-label={`Compare to ${label}`}
-            className={secondaryButtonClass}
-            disabled={!id || toPatchset === id}
-            onClick={() => onToPatchsetChange(id)}
-            type="button"
-          >
-            Compare
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3">
-        <PatchsetMeta label="Base" value={patchsetBaseLabel(patchset)} />
-        <PatchsetMeta
-          label="Changed paths"
-          value={String(changedPaths.length)}
-        />
-        <PatchsetMeta
-          label="Patchset id"
-          title={id}
-          value={shortPatchsetId(id) || "not returned"}
-        />
-      </div>
-
-      <PatchsetPathPreview paths={changedPaths} />
-    </article>
+  const selectablePatchsets = patchsets.filter((patchset) => patchset.id);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [dragging, setDragging] = useState<TimelineHandle | null>(null);
+  const steps = useMemo<TimelineStep[]>(
+    () => [
+      { id: "", label: "Base", patchset: undefined },
+      ...selectablePatchsets.map((patchset) => ({
+        id: patchset.id || "",
+        label: patchsetDotLabel(patchset),
+        patchset
+      }))
+    ],
+    [selectablePatchsets]
   );
-}
+  const fromIndex = timelineIndexForValue(steps, fromPatchset, 0);
+  const toIndex = Math.max(1, timelineIndexForValue(steps, toPatchset, steps.length - 1));
+  const maxIndex = Math.max(0, steps.length - 1);
 
-function PatchsetMeta({
-  label,
-  title,
-  value
-}: {
-  label: string;
-  title?: string;
-  value: string;
-}) {
-  return (
-    <div className="min-w-0 rounded-md bg-slate-50 px-3 py-2">
-      <span className="block font-medium text-slate-500">{label}</span>
-      <span
-        className="mt-1 block truncate font-mono text-slate-700"
-        title={title || value}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
+  const applyIndex = (handle: TimelineHandle, index: number) => {
+    if (!steps.length) {
+      return;
+    }
 
-function PatchsetPathPreview({ paths }: { paths: string[] }) {
-  if (!paths.length) {
+    const nextIndex =
+      handle === "from"
+        ? clamp(index, 0, maxIndex)
+        : clamp(index, Math.min(1, maxIndex), maxIndex);
+    const step = steps[nextIndex];
+
+    if (handle === "from") {
+      onFromPatchsetChange(step?.id || "");
+      return;
+    }
+
+    if (step?.id) {
+      onToPatchsetChange(step.id);
+    }
+  };
+
+  const indexForPointer = (clientX: number) => {
+    const track = trackRef.current;
+    if (!track || maxIndex === 0) {
+      return 0;
+    }
+
+    const rect = track.getBoundingClientRect();
+    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+    return Math.round(ratio * maxIndex);
+  };
+
+  const handlePointerDown = (
+    handle: TimelineHandle,
+    event: PointerEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(handle);
+    applyIndex(handle, indexForPointer(event.clientX));
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!dragging) {
+      return;
+    }
+    applyIndex(dragging, indexForPointer(event.clientX));
+  };
+
+  const stopDragging = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDragging(null);
+  };
+
+  const handleKeyDown = (
+    handle: TimelineHandle,
+    currentIndex: number,
+    event: KeyboardEvent<HTMLButtonElement>
+  ) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+      event.preventDefault();
+      applyIndex(handle, currentIndex - 1);
+    } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+      event.preventDefault();
+      applyIndex(handle, currentIndex + 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      applyIndex(handle, handle === "from" ? 0 : 1);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      applyIndex(handle, maxIndex);
+    }
+  };
+
+  if (!selectablePatchsets.length) {
     return (
-      <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">
-        No changed paths returned.
+      <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        No patchsets returned.
       </p>
     );
   }
 
-  const preview = paths.slice(0, 4);
-  const remaining = paths.length - preview.length;
-
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
-      {preview.map((path) => (
-        <span
-          className="max-w-full truncate rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700"
-          key={path}
-          title={path}
-        >
-          {path}
-        </span>
-      ))}
-      {remaining > 0 ? (
-        <span className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-500">
-          +{remaining} more
-        </span>
-      ) : null}
+    <div className="mt-2">
+      <div className="sr-only">
+        <label>
+          Diff base
+          <select
+            aria-label="Diff base"
+            onChange={(event) => onFromPatchsetChange(event.target.value)}
+            value={fromPatchset}
+          >
+            <option value="">Recorded base</option>
+            {selectablePatchsets.map((patchset) => (
+              <option key={`from-${patchsetKey(patchset)}`} value={patchset.id}>
+                {patchsetOptionLabel(patchset)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Target patchset
+          <select
+            aria-label="Target patchset"
+            onChange={(event) => onToPatchsetChange(event.target.value)}
+            value={toPatchset}
+          >
+            {selectablePatchsets.map((patchset) => (
+              <option key={`to-${patchsetKey(patchset)}`} value={patchset.id}>
+                {patchsetOptionLabel(patchset)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="relative h-20 px-5">
+        <div className="relative h-full" ref={trackRef}>
+          <div className="absolute inset-x-0 top-9 h-px bg-slate-300" />
+          <div className="absolute inset-x-0 top-6 flex items-center justify-between">
+            {steps.map((step, index) => (
+              <button
+                aria-label={
+                  index === 0
+                    ? "Use recorded base as diff base"
+                    : `Compare to ${patchsetOptionLabel(step.patchset)}`
+                }
+                className="group flex min-w-8 -translate-y-0.5 flex-col items-center gap-1 text-[10px] font-medium text-slate-500"
+                key={step.id || "base"}
+                onClick={() =>
+                  index === 0
+                    ? onFromPatchsetChange("")
+                    : onToPatchsetChange(step.id)
+                }
+                type="button"
+              >
+                <span
+                  className={cn(
+                    "h-3 w-3 rounded-full border-2 bg-white transition group-hover:border-zinc-950",
+                    index === fromIndex || index === toIndex
+                      ? "border-zinc-950"
+                      : "border-slate-300"
+                  )}
+                />
+                <span>{step.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <TimelineHandleButton
+            handle="from"
+            index={fromIndex}
+            label={
+              fromIndex === 0 ? "From Base" : `From ${steps[fromIndex]?.label}`
+            }
+            maxIndex={maxIndex}
+            onKeyDown={handleKeyDown}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={stopDragging}
+            topClassName="top-0"
+          />
+          <TimelineHandleButton
+            handle="to"
+            index={toIndex}
+            label={`To ${steps[toIndex]?.label || ""}`}
+            maxIndex={maxIndex}
+            onKeyDown={handleKeyDown}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={stopDragging}
+            topClassName="top-12"
+          />
+        </div>
+      </div>
     </div>
+  );
+}
+
+function TimelineHandleButton({
+  handle,
+  index,
+  label,
+  maxIndex,
+  onKeyDown,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  topClassName
+}: {
+  handle: TimelineHandle;
+  index: number;
+  label: string;
+  maxIndex: number;
+  onKeyDown(
+    handle: TimelineHandle,
+    currentIndex: number,
+    event: KeyboardEvent<HTMLButtonElement>
+  ): void;
+  onPointerDown(
+    handle: TimelineHandle,
+    event: PointerEvent<HTMLButtonElement>
+  ): void;
+  onPointerMove(event: PointerEvent<HTMLButtonElement>): void;
+  onPointerUp(event: PointerEvent<HTMLButtonElement>): void;
+  topClassName: string;
+}) {
+  return (
+    <button
+      aria-label={`Drag ${handle} patchset handle`}
+      aria-valuemax={maxIndex}
+      aria-valuemin={handle === "from" ? 0 : Math.min(1, maxIndex)}
+      aria-valuenow={index}
+      className={cn(
+        "absolute rounded-full border px-2 py-1 text-[11px] font-semibold shadow-sm transition active:scale-[0.98]",
+        handle === "from"
+          ? "border-slate-300 bg-white text-slate-700"
+          : "border-zinc-950 bg-zinc-950 text-white",
+        topClassName
+      )}
+      onKeyDown={(event) => onKeyDown(handle, index, event)}
+      onPointerDown={(event) => onPointerDown(handle, event)}
+      onPointerCancel={onPointerUp}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      role="slider"
+      style={{
+        left: timelinePosition(index, maxIndex),
+        touchAction: "none",
+        transform: "translateX(-50%)"
+      }}
+      type="button"
+    >
+      {label}
+    </button>
   );
 }
 
@@ -839,6 +916,14 @@ function findPatchset(patchsets: Patchset[], patchsetId: string) {
   return patchsets.find((patchset) => patchset.id === patchsetId);
 }
 
+type TimelineHandle = "from" | "to";
+
+interface TimelineStep {
+  id: string;
+  label: string;
+  patchset?: Patchset;
+}
+
 function patchsetOptionLabel(patchset?: Patchset) {
   if (!patchset) {
     return "";
@@ -851,17 +936,37 @@ function patchsetOptionLabel(patchset?: Patchset) {
   return shortId ? `Patchset ${shortId}` : "Patchset";
 }
 
-function patchsetBaseLabel(patchset: Patchset) {
-  if (patchset.basePatchsetId) {
-    return `Base patchset ${shortPatchsetId(patchset.basePatchsetId)}`;
+function patchsetDotLabel(patchset: Patchset) {
+  if (patchset.number !== undefined && patchset.number !== "") {
+    return `P${patchset.number}`;
   }
-  if (patchset.baseCommitId) {
-    return `Base commit ${shortCommit(patchset.baseCommitId)}`;
+
+  const shortId = shortPatchsetId(patchset.id || "");
+  return shortId ? `P${shortId}` : "P";
+}
+
+function timelineIndexForValue(
+  steps: TimelineStep[],
+  value: string,
+  fallback: number
+) {
+  if (!value) {
+    return 0;
   }
-  if (patchset.baseTreeId) {
-    return `Base tree ${shortHash(patchset.baseTreeId)}`;
+
+  const index = steps.findIndex((step) => step.id === value);
+  return index >= 0 ? index : fallback;
+}
+
+function timelinePosition(index: number, maxIndex: number) {
+  if (maxIndex <= 0) {
+    return "0%";
   }
-  return "Recorded base";
+  return `${(index / maxIndex) * 100}%`;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function statusClass(status?: string) {
@@ -909,9 +1014,3 @@ const primaryButtonClass =
 
 const dangerButtonClass =
   "self-end rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
-
-const secondaryButtonClass =
-  "rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50";
-
-const selectClass =
-  "h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100";

@@ -72,9 +72,7 @@ export function DiffViewer({
   );
   const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
   const [activeId, setActiveId] = useState<string | undefined>();
-  // The file tree is collapsed by default on mobile so the diff is the first
-  // thing on screen; on `lg` up it always renders as the sticky sidebar.
-  const [showFileList, setShowFileList] = useState(false);
+  const [showDiffs, setShowDiffs] = useState(false);
   const [mountedDiffBodies, setMountedDiffBodies] = useState<MountedDiffBodies>(
     () => ({
       files: [],
@@ -97,6 +95,16 @@ export function DiffViewer({
       window.localStorage.setItem(diffViewStorageKey, viewMode);
     }
   }, [viewMode]);
+
+  useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(min-width: 1024px)").matches
+    ) {
+      setShowDiffs(true);
+    }
+  }, []);
 
   // Reset collapse state whenever a new diff loads.
   useEffect(() => {
@@ -155,7 +163,7 @@ export function DiffViewer({
 
       return { files, ids: next };
     });
-  }, [files]);
+  }, [files, showDiffs]);
 
   useEffect(() => {
     if (!files.length || typeof IntersectionObserver === "undefined") {
@@ -191,7 +199,7 @@ export function DiffViewer({
     });
 
     return () => observer.disconnect();
-  }, [files]);
+  }, [files, showDiffs]);
 
   useEffect(() => {
     if (!files.length) {
@@ -271,29 +279,30 @@ export function DiffViewer({
   const selectFile = (id: string) => {
     setActiveId(id);
     mountFileBody(id);
-    // Collapse the mobile file list so the tap jumps straight to the diff.
-    setShowFileList(false);
-    document.getElementById(id)?.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
-    });
+    setShowDiffs(true);
+    window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }, 0);
   };
 
   return (
-    <section className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="border-b border-slate-200 px-5 py-4 md:px-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-base font-semibold tracking-normal text-zinc-950">
-              Changed files
+    <section className="mt-3 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+      <div className="border-b border-slate-200 px-3 py-3 md:px-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 md:text-base">
+              Files
             </h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-0.5 text-xs text-slate-600 md:text-sm">
               {isLoading
                 ? "Loading file changes..."
                 : `${changedCount} file(s) changed`}
             </p>
             {!isLoading && files.length > 0 ? (
-              <div className="mt-2 flex gap-2 font-mono text-xs">
+              <div className="mt-1 flex gap-2 font-mono text-xs">
                 <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-800">
                   +{totalAdditions}
                 </span>
@@ -303,7 +312,25 @@ export function DiffViewer({
               </div>
             ) : null}
           </div>
-          <ViewModeToggle value={viewMode} onChange={setViewMode} />
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            <button
+              aria-pressed={showDiffs}
+              className={cn(
+                "h-9 rounded-md border px-3 text-sm font-medium transition active:scale-[0.98]",
+                showDiffs
+                  ? "border-zinc-950 bg-zinc-950 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+              )}
+              disabled={!hasTextualDiff}
+              onClick={() => setShowDiffs((value) => !value)}
+              type="button"
+            >
+              {showDiffs ? "Hide diff" : "Show diff"}
+            </button>
+            {showDiffs ? (
+              <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -314,47 +341,41 @@ export function DiffViewer({
           <DiffErrorBox message={errorMessage(error)} />
         </div>
       ) : hasTextualDiff ? (
-        <div className="grid gap-4 p-4 md:p-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
-          <aside className="lg:sticky lg:top-20 lg:self-start">
-            <button
-              aria-expanded={showFileList}
-              className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 lg:hidden"
-              onClick={() => setShowFileList((value) => !value)}
-              type="button"
-            >
-              <span>{changedCount} file(s) changed</span>
-              <span className="text-xs font-normal text-slate-500">
-                {showFileList ? "Hide files" : "Show files"}
-              </span>
-            </button>
-            <div
-              className={cn(
-                "mt-2 lg:mt-0 lg:block",
-                showFileList ? "block" : "hidden"
-              )}
-            >
-              <ChangedFilesTree
-                activeId={activeId}
-                files={files}
-                onSelect={selectFile}
-              />
-            </div>
+        <div
+          className={cn(
+            "grid gap-3 p-3 md:p-4",
+            showDiffs && "lg:grid-cols-[20rem_minmax(0,1fr)]"
+          )}
+        >
+          <aside
+            className={cn(
+              "lg:sticky lg:top-20 lg:self-start",
+              !showDiffs && "lg:max-w-xl"
+            )}
+          >
+            <ChangedFilesTree
+              activeId={activeId}
+              files={files}
+              onSelect={selectFile}
+            />
           </aside>
-          <div className="grid min-w-0 gap-4">
-            {files.map((file) => (
-              <DiffFilePanel
-                file={file}
-                isBodyMounted={mountedFileIds?.has(file.id) ?? false}
-                key={file.id}
-                onExpand={expandGap}
-                refCallback={(node) => {
-                  panelRefs.current[file.id] = node;
-                }}
-                revealed={revealed}
-                viewMode={viewMode}
-              />
-            ))}
-          </div>
+          {showDiffs ? (
+            <div className="grid min-w-0 gap-3 md:gap-4">
+              {files.map((file) => (
+                <DiffFilePanel
+                  file={file}
+                  isBodyMounted={mountedFileIds?.has(file.id) ?? false}
+                  key={file.id}
+                  onExpand={expandGap}
+                  refCallback={(node) => {
+                    panelRefs.current[file.id] = node;
+                  }}
+                  revealed={revealed}
+                  viewMode={viewMode}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="p-5 md:p-6">
