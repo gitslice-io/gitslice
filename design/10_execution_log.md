@@ -5557,13 +5557,13 @@ Build note:
 
 Request:
 
-- draft a Codex skill for agents operating the `gs` CLI
+- draft an agent skill for operating the `gs` CLI
 
 Decisions:
 
 - added a self-contained draft skill at `skills/gs-cli/SKILL.md` with
   `agents/openai.yaml` metadata rather than installing it into the user's global
-  Codex skills directory
+  skills directory
 - based the command guidance on the implemented `gs schema` surface instead of
   older design examples when they disagreed
 - documented top-level changeset commands such as `gs create`, `gs modify`, and

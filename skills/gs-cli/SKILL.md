@@ -1,6 +1,6 @@
 ---
 name: gs-cli
-description: Operate and automate the Gitslice `gs` CLI. Use when Codex needs to inspect auth, context, config, slices, server files, one-slice workspaces, status, diffs, native commit history, changesets, dependent changesets, structured CLI output, diagnostic RPC calls, or `gs` command failures.
+description: Operate and automate the Gitslice `gs` CLI. Use when an agent needs to inspect auth, context, config, slices, server files, one-slice workspaces, status, diffs, native commit history, changesets, dependent changesets, structured CLI output, diagnostic RPC calls, or `gs` command failures.
 ---
 
 # Gitslice `gs` CLI
