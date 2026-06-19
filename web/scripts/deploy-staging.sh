@@ -33,4 +33,7 @@ fi
 
 cd "$WEB_ROOT"
 npm run build
-wrangler deploy --env staging
+# Use npx so the locally-installed wrangler resolves regardless of how this
+# script is invoked (bare `wrangler` only works when node_modules/.bin is on
+# PATH, e.g. under `npm run`).
+npx wrangler deploy --env staging
