@@ -56,6 +56,16 @@ const appRoute = createRoute({
   )
 });
 
+const publicAppRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "publicApp",
+  component: () => (
+    <SelectionProvider>
+      <AppShell />
+    </SelectionProvider>
+  )
+});
+
 function UsernameGate({ children }: { children: ReactNode }) {
   const { error, isLoading, needsUsername } = useSelection();
 
@@ -116,7 +126,7 @@ const sliceCreateRoute = createRoute({
 });
 
 const sliceDetailRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => publicAppRoute,
   path: "slices/$id",
   component: SliceDetailPage
 });
@@ -179,7 +189,6 @@ const routeTree = rootRoute.addChildren([
     docSectionRoute,
     slicesRoute,
     sliceCreateRoute,
-    sliceDetailRoute,
     sliceSettingsRoute,
     changesetsRoute,
     stacksRoute,
@@ -188,7 +197,8 @@ const routeTree = rootRoute.addChildren([
     stackRestackRoute,
     stackSubmitRoute,
     changesetShortRoute
-  ])
+  ]),
+  publicAppRoute.addChildren([sliceDetailRoute])
 ]);
 
 export const router = createRouter({

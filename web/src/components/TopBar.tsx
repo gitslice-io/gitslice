@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { UserButton } from "@clerk/clerk-react";
+import { useAuth, UserButton } from "@clerk/clerk-react";
 
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
@@ -11,6 +11,7 @@ const navItems = [
 
 export function TopBar() {
   const { account } = useSelection();
+  const { isLoaded, isSignedIn } = useAuth();
   const pathname = useRouterState({
     select: (state) => state.location.pathname
   });
@@ -65,9 +66,18 @@ export function TopBar() {
               </div>
             </div>
           ) : null}
-          <div className="shrink-0">
-            <UserButton afterSignOutUrl="/login" />
-          </div>
+          {isLoaded && isSignedIn ? (
+            <div className="shrink-0">
+              <UserButton afterSignOutUrl="/login" />
+            </div>
+          ) : (
+            <Link
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              to="/login"
+            >
+              Sign in
+            </Link>
+          )}
         </div>
       </div>
     </header>

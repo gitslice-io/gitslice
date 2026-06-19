@@ -83,6 +83,7 @@ export interface ResolvePathRequest {
   commitId?: string;
   path?: string;
   rootTreeId?: string;
+  slice?: SliceRef;
 }
 
 export interface ResolvePathResponse {
@@ -109,6 +110,7 @@ export interface ReadFileRequest {
   offset?: Int64String;
   length?: Int64String;
   rootTreeId?: string;
+  slice?: SliceRef;
 }
 
 export interface ReadFileResponse {

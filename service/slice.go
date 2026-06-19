@@ -45,10 +45,7 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 }
 
 func (s *SliceService) ResolveSlice(ctx context.Context, req *corev1.ResolveSliceRequest) (*corev1.Slice, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	ref, err := normalizeServiceSliceRef(req.Ref)
 	if err != nil {
 		return nil, err
@@ -57,10 +54,7 @@ func (s *SliceService) ResolveSlice(ctx context.Context, req *corev1.ResolveSlic
 }
 
 func (s *SliceService) GetSlice(ctx context.Context, req *corev1.GetSliceRequest) (*corev1.Slice, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	slice, err := s.Slices.Get(ctx, req.SliceId)
 	if err != nil {
 		return nil, grpcError(err)

@@ -5553,6 +5553,46 @@ Build note:
 - `npm --prefix web run build` completed successfully and still reports the
   existing Vite large-chunk warning for generated assets.
 
+## 2026-06-19: Anonymous Public Slice Reads
+
+Request:
+
+- make the public slice at `/slices/slice_nic_home` accessible without a signed
+  in web session
+
+Decisions:
+
+- changed the gRPC auth interceptor to attach a subject when a bearer token is
+  present, but to let missing-token requests reach service-level authorization;
+  malformed bearer headers still fail as unauthenticated
+- moved public slice read authorization ahead of the non-empty subject check so
+  `visibility=public` truly means readable without authentication
+- kept unscoped repository reads account-member scoped; anonymous source reads
+  must name a public slice, and `ResolvePath`/`ReadFile` now accept an optional
+  `slice` field to authorize and constrain those reads
+- made the web `/slices/{id}` route public while keeping the rest of the app
+  behind `RequireAuth`; anonymous slice detail views render read-only and hide
+  edit/settings/changeset actions
+
+Verification:
+
+```bash
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false proto/core/v1/*.proto
+protoc --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative --grpc-gateway_opt=generate_unbound_methods=true proto/core/v1/*.proto
+gofmt -w internal/authz/authz.go internal/authz/authz_test.go server/server.go server/server_test.go service/auth.go service/repository.go service/slice.go service/memory_service_test.go
+go test ./internal/authz
+go test ./server
+go test ./service -run 'TestPublicSliceReadsAllowAnonymousContext|TestSimpleServiceMethodsUseInMemoryStorage|TestRepositoryReadFileRejectsNegativeRange|TestRepositoryListDirectoryPaginationUsesCursor'
+npm --prefix web run build
+go test ./...
+go build ./cmd/...
+```
+
+Build note:
+
+- `npm --prefix web run build` completed successfully and still reports the
+  existing Vite large-chunk warning for generated assets.
+
 ## 2026-06-19: Mobile Changeset Review Layout
 
 Request:

@@ -41,6 +41,9 @@ message ResolvePathRequest {
   // Optional immutable tree root. When set, the read resolves against this tree
   // instead of commit_id. This is used for patchset preview trees.
   string root_tree_id = 3;
+  // Optional slice projection. When set, read authorization is evaluated
+  // through this slice and the requested path must be visible through it.
+  SliceRef slice = 4;
 }
 
 message ResolvePathResponse {
@@ -73,6 +76,9 @@ message ReadFileRequest {
   // Optional immutable tree root. When set, the read resolves against this tree
   // instead of commit_id. This is used for patchset preview trees.
   string root_tree_id = 5;
+  // Optional slice projection. When set, read authorization is evaluated
+  // through this slice and the requested file must be included by it.
+  SliceRef slice = 6;
 }
 
 message ReadFileResponse {

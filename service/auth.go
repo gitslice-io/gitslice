@@ -96,3 +96,8 @@ func requireSubject(ctx context.Context) (string, error) {
 	}
 	return subjectID, nil
 }
+
+func optionalSubject(ctx context.Context) string {
+	subjectID, _ := authctx.SubjectID(ctx)
+	return subjectID
+}
