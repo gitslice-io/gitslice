@@ -5689,3 +5689,36 @@ Build note:
 
 - `npm --prefix web run build` completed successfully and still reports the
   existing Vite large-chunk warning for generated assets.
+
+## 2026-06-19: Signed-Out Public Slice Web Reads
+
+Request:
+
+- fix the web public-slice page still showing `Could not load slice` with
+  `missing authorization bearer token` when visited without signing in
+
+Decisions:
+
+- changed the shared web API hook to treat auth as optional: it now asks Clerk
+  for a token only after Clerk is loaded and the session is signed in, so
+  signed-out public reads are sent as truly anonymous RPCs with no
+  `Authorization` header
+- delayed the slice detail page's initial `ResolveSlice` and follow-up
+  `GetRef` query until Clerk has resolved the session state; this avoids
+  caching an anonymous failure while preserving anonymous reads for public
+  slices after Clerk reports signed out
+- added focused Vitest coverage for the API hook to assert signed-out calls do
+  not request a token and signed-in calls still send `Bearer <token>`
+
+Verification:
+
+```bash
+npm --prefix web test -- useApi.test.tsx
+go test ./server ./service -run 'TestAuthInterceptorAllowsMissingBearerForServiceLevelAuth|TestAuthInterceptorRejectsMalformedBearer|TestPublicSliceReadsAllowAnonymousContext'
+npm --prefix web run build
+```
+
+Build note:
+
+- `npm --prefix web run build` completed successfully and still reports the
+  existing Vite large-chunk warning for generated assets.

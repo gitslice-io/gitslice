@@ -85,12 +85,13 @@ export function SliceDetailPage() {
   const canEdit = Boolean(isLoaded && isSignedIn && account);
 
   const sliceQuery = useQuery({
-    enabled: Boolean(routeSliceRef),
+    enabled: Boolean(isLoaded && routeSliceRef),
     queryKey: ["sliceRef", routeAccount, routeSlice],
     queryFn: () => api.resolveSlice({ ref: routeSliceRef })
   });
 
   const latestQuery = useQuery({
+    enabled: Boolean(isLoaded && sliceQuery.isSuccess),
     queryKey: ["globalRef", GLOBAL_REF_NAME],
     queryFn: async () => {
       const ref = await api.getRef({ refName: GLOBAL_REF_NAME });
