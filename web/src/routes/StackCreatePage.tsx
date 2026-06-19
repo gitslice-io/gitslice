@@ -55,7 +55,7 @@ export function StackCreatePage() {
       }
       const title = stackTitle.trim() || entryTitle.trim();
       if (!title) {
-        throw new Error("Enter a stack title or first changeset title.");
+        throw new Error("Enter a dependency title or first changeset title.");
       }
       if ((filePath.trim() || fileContent) && !entryTitle.trim()) {
         throw new Error("Enter a first changeset title before adding a file edit.");
@@ -85,7 +85,7 @@ export function StackCreatePage() {
           throw new Error("Enter a file path for the first patchset.");
         }
         if (!firstEntry.id) {
-          throw new Error("AddStackEntry did not return a changeset id.");
+          throw new Error("The API did not return a changeset id.");
         }
 
         const uploaded = await api.uploadBlob({
@@ -118,13 +118,13 @@ export function StackCreatePage() {
     onMutate: () => setFormError(""),
     onSuccess: ({ firstEntryId, stack }) => {
       if (!stack.id) {
-        setFormError("The API did not return a stack id.");
+        setFormError("The API did not return a dependency id.");
         return;
       }
       void navigate({
         params: { id: stack.id },
         search: firstEntryId ? ({ entry: firstEntryId } as never) : ({} as never),
-        to: "/stacks/$id"
+        to: "/dependencies/$id"
       });
     }
   });
@@ -139,15 +139,15 @@ export function StackCreatePage() {
       <div className="mb-4">
         <Breadcrumb
           items={[
-            { label: "Stacks", to: "/stacks" },
+            { label: "Dependencies", to: "/dependencies" },
             { label: "Create" }
           ]}
         />
       </div>
       <SlicePageHeader
-        description="Create a named stack review tree and optionally add the first root changeset entry."
-        eyebrow="Stacks"
-        title="Create stack"
+        description="Create a root changeset and optionally add the first patchset file."
+        eyebrow="Dependencies"
+        title="Create changeset"
       />
 
       <form
@@ -190,7 +190,7 @@ export function StackCreatePage() {
         </label>
 
         <label className="grid gap-2 text-sm font-medium text-zinc-800">
-          Stack title
+          Dependency title
           <input
             className={inputClass}
             onChange={(event) => setStackTitle(event.target.value)}
@@ -253,7 +253,7 @@ export function StackCreatePage() {
         ) : null}
 
         {formError ? (
-          <SliceNotice title="Could not create stack" tone="error">
+          <SliceNotice title="Could not create changeset" tone="error">
             {formError}
           </SliceNotice>
         ) : null}
@@ -262,7 +262,7 @@ export function StackCreatePage() {
           <button
             className={secondaryButtonClass}
             onClick={() => {
-              void navigate({ to: "/stacks" });
+              void navigate({ to: "/dependencies" });
             }}
             type="button"
           >
@@ -273,7 +273,7 @@ export function StackCreatePage() {
             disabled={createMutation.isPending}
             type="submit"
           >
-            {createMutation.isPending ? "Creating..." : "Create stack"}
+            {createMutation.isPending ? "Creating..." : "Create changeset"}
           </button>
         </div>
       </form>

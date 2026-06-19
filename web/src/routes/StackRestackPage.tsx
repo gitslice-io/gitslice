@@ -91,13 +91,13 @@ export function StackRestackPage() {
     return (
       <ActionMessage
         message={getErrorMessage(stackQuery.error)}
-        title="Unable to load stack"
+        title="Unable to load dependencies"
       />
     );
   }
 
   if (!stack) {
-    return <ActionMessage message="The API returned no stack." title="Stack not found" />;
+    return <ActionMessage message="The API returned no dependency tree." title="Dependency tree not found" />;
   }
 
   return (
@@ -105,13 +105,13 @@ export function StackRestackPage() {
       <div className="mb-4">
         <Breadcrumb
           items={[
-            { label: "Stacks", to: "/stacks" },
+            { label: "Dependencies", to: "/dependencies" },
             {
               label: shortStackId(stack.id) || stackDisplayName(stack),
               params: { id: stackId },
-              to: "/stacks/$id"
+              to: "/dependencies/$id"
             },
-            { label: "Restack" }
+            { label: "Update" }
           ]}
         />
       </div>
@@ -121,15 +121,15 @@ export function StackRestackPage() {
           <button
             className={secondaryButtonClass}
             onClick={() => {
-              void navigate({ params: { id: stackId }, to: "/stacks/$id" });
+              void navigate({ params: { id: stackId }, to: "/dependencies/$id" });
             }}
             type="button"
           >
-            Back to stack
+            Back to dependencies
           </button>
         }
-        description="Preview the subtree that will be replayed, then create restack patchsets through the server."
-        eyebrow="Stack restack"
+        description="Preview the dependent changesets that will be replayed, then create updated patchsets through the server."
+        eyebrow="Update dependents"
         title={stackDisplayName(stack)}
       />
 
@@ -138,7 +138,7 @@ export function StackRestackPage() {
           <RestackPreview entries={previewEntries} />
           <RestackResult entries={restackMutation.data?.entries ?? []} />
           {restackMutation.isError ? (
-            <SliceNotice title="Restack failed" tone="error">
+            <SliceNotice title="Update failed" tone="error">
               {getErrorMessage(restackMutation.error)}
             </SliceNotice>
           ) : null}
@@ -148,9 +148,9 @@ export function StackRestackPage() {
           className="grid content-start gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
           onSubmit={submit}
         >
-          <h2 className="text-sm font-semibold text-zinc-950">Restack options</h2>
+          <h2 className="text-sm font-semibold text-zinc-950">Update options</h2>
           <label className="grid gap-2 text-sm font-medium text-zinc-800">
-            Restack from
+            Update from
             <select
               className={inputClass}
               onChange={(event) => setStartEntryId(event.target.value)}
@@ -186,7 +186,7 @@ export function StackRestackPage() {
             disabled={!defaultStartId || restackMutation.isPending}
             type="submit"
           >
-            {restackMutation.isPending ? "Restacking..." : "Restack"}
+            {restackMutation.isPending ? "Updating..." : "Update dependents"}
           </button>
         </form>
       </div>
@@ -201,8 +201,8 @@ function RestackPreview({
 }) {
   if (!entries.length) {
     return (
-      <SliceNotice title="No affected entries">
-        This stack has no entry that can be restacked from the selected point.
+      <SliceNotice title="No affected changesets">
+        This dependency tree has no changeset that can be updated from the selected point.
       </SliceNotice>
     );
   }
@@ -210,7 +210,7 @@ function RestackPreview({
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-zinc-950">Affected entries</h2>
+        <h2 className="text-sm font-semibold text-zinc-950">Affected changesets</h2>
       </div>
       <div className="divide-y divide-slate-200">
         {entries.map((entry) => (
@@ -234,8 +234,8 @@ function RestackPreview({
 function RestackResult({ entries }: { entries: Changeset[] }) {
   if (!entries.length) {
     return (
-      <SliceNotice title="No restack result yet">
-        Run restack to create new patchsets or confirm that selected entries are unchanged.
+      <SliceNotice title="No update result yet">
+        Run update to create new patchsets or confirm that selected changesets are unchanged.
       </SliceNotice>
     );
   }
@@ -250,7 +250,7 @@ function RestackResult({ entries }: { entries: Changeset[] }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-zinc-950">Restack result</h2>
+        <h2 className="text-sm font-semibold text-zinc-950">Update result</h2>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
@@ -341,7 +341,9 @@ function RestackConflictDetail({
           </div>
           <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-600">
             <span className="rounded border border-rose-200 bg-rose-50 px-2 py-1 font-semibold text-rose-800">
-              {conflict.conflictClass || "conflict"}
+              {conflict.conflictClass === "restack"
+                ? "base update"
+                : conflict.conflictClass || "conflict"}
             </span>
             <span>{changeset.handle || detailId || "changeset"}</span>
           </div>

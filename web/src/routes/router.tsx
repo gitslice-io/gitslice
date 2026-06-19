@@ -135,31 +135,31 @@ const changesetsRoute = createRoute({
 
 const stacksRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "stacks",
+  path: "dependencies",
   component: StacksPage
 });
 
 const stackCreateRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "stacks/new",
+  path: "dependencies/new",
   component: StackCreatePage
 });
 
 const stackDetailRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "stacks/$id",
+  path: "dependencies/$id",
   component: StackDetailPage
 });
 
 const stackRestackRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "stacks/$id/restack",
+  path: "dependencies/$id/update",
   component: StackRestackPage
 });
 
 const stackSubmitRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "stacks/$id/submit",
+  path: "dependencies/$id/submit",
   component: StackSubmitPage
 });
 

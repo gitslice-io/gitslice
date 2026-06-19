@@ -30,6 +30,7 @@ import {
   conflictCount,
   currentPatchset,
   currentPatchsetNumber,
+  displaySubmitBlockedReason,
   entryByChangesetId,
   entryDepth,
   entryLabel,
@@ -99,12 +100,12 @@ export function StackDetailPage() {
     void navigate({
       params: { id: stackId },
       search: entryId ? ({ entry: entryId } as never) : ({} as never),
-      to: "/stacks/$id"
+      to: "/dependencies/$id"
     });
   };
 
   if (!stackId) {
-    return <StackMessage message="No stack id was provided." title="Missing stack" />;
+    return <StackMessage message="No dependency tree id was provided." title="Missing dependency tree" />;
   }
 
   if (stackQuery.isLoading) {
@@ -119,13 +120,13 @@ export function StackDetailPage() {
     return (
       <StackMessage
         message={getErrorMessage(stackQuery.error)}
-        title="Unable to load stack"
+        title="Unable to load dependency tree"
       />
     );
   }
 
   if (!stack) {
-    return <StackMessage message="The API returned no stack." title="Stack not found" />;
+    return <StackMessage message="The API returned no dependency tree." title="Dependency tree not found" />;
   }
 
   const sliceLabel = sliceRefLabel(stack.authoringSlice);
@@ -135,13 +136,13 @@ export function StackDetailPage() {
       <div className="mb-4">
         <Breadcrumb
           items={[
-            { label: "Stacks", to: "/stacks" },
+            { label: "Dependencies", to: "/dependencies" },
             ...(sliceLabel
               ? [
                   {
                     label: sliceLabel,
                     search: { slice: sliceLabel },
-                    to: "/stacks"
+                    to: "/dependencies"
                   }
                 ]
               : []),
@@ -154,14 +155,14 @@ export function StackDetailPage() {
 
       {actionMessage ? (
         <div className="mt-5">
-          <SliceNotice title="Stack updated" tone="success">
+          <SliceNotice title="Dependencies updated" tone="success">
             {actionMessage}
           </SliceNotice>
         </div>
       ) : null}
       {actionError ? (
         <div className="mt-5">
-          <SliceNotice title="Stack action failed" tone="error">
+          <SliceNotice title="Dependency action failed" tone="error">
             {actionError}
           </SliceNotice>
         </div>
@@ -207,21 +208,21 @@ function StackHeader({ stack }: { stack: ChangesetStack }) {
           <Link
             className={secondaryButtonClass}
             params={{ id: stack.id || "" }}
-            to="/stacks/$id/restack"
+            to="/dependencies/$id/update"
           >
-            Restack
+            Update dependents
           </Link>
           <Link
             className={primaryButtonClass}
             params={{ id: stack.id || "" }}
-            to="/stacks/$id/submit"
+            to="/dependencies/$id/submit"
           >
-            Submit stack
+            Submit dependencies
           </Link>
         </div>
       }
       description={`${sliceLabel} on ${stack.targetRef || "target ref not returned"}`}
-      eyebrow="Stack"
+      eyebrow="Dependencies"
       title={stackDisplayName(stack)}
     />
   );
@@ -242,8 +243,8 @@ function StackEntryList({
 
   if (!entries.length) {
     return (
-      <SliceNotice title="No stack entries yet">
-        Use the add-entry form to create the root changeset for this stack.
+      <SliceNotice title="No dependent changesets yet">
+        Use the add changeset form to create the root changeset.
       </SliceNotice>
     );
   }
@@ -251,7 +252,7 @@ function StackEntryList({
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-zinc-950">Entries</h2>
+        <h2 className="text-sm font-semibold text-zinc-950">Changesets</h2>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
@@ -260,8 +261,8 @@ function StackEntryList({
               <th className="px-3 py-3 sm:px-4">Changeset</th>
               <th className="hidden px-4 py-3 sm:table-cell">State</th>
               <th className="hidden px-4 py-3 md:table-cell">Patchset</th>
-              <th className="hidden px-4 py-3 lg:table-cell">Parent</th>
-              <th className="hidden px-4 py-3 lg:table-cell">Children</th>
+              <th className="hidden px-4 py-3 lg:table-cell">Base</th>
+              <th className="hidden px-4 py-3 lg:table-cell">Dependents</th>
               <th className="hidden px-4 py-3 xl:table-cell">Paths</th>
               <th className="px-3 py-3 text-right sm:px-4">Open</th>
             </tr>
@@ -297,7 +298,7 @@ function StackEntryList({
                       </span>
                       {changeset?.submitBlockedReason ? (
                         <span className="mt-2 block rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900 lg:hidden">
-                          {changeset.submitBlockedReason}
+                          {displaySubmitBlockedReason(changeset.submitBlockedReason)}
                         </span>
                       ) : null}
                     </button>
@@ -327,7 +328,7 @@ function StackEntryList({
                             entry.changesetId ||
                             ""
                         }}
-                        search={{ stack: stackId } as never}
+                        search={{ dependency: stackId } as never}
                         to="/cs/$id"
                       >
                         Detail
@@ -357,8 +358,8 @@ function SelectedEntryDetail({
 }) {
   if (!entry) {
     return (
-      <SliceNotice title="Select an entry">
-        Choose an entry in the stack tree to inspect its metadata and diff.
+      <SliceNotice title="Select a changeset">
+        Choose a changeset in the dependency tree to inspect metadata and diff.
       </SliceNotice>
     );
   }
@@ -391,7 +392,7 @@ function SelectedEntryDetail({
           <Link
             className={secondaryButtonClass}
             params={{ id: changesetUrlId }}
-            search={{ stack: stack.id } as never}
+            search={{ dependency: stack.id } as never}
             to="/cs/$id"
           >
             Open changeset
@@ -399,9 +400,9 @@ function SelectedEntryDetail({
         </div>
 
         <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Metadata label="Parent" value={parent ? entryLabel(parent) : "root"} />
+          <Metadata label="Base changeset" value={parent ? entryLabel(parent) : "root"} />
           <Metadata
-            label="Parent patchset"
+            label="Base patchset"
             value={entry.parentPatchsetId || changeset?.parentPatchsetId || "none"}
           />
           <Metadata label="Depth" value={String(entryDepth(entry))} />
@@ -417,7 +418,7 @@ function SelectedEntryDetail({
 
         {changeset?.submitBlockedReason ? (
           <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {changeset.submitBlockedReason}
+            {displaySubmitBlockedReason(changeset.submitBlockedReason)}
           </div>
         ) : null}
       </div>
@@ -653,10 +654,10 @@ function StackTreeControls({
 function StackMetadataPanel({ stack }: { stack: ChangesetStack }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
-      <h2 className="text-sm font-semibold text-zinc-950">Stack metadata</h2>
+      <h2 className="text-sm font-semibold text-zinc-950">Dependency metadata</h2>
       <dl className="mt-4 grid gap-4">
         <Metadata label="Status" value={<StackStatusBadge status={stack.status} />} />
-        <Metadata label="Stack id" value={stack.id || "not returned"} />
+        <Metadata label="Dependency id" value={stack.id || "not returned"} />
         <Metadata label="Base" value={formatCommit(stack.baseCommitId)} />
         <Metadata label="Target" value={stack.targetRef || "not returned"} />
         <Metadata label="Created" value={formatTimestamp(stack.createdAt)} />
@@ -688,10 +689,10 @@ function AddPatchsetPanel({
   const patchsetMutation = useMutation({
     mutationFn: async () => {
       if (!selectedEntry?.changesetId || !selectedEntry.changeset) {
-        throw new Error("Choose a stack entry before adding a patchset.");
+        throw new Error("Choose a changeset before adding a patchset.");
       }
       if (!stack.authoringSlice?.account || !stack.authoringSlice.slice) {
-        throw new Error("This stack did not return an authoring slice.");
+        throw new Error("This dependency tree did not return an authoring slice.");
       }
 
       const trimmedPath = filePath.trim();
@@ -705,7 +706,7 @@ function AddPatchsetPanel({
         : null;
       const parentPatchset = parent ? currentPatchset(parent.changeset) : null;
       if (selectedEntry.parentChangesetId && !parentPatchset?.id) {
-        throw new Error("The selected entry's parent has no current patchset.");
+        throw new Error("The selected changeset's base has no current patchset.");
       }
 
       const uploaded = await api.uploadBlob({
@@ -763,17 +764,17 @@ function AddPatchsetPanel({
     >
       <h2 className="text-sm font-semibold text-zinc-950">Add patchset</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Revise the selected entry without creating a child or sibling.
+        Revise the selected changeset without creating a dependent changeset.
       </p>
       <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
-        Selected entry
+        Selected changeset
         <input
           className={inputClass}
           disabled
           value={
             selectedEntry
               ? `${entryLabel(selectedEntry)} patchset ${currentPatchsetNumber(selectedEntry.changeset)}`
-              : "Choose an entry"
+              : "Choose a changeset"
           }
         />
       </label>
@@ -843,7 +844,7 @@ function AddEntryPanel({
   const addMutation = useMutation({
     mutationFn: async () => {
       if (!stackId) {
-        throw new Error("This stack did not return an id.");
+        throw new Error("This dependency tree did not return an id.");
       }
       const trimmedTitle = title.trim();
       if (!trimmedTitle) {
@@ -851,7 +852,7 @@ function AddEntryPanel({
       }
 
       if (mode === "sibling" && selectedEntry && !selectedEntry.parentChangesetId) {
-        throw new Error("The root entry cannot have a sibling in the same stack.");
+        throw new Error("The root changeset cannot have a sibling.");
       }
 
       const effectiveParentId =
@@ -861,7 +862,7 @@ function AddEntryPanel({
       const parent = effectiveParentId ? entryByChangesetId(entries, effectiveParentId) : null;
       const parentPatchset = parent ? currentPatchset(parent.changeset)?.id : "";
       if (parent && !parentPatchset) {
-        throw new Error("The selected parent has no current patchset.");
+        throw new Error("The selected base changeset has no current patchset.");
       }
 
       return api.addStackEntry({
@@ -880,7 +881,7 @@ function AddEntryPanel({
     onSuccess: async (changeset) => {
       setTitle("");
       setDescription("");
-      onMessage("Entry created.");
+      onMessage("Changeset created.");
       await onRefresh();
       if (changeset.id) {
         onSelect(changeset.id);
@@ -898,7 +899,7 @@ function AddEntryPanel({
       className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
       onSubmit={submit}
     >
-      <h2 className="text-sm font-semibold text-zinc-950">Add entry</h2>
+      <h2 className="text-sm font-semibold text-zinc-950">Add changeset</h2>
       <div className="mt-4 grid grid-cols-2 rounded-md border border-slate-300 bg-slate-50 p-1">
         {(["child", "sibling"] as const).map((option) => (
           <button
@@ -912,12 +913,12 @@ function AddEntryPanel({
             onClick={() => setMode(option)}
             type="button"
           >
-            {option === "child" ? "Child" : "Sibling"}
+            {option === "child" ? "Dependent" : "Sibling"}
           </button>
         ))}
       </div>
       <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
-        Parent entry
+        Base changeset
         <select
           className={inputClass}
           disabled={!entries.length || mode === "sibling"}
@@ -925,7 +926,7 @@ function AddEntryPanel({
           value={parentId}
         >
           <option disabled={entries.length > 0 && mode === "child"} value="">
-            Root entry
+            Root changeset
           </option>
           {entries.map((entry) => (
             <option key={entry.changesetId} value={entry.changesetId}>
@@ -957,7 +958,7 @@ function AddEntryPanel({
         disabled={addMutation.isPending}
         type="submit"
       >
-        {addMutation.isPending ? "Adding..." : mode === "child" ? "Add child" : "Add sibling"}
+        {addMutation.isPending ? "Adding..." : mode === "child" ? "Add dependent" : "Add sibling"}
       </button>
     </form>
   );
@@ -994,18 +995,18 @@ function MoveEntryPanel({
   const moveMutation = useMutation({
     mutationFn: async () => {
       if (!stackId) {
-        throw new Error("This stack did not return an id.");
+        throw new Error("This dependency tree did not return an id.");
       }
       if (!changesetId) {
-        throw new Error("Choose an entry to move.");
+        throw new Error("Choose a changeset to move.");
       }
       const parent = parentId ? entryByChangesetId(entries, parentId) : null;
       if (parent?.changesetId === changesetId) {
-        throw new Error("An entry cannot be its own parent.");
+        throw new Error("A changeset cannot be based on itself.");
       }
       const parentPatchsetId = parent ? currentPatchset(parent.changeset)?.id : "";
       if (parent && !parentPatchsetId) {
-        throw new Error("The new parent has no current patchset.");
+        throw new Error("The new base has no current patchset.");
       }
 
       await api.reparentStackEntry({
@@ -1030,8 +1031,8 @@ function MoveEntryPanel({
       const count = result.entries?.length ?? 0;
       onMessage(
         count
-          ? `Entry moved and ${count} stack entries restacked.`
-          : "Entry moved. No patchsets needed restack."
+          ? `Changeset moved and ${count} dependents updated.`
+          : "Changeset moved. No dependent patchsets needed updates."
       );
       await onRefresh();
       onSelect(changesetId);
@@ -1048,9 +1049,9 @@ function MoveEntryPanel({
       className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
       onSubmit={submit}
     >
-      <h2 className="text-sm font-semibold text-zinc-950">Move and restack</h2>
+      <h2 className="text-sm font-semibold text-zinc-950">Move to base</h2>
       <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
-        Entry
+        Changeset
         <select
           className={inputClass}
           onChange={(event) => setChangesetId(event.target.value)}
@@ -1064,7 +1065,7 @@ function MoveEntryPanel({
         </select>
       </label>
       <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
-        New parent
+        New base
         <select
           className={inputClass}
           onChange={(event) => setParentId(event.target.value)}
@@ -1095,7 +1096,7 @@ function MoveEntryPanel({
         disabled={moveMutation.isPending || entries.length === 0}
         type="submit"
       >
-        {moveMutation.isPending ? "Moving..." : "Move and restack"}
+        {moveMutation.isPending ? "Moving..." : "Move and update"}
       </button>
     </form>
   );

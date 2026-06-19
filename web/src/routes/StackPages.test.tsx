@@ -36,7 +36,7 @@ vi.mock("../components/diff/DiffViewer", () => ({
   DiffViewer: () => <div data-testid="diff-viewer">Diff viewer</div>
 }));
 
-describe("stack route pages", () => {
+describe("dependency route pages", () => {
   beforeEach(() => {
     routerMock.navigate = vi.fn();
     routerMock.params = { id: "stk_parser" };
@@ -49,30 +49,30 @@ describe("stack route pages", () => {
     vi.clearAllMocks();
   });
 
-  it("renders stack entry order, parent links, active detail, and separate actions", async () => {
+  it("renders dependency order, base links, active detail, and separate actions", async () => {
     renderRoute(<StackDetailPage />);
 
     expect(await screen.findByText("payment parser rollout")).toBeInTheDocument();
-    expect(screen.getByText("Entries")).toBeInTheDocument();
+    expect(screen.getByText("Changesets")).toBeInTheDocument();
     expect(screen.getByText("introduce parser")).toBeInTheDocument();
     expect(screen.getAllByText("use parser in payment API").length).toBeGreaterThan(0);
     expect(screen.getByText("expose parser metrics")).toBeInTheDocument();
-    expect(screen.getByText("Parent patchset")).toBeInTheDocument();
-    expect(screen.getAllByText("NeedsRestack").length).toBeGreaterThan(0);
+    expect(screen.getByText("Base patchset")).toBeInTheDocument();
+    expect(screen.getAllByText("needs update").length).toBeGreaterThan(0);
 
     expect(screen.getByRole("heading", { name: "Add patchset" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add patchset" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Add entry" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Child" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add child" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Add changeset" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dependent" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add dependent" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Sibling" }));
     expect(screen.getByRole("button", { name: "Add sibling" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Move and restack" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Move and restack" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Move to base" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move and update" })).toBeInTheDocument();
   });
 
-  it("shows clean and conflicted restack results with conflict metadata", async () => {
+  it("shows clean and conflicted update results with conflict metadata", async () => {
     const api = makeApi();
     api.restack = vi.fn().mockResolvedValue({
       entries: [
@@ -103,19 +103,19 @@ describe("stack route pages", () => {
 
     renderRoute(<StackRestackPage />);
 
-    expect(await screen.findByText("Affected entries")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Restack" }));
+    expect(await screen.findByText("Affected changesets")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Update dependents" }));
 
-    expect(await screen.findByText("Restack result")).toBeInTheDocument();
+    expect(await screen.findByText("Update result")).toBeInTheDocument();
     expect(screen.getAllByText("use parser in payment API").length).toBeGreaterThan(0);
     expect(screen.getAllByText("update tests for API behavior").length).toBeGreaterThan(0);
     expect(screen.getByText("Conflict details")).toBeInTheDocument();
     expect(screen.getByText("/acme/payment/conflict.go")).toBeInTheDocument();
-    expect(screen.getByText("restack")).toBeInTheDocument();
+    expect(screen.getByText("base update")).toBeInTheDocument();
     expect(screen.getByText("sha256:remote")).toBeInTheDocument();
   });
 
-  it("shows stack submit progress for accepted, pending, submitted, and blocked entries", async () => {
+  it("shows dependency submit progress for accepted, pending, submitted, and blocked changesets", async () => {
     const api = makeApi();
     api.submitStack = vi.fn().mockResolvedValue({
       results: [
@@ -140,7 +140,7 @@ describe("stack route pages", () => {
     renderRoute(<StackSubmitPage />);
 
     expect(await screen.findByText("Submit order")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Submit stack" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit dependencies" }));
 
     expect(await screen.findByText("Submit result")).toBeInTheDocument();
     expect(screen.getByText("accepted")).toBeInTheDocument();
@@ -150,9 +150,9 @@ describe("stack route pages", () => {
     expect(screen.getByText("required check unit failed")).toBeInTheDocument();
   });
 
-  it("links changeset detail back to stack context", async () => {
+  it("links changeset detail back to dependency context", async () => {
     routerMock.params = { id: "cs_child" };
-    routerMock.search = { stack: "stk_parser" };
+    routerMock.search = { dependency: "stk_parser" };
     apiMock.current = {
       ...makeApi(),
       getChangeset: vi.fn().mockResolvedValue(
@@ -167,8 +167,8 @@ describe("stack route pages", () => {
     renderRoute(<ChangesetDetailPage />);
 
     expect(await screen.findByText("use parser in payment API")).toBeInTheDocument();
-    expect(screen.getByText(/^Stack /)).toBeInTheDocument();
-    expect(screen.getByText(/^stack /)).toBeInTheDocument();
+    expect(screen.getByText(/^Dependencies /)).toBeInTheDocument();
+    expect(screen.getByText(/^dependencies /)).toBeInTheDocument();
   });
 });
 

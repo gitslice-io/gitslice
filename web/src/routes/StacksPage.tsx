@@ -5,7 +5,6 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { ChangesetStack, SliceRef } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
-import { ChangesetWorkflowTabs } from "../components/ChangesetWorkflowTabs";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -63,7 +62,7 @@ export function StacksPage() {
         <Breadcrumb
           items={[
             { label: "Slices", to: "/slices" },
-            sliceLabel ? { label: sliceLabel } : { label: "Stacks" }
+            sliceLabel ? { label: sliceLabel } : { label: "Dependencies" }
           ]}
         />
       </div>
@@ -72,40 +71,36 @@ export function StacksPage() {
           <Link
             className={secondaryButtonClass}
             search={sliceLabel ? ({ slice: sliceLabel } as never) : undefined}
-            to="/stacks/new"
+            to="/dependencies/new"
           >
-            Create stack
+            Create changeset
           </Link>
         }
         description={
           sliceLabel
-            ? "Review stack trees, open individual entries, and start stack-level restack or submit flows."
-            : "Open a stack by id, or choose a slice scope to list active stack review trees."
+            ? "Review dependency trees, open individual changesets, and update or submit related changesets together."
+            : "Open a dependency tree by id, or choose a slice scope to list active dependent changesets."
         }
-        eyebrow="Stacks"
-        title={sliceLabel ? `${sliceLabel} · Stacks` : "Stacks"}
-      />
-      <ChangesetWorkflowTabs
-        active="stacks"
-        sliceLabel={sliceLabel || undefined}
+        eyebrow="Dependencies"
+        title={sliceLabel ? `${sliceLabel} · Dependencies` : "Dependencies"}
       />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0">
           {!sliceRef ? (
-            <SliceNotice title="Choose a slice to list stacks">
-              Stack lists are slice-scoped. Use the lookup panel to open a known
-              stack directly, or enter an account and slice to list stacks.
+            <SliceNotice title="Choose a slice to list dependencies">
+              Dependency lists are slice-scoped. Use the lookup panel to open a
+              known dependency tree directly, or enter an account and slice.
             </SliceNotice>
           ) : stacksQuery.isLoading ? (
             <SliceLoadingBlock />
           ) : stacksQuery.isError ? (
-            <SliceNotice title="Could not load stacks" tone="error">
+            <SliceNotice title="Could not load dependencies" tone="error">
               {getErrorMessage(stacksQuery.error)}
             </SliceNotice>
           ) : stacks.length === 0 ? (
-            <SliceNotice title="No stacks for this slice yet">
-              New stack review trees created against this slice will appear here.
+            <SliceNotice title="No dependent changesets for this slice yet">
+              Changesets with base changesets will appear here.
             </SliceNotice>
           ) : (
             <StacksTable stacks={stacks} />
@@ -122,7 +117,7 @@ export function StacksPage() {
                   slice: nextSlice,
                   ...(nextStatus ? { status: nextStatus } : {})
                 } as never,
-                to: "/stacks"
+                to: "/dependencies"
               });
             }}
           />
@@ -130,7 +125,7 @@ export function StacksPage() {
             onOpen={(id) => {
               void navigate({
                 params: { id },
-                to: "/stacks/$id"
+                to: "/dependencies/$id"
               });
             }}
           />
@@ -147,9 +142,9 @@ function StacksTable({ stacks }: { stacks: ChangesetStack[] }) {
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
           <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
             <tr>
-              <th className="px-3 py-3 sm:px-4">Stack</th>
+              <th className="px-3 py-3 sm:px-4">Dependency tree</th>
               <th className="hidden px-4 py-3 sm:table-cell">Status</th>
-              <th className="hidden px-4 py-3 md:table-cell">Entries</th>
+              <th className="hidden px-4 py-3 md:table-cell">Changesets</th>
               <th className="hidden px-4 py-3 lg:table-cell">Base</th>
               <th className="hidden px-4 py-3 lg:table-cell">Updated</th>
               <th className="px-3 py-3 text-right sm:px-4">Actions</th>
@@ -162,7 +157,7 @@ function StacksTable({ stacks }: { stacks: ChangesetStack[] }) {
                   <Link
                     className="group min-w-0"
                     params={{ id: stack.id || "" }}
-                    to="/stacks/$id"
+                    to="/dependencies/$id"
                   >
                     <span className="block break-words font-semibold text-zinc-950 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
                       {stackDisplayName(stack)}
@@ -192,14 +187,14 @@ function StacksTable({ stacks }: { stacks: ChangesetStack[] }) {
                     <Link
                       className={cn(secondaryButtonClass, "px-3 py-2")}
                       params={{ id: stack.id || "" }}
-                      to="/stacks/$id/restack"
+                      to="/dependencies/$id/update"
                     >
-                      Restack
+                      Update
                     </Link>
                     <Link
                       className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px"
                       params={{ id: stack.id || "" }}
-                      to="/stacks/$id/submit"
+                      to="/dependencies/$id/submit"
                     >
                       Submit
                     </Link>
@@ -259,7 +254,7 @@ function StackScopeForm({
           onChange={(event) => setStatus(event.target.value)}
           value={status}
         >
-          <option value="">Active stacks</option>
+          <option value="">Active dependencies</option>
           <option value="open">Open</option>
           <option value="partial">Partial</option>
           <option value="closed">Closed</option>
@@ -267,7 +262,7 @@ function StackScopeForm({
       </label>
       {error ? <p className="mt-2 text-sm text-rose-700">{error}</p> : null}
       <button className="mt-5 w-full rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px" type="submit">
-        List stacks
+        List dependencies
       </button>
     </form>
   );
@@ -281,7 +276,7 @@ function OpenStackForm({ onOpen }: { onOpen(id: string): void }) {
     event.preventDefault();
     const id = stackId.trim();
     if (!id) {
-      setError("Enter a stack id.");
+      setError("Enter a dependency tree id.");
       return;
     }
     setError("");
@@ -294,7 +289,7 @@ function OpenStackForm({ onOpen }: { onOpen(id: string): void }) {
       onSubmit={submit}
     >
       <label className="grid gap-2 text-sm font-medium text-zinc-800">
-        Open stack
+        Open dependency tree
         <input
           className={inputClass}
           onChange={(event) => setStackId(event.target.value)}

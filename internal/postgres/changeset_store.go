@@ -1729,7 +1729,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 			return nil, err
 		}
 		if parentStatus != "submitted" && parentStatus != "pending_publish" {
-			return nil, blockSubmitTx(ctx, tx, cs.ID, "BlockedOnStackParent")
+			return nil, blockSubmitTx(ctx, tx, cs.ID, "BlockedOnBaseChangeset")
 		}
 	}
 	latestReq, latestIncludedPaths, err := submitRequirementsAndIncludedPathsForSliceTx(ctx, tx, cs.SliceID)
