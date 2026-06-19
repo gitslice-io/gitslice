@@ -72,7 +72,6 @@ export function DiffViewer({
   );
   const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
   const [activeId, setActiveId] = useState<string | undefined>();
-  const [showDiffs, setShowDiffs] = useState(false);
   const [mountedDiffBodies, setMountedDiffBodies] = useState<MountedDiffBodies>(
     () => ({
       files: [],
@@ -95,16 +94,6 @@ export function DiffViewer({
       window.localStorage.setItem(diffViewStorageKey, viewMode);
     }
   }, [viewMode]);
-
-  useEffect(() => {
-    if (
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(min-width: 1024px)").matches
-    ) {
-      setShowDiffs(true);
-    }
-  }, []);
 
   // Reset collapse state whenever a new diff loads.
   useEffect(() => {
@@ -163,7 +152,7 @@ export function DiffViewer({
 
       return { files, ids: next };
     });
-  }, [files, showDiffs]);
+  }, [files]);
 
   useEffect(() => {
     if (!files.length || typeof IntersectionObserver === "undefined") {
@@ -199,7 +188,7 @@ export function DiffViewer({
     });
 
     return () => observer.disconnect();
-  }, [files, showDiffs]);
+  }, [files]);
 
   useEffect(() => {
     if (!files.length) {
@@ -279,7 +268,6 @@ export function DiffViewer({
   const selectFile = (id: string) => {
     setActiveId(id);
     mountFileBody(id);
-    setShowDiffs(true);
     window.setTimeout(() => {
       document.getElementById(id)?.scrollIntoView({
         behavior: "smooth",
@@ -311,21 +299,7 @@ export function DiffViewer({
             </div>
           </div>
           <div className="flex shrink-0 items-center justify-end gap-1.5 md:gap-2">
-            <button
-              aria-pressed={showDiffs}
-              className={cn(
-                "h-8 rounded-md border px-2.5 text-xs font-medium transition active:scale-[0.98] md:h-9 md:px-3 md:text-sm",
-                showDiffs
-                  ? "border-zinc-950 bg-zinc-950 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-              )}
-              disabled={!hasTextualDiff}
-              onClick={() => setShowDiffs((value) => !value)}
-              type="button"
-            >
-              {showDiffs ? "Hide diff" : "Show diff"}
-            </button>
-            {showDiffs ? (
+            {!isLoading && hasTextualDiff ? (
               <ViewModeToggle value={viewMode} onChange={setViewMode} />
             ) : null}
           </div>
@@ -339,42 +313,33 @@ export function DiffViewer({
           <DiffErrorBox message={errorMessage(error)} />
         </div>
       ) : hasTextualDiff ? (
-        <div
-          className={cn(
-            "grid gap-3 p-3 md:p-4",
-            showDiffs && "lg:grid-cols-[20rem_minmax(0,1fr)]"
-          )}
-        >
-          <aside
-            className={cn(
-              "lg:sticky lg:top-20 lg:self-start",
-              !showDiffs && "lg:max-w-xl"
-            )}
-          >
+        <div className="grid gap-3 p-3 md:p-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+          <aside className="lg:sticky lg:top-20 lg:self-start">
             <ChangedFilesTree
               activeId={activeId}
+              changedCount={changedCount}
               files={files}
-              mobileCompact={showDiffs}
+              mobileCompact
               onSelect={selectFile}
+              totalAdditions={totalAdditions}
+              totalDeletions={totalDeletions}
             />
           </aside>
-          {showDiffs ? (
-            <div className="grid min-w-0 gap-3 md:gap-4">
-              {files.map((file) => (
-                <DiffFilePanel
-                  file={file}
-                  isBodyMounted={mountedFileIds?.has(file.id) ?? false}
-                  key={file.id}
-                  onExpand={expandGap}
-                  refCallback={(node) => {
-                    panelRefs.current[file.id] = node;
-                  }}
-                  revealed={revealed}
-                  viewMode={viewMode}
-                />
-              ))}
-            </div>
-          ) : null}
+          <div className="grid min-w-0 gap-3 md:gap-4">
+            {files.map((file) => (
+              <DiffFilePanel
+                file={file}
+                isBodyMounted={mountedFileIds?.has(file.id) ?? false}
+                key={file.id}
+                onExpand={expandGap}
+                refCallback={(node) => {
+                  panelRefs.current[file.id] = node;
+                }}
+                revealed={revealed}
+                viewMode={viewMode}
+              />
+            ))}
+          </div>
         </div>
       ) : (
         <div className="p-5 md:p-6">

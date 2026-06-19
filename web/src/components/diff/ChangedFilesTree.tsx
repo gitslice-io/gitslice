@@ -6,9 +6,12 @@ import type { DiffFile, FileChangeKind } from "./parseDiff";
 
 interface ChangedFilesTreeProps {
   activeId?: string;
+  changedCount?: number;
   files: DiffFile[];
   mobileCompact?: boolean;
   onSelect(id: string): void;
+  totalAdditions?: number;
+  totalDeletions?: number;
 }
 
 interface DirectoryNode {
@@ -36,14 +39,23 @@ interface BuildDirectory {
 
 export function ChangedFilesTree({
   activeId,
+  changedCount,
   files,
   mobileCompact,
-  onSelect
+  onSelect,
+  totalAdditions,
+  totalDeletions
 }: ChangedFilesTreeProps) {
   const tree = useMemo(() => buildTree(files), [files]);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(
     () => new Set()
   );
+  const summaryChangedCount = changedCount ?? files.length;
+  const summaryAdditions =
+    totalAdditions ?? files.reduce((total, file) => total + file.additions, 0);
+  const summaryDeletions =
+    totalDeletions ?? files.reduce((total, file) => total + file.deletions, 0);
 
   const toggleDirectory = (path: string) => {
     setCollapsedPaths((current) => {
@@ -57,6 +69,13 @@ export function ChangedFilesTree({
     });
   };
 
+  const selectFile = (id: string) => {
+    onSelect(id);
+    if (mobileCompact) {
+      setMobileOpen(false);
+    }
+  };
+
   if (files.length === 0) {
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
@@ -67,14 +86,48 @@ export function ChangedFilesTree({
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
+      {mobileCompact ? (
+        <button
+          aria-expanded={mobileOpen}
+          className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 bg-slate-50 px-3 py-2.5 text-left transition hover:bg-slate-100 lg:hidden"
+          onClick={() => setMobileOpen((value) => !value)}
+          type="button"
+        >
+          <span className="min-w-0 truncate text-sm font-semibold text-zinc-950">
+            {summaryChangedCount} {summaryChangedCount === 1 ? "file" : "files"}{" "}
+            changed
+          </span>
+          <span className="flex shrink-0 gap-1.5 font-mono text-xs">
+            <span className="text-emerald-700">+{summaryAdditions}</span>
+            <span className="text-slate-300">/</span>
+            <span className="text-rose-700">-{summaryDeletions}</span>
+          </span>
+          <span
+            aria-hidden="true"
+            className={cn(
+              "inline-block w-3 shrink-0 text-[10px] text-slate-400 transition-transform",
+              mobileOpen && "rotate-90"
+            )}
+          >
+            &gt;
+          </span>
+        </button>
+      ) : null}
+      <div
+        className={cn(
+          "border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500",
+          mobileCompact && "hidden lg:block"
+        )}
+      >
         Files
       </div>
       <div
         className={cn(
           "overflow-auto py-1 font-mono text-xs",
+          mobileCompact && "border-t border-slate-200 lg:border-t-0",
+          mobileCompact && (mobileOpen ? "block" : "hidden lg:block"),
           mobileCompact
-            ? "max-h-44 lg:max-h-[calc(100dvh-15rem)]"
+            ? "max-h-56 lg:max-h-[calc(100dvh-15rem)]"
             : "max-h-[68dvh] lg:max-h-[calc(100dvh-15rem)]"
         )}
       >
@@ -85,7 +138,7 @@ export function ChangedFilesTree({
             depth={0}
             key={node.path}
             node={node}
-            onSelect={onSelect}
+            onSelect={selectFile}
             onToggleDirectory={toggleDirectory}
           />
         ))}
