@@ -130,7 +130,7 @@ export interface ApiClient {
 }
 
 export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
-  const { getToken } = useAuth();
+  const { getToken, isLoaded, isSignedIn } = useAuth();
 
   const invoke = useCallback(
     async <TRequest, TResponse>(
@@ -138,7 +138,7 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
       method: string,
       request: TRequest
     ) => {
-      const token = await getToken();
+      const token = isLoaded && isSignedIn ? await getToken() : null;
       return callRpc<TRequest, TResponse>(
         service,
         method,
@@ -147,7 +147,7 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
         baseUrl
       );
     },
-    [baseUrl, getToken]
+    [baseUrl, getToken, isLoaded, isSignedIn]
   );
 
   return useMemo(
