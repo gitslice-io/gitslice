@@ -5517,3 +5517,38 @@ go build ./cmd/...
 npm --prefix web run build
 npm --prefix web test
 ```
+
+## 2026-06-19: Changeset Detail Patchset Comparison
+
+Request:
+
+- remove stack/dependency object framing from the changeset detail UI and let
+  users compare any two patchsets from a changeset
+
+Decisions:
+
+- kept base/dependent state visible as a direct `Base changeset` link on the
+  changeset detail header instead of a dependency breadcrumb or chip
+- added a patchset comparison panel to the changeset detail page that lists all
+  patchsets and drives the diff viewer through `Diff base` and
+  `Target patchset` selectors
+- used `Recorded base` for the stored patchset materialization base; selecting a
+  patchset as the diff base sends `from_patchset` and `to_patchset` to
+  `DiffChangeset` without changing the changeset's stored base
+- updated the dependent changesets and web interface design docs so patchset
+  comparison is documented as changeset-detail review state, not a stack or
+  dependency object workflow
+
+Verification:
+
+```bash
+npm --prefix web test -- StackPages.test.tsx
+npm --prefix web test
+npm --prefix web run build
+git diff --check
+```
+
+Build note:
+
+- `npm --prefix web run build` completed successfully and still reports the
+  existing Vite large-chunk warning for generated assets.

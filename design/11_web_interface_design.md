@@ -399,8 +399,15 @@ Supported behavior:
   commit, status, current patchset number, commit id, and pending publish id.
 - Keep canonical changeset and patchset ids available only in debug/details JSON,
   not as the primary visible label.
+- Show the base changeset as a direct `Base changeset` link when the changeset
+  is based on another changeset.
 - Display each patchset's changed paths, file edits, coverage, path bases, read
   set, write set, and raw submit requirement ids.
+- Display all patchsets on the changeset detail page. The diff controls should
+  use `Diff base` and `Target patchset`, with `Recorded base` comparing the
+  target patchset against its stored materialization base.
+- Allow comparing any two patchsets from the same changeset by calling
+  `DiffChangeset` with `from_patchset` and `to_patchset`.
 - Poll `GetChangeset` while status is `pending_publish`.
 - Call `SubmitChangeset` with `expected_current_patchset_id`.
 - Call `AbandonChangeset` with a reason.
@@ -409,7 +416,6 @@ Supported behavior:
 
 Not supported:
 
-- full server-reconstructed diffs for persisted patchsets
 - inline comments or general comments
 - approve/request-changes buttons
 - check-run status details
@@ -435,7 +441,8 @@ Query parameters:
 
 - Source browser: `?ref={known-ref}` or `?commit={commit-id}`.
 - Slice list: `?account={account}`.
-- Changeset detail: `?patchset={number}` selects a patchset to focus.
+- Changeset detail: patchset focus is selected in-page through `Diff base` and
+  `Target patchset`.
 
 ## 5. Component Tree
 

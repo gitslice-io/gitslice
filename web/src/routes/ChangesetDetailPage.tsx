@@ -1,27 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams, useSearch } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { Link, useParams } from "@tanstack/react-router";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
-import type { Changeset } from "../api/types";
+import type { Changeset, Patchset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
-import { displaySubmitBlockedReason, shortStackId } from "./stackPageUtils";
-
-interface ChangesetSearch {
-  dependency?: unknown;
-}
+import { displaySubmitBlockedReason, formatTimestamp } from "./stackPageUtils";
 
 export function ChangesetDetailPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const params = useParams({ strict: false }) as { id?: string };
-  const search = useSearch({ strict: false }) as ChangesetSearch;
   const changesetId = params.id ?? "";
   const [abandonReason, setAbandonReason] = useState("");
   const [actionError, setActionError] = useState("");
+  const [fromPatchset, setFromPatchset] = useState("");
+  const [toPatchset, setToPatchset] = useState("");
 
   const changesetQuery = useQuery({
     enabled: Boolean(changesetId),
@@ -36,9 +33,34 @@ export function ChangesetDetailPage() {
   const authoringAccount = changeset?.authoringSlice?.account ?? "";
   const authoringSlice = changeset?.authoringSlice?.slice ?? "";
   const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";
-  const stackId =
-    changeset?.stackId ||
-    (typeof search.dependency === "string" ? search.dependency.trim() : "");
+  const patchsets = useMemo(() => sortedPatchsets(changeset), [changeset]);
+  const patchsetIdsKey = patchsets.map((patchset) => patchset.id || "").join("|");
+  const selectedToPatchset =
+    toPatchset ||
+    changeset?.currentPatchsetId ||
+    patchsets[patchsets.length - 1]?.id ||
+    "";
+
+  useEffect(() => {
+    if (!changeset) {
+      setFromPatchset("");
+      setToPatchset("");
+      return;
+    }
+
+    const ids = new Set(
+      patchsets
+        .map((patchset) => patchset.id)
+        .filter((id): id is string => Boolean(id))
+    );
+    const defaultTo =
+      changeset.currentPatchsetId || patchsets[patchsets.length - 1]?.id || "";
+
+    setFromPatchset((current) =>
+      current === "" || ids.has(current) ? current : ""
+    );
+    setToPatchset((current) => (current && ids.has(current) ? current : defaultTo));
+  }, [changeset, patchsetIdsKey, patchsets]);
 
   const resolveSliceQuery = useQuery({
     enabled: Boolean(authoringAccount && authoringSlice),
@@ -51,8 +73,18 @@ export function ChangesetDetailPage() {
 
   const diffQuery = useQuery({
     enabled: Boolean(changeset && canonicalChangesetId),
-    queryKey: ["changesetDiff", changesetId],
-    queryFn: () => api.diffChangeset({ changesetId: canonicalChangesetId })
+    queryKey: [
+      "changesetDiff",
+      canonicalChangesetId,
+      fromPatchset,
+      selectedToPatchset
+    ],
+    queryFn: () =>
+      api.diffChangeset({
+        changesetId: canonicalChangesetId,
+        fromPatchset: fromPatchset || undefined,
+        toPatchset: selectedToPatchset || undefined
+      })
   });
 
   const invalidateChangeset = async () => {
@@ -150,8 +182,7 @@ export function ChangesetDetailPage() {
           items={changesetBreadcrumbItems({
             changeset,
             resolvedSliceId,
-            sliceSearch,
-            stackId
+            sliceSearch
           })}
         />
       </div>
@@ -166,8 +197,16 @@ export function ChangesetDetailPage() {
         onAbandon={submitAbandon}
         onAbandonReasonChange={setAbandonReason}
         onMerge={() => mergeMutation.mutate()}
-        stackId={stackId}
         terminal={terminal}
+      />
+
+      <PatchsetComparePanel
+        changeset={changeset}
+        fromPatchset={fromPatchset}
+        onFromPatchsetChange={setFromPatchset}
+        onToPatchsetChange={setToPatchset}
+        patchsets={patchsets}
+        toPatchset={selectedToPatchset}
       />
 
       <DiffViewer
@@ -190,7 +229,6 @@ function HeaderCard({
   onAbandon,
   onAbandonReasonChange,
   onMerge,
-  stackId,
   terminal
 }: {
   abandonPending: boolean;
@@ -202,7 +240,6 @@ function HeaderCard({
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
   onMerge(): void;
-  stackId: string;
   terminal: boolean;
 }) {
   // On small screens the diff is the priority, so the description, base commit,
@@ -234,13 +271,19 @@ function HeaderCard({
               </span>
               <span>{changeset.author || "author not returned"}</span>
               <StatusBadge status={changeset.status} />
-              {stackId ? (
+              {changeset.parentChangesetId ? (
                 <Link
                   className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950"
-                  params={{ id: stackId }}
-                  to="/dependencies/$id"
+                  params={{
+                    id:
+                      shortChangesetId(changeset.parentChangesetId) ||
+                      changeset.parentChangesetId
+                  }}
+                  to="/cs/$id"
                 >
-                  Dependencies {shortStackId(stackId) || stackId}
+                  Base changeset{" "}
+                  {shortChangesetId(changeset.parentChangesetId) ||
+                    changeset.parentChangesetId}
                 </Link>
               ) : null}
               <CopyLinkButton changesetId={changeset.id || ""} />
@@ -360,6 +403,250 @@ function ReviewActions({
   );
 }
 
+function PatchsetComparePanel({
+  changeset,
+  fromPatchset,
+  onFromPatchsetChange,
+  onToPatchsetChange,
+  patchsets,
+  toPatchset
+}: {
+  changeset: Changeset;
+  fromPatchset: string;
+  onFromPatchsetChange(value: string): void;
+  onToPatchsetChange(value: string): void;
+  patchsets: Patchset[];
+  toPatchset: string;
+}) {
+  const currentPatchsetId = changeset.currentPatchsetId || "";
+  const fromLabel = fromPatchset
+    ? patchsetOptionLabel(findPatchset(patchsets, fromPatchset))
+    : "Recorded base";
+  const toLabel = patchsetOptionLabel(findPatchset(patchsets, toPatchset));
+
+  return (
+    <section className="mt-5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+      <div className="border-b border-slate-200 px-5 py-4 md:px-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold uppercase tracking-normal text-slate-500">
+              Patchsets
+            </h2>
+            <p className="mt-2 break-words text-sm font-medium text-zinc-950">
+              Diff {fromLabel} to {toLabel || "selected patchset"}
+            </p>
+          </div>
+
+          <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-[30rem]">
+            <label className="grid gap-1 text-xs font-medium text-slate-600">
+              Diff base
+              <select
+                aria-label="Diff base"
+                className={selectClass}
+                onChange={(event) => onFromPatchsetChange(event.target.value)}
+                value={fromPatchset}
+              >
+                <option value="">Recorded base</option>
+                {patchsets.map((patchset) => (
+                  <option
+                    disabled={!patchset.id}
+                    key={`from-${patchsetKey(patchset)}`}
+                    value={patchset.id || ""}
+                  >
+                    {patchsetOptionLabel(patchset)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-1 text-xs font-medium text-slate-600">
+              Target patchset
+              <select
+                aria-label="Target patchset"
+                className={selectClass}
+                disabled={patchsets.length === 0}
+                onChange={(event) => onToPatchsetChange(event.target.value)}
+                value={toPatchset}
+              >
+                {patchsets.length ? (
+                  patchsets.map((patchset) => (
+                    <option
+                      disabled={!patchset.id}
+                      key={`to-${patchsetKey(patchset)}`}
+                      value={patchset.id || ""}
+                    >
+                      {patchsetOptionLabel(patchset)}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No patchsets</option>
+                )}
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {patchsets.length ? (
+        <div className="divide-y divide-slate-100">
+          {patchsets.map((patchset) => (
+            <PatchsetRow
+              currentPatchsetId={currentPatchsetId}
+              fromPatchset={fromPatchset}
+              key={patchsetKey(patchset)}
+              onFromPatchsetChange={onFromPatchsetChange}
+              onToPatchsetChange={onToPatchsetChange}
+              patchset={patchset}
+              toPatchset={toPatchset}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="px-5 py-4 text-sm text-slate-600 md:px-6">
+          No patchsets returned.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PatchsetRow({
+  currentPatchsetId,
+  fromPatchset,
+  onFromPatchsetChange,
+  onToPatchsetChange,
+  patchset,
+  toPatchset
+}: {
+  currentPatchsetId: string;
+  fromPatchset: string;
+  onFromPatchsetChange(value: string): void;
+  onToPatchsetChange(value: string): void;
+  patchset: Patchset;
+  toPatchset: string;
+}) {
+  const id = patchset.id || "";
+  const label = patchsetOptionLabel(patchset);
+  const changedPaths = patchset.changedPaths || [];
+  const conflictCount = patchset.conflicts?.length || 0;
+
+  return (
+    <article className="px-5 py-4 md:px-6">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-zinc-950">{label}</h3>
+            {id && id === currentPatchsetId ? (
+              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                Current
+              </span>
+            ) : null}
+            {conflictCount ? (
+              <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+                {conflictCount} conflict{conflictCount === 1 ? "" : "s"}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {patchset.author || "author not returned"} -{" "}
+            {formatTimestamp(patchset.createdAt)}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            aria-label={`Use ${label} as diff base`}
+            className={secondaryButtonClass}
+            disabled={!id || fromPatchset === id}
+            onClick={() => onFromPatchsetChange(id)}
+            type="button"
+          >
+            Diff base
+          </button>
+          <button
+            aria-label={`Compare to ${label}`}
+            className={secondaryButtonClass}
+            disabled={!id || toPatchset === id}
+            onClick={() => onToPatchsetChange(id)}
+            type="button"
+          >
+            Compare
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3">
+        <PatchsetMeta label="Base" value={patchsetBaseLabel(patchset)} />
+        <PatchsetMeta
+          label="Changed paths"
+          value={String(changedPaths.length)}
+        />
+        <PatchsetMeta
+          label="Patchset id"
+          title={id}
+          value={shortPatchsetId(id) || "not returned"}
+        />
+      </div>
+
+      <PatchsetPathPreview paths={changedPaths} />
+    </article>
+  );
+}
+
+function PatchsetMeta({
+  label,
+  title,
+  value
+}: {
+  label: string;
+  title?: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md bg-slate-50 px-3 py-2">
+      <span className="block font-medium text-slate-500">{label}</span>
+      <span
+        className="mt-1 block truncate font-mono text-slate-700"
+        title={title || value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function PatchsetPathPreview({ paths }: { paths: string[] }) {
+  if (!paths.length) {
+    return (
+      <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">
+        No changed paths returned.
+      </p>
+    );
+  }
+
+  const preview = paths.slice(0, 4);
+  const remaining = paths.length - preview.length;
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {preview.map((path) => (
+        <span
+          className="max-w-full truncate rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700"
+          key={path}
+          title={path}
+        >
+          {path}
+        </span>
+      ))}
+      {remaining > 0 ? (
+        <span className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-500">
+          +{remaining} more
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function ErrorBox({
   className,
   message
@@ -453,7 +740,7 @@ function CopyLinkButton({ changesetId }: { changesetId: string }) {
       title={shareUrl}
       type="button"
     >
-      <span aria-hidden="true">{copied ? "✓" : "🔗"}</span>
+      <span aria-hidden="true">{copied ? "OK" : "URL"}</span>
       {copied ? "Link copied" : "Copy link"}
     </button>
   );
@@ -470,13 +757,11 @@ function changesetSliceSearch(changeset: Changeset) {
 function changesetBreadcrumbItems({
   changeset,
   resolvedSliceId,
-  sliceSearch,
-  stackId
+  sliceSearch
 }: {
   changeset: Changeset;
   resolvedSliceId: string;
   sliceSearch: string;
-  stackId: string;
 }): Crumb[] {
   const items: Crumb[] = [{ label: "Slices", to: "/slices" }];
 
@@ -494,14 +779,6 @@ function changesetBreadcrumbItems({
       label: `${sliceSearch} changesets`,
       search: { slice: sliceSearch },
       to: "/changesets"
-    });
-  }
-
-  if (stackId) {
-    items.push({
-      label: `dependencies ${shortStackId(stackId) || stackId}`,
-      params: { id: stackId },
-      to: "/dependencies/$id"
     });
   }
 
@@ -523,6 +800,68 @@ function changesetLabel(changeset: Changeset) {
 
 function shortCommit(commitId: string) {
   return shortHash(commitId);
+}
+
+function shortPatchsetId(patchsetId: string) {
+  if (!patchsetId) {
+    return "";
+  }
+  return patchsetId.replace(/^ps_/, "").slice(0, 12);
+}
+
+function sortedPatchsets(changeset?: Changeset) {
+  return [...(changeset?.patchsets || [])].sort((left, right) => {
+    const leftNumber = numericPatchsetNumber(left);
+    const rightNumber = numericPatchsetNumber(right);
+    if (leftNumber !== rightNumber) {
+      return leftNumber - rightNumber;
+    }
+
+    return patchsetKey(left).localeCompare(patchsetKey(right));
+  });
+}
+
+function numericPatchsetNumber(patchset: Patchset) {
+  const number = Number(patchset.number);
+  return Number.isFinite(number) ? number : Number.MAX_SAFE_INTEGER;
+}
+
+function patchsetKey(patchset: Patchset) {
+  return (
+    patchset.id ||
+    `${patchset.number || "unknown"}-${patchset.createdAt || ""}-${
+      patchset.baseCommitId || patchset.basePatchsetId || ""
+    }`
+  );
+}
+
+function findPatchset(patchsets: Patchset[], patchsetId: string) {
+  return patchsets.find((patchset) => patchset.id === patchsetId);
+}
+
+function patchsetOptionLabel(patchset?: Patchset) {
+  if (!patchset) {
+    return "";
+  }
+  if (patchset.number !== undefined && patchset.number !== "") {
+    return `Patchset ${patchset.number}`;
+  }
+
+  const shortId = shortPatchsetId(patchset.id || "");
+  return shortId ? `Patchset ${shortId}` : "Patchset";
+}
+
+function patchsetBaseLabel(patchset: Patchset) {
+  if (patchset.basePatchsetId) {
+    return `Base patchset ${shortPatchsetId(patchset.basePatchsetId)}`;
+  }
+  if (patchset.baseCommitId) {
+    return `Base commit ${shortCommit(patchset.baseCommitId)}`;
+  }
+  if (patchset.baseTreeId) {
+    return `Base tree ${shortHash(patchset.baseTreeId)}`;
+  }
+  return "Recorded base";
 }
 
 function statusClass(status?: string) {
@@ -570,3 +909,9 @@ const primaryButtonClass =
 
 const dangerButtonClass =
   "self-end rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+
+const secondaryButtonClass =
+  "rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50";
+
+const selectClass =
+  "h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100";

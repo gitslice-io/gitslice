@@ -1,7 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor
+} from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -150,25 +156,63 @@ describe("dependency route pages", () => {
     expect(screen.getByText("required check unit failed")).toBeInTheDocument();
   });
 
-  it("links changeset detail back to dependency context", async () => {
+  it("shows base changeset and patchset diff controls on changeset detail", async () => {
     routerMock.params = { id: "cs_child" };
-    routerMock.search = { dependency: "stk_parser" };
-    apiMock.current = {
-      ...makeApi(),
-      getChangeset: vi.fn().mockResolvedValue(
-        changeset("cs_child", "use parser in payment API", {
-          parentChangesetId: "cs_root",
-          parentPatchsetId: "ps_root_1",
-          stackId: "stk_parser"
-        })
-      )
-    };
+    routerMock.search = {};
+    const api = makeApi();
+    const detail = changeset("cs_child", "use parser in payment API", {
+      parentChangesetId: "cs_root",
+      parentPatchsetId: "ps_root_1",
+      patchsetId: "ps_child_2",
+      patchsetNumber: "2",
+      stackId: "stk_parser"
+    });
+    detail.patchsets = [
+      {
+        ...(detail.patchsets?.[0] ?? {}),
+        basePatchsetId: "ps_root_1",
+        changedPaths: ["/acme/payment/parser.go"],
+        createdAt: "2026-06-18T00:00:00Z",
+        id: "ps_child_1",
+        number: "1"
+      },
+      {
+        ...(detail.patchsets?.[0] ?? {}),
+        basePatchsetId: "ps_root_2",
+        changedPaths: [
+          "/acme/payment/parser.go",
+          "/acme/payment/parser_test.go"
+        ],
+        createdAt: "2026-06-18T00:01:00Z",
+        id: "ps_child_2",
+        number: "2"
+      }
+    ];
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: [], diff: "" });
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    apiMock.current = api;
 
     renderRoute(<ChangesetDetailPage />);
 
     expect(await screen.findByText("use parser in payment API")).toBeInTheDocument();
-    expect(screen.getByText(/^Dependencies /)).toBeInTheDocument();
-    expect(screen.getByText(/^dependencies /)).toBeInTheDocument();
+    expect(screen.getByText(/^Base changeset /)).toBeInTheDocument();
+    expect(screen.queryByText(/^Dependencies /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^dependencies /)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Patchsets" })).toBeInTheDocument();
+    expect(screen.getAllByText("Patchset 1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Patchset 2").length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Diff base"), {
+      target: { value: "ps_child_1" }
+    });
+
+    await waitFor(() =>
+      expect(api.diffChangeset).toHaveBeenLastCalledWith({
+        changesetId: "cs_child",
+        fromPatchset: "ps_child_1",
+        toPatchset: "ps_child_2"
+      })
+    );
   });
 });
 

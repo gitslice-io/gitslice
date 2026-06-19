@@ -179,6 +179,12 @@ Rules:
 
 - `DiffChangeset` defaults to the selected patchset against its recorded base.
 - Comparing two patchsets within one changeset remains supported.
+- The changeset detail UI must list all patchsets and expose `Diff base` and
+  `Target patchset` selectors. `Diff base = Recorded base` means the target
+  patchset is compared with its stored materialization base.
+- Selecting a different diff base is review state only. It must call
+  `DiffChangeset` with `from_patchset` and `to_patchset`; it must not move the
+  changeset or rewrite base metadata.
 - Updating the base changeset creates a new dependent patchset derived from the
   new base patchset's result tree.
 - Preview trees and submit validation always use the stored patchset base, not a
@@ -211,30 +217,23 @@ until the schema version is bumped, but new schema docs should prefer
 
 ## 9. Web Design
 
-The web UI should not have a separate Stacks tab. The Changesets area owns
-dependent review:
+The web UI should not have separate Stacks or Dependencies tabs. The Changesets
+area owns base/dependent review:
 
 - `/changesets` lists changesets for a slice.
-- A dependency view can be reached from a changeset row or detail page.
-- The detail page shows `Based on` and `Dependents`.
-- A dependency tree page is acceptable, but it should be labeled as dependency
-  review and reached as part of changeset workflow.
+- The changeset detail page shows a `Base changeset` link when the changeset is
+  based on another changeset.
+- The changeset detail page lists every patchset and lets users compare
+  `Recorded base -> patchset` or any patchset pair via `Diff base` and
+  `Target patchset`.
+- Dependents can be reached from a changeset row or detail page, but the UI
+  should frame that as base/dependent review rather than a separate object to
+  manage.
 - Actions should be named `Create dependent changeset`, `Update dependents`,
   `Move to new base`, and `Submit with dependencies`.
-
-Routes should use dependency terminology:
-
-```text
-/dependencies
-/dependencies/new
-/dependencies/{id}
-/dependencies/{id}/update
-/dependencies/{id}/submit
-/cs/{id}?dependency={dependency_tree_id}
-```
-
-The route id may still reference the current backing record during migration,
-but the UI must not ask the user to understand or manage a stack object.
+- If implementation routes such as `/dependencies/{id}` remain as backing deep
+  links during migration, primary navigation and page copy should not require
+  the user to understand a dependency object or id.
 
 ## 10. Storage Plan
 
