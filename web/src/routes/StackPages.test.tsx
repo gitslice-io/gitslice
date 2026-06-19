@@ -31,6 +31,13 @@ vi.mock("../api/useApi", () => ({
   useApi: () => apiMock.current
 }));
 
+vi.mock("@clerk/clerk-react", () => ({
+  useAuth: () => ({
+    isLoaded: true,
+    isSignedIn: true
+  })
+}));
+
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
   useNavigate: () => routerMock.navigate,

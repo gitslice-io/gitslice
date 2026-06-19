@@ -77,18 +77,12 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 }
 
 func (s *ChangesetService) GetChangeset(ctx context.Context, req *corev1.GetChangesetRequest) (*corev1.Changeset, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	return s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
 }
 
 func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListChangesetsRequest) (*corev1.ListChangesetsResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	if req.AuthoringSlice == nil {
 		return nil, status.Error(codes.InvalidArgument, "authoring slice is required")
 	}
@@ -109,10 +103,7 @@ func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListC
 }
 
 func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffChangesetRequest) (*corev1.DiffChangesetResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	cs, err := s.getAuthorizedChangeset(ctx, subjectID, req.ChangesetId)
 	if err != nil {
 		return nil, err

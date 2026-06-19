@@ -271,12 +271,15 @@ Supported behavior:
   payloads that require it, but must not be the browser URL identifier.
 - Browse the selected slice through `RepositoryService.ListDirectory` with the
   optional `slice` projection, so custom slices show only included folders.
+- The history drawer uses slice-scoped `RepositoryService.ListCommits` and
+  `ChangesetService.ListChangesets`. For public slices, commit history and
+  changeset associations are visible without authentication.
 - Link each included path to the source browser.
 - Show a Git clone URL only when the deployment config exposes the optional Git
   smart HTTP server. The current Git layer supports clone and fetch, not push.
 
-Do not show recent changesets, roles, submit settings, reviewers, or check
-summaries; those require APIs or fields that do not exist yet.
+Do not show roles, submit settings, reviewers, or check summaries; those require
+APIs or fields that do not exist yet.
 
 ### 3.6 Slice Settings (`/slices/{account}/{slice}/settings`)
 
@@ -365,10 +368,11 @@ only guarantees file-edit metadata, not staged blob contents.
 
 Do not include "request review" or reviewer selection.
 
-### 3.9 Changeset Detail (`/changesets/{account}/{slice}/{number}`)
+### 3.9 Changeset Detail (`/cs/{id}`)
 
 Shows the data returned by `ChangesetService.GetChangeset` and exposes supported
-mutations.
+mutations to signed-in users. The page is publicly readable when the changeset's
+authoring slice is public; anonymous users get a read-only detail and diff view.
 
 ```text
 +----------------------------------------------------------+

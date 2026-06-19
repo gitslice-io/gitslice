@@ -175,7 +175,7 @@ const stackSubmitRoute = createRoute({
 
 // Primary, shareable changeset URL: /cs/<short changeset id>.
 const changesetShortRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => publicAppRoute,
   path: "cs/$id",
   component: ChangesetDetailPage
 });
@@ -195,10 +195,9 @@ const routeTree = rootRoute.addChildren([
     stackCreateRoute,
     stackDetailRoute,
     stackRestackRoute,
-    stackSubmitRoute,
-    changesetShortRoute
+    stackSubmitRoute
   ]),
-  publicAppRoute.addChildren([sliceDetailRoute])
+  publicAppRoute.addChildren([sliceDetailRoute, changesetShortRoute])
 ]);
 
 export const router = createRouter({

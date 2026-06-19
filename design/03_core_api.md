@@ -683,6 +683,12 @@ message AbandonChangesetRequest {
 
 ```
 
+Read methods on changesets (`GetChangeset`, `ListChangesets`, and
+`DiffChangeset`) evaluate authorization through the changeset's authoring slice.
+When that slice is public, its changeset list, changeset detail, and diffs are
+publicly readable without authentication. Write methods still require writer
+authorization on the authoring slice.
+
 `SubmitChangeset` returns `status = "pending_publish"` when the patchset has
 passed path-head CAS admission but has not yet been published to the target ref.
 In that state `commit_id` and `new_ref_commit_id` may be empty. Clients that

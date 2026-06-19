@@ -1252,6 +1252,71 @@ func TestPublicSliceReadsAllowAnonymousContext(t *testing.T) {
 	if len(history.Commits) != 1 || history.Commits[0].Id != "commit_public_slice" {
 		t.Fatalf("public history = %#v, want commit_public_slice", history.Commits)
 	}
+	authorCtx := authctx.WithSubjectID(context.Background(), "user_alice")
+	nextData := []byte("public readme v2\n")
+	uploaded, err := handlers.Blob.UploadBlob(authorCtx, &corev1.UploadBlobRequest{
+		Data:  nextData,
+		Slice: publicSlice.Ref,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changeset, err := handlers.Changeset.CreateChangeset(authorCtx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: publicSlice.Ref,
+		TargetRef:      storage.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "public changeset",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchset, err := handlers.Changeset.UpdateChangeset(authorCtx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  changeset.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        "/acme/public/readme.txt",
+			BlobId:      uploaded.BlobId,
+			ContentHash: uploaded.ContentHash,
+			Mode:        0o100644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listedChangesets, err := handlers.Changeset.ListChangesets(ctx, &corev1.ListChangesetsRequest{
+		AuthoringSlice: publicSlice.Ref,
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listedChangesets.Changesets) != 1 || listedChangesets.Changesets[0].Id != changeset.Id {
+		t.Fatalf("public changesets = %#v, want %s", listedChangesets.Changesets, changeset.Id)
+	}
+	gotChangeset, err := handlers.Changeset.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: changeset.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotChangeset.Id != changeset.Id {
+		t.Fatalf("public GetChangeset id = %q, want %q", gotChangeset.Id, changeset.Id)
+	}
+	diff, err := handlers.Changeset.DiffChangeset(ctx, &corev1.DiffChangesetRequest{
+		ChangesetId: changeset.Id,
+		Patchset:    patchset.Id,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff.Diff, "-public readme") || !strings.Contains(diff.Diff, "+public readme v2") {
+		t.Fatalf("public changeset diff missing expected content:\n%s", diff.Diff)
+	}
+	_, err = handlers.Changeset.ListChangesets(ctx, &corev1.ListChangesetsRequest{
+		AuthoringSlice: privateSlice.Ref,
+	})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("private anonymous ListChangesets error = %v, want Unauthenticated", err)
+	}
 
 	_, err = handlers.Repository.ResolvePath(ctx, &corev1.ResolvePathRequest{
 		CommitId: ref.CommitId,
