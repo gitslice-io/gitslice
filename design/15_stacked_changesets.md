@@ -179,9 +179,10 @@ Rules:
 
 - `DiffChangeset` defaults to the selected patchset against its recorded base.
 - Comparing two patchsets within one changeset remains supported.
-- The changeset detail UI must list all patchsets and expose `Diff base` and
-  `Target patchset` selectors. `Diff base = Recorded base` means the target
-  patchset is compared with its stored materialization base.
+- The changeset detail UI must expose all patchsets through a compact horizontal
+  timeline with patchset dots and draggable `From`/`To` handles. `From =
+  Recorded base` means the target patchset is compared with its stored
+  materialization base.
 - Selecting a different diff base is review state only. It must call
   `DiffChangeset` with `from_patchset` and `to_patchset`; it must not move the
   changeset or rewrite base metadata.
@@ -223,9 +224,11 @@ area owns base/dependent review:
 - `/changesets` lists changesets for a slice.
 - The changeset detail page shows a `Base changeset` link when the changeset is
   based on another changeset.
-- The changeset detail page lists every patchset and lets users compare
-  `Recorded base -> patchset` or any patchset pair via `Diff base` and
-  `Target patchset`.
+- The changeset detail page keeps the title to one visible line, compresses
+  secondary metadata/actions, and lets users compare `Recorded base -> patchset`
+  or any patchset pair with the patchset timeline.
+- Mobile review should prioritize the changed-file tree. Diff bodies are
+  toggleable and can be opened from file selection.
 - Dependents can be reached from a changeset row or detail page, but the UI
   should frame that as base/dependent review rather than a separate object to
   manage.

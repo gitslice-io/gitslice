@@ -195,7 +195,7 @@ describe("dependency route pages", () => {
     renderRoute(<ChangesetDetailPage />);
 
     expect(await screen.findByText("use parser in payment API")).toBeInTheDocument();
-    expect(screen.getByText(/^Base changeset /)).toBeInTheDocument();
+    expect(screen.getByText("Base changeset")).toBeInTheDocument();
     expect(screen.queryByText(/^Dependencies /)).not.toBeInTheDocument();
     expect(screen.queryByText(/^dependencies /)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Patchsets" })).toBeInTheDocument();
