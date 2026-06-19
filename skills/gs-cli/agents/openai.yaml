@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitslice CLI"
+  short_description: "Agent workflows for the gs CLI"
+  default_prompt: "Use $gs-cli to inspect context, manage a one-slice workspace, and submit Gitslice changes safely."
