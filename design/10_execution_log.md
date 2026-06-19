@@ -5790,3 +5790,34 @@ Build note:
 
 - the production web build was run in a clean temporary worktree with only this
   patch applied because the main workspace contains unrelated dirty web edits.
+
+## 2026-06-19: Public Slice Changesets List Is Anonymous-Readable
+
+Request:
+
+- the changeset list page for a public slice (e.g.
+  `/changesets?slice=nic:home`) returned 401 for signed-out users
+
+Diagnosis:
+
+- the API already serves `ListChangesets`/`GetChangeset`/`DiffChangeset`
+  anonymously for public slices (verified with anonymous `curl` against
+  production, all returned 200). The block was purely client-side: the
+  `/changesets` route lived under `appRoute`, whose `RequireAuth` redirects
+  signed-out users to `/login`, while the detail route `/cs/$id` already sat
+  under `publicAppRoute`.
+
+Decision:
+
+- moved `changesetsRoute` to `publicAppRoute` so the list renders for anonymous
+  readers, mirroring `sliceDetailRoute` and `changesetShortRoute`
+- gated the per-row `Merge` action (and its column) behind `isSignedIn`, the
+  same `canManage`/`canUseReviewActions` pattern used on the slice and
+  changeset detail pages, so reads are public but writes stay authenticated
+
+Verification:
+
+```bash
+npm --prefix web run build   # tsc -b + vite build
+npm --prefix web test
+```
