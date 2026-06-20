@@ -2,7 +2,6 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth, UserButton } from "@clerk/clerk-react";
 
 import { cn } from "../lib/cn";
-import { clearMintedToken, hasMintedToken } from "../auth/token";
 import { useSelection } from "../state/selection";
 import { Badge, Surface, buttonClassName } from "./ui";
 
@@ -14,9 +13,6 @@ const navItems = [
 export function TopBar() {
   const { account } = useSelection();
   const { isLoaded, isSignedIn } = useAuth();
-  // A minted-token session authenticates without Clerk; reflect it in the bar so
-  // it doesn't misleadingly offer "Sign in" while the user is authenticated.
-  const mintedSession = hasMintedToken();
   const pathname = useRouterState({
     select: (state) => state.location.pathname
   });
@@ -79,21 +75,6 @@ export function TopBar() {
             <div className="shrink-0">
               <UserButton afterSignOutUrl="/login" />
             </div>
-          ) : mintedSession ? (
-            <button
-              className={buttonClassName({
-                className: "shrink-0",
-                size: "sm",
-                variant: "secondary"
-              })}
-              onClick={() => {
-                clearMintedToken();
-                window.location.assign("/login");
-              }}
-              type="button"
-            >
-              Sign out
-            </button>
           ) : (
             <Link
               className={buttonClassName({
