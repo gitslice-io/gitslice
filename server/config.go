@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -12,26 +13,32 @@ import (
 )
 
 type Config struct {
-	GRPCAddr              string
-	HTTPAddr              string
-	HTTPAllowedOrigin     string
-	GitHTTPAddr           string
-	GitCacheRoot          string
-	DatabaseURL           string
-	ObjectStoreType       string
-	ObjectStoreRoot       string
-	ObjectCacheBytes      int64
-	R2                    r2.Config
-	AuthProvider          string
-	Clerk                 clerk.Config
-	ServiceToken          servicetoken.Config
-	RunMigrations         bool
-	PublishBatchSize      int
-	PublishInterval       time.Duration
-	IndexBatchSize        int
-	IndexInterval         time.Duration
-	DisableAsyncPublisher bool
-	DisableIndexWorker    bool
+	GRPCAddr                 string
+	HTTPAddr                 string
+	HTTPAllowedOrigin        string
+	GitHTTPAddr              string
+	GitCacheRoot             string
+	DatabaseURL              string
+	ObjectStoreType          string
+	ObjectStoreRoot          string
+	ObjectCacheBytes         int64
+	R2                       r2.Config
+	AuthProvider             string
+	Clerk                    clerk.Config
+	ServiceToken             servicetoken.Config
+	RunMigrations            bool
+	PublishBatchSize         int
+	PublishInterval          time.Duration
+	IndexBatchSize           int
+	IndexInterval            time.Duration
+	DisableAsyncPublisher    bool
+	DisableIndexWorker       bool
+	RateLimitDisabled        bool
+	RateLimitPerSubjectRPS   float64
+	RateLimitPerSubjectBurst int
+	RateLimitHTTPPerIPRPS    float64
+	RateLimitHTTPPerIPBurst  int
+	MetricsToken             string
 }
 
 func ConfigFromEnv() Config {
@@ -56,6 +63,17 @@ func ConfigFromEnv() Config {
 		IndexInterval:         time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_INTERVAL_MS"), 25)) * time.Millisecond,
 		DisableAsyncPublisher: os.Getenv("GITSLICE_DISABLE_ASYNC_PUBLISHER") == "1",
 		DisableIndexWorker:    os.Getenv("GITSLICE_DISABLE_INDEX_WORKER") == "1",
+		RateLimitDisabled:     os.Getenv("GITSLICE_RATELIMIT_DISABLED") == "1",
+		// Per-subject limits are an anti-abuse ceiling, not fairness throttling.
+		// They must sit well above a single authenticated user's legitimate bulk
+		// traffic (e.g. `gs import` uploads blobs concurrently, one unary/stream
+		// UploadBlob per blob), so the default is generous while still capping a
+		// runaway client from saturating the publish pipeline / object store.
+		RateLimitPerSubjectRPS:   floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_SUBJECT_RPS"), 500),
+		RateLimitPerSubjectBurst: intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_SUBJECT_BURST"), 1000),
+		RateLimitHTTPPerIPRPS:    floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_RPS"), 30),
+		RateLimitHTTPPerIPBurst:  intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_BURST"), 60),
+		MetricsToken:             os.Getenv("GITSLICE_METRICS_TOKEN"),
 	}
 }
 
@@ -90,6 +108,17 @@ func intValueOrDefault(value string, fallback int) int {
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func floatValueOrDefault(value string, fallback float64) float64 {
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(parsed) {
 		return fallback
 	}
 	return parsed

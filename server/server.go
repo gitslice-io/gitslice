@@ -109,13 +109,13 @@ func Run(ctx context.Context, cfg Config) error {
 		Slices:     db.Slices(),
 	}
 	handlers := service.New(stores, objectStore)
-	grpcServer := NewGRPCServer(resolveSubject, handlers)
+	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg)
 	gatewayHandler, err := NewHTTPGateway(ctx, gatewayGRPCEndpoint(lis.Addr()))
 	if err != nil {
 		return err
 	}
 	combinedServer := &http.Server{
-		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin)),
+		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg)),
 		ReadHeaderTimeout: gatewayReadHeaderTimeout,
 		IdleTimeout:       gatewayIdleTimeout,
 	}
@@ -127,7 +127,7 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		gatewayServer = &http.Server{
-			Handler:           NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin),
+			Handler:           NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg),
 			ReadHeaderTimeout: gatewayReadHeaderTimeout,
 			ReadTimeout:       gatewayReadTimeout,
 			WriteTimeout:      gatewayWriteTimeout,
@@ -155,8 +155,10 @@ func Run(ctx context.Context, cfg Config) error {
 		if err != nil {
 			return err
 		}
+		var gitHandler http.Handler = gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset)
+		gitHandler = newHTTPRateLimitMiddleware(cfg)(gitHandler)
 		gitHTTPServer = &http.Server{
-			Handler: gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset),
+			Handler: gitHandler,
 			// Git clone/fetch/push transfers can be large and slow, so only the
 			// header-read deadline (slowloris protection) and the idle-keepalive
 			// deadline are bounded here; body read/write are left to the request
@@ -287,12 +289,17 @@ func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, er
 	}, nil
 }
 
-func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers) *grpc.Server {
+func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...Config) *grpc.Server {
+	var cfg Config
+	if len(cfgs) > 0 {
+		cfg = cfgs[0]
+	}
+	grpcLimiter := newGRPCRateLimiter(cfg)
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
-		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve)),
-		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(resolve)),
+		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve), grpcRateLimitUnaryInterceptor(grpcLimiter)),
+		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(resolve), grpcRateLimitStreamInterceptor(grpcLimiter)),
 	)
 	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)
 	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
