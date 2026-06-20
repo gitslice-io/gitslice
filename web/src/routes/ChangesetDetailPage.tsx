@@ -3,6 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useAuth } from "@clerk/clerk-react";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import {
   type PointerEvent,
   type ReactNode
 } from "react";
+import { createPortal } from "react-dom";
 
 import type { Changeset, Patchset } from "../api/types";
 import { useApi } from "../api/useApi";
@@ -440,7 +442,7 @@ function ReviewActions({
   return (
     <div className="flex flex-wrap items-center gap-2 lg:justify-end">
       <button
-        className={primaryButtonClass}
+        className="h-8 rounded-md bg-zinc-950 px-3 py-2 text-xs font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
         disabled={actionBusy || terminal || !canMerge}
         onClick={onMerge}
         type="button"
@@ -477,7 +479,7 @@ function ReviewActions({
 
 // A compact overflow menu for actions that are run rarely (today: abandon), so
 // the header surfaces the primary Merge button without crowding it with controls
-// reviewers seldom reach for. Closes on outside click or Escape.
+// reviewers seldom reach for. Closes on outside click, Escape, scroll, or resize.
 function MoreActionsMenu({
   children,
   disabled,
@@ -488,7 +490,34 @@ function MoreActionsMenu({
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current || !menuRef.current) {
+      return;
+    }
+
+    const margin = 8;
+    const trigger = triggerRef.current.getBoundingClientRect();
+    const menu = menuRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = trigger.right - menu.width;
+    left = Math.min(
+      Math.max(margin, left),
+      Math.max(margin, viewportWidth - menu.width - margin)
+    );
+
+    let top = trigger.bottom + 4;
+    if (top + menu.height > viewportHeight - margin) {
+      top = Math.max(margin, trigger.top - menu.height - 4);
+    }
+
+    setCoords({ top: Math.round(top), left: Math.round(left) });
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -497,7 +526,11 @@ function MoreActionsMenu({
 
     const onPointerDown = (event: globalThis.MouseEvent) => {
       const target = event.target;
-      if (target instanceof Node && !wrapperRef.current?.contains(target)) {
+      if (
+        target instanceof Node &&
+        !triggerRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
         setOpen(false);
       }
     };
@@ -506,22 +539,31 @@ function MoreActionsMenu({
         setOpen(false);
       }
     };
+    const onReflow = () => {
+      setOpen(false);
+    };
 
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onReflow);
+    window.addEventListener("scroll", onReflow, true);
+
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onReflow);
+      window.removeEventListener("scroll", onReflow, true);
     };
   }, [open]);
 
   return (
-    <div className="relative" ref={wrapperRef}>
+    <>
       <button
+        ref={triggerRef}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={label}
-        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
         type="button"
@@ -537,15 +579,20 @@ function MoreActionsMenu({
           ▾
         </span>
       </button>
-      {open ? (
-        <div
-          className="absolute right-0 z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10"
-          role="menu"
-        >
-          {children}
-        </div>
-      ) : null}
-    </div>
+      {open
+        ? createPortal(
+            <div
+              className="fixed z-50 w-72 max-w-[calc(100vw-1rem)] rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10"
+              ref={menuRef}
+              role="menu"
+              style={{ top: coords.top, left: coords.left }}
+            >
+              {children}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 }
 
@@ -1260,9 +1307,6 @@ function isMergeableStatus(status?: string) {
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
-
-const primaryButtonClass =
-  "rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
 
 const dangerButtonClass =
   "self-end rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
