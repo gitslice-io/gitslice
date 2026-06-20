@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TreeEntry } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { GLOBAL_REF_NAME } from "../../lib/globalRef";
+import { Badge, Button, Input, Surface } from "../ui";
 import { SlicePanel } from "./SlicePageParts";
 
 export const VISIBILITY_OPTIONS = ["private", "public"] as const;
@@ -151,10 +152,10 @@ export function SliceDefinitionForm({
     <>
       <SlicePanel className="space-y-4">
         <div>
-          <h2 className="text-base font-semibold text-zinc-950">
+          <h2 className="font-serif text-xl font-semibold leading-tight text-on-surface">
             Visibility
           </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
+          <p className="mt-1 text-sm leading-6 text-on-surface-variant">
             Choose one of the visibility values supported by the slice
             definition.
           </p>
@@ -162,19 +163,29 @@ export function SliceDefinitionForm({
         <div className="grid gap-3 sm:grid-cols-2">
           {VISIBILITY_OPTIONS.map((option) => (
             <label
-              className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-zinc-950"
+              className={[
+                "flex items-center justify-between gap-3 rounded-sm px-3 py-2 text-sm font-medium transition",
+                visibility === option
+                  ? "bg-tertiary-container text-tertiary"
+                  : "bg-surface-container-lowest text-on-surface hover:bg-surface-container"
+              ].join(" ")}
               key={option}
             >
-              <input
-                checked={visibility === option}
-                className="h-4 w-4 accent-zinc-950 disabled:cursor-not-allowed"
-                disabled={disabled}
-                name="visibility"
-                onChange={() => onVisibilityChange(option)}
-                type="radio"
-                value={option}
-              />
-              {option}
+              <span className="flex items-center gap-3">
+                <input
+                  checked={visibility === option}
+                  className="h-4 w-4 accent-primary disabled:cursor-not-allowed"
+                  disabled={disabled}
+                  name="visibility"
+                  onChange={() => onVisibilityChange(option)}
+                  type="radio"
+                  value={option}
+                />
+                {option}
+              </span>
+              <Badge variant={option === "public" ? "tertiary" : "neutral"}>
+                {option === "public" ? "public" : "private"}
+              </Badge>
             </label>
           ))}
         </div>
@@ -182,10 +193,10 @@ export function SliceDefinitionForm({
 
       <SlicePanel className="space-y-4">
         <div>
-          <h2 className="text-base font-semibold text-zinc-950">
+          <h2 className="font-serif text-xl font-semibold leading-tight text-on-surface">
             Included paths
           </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
+          <p className="mt-1 text-sm leading-6 text-on-surface-variant">
             {includedPathsLocked
               ? "The home slice's included paths are managed automatically and can't be changed."
               : "Paths should be account-rooted, for example /acme/payment. The server performs final validation."}
@@ -196,7 +207,7 @@ export function SliceDefinitionForm({
           <ul className="space-y-2">
             {includedPaths.map((path, index) => (
               <li
-                className="break-all rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-700"
+                className="break-all rounded-sm bg-surface-container-lowest px-3 py-2 font-mono text-sm text-on-surface-variant"
                 key={index}
               >
                 {path}
@@ -205,99 +216,106 @@ export function SliceDefinitionForm({
           </ul>
         ) : (
           <>
-        <div className="space-y-3">
-          {includedPaths.length === 0 ? (
-            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-              No included paths are currently set.
-            </div>
-          ) : (
-            includedPaths.map((path, index) => (
-              <div
-                className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
-                key={index}
-              >
-                <label className="grid gap-2 text-sm font-medium text-zinc-950">
-                  Path {index + 1}
-                  <input
-                    className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-                    disabled={disabled}
-                    onChange={(event) =>
-                      updatePath(index, event.target.value)
-                    }
-                    placeholder="/acme/payment"
-                    spellCheck={false}
-                    value={path}
-                  />
-                </label>
-                <button
-                  className="self-end rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                  disabled={disabled}
-                  onClick={() => removePath(index)}
-                  type="button"
+            <div className="space-y-3">
+              {includedPaths.length === 0 ? (
+                <Surface
+                  className="p-4 text-sm text-on-surface-variant"
+                  level="base"
                 >
-                  Remove
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <label className="grid gap-2 text-sm font-medium text-zinc-950">
-            Add path
-            <div className="relative">
-              <input
-                aria-expanded={showPathSuggestions}
-                aria-haspopup="listbox"
-                className="h-10 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-                disabled={disabled}
-                onBlur={() => setIsPathDraftFocused(false)}
-                onChange={(event) => setPathDraft(event.target.value)}
-                onFocus={() => setIsPathDraftFocused(true)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addPath();
-                  }
-                }}
-                placeholder="/acme/proto/payment"
-                ref={pathDraftInput}
-                spellCheck={false}
-                value={pathDraft}
-              />
-              {showPathSuggestions ? (
-                <div
-                  className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
-                  role="listbox"
-                >
-                  {pathSuggestions.map((entry) => (
-                    <button
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left font-mono text-sm text-zinc-950 transition hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
-                      key={`${entry.kind ?? "entry"}:${entry.name}`}
-                      onClick={() => selectPathSuggestion(entry)}
-                      onMouseDown={(event) => event.preventDefault()}
-                      role="option"
+                  No included paths are currently set.
+                </Surface>
+              ) : (
+                includedPaths.map((path, index) => (
+                  <div
+                    className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
+                    key={index}
+                  >
+                    <label className="grid gap-2 font-label text-sm font-medium text-on-surface">
+                      Path {index + 1}
+                      <Input
+                        className="min-w-0 font-mono"
+                        disabled={disabled}
+                        onChange={(event) =>
+                          updatePath(index, event.target.value)
+                        }
+                        placeholder="/acme/payment"
+                        spellCheck={false}
+                        value={path}
+                      />
+                    </label>
+                    <Button
+                      className="self-end"
+                      disabled={disabled}
+                      onClick={() => removePath(index)}
                       type="button"
+                      variant="secondary"
                     >
-                      <span className="min-w-0 truncate">{entry.name}</span>
-                      <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                        {entry.kind === "ENTRY_KIND_DIRECTORY" ? "dir" : "file"}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+                      Remove
+                    </Button>
+                  </div>
+                ))
+              )}
             </div>
-          </label>
-          <button
-            className="self-end rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-            disabled={!canAddPath}
-            onClick={addPath}
-            type="button"
-          >
-            Add path
-          </button>
-        </div>
+
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="grid gap-2 font-label text-sm font-medium text-on-surface">
+                Add path
+                <div className="relative">
+                  <Input
+                    aria-expanded={showPathSuggestions}
+                    aria-haspopup="listbox"
+                    className="min-w-0 font-mono"
+                    disabled={disabled}
+                    onBlur={() => setIsPathDraftFocused(false)}
+                    onChange={(event) => setPathDraft(event.target.value)}
+                    onFocus={() => setIsPathDraftFocused(true)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addPath();
+                      }
+                    }}
+                    placeholder="/acme/proto/payment"
+                    ref={pathDraftInput}
+                    spellCheck={false}
+                    value={pathDraft}
+                  />
+                  {showPathSuggestions ? (
+                    <div
+                      className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-sm bg-surface-container-lowest/90 p-1 shadow-[0_24px_44px_rgba(33,29,23,0.08)] backdrop-blur-[20px]"
+                      role="listbox"
+                    >
+                      {pathSuggestions.map((entry) => (
+                        <button
+                          className="flex w-full items-center justify-between gap-3 rounded-sm px-3 py-2 text-left font-mono text-sm text-on-surface transition hover:bg-surface-container focus:bg-surface-container focus:outline-none"
+                          key={`${entry.kind ?? "entry"}:${entry.name}`}
+                          onClick={() => selectPathSuggestion(entry)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          role="option"
+                          type="button"
+                        >
+                          <span className="min-w-0 truncate">{entry.name}</span>
+                          <Badge className="shrink-0" size="sm" variant="neutral">
+                            {entry.kind === "ENTRY_KIND_DIRECTORY"
+                              ? "dir"
+                              : "file"}
+                          </Badge>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </label>
+              <Button
+                className="self-end"
+                disabled={!canAddPath}
+                onClick={addPath}
+                type="button"
+                variant="secondary"
+              >
+                Add path
+              </Button>
+            </div>
           </>
         )}
       </SlicePanel>

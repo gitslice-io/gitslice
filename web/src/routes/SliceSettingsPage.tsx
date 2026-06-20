@@ -21,6 +21,7 @@ import {
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
+import { Button } from "../components/ui";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 
 interface SliceParams {
@@ -191,7 +192,10 @@ export function SliceSettingsPage() {
               {
                 label: "Current hash",
                 value: (
-                  <code className="font-mono text-xs" title={slice.definitionHash}>
+                  <code
+                    className="font-mono text-xs text-on-surface-muted"
+                    title={slice.definitionHash}
+                  >
                     {slice.definitionHash ? shortHash(slice.definitionHash) : "none"}
                   </code>
                 )
@@ -203,7 +207,9 @@ export function SliceSettingsPage() {
               {
                 label: "Slice id",
                 value: (
-                  <code className="font-mono text-xs">{slice.id || sliceId}</code>
+                  <code className="font-mono text-xs text-on-surface-muted">
+                    {slice.id || sliceId}
+                  </code>
                 )
               },
               {
@@ -253,23 +259,23 @@ export function SliceSettingsPage() {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+          <Button
             disabled={updateMutation.isPending}
             type="submit"
+            variant="primary"
           >
             {updateMutation.isPending ? "Saving..." : "Save definition"}
-          </button>
-          <button
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+          </Button>
+          <Button
             disabled={sliceQuery.isFetching}
             onClick={() => {
               void sliceQuery.refetch();
             }}
             type="button"
+            variant="secondary"
           >
             Reload
-          </button>
+          </Button>
         </div>
       </form>
     </section>

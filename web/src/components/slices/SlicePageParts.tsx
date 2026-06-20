@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import type { Slice } from "../../api/types";
 import { cn } from "../../lib/cn";
+import { Badge, PageHeader, Surface } from "../ui";
 
 interface PageHeaderProps {
   eyebrow?: string;
@@ -17,24 +18,12 @@ export function SlicePageHeader({
   actions
 }: PageHeaderProps) {
   return (
-    <div className="border-b border-slate-200 pb-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-            {eyebrow}
-          </p>
-          <h1 className="mt-2 break-words text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">
-            {title}
-          </h1>
-          {description ? (
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              {description}
-            </p>
-          ) : null}
-        </div>
-        {actions ? <div className="min-w-0 lg:shrink-0">{actions}</div> : null}
-      </div>
-    </div>
+    <PageHeader
+      actions={actions}
+      description={description}
+      eyebrow={eyebrow}
+      title={<span className="block break-words font-serif">{title}</span>}
+    />
   );
 }
 
@@ -45,14 +34,16 @@ interface PanelProps {
 
 export function SlicePanel({ children, className }: PanelProps) {
   return (
-    <section
+    <Surface
+      as="section"
       className={cn(
-        "rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50",
+        "p-5",
         className
       )}
+      level="low"
     >
       {children}
-    </section>
+    </Surface>
   );
 }
 
@@ -68,32 +59,30 @@ export function SliceNotice({
   tone = "neutral"
 }: NoticeProps) {
   return (
-    <div
+    <Surface
       className={cn(
-        "rounded-lg border p-4 text-sm",
-        tone === "error" &&
-          "border-rose-200 bg-rose-50 text-rose-900",
-        tone === "success" &&
-          "border-emerald-200 bg-emerald-50 text-emerald-900",
-        tone === "neutral" &&
-          "border-slate-200 bg-white text-slate-700"
+        "p-4 text-sm",
+        tone === "error" && "bg-rose-50 text-rose-900",
+        tone === "success" && "bg-tertiary-container text-tertiary",
+        tone === "neutral" && "text-on-surface-variant"
       )}
+      level={tone === "neutral" ? "low" : "base"}
     >
-      <p className="font-semibold">{title}</p>
+      <p className="font-label font-semibold">{title}</p>
       {children ? <div className="mt-1 leading-6">{children}</div> : null}
-    </div>
+    </Surface>
   );
 }
 
 export function SliceLoadingBlock() {
   return (
     <div className="space-y-4">
-      <div className="h-8 w-56 animate-pulse rounded-md bg-slate-200" />
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
-        <div className="h-4 w-3/4 animate-pulse rounded bg-slate-200" />
-        <div className="mt-4 h-4 w-1/2 animate-pulse rounded bg-slate-200" />
-        <div className="mt-4 h-4 w-2/3 animate-pulse rounded bg-slate-200" />
-      </div>
+      <div className="h-8 w-56 animate-pulse rounded-sm bg-surface-container-high" />
+      <Surface className="p-5" level="low">
+        <div className="h-4 w-3/4 animate-pulse rounded-sm bg-surface-container-high" />
+        <div className="mt-4 h-4 w-1/2 animate-pulse rounded-sm bg-surface-container-high" />
+        <div className="mt-4 h-4 w-2/3 animate-pulse rounded-sm bg-surface-container-high" />
+      </Surface>
     </div>
   );
 }
@@ -110,10 +99,10 @@ export function SliceMetadataGrid({ rows }: MetadataGridProps) {
     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {rows.map((row) => (
         <div key={row.label}>
-          <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+          <dt className="font-label text-xs font-semibold uppercase text-on-surface-muted">
             {row.label}
           </dt>
-          <dd className="mt-1 min-w-0 break-all text-sm font-medium text-zinc-950">
+          <dd className="mt-1 min-w-0 break-all text-sm font-medium text-on-surface">
             {row.value}
           </dd>
         </div>
@@ -123,10 +112,12 @@ export function SliceMetadataGrid({ rows }: MetadataGridProps) {
 }
 
 export function VisibilityBadge({ visibility }: { visibility?: string }) {
+  const normalized = visibility?.toLowerCase();
+
   return (
-    <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+    <Badge variant={normalized === "public" ? "tertiary" : "neutral"}>
       {visibility || "unspecified"}
-    </span>
+    </Badge>
   );
 }
 

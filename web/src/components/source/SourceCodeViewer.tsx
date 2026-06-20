@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/cn";
+import { Surface } from "../ui";
 import { languageFromPath } from "./sourceUtils";
 import { highlightToHtml } from "./highlight";
 import { MarkdownViewer } from "./MarkdownViewer";
@@ -70,9 +71,11 @@ export function SourceCodeViewer({
   }, [code, language, shouldRenderRaw]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-        <div className="min-w-0 truncate font-mono text-slate-600">{path}</div>
+    <Surface className="overflow-hidden" level="low">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-container px-4 py-3 text-xs text-on-surface-muted">
+        <div className="min-w-0 truncate font-mono text-on-surface-variant">
+          {path}
+        </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           {isMarkdown ? (
             <MarkdownViewToggle
@@ -82,7 +85,7 @@ export function SourceCodeViewer({
           ) : null}
           <div className="flex items-center gap-3">
             {shouldRenderRaw && highlight.isLoading && code ? (
-              <span className="text-slate-400">highlighting…</span>
+              <span className="text-on-surface-muted">highlighting...</span>
             ) : null}
             <span>{language}</span>
             <span>{lineCount} lines</span>
@@ -94,7 +97,7 @@ export function SourceCodeViewer({
           <MarkdownViewer source={code} />
         ) : highlight.html ? (
           <div
-            className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white [&_pre]:text-sm [&_pre]:leading-6"
+            className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-surface-container-lowest [&_pre]:text-sm [&_pre]:leading-6"
             dangerouslySetInnerHTML={{ __html: highlight.html }}
           />
         ) : (
@@ -102,17 +105,17 @@ export function SourceCodeViewer({
           // Shiki core load or a (potentially large) grammar-chunk download.
           // Highlighting is layered in by swapping to the rendered HTML once it
           // resolves; the plain <pre> matches its sizing to avoid layout shift.
-          <pre className="min-w-max overflow-visible bg-white p-4 text-sm leading-6 text-zinc-900">
+          <pre className="min-w-max overflow-visible bg-surface-container-lowest p-4 text-sm leading-6 text-on-surface">
             <code>{code}</code>
           </pre>
         )}
       </div>
       {highlight.error ? (
-        <div className="border-t border-slate-200 px-4 py-3 text-xs text-amber-700">
+        <div className="bg-tertiary-container px-4 py-3 text-xs text-tertiary">
           Syntax highlighting unavailable: {highlight.error}
         </div>
       ) : null}
-    </div>
+    </Surface>
   );
 }
 
@@ -124,15 +127,15 @@ function MarkdownViewToggle({
   value: MarkdownViewMode;
 }) {
   return (
-    <div className="inline-flex h-8 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5">
+    <div className="inline-flex h-8 w-fit overflow-hidden rounded-sm bg-surface-container-high p-0.5">
       {(["preview", "raw"] as const).map((mode) => (
         <button
           aria-pressed={value === mode}
           className={cn(
-            "rounded px-2.5 text-xs font-medium capitalize transition",
+            "rounded-sm px-2.5 font-label text-xs font-semibold capitalize transition",
             value === mode
-              ? "bg-white text-zinc-950 shadow-sm"
-              : "text-slate-600 hover:text-zinc-950"
+              ? "bg-surface-container-lowest text-primary"
+              : "text-on-surface-variant hover:text-on-surface"
           )}
           key={mode}
           onClick={() => onChange(mode)}

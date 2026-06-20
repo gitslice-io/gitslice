@@ -15,6 +15,7 @@ import {
   SlicePanel,
   getErrorMessage
 } from "../components/slices/SlicePageParts";
+import { Button, Input } from "../components/ui";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
@@ -119,29 +120,30 @@ export function SliceCreatePage() {
       <form className="mt-8 space-y-6" onSubmit={createSlice}>
         <SlicePanel className="space-y-4">
           <div>
-            <h2 className="text-base font-semibold text-zinc-950">
+            <h2 className="font-serif text-xl font-semibold leading-tight text-on-surface">
               Slice identity
             </h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
+            <p className="mt-1 text-sm leading-6 text-on-surface-variant">
               The account is resolved from your signed-in session.
             </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-2 text-sm font-medium text-zinc-950">
+            <label className="grid gap-2 font-label text-sm font-medium text-on-surface">
               Account
-              <input
-                className="h-10 min-w-0 rounded-md border border-slate-300 bg-slate-50 px-3 font-mono text-sm text-slate-700 outline-none"
+              <Input
+                className="min-w-0 bg-surface-container-lowest font-mono text-on-surface-variant"
                 readOnly
                 value={selection.isLoading ? "Loading..." : account}
               />
             </label>
 
-            <label className="grid gap-2 text-sm font-medium text-zinc-950">
+            <label className="grid gap-2 font-label text-sm font-medium text-on-surface">
               Slice name
-              <input
-                className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+              <Input
+                className="min-w-0 font-mono"
                 disabled={isBusy}
+                error={Boolean(nameError)}
                 onChange={(event) => {
                   setSliceName(event.target.value);
                   if (nameError) {
@@ -152,7 +154,7 @@ export function SliceCreatePage() {
                 spellCheck={false}
                 value={sliceName}
               />
-              <span className="text-xs font-normal leading-5 text-slate-500">
+              <span className="text-xs font-normal leading-5 text-on-surface-muted">
                 Use lowercase letters, digits, and hyphens.
               </span>
               {nameError ? (
@@ -198,13 +200,13 @@ export function SliceCreatePage() {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+          <Button
             disabled={selection.isLoading || isBusy}
             type="submit"
+            variant="primary"
           >
             {isBusy ? "Creating..." : "Create slice"}
-          </button>
+          </Button>
         </div>
       </form>
     </section>
