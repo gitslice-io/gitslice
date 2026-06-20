@@ -35,7 +35,11 @@ export function ChangesetDetailPage() {
   const [toPatchset, setToPatchset] = useState("");
 
   const changesetQuery = useQuery({
-    enabled: Boolean(changesetId),
+    // Wait for Clerk to resolve before fetching: this page is public, but a
+    // signed-in user viewing a private changeset needs the auth token attached
+    // on the first request. Firing before `isLoaded` would send a tokenless
+    // request that React Query never retries (the token isn't in the key).
+    enabled: Boolean(isLoaded && changesetId),
     queryKey: ["changeset", changesetId],
     queryFn: () => api.getChangeset({ changesetId }),
     refetchInterval: (query) =>
@@ -182,7 +186,10 @@ export function ChangesetDetailPage() {
     );
   }
 
-  if (changesetQuery.isLoading) {
+  // `isPending` (not `isLoading`) so the disabled-pre-auth state counts as
+  // loading; otherwise execution falls through to "Changeset not found" on
+  // first paint and flashes once auth resolves.
+  if (!isLoaded || changesetQuery.isPending) {
     return <ChangesetSkeleton />;
   }
 
