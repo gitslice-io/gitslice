@@ -5868,3 +5868,52 @@ GITSLICE_TEST_DATABASE_URL=... go test ./internal/postgres/... ./internal/cli/..
 # CLI smoke: `gs admin gc` without --dry-run returns the guidance error;
 #   `gs admin gc --help` shows the dry-run/json/sample-limit flags.
 ```
+
+## 2026-06-20: In-Process Rate Limiting, Quota Protection, and `/metrics` Gating
+
+Request:
+
+- The server now has a live, internet-reachable staging deploy
+  (`api.agenttools.dev`) with self-serve signup. Abuse protection that
+  `future_work.md` deferred ("rate limits and quota controls for uploads,
+  changesets, projection requests, Git compatibility endpoints, and API
+  clients"; unauthenticated `/metrics`) is now load-bearing.
+
+Decision:
+
+- New dependency-free, concurrency-safe keyed token-bucket limiter in
+  `internal/ratelimit` (lazy refill, lazy TTL eviction of idle keys, no
+  background goroutine). Zero/negative rate disables it. No new third-party
+  deps (deliberately avoided `golang.org/x/time/rate`).
+- `server/ratelimit.go` adapts it: gRPC unary + stream interceptors keyed by
+  authenticated subject id (via `authctx.SubjectID`, the same value
+  `authInterceptor` sets) falling back to peer IP, placed AFTER `authInterceptor`
+  in the chain so the subject is known; health-check methods are exempt. HTTP
+  middleware keyed by client IP (best-effort first `X-Forwarded-For` hop, since
+  staging runs behind a proxy) wraps the JSON gateway and git HTTP handlers.
+  Rejections return `codes.ResourceExhausted` / HTTP 429 and increment
+  `gitslice_ratelimit_rejected_total{transport}`.
+- `/metrics` gated behind an optional `GITSLICE_METRICS_TOKEN` (bearer or
+  `?token=`); when unset it stays open for backward compat but logs one warning.
+- Config (`server/config.go`) adds env-driven fields with a global
+  `GITSLICE_RATELIMIT_DISABLED` switch. **Per-subject defaults are an anti-abuse
+  ceiling, not fairness throttling**, so they sit well above a single
+  authenticated user's legitimate bulk traffic: `gs import` uploads blobs
+  concurrently as one unary/stream `UploadBlob` per blob, and 50 RPS would
+  reject a large import (`ResourceExhausted`, no client retry → failed import).
+  Defaults: subject **500 RPS / 1000 burst**, HTTP per-IP 30 RPS / 60 burst.
+- Test harnesses build `server.Config` literals with zero RPS fields, so the
+  limiter is pass-through in tests unless explicitly enabled; the new
+  per-subject defaults only apply via `ConfigFromEnv` (production/staging).
+
+Verification:
+
+```bash
+gofmt -l internal/ratelimit/ server/ratelimit.go server/server.go \
+  server/gateway.go server/config.go                          # clean
+go build ./... && go vet ./internal/ratelimit/... ./server/...
+go test ./internal/ratelimit/... ./server/...                 # pass
+# e2e against real server + Postgres (defaults via ConfigFromEnv not tripped):
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/cli ./tests/rpc
+#   ok tests/cli (102s), ok tests/rpc (62s)
+```

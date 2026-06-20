@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gitslice-io/gitslice/internal/metrics"
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
@@ -13,6 +16,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+var openMetricsWarningOnce sync.Once
 
 func NewHTTPGateway(ctx context.Context, grpcEndpoint string) (http.Handler, error) {
 	mux := runtime.NewServeMux(runtime.WithIncomingHeaderMatcher(gatewayHeaderMatcher))
@@ -40,11 +45,56 @@ func NewHTTPGateway(ctx context.Context, grpcEndpoint string) (http.Handler, err
 	return mux, nil
 }
 
-func NewHTTPHandler(gateway http.Handler, allowedOrigin string) http.Handler {
+func NewHTTPHandler(gateway http.Handler, allowedOrigin string, cfgs ...Config) http.Handler {
+	var cfg Config
+	configured := false
+	if len(cfgs) > 0 {
+		cfg = cfgs[0]
+		configured = true
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", metrics.Handler())
-	mux.Handle("/", withCORS(withMaxBody(gateway, rpclimits.MaxUnaryMessageBytes), allowedOrigin))
+	metricsHandler := metrics.Handler()
+	if token := strings.TrimSpace(cfg.MetricsToken); token != "" {
+		metricsHandler = withMetricsToken(metricsHandler, token)
+	} else if configured {
+		warnOpenMetricsEndpoint()
+	}
+	mux.Handle("/metrics", metricsHandler)
+
+	gatewayHandler := withMaxBody(gateway, rpclimits.MaxUnaryMessageBytes)
+	gatewayHandler = newHTTPRateLimitMiddleware(cfg)(gatewayHandler)
+	mux.Handle("/", withCORS(gatewayHandler, allowedOrigin))
 	return mux
+}
+
+func withMetricsToken(handler http.Handler, token string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !validMetricsToken(r, token) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+func validMetricsToken(r *http.Request, token string) bool {
+	candidate := r.URL.Query().Get("token")
+	if candidate == "" {
+		const prefix = "bearer "
+		value := strings.TrimSpace(r.Header.Get("Authorization"))
+		if strings.HasPrefix(strings.ToLower(value), prefix) {
+			candidate = strings.TrimSpace(value[len(prefix):])
+		}
+	}
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(token)) == 1
+}
+
+func warnOpenMetricsEndpoint() {
+	openMetricsWarningOnce.Do(func() {
+		slog.Warn("gitslice /metrics endpoint is unauthenticated; set GITSLICE_METRICS_TOKEN to require access")
+	})
 }
 
 // withMaxBody caps the request body so the JSON gateway cannot be forced to
