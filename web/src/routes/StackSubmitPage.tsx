@@ -5,11 +5,8 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { SubmitStackEntryResult } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
-import {
-  SliceLoadingBlock,
-  SliceNotice,
-  SlicePageHeader
-} from "../components/slices/SlicePageParts";
+import { Button, Card, PageHeader, surfaceClassName } from "../components/ui";
+import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
 import {
   affectedSubtreeEntries,
@@ -22,8 +19,10 @@ import {
   entryTitle,
   formatCommit,
   getErrorMessage,
-  primaryButtonClass,
+  nativeControlClassName,
   secondaryButtonClass,
+  StackLoadingBlock,
+  StackNotice,
   shortStackId,
   sortedStackEntries,
   stackDisplayName,
@@ -78,7 +77,7 @@ export function StackSubmitPage() {
   if (stackQuery.isLoading) {
     return (
       <section className="mx-auto w-full max-w-[100rem]">
-        <SliceLoadingBlock />
+        <StackLoadingBlock />
       </section>
     );
   }
@@ -112,21 +111,21 @@ export function StackSubmitPage() {
         />
       </div>
 
-      <SlicePageHeader
+      <PageHeader
         actions={
-          <button
-            className={secondaryButtonClass}
+          <Button
             onClick={() => {
               void navigate({ params: { id: stackId }, to: "/dependencies/$id" });
             }}
             type="button"
+            variant="secondary"
           >
             Back to dependencies
-          </button>
+          </Button>
         }
         description={`Submit base-before-dependent against ${stack.targetRef || "the target ref"} from base ${formatCommit(stack.baseCommitId)}.`}
         eyebrow="Submit dependencies"
-        title={stackDisplayName(stack)}
+        title={<span className="font-serif">{stackDisplayName(stack)}</span>}
       />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -138,21 +137,21 @@ export function StackSubmitPage() {
             stackId={stackId}
           />
           {submitMutation.isError ? (
-            <SliceNotice title="Submit failed" tone="error">
+            <StackNotice title="Submit failed" tone="error">
               {getErrorMessage(submitMutation.error)}
-            </SliceNotice>
+            </StackNotice>
           ) : null}
         </div>
 
         <form
-          className="grid content-start gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
+          className={cn(surfaceClassName({ level: "low" }), "grid content-start gap-4 p-5")}
           onSubmit={submit}
         >
-          <h2 className="text-sm font-semibold text-zinc-950">Submit options</h2>
-          <label className="grid gap-2 text-sm font-medium text-zinc-800">
+          <h2 className="text-sm font-semibold text-on-surface">Submit options</h2>
+          <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
             Submit subtree
             <select
-              className={inputClass}
+              className={nativeControlClassName}
               onChange={(event) => setSubtreeRoot(event.target.value)}
               value={subtreeRoot}
             >
@@ -164,13 +163,12 @@ export function StackSubmitPage() {
               ))}
             </select>
           </label>
-          <button
-            className={primaryButtonClass}
+          <Button
             disabled={!submitRoot || submitMutation.isPending}
             type="submit"
           >
             {submitMutation.isPending ? "Submitting..." : "Submit dependencies"}
-          </button>
+          </Button>
         </form>
       </div>
     </section>
@@ -184,36 +182,39 @@ function SubmitPreview({
 }) {
   if (!entries.length) {
     return (
-      <SliceNotice title="No submit changesets">
+      <StackNotice title="No submit changesets">
         This dependency tree has no changesets in the selected submit set.
-      </SliceNotice>
+      </StackNotice>
     );
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-zinc-950">Submit order</h2>
+    <Card level="low" padding="none">
+      <div className="bg-surface-container-high px-4 py-3">
+        <h2 className="text-sm font-semibold text-on-surface">Submit order</h2>
       </div>
-      <div className="divide-y divide-slate-200">
+      <div>
         {entries.map((entry) => (
-          <div className="px-4 py-3" key={entry.changesetId}>
+          <div
+            className="px-4 py-3 odd:bg-surface-container-lowest even:bg-surface-container-low"
+            key={entry.changesetId}
+          >
             <div style={{ paddingLeft: `${Math.min(entryDepth(entry), 8) * 1.25}rem` }}>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-zinc-950">{entryLabel(entry)}</span>
+                <span className="font-semibold text-on-surface">{entryLabel(entry)}</span>
                 <StackStatusBadge status={entry.state || entry.changeset?.status} />
               </div>
-              <p className="mt-1 break-words text-sm text-slate-700">
+              <p className="mt-1 break-words text-sm text-on-surface-variant">
                 {entryTitle(entry)}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-on-surface-muted">
                 patchset {currentPatchsetNumber(entry.changeset) || "none"} - {changedPathCount(entry.changeset)} paths
               </p>
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -228,20 +229,20 @@ function SubmitResultPanel({
 }) {
   if (!results.length) {
     return (
-      <SliceNotice title="No submit result yet">
+      <StackNotice title="No submit result yet">
         Run submit to see accepted, pending, submitted, and blocked changesets.
-      </SliceNotice>
+      </StackNotice>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-zinc-950">Submit result</h2>
+    <Card level="low" padding="none">
+      <div className="bg-surface-container-high px-4 py-3">
+        <h2 className="text-sm font-semibold text-on-surface">Submit result</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-          <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-surface-container font-label text-xs font-semibold uppercase tracking-normal text-on-surface-variant">
             <tr>
               <th className="px-4 py-3">Changeset</th>
               <th className="px-4 py-3">Status</th>
@@ -250,7 +251,7 @@ function SubmitResultPanel({
               <th className="px-4 py-3 text-right">Open</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
+          <tbody>
             {results.map((result) => {
               const entry = entryByChangesetId(entries, result.changesetId || "");
               const detailId =
@@ -259,13 +260,16 @@ function SubmitResultPanel({
                 "";
 
               return (
-                <tr key={result.changesetId}>
+                <tr
+                  className="align-top odd:bg-surface-container-lowest even:bg-surface-container-low"
+                  key={result.changesetId}
+                >
                   <td className="px-4 py-4">
-                    <span className="font-semibold text-zinc-950">
+                    <span className="font-semibold text-on-surface">
                       {entry ? entryLabel(entry) : detailId || "changeset"}
                     </span>
                     {entry ? (
-                      <p className="mt-1 break-words text-sm text-slate-700">
+                      <p className="mt-1 break-words text-sm text-on-surface-variant">
                         {entryTitle(entry)}
                       </p>
                     ) : null}
@@ -274,12 +278,12 @@ function SubmitResultPanel({
                     <StackStatusBadge status={result.status} />
                   </td>
                   <td
-                    className="hidden px-4 py-4 font-mono text-xs text-slate-600 md:table-cell"
+                    className="hidden px-4 py-4 font-mono text-xs text-on-surface-variant md:table-cell"
                     title={result.commitId}
                   >
                     {formatCommit(result.commitId)}
                   </td>
-                  <td className="hidden max-w-sm px-4 py-4 text-slate-700 lg:table-cell">
+                  <td className="hidden max-w-sm px-4 py-4 text-on-surface-variant lg:table-cell">
                     {displaySubmitBlockedReason(result.blockedReason) || "None"}
                   </td>
                   <td className="px-4 py-4 text-right">
@@ -298,7 +302,7 @@ function SubmitResultPanel({
           </tbody>
         </table>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -309,12 +313,9 @@ function hasPendingPublish(statuses: Array<string | undefined> | undefined) {
 function ActionMessage({ message, title }: { message: string; title: string }) {
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <SliceNotice title={title} tone="error">
+      <StackNotice title={title} tone="error">
         {message}
-      </SliceNotice>
+      </StackNotice>
     </section>
   );
 }
-
-const inputClass =
-  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200";

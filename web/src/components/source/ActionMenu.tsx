@@ -108,7 +108,7 @@ export function ActionMenu({
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={label}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-lg font-semibold leading-none text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-sm bg-surface-container-high font-label text-lg font-semibold leading-none text-primary transition hover:bg-surface-container-highest active:translate-y-px"
         onClick={() => setOpen((current) => !current)}
         ref={triggerRef}
         type="button"
@@ -118,7 +118,7 @@ export function ActionMenu({
       {open
         ? createPortal(
             <div
-              className="fixed z-50 max-h-[60vh] min-w-36 max-w-[calc(100vw-1rem)] overflow-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10"
+              className="fixed z-50 max-h-[60vh] min-w-36 max-w-[calc(100vw-1rem)] overflow-auto rounded-sm bg-surface-container-lowest/80 p-1 shadow-[0_24px_44px_rgba(33,29,23,0.08)] backdrop-blur-[20px]"
               ref={menuRef}
               role="menu"
               style={{ top: coords.top, left: coords.left }}
@@ -128,10 +128,10 @@ export function ActionMenu({
                 return (
                   <button
                     className={[
-                      "block w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+                      "block w-full whitespace-nowrap rounded-sm px-3 py-2 text-left font-label text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
                       isDanger
                         ? "text-rose-700 hover:bg-rose-50"
-                        : "text-slate-700 hover:bg-slate-50"
+                        : "text-on-surface-variant hover:bg-surface-container hover:text-primary"
                     ].join(" ")}
                     disabled={item.disabled}
                     key={item.label}

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-react";
 
 import { useApi } from "../api/useApi";
+import { hasMintedToken } from "../auth/token";
 
 // The "account" is the signed-in user's own account, resolved from the session
 // (GetAuthStatus) rather than typed in by the user. The first account is their
@@ -21,10 +22,13 @@ const SelectionContext = createContext<SelectionState | null>(null);
 export function SelectionProvider({ children }: { children: ReactNode }) {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
-  const isAuthReady = isLoaded && Boolean(isSignedIn);
-  const shouldLoadAuthStatus = isAuthReady;
+  // A minted token is a complete session on its own and does not depend on
+  // Clerk being loaded/signed in, so resolve the account from GetAuthStatus
+  // whenever either auth path is ready.
+  const mintedSession = hasMintedToken();
+  const isAuthReady = mintedSession || (isLoaded && Boolean(isSignedIn));
   const { data, error, isError, isLoading } = useQuery({
-    enabled: shouldLoadAuthStatus,
+    enabled: isAuthReady,
     queryKey: ["authStatus"],
     queryFn: () => api.getAuthStatus({})
   });
@@ -39,7 +43,11 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       account,
       accounts,
       error: isAuthReady && isError ? error : null,
-      isLoading: !isLoaded || (isAuthReady && isLoading),
+      // For a minted-token session, loading tracks the GetAuthStatus query, not
+      // Clerk's isLoaded (Clerk is irrelevant to that path).
+      isLoading: mintedSession
+        ? isAuthReady && isLoading
+        : !isLoaded || (isAuthReady && isLoading),
       needsUsername: isAuthReady && needsUsername,
       subjectId
     }),
@@ -51,6 +59,7 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
       isLoaded,
       isError,
       isLoading,
+      mintedSession,
       needsUsername,
       subjectId
     ]

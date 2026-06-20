@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  color: #18181b;
-  background: #f8fafc;
+  color: #211d17;
+  background: #fbfaf6;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -22,4 +22,16 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+@layer base {
+  body {
+    @apply bg-surface font-sans text-on-surface;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-serif text-on-surface;
+  }
 }
