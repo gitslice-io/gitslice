@@ -15,6 +15,14 @@ import type { Changeset, Patchset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
+import {
+  Badge,
+  Button,
+  Card,
+  Input,
+  Surface,
+  buttonClassName
+} from "../components/ui";
 import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
@@ -254,49 +262,55 @@ function HeaderCard({
   );
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+    <Card as="section" level="lowest" padding="none">
       <div className="px-3 py-2.5 md:px-5 md:py-4">
         {publishing ? (
-          <div className="mb-2.5 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 md:mb-3 md:px-3 md:py-2 md:text-sm">
+          <Surface
+            className="mb-2.5 flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-tertiary md:mb-3 md:px-3 md:py-2 md:text-sm"
+            level="high"
+          >
             <span
               aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500"
+              className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-tertiary"
             />
             Publishing changeset…
-          </div>
+          </Surface>
         ) : null}
         <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between lg:gap-3">
           <div className="min-w-0">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
               <h1
-                className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg md:text-2xl"
+                className="truncate text-xl font-semibold leading-tight text-on-surface md:text-3xl"
                 title={changeset.title || "Untitled changeset"}
               >
                 {changeset.title || "Untitled changeset"}
               </h1>
               {hasExpandableContent ? (
-                <button
+                <Button
                   aria-expanded={showDetails}
                   aria-label={showDetails ? "Hide details" : "Show details"}
-                  className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 lg:hidden"
+                  className="shrink-0 lg:hidden"
                   onClick={() => setShowDetails((value) => !value)}
+                  size="sm"
                   type="button"
+                  variant="secondary"
                 >
                   {showDetails ? "Hide" : canUseReviewActions ? "Actions" : "Details"}
-                </button>
+                </Button>
               ) : null}
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-slate-600 md:mt-2 md:gap-x-2 md:gap-y-1.5 md:text-xs">
-              <span
-                className="max-w-[12rem] truncate rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-700 md:px-2 md:py-1"
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-on-surface-variant md:gap-2 md:text-xs">
+              <Badge
+                className="max-w-[12rem] truncate font-mono md:max-w-[14rem]"
                 title={changesetLabel(changeset)}
+                variant="neutral"
               >
                 {changesetLabel(changeset)}
-              </span>
+              </Badge>
               <StatusBadge status={changeset.status} />
               {changeset.parentChangesetId ? (
                 <Link
-                  className="inline-flex max-w-[12rem] items-center gap-1 truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 md:max-w-[14rem] md:px-2 md:py-1"
+                  className="inline-flex max-w-[14rem] min-w-0 transition hover:opacity-85"
                   params={{
                     id:
                       shortChangesetId(changeset.parentChangesetId) ||
@@ -305,11 +319,13 @@ function HeaderCard({
                   title={`Base changeset ${changeset.parentChangesetId}`}
                   to="/cs/$id"
                 >
-                  <span className="shrink-0">Base changeset</span>
-                  <span className="truncate font-mono">
-                    {shortChangesetId(changeset.parentChangesetId) ||
-                      changeset.parentChangesetId}
-                  </span>
+                  <Badge className="min-w-0 gap-1" variant="neutral">
+                    <span className="shrink-0">Base changeset</span>
+                    <span className="truncate font-mono">
+                      {shortChangesetId(changeset.parentChangesetId) ||
+                        changeset.parentChangesetId}
+                    </span>
+                  </Badge>
                 </Link>
               ) : null}
               <CopyLinkButton changesetId={changeset.id || ""} />
@@ -317,13 +333,13 @@ function HeaderCard({
             <ChangesetMetaLine changeset={changeset} />
             <div className={cn("lg:block", showDetails ? "block" : "hidden")}>
               {changeset.description ? (
-                <p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700 md:mt-4">
+                <p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-on-surface-variant md:mt-4">
                   {changeset.description}
                 </p>
               ) : null}
               {changeset.baseCommitId ? (
                 <p
-                  className="mt-3 font-mono text-xs text-slate-500 md:mt-4"
+                  className="mt-3 font-mono text-xs text-on-surface-muted md:mt-4"
                   title={changeset.baseCommitId}
                 >
                   base {shortCommit(changeset.baseCommitId)}
@@ -358,15 +374,18 @@ function HeaderCard({
         </div>
 
         {changeset.submitBlockedReason ? (
-          <div className="mt-2.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 md:mt-3 md:text-sm">
+          <Surface
+            className="mt-2.5 px-3 py-2 text-xs text-tertiary md:mt-3 md:text-sm"
+            level="high"
+          >
             {displaySubmitBlockedReason(changeset.submitBlockedReason)}
-          </div>
+          </Surface>
         ) : null}
         {actionError ? (
           <ErrorBox className="mt-4 md:mt-5" message={actionError} />
         ) : null}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -394,14 +413,13 @@ function ReviewActions({
   return (
     <div className="w-full shrink-0 space-y-3 lg:w-auto lg:min-w-80">
       <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-        <button
-          className={primaryButtonClass}
+        <Button
           disabled={actionBusy || terminal || !canMerge}
           onClick={onMerge}
           type="button"
         >
           {mergePending ? "Merging..." : "Merge"}
-        </button>
+        </Button>
       </div>
 
       {!terminal ? (
@@ -409,23 +427,24 @@ function ReviewActions({
           className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
           onSubmit={onAbandon}
         >
-          <label className="grid gap-1 text-xs font-medium text-slate-600">
+          <label className="grid gap-1 font-label text-xs font-semibold text-on-surface-variant">
             Reason
-            <input
-              className="h-9 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+            <Input
+              className="h-9 min-w-0"
               disabled={actionBusy}
               onChange={(event) => onAbandonReasonChange(event.target.value)}
               placeholder="Optional reason"
               value={abandonReason}
             />
           </label>
-          <button
-            className={dangerButtonClass}
+          <Button
+            className="self-end text-rose-700 hover:bg-rose-50"
             disabled={actionBusy}
+            variant="secondary"
             type="submit"
           >
             {abandonPending ? "Abandoning..." : "Abandon"}
-          </button>
+          </Button>
         </form>
       ) : null}
     </div>
@@ -454,30 +473,30 @@ function PatchsetComparePanel({
   const toLabel = patchsetOptionLabel(findPatchset(patchsets, toPatchset));
 
   return (
-    <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
+    <Card as="section" className="mt-2.5 md:mt-3" level="low" padding="none">
       <div className="flex items-center justify-between gap-2 px-3 py-2.5 md:px-5 md:py-3">
         <button
           aria-controls="patchset-timeline"
           aria-expanded={mobileOpen}
-          className="-mx-1 flex min-w-0 flex-1 items-center gap-2 rounded px-1 text-left lg:cursor-default lg:pointer-events-none"
+          className="-mx-1 flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 text-left transition hover:bg-surface-container-high lg:pointer-events-none lg:cursor-default lg:hover:bg-transparent"
           onClick={() => setMobileOpen((value) => !value)}
           type="button"
         >
-          <h2 className="text-[11px] font-semibold uppercase tracking-normal text-slate-500 md:text-xs">
+          <h2 className="font-label text-[11px] font-semibold uppercase text-tertiary md:text-xs">
             Patchsets
           </h2>
           <span
             aria-hidden="true"
             className={cn(
-              "inline-block shrink-0 text-[10px] text-slate-400 transition-transform lg:hidden",
+              "inline-block shrink-0 text-[10px] text-on-surface-muted transition-transform lg:hidden",
               mobileOpen && "rotate-90"
             )}
           >
             ▶
           </span>
-          <p className="min-w-0 truncate text-[11px] font-medium text-zinc-950 md:text-xs">
-            <span className="text-slate-500">{fromLabel}</span>
-            <span className="mx-1 text-slate-400">→</span>
+          <p className="min-w-0 truncate text-[11px] font-medium text-on-surface md:text-xs">
+            <span className="text-on-surface-variant">{fromLabel}</span>
+            <span className="mx-1 text-on-surface-muted">→</span>
             <span>{toLabel || "selected patchset"}</span>
           </p>
         </button>
@@ -498,7 +517,7 @@ function PatchsetComparePanel({
           toPatchset={toPatchset}
         />
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -613,9 +632,9 @@ function PatchsetTimeline({
 
   if (!selectablePatchsets.length) {
     return (
-      <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+      <Surface className="mt-2 px-3 py-2 text-sm text-on-surface-variant" level="high">
         No patchsets returned.
-      </p>
+      </Surface>
     );
   }
 
@@ -655,7 +674,7 @@ function PatchsetTimeline({
 
       <div className="relative h-20 px-4 md:px-5">
         <div className="relative h-full" ref={trackRef}>
-          <div className="absolute inset-x-0 top-9 h-px bg-slate-300" />
+          <div className="absolute inset-x-0 top-9 h-1 rounded-full bg-surface-container-highest" />
           <div className="absolute inset-x-0 top-6 flex items-center justify-between">
             {steps.map((step, index) => {
               const isCurrent =
@@ -668,7 +687,7 @@ function PatchsetTimeline({
                       ? "Use recorded base as diff base"
                       : `Compare to ${patchsetOptionLabel(step.patchset)}`
                   }
-                  className="group flex min-w-7 -translate-y-0.5 flex-col items-center gap-1 text-[10px] font-medium text-slate-500 md:min-w-8"
+                  className="group flex min-w-7 -translate-y-0.5 flex-col items-center gap-1 text-[10px] font-medium text-on-surface-muted md:min-w-8"
                   key={step.id || "base"}
                   onClick={() =>
                     index === 0
@@ -679,13 +698,13 @@ function PatchsetTimeline({
                 >
                   <span
                     className={cn(
-                      "rounded-full border-2 bg-white transition group-hover:border-zinc-950",
+                      "rounded-full transition group-hover:bg-primary",
                       index === fromIndex || index === toIndex
-                        ? "h-3.5 w-3.5 border-zinc-950"
-                        : "h-3 w-3 border-slate-300",
+                        ? "h-3.5 w-3.5 bg-primary ring-4 ring-primary/10"
+                        : "h-3 w-3 bg-surface-container-highest",
                       isCurrent &&
                         !(index === fromIndex || index === toIndex) &&
-                        "border-emerald-500 ring-2 ring-emerald-100"
+                        "bg-tertiary ring-4 ring-tertiary-container"
                     )}
                     title={isCurrent ? "Current patchset" : undefined}
                   />
@@ -693,7 +712,7 @@ function PatchsetTimeline({
                     className={cn(
                       isCurrent &&
                         !(index === fromIndex || index === toIndex) &&
-                        "text-emerald-700"
+                        "text-tertiary"
                     )}
                   >
                     {step.label}
@@ -767,13 +786,14 @@ function TimelineHandleButton({
       aria-valuemax={maxIndex}
       aria-valuemin={handle === "from" ? 0 : Math.min(1, maxIndex)}
       aria-valuenow={index}
-      className={cn(
-        "absolute rounded-full border px-2 py-1 text-[11px] font-semibold shadow-sm transition active:scale-[0.98]",
-        handle === "from"
-          ? "border-slate-300 bg-white text-slate-700"
-          : "border-zinc-950 bg-zinc-950 text-white",
-        topClassName
-      )}
+      className={buttonClassName({
+        className: cn(
+          "absolute h-auto rounded-full px-2 py-1 text-[11px] active:scale-[0.98]",
+          topClassName
+        ),
+        size: "sm",
+        variant: handle === "from" ? "secondary" : "primary"
+      })}
       onKeyDown={(event) => onKeyDown(handle, index, event)}
       onPointerDown={(event) => onPointerDown(handle, event)}
       onPointerCancel={onPointerUp}
@@ -800,26 +820,27 @@ function ErrorBox({
   message: string;
 }) {
   return (
-    <div
+    <Surface
       className={cn(
-        "rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800",
+        "bg-rose-50 px-4 py-3 text-sm text-rose-800",
         className
       )}
+      level="high"
     >
       {message}
-    </div>
+    </Surface>
   );
 }
 
 function PageMessage({ message, title }: { message: string; title: string }) {
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-        <h1 className="text-xl font-semibold tracking-normal text-zinc-950">
+      <Card level="low" padding="lg">
+        <h1 className="text-xl font-semibold text-on-surface">
           {title}
         </h1>
-        <p className="mt-2 text-sm text-slate-600">{message}</p>
-      </div>
+        <p className="mt-2 text-sm text-on-surface-variant">{message}</p>
+      </Card>
     </section>
   );
 }
@@ -827,15 +848,15 @@ function PageMessage({ message, title }: { message: string; title: string }) {
 function ChangesetSkeleton() {
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
-        <div className="h-4 w-48 animate-pulse rounded bg-slate-200" />
-        <div className="mt-5 h-8 w-2/3 animate-pulse rounded bg-slate-200" />
+      <Card level="low" padding="md">
+        <div className="h-4 w-48 animate-pulse rounded-sm bg-surface-container-high" />
+        <div className="mt-5 h-8 w-2/3 animate-pulse rounded-sm bg-surface-container-high" />
         <div className="mt-4 flex flex-wrap gap-2">
-          <div className="h-7 w-24 animate-pulse rounded bg-slate-100" />
-          <div className="h-7 w-32 animate-pulse rounded bg-slate-100" />
-          <div className="h-7 w-20 animate-pulse rounded bg-slate-100" />
+          <div className="h-7 w-24 animate-pulse rounded-sm bg-surface-container-high" />
+          <div className="h-7 w-32 animate-pulse rounded-sm bg-surface-container-high" />
+          <div className="h-7 w-20 animate-pulse rounded-sm bg-surface-container-high" />
         </div>
-      </div>
+      </Card>
     </section>
   );
 }
@@ -843,15 +864,14 @@ function ChangesetSkeleton() {
 function StatusBadge({ status }: { status?: string }) {
   const label = humanizeStatus(status);
   return (
-    <span
-      className={cn(
-        "inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold md:py-1 md:text-xs",
-        statusClass(status)
-      )}
+    <Badge
+      className="md:text-xs"
+      size="sm"
       title={status || "unknown"}
+      variant={statusVariant(status)}
     >
       {label}
-    </span>
+    </Badge>
   );
 }
 
@@ -872,11 +892,11 @@ function ChangesetMetaLine({ changeset }: { changeset: Changeset }) {
   }
 
   return (
-    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500 md:mt-1.5 md:text-xs">
+    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-on-surface-muted md:mt-1.5 md:text-xs">
       {parts.map((part, index) => (
         <span className="flex min-w-0 items-center gap-1.5" key={index}>
           {index > 0 ? (
-            <span aria-hidden="true" className="text-slate-300">
+            <span aria-hidden="true" className="text-on-surface-muted">
               ·
             </span>
           ) : null}
@@ -947,15 +967,17 @@ function CopyLinkButton({ changesetId }: { changesetId: string }) {
   };
 
   return (
-    <button
-      className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950"
+    <Button
+      className="h-7 px-2 text-xs"
       onClick={copy}
+      size="sm"
       title={shareUrl}
       type="button"
+      variant="secondary"
     >
       <span aria-hidden="true">{copied ? "OK" : "URL"}</span>
       {copied ? "Link copied" : "Copy link"}
-    </button>
+    </Button>
   );
 }
 
@@ -1117,20 +1139,19 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function statusClass(status?: string) {
+function statusVariant(status?: string) {
   switch ((status || "").toLowerCase()) {
     case "published":
     case "merged":
     case "submitted":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "primary";
     case "pending_publish":
-      return "border-amber-200 bg-amber-50 text-amber-900";
-    case "abandoned":
-      return "border-rose-200 bg-rose-50 text-rose-800";
     case "draft":
-      return "border-slate-200 bg-slate-50 text-slate-700";
+    case "open":
+      return "tertiary";
+    case "abandoned":
     default:
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "neutral";
   }
 }
 
@@ -1156,9 +1177,3 @@ function isMergeableStatus(status?: string) {
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
-
-const primaryButtonClass =
-  "rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
-
-const dangerButtonClass =
-  "self-end rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
