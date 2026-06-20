@@ -4,8 +4,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 
 import { ClerkAuthProvider } from "./auth/ClerkAuthProvider";
+import { captureTokenFromUrl } from "./auth/token";
 import "./index.css";
 import { router } from "./routes/router";
+
+// Persist a `?token=` minted token (and strip it from the URL) before render.
+captureTokenFromUrl();
 
 const queryClient = new QueryClient({
   defaultOptions: {
