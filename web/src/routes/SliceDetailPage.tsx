@@ -74,10 +74,16 @@ export function SliceDetailPage() {
   const search = useSearch({ strict: false }) as SliceSearch;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
-  const routeSliceRef =
-    routeAccount && routeSlice
-      ? { account: routeAccount, slice: routeSlice }
-      : undefined;
+  // Memoize so the ref object identity is stable across renders; otherwise it
+  // feeds unstable deps into effects (e.g. the draft-changeset controller) and
+  // drives a render loop while data loads.
+  const routeSliceRef = useMemo(
+    () =>
+      routeAccount && routeSlice
+        ? { account: routeAccount, slice: routeSlice }
+        : undefined,
+    [routeAccount, routeSlice]
+  );
   const selectedPath = pathSearchValue(search.path);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showTree, setShowTree] = useState(true);
@@ -236,7 +242,12 @@ export function SliceDetailPage() {
     );
   }
 
-  const includedPaths = slice.definition?.includedPaths ?? [];
+  // Stabilize identity so the `?? []` fallback doesn't yield a fresh array each
+  // render and drive the file-tree expansion effects into a re-render loop.
+  const includedPaths = useMemo(
+    () => slice.definition?.includedPaths ?? [],
+    [slice.definition?.includedPaths]
+  );
   const gitCloneHint = buildGitCloneHint(slice.ref?.account, slice.ref?.slice);
   const currentEntries = directoryQuery.data ?? [];
   // The directory new file/folder controls create under the current folder. At
@@ -765,7 +776,9 @@ function SliceFolderNavigator({
       for (const path of selectedExpansion) {
         next.add(path);
       }
-      return next;
+      // Bail out (return the same reference) when nothing was added, so an
+      // unstable dependency identity can't drive an infinite render loop.
+      return next.size === current.size ? current : next;
     });
   }, [isSelectedDirectory, selectedPath]);
 
@@ -777,7 +790,7 @@ function SliceFolderNavigator({
       )) {
         next.add(path);
       }
-      return next;
+      return next.size === current.size ? current : next;
     });
   }, [includedPaths]);
 
