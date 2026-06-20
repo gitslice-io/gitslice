@@ -5822,6 +5822,53 @@ npm --prefix web run build   # tsc -b + vite build
 npm --prefix web test
 ```
 
+## 2026-06-20: Storage GC Dry-Run Reachability Reporter (`gs admin gc --dry-run`)
+
+Request:
+
+- MVP scope (`00_product.md` §8) includes "correctness-first storage lifecycle
+  and GC", but there was no GC at all. A live R2-backed staging deploy is
+  accumulating orphaned staged blobs, abandoned patchsets, and unreachable tree
+  nodes with no way to even observe them. Goal: a conservative, report-only
+  first step.
+
+Decision:
+
+- Added `*DB.ReportUnreachable(ctx, ObjectReader, GCOptions) (GCReport, error)`
+  in `internal/postgres/gc.go`. It is **report-only** — it never deletes.
+- Reachability roots, deliberately over-inclusive so the report can safely
+  inform a future deletion pass (under-report orphans, never over-report):
+  every ref → commit → root tree walk; every NON-abandoned changeset and its
+  patchsets (edit blobs, path-base blobs/trees, conflict content hashes,
+  base/result preview trees, base commits, submitted commit roots); every
+  `pending_publish` row. Unknown/unrecognized changeset states are treated as
+  live; only abandoned/terminal-discarded states are excluded as roots.
+- `AbandonedPatchsets` are reported by patchset id (their blobs may still be
+  shared/reachable, so we report the patchsets, not their blobs).
+- Tree-node orphan enumeration is explicitly limited: the current `ObjectReader`
+  can read by key but cannot *list* object-store tree keys, so the report sets
+  `TreeNodeEnumerationLimited` and a note rather than guessing. Closing this
+  needs an object-store List capability (future work, kept off this change to
+  avoid touching the shared object-store interfaces).
+- CLI: `gs admin gc --dry-run [--json] [--sample-limit N]` under the existing
+  `admin` group, mirroring `gs admin rebuild-indexes` — it connects DIRECTLY to
+  Postgres (`GITSLICE_DATABASE_URL`) and the filesystem object store
+  (`GITSLICE_OBJECT_STORE_ROOT`); there is no admin gRPC. `--dry-run` is
+  required (deletion is future work), mirroring `rebuild-indexes` requiring
+  `--yes`.
+
+Verification:
+
+```bash
+gofmt -l internal/postgres/gc.go internal/cli/cli.go        # clean
+go build ./... && go vet ./internal/postgres/... ./internal/cli/...
+GITSLICE_TEST_DATABASE_URL=... go test ./internal/postgres/... ./internal/cli/...
+#   internal/postgres TestReportUnreachableConservativeRoots passes against
+#   real Postgres (skips cleanly when the DB env var is unset)
+# CLI smoke: `gs admin gc` without --dry-run returns the guidance error;
+#   `gs admin gc --help` shows the dry-run/json/sample-limit flags.
+```
+
 ## 2026-06-20: In-Process Rate Limiting, Quota Protection, and `/metrics` Gating
 
 Request:
