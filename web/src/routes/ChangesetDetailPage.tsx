@@ -8,7 +8,8 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
-  type PointerEvent
+  type PointerEvent,
+  type ReactNode
 } from "react";
 
 import type { Changeset, Patchset } from "../api/types";
@@ -275,15 +276,14 @@ function HeaderCard({
   onMerge(): void;
   terminal: boolean;
 }) {
-  // On small screens the diff is the priority, so the description, base commit,
-  // and review actions collapse behind a toggle. From `lg` up everything is
-  // always shown in the original two-column layout (the toggle is hidden).
+  // On small screens the diff is the priority, so the description and base
+  // commit collapse behind a toggle. From `lg` up they are always shown (the
+  // toggle is hidden). Review actions — Merge plus the overflow menu — stay
+  // visible at every size so merging is never more than one tap away.
   const [showDetails, setShowDetails] = useState(false);
   const publishing = isPublishing(changeset.status);
   const hasExpandableContent = Boolean(
-    changeset.description ||
-      changeset.baseCommitId ||
-      canUseReviewActions
+    changeset.description || changeset.baseCommitId
   );
 
   return (
@@ -315,7 +315,7 @@ function HeaderCard({
                   onClick={() => setShowDetails((value) => !value)}
                   type="button"
                 >
-                  {showDetails ? "Hide" : canUseReviewActions ? "Actions" : "Details"}
+                  {showDetails ? "Hide" : "Details"}
                 </button>
               ) : null}
             </div>
@@ -384,12 +384,7 @@ function HeaderCard({
           </div>
 
           {canUseReviewActions ? (
-            <div
-              className={cn(
-                "w-full shrink-0 lg:block lg:w-auto",
-                showDetails ? "block" : "hidden"
-              )}
-            >
+            <div className="w-full shrink-0 lg:w-auto">
               <ReviewActions
                 abandonPending={abandonPending}
                 abandonReason={abandonReason}
@@ -443,41 +438,112 @@ function ReviewActions({
   terminal: boolean;
 }) {
   return (
-    <div className="w-full shrink-0 space-y-3 lg:w-auto lg:min-w-80">
-      <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-        <button
-          className={primaryButtonClass}
-          disabled={actionBusy || terminal || !canMerge}
-          onClick={onMerge}
-          type="button"
-        >
-          {mergePending ? "Merging..." : "Merge"}
-        </button>
-      </div>
+    <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+      <button
+        className={primaryButtonClass}
+        disabled={actionBusy || terminal || !canMerge}
+        onClick={onMerge}
+        type="button"
+      >
+        {mergePending ? "Merging..." : "Merge"}
+      </button>
 
       {!terminal ? (
-        <form
-          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
-          onSubmit={onAbandon}
-        >
-          <label className="grid gap-1 text-xs font-medium text-slate-600">
-            Reason
-            <input
-              className="h-9 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+        <MoreActionsMenu disabled={actionBusy} label="More changeset actions">
+          <form className="space-y-2" onSubmit={onAbandon}>
+            <label className="block text-xs font-medium text-slate-600">
+              Abandon changeset
+              <input
+                className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+                disabled={actionBusy}
+                onChange={(event) => onAbandonReasonChange(event.target.value)}
+                placeholder="Optional reason"
+                value={abandonReason}
+              />
+            </label>
+            <button
+              className={cn(dangerButtonClass, "w-full justify-center")}
               disabled={actionBusy}
-              onChange={(event) => onAbandonReasonChange(event.target.value)}
-              placeholder="Optional reason"
-              value={abandonReason}
-            />
-          </label>
-          <button
-            className={dangerButtonClass}
-            disabled={actionBusy}
-            type="submit"
-          >
-            {abandonPending ? "Abandoning..." : "Abandon"}
-          </button>
-        </form>
+              type="submit"
+            >
+              {abandonPending ? "Abandoning..." : "Abandon"}
+            </button>
+          </form>
+        </MoreActionsMenu>
+      ) : null}
+    </div>
+  );
+}
+
+// A compact overflow menu for actions that are run rarely (today: abandon), so
+// the header surfaces the primary Merge button without crowding it with controls
+// reviewers seldom reach for. Closes on outside click or Escape.
+function MoreActionsMenu({
+  children,
+  disabled,
+  label = "More actions"
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const onPointerDown = (event: globalThis.MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !wrapperRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={label}
+        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        <span>More</span>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "text-[10px] leading-none transition-transform",
+            open && "rotate-180"
+          )}
+        >
+          ▾
+        </span>
+      </button>
+      {open ? (
+        <div
+          className="absolute right-0 z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10"
+          role="menu"
+        >
+          {children}
+        </div>
       ) : null}
     </div>
   );
@@ -906,43 +972,30 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
-// Compact one-line summary of author and target ref. Each field renders only
-// when the API returned it. The authoring slice is intentionally omitted here
-// because the breadcrumb already surfaces it. On mobile this stays on a single
-// truncated line so it never pushes the diff down.
+// Compact one-line attribution. The authoring slice is intentionally omitted
+// here because the breadcrumb already surfaces it, and the target ref is dropped
+// as noise reviewers don't act on. The author links to their profile (their
+// slices). On mobile this stays on a single truncated line so it never pushes
+// the diff down.
 function ChangesetMetaLine({ changeset }: { changeset: Changeset }) {
   const author = changeset.author;
-  const ref = changeset.targetRef;
-  const refLabel = ref ? compactRef(ref) : "";
-  const parts: { label: string; title?: string }[] = [];
-  if (author) parts.push({ label: author, title: `Author ${author}` });
-  if (refLabel) parts.push({ label: refLabel, title: `Target ref ${ref}` });
-
-  if (!parts.length) {
+  if (!author) {
     return null;
   }
 
   return (
     <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500 md:mt-1.5 md:text-xs">
-      {parts.map((part, index) => (
-        <span className="flex min-w-0 items-center gap-1.5" key={index}>
-          {index > 0 ? (
-            <span aria-hidden="true" className="text-slate-300">
-              ·
-            </span>
-          ) : null}
-          <span className="truncate" title={part.title}>
-            {part.label}
-          </span>
-        </span>
-      ))}
+      <span className="shrink-0">by</span>
+      <Link
+        className="min-w-0 truncate font-medium text-slate-700 underline-offset-2 transition hover:text-zinc-950 hover:underline"
+        search={{ account: author }}
+        title={`View ${author}'s slices`}
+        to="/slices"
+      >
+        {author}
+      </Link>
     </div>
   );
-}
-
-function compactRef(ref: string) {
-  const stripped = ref.replace(/^refs\/(heads|tags|remotes)\//, "");
-  return stripped || ref;
 }
 
 function humanizeStatus(status?: string) {
