@@ -228,8 +228,12 @@ function ChangesetRow({
             </>
           )}
           {changeset.affectedPaths?.length ? (
-            <span className="max-w-xl break-all font-mono text-xs text-slate-500 sm:truncate">
-              {changeset.affectedPaths.join(", ")}
+            <span
+              className="text-xs text-slate-500"
+              title={changeset.affectedPaths.join("\n")}
+            >
+              {changeset.affectedPaths.length}{" "}
+              {changeset.affectedPaths.length === 1 ? "file" : "files"} changed
             </span>
           ) : null}
           {changeset.submitBlockedReason ? (
