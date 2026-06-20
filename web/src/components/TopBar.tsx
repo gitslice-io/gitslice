@@ -69,11 +69,25 @@ export function TopBar() {
           {!isLoaded ? (
             <div
               aria-hidden
-              className="size-7 shrink-0 animate-pulse rounded-full bg-slate-200"
+              className="size-8 shrink-0 animate-pulse rounded-full bg-slate-200"
             />
           ) : isSignedIn ? (
-            <div className="shrink-0">
-              <UserButton afterSignOutUrl="/login" />
+            // Pin the avatar to the same 2rem box as the loading placeholder so
+            // swapping from placeholder → UserButton (and Clerk's own internal
+            // mount) causes no layout shift. Clerk's default trigger size is
+            // larger than our placeholder, which is the residual jump.
+            <div className="flex size-8 shrink-0 items-center justify-center">
+              <UserButton
+                afterSignOutUrl="/login"
+                appearance={{
+                  elements: {
+                    rootBox: "size-8",
+                    userButtonBox: "size-8",
+                    userButtonTrigger: "size-8 rounded-full p-0",
+                    userButtonAvatarBox: "size-8"
+                  }
+                }}
+              />
             </div>
           ) : (
             <Link
