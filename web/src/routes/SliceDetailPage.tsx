@@ -244,7 +244,12 @@ export function SliceDetailPage() {
     );
   }
 
-  const includedPaths = slice.definition?.includedPaths ?? [];
+  // Stabilize identity so the `?? []` fallback doesn't yield a fresh array each
+  // render and drive the file-tree expansion effects into a re-render loop.
+  const includedPaths = useMemo(
+    () => slice.definition?.includedPaths ?? [],
+    [slice.definition?.includedPaths]
+  );
   const gitCloneHint = buildGitCloneHint(slice.ref?.account, slice.ref?.slice);
   const currentEntries = directoryQuery.data ?? [];
   // The directory new file/folder controls create under the current folder. At
@@ -813,7 +818,9 @@ function SliceFolderNavigator({
       for (const path of selectedExpansion) {
         next.add(path);
       }
-      return next;
+      // Bail out (return the same reference) when nothing was added, so an
+      // unstable dependency identity can't drive an infinite render loop.
+      return next.size === current.size ? current : next;
     });
   }, [isSelectedDirectory, selectedPath]);
 
@@ -825,7 +832,7 @@ function SliceFolderNavigator({
       )) {
         next.add(path);
       }
-      return next;
+      return next.size === current.size ? current : next;
     });
   }, [includedPaths]);
 
