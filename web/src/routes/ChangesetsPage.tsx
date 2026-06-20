@@ -42,7 +42,10 @@ export function ChangesetsPage() {
   );
 
   const changesetsQuery = useQuery({
-    enabled: Boolean(account && slice),
+    // Wait for Clerk before fetching so a signed-in user's token is attached on
+    // the first request (this public page renders before auth resolves). See
+    // ChangesetDetailPage for the same reasoning.
+    enabled: Boolean(isLoaded && account && slice),
     queryKey,
     queryFn: () =>
       api.listChangesets({
@@ -87,7 +90,7 @@ export function ChangesetsPage() {
       <div className="mt-6">
         {!sliceRef ? (
           <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
-        ) : changesetsQuery.isLoading ? (
+        ) : !isLoaded || changesetsQuery.isPending ? (
           <SliceLoadingBlock />
         ) : changesetsQuery.isError ? (
           <SliceNotice title="Could not load changesets" tone="error">
