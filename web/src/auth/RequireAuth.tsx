@@ -2,12 +2,19 @@ import { useAuth } from "@clerk/clerk-react";
 import { Navigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
+import { hasMintedToken } from "./token";
+
 interface RequireAuthProps {
   children: ReactNode;
 }
 
 export function RequireAuth({ children }: RequireAuthProps) {
   const { isLoaded, isSignedIn } = useAuth();
+
+  // A minted token is a complete session on its own; don't wait on Clerk.
+  if (hasMintedToken()) {
+    return <>{children}</>;
+  }
 
   if (!isLoaded) {
     return (
