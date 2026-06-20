@@ -9,7 +9,7 @@ export interface Crumb {
 
 export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
   return (
-    <nav aria-label="Breadcrumb" className="min-w-0 font-label text-sm">
+    <nav aria-label="Breadcrumb" className="min-w-0 text-sm">
       <ol className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
         {items.map((item, index) => {
           const isLast = index === items.length - 1;
@@ -20,13 +20,13 @@ export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
               key={`${index}-${item.label}`}
             >
               {index > 0 ? (
-                <span aria-hidden="true" className="shrink-0 text-tertiary/70">
+                <span aria-hidden="true" className="shrink-0 text-slate-400">
                   &rsaquo;
                 </span>
               ) : null}
               {item.to && !isLast ? (
                 <Link
-                  className="min-w-0 truncate break-all font-medium text-on-surface-variant transition hover:text-primary"
+                  className="min-w-0 truncate break-all font-medium text-slate-600 transition hover:text-zinc-950"
                   params={item.params as never}
                   search={item.search as never}
                   to={item.to as never}
@@ -34,7 +34,7 @@ export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
                   {item.label}
                 </Link>
               ) : (
-                <span className="min-w-0 truncate break-all font-semibold text-on-surface">
+                <span className="min-w-0 truncate break-all font-semibold text-zinc-950">
                   {item.label}
                 </span>
               )}

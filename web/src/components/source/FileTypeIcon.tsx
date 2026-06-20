@@ -8,18 +8,18 @@ interface IconSpec {
 }
 
 const toneClasses = {
-  amber: "bg-tertiary-container text-tertiary",
-  blue: "bg-primary/10 text-primary",
-  cyan: "bg-primary/10 text-primary",
-  emerald: "bg-tertiary-container text-tertiary",
-  indigo: "bg-primary/10 text-primary",
-  orange: "bg-surface-container-high text-on-surface-variant",
-  pink: "bg-surface-container-high text-on-surface-variant",
-  rose: "bg-surface-container-high text-on-surface-variant",
-  sky: "bg-primary/10 text-primary",
-  slate: "bg-surface-container-high text-on-surface-muted",
-  teal: "bg-tertiary-container text-tertiary",
-  violet: "bg-surface-container-high text-on-surface-variant"
+  amber: "border-amber-300 bg-amber-50 text-amber-800",
+  blue: "border-blue-300 bg-blue-50 text-blue-700",
+  cyan: "border-cyan-300 bg-cyan-50 text-cyan-700",
+  emerald: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  indigo: "border-indigo-300 bg-indigo-50 text-indigo-700",
+  orange: "border-orange-300 bg-orange-50 text-orange-700",
+  pink: "border-pink-300 bg-pink-50 text-pink-700",
+  rose: "border-rose-300 bg-rose-50 text-rose-700",
+  sky: "border-sky-300 bg-sky-50 text-sky-700",
+  slate: "border-slate-300 bg-slate-50 text-slate-700",
+  teal: "border-teal-300 bg-teal-50 text-teal-700",
+  violet: "border-violet-300 bg-violet-50 text-violet-700"
 };
 
 const configIcon: IconSpec = {
@@ -85,7 +85,7 @@ export function FileTypeIcon({
     <span
       aria-hidden="true"
       className={cn(
-        "inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-sm px-px font-mono font-bold leading-none tracking-normal",
+        "inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border px-px font-mono font-bold leading-none tracking-normal",
         longLabel && "w-5",
         icon.classes,
         className

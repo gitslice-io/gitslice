@@ -6,7 +6,6 @@ import {
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useApi } from "../api/useApi";
-import { Badge, Button, Card, Input, PageHeader } from "../components/ui";
 
 export function ChooseUsernamePage() {
   const api = useApi();
@@ -62,11 +61,6 @@ export function ChooseUsernamePage() {
     isAvailable &&
     !isChecking &&
     !chooseUsernameMutation.isPending;
-  const inputHasError =
-    trimmedUsername.length > 0 &&
-    !isChecking &&
-    hasCurrentAvailability &&
-    (availabilityQuery.isError || availability?.available === false);
 
   function submitUsername(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -80,34 +74,32 @@ export function ChooseUsernamePage() {
   }
 
   return (
-    <main className="grid min-h-[100dvh] place-items-center bg-surface px-4 py-8 text-on-surface sm:px-6">
-      <Card as="section" className="w-full max-w-lg" level="low" padding="lg">
-        <PageHeader
-          className="py-0"
-          description={
-            <>
-              Use lowercase letters, numbers, and hyphens. This becomes your
-              account namespace, and your files live under{" "}
-              <code className="rounded-sm bg-surface-container-high px-1.5 py-0.5 font-mono text-xs text-on-surface">
-                /&lt;username&gt;
-              </code>
-              .
-            </>
-          }
-          eyebrow="Gitslice"
-          title="Choose your username"
-        />
+    <main className="grid min-h-[100dvh] place-items-center bg-slate-50 p-4 text-zinc-900 sm:p-6">
+      <section className="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50 sm:p-6">
+        <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+          Gitslice
+        </p>
+        <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">
+          Choose your username
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          Use lowercase letters, numbers, and hyphens. This becomes your
+          account namespace, and your files live under{" "}
+          <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            /&lt;username&gt;
+          </code>
+          .
+        </p>
 
         <form className="mt-6 space-y-5" onSubmit={submitUsername}>
-          <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+          <label className="grid gap-2 text-sm font-medium text-zinc-950">
             Username
-            <Input
+            <input
               autoCapitalize="none"
               autoComplete="username"
               autoFocus
+              className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
               disabled={chooseUsernameMutation.isPending}
-              error={inputHasError}
-              className="font-mono"
               onChange={(event) => {
                 setUsername(event.target.value);
                 if (submitError) {
@@ -118,24 +110,21 @@ export function ChooseUsernamePage() {
               spellCheck={false}
               value={username}
             />
-            <span className="font-sans text-xs font-normal leading-5 text-on-surface-muted">
+            <span className="text-xs font-normal leading-5 text-slate-500">
               Lowercase letters, numbers, and hyphens only.
             </span>
           </label>
 
-          <div
-            aria-live="polite"
-            className="min-h-8 space-y-2 text-xs leading-5"
-          >
+          <div aria-live="polite" className="min-h-5 text-xs leading-5">
             {trimmedUsername && isChecking ? (
-              <Badge>Checking</Badge>
+              <p className="font-semibold text-slate-600">Checking…</p>
             ) : null}
 
             {trimmedUsername &&
             !isChecking &&
             hasCurrentAvailability &&
             availabilityQuery.isError ? (
-              <p className="font-semibold text-rose-800">
+              <p className="font-semibold text-rose-700">
                 {availabilityQuery.error instanceof Error
                   ? availabilityQuery.error.message
                   : "Could not check username."}
@@ -147,44 +136,35 @@ export function ChooseUsernamePage() {
             hasCurrentAvailability &&
             !availabilityQuery.isError &&
             availability?.available === false ? (
-              <p className="font-semibold text-rose-800">
+              <p className="font-semibold text-rose-700">
                 {availability.reason || "Username is not available."}
               </p>
             ) : null}
 
             {trimmedUsername && !isChecking && isAvailable ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="primary">Available</Badge>
-                <span className="font-semibold text-on-surface-variant">
-                  {normalizedDiffers
-                    ? `${debouncedUsername} will be saved as ${normalized}.`
-                    : `${normalized || debouncedUsername} is available.`}
-                </span>
-              </div>
+              <p className="font-semibold text-emerald-700">
+                {normalizedDiffers
+                  ? `${debouncedUsername} is available and will be saved as ${normalized}.`
+                  : `${normalized || debouncedUsername} is available.`}
+              </p>
             ) : null}
           </div>
 
           {submitError ? (
-            <Card
-              as="div"
-              className="bg-rose-50 text-sm font-semibold leading-6 text-rose-900"
-              level="high"
-              padding="sm"
-            >
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold leading-6 text-rose-900">
               {submitError}
-            </Card>
+            </div>
           ) : null}
 
-          <Button
-            className="w-full"
+          <button
+            className="w-full rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
             disabled={!canSubmit}
-            size="lg"
             type="submit"
           >
             {chooseUsernameMutation.isPending ? "Saving..." : "Continue"}
-          </Button>
+          </button>
         </form>
-      </Card>
+      </section>
     </main>
   );
 }

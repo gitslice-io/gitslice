@@ -44,14 +44,6 @@ import {
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
-import {
-  Badge,
-  Button,
-  Card,
-  Input,
-  Surface,
-  buttonClassName
-} from "../components/ui";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
@@ -270,11 +262,7 @@ export function SliceDetailPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
-      <Surface
-        as="header"
-        className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-3 sm:gap-3"
-        level="low"
-      >
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 pb-3 sm:gap-3">
         <div className="w-full min-w-0 sm:w-auto sm:flex-1">
           <Breadcrumb
             items={[
@@ -284,19 +272,17 @@ export function SliceDetailPage() {
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
+          <button
             aria-controls="slice-file-tree-panel"
             aria-expanded={mobileFilesOpen}
-            className="lg:hidden"
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
             onClick={() => setMobileFilesOpen(true)}
-            size="sm"
             type="button"
-            variant="secondary"
           >
             Files
-          </Button>
+          </button>
           <Link
-            className={buttonClassName({ variant: "secondary", size: "sm" })}
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
             search={{ slice: sliceLabel } as never}
             to="/changesets"
           >
@@ -304,7 +290,7 @@ export function SliceDetailPage() {
           </Link>
           {canEdit && sliceRouteParams ? (
             <Link
-              className={buttonClassName({ variant: "tertiary", size: "sm" })}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
               params={sliceRouteParams as never}
               to="/slices/$account/$slice/settings"
             >
@@ -313,7 +299,7 @@ export function SliceDetailPage() {
           ) : null}
           <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
         </div>
-      </Surface>
+      </div>
 
       {pendingEdits.length ? (
         <PendingChangesBanner
@@ -337,7 +323,7 @@ export function SliceDetailPage() {
         {mobileFilesOpen ? (
           <button
             aria-label="Close files"
-            className="fixed inset-0 z-30 bg-on-surface/30 lg:hidden"
+            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
             onClick={() => setMobileFilesOpen(false)}
             type="button"
           />
@@ -348,7 +334,7 @@ export function SliceDetailPage() {
           aria-expanded={false}
           aria-label="Show files"
           className={[
-            "hidden h-full min-h-0 flex-col items-center gap-2 rounded-sm bg-surface-container-high px-1.5 py-3 font-label text-xs font-semibold text-on-surface-variant transition hover:bg-surface-container-highest hover:text-primary active:translate-y-px",
+            "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 bg-white px-1.5 py-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]",
             showTree ? "" : "lg:flex"
           ].join(" ")}
           onClick={() => setShowTree(true)}
@@ -362,7 +348,7 @@ export function SliceDetailPage() {
         </button>
         <aside
           className={[
-            "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-surface-container-low p-4 shadow-[0_24px_44px_rgba(33,29,23,0.12)] transition-transform duration-200",
+            "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-slate-50 p-4 shadow-xl transition-transform duration-200",
             mobileFilesOpen ? "translate-x-0" : "-translate-x-full",
             "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:transition-none lg:h-full lg:min-h-0 lg:overflow-y-auto",
             showTree ? "" : "lg:hidden"
@@ -370,18 +356,15 @@ export function SliceDetailPage() {
           id="slice-file-tree-panel"
         >
           <div className="mb-3 flex items-center justify-between lg:hidden">
-            <span className="font-serif text-lg font-semibold text-on-surface">
-              Files
-            </span>
-            <Button
+            <span className="text-sm font-semibold text-zinc-950">Files</span>
+            <button
               aria-label="Close files"
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
               onClick={() => setMobileFilesOpen(false)}
-              size="sm"
               type="button"
-              variant="secondary"
             >
               Close
-            </Button>
+            </button>
           </div>
           <SliceFolderNavigator
             api={api}
@@ -470,42 +453,30 @@ function CheckoutMenu({
 
   return (
     <details className="group relative" ref={detailsRef}>
-      <summary
-        className={buttonClassName({
-          variant: "primary",
-          size: "sm",
-          className: "cursor-pointer list-none"
-        })}
-      >
+      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800">
         Checkout
-        <span
-          aria-hidden="true"
-          className="text-[0.65rem] text-white/80 transition group-open:rotate-180"
-        >
+        <span aria-hidden="true" className="text-[0.65rem] text-slate-400 transition group-open:rotate-180">
           ▾
         </span>
       </summary>
-      <Surface
-        className="fixed left-4 right-4 z-20 mt-2 bg-surface-container-lowest/80 p-3 shadow-[0_24px_44px_rgba(33,29,23,0.08)] backdrop-blur-[20px] sm:absolute sm:left-auto sm:right-0 sm:w-[min(26rem,calc(100vw-2rem))]"
-        level="lowest"
-      >
+      <div className="fixed left-4 right-4 z-20 mt-2 rounded-md border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/10 sm:absolute sm:left-auto sm:right-0 sm:w-[min(26rem,calc(100vw-2rem))]">
         <div className="flex items-center gap-2">
-          <span className="font-label text-xs font-semibold uppercase text-on-surface-variant">
+          <span className="text-xs font-semibold uppercase tracking-normal text-slate-600">
             gs CLI
           </span>
-          <Badge variant="tertiary">
+          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-normal text-emerald-700">
             recommended
-          </Badge>
+          </span>
         </div>
         <CopyRow value={gsCommand} />
-        <p className="mt-1.5 text-xs leading-5 text-on-surface-variant">
+        <p className="mt-1.5 text-xs leading-5 text-slate-500">
           Creates a workspace for this slice. Sign in first with{" "}
-          <code className="rounded-sm bg-surface-container-high px-1 py-0.5 font-mono text-[0.7rem] text-on-surface">
+          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.7rem] text-slate-700">
             gs auth login
           </code>
           . New to gs? See{" "}
           <Link
-            className="text-primary underline underline-offset-2 hover:text-on-surface"
+            className="text-slate-700 underline underline-offset-2 hover:text-zinc-950"
             params={{ section: "cli" }}
             to="/doc/$section"
           >
@@ -514,13 +485,13 @@ function CheckoutMenu({
           .
         </p>
 
-        <div className="mt-3 rounded-sm bg-surface-container px-3 py-3">
-          <span className="font-label text-xs font-semibold uppercase text-on-surface-variant">
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <span className="text-xs font-semibold uppercase tracking-normal text-slate-600">
             Git
           </span>
           <CopyRow value={`git clone ${gitUrl}`} />
         </div>
-      </Surface>
+      </div>
     </details>
   );
 }
@@ -529,25 +500,23 @@ function CopyRow({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="mt-2 flex min-w-0 items-stretch gap-2">
-      <Input
-        className="min-w-0 flex-1 font-mono text-xs"
+      <input
+        className="min-w-0 flex-1 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-2 font-mono text-xs text-zinc-950"
         readOnly
         value={value}
         onFocus={(event) => event.currentTarget.select()}
       />
-      <Button
-        className="shrink-0"
+      <button
+        className="shrink-0 rounded-md bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
         onClick={() => {
           void navigator.clipboard?.writeText(value);
           setCopied(true);
           window.setTimeout(() => setCopied(false), 1500);
         }}
-        size="sm"
         type="button"
-        variant="primary"
       >
         {copied ? "Copied" : "Copy"}
-      </Button>
+      </button>
     </div>
   );
 }
@@ -569,38 +538,28 @@ function PendingChangesBanner({
   const preparing = saveStatus === "saving" || saveStatus === "adopting";
 
   return (
-    <Surface
-      className="mt-4 flex flex-wrap items-center justify-between gap-3 bg-tertiary-container px-4 py-3 text-tertiary"
-      level="base"
-    >
-      <div className="flex items-center gap-2 text-sm">
-        <span
-          aria-hidden="true"
-          className="h-2 w-2 rounded-full bg-tertiary"
-        />
-        <span className="font-label font-semibold">{label}</span>
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+      <div className="flex items-center gap-2 text-sm text-amber-900">
+        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-500" />
+        <span className="font-semibold">{label}</span>
         {saveStatus === "failed" ? (
-          <span className="text-rose-700">- could not save draft</span>
+          <span className="text-rose-700">— could not save draft</span>
         ) : null}
       </div>
       {changesetRef ? (
         <Link
-          className={buttonClassName({
-            variant: "secondary",
-            size: "sm",
-            className: "bg-white text-tertiary hover:bg-surface-container-lowest"
-          })}
+          className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 active:scale-[0.98]"
           params={{ id: changesetRef }}
           to="/cs/$id"
         >
-          Review changeset
+          Review changeset →
         </Link>
       ) : (
-        <span className="font-label text-xs font-semibold">
-          {preparing ? "Saving..." : "Preparing..."}
+        <span className="text-xs font-medium text-amber-800">
+          {preparing ? "Saving…" : "Preparing…"}
         </span>
       )}
-    </Surface>
+    </div>
   );
 }
 
@@ -671,50 +630,45 @@ function HistoryDrawer({
       {open ? (
         <button
           aria-label="Close history"
-          className="fixed inset-0 z-40 bg-on-surface/30"
+          className="fixed inset-0 z-40 bg-black/30"
           onClick={onClose}
           type="button"
         />
       ) : null}
-      <Surface
-        as="aside"
+      <aside
         aria-hidden={!open}
         className={[
-          "fixed inset-y-0 right-0 z-50 flex w-full max-w-md transform flex-col rounded-none shadow-[0_24px_44px_rgba(33,29,23,0.12)] transition-transform duration-200",
+          "fixed inset-y-0 right-0 z-50 flex w-full max-w-md transform flex-col bg-white shadow-xl transition-transform duration-200",
           open ? "translate-x-0" : "translate-x-full"
         ].join(" ")}
-        level="lowest"
       >
-        <div className="bg-surface-container-low px-4 py-4">
+        <div className="border-b border-slate-200 px-4 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="font-serif text-xl font-semibold leading-tight text-on-surface">
+              <h2 className="text-base font-semibold text-zinc-950">
                 History
               </h2>
-              <p className="mt-1 text-sm text-on-surface-variant">
-                {sliceLabel}
-              </p>
-              <p className="mt-1 break-all font-mono text-xs text-on-surface-muted">
+              <p className="mt-1 text-sm text-slate-600">{sliceLabel}</p>
+              <p className="mt-1 break-all font-mono text-xs text-slate-500">
                 {selectedPath || "Slice root"}
               </p>
             </div>
-            <Button
+            <button
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
               onClick={onClose}
-              size="sm"
               type="button"
-              variant="secondary"
             >
               Close
-            </Button>
+            </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {commitsQuery.isPending ? (
             <div className="grid gap-2">
-              <div className="h-14 animate-pulse rounded-sm bg-surface-container-high" />
-              <div className="h-14 animate-pulse rounded-sm bg-surface-container-high" />
-              <div className="h-14 animate-pulse rounded-sm bg-surface-container-high" />
+              <div className="h-14 animate-pulse rounded-md bg-slate-100" />
+              <div className="h-14 animate-pulse rounded-md bg-slate-100" />
+              <div className="h-14 animate-pulse rounded-md bg-slate-100" />
             </div>
           ) : commitsQuery.isError ? (
             <SliceNotice title="Could not load history" tone="error">
@@ -735,17 +689,15 @@ function HistoryDrawer({
                 const shortCommitId = shortHash(commit.id);
 
                 return (
-                  <Card
-                    className="px-3 py-3"
+                  <div
+                    className="rounded-md border border-slate-200 bg-white px-3 py-3"
                     key={commit.id ?? `${summary}-${commit.createdAt ?? ""}`}
-                    level="low"
-                    padding="none"
                   >
-                    <p className="font-medium text-on-surface">{summary}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-on-surface-muted">
+                    <p className="font-medium text-zinc-950">{summary}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
                       {shortCommitId ? (
                         <span
-                          className="font-mono text-xs"
+                          className="font-mono text-xs text-slate-500"
                           title={commit.id}
                         >
                           {shortCommitId}
@@ -757,7 +709,7 @@ function HistoryDrawer({
                     {changeset ? (
                       <div className="mt-2">
                         <Link
-                          className="inline-flex rounded-sm bg-surface-container-high px-2 py-0.5 font-label text-xs font-semibold text-primary transition hover:bg-surface-container-highest"
+                          className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700 transition hover:bg-white hover:text-zinc-950"
                           onClick={onClose}
                           params={{
                             id: shortChangesetId(changeset.id ?? "") || ""
@@ -771,13 +723,13 @@ function HistoryDrawer({
                         </Link>
                       </div>
                     ) : null}
-                  </Card>
+                  </div>
                 );
               })}
             </div>
           )}
         </div>
-      </Surface>
+      </aside>
     </>
   );
 }
@@ -910,39 +862,34 @@ function SliceFolderNavigator({
 
   return (
     <SlicePanel className="max-h-[60dvh] overflow-auto p-0 lg:min-h-full lg:max-h-none lg:overflow-visible">
-      <div className="bg-surface-container px-3 py-3">
+      <div className="border-b border-slate-200 px-3 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-serif text-lg font-semibold leading-tight text-on-surface">
-              Files
-            </h2>
-            <p className="mt-1 truncate text-xs leading-5 text-on-surface-muted">
+            <h2 className="text-sm font-semibold text-zinc-950">Files</h2>
+            <p className="mt-1 truncate text-xs leading-5 text-slate-500">
               Slice-projected source tree
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
+            <button
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
               onClick={() => onSelectPath("")}
-              size="sm"
               type="button"
-              variant="secondary"
             >
               Root
-            </Button>
+            </button>
             {onCollapse ? (
-              <Button
+              <button
                 aria-controls="slice-file-tree-panel"
                 aria-expanded={true}
                 aria-label="Hide files"
-                className="hidden h-8 w-8 px-0 lg:inline-flex"
+                className="hidden h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-sm leading-none text-slate-600 transition hover:bg-slate-50 active:scale-[0.98] lg:inline-flex"
                 onClick={onCollapse}
-                size="sm"
                 title="Hide files"
                 type="button"
-                variant="secondary"
               >
                 «
-              </Button>
+              </button>
             ) : null}
           </div>
         </div>
@@ -970,7 +917,7 @@ function SliceFolderNavigator({
             />
           ))
         ) : (
-          <p className="mx-3 rounded-sm bg-surface-container p-3 text-sm text-on-surface-variant">
+          <p className="mx-3 rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
             No files in this slice.
           </p>
         )}
@@ -979,7 +926,7 @@ function SliceFolderNavigator({
           .filter((result) => result.error)
           .map((result) => (
             <p
-              className="mx-3 mt-2 rounded-sm bg-rose-50 p-3 text-sm text-rose-800"
+              className="mx-3 mt-2 rounded-md bg-rose-50 p-3 text-sm text-rose-800"
               key={`error-${result.path || "root"}`}
             >
               Could not load {result.path || "slice root"}:{" "}
@@ -1038,8 +985,8 @@ function TreeRow({
         className={[
           "group flex h-8 min-w-0 items-center gap-1.5 pr-2 text-sm transition",
           isActive
-            ? "bg-surface-container-high text-on-surface"
-            : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
+            ? "bg-slate-100 text-zinc-950"
+            : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
         ].join(" ")}
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
       >
@@ -1047,7 +994,7 @@ function TreeRow({
           <button
             aria-expanded={isExpanded}
             aria-label={`${isExpanded ? "Collapse" : "Expand"} ${buttonLabel}`}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-on-surface-muted transition hover:bg-surface-container-high hover:text-primary"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-500 transition hover:bg-slate-200 hover:text-zinc-950"
             onClick={() => onToggle(node.path)}
             type="button"
           >
@@ -1073,7 +1020,7 @@ function TreeRow({
             className={[
               "truncate",
               isActive ? "font-semibold" : "font-medium",
-              node.synthetic ? "text-on-surface-variant" : ""
+              node.synthetic ? "text-slate-600" : ""
             ].join(" ")}
           >
             {node.name}
@@ -1081,7 +1028,7 @@ function TreeRow({
         </button>
 
         {isLoading ? (
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-tertiary" />
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-slate-400" />
         ) : null}
       </div>
     </div>
@@ -1092,7 +1039,7 @@ function FolderGlyph() {
   return (
     <span
       aria-hidden="true"
-      className="relative h-3.5 w-4 shrink-0 rounded-[2px] bg-tertiary-container text-tertiary before:absolute before:-top-1 before:left-0.5 before:h-1 before:w-2 before:rounded-t-[2px] before:bg-tertiary-container"
+      className="relative h-3.5 w-4 shrink-0 rounded-[2px] border border-amber-400 bg-amber-100 before:absolute before:-top-1 before:left-0.5 before:h-1 before:w-2 before:rounded-t-[2px] before:border before:border-b-0 before:border-amber-400 before:bg-amber-100"
     />
   );
 }
@@ -1415,7 +1362,7 @@ function SliceSourceWorkspace({
         onOpenHistory={onOpenHistory}
         selectedPath={selectedPath}
       />
-      <p className="mt-4 text-sm text-on-surface-variant">
+      <p className="mt-4 text-sm text-slate-600">
         {entryKindLabel(entry.kind)} entries are visible in the navigator but do
         not have a preview in this view.
       </p>
@@ -1486,26 +1433,25 @@ function DirectoryHeader({
   // History is scoped to the path shown in this header, so it lives beside the
   // current folder/file rather than in the page-level toolbar.
   const historyButton = onOpenHistory ? (
-    <Button
+    <button
+      className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
       onClick={onOpenHistory}
-      size="sm"
       type="button"
-      variant="secondary"
     >
       History
-    </Button>
+    </button>
   ) : null;
 
   return (
-    <div className="bg-surface-container px-4 py-4 sm:px-5">
+    <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="break-all font-serif text-xl font-semibold leading-tight text-on-surface">
+          <h2 className="break-all text-base font-semibold text-zinc-950">
             {selectedPath || "Slice root"}
           </h2>
-          <p className="mt-1 hidden text-xs text-on-surface-muted sm:block">
+          <p className="mt-1 hidden text-xs text-slate-500 sm:block">
             Commit{" "}
-            <span className="font-mono text-on-surface-variant" title={commitId}>
+            <span className="font-mono text-slate-700" title={commitId}>
               {shortHash(commitId)}
             </span>
           </p>
@@ -1549,7 +1495,7 @@ function SliceDirectoryTable({
 
   if (!sortedEntries.length) {
     return (
-      <div className="p-8 text-sm text-on-surface-variant">
+      <div className="p-8 text-sm text-slate-600">
         This slice-projected directory is empty.
       </div>
     );
@@ -1557,19 +1503,19 @@ function SliceDirectoryTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm">
-        <thead className="font-label text-xs font-semibold uppercase text-on-surface-muted">
+      <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+        <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
           <tr>
-            <th className="w-full px-3 py-2 sm:px-4">Name</th>
-            <th className="hidden px-4 py-2 md:table-cell">Kind</th>
-            <th className="hidden px-4 py-2 md:table-cell">Size</th>
-            <th className="hidden px-4 py-2 md:table-cell">Content hash</th>
+            <th className="w-full px-3 py-3 sm:px-4">Name</th>
+            <th className="hidden px-4 py-3 md:table-cell">Kind</th>
+            <th className="hidden px-4 py-3 md:table-cell">Size</th>
+            <th className="hidden px-4 py-3 md:table-cell">Content hash</th>
             {showActions ? (
-              <th className="px-4 py-2 text-right sm:px-5">Actions</th>
+              <th className="px-4 py-3 text-right sm:px-5">Actions</th>
             ) : null}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-slate-100">
           {sortedEntries.map((entry) => {
             const path = normalizeRepositoryPath(entry.path ?? "");
             const isDirectory = entry.kind === "ENTRY_KIND_DIRECTORY";
@@ -1583,13 +1529,10 @@ function SliceDirectoryTable({
               : TOP_LEVEL_SLICE_FOLDER_TITLE;
 
             return (
-              <tr
-                className="group align-top"
-                key={entry.path ?? entryDisplayName(entry)}
-              >
-                <td className="min-w-0 rounded-l-sm bg-surface-container-lowest px-3 py-3 transition group-hover:bg-surface-container sm:min-w-56 sm:px-4">
+              <tr className="align-top transition hover:bg-slate-50" key={entry.path ?? entryDisplayName(entry)}>
+                <td className="min-w-0 px-3 py-3 sm:min-w-56 sm:px-4">
                   <button
-                    className="break-words text-left font-medium text-on-surface underline-offset-4 transition hover:text-primary hover:underline"
+                    className="break-words text-left font-medium text-zinc-950 underline-offset-4 hover:underline"
                     onClick={() => onSelectPath(path)}
                     type="button"
                   >
@@ -1597,18 +1540,18 @@ function SliceDirectoryTable({
                     {isDirectory ? "/" : ""}
                   </button>
                   {entry.path ? (
-                    <div className="mt-1 max-w-96 break-all font-mono text-xs text-on-surface-muted sm:truncate">
+                    <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 sm:truncate">
                       {entry.path}
                     </div>
                   ) : null}
                 </td>
-                <td className="hidden bg-surface-container-lowest px-4 py-3 text-on-surface-variant transition group-hover:bg-surface-container md:table-cell">
+                <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
                   {entryKindLabel(entry.kind)}
                 </td>
-                <td className="hidden whitespace-nowrap bg-surface-container-lowest px-4 py-3 font-mono text-xs text-on-surface-variant transition group-hover:bg-surface-container md:table-cell">
+                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                   {formatSize(entry.size)}
                 </td>
-                <td className="hidden whitespace-nowrap bg-surface-container-lowest px-4 py-3 font-mono text-xs text-on-surface-muted transition group-hover:bg-surface-container md:table-cell">
+                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
                   {entryHash ? (
                     <span title={entryHash}>{shortHash(entryHash)}</span>
                   ) : (
@@ -1616,7 +1559,7 @@ function SliceDirectoryTable({
                   )}
                 </td>
                 {showActions ? (
-                  <td className="min-w-40 rounded-r-sm bg-surface-container-lowest px-4 py-3 text-right transition group-hover:bg-surface-container sm:min-w-48 sm:px-5">
+                  <td className="min-w-40 px-4 py-3 text-right sm:min-w-48 sm:px-5">
                     {isRenaming && canModifyEntryPath ? (
                       <InlineRenameForm
                         directoryPath={editingParentRepositoryPath(path)}
@@ -1793,32 +1736,32 @@ function EditableFileView({
         </DirectoryHeader>
         {isEditing ? (
           <div className="p-4 sm:p-5">
-            <label className="grid gap-2 font-label text-sm font-medium text-on-surface">
+            <label className="grid gap-2 text-sm font-medium text-zinc-800">
               File content
               <textarea
-                className="min-h-80 w-full min-w-0 rounded-sm bg-white px-3 py-2 font-mono text-sm leading-6 text-on-surface outline-none ring-1 ring-outline-variant/15 transition placeholder:text-on-surface-muted focus-visible:ring-2 focus-visible:ring-primary sm:min-h-[28rem]"
+                className="min-h-80 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 sm:min-h-[28rem]"
                 onChange={(event) => setDraft(event.target.value)}
                 value={draft}
               />
             </label>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button
+              <button
+                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
                 onClick={saveEdit}
                 type="button"
-                variant="primary"
               >
                 Save
-              </Button>
-              <Button
+              </button>
+              <button
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
                 onClick={() => {
                   setDraft(displayedContent);
                   setIsEditing(false);
                 }}
                 type="button"
-                variant="secondary"
               >
                 Cancel
-              </Button>
+              </button>
             </div>
           </div>
         ) : null}
@@ -1834,10 +1777,10 @@ function SourceSkeleton() {
   return (
     <SlicePanel>
       <div className="grid gap-3">
-        <div className="h-5 w-2/5 animate-pulse rounded-sm bg-surface-container-high" />
-        <div className="h-12 animate-pulse rounded-sm bg-surface-container" />
-        <div className="h-12 animate-pulse rounded-sm bg-surface-container" />
-        <div className="h-12 animate-pulse rounded-sm bg-surface-container" />
+        <div className="h-5 w-2/5 animate-pulse rounded bg-slate-200" />
+        <div className="h-12 animate-pulse rounded bg-slate-100" />
+        <div className="h-12 animate-pulse rounded bg-slate-100" />
+        <div className="h-12 animate-pulse rounded bg-slate-100" />
       </div>
     </SlicePanel>
   );
@@ -1846,9 +1789,9 @@ function SourceSkeleton() {
 function NavigatorSkeleton() {
   return (
     <div className="grid gap-2">
-      <div className="h-9 animate-pulse rounded-sm bg-surface-container-high" />
-      <div className="h-9 animate-pulse rounded-sm bg-surface-container-high" />
-      <div className="h-9 animate-pulse rounded-sm bg-surface-container-high" />
+      <div className="h-9 animate-pulse rounded-md bg-slate-100" />
+      <div className="h-9 animate-pulse rounded-md bg-slate-100" />
+      <div className="h-9 animate-pulse rounded-md bg-slate-100" />
     </div>
   );
 }

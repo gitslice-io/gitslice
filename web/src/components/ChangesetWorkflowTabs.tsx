@@ -1,5 +1,4 @@
 import { cn } from "../lib/cn";
-import { Surface } from "./ui";
 
 type ChangesetWorkflowView = "changesets";
 
@@ -9,26 +8,24 @@ export function ChangesetWorkflowTabs({
   active: ChangesetWorkflowView;
 }) {
   return (
-    <div className="mt-6">
-      <Surface
+    <div className="mt-6 border-b border-slate-200">
+      <nav
         aria-label="Changeset workflow views"
-        as="nav"
-        className="flex max-w-full min-w-0 gap-1 overflow-x-auto p-1"
-        level="low"
+        className="-mb-px flex min-w-0 gap-1 overflow-x-auto"
       >
         <span className={tabClass(active === "changesets")}>
           Changesets
         </span>
-      </Surface>
+      </nav>
     </div>
   );
 }
 
 function tabClass(active: boolean) {
   return cn(
-    "shrink-0 rounded-sm px-3 py-2 font-label text-sm font-semibold transition",
+    "shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition",
     active
-      ? "bg-surface-container-highest text-primary"
-      : "text-on-surface-variant hover:bg-surface-container hover:text-primary"
+      ? "border-zinc-950 text-zinc-950"
+      : "border-transparent text-slate-600 hover:border-slate-300 hover:text-zinc-950"
   );
 }

@@ -5,15 +5,17 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { normalizeRepositoryPath } from "../components/source/sourceUtils";
-import { Button, Card, Input, PageHeader, surfaceClassName } from "../components/ui";
-import { cn } from "../lib/cn";
+import {
+  SliceNotice,
+  SlicePageHeader
+} from "../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { useSelection } from "../state/selection";
 import {
   getErrorMessage,
-  nativeTextareaClassName,
   parseSliceSearch,
-  StackNotice,
+  primaryButtonClass,
+  secondaryButtonClass,
   sliceRefLabel
 } from "./stackPageUtils";
 
@@ -142,51 +144,55 @@ export function StackCreatePage() {
           ]}
         />
       </div>
-      <PageHeader
+      <SlicePageHeader
         description="Create a root changeset and optionally add the first patchset file."
         eyebrow="Dependencies"
-        title={<span className="font-serif">Create changeset</span>}
+        title="Create changeset"
       />
 
       <form
-        className={cn(surfaceClassName({ level: "low" }), "mt-8 grid gap-6 p-5")}
+        className="mt-8 grid gap-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
         onSubmit={submit}
       >
         <div className="grid gap-4 lg:grid-cols-2">
-          <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+          <label className="grid gap-2 text-sm font-medium text-zinc-800">
             Authoring slice
-            <Input
+            <input
+              className={inputClass}
               onChange={(event) => setSlice(event.target.value)}
               placeholder={account ? `${account}:main` : "acme:payment"}
               value={slice}
             />
           </label>
-          <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+          <label className="grid gap-2 text-sm font-medium text-zinc-800">
             Target ref
-            <Input
+            <input
+              className={inputClass}
               onChange={(event) => setTargetRef(event.target.value)}
               value={targetRef}
             />
           </label>
         </div>
 
-        <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+        <label className="grid gap-2 text-sm font-medium text-zinc-800">
           Base commit
-          <Input
+          <input
+            className={inputClass}
             onChange={(event) => setBaseCommitId(event.target.value)}
             placeholder={refQuery.data?.commitId || "Current refs/global/main"}
             value={baseCommitId}
           />
-          <span className="break-all text-xs font-normal text-on-surface-muted">
+          <span className="break-all text-xs font-normal text-slate-500">
             {resolvedBaseCommit
               ? `Using ${resolvedBaseCommit}`
               : "The server will use the current target ref commit."}
           </span>
         </label>
 
-        <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+        <label className="grid gap-2 text-sm font-medium text-zinc-800">
           Dependency title
-          <Input
+          <input
+            className={inputClass}
             onChange={(event) => setStackTitle(event.target.value)}
             placeholder="Payment parser rollout"
             value={stackTitle}
@@ -194,18 +200,19 @@ export function StackCreatePage() {
         </label>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
-          <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+          <label className="grid gap-2 text-sm font-medium text-zinc-800">
             First changeset title
-            <Input
+            <input
+              className={inputClass}
               onChange={(event) => setEntryTitle(event.target.value)}
               placeholder="Introduce payment parser"
               value={entryTitle}
             />
           </label>
-          <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+          <label className="grid gap-2 text-sm font-medium text-zinc-800">
             First changeset description
             <textarea
-              className={cn(nativeTextareaClassName, "min-h-28")}
+              className="min-h-28 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
               onChange={(event) => setEntryDescription(event.target.value)}
               placeholder="Optional review context"
               value={entryDescription}
@@ -213,64 +220,69 @@ export function StackCreatePage() {
           </label>
         </div>
 
-        <Card as="section" level="base" padding="sm">
-          <h2 className="text-sm font-semibold text-on-surface">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <h2 className="text-sm font-semibold text-zinc-950">
             First patchset file
           </h2>
           <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+            <label className="grid gap-2 text-sm font-medium text-zinc-800">
               Path
-              <Input
+              <input
+                className={inputClass}
                 onChange={(event) => setFilePath(event.target.value)}
                 placeholder="/acme/payment/parser.go"
                 value={filePath}
               />
             </label>
-            <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+            <label className="grid gap-2 text-sm font-medium text-zinc-800">
               Content
               <textarea
-                className={cn(nativeTextareaClassName, "min-h-36 font-mono")}
+                className="min-h-36 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
                 onChange={(event) => setFileContent(event.target.value)}
                 placeholder="package payment"
                 value={fileContent}
               />
             </label>
           </div>
-        </Card>
+        </div>
 
         {!parsedSlice && slice.trim() ? (
-          <StackNotice title="Invalid slice format" tone="error">
+          <SliceNotice title="Invalid slice format" tone="error">
             Use the account:slice form, for example acme:payment.
-          </StackNotice>
+          </SliceNotice>
         ) : null}
 
         {formError ? (
-          <StackNotice title="Could not create changeset" tone="error">
+          <SliceNotice title="Could not create changeset" tone="error">
             {formError}
-          </StackNotice>
+          </SliceNotice>
         ) : null}
 
         <div className="flex flex-wrap justify-end gap-2">
-          <Button
+          <button
+            className={secondaryButtonClass}
             onClick={() => {
               void navigate({ to: "/dependencies" });
             }}
             type="button"
-            variant="secondary"
           >
             Cancel
-          </Button>
-          <Button
+          </button>
+          <button
+            className={primaryButtonClass}
             disabled={createMutation.isPending}
             type="submit"
           >
             {createMutation.isPending ? "Creating..." : "Create changeset"}
-          </Button>
+          </button>
         </div>
       </form>
     </section>
   );
 }
+
+const inputClass =
+  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200";
 
 function utf8ToBase64(value: string) {
   const bytes = new TextEncoder().encode(value);

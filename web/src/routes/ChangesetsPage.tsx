@@ -5,20 +5,17 @@ import {
   useQueryClient
 } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
-import { getErrorMessage } from "../components/slices/SlicePageParts";
 import {
-  Badge,
-  Button,
-  Card,
-  Input,
-  PageHeader,
-  Surface
-} from "../components/ui";
+  SliceLoadingBlock,
+  SliceNotice,
+  SlicePageHeader,
+  getErrorMessage
+} from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
@@ -78,7 +75,7 @@ export function ChangesetsPage() {
       <div className="mb-4">
         <Breadcrumb items={breadcrumbItems} />
       </div>
-      <PageHeader
+      <SlicePageHeader
         eyebrow="Changesets"
         title={sliceRef ? `${account}:${slice} · Changesets` : "Changesets"}
         description={
@@ -91,15 +88,15 @@ export function ChangesetsPage() {
         {!sliceRef ? (
           <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
         ) : changesetsQuery.isLoading ? (
-          <ChangesetsLoadingBlock />
+          <SliceLoadingBlock />
         ) : changesetsQuery.isError ? (
-          <NoticeCard title="Could not load changesets" tone="error">
+          <SliceNotice title="Could not load changesets" tone="error">
             {getErrorMessage(changesetsQuery.error)}
-          </NoticeCard>
+          </SliceNotice>
         ) : changesets.length === 0 ? (
-          <NoticeCard title="No changesets for this slice yet.">
+          <SliceNotice title="No changesets for this slice yet.">
             New changesets created from the slice workspace will appear here.
-          </NoticeCard>
+          </SliceNotice>
         ) : (
           <ChangesetsTable
             api={api}
@@ -125,24 +122,24 @@ function ChangesetsTable({
   queryKey: ChangesetsQueryKey;
 }) {
   return (
-    <Surface className="overflow-hidden p-2" level="lowest">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
       <div className="overflow-x-auto">
-        <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm">
-          <thead className="font-label text-xs font-semibold uppercase text-on-surface-variant">
+        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+          <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
             <tr>
-              <th className="px-3 py-2 sm:px-4">Changeset</th>
-              <th className="hidden px-3 py-2 sm:table-cell sm:px-4">Status</th>
-              <th className="hidden px-4 py-2 md:table-cell">Author</th>
-              <th className="hidden px-4 py-2 md:table-cell">Approvals</th>
-              <th className="hidden px-4 py-2 md:table-cell">
+              <th className="px-3 py-3 sm:px-4">Changeset</th>
+              <th className="hidden px-3 py-3 sm:table-cell sm:px-4">Status</th>
+              <th className="hidden px-4 py-3 md:table-cell">Author</th>
+              <th className="hidden px-4 py-3 md:table-cell">Approvals</th>
+              <th className="hidden px-4 py-3 md:table-cell">
                 Blocked reason
               </th>
               {canManage ? (
-                <th className="px-3 py-2 text-right sm:px-4">Actions</th>
+                <th className="px-3 py-3 text-right sm:px-4">Actions</th>
               ) : null}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-200">
             {changesets.map((changeset) => (
               <ChangesetRow
                 api={api}
@@ -155,7 +152,7 @@ function ChangesetsTable({
           </tbody>
         </table>
       </div>
-    </Surface>
+    </div>
   );
 }
 
@@ -203,13 +200,8 @@ function ChangesetRow({
   const busy = mergeMutation.isPending;
 
   return (
-    <tr className="group align-top">
-      <td
-        className={cn(
-          changesetRowCellClass,
-          "max-w-[14rem] px-3 py-4 sm:min-w-72 sm:max-w-none sm:px-4"
-        )}
-      >
+    <tr className="align-top transition hover:bg-slate-50">
+      <td className="max-w-[14rem] px-3 py-4 sm:min-w-72 sm:max-w-none sm:px-4">
         <div className="flex flex-col gap-1">
           <div className="sm:hidden">
             <StatusBadge status={changeset.status} />
@@ -220,90 +212,70 @@ function ChangesetRow({
               params={{ id: detailId }}
               to="/cs/$id"
             >
-              <span className="block break-words font-semibold text-on-surface underline decoration-primary/30 underline-offset-4 group-hover:decoration-primary">
+              <span className="block break-words font-semibold text-zinc-950 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
                 {label}
               </span>
-              <span className="mt-1 block max-w-xl break-words text-sm text-on-surface-variant group-hover:text-on-surface">
+              <span className="mt-1 block max-w-xl break-words text-sm text-slate-700 group-hover:text-zinc-950">
                 {changeset.title || "Untitled changeset"}
               </span>
             </Link>
           ) : (
             <>
-              <span className="font-semibold text-on-surface">{label}</span>
-              <span className="max-w-xl break-words text-sm text-on-surface-variant">
+              <span className="font-semibold text-zinc-950">{label}</span>
+              <span className="max-w-xl break-words text-sm text-slate-700">
                 {changeset.title || "Untitled changeset"}
               </span>
             </>
           )}
           {changeset.affectedPaths?.length ? (
-            <span className="max-w-xl break-all font-mono text-xs text-on-surface-muted sm:truncate">
+            <span className="max-w-xl break-all font-mono text-xs text-slate-500 sm:truncate">
               {changeset.affectedPaths.join(", ")}
             </span>
           ) : null}
           {changeset.submitBlockedReason ? (
-            <p className="mt-2 rounded-sm bg-tertiary-container px-2 py-1 text-xs leading-5 text-tertiary md:hidden">
+            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs leading-5 text-amber-900 md:hidden">
               {displaySubmitBlockedReason(changeset.submitBlockedReason)}
             </p>
           ) : null}
           {rowError ? (
-            <p className="mt-2 rounded-sm bg-rose-50 px-2 py-1 text-xs leading-5 text-rose-800 md:hidden">
+            <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs leading-5 text-red-800 md:hidden">
               {rowError}
             </p>
           ) : null}
         </div>
       </td>
-      <td
-        className={cn(
-          changesetRowCellClass,
-          "hidden px-3 py-4 sm:table-cell sm:px-4"
-        )}
-      >
+      <td className="hidden px-3 py-4 sm:table-cell sm:px-4">
         <StatusBadge status={changeset.status} />
       </td>
-      <td
-        className={cn(
-          changesetRowCellClass,
-          "hidden px-4 py-4 text-on-surface-variant md:table-cell"
-        )}
-      >
+      <td className="hidden px-4 py-4 text-slate-700 md:table-cell">
         {changeset.author || "not returned"}
       </td>
-      <td
-        className={cn(
-          changesetRowCellClass,
-          "hidden px-4 py-4 text-on-surface-variant md:table-cell"
-        )}
-      >
+      <td className="hidden px-4 py-4 text-slate-700 md:table-cell">
         {changeset.submitRequirements?.requiredApprovals ?? "not returned"}
       </td>
-      <td
-        className={cn(
-          changesetRowCellClass,
-          "hidden max-w-sm px-4 py-4 text-on-surface-variant md:table-cell"
-        )}
-      >
+      <td className="hidden max-w-sm px-4 py-4 text-slate-700 md:table-cell">
         {changeset.submitBlockedReason ? (
           <span>{displaySubmitBlockedReason(changeset.submitBlockedReason)}</span>
         ) : (
-          <span className="text-on-surface-muted">None</span>
+          <span className="text-slate-400">None</span>
         )}
         {rowError ? (
-          <p className="mt-2 rounded-sm bg-rose-50 px-3 py-2 text-sm text-rose-800">
+          <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {rowError}
           </p>
         ) : null}
       </td>
       {canManage ? (
-        <td className={cn(changesetRowCellClass, "px-3 py-4 sm:px-4")}>
+        <td className="px-3 py-4 sm:px-4">
           <div className="flex flex-wrap justify-end gap-2">
-            <Button
+            <button
+              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
               disabled={busy || !changesetId || !mergeable}
               onClick={() => mergeMutation.mutate()}
-              size="sm"
               type="button"
             >
               {mergeMutation.isPending ? "Merging..." : "Merge"}
-            </Button>
+            </button>
           </div>
         </td>
       ) : null}
@@ -318,9 +290,9 @@ function MissingSliceState({
 }) {
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <NoticeCard title="Open a slice first">
+      <SliceNotice title="Open a slice first">
         Use a slice page&apos;s Changesets tab to open the slice-scoped list.
-      </NoticeCard>
+      </SliceNotice>
       <OpenChangesetForm onOpen={navigateToChangeset} />
     </div>
   );
@@ -344,64 +316,29 @@ function OpenChangesetForm({ onOpen }: { onOpen(id: string): void }) {
   };
 
   return (
-    <Card level="low" padding="md">
-      <form onSubmit={submit}>
-        <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
-          Open changeset
-          <Input
-            error={Boolean(error)}
-            onChange={(event) => setChangeset(event.target.value)}
-            placeholder="3f9a2b1c4d"
-            value={changeset}
-          />
-        </label>
-
-        {error ? <p className="mt-2 text-sm text-rose-700">{error}</p> : null}
-
-        <Button className="mt-5" type="submit">
-          Open
-        </Button>
-      </form>
-    </Card>
-  );
-}
-
-function NoticeCard({
-  children,
-  title,
-  tone = "neutral"
-}: {
-  children?: ReactNode;
-  title: string;
-  tone?: "neutral" | "error";
-}) {
-  return (
-    <Card
-      className={cn(
-        "text-sm",
-        tone === "error"
-          ? "bg-rose-50 text-rose-800"
-          : "text-on-surface-variant"
-      )}
-      level={tone === "error" ? "high" : "low"}
-      padding="md"
+    <form
+      className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
+      onSubmit={submit}
     >
-      <p className="font-label font-semibold text-on-surface">{title}</p>
-      {children ? <div className="mt-1 leading-6">{children}</div> : null}
-    </Card>
-  );
-}
+      <label className="grid gap-2 text-sm font-medium text-zinc-800">
+        Open changeset
+        <input
+          className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+          onChange={(event) => setChangeset(event.target.value)}
+          placeholder="3f9a2b1c4d"
+          value={changeset}
+        />
+      </label>
 
-function ChangesetsLoadingBlock() {
-  return (
-    <div className="space-y-4">
-      <div className="h-8 w-56 animate-pulse rounded-sm bg-surface-container-high" />
-      <Card level="low" padding="md">
-        <div className="h-4 w-3/4 animate-pulse rounded-sm bg-surface-container-high" />
-        <div className="mt-4 h-4 w-1/2 animate-pulse rounded-sm bg-surface-container-high" />
-        <div className="mt-4 h-4 w-2/3 animate-pulse rounded-sm bg-surface-container-high" />
-      </Card>
-    </div>
+      {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
+
+      <button
+        className="mt-5 rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px"
+        type="submit"
+      >
+        Open
+      </button>
+    </form>
   );
 }
 
@@ -469,30 +406,33 @@ function changesetLabel(changeset: Changeset) {
 
 function StatusBadge({ status }: { status?: string }) {
   return (
-    <Badge size="md" variant={statusVariant(status)}>
+    <span
+      className={cn(
+        "inline-flex rounded-md border px-2 py-1 text-xs font-semibold",
+        statusClass(status)
+      )}
+    >
       {status || "unknown"}
-    </Badge>
+    </span>
   );
 }
 
-function statusVariant(status?: string) {
+function statusClass(status?: string) {
   switch ((status || "").toLowerCase()) {
     case "published":
     case "merged":
     case "submitted":
-      return "primary";
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
     case "pending_publish":
-    case "draft":
-    case "open":
-      return "tertiary";
+      return "border-amber-200 bg-amber-50 text-amber-900";
     case "abandoned":
+      return "border-red-200 bg-red-50 text-red-800";
+    case "draft":
+      return "border-slate-200 bg-slate-50 text-slate-700";
     default:
-      return "neutral";
+      return "border-slate-200 bg-slate-50 text-slate-700";
   }
 }
-
-const changesetRowCellClass =
-  "bg-surface-container-low transition-colors first:rounded-l-sm last:rounded-r-sm group-hover:bg-surface-container";
 
 // Submit (merge) is only valid while the changeset is still open. Once it has
 // been submitted/published/abandoned it can't be merged again.

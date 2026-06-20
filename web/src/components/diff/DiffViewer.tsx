@@ -9,7 +9,6 @@ import {
 
 import type { DiffChangesetResponse } from "../../api/types";
 import { cn } from "../../lib/cn";
-import { Badge, Button, Card, Surface, surfaceClassName } from "../ui";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { computeSegments, type RevealState } from "./collapse";
 import { FilePickerSheet, MobileFileSwitcher } from "./FileSwitcher";
@@ -325,15 +324,15 @@ export function DiffViewer({
 
   return (
     <>
-      <Card as="section" className="mt-2.5 md:mt-3" level="lowest" padding="none">
-        <Surface className="sticky top-14 z-10 px-3 py-2 backdrop-blur-[20px] sm:top-16 md:px-5 md:py-3 lg:static lg:z-auto lg:py-3 lg:backdrop-blur-none" level="low">
+      <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
+        <div className="sticky top-14 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:top-16 md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white lg:py-3 lg:backdrop-blur-none">
           <div className="flex items-center justify-between gap-2 md:gap-3">
             <div className="min-w-0 flex-1 lg:flex-none">
               <div className="hidden flex-wrap items-baseline gap-x-2 gap-y-0.5 lg:flex">
-                <h2 className="truncate text-sm font-semibold text-on-surface md:text-base">
+                <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 md:text-base">
                   Files
                 </h2>
-                <span className="text-xs text-on-surface-variant md:text-sm">
+                <span className="text-xs text-slate-500 md:text-sm">
                   {isLoading ? "Loading…" : `${changedCount} changed`}
                 </span>
                 {!isLoading && files.length > 0 ? (
@@ -352,10 +351,10 @@ export function DiffViewer({
                 />
               ) : (
                 <div className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-0.5 lg:hidden">
-                  <h2 className="truncate text-sm font-semibold text-on-surface">
+                  <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950">
                     Files
                   </h2>
-                  <span className="text-xs text-on-surface-variant">
+                  <span className="text-xs text-slate-500">
                     {isLoading ? "Loading…" : `${changedCount} changed`}
                   </span>
                 </div>
@@ -367,7 +366,7 @@ export function DiffViewer({
               ) : null}
             </div>
           </div>
-        </Surface>
+        </div>
 
         {isLoading ? (
           <DiffSkeleton />
@@ -402,12 +401,12 @@ export function DiffViewer({
           </div>
         ) : (
           <div className="p-5 md:p-6">
-            <Surface className="px-4 py-6 text-sm text-on-surface-variant" level="high">
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
               No textual changes to display.
-            </Surface>
+            </div>
           </div>
         )}
-      </Card>
+      </section>
 
       {filePickerOpen && canUseMobileFileSwitcher ? (
         <FilePickerSheet
@@ -431,19 +430,22 @@ function ViewModeToggle({
   value: ViewMode;
 }) {
   return (
-    <div className="inline-flex w-fit gap-1">
+    <div className="inline-flex h-8 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 md:h-9">
       {(["unified", "split"] as const).map((mode) => (
-        <Button
+        <button
           aria-pressed={value === mode}
-          className="h-8 px-2.5 capitalize md:h-9 md:px-3"
+          className={cn(
+            "rounded px-2.5 text-xs font-medium capitalize transition md:px-3 md:text-sm",
+            value === mode
+              ? "bg-white text-zinc-950 shadow-sm"
+              : "text-slate-600 hover:text-zinc-950"
+          )}
           key={mode}
           onClick={() => onChange(mode)}
-          size="sm"
           type="button"
-          variant={value === mode ? "primary" : "secondary"}
         >
           {mode}
-        </Button>
+        </button>
       ))}
     </div>
   );
@@ -466,29 +468,26 @@ function DiffFilePanel({
 }) {
   return (
     <article
-      className={surfaceClassName({
-        className: "scroll-mt-32 overflow-hidden lg:scroll-mt-28",
-        level: "lowest"
-      })}
+      className="scroll-mt-32 overflow-hidden rounded-lg border border-slate-200 bg-white lg:scroll-mt-28"
       id={file.id}
       ref={refCallback}
     >
-      <Surface className="flex flex-col gap-1.5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4 sm:py-3" level="high">
+      <div className="flex flex-col gap-1.5 border-b border-slate-200 bg-slate-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4 sm:py-3">
         <div className="flex min-w-0 items-center gap-2">
           <ChangeKindBadge kind={file.changeKind} />
-          <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-on-surface sm:text-sm">
+          <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-950 sm:text-sm">
             {file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}
           </h3>
         </div>
         <div className="flex shrink-0 gap-2 font-mono text-xs">
-          <Badge className="bg-emerald-50 font-mono text-emerald-800" size="sm">
+          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-800 sm:px-2 sm:py-1">
             +{file.additions}
-          </Badge>
-          <Badge className="bg-rose-50 font-mono text-rose-800" size="sm">
+          </span>
+          <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-800 sm:px-2 sm:py-1">
             -{file.deletions}
-          </Badge>
+          </span>
         </div>
-      </Surface>
+      </div>
       {isBodyMounted ? (
         <DiffFileBody
           file={file}
@@ -531,7 +530,7 @@ function DiffBodyPlaceholder({
   return (
     <div
       aria-hidden="true"
-      className="bg-surface-container-lowest"
+      className="bg-white"
       style={{ height: estimatedDiffBodyHeight(file, viewMode) }}
     />
   );
@@ -561,7 +560,7 @@ function UnifiedDiff({
   );
 
   return (
-    <pre className="overflow-x-auto bg-surface-container-lowest text-xs leading-5 md:text-sm">
+    <pre className="overflow-x-auto bg-white text-xs leading-5 md:text-sm">
       <code className="block min-w-max py-2">
         {segments.map((segment) =>
           segment.type === "gap" ? (
@@ -583,10 +582,10 @@ function UnifiedDiff({
                     )}
                     key={`${index}-${line.text}`}
                   >
-                    <span className="select-none pr-1 text-right text-[10px] text-on-surface-muted sm:pr-3 sm:text-xs">
+                    <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
                       {line.oldNumber ?? ""}
                     </span>
-                    <span className="select-none pr-1 text-right text-[10px] text-on-surface-muted sm:pr-3 sm:text-xs">
+                    <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
                       {line.newNumber ?? ""}
                     </span>
                     <span>{line.text || " "}</span>
@@ -629,14 +628,14 @@ function SplitDiff({
 
   if (rows.length === 0) {
     return (
-      <div className="bg-surface-container-lowest px-4 py-5 text-sm text-on-surface-muted">
+      <div className="bg-white px-4 py-5 text-sm text-slate-500">
         No line changes in this file.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto bg-surface-container-lowest text-xs leading-5 md:text-sm">
+    <div className="overflow-x-auto bg-white text-xs leading-5 md:text-sm">
       <div className="min-w-[48rem] py-2">
         {segments.map((segment) =>
           segment.type === "gap" ? (
@@ -664,10 +663,10 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
     return (
       <div
         className={cn(
-          "px-4 py-1 font-mono",
+          "border-t border-slate-100 px-4 py-1 font-mono first:border-t-0",
           row.hunkText?.startsWith("@@")
-            ? "bg-primary/10 text-primary"
-            : "bg-surface-container-high text-on-surface-muted"
+            ? "bg-sky-50 text-sky-700"
+            : "bg-slate-50 text-slate-500"
         )}
       >
         {row.hunkText}
@@ -677,7 +676,7 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
 
   return (
     <div
-      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-t border-slate-100 first:border-t-0"
       key={splitRowKey(row, index)}
     >
       <SplitCell
@@ -706,10 +705,10 @@ function ExpandSeparator({
   onExpand: ExpandFn;
 }) {
   return (
-    <span className="flex w-full items-center justify-center gap-3 bg-surface-container-high px-4 py-1 font-mono text-xs text-primary">
+    <span className="flex w-full items-center justify-center gap-3 border-y border-slate-100 bg-sky-50/70 px-4 py-1 font-mono text-xs text-sky-700 first:border-t-0">
       <button
         aria-label={`Expand ${EXPAND_CHUNK} lines up`}
-        className="rounded-sm px-1.5 hover:bg-surface-container-highest"
+        className="rounded px-1.5 hover:bg-sky-100"
         onClick={() => onExpand(keyFor(), "up", gap.hiddenTotal)}
         type="button"
       >
@@ -717,7 +716,7 @@ function ExpandSeparator({
       </button>
       <button
         aria-label="Expand all hidden lines"
-        className="rounded-sm px-2 hover:bg-surface-container-highest hover:underline"
+        className="rounded px-2 hover:bg-sky-100 hover:underline"
         onClick={() => onExpand(keyFor(), "all", gap.hiddenTotal)}
         type="button"
       >
@@ -725,7 +724,7 @@ function ExpandSeparator({
       </button>
       <button
         aria-label={`Expand ${EXPAND_CHUNK} lines down`}
-        className="rounded-sm px-1.5 hover:bg-surface-container-highest"
+        className="rounded px-1.5 hover:bg-sky-100"
         onClick={() => onExpand(keyFor(), "down", gap.hiddenTotal)}
         type="button"
       >
@@ -743,7 +742,7 @@ function SplitCell({
   tone: "add" | "context" | "del";
 }) {
   if (!line) {
-    return <div className="min-h-6 bg-surface-container-low" />;
+    return <div className="min-h-6 bg-slate-50/80" />;
   }
 
   return (
@@ -752,10 +751,10 @@ function SplitCell({
         "grid min-h-6 grid-cols-[1.75rem_minmax(0,1fr)] overflow-x-auto whitespace-pre px-2 py-0.5 font-mono sm:grid-cols-[3.5rem_minmax(0,1fr)] sm:px-4",
         tone === "add" && "bg-emerald-50 text-emerald-900",
         tone === "del" && "bg-rose-50 text-rose-900",
-        tone === "context" && "text-on-surface-variant"
+        tone === "context" && "text-slate-700"
       )}
     >
-      <span className="select-none pr-1 text-right text-[10px] text-on-surface-muted sm:pr-3 sm:text-xs">
+      <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
         {tone === "add" ? line.newNumber : line.oldNumber}
       </span>
       <span>{line.content || " "}</span>
@@ -765,15 +764,14 @@ function SplitCell({
 
 function ChangeKindBadge({ kind }: { kind: FileChangeKind }) {
   return (
-    <Badge
+    <span
       className={cn(
-        "shrink-0 uppercase",
+        "shrink-0 rounded px-2 py-1 text-xs font-semibold uppercase",
         changeKindClass(kind)
       )}
-      size="sm"
     >
       {kind}
-    </Badge>
+    </span>
   );
 }
 
@@ -781,17 +779,20 @@ function DiffSkeleton() {
   return (
     <div className="grid gap-4 p-4 md:p-5">
       {Array.from({ length: 2 }).map((_, index) => (
-        <Card className="overflow-hidden" key={index} level="low" padding="none">
-          <Surface className="px-4 py-3" level="high">
-            <div className="h-4 w-64 animate-pulse rounded-sm bg-surface-container-highest" />
-          </Surface>
-          <div className="space-y-2 p-4">
-            <div className="h-4 w-full animate-pulse rounded-sm bg-surface-container-high" />
-            <div className="h-4 w-11/12 animate-pulse rounded-sm bg-surface-container-high" />
-            <div className="h-4 w-4/5 animate-pulse rounded-sm bg-surface-container-high" />
-            <div className="h-4 w-2/3 animate-pulse rounded-sm bg-surface-container-high" />
+        <div
+          className="overflow-hidden rounded-lg border border-slate-200"
+          key={index}
+        >
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="h-4 w-64 animate-pulse rounded bg-slate-200" />
           </div>
-        </Card>
+          <div className="space-y-2 p-4">
+            <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
+            <div className="h-4 w-11/12 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 w-4/5 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
+          </div>
+        </div>
       ))}
     </div>
   );
@@ -799,9 +800,9 @@ function DiffSkeleton() {
 
 function DiffErrorBox({ message }: { message: string }) {
   return (
-    <Surface className="bg-rose-50 px-4 py-3 text-sm text-rose-800" level="high">
+    <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
       {message}
-    </Surface>
+    </div>
   );
 }
 
@@ -812,11 +813,11 @@ function diffLineClass(kind: DiffLineKind) {
     case "del":
       return "bg-rose-50 text-rose-900";
     case "hunk":
-      return "bg-primary/10 text-primary";
+      return "bg-sky-50 text-sky-700";
     case "meta":
-      return "bg-surface-container-high text-on-surface-muted";
+      return "bg-slate-50 text-slate-500";
     case "context":
-      return "text-on-surface-variant";
+      return "text-slate-700";
   }
 }
 
@@ -827,9 +828,9 @@ function changeKindClass(kind: FileChangeKind) {
     case "deleted":
       return "bg-rose-100 text-rose-800";
     case "renamed":
-      return "bg-primary/10 text-primary";
+      return "bg-violet-100 text-violet-800";
     case "modified":
-      return "bg-tertiary-container text-tertiary";
+      return "bg-amber-100 text-amber-900";
   }
 }
 

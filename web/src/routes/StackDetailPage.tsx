@@ -18,14 +18,10 @@ import { Breadcrumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { normalizeRepositoryPath } from "../components/source/sourceUtils";
 import {
-  Badge,
-  Button,
-  Card,
-  Input,
-  PageHeader,
-  buttonClassName,
-  surfaceClassName
-} from "../components/ui";
+  SliceLoadingBlock,
+  SliceNotice,
+  SlicePageHeader
+} from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
 import {
@@ -43,13 +39,9 @@ import {
   formatTimestamp,
   getErrorMessage,
   isTerminalChangesetStatus,
-  nativeControlClassName,
-  nativeTextareaClassName,
   parentEntry,
   primaryButtonClass,
   secondaryButtonClass,
-  StackLoadingBlock,
-  StackNotice,
   shortStackId,
   sliceRefLabel,
   sortedStackEntries,
@@ -119,7 +111,7 @@ export function StackDetailPage() {
   if (stackQuery.isLoading) {
     return (
       <section className="mx-auto w-full max-w-[100rem]">
-        <StackLoadingBlock />
+        <SliceLoadingBlock />
       </section>
     );
   }
@@ -163,16 +155,16 @@ export function StackDetailPage() {
 
       {actionMessage ? (
         <div className="mt-5">
-          <StackNotice title="Dependencies updated" tone="success">
+          <SliceNotice title="Dependencies updated" tone="success">
             {actionMessage}
-          </StackNotice>
+          </SliceNotice>
         </div>
       ) : null}
       {actionError ? (
         <div className="mt-5">
-          <StackNotice title="Dependency action failed" tone="error">
+          <SliceNotice title="Dependency action failed" tone="error">
             {actionError}
-          </StackNotice>
+          </SliceNotice>
         </div>
       ) : null}
 
@@ -210,7 +202,7 @@ function StackHeader({ stack }: { stack: ChangesetStack }) {
   const sliceLabel = sliceRefLabel(stack.authoringSlice) || "slice not returned";
 
   return (
-    <PageHeader
+    <SlicePageHeader
       actions={
         <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
           <Link
@@ -231,7 +223,7 @@ function StackHeader({ stack }: { stack: ChangesetStack }) {
       }
       description={`${sliceLabel} on ${stack.targetRef || "target ref not returned"}`}
       eyebrow="Dependencies"
-      title={<span className="font-serif">{stackDisplayName(stack)}</span>}
+      title={stackDisplayName(stack)}
     />
   );
 }
@@ -251,20 +243,20 @@ function StackEntryList({
 
   if (!entries.length) {
     return (
-      <StackNotice title="No dependent changesets yet">
+      <SliceNotice title="No dependent changesets yet">
         Use the add changeset form to create the root changeset.
-      </StackNotice>
+      </SliceNotice>
     );
   }
 
   return (
-    <Card level="low" padding="none">
-      <div className="bg-surface-container-high px-4 py-3">
-        <h2 className="text-sm font-semibold text-on-surface">Changesets</h2>
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+      <div className="border-b border-slate-200 px-4 py-3">
+        <h2 className="text-sm font-semibold text-zinc-950">Changesets</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="bg-surface-container font-label text-xs font-semibold uppercase tracking-normal text-on-surface-variant">
+        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+          <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
             <tr>
               <th className="px-3 py-3 sm:px-4">Changeset</th>
               <th className="hidden px-4 py-3 sm:table-cell">State</th>
@@ -275,7 +267,7 @@ function StackEntryList({
               <th className="px-3 py-3 text-right sm:px-4">Open</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-200">
             {entries.map((entry) => {
               const changeset = entry.changeset;
               const selected = entry.changesetId === selectedEntryId;
@@ -286,8 +278,8 @@ function StackEntryList({
               return (
                 <tr
                   className={cn(
-                    "align-top transition odd:bg-surface-container-lowest even:bg-surface-container-low hover:bg-surface-container-high",
-                    selected && "bg-tertiary-container/45"
+                    "align-top transition hover:bg-slate-50",
+                    selected && "bg-slate-50"
                   )}
                   key={entry.changesetId}
                 >
@@ -298,44 +290,38 @@ function StackEntryList({
                       style={{ paddingLeft: `${depth * 1.25}rem` }}
                       type="button"
                     >
-                      <span className="block break-words font-semibold text-on-surface underline decoration-tertiary/30 underline-offset-4 group-hover:text-primary group-hover:decoration-primary">
+                      <span className="block break-words font-semibold text-zinc-950 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
                         {entryLabel(entry)}
                       </span>
-                      <span className="mt-1 block break-words text-sm text-on-surface-variant">
+                      <span className="mt-1 block break-words text-sm text-slate-700">
                         {entryTitle(entry)}
                       </span>
                       {changeset?.submitBlockedReason ? (
-                        <Badge
-                          className="mt-2 max-w-full whitespace-normal leading-5"
-                          variant="tertiary"
-                        >
+                        <span className="mt-2 block rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900 lg:hidden">
                           {displaySubmitBlockedReason(changeset.submitBlockedReason)}
-                        </Badge>
+                        </span>
                       ) : null}
                     </button>
                   </td>
                   <td className="hidden px-4 py-4 sm:table-cell">
                     <StackStatusBadge status={entry.state || changeset?.status} />
                   </td>
-                  <td className="hidden px-4 py-4 text-on-surface-variant md:table-cell">
+                  <td className="hidden px-4 py-4 text-slate-700 md:table-cell">
                     {patchsetNumber ? `patchset ${patchsetNumber}` : "none"}
                   </td>
-                  <td className="hidden px-4 py-4 text-on-surface-variant lg:table-cell">
+                  <td className="hidden px-4 py-4 text-slate-700 lg:table-cell">
                     {parent ? entryLabel(parent) : "root"}
                   </td>
-                  <td className="hidden px-4 py-4 text-on-surface-variant lg:table-cell">
+                  <td className="hidden px-4 py-4 text-slate-700 lg:table-cell">
                     {childCounts.get(entry.changesetId || "") ?? 0}
                   </td>
-                  <td className="hidden px-4 py-4 text-on-surface-variant xl:table-cell">
+                  <td className="hidden px-4 py-4 text-slate-700 xl:table-cell">
                     {changedPathCount(changeset)}
                   </td>
                   <td className="px-3 py-4 sm:px-4">
                     <div className="flex flex-wrap justify-end gap-2">
                       <Link
-                        className={buttonClassName({
-                          className: "h-8 px-3 text-xs",
-                          variant: "secondary"
-                        })}
+                        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                         params={{
                           id:
                             shortChangesetId(entry.changesetId || "") ||
@@ -355,7 +341,7 @@ function StackEntryList({
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -372,9 +358,9 @@ function SelectedEntryDetail({
 }) {
   if (!entry) {
     return (
-      <StackNotice title="Select a changeset">
+      <SliceNotice title="Select a changeset">
         Choose a changeset in the dependency tree to inspect metadata and diff.
-      </StackNotice>
+      </SliceNotice>
     );
   }
 
@@ -386,19 +372,19 @@ function SelectedEntryDetail({
 
   return (
     <div className="space-y-4">
-      <Card level="low" padding="md">
+      <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="break-words text-lg font-semibold text-on-surface">
+              <h2 className="break-words text-lg font-semibold text-zinc-950">
                 {entryTitle(entry)}
               </h2>
               <StackStatusBadge status={entry.state || changeset?.status} />
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-on-surface-variant">
-              <Badge className="break-all font-mono" variant="neutral">
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-600">
+              <span className="break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
                 {entryLabel(entry)}
-              </Badge>
+              </span>
               <span>{changeset?.author || "author not returned"}</span>
               <span>{patchset ? `patchset ${patchset.number}` : "no patchset"}</span>
             </div>
@@ -431,11 +417,11 @@ function SelectedEntryDetail({
         </dl>
 
         {changeset?.submitBlockedReason ? (
-          <div className="mt-5 rounded-sm bg-tertiary-container px-3 py-2 text-sm text-tertiary">
+          <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {displaySubmitBlockedReason(changeset.submitBlockedReason)}
           </div>
         ) : null}
-      </Card>
+      </div>
 
       <EntryPreviewTree entry={entry} stack={stack} />
 
@@ -503,21 +489,21 @@ function EntryPreviewTree({
 
   if (!rootTreeId) {
     return (
-      <StackNotice title="No preview tree">
+      <SliceNotice title="No preview tree">
         Add a patchset to this entry before browsing its materialized tree.
-      </StackNotice>
+      </SliceNotice>
     );
   }
 
   const preview = previewQuery.data;
 
   return (
-    <Card level="low" padding="none">
-      <div className="bg-surface-container-high px-4 py-3">
+    <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+      <div className="border-b border-slate-200 px-4 py-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-on-surface">Preview tree</h2>
-            <p className="mt-1 text-xs text-on-surface-muted">
+            <h2 className="text-sm font-semibold text-zinc-950">Preview tree</h2>
+            <p className="mt-1 text-xs text-slate-500">
               Materialized from patchset {patchset?.number || "current"}.
             </p>
           </div>
@@ -528,26 +514,27 @@ function EntryPreviewTree({
               setPath(normalizedPath);
             }}
           >
-            <Input
+            <input
+              className={inputClass}
               onChange={(event) => setPath(event.target.value)}
               placeholder="/acme/payment"
               value={path}
             />
-            <Button type="submit" variant="secondary">
+            <button className={secondaryButtonClass} type="submit">
               Browse
-            </Button>
+            </button>
           </form>
         </div>
       </div>
 
       {previewQuery.isPending ? (
-        <div className="px-4 py-6 text-sm text-on-surface-variant">Loading preview...</div>
+        <div className="px-4 py-6 text-sm text-slate-600">Loading preview...</div>
       ) : null}
       {previewQuery.isError ? (
         <div className="px-4 py-4">
-          <StackNotice title="Preview unavailable" tone="error">
+          <SliceNotice title="Preview unavailable" tone="error">
             {getErrorMessage(previewQuery.error)}
-          </StackNotice>
+          </SliceNotice>
         </div>
       ) : null}
       {preview?.kind === "directory" ? (
@@ -558,11 +545,11 @@ function EntryPreviewTree({
         />
       ) : null}
       {preview?.kind === "file" ? (
-        <pre className="max-h-96 overflow-auto bg-on-surface px-4 py-4 text-sm leading-6 text-on-surface-inverse">
+        <pre className="max-h-96 overflow-auto border-t border-slate-200 bg-slate-950 px-4 py-4 text-sm leading-6 text-slate-100">
           <code>{preview.fileText}</code>
         </pre>
       ) : null}
-    </Card>
+    </div>
   );
 }
 
@@ -578,35 +565,35 @@ function PreviewDirectory({
   const parentPath = parentRepositoryPath(path);
 
   return (
-    <div>
+    <div className="divide-y divide-slate-200 border-t border-slate-200">
       {path !== "/" ? (
         <button
-          className="flex w-full items-center justify-between bg-surface-container px-4 py-3 text-left text-sm font-medium text-on-surface-variant transition hover:bg-surface-container-high"
+          className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           onClick={() => onOpen(parentPath)}
           type="button"
         >
           <span>Parent directory</span>
-          <span className="font-mono text-xs text-on-surface-muted">{parentPath}</span>
+          <span className="font-mono text-xs text-slate-500">{parentPath}</span>
         </button>
       ) : null}
       {entries.length ? (
         entries.map((entry) => (
           <button
-            className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-sm transition odd:bg-surface-container-lowest even:bg-surface-container-low hover:bg-surface-container-high"
+            className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-sm transition hover:bg-slate-50"
             key={entry.path || entry.name}
             onClick={() => onOpen(entry.path || "/")}
             type="button"
           >
-            <span className="min-w-0 break-all font-medium text-on-surface">
+            <span className="min-w-0 break-all font-medium text-zinc-950">
               {entry.name || entry.path || "entry"}
             </span>
-            <Badge className="shrink-0" variant="neutral">
+            <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
               {entry.kind === "ENTRY_KIND_FILE" ? "file" : "directory"}
-            </Badge>
+            </span>
           </button>
         ))
       ) : (
-        <div className="px-4 py-6 text-sm text-on-surface-variant">
+        <div className="px-4 py-6 text-sm text-slate-600">
           This preview directory is empty.
         </div>
       )}
@@ -666,8 +653,8 @@ function StackTreeControls({
 
 function StackMetadataPanel({ stack }: { stack: ChangesetStack }) {
   return (
-    <Card level="low" padding="md">
-      <h2 className="text-sm font-semibold text-on-surface">Dependency metadata</h2>
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
+      <h2 className="text-sm font-semibold text-zinc-950">Dependency metadata</h2>
       <dl className="mt-4 grid gap-4">
         <Metadata label="Status" value={<StackStatusBadge status={stack.status} />} />
         <Metadata label="Dependency id" value={stack.id || "not returned"} />
@@ -676,7 +663,7 @@ function StackMetadataPanel({ stack }: { stack: ChangesetStack }) {
         <Metadata label="Created" value={formatTimestamp(stack.createdAt)} />
         <Metadata label="Updated" value={formatTimestamp(stack.updatedAt)} />
       </dl>
-    </Card>
+    </div>
   );
 }
 
@@ -772,16 +759,17 @@ function AddPatchsetPanel({
 
   return (
     <form
-      className={cn(surfaceClassName({ level: "low" }), "p-5")}
+      className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
       onSubmit={submit}
     >
-      <h2 className="text-sm font-semibold text-on-surface">Add patchset</h2>
-      <p className="mt-1 text-sm text-on-surface-variant">
+      <h2 className="text-sm font-semibold text-zinc-950">Add patchset</h2>
+      <p className="mt-1 text-sm text-slate-600">
         Revise the selected changeset without creating a dependent changeset.
       </p>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Selected changeset
-        <Input
+        <input
+          className={inputClass}
           disabled
           value={
             selectedEntry
@@ -790,31 +778,31 @@ function AddPatchsetPanel({
           }
         />
       </label>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Path
-        <Input
+        <input
+          className={inputClass}
           onChange={(event) => setFilePath(event.target.value)}
           placeholder="/acme/payment/parser.go"
           value={filePath}
         />
       </label>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Content
         <textarea
-          className={cn(nativeTextareaClassName, "min-h-36 font-mono")}
+          className="min-h-36 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
           onChange={(event) => setFileContent(event.target.value)}
           placeholder="package payment"
           value={fileContent}
         />
       </label>
-      <Button
-        className="mt-5 w-full"
+      <button
+        className="mt-5 w-full rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
         disabled={patchsetMutation.isPending || !selectedEntry?.changesetId}
         type="submit"
-        variant="secondary"
       >
         {patchsetMutation.isPending ? "Adding..." : "Add patchset"}
-      </Button>
+      </button>
     </form>
   );
 }
@@ -908,18 +896,18 @@ function AddEntryPanel({
 
   return (
     <form
-      className={cn(surfaceClassName({ level: "low" }), "p-5")}
+      className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
       onSubmit={submit}
     >
-      <h2 className="text-sm font-semibold text-on-surface">Add changeset</h2>
-      <div className="mt-4 grid grid-cols-2 rounded-sm bg-surface-container-high p-1">
+      <h2 className="text-sm font-semibold text-zinc-950">Add changeset</h2>
+      <div className="mt-4 grid grid-cols-2 rounded-md border border-slate-300 bg-slate-50 p-1">
         {(["child", "sibling"] as const).map((option) => (
           <button
             className={cn(
-              "rounded-sm px-3 py-1.5 font-label text-sm font-semibold transition",
+              "rounded px-3 py-1.5 text-sm font-medium transition",
               mode === option
-                ? "bg-surface-container-lowest text-primary"
-                : "text-on-surface-variant hover:bg-surface-container-highest hover:text-primary"
+                ? "bg-white text-zinc-950 shadow-sm"
+                : "text-slate-600 hover:text-zinc-950"
             )}
             key={option}
             onClick={() => setMode(option)}
@@ -929,10 +917,10 @@ function AddEntryPanel({
           </button>
         ))}
       </div>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Base changeset
         <select
-          className={nativeControlClassName}
+          className={inputClass}
           disabled={!entries.length || mode === "sibling"}
           onChange={(event) => setParentId(event.target.value)}
           value={parentId}
@@ -947,31 +935,31 @@ function AddEntryPanel({
           ))}
         </select>
       </label>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Title
-        <Input
+        <input
+          className={inputClass}
           onChange={(event) => setTitle(event.target.value)}
           placeholder="Use parser in API"
           value={title}
         />
       </label>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Description
         <textarea
-          className={cn(nativeTextareaClassName, "min-h-24")}
+          className="min-h-24 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Optional review context"
           value={description}
         />
       </label>
-      <Button
-        className="mt-5 w-full"
+      <button
+        className="mt-5 w-full rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
         disabled={addMutation.isPending}
         type="submit"
-        variant="secondary"
       >
         {addMutation.isPending ? "Adding..." : mode === "child" ? "Add dependent" : "Add sibling"}
-      </Button>
+      </button>
     </form>
   );
 }
@@ -1058,14 +1046,14 @@ function MoveEntryPanel({
 
   return (
     <form
-      className={cn(surfaceClassName({ level: "low" }), "p-5")}
+      className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
       onSubmit={submit}
     >
-      <h2 className="text-sm font-semibold text-on-surface">Move to base</h2>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <h2 className="text-sm font-semibold text-zinc-950">Move to base</h2>
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Changeset
         <select
-          className={nativeControlClassName}
+          className={inputClass}
           onChange={(event) => setChangesetId(event.target.value)}
           value={changesetId}
         >
@@ -1076,10 +1064,10 @@ function MoveEntryPanel({
           ))}
         </select>
       </label>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         New base
         <select
-          className={nativeControlClassName}
+          className={inputClass}
           onChange={(event) => setParentId(event.target.value)}
           value={parentId}
         >
@@ -1093,23 +1081,23 @@ function MoveEntryPanel({
             ))}
         </select>
       </label>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Sibling order
-        <Input
+        <input
+          className={inputClass}
           inputMode="numeric"
           onChange={(event) => setSiblingOrder(event.target.value)}
           placeholder="Append"
           value={siblingOrder}
         />
       </label>
-      <Button
-        className="mt-5 w-full"
+      <button
+        className="mt-5 w-full rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
         disabled={moveMutation.isPending || entries.length === 0}
         type="submit"
-        variant="secondary"
       >
         {moveMutation.isPending ? "Moving..." : "Move and update"}
-      </Button>
+      </button>
     </form>
   );
 }
@@ -1123,10 +1111,10 @@ function Metadata({
 }) {
   return (
     <div className="min-w-0">
-      <dt className="font-label text-xs font-semibold uppercase tracking-normal text-on-surface-muted">
+      <dt className="text-xs font-semibold uppercase tracking-normal text-slate-500">
         {label}
       </dt>
-      <dd className="mt-1 min-w-0 break-all text-sm font-medium text-on-surface">
+      <dd className="mt-1 min-w-0 break-all text-sm font-medium text-zinc-950">
         {value}
       </dd>
     </div>
@@ -1136,12 +1124,12 @@ function Metadata({
 function StackMessage({ message, title }: { message: string; title: string }) {
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <Card level="low" padding="lg">
-        <h1 className="font-serif text-xl font-semibold tracking-normal text-on-surface">
+      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
+        <h1 className="text-xl font-semibold tracking-normal text-zinc-950">
           {title}
         </h1>
-        <p className="mt-2 text-sm text-on-surface-variant">{message}</p>
-      </Card>
+        <p className="mt-2 text-sm text-slate-600">{message}</p>
+      </div>
     </section>
   );
 }
@@ -1154,6 +1142,9 @@ function hasInProgressEntry(stack?: ChangesetStack) {
     })
   );
 }
+
+const inputClass =
+  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200";
 
 function utf8ToBase64(value: string) {
   const bytes = new TextEncoder().encode(value);

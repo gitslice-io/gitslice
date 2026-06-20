@@ -1,14 +1,13 @@
 import { Link, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 
 import type { Slice } from "../api/types";
 import { useApi } from "../api/useApi";
-import { Badge, Card, PageHeader, buttonClassName } from "../components/ui";
 import { shortHash } from "../lib/objectId";
 import {
   SliceLoadingBlock,
   SliceNotice,
+  SlicePageHeader,
   formatPathPreview,
   getErrorMessage,
   sliceDisplayName
@@ -53,21 +52,16 @@ export function SlicesPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <PageHeader
-        eyebrow="Slices"
+      <SlicePageHeader
         actions={
           <Link
-            className={buttonClassName({ variant: "primary" })}
+            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
             to="/slices/new"
           >
             New slice
           </Link>
         }
-        title={
-          <span className="block break-words font-serif">
-            {effectiveAccount ? `Slices for ${effectiveAccount}` : "Slices"}
-          </span>
-        }
+        title={effectiveAccount ? `Slices for ${effectiveAccount}` : "Slices"}
         description="Definitions for slices under the selected account."
       />
 
@@ -93,100 +87,76 @@ export function SlicesPage() {
             The server did not return any slices for this account.
           </SliceNotice>
         ) : (
-          <div className="grid gap-3">
-            {slices.map((slice) => {
-              const paths = slice.definition?.includedPaths ?? [];
-              const sliceId = slice.id ?? "";
-              const routeParams = toSliceRouteParams(slice.ref);
-              const visibility = slice.definition?.visibility || "unspecified";
-              const isPublic = visibility.toLowerCase() === "public";
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
+                  <tr>
+                    <th className="px-3 py-3 sm:px-4">Slice</th>
+                    <th className="px-3 py-3 sm:px-4">Visibility</th>
+                    <th className="hidden px-4 py-3 md:table-cell">Version</th>
+                    <th className="hidden px-4 py-3 md:table-cell">
+                      Definition hash
+                    </th>
+                    <th className="hidden px-4 py-3 md:table-cell">
+                      Included paths
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {slices.map((slice) => {
+                    const paths = slice.definition?.includedPaths ?? [];
+                    const sliceId = slice.id ?? "";
+                    const routeParams = toSliceRouteParams(slice.ref);
 
-              return (
-                <Card
-                  className="grid gap-4 transition hover:bg-surface-container md:grid-cols-[minmax(14rem,1.35fr)_auto_minmax(8rem,0.4fr)_minmax(10rem,0.55fr)_minmax(14rem,1fr)] md:items-center"
-                  key={sliceId || sliceDisplayName(slice)}
-                  level="low"
-                  padding="md"
-                >
-                  <div className="min-w-0">
-                    <p className="font-label text-xs font-semibold uppercase text-on-surface-muted md:hidden">
-                      Slice
-                    </p>
-                    <div className="mt-1 min-w-0 break-words text-base font-semibold text-on-surface md:mt-0">
-                      {routeParams ? (
-                        <Link
-                          className="underline-offset-4 transition hover:text-primary hover:underline"
-                          params={routeParams}
-                          to="/slices/$account/$slice"
-                        >
-                          {sliceDisplayName(slice)}
-                        </Link>
-                      ) : (
-                        sliceDisplayName(slice)
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center">
-                    <Badge variant={isPublic ? "tertiary" : "neutral"}>
-                      {visibility}
-                    </Badge>
-                  </div>
-
-                  <MetadataItem label="Version">
-                    {slice.definition?.version ?? "unknown"}
-                  </MetadataItem>
-
-                  <MetadataItem label="Definition hash" quiet>
-                    {slice.definitionHash ? (
-                      <span title={slice.definitionHash}>
-                        {shortHash(slice.definitionHash)}
-                      </span>
-                    ) : (
-                      "none"
-                    )}
-                  </MetadataItem>
-
-                  <MetadataItem label="Included paths">
-                    <span className="font-semibold text-on-surface">
-                      {paths.length}
-                    </span>{" "}
-                    <span>{formatPathPreview(paths)}</span>
-                  </MetadataItem>
-                </Card>
-              );
-            })}
+                    return (
+                      <tr
+                        className="align-top transition hover:bg-slate-50"
+                        key={sliceId || sliceDisplayName(slice)}
+                      >
+                        <td className="max-w-[12rem] px-3 py-3 font-medium text-zinc-950 sm:max-w-none sm:px-4">
+                          {routeParams ? (
+                            <Link
+                              className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
+                              params={routeParams}
+                              to="/slices/$account/$slice"
+                            >
+                              {sliceDisplayName(slice)}
+                            </Link>
+                          ) : (
+                            sliceDisplayName(slice)
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-slate-700 sm:px-4">
+                          {slice.definition?.visibility || "unspecified"}
+                        </td>
+                        <td className="hidden px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
+                          {slice.definition?.version ?? "unknown"}
+                        </td>
+                        <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
+                          {slice.definitionHash ? (
+                            <span title={slice.definitionHash}>
+                              {shortHash(slice.definitionHash)}
+                            </span>
+                          ) : (
+                            "none"
+                          )}
+                        </td>
+                        <td className="hidden px-4 py-3 text-slate-700 md:table-cell">
+                          <span className="font-medium text-zinc-950">
+                            {paths.length}
+                          </span>{" "}
+                          <span>{formatPathPreview(paths)}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
     </section>
-  );
-}
-
-function MetadataItem({
-  children,
-  label,
-  quiet = false
-}: {
-  children: ReactNode;
-  label: string;
-  quiet?: boolean;
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="font-label text-xs font-semibold uppercase text-on-surface-muted">
-        {label}
-      </p>
-      <div
-        className={[
-          "mt-1 min-w-0 break-all text-sm",
-          quiet
-            ? "font-mono text-xs text-on-surface-muted"
-            : "text-on-surface-variant"
-        ].join(" ")}
-      >
-        {children}
-      </div>
-    </div>
   );
 }
