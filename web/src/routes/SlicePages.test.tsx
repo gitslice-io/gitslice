@@ -77,8 +77,8 @@ describe("slice route pages (render smoke)", () => {
   function expectHealthy() {
     expect(screen.queryByText(/Something went wrong/i)).toBeNull();
     const offending = consoleError.mock.calls
-      .map((args) => String(args[0]))
-      .filter((message) =>
+      .map((args: unknown[]) => String(args[0]))
+      .filter((message: string) =>
         /Maximum update depth|Rendered more hooks|hooks than during/.test(message)
       );
     expect(offending).toEqual([]);
