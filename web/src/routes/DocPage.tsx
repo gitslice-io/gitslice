@@ -1,5 +1,14 @@
 import { Link, useParams } from "@tanstack/react-router";
 
+import {
+  Badge,
+  Card,
+  PageHeader,
+  Surface,
+  buttonClassName
+} from "../components/ui";
+import { cn } from "../lib/cn";
+
 type DocSection = "start" | "concepts" | "git-users" | "cli";
 
 interface DocParams {
@@ -185,19 +194,23 @@ function docPath(section: DocSection) {
 }
 
 function normalizeSection(value: string | undefined): DocSection {
-  if (
-    value === "concepts" ||
-    value === "git-users" ||
-    value === "cli"
-  ) {
+  if (value === "concepts" || value === "git-users" || value === "cli") {
     return value;
   }
   return "start";
 }
 
+function InlineCode({ children }: { children: string }) {
+  return (
+    <code className="rounded-sm bg-surface-container-high px-1.5 py-0.5 font-mono text-xs text-on-surface">
+      {children}
+    </code>
+  );
+}
+
 function CommandBlock({ children }: { children: string }) {
   return (
-    <pre className="mt-3 overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-700">
+    <pre className="mt-3 overflow-x-auto rounded-sm bg-surface-container-high px-3 py-2 font-mono text-xs leading-5 text-on-surface">
       <code className="whitespace-pre">{children}</code>
     </pre>
   );
@@ -212,20 +225,22 @@ function SectionLink({
 }) {
   return (
     <Link
-      className={[
-        "block rounded-md border px-4 py-3 text-left transition active:scale-[0.98]",
+      className={cn(
+        "block rounded-sm px-4 py-3 text-left transition duration-200 ease-out active:translate-y-px",
         active
-          ? "border-zinc-950 bg-zinc-950 text-white"
-          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
-      ].join(" ")}
+          ? "bg-primary text-white"
+          : "bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high hover:text-primary"
+      )}
       to={docPath(section.id)}
     >
-      <span className="block text-sm font-semibold">{section.title}</span>
+      <span className="block font-label text-sm font-semibold">
+        {section.title}
+      </span>
       <span
-        className={[
+        className={cn(
           "mt-1 block text-xs leading-5",
-          active ? "text-slate-300" : "text-slate-500"
-        ].join(" ")}
+          active ? "text-white/80" : "text-on-surface-muted"
+        )}
       >
         {section.description}
       </span>
@@ -238,9 +253,18 @@ export function DocPage() {
   const section = normalizeSection(params.section);
 
   return (
-    <section className="mx-auto grid w-full max-w-[100rem] gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="lg:sticky lg:top-24 lg:self-start">
-        <div className="grid gap-2">
+    <section className="mx-auto grid w-full max-w-[96rem] gap-8 text-on-surface lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <Surface
+        as="aside"
+        className="p-3 lg:sticky lg:top-24 lg:self-start"
+        level="low"
+      >
+        <div className="mb-3 px-1">
+          <Badge size="md" variant="tertiary">
+            Docs
+          </Badge>
+        </div>
+        <nav aria-label="Documentation sections" className="grid gap-2">
           {docSections.map((item) => (
             <SectionLink
               active={section === item.id}
@@ -248,73 +272,60 @@ export function DocPage() {
               section={item}
             />
           ))}
-        </div>
-      </aside>
+        </nav>
+      </Surface>
 
-      <div className="min-w-0">
+      <article className="min-w-0">
         {section === "start" ? <StartHereDoc /> : null}
         {section === "concepts" ? <ConceptsDoc /> : null}
         {section === "git-users" ? <GitUsersDoc /> : null}
         {section === "cli" ? <CliReferenceDoc /> : null}
-      </div>
+      </article>
     </section>
-  );
-}
-
-function PageHeader({
-  eyebrow,
-  title,
-  description
-}: {
-  description: string;
-  eyebrow: string;
-  title: string;
-}) {
-  return (
-    <header className="border-b border-slate-200 pb-5">
-      <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-        {eyebrow}
-      </p>
-      <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">
-        {title}
-      </h1>
-      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-        {description}
-      </p>
-    </header>
   );
 }
 
 function StartHereDoc() {
   return (
-    <div>
+    <div className="space-y-8">
       <PageHeader
         eyebrow="Gitslice docs"
         title="Start Here"
         description="Use this path if you want to get productive before learning the whole model. Gitslice gives you repository-like slices over one global source graph, and changesets are how work lands."
       />
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
-          First workflow
-        </h2>
-        <ol className="mt-4 space-y-5">
+      <Card as="section" level="low" padding="lg">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">First workflow</h2>
+          <Badge size="md" variant="tertiary">
+            4 steps
+          </Badge>
+        </div>
+        <ol className="mt-6 space-y-4">
           {startSteps.map((step, index) => (
-            <li className="flex gap-3 text-sm leading-6" key={step.title}>
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+            <li
+              className="grid gap-3 rounded-sm bg-surface-container-lowest p-4 text-sm leading-6 sm:grid-cols-[2rem_minmax(0,1fr)]"
+              key={step.title}
+            >
+              <Badge
+                className="h-8 w-8 justify-center rounded-full px-0 py-0"
+                variant="tertiary"
+              >
                 {index + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-zinc-950">{step.title}</h3>
-                <p className="mt-1 text-slate-600">{step.description}</p>
+              </Badge>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold">{step.title}</h3>
+                <p className="mt-1 text-on-surface-variant">
+                  {step.description}
+                </p>
                 <CommandBlock>{step.command}</CommandBlock>
               </div>
             </li>
           ))}
         </ol>
-      </section>
+      </Card>
 
-      <section className="mt-8 grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-2">
         <NextDocCard
           description="Learn the native nouns once the first workflow makes sense."
           section="concepts"
@@ -332,91 +343,97 @@ function StartHereDoc() {
 
 function ConceptsDoc() {
   return (
-    <div>
+    <div className="space-y-8">
       <PageHeader
         eyebrow="Gitslice docs"
         title="Concepts"
         description="Gitslice is native source storage first, Git compatibility second. These are the terms that explain how the system works."
       />
 
-      <section className="mt-8 grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-2">
         {conceptCards.map((concept) => (
-          <article
-            className="rounded-md border border-slate-200 bg-white p-5"
-            key={concept.title}
-          >
-            <h2 className="text-base font-semibold text-zinc-950">
-              {concept.title}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+          <Card as="article" key={concept.title} level="low" padding="lg">
+            <h2 className="text-xl font-semibold">{concept.title}</h2>
+            <p className="mt-3 text-sm leading-6 text-on-surface-variant">
               {concept.description}
             </p>
-          </article>
+          </Card>
         ))}
       </section>
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
-          Submit lifecycle
-        </h2>
-        <div className="mt-4">
-          <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ["Draft", "Edit and update patchsets."],
-              ["Pending publish", "Submit accepted and queued."],
-              ["Submitted", "Included in the accepted main tree."],
-              ["Native commit", "Immutable snapshot behind refs/global/main."]
-            ].map(([title, description]) => (
-              <div
-                className="rounded-md border border-slate-200 bg-slate-50 p-4"
-                key={title}
-              >
-                <h3 className="font-semibold text-zinc-950">{title}</h3>
-                <p className="mt-2 leading-6 text-slate-600">{description}</p>
-              </div>
-            ))}
-          </div>
+      <Card as="section" level="base" padding="lg">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">Submit lifecycle</h2>
+          <Badge size="md" variant="tertiary">
+            Validation
+          </Badge>
         </div>
-      </section>
+        <div className="mt-5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["Draft", "Edit and update patchsets."],
+            ["Pending publish", "Submit accepted and queued."],
+            ["Submitted", "Included in the accepted main tree."],
+            ["Native commit", "Immutable snapshot behind refs/global/main."]
+          ].map(([title, description]) => (
+            <div
+              className="rounded-sm bg-surface-container-lowest p-4"
+              key={title}
+            >
+              <h3 className="font-semibold">{title}</h3>
+              <p className="mt-2 leading-6 text-on-surface-variant">
+                {description}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }
 
 function GitUsersDoc() {
   return (
-    <div>
+    <div className="space-y-8">
       <PageHeader
         eyebrow="Gitslice docs"
         title="For Git Users"
         description="Use this page if your mental model starts with repos, branches, commits, and pull requests. Gitslice keeps familiar boundaries but changes the native write path."
       />
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
-          Git to Gitslice
-        </h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Git term</th>
-                <th className="px-4 py-3">Gitslice term</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {gitTranslations.map(([git, gitslice]) => (
-                <tr key={git}>
-                  <td className="px-4 py-3 font-medium text-zinc-950">{git}</td>
-                  <td className="px-4 py-3 text-slate-600">{gitslice}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <Card as="section" level="low" padding="lg">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">Git to Gitslice</h2>
+          <Badge size="md" variant="tertiary">
+            Translation
+          </Badge>
         </div>
-      </section>
+        <div className="mt-4 overflow-x-auto">
+          <div className="min-w-[34rem] text-sm">
+            <div className="grid grid-cols-2 px-4 py-2 font-label text-xs font-semibold uppercase text-tertiary">
+              <span>Git term</span>
+              <span>Gitslice term</span>
+            </div>
+            <div className="grid gap-2">
+              {gitTranslations.map(([git, gitslice]) => (
+                <div
+                  className="grid grid-cols-2 rounded-sm bg-surface-container-lowest"
+                  key={git}
+                >
+                  <div className="px-4 py-3 font-medium text-on-surface">
+                    {git}
+                  </div>
+                  <div className="px-4 py-3 text-on-surface-variant">
+                    {gitslice}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
+      <Card as="section" level="base" padding="lg">
+        <h2 className="text-xl font-semibold">
           Familiar workflow, native submit
         </h2>
         <CommandBlock>{`gs auth login
@@ -425,26 +442,21 @@ gs init <account>:<slice>
 gs status
 gs create --message "change title"
 gs submit`}</CommandBlock>
-        <p className="mt-3 text-sm leading-6 text-slate-600">
+        <p className="mt-4 text-sm leading-6 text-on-surface-variant">
           The important shift: you do not need to create a local commit before
           review. A changeset is the review unit, and submit creates the accepted
           native snapshot.
         </p>
-      </section>
+      </Card>
 
-      <section className="mt-8 grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-2">
         {gitQuestions.map((item) => (
-          <article
-            className="rounded-md border border-slate-200 bg-white p-5"
-            key={item.question}
-          >
-            <h2 className="text-base font-semibold text-zinc-950">
-              {item.question}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+          <Card as="article" key={item.question} level="low" padding="lg">
+            <h2 className="text-xl font-semibold">{item.question}</h2>
+            <p className="mt-3 text-sm leading-6 text-on-surface-variant">
               {item.answer}
             </p>
-          </article>
+          </Card>
         ))}
       </section>
     </div>
@@ -453,90 +465,72 @@ gs submit`}</CommandBlock>
 
 function CliReferenceDoc() {
   return (
-    <div>
+    <div className="space-y-8">
       <PageHeader
         eyebrow="Gitslice docs"
         title="CLI Reference"
         description="A compact lookup for the commands used in normal Gitslice work. Use Start Here for the walkthrough."
       />
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
-          Install the gs CLI
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          The CLI is a single Go binary named{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-            gs
-          </code>
-          . Installing it requires Go 1.24 or newer.
+      <Card as="section" level="low" padding="lg">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">Install the gs CLI</h2>
+          <Badge size="md" variant="tertiary">
+            Setup
+          </Badge>
+        </div>
+        <p className="mt-3 text-sm leading-6 text-on-surface-variant">
+          The CLI is a single Go binary named <InlineCode>gs</InlineCode>.
+          Installing it requires Go 1.24 or newer.
         </p>
 
-        <h3 className="mt-5 text-sm font-semibold text-zinc-950">
-          Option A — go install (quickest)
+        <h3 className="mt-6 text-base font-semibold">
+          Option A - go install (quickest)
         </h3>
         <CommandBlock>{`go install github.com/gitslice-io/gitslice/cmd/gs@latest`}</CommandBlock>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          Make sure your Go bin directory is on{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-            PATH
-          </code>
-          :
+        <p className="mt-3 text-sm leading-6 text-on-surface-variant">
+          Make sure your Go bin directory is on <InlineCode>PATH</InlineCode>:
         </p>
         <CommandBlock>{`export PATH="$PATH:$(go env GOPATH)/bin"`}</CommandBlock>
 
-        <h3 className="mt-5 text-sm font-semibold text-zinc-950">
-          Option B — build from source
+        <h3 className="mt-6 text-base font-semibold">
+          Option B - build from source
         </h3>
         <CommandBlock>{`git clone https://github.com/gitslice-io/gitslice.git
 cd gitslice
 make install   # builds gs (and gitslice-server) into your Go bin`}</CommandBlock>
 
-        <h3 className="mt-5 text-sm font-semibold text-zinc-950">Verify</h3>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-            gs
-          </code>{" "}
-          defaults to the hosted endpoint, so you can sign in right away. Point
-          at a different server with{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-            --server
-          </code>{" "}
-          or{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-            GS_SERVER_ADDR
-          </code>
-          .
+        <h3 className="mt-6 text-base font-semibold">Verify</h3>
+        <p className="mt-3 text-sm leading-6 text-on-surface-variant">
+          <InlineCode>gs</InlineCode> defaults to the hosted endpoint, so you
+          can sign in right away. Point at a different server with{" "}
+          <InlineCode>--server</InlineCode> or{" "}
+          <InlineCode>GS_SERVER_ADDR</InlineCode>.
         </p>
         <CommandBlock>{`gs version
 gs auth login
 gs auth status`}</CommandBlock>
-      </section>
+      </Card>
 
-      <section className="mt-8 grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-2">
         {commandGroups.map((group) => (
-          <article
-            className="rounded-md border border-slate-200 bg-white p-5"
-            key={group.title}
-          >
-            <h2 className="text-base font-semibold text-zinc-950">
-              {group.title}
-            </h2>
-            <dl className="mt-4 space-y-3">
+          <Card as="article" key={group.title} level="low" padding="lg">
+            <h2 className="text-xl font-semibold">{group.title}</h2>
+            <dl className="mt-4 space-y-4">
               {group.commands.map(([command, description]) => (
                 <div key={command}>
                   <dt>
-                    <code className="rounded-md bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700">
+                    <code className="rounded-sm bg-surface-container-high px-2 py-1 font-mono text-xs text-on-surface">
                       {command}
                     </code>
                   </dt>
-                  <dd className="mt-1 text-sm leading-6 text-slate-600">
+                  <dd className="mt-2 text-sm leading-6 text-on-surface-variant">
                     {description}
                   </dd>
                 </div>
               ))}
             </dl>
-          </article>
+          </Card>
         ))}
       </section>
     </div>
@@ -554,11 +548,22 @@ function NextDocCard({
 }) {
   return (
     <Link
-      className="rounded-md border border-slate-200 bg-white p-5 transition hover:bg-slate-50 active:scale-[0.98]"
+      className="group block rounded-sm bg-surface-container-low p-5 text-on-surface transition duration-200 ease-out hover:bg-surface-container-high active:translate-y-px"
       to={docPath(section)}
     >
-      <h2 className="text-base font-semibold text-zinc-950">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+      <h2 className="text-xl font-semibold">{title}</h2>
+      <p className="mt-3 text-sm leading-6 text-on-surface-variant">
+        {description}
+      </p>
+      <span
+        className={buttonClassName({
+          className: "mt-4 px-0",
+          size: "sm",
+          variant: "tertiary"
+        })}
+      >
+        Open section
+      </span>
     </Link>
   );
 }
