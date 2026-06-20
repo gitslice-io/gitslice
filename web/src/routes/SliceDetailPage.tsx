@@ -90,6 +90,13 @@ export function SliceDetailPage() {
   const [mobileFilesOpen, setMobileFilesOpen] = useState(false);
   const canEdit = Boolean(isLoaded && isSignedIn && account);
 
+  // The history drawer is scoped to the viewed path, so close it whenever the
+  // path changes (e.g. navigating back/forward); otherwise on mobile the
+  // full-screen drawer lingers open over the previous page.
+  useEffect(() => {
+    setHistoryOpen(false);
+  }, [selectedPath]);
+
   const sliceQuery = useQuery({
     enabled: Boolean(isLoaded && routeSliceRef),
     queryKey: ["sliceRef", routeAccount, routeSlice],
@@ -242,12 +249,11 @@ export function SliceDetailPage() {
     );
   }
 
-  // Stabilize identity so the `?? []` fallback doesn't yield a fresh array each
-  // render and drive the file-tree expansion effects into a re-render loop.
-  const includedPaths = useMemo(
-    () => slice.definition?.includedPaths ?? [],
-    [slice.definition?.includedPaths]
-  );
+  // Note: this sits after an early return, so it must not be a hook. The
+  // file-tree expansion effects are made idempotent (and routeSliceRef is
+  // memoized) to avoid a render loop even though this array identity is not
+  // stable across renders.
+  const includedPaths = slice.definition?.includedPaths ?? [];
   const gitCloneHint = buildGitCloneHint(slice.ref?.account, slice.ref?.slice);
   const currentEntries = directoryQuery.data ?? [];
   // The directory new file/folder controls create under the current folder. At
