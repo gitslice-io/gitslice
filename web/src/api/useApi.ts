@@ -2,7 +2,6 @@ import { useAuth } from "@clerk/clerk-react";
 import { useCallback, useMemo } from "react";
 
 import { callRpc, defaultApiBaseUrl, type RpcService } from "./client";
-import { getMintedToken } from "../auth/token";
 import type {
   AbandonChangesetRequest,
   ApproveChangesetRequest,
@@ -139,12 +138,7 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
       method: string,
       request: TRequest
     ) => {
-      const mintedToken = getMintedToken();
-      const token = mintedToken
-        ? mintedToken
-        : isLoaded && isSignedIn
-          ? await getToken()
-          : null;
+      const token = isLoaded && isSignedIn ? await getToken() : null;
       return callRpc<TRequest, TResponse>(
         service,
         method,
