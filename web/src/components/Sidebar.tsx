@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import { cn } from "../lib/cn";
+import { Surface } from "./ui";
 
 const navItems = [
   { label: "Home", to: "/" },
@@ -10,8 +11,12 @@ const navItems = [
 
 export function Sidebar() {
   return (
-    <aside className="flex border-b border-slate-200 bg-zinc-950 text-white md:min-h-[100dvh] md:w-60 md:flex-col md:border-b-0 md:border-r md:border-zinc-800">
-      <div className="flex h-16 items-center px-4 text-sm font-semibold md:px-6">
+    <Surface
+      as="aside"
+      className="flex rounded-none text-on-surface md:min-h-[100dvh] md:w-60 md:flex-col"
+      level="dim"
+    >
+      <div className="flex h-16 items-center px-4 font-serif text-base font-semibold text-on-surface md:px-6">
         Gitslice
       </div>
       <nav
@@ -22,8 +27,8 @@ export function Sidebar() {
           <Link
             activeProps={{ "aria-current": "page" }}
             className={cn(
-              "block rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white",
-              "aria-[current=page]:bg-white aria-[current=page]:text-zinc-950"
+              "block rounded-sm px-3 py-2 font-label text-sm font-semibold text-on-surface-variant transition hover:bg-surface-container hover:text-primary",
+              "aria-[current=page]:bg-primary/10 aria-[current=page]:text-primary"
             )}
             key={item.label}
             to={item.to}
@@ -32,6 +37,6 @@ export function Sidebar() {
           </Link>
         ))}
       </nav>
-    </aside>
+    </Surface>
   );
 }
