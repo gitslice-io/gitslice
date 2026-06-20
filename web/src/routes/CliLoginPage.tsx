@@ -6,7 +6,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../api/useApi";
 import { CLI_LOGIN_SEARCH_STORAGE_KEY } from "../auth/cliLogin";
 import { AuthFrame } from "../components/AuthFrame";
-import { Badge, Card } from "../components/ui";
 
 export function CliLoginPage() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -96,7 +95,7 @@ export function CliLoginPage() {
   if (!isLoaded) {
     return (
       <AuthFrame title="Authorizing CLI">
-        <p>Loading session...</p>
+        <p className="text-sm text-slate-600">Loading session...</p>
       </AuthFrame>
     );
   }
@@ -111,33 +110,15 @@ export function CliLoginPage() {
   return (
     <AuthFrame title={title}>
       {completeSucceeded ? (
-        <div className="space-y-3">
-          <Badge variant="primary">CLI authorized</Badge>
-          <p>Authorization complete. Return to your terminal.</p>
-        </div>
+        <p className="text-sm text-slate-600">
+          Authorization complete — return to your terminal.
+        </p>
       ) : error ? (
-        <Card
-          as="div"
-          className="bg-rose-50 text-sm font-semibold leading-6 text-rose-900"
-          level="high"
-          padding="sm"
-        >
-          {error}
-        </Card>
+        <p className="text-sm text-red-700">{error}</p>
       ) : !code && !callbackUrl ? (
-        <Card
-          as="div"
-          className="bg-rose-50 text-sm font-semibold leading-6 text-rose-900"
-          level="high"
-          padding="sm"
-        >
-          Missing code query parameter.
-        </Card>
+        <p className="text-sm text-red-700">Missing code query parameter.</p>
       ) : (
-        <div className="space-y-3">
-          <Badge>Pending</Badge>
-          <p>Authorizing CLI...</p>
-        </div>
+        <p className="text-sm text-slate-600">Authorizing CLI...</p>
       )}
     </AuthFrame>
   );

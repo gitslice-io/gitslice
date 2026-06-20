@@ -2,27 +2,21 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, type FormEvent } from "react";
 
-import type { ChangesetStack } from "../api/types";
+import type { ChangesetStack, SliceRef } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import {
-  Button,
-  Card,
-  Input,
-  PageHeader,
-  buttonClassName,
-  surfaceClassName
-} from "../components/ui";
+  SliceLoadingBlock,
+  SliceNotice,
+  SlicePageHeader
+} from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
 import {
   formatCommit,
   formatTimestamp,
   getErrorMessage,
-  nativeControlClassName,
   parseSliceSearch,
   secondaryButtonClass,
-  StackLoadingBlock,
-  StackNotice,
   shortStackId,
   sliceRefLabel,
   stackDisplayName,
@@ -72,10 +66,10 @@ export function StacksPage() {
           ]}
         />
       </div>
-      <PageHeader
+      <SlicePageHeader
         actions={
           <Link
-            className={buttonClassName({ variant: "primary" })}
+            className={secondaryButtonClass}
             search={sliceLabel ? ({ slice: sliceLabel } as never) : undefined}
             to="/dependencies/new"
           >
@@ -88,30 +82,26 @@ export function StacksPage() {
             : "Open a dependency tree by id, or choose a slice scope to list active dependent changesets."
         }
         eyebrow="Dependencies"
-        title={
-          <span className="font-serif">
-            {sliceLabel ? `${sliceLabel} · Dependencies` : "Dependencies"}
-          </span>
-        }
+        title={sliceLabel ? `${sliceLabel} · Dependencies` : "Dependencies"}
       />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0">
           {!sliceRef ? (
-            <StackNotice title="Choose a slice to list dependencies">
+            <SliceNotice title="Choose a slice to list dependencies">
               Dependency lists are slice-scoped. Use the lookup panel to open a
               known dependency tree directly, or enter an account and slice.
-            </StackNotice>
+            </SliceNotice>
           ) : stacksQuery.isLoading ? (
-            <StackLoadingBlock />
+            <SliceLoadingBlock />
           ) : stacksQuery.isError ? (
-            <StackNotice title="Could not load dependencies" tone="error">
+            <SliceNotice title="Could not load dependencies" tone="error">
               {getErrorMessage(stacksQuery.error)}
-            </StackNotice>
+            </SliceNotice>
           ) : stacks.length === 0 ? (
-            <StackNotice title="No dependent changesets for this slice yet">
+            <SliceNotice title="No dependent changesets for this slice yet">
               Changesets with base changesets will appear here.
-            </StackNotice>
+            </SliceNotice>
           ) : (
             <StacksTable stacks={stacks} />
           )}
@@ -147,10 +137,10 @@ export function StacksPage() {
 
 function StacksTable({ stacks }: { stacks: ChangesetStack[] }) {
   return (
-    <Card level="low" padding="none">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="bg-surface-container-high font-label text-xs font-semibold uppercase tracking-normal text-on-surface-variant">
+        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+          <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
             <tr>
               <th className="px-3 py-3 sm:px-4">Dependency tree</th>
               <th className="hidden px-4 py-3 sm:table-cell">Status</th>
@@ -160,22 +150,19 @@ function StacksTable({ stacks }: { stacks: ChangesetStack[] }) {
               <th className="px-3 py-3 text-right sm:px-4">Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-200">
             {stacks.map((stack) => (
-              <tr
-                className="align-top transition odd:bg-surface-container-lowest even:bg-surface-container-low hover:bg-surface-container-high"
-                key={stack.id}
-              >
+              <tr className="align-top transition hover:bg-slate-50" key={stack.id}>
                 <td className="max-w-[15rem] px-3 py-4 sm:max-w-none sm:px-4">
                   <Link
                     className="group min-w-0"
                     params={{ id: stack.id || "" }}
                     to="/dependencies/$id"
                   >
-                    <span className="block break-words font-semibold text-on-surface underline decoration-tertiary/30 underline-offset-4 group-hover:text-primary group-hover:decoration-primary">
+                    <span className="block break-words font-semibold text-zinc-950 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
                       {stackDisplayName(stack)}
                     </span>
-                    <span className="mt-1 block break-all font-mono text-xs text-on-surface-muted">
+                    <span className="mt-1 block break-all font-mono text-xs text-slate-500">
                       {shortStackId(stack.id) || stack.id}
                     </span>
                   </Link>
@@ -183,32 +170,29 @@ function StacksTable({ stacks }: { stacks: ChangesetStack[] }) {
                 <td className="hidden px-4 py-4 sm:table-cell">
                   <StackStatusBadge status={stack.status} />
                 </td>
-                <td className="hidden px-4 py-4 text-on-surface-variant md:table-cell">
+                <td className="hidden px-4 py-4 text-slate-700 md:table-cell">
                   {stack.entries?.length ?? 0}
                 </td>
                 <td
-                  className="hidden px-4 py-4 font-mono text-xs text-on-surface-variant lg:table-cell"
+                  className="hidden px-4 py-4 font-mono text-xs text-slate-600 lg:table-cell"
                   title={stack.baseCommitId}
                 >
                   {formatCommit(stack.baseCommitId)}
                 </td>
-                <td className="hidden px-4 py-4 text-on-surface-variant lg:table-cell">
+                <td className="hidden px-4 py-4 text-slate-700 lg:table-cell">
                   {formatTimestamp(stack.updatedAt)}
                 </td>
                 <td className="px-3 py-4 sm:px-4">
                   <div className="flex flex-wrap justify-end gap-2">
                     <Link
-                      className={cn(secondaryButtonClass, "h-8 px-3 text-xs")}
+                      className={cn(secondaryButtonClass, "px-3 py-2")}
                       params={{ id: stack.id || "" }}
                       to="/dependencies/$id/update"
                     >
                       Update
                     </Link>
                     <Link
-                      className={buttonClassName({
-                        className: "h-8 px-3 text-xs",
-                        variant: "primary"
-                      })}
+                      className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px"
                       params={{ id: stack.id || "" }}
                       to="/dependencies/$id/submit"
                     >
@@ -221,7 +205,7 @@ function StacksTable({ stacks }: { stacks: ChangesetStack[] }) {
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -251,21 +235,22 @@ function StackScopeForm({
 
   return (
     <form
-      className={cn(surfaceClassName({ level: "low" }), "p-5")}
+      className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
       onSubmit={submit}
     >
-      <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="grid gap-2 text-sm font-medium text-zinc-800">
         Slice scope
-        <Input
+        <input
+          className={inputClass}
           onChange={(event) => setSlice(event.target.value)}
           placeholder="acme:payment"
           value={slice}
         />
       </label>
-      <label className="mt-4 grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="mt-4 grid gap-2 text-sm font-medium text-zinc-800">
         Status
         <select
-          className={nativeControlClassName}
+          className={inputClass}
           onChange={(event) => setStatus(event.target.value)}
           value={status}
         >
@@ -276,9 +261,9 @@ function StackScopeForm({
         </select>
       </label>
       {error ? <p className="mt-2 text-sm text-rose-700">{error}</p> : null}
-      <Button className="mt-5 w-full" type="submit" variant="secondary">
+      <button className="mt-5 w-full rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px" type="submit">
         List dependencies
-      </Button>
+      </button>
     </form>
   );
 }
@@ -300,21 +285,22 @@ function OpenStackForm({ onOpen }: { onOpen(id: string): void }) {
 
   return (
     <form
-      className={cn(surfaceClassName({ level: "low" }), "p-5")}
+      className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
       onSubmit={submit}
     >
-      <label className="grid gap-2 font-label text-sm font-semibold text-on-surface">
+      <label className="grid gap-2 text-sm font-medium text-zinc-800">
         Open dependency tree
-        <Input
+        <input
+          className={inputClass}
           onChange={(event) => setStackId(event.target.value)}
           placeholder="stk_..."
           value={stackId}
         />
       </label>
       {error ? <p className="mt-2 text-sm text-rose-700">{error}</p> : null}
-      <Button className="mt-5 w-full" type="submit" variant="secondary">
+      <button className="mt-5 w-full rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px" type="submit">
         Open
-      </Button>
+      </button>
     </form>
   );
 }
@@ -333,3 +319,6 @@ function sortStacks(stacks: ChangesetStack[]) {
     return (right.id || "").localeCompare(left.id || "");
   });
 }
+
+const inputClass =
+  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200";

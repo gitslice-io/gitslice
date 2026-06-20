@@ -8,7 +8,7 @@ import { TopBar } from "./TopBar";
 // (clicks needing two presses to take effect).
 export function AppShell() {
   return (
-    <div className="min-h-[100dvh] bg-surface text-on-surface">
+    <div className="min-h-[100dvh] bg-slate-50 text-zinc-900">
       <TopBar />
       <main className="px-4 py-6 md:px-8 md:py-8">
         <Outlet />

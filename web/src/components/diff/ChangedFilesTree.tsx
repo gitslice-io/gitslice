@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 
 import { cn } from "../../lib/cn";
-import { Card, Surface } from "../ui";
 import { FileTypeIcon } from "../source/FileTypeIcon";
 import type { DiffFile, FileChangeKind } from "./parseDiff";
 
@@ -60,17 +59,17 @@ export function ChangedFilesTree({
 
   if (files.length === 0) {
     return (
-      <Surface className="px-3 py-4 text-sm text-on-surface-muted" level="high">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
         No changed files.
-      </Surface>
+      </div>
     );
   }
 
   return (
-    <Card level="low" padding="none">
-      <Surface className="px-3 py-2 font-label text-xs font-semibold uppercase text-tertiary" level="high">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
         Files
-      </Surface>
+      </div>
       <div
         className={cn(
           "max-h-[68dvh] overflow-auto py-1 font-mono text-xs lg:max-h-[calc(100dvh-15rem)]",
@@ -89,7 +88,7 @@ export function ChangedFilesTree({
           />
         ))}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -127,7 +126,7 @@ function TreeNodeRow({
     <div>
       <button
         aria-expanded={!isCollapsed}
-        className="flex w-full items-center gap-1 px-2 py-1 text-left text-on-surface-variant transition hover:bg-surface-container hover:text-on-surface"
+        className="flex w-full items-center gap-1 px-2 py-1 text-left text-slate-600 transition hover:bg-slate-50 hover:text-zinc-950"
         onClick={() => onToggleDirectory(collapsed.path)}
         style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
         type="button"
@@ -179,8 +178,8 @@ function FileRow({
       className={cn(
         "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1 text-left transition",
         active
-          ? "bg-primary text-white"
-          : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
+          ? "bg-slate-900 text-white"
+          : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
       )}
       onClick={() => onSelect(file.id)}
       style={{ paddingLeft: `${depth * 0.75 + 1.25}rem` }}
@@ -201,7 +200,7 @@ function FileRow({
       <span
         className={cn(
           "flex shrink-0 gap-1 text-[11px]",
-          active ? "text-white/80" : "text-on-surface-muted"
+          active ? "text-slate-200" : "text-slate-500"
         )}
       >
         <span className={active ? "text-emerald-200" : "text-emerald-700"}>
@@ -315,8 +314,8 @@ function statusGlyphClass(kind: FileChangeKind) {
     case "deleted":
       return "bg-rose-100 text-rose-800";
     case "renamed":
-      return "bg-primary/10 text-primary";
+      return "bg-violet-100 text-violet-800";
     case "modified":
-      return "bg-tertiary-container text-tertiary";
+      return "bg-amber-100 text-amber-900";
   }
 }

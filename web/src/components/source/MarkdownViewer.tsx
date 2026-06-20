@@ -55,7 +55,7 @@ export function MarkdownViewer({ source }: { source: string }): JSX.Element {
     return (
       <div className="p-4">
         <div
-          className="prose prose-sm max-w-none prose-headings:font-serif prose-headings:text-on-surface prose-p:text-on-surface-variant prose-a:text-primary prose-a:underline prose-code:text-on-surface prose-code:before:content-none prose-code:after:content-none prose-pre:bg-surface-container prose-pre:text-on-surface"
+          className="prose prose-slate prose-sm max-w-none prose-a:text-sky-700 prose-a:underline prose-code:text-zinc-900 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:text-zinc-900"
           dangerouslySetInnerHTML={{ __html: rendered.html }}
         />
       </div>
@@ -65,11 +65,11 @@ export function MarkdownViewer({ source }: { source: string }): JSX.Element {
   return (
     <div>
       {rendered.error ? (
-        <div className="bg-tertiary-container px-4 py-3 text-xs text-tertiary">
+        <div className="border-b border-slate-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
           Markdown preview unavailable. Showing raw source.
         </div>
       ) : null}
-      <pre className="min-w-max overflow-visible bg-surface-container-lowest p-4 text-sm leading-6 text-on-surface">
+      <pre className="min-w-max overflow-visible bg-white p-4 text-sm leading-6 text-zinc-900">
         <code>{source}</code>
       </pre>
     </div>
