@@ -66,7 +66,12 @@ export function TopBar() {
               </div>
             </div>
           ) : null}
-          {isLoaded && isSignedIn ? (
+          {!isLoaded ? (
+            <div
+              aria-hidden
+              className="size-7 shrink-0 animate-pulse rounded-full bg-slate-200"
+            />
+          ) : isSignedIn ? (
             <div className="shrink-0">
               <UserButton afterSignOutUrl="/login" />
             </div>
