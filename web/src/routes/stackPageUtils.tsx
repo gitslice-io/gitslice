@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type {
   Changeset,
   ChangesetStack,
@@ -5,17 +7,62 @@ import type {
   Patchset,
   SliceRef
 } from "../api/types";
+import { Badge, Card, buttonClassName, type BadgeVariant } from "../components/ui";
 import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
 
-export const primaryButtonClass =
-  "inline-flex items-center justify-center rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+export const primaryButtonClass = buttonClassName({ variant: "primary" });
 
-export const secondaryButtonClass =
-  "inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+export const secondaryButtonClass = buttonClassName({ variant: "secondary" });
 
-export const dangerButtonClass =
-  "inline-flex items-center justify-center rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+export const dangerButtonClass = buttonClassName({
+  className: "bg-rose-100 text-rose-800 hover:bg-rose-200",
+  variant: "secondary"
+});
+
+export const nativeControlClassName =
+  "h-10 w-full rounded-sm bg-white px-3 text-sm text-on-surface outline-none ring-1 ring-outline-variant/15 transition placeholder:text-on-surface-muted focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-muted";
+
+export const nativeTextareaClassName =
+  "w-full rounded-sm bg-white px-3 py-2 text-sm text-on-surface outline-none ring-1 ring-outline-variant/15 transition placeholder:text-on-surface-muted focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-muted";
+
+export function StackNotice({
+  children,
+  title,
+  tone = "neutral"
+}: {
+  children?: ReactNode;
+  title: string;
+  tone?: "neutral" | "error" | "success";
+}) {
+  return (
+    <Card
+      className={cn(
+        "text-sm",
+        tone === "error" && "bg-rose-100 text-rose-900",
+        tone === "success" && "bg-primary/10 text-primary"
+      )}
+      level={tone === "neutral" ? "low" : "base"}
+      padding="sm"
+    >
+      <p className="font-semibold">{title}</p>
+      {children ? <div className="mt-1 leading-6">{children}</div> : null}
+    </Card>
+  );
+}
+
+export function StackLoadingBlock() {
+  return (
+    <div className="space-y-4">
+      <div className="h-8 w-56 animate-pulse rounded-sm bg-surface-container-highest" />
+      <Card level="low" padding="md">
+        <div className="h-4 w-3/4 animate-pulse rounded-sm bg-surface-container-highest" />
+        <div className="mt-4 h-4 w-1/2 animate-pulse rounded-sm bg-surface-container-highest" />
+        <div className="mt-4 h-4 w-2/3 animate-pulse rounded-sm bg-surface-container-highest" />
+      </Card>
+    </div>
+  );
+}
 
 export function parseSliceSearch(value: unknown): Required<SliceRef> | null {
   if (typeof value !== "string") {
@@ -261,14 +308,9 @@ export function StackStatusBadge({ status }: { status?: string }) {
         : status || "unknown";
 
   return (
-    <span
-      className={cn(
-        "inline-flex rounded-md border px-2 py-1 text-xs font-semibold",
-        statusClass(status)
-      )}
-    >
+    <Badge className={statusClass(status)} variant={statusVariant(status)}>
       {label}
-    </span>
+    </Badge>
   );
 }
 
@@ -292,23 +334,42 @@ export function statusClass(status?: string) {
     case "merged":
     case "closed":
     case "clean":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "bg-primary/10 text-primary";
     case "accepted":
     case "pending_publish":
     case "partial":
     case "needs_restack":
     case "needs_rebase":
-      return "border-amber-200 bg-amber-50 text-amber-900";
+      return "";
     case "blocked":
     case "failed":
     case "abandoned":
     case "conflict":
     case "conflicted":
-      return "border-rose-200 bg-rose-50 text-rose-800";
+      return "bg-rose-100 text-rose-800";
     case "draft":
     case "open":
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "";
     default:
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "";
+  }
+}
+
+function statusVariant(status?: string): BadgeVariant {
+  switch ((status || "").toLowerCase()) {
+    case "submitted":
+    case "published":
+    case "merged":
+    case "closed":
+    case "clean":
+      return "primary";
+    case "accepted":
+    case "pending_publish":
+    case "partial":
+    case "needs_restack":
+    case "needs_rebase":
+      return "tertiary";
+    default:
+      return "neutral";
   }
 }
