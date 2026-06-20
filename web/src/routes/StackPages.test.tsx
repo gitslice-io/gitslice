@@ -221,6 +221,48 @@ describe("dependency route pages", () => {
       })
     );
   });
+
+  it("shows dependent (child) changesets on changeset detail", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = {};
+    const api = makeApi();
+    api.getChangeset = vi.fn().mockResolvedValue(
+      changeset("cs_child", "use parser in payment API", {
+        parentChangesetId: "cs_root",
+        parentPatchsetId: "ps_root_1"
+      })
+    );
+    // cs_grandchild is based on cs_child; the slice's changeset list is how
+    // dependents are resolved.
+    api.listChangesets = vi.fn().mockResolvedValue({
+      changesets: [
+        changeset("cs_child", "use parser in payment API", {
+          parentChangesetId: "cs_root"
+        }),
+        changeset("cs_grandchild", "update tests for API behavior", {
+          parentChangesetId: "cs_child"
+        }),
+        changeset("cs_sibling", "expose parser metrics", {
+          parentChangesetId: "cs_root"
+        })
+      ]
+    });
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    expect(
+      await screen.findByText("use parser in payment API")
+    ).toBeInTheDocument();
+    // Exactly one dependent (cs_grandchild), alongside the base link to cs_root.
+    expect(screen.getByText("Base changeset")).toBeInTheDocument();
+    expect(await screen.findByText("Dependent")).toBeInTheDocument();
+    expect(screen.getAllByText("Dependent")).toHaveLength(1);
+    expect(api.listChangesets).toHaveBeenCalledWith({
+      authoringSlice: { account: "acme", slice: "payment" },
+      limit: 200
+    });
+  });
 });
 
 function renderRoute(element: ReactElement) {
@@ -248,6 +290,7 @@ function makeApi() {
       })
     ),
     getStack: vi.fn().mockResolvedValue(stackFixture()),
+    listChangesets: vi.fn().mockResolvedValue({ changesets: [] }),
     listDirectory: vi.fn().mockResolvedValue({
       entries: [
         {
