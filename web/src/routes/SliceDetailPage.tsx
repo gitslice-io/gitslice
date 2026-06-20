@@ -215,7 +215,13 @@ export function SliceDetailPage() {
     draftChangeset.stageEdit(edit);
   }
 
-  if (sliceQuery.isLoading) {
+  // Show the loading block until the slice query has actually resolved. The
+  // query is disabled until Clerk finishes loading, and a disabled React Query
+  // is `pending` but not `isLoading` (it isn't fetching yet) — so gating on
+  // `isLoading` would fall through to "Slice not found" on first paint and then
+  // flash to the real content once auth loads. `isPending` covers both the
+  // disabled-pre-auth and the actively-fetching states.
+  if (!isLoaded || sliceQuery.isPending) {
     return (
       <section className="mx-auto w-full max-w-[100rem]">
         <SliceLoadingBlock />
