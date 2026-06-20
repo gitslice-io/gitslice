@@ -40,6 +40,36 @@ export function ChangesetDetailPage() {
   });
 
   const changeset = changesetQuery.data;
+  const authoringSlice = changeset?.authoringSlice;
+
+  // Dependent (child) changesets are not carried on the changeset itself.
+  // Resolve them from the slice's changesets (anonymously readable for public
+  // slices, like the base-changeset field) and keep those based on this one.
+  const sliceChangesetsQuery = useQuery({
+    enabled: Boolean(
+      changeset?.id && authoringSlice?.account && authoringSlice?.slice
+    ),
+    queryKey: [
+      "changesetsBySlice",
+      authoringSlice?.account,
+      authoringSlice?.slice
+    ],
+    queryFn: () => api.listChangesets({ authoringSlice, limit: 200 })
+  });
+
+  const dependentChangesets = useMemo(() => {
+    const selfId = changeset?.id;
+    if (!selfId) {
+      return [] as { id: string; title: string }[];
+    }
+    return (sliceChangesetsQuery.data?.changesets ?? [])
+      .filter((candidate) => candidate.parentChangesetId === selfId && candidate.id)
+      .map((candidate) => ({
+        id: candidate.id as string,
+        title: candidate.title ?? ""
+      }));
+  }, [sliceChangesetsQuery.data?.changesets, changeset?.id]);
+
   const canonicalChangesetId = changeset?.id || changesetId;
   const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";
   const patchsets = useMemo(() => sortedPatchsets(changeset), [changeset]);
@@ -191,6 +221,7 @@ export function ChangesetDetailPage() {
         abandonPending={abandonMutation.isPending}
         canUseReviewActions={Boolean(isLoaded && isSignedIn)}
         changeset={changeset}
+        dependentChangesets={dependentChangesets}
         mergePending={mergeMutation.isPending}
         onAbandon={submitAbandon}
         onAbandonReasonChange={setAbandonReason}
@@ -223,6 +254,7 @@ function HeaderCard({
   actionBusy,
   actionError,
   changeset,
+  dependentChangesets,
   canUseReviewActions,
   mergePending,
   onAbandon,
@@ -235,6 +267,7 @@ function HeaderCard({
   actionBusy: boolean;
   actionError: string;
   changeset: Changeset;
+  dependentChangesets: { id: string; title: string }[];
   canUseReviewActions: boolean;
   mergePending: boolean;
   onAbandon(event: FormEvent<HTMLFormElement>): void;
@@ -312,6 +345,24 @@ function HeaderCard({
                   </span>
                 </Link>
               ) : null}
+              {dependentChangesets.map((dependent) => (
+                <Link
+                  className="inline-flex max-w-[12rem] items-center gap-1 truncate rounded border border-slate-200 bg-white px-1.5 py-0.5 font-medium text-slate-600 transition hover:border-slate-300 hover:text-zinc-950 md:max-w-[14rem] md:px-2 md:py-1"
+                  key={dependent.id}
+                  params={{ id: shortChangesetId(dependent.id) || dependent.id }}
+                  title={
+                    dependent.title
+                      ? `Dependent changeset ${dependent.id} — ${dependent.title}`
+                      : `Dependent changeset ${dependent.id}`
+                  }
+                  to="/cs/$id"
+                >
+                  <span className="shrink-0">Dependent</span>
+                  <span className="truncate font-mono">
+                    {shortChangesetId(dependent.id) || dependent.id}
+                  </span>
+                </Link>
+              ))}
               <CopyLinkButton changesetId={changeset.id || ""} />
             </div>
             <ChangesetMetaLine changeset={changeset} />
