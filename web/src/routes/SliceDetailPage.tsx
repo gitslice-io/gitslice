@@ -82,10 +82,16 @@ export function SliceDetailPage() {
   const search = useSearch({ strict: false }) as SliceSearch;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
-  const routeSliceRef =
-    routeAccount && routeSlice
-      ? { account: routeAccount, slice: routeSlice }
-      : undefined;
+  // Memoize so the ref object identity is stable across renders; otherwise it
+  // feeds unstable deps into effects (e.g. the draft-changeset controller) and
+  // drives a render loop while data loads.
+  const routeSliceRef = useMemo(
+    () =>
+      routeAccount && routeSlice
+        ? { account: routeAccount, slice: routeSlice }
+        : undefined,
+    [routeAccount, routeSlice]
+  );
   const selectedPath = pathSearchValue(search.path);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showTree, setShowTree] = useState(true);
