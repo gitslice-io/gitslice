@@ -6328,3 +6328,27 @@ dependency and large-chunk warnings but exits successfully. The real Postgres
 RPC e2e gate was not run locally because `GITSLICE_TEST_DATABASE_URL` is unset
 and there is no `env.local`; the new RPC test will exercise the Postgres path
 when that gate is configured.
+
+## 2026-06-21: BYOA - Collapse Persisted Thinking Trace
+
+Goal: make thinking/reasoning trace output collapsed by default, matching the
+existing tool-call trace treatment.
+
+Decision: keep only assistant `message_delta` events on the live streaming
+bubble path. `reasoning_delta` events now stay in the normal conversation event
+list, where the existing trace grouping renders them inside collapsed
+`<details>` blocks alongside nearby tool activity. The expanded live `Thinking`
+bubble was removed because it was the path causing persisted thinking to stay
+open in the transcript.
+
+Verification:
+```bash
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx
+npm --prefix web test -- src/components/slices/AgentsTab.test.tsx src/components/slices/AgentConversation.test.tsx
+npm --prefix web run build
+```
+
+Results: the focused conversation test passed (6 tests), the adjacent Agents
+page and conversation tests passed (13 tests), and the production web build
+passed. The build still emits the existing Vite/Nitro dependency and
+large-chunk warnings but exits successfully.

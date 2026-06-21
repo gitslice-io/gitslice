@@ -138,7 +138,7 @@ describe("AgentConversation", () => {
     expect(screen.queryByText("Hello wor")).not.toBeInTheDocument();
   });
 
-  it("keeps persisted thinking deltas ordered before later persisted events", async () => {
+  it("collapses persisted thinking deltas with nearby trace events", async () => {
     const api = makeApi([
       {
         id: "evt_user",
@@ -183,12 +183,18 @@ describe("AgentConversation", () => {
       />
     );
 
-    const thinking = await screen.findByText("Thinking");
-    const toolSummary = await screen.findByText("Tool activity (1)");
+    const traceSummary = await screen.findByText("Trace and tools (2)");
+    const traceDetails = traceSummary.closest("details");
     const done = screen.getByText("Done.");
 
-    expectElementBefore(thinking, toolSummary);
-    expectElementBefore(toolSummary, done);
+    expect(traceDetails).not.toHaveAttribute("open");
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expectElementBefore(traceSummary, done);
+
+    fireEvent.click(traceSummary);
+    expect(traceDetails).toHaveAttribute("open");
+    expect(traceDetails).toHaveTextContent("checking the file tree");
+    expect(traceDetails).toHaveTextContent("rg agent");
   });
 
   it("shows a Reconnect button and re-attaches the stream after an error", async () => {

@@ -403,35 +403,18 @@ function ConversationTraceGroup({ events }: { events: ConversationEvent[] }) {
   );
 }
 
-// isLiveDelta detects an ephemeral, in-progress token stream: an agent
-// message/reasoning delta carrying an item id but no persisted seq.
+// isLiveDelta detects an in-progress assistant message stream. Reasoning and
+// tool trace events stay in the normal event list so they render in the
+// collapsed trace groups by default.
 function isLiveDelta(event: ConversationEvent): event is ConversationEvent & {
   itemId: string;
 } {
-  const type = event.type ?? "";
-  return (
-    Boolean(event.itemId) &&
-    (type === "message_delta" || type === "reasoning_delta")
-  );
+  return Boolean(event.itemId) && event.type === "message_delta";
 }
 
-// LiveDeltaBubble renders a token stream still in flight. A message delta looks
-// like a normal agent bubble (with a streaming caret); a reasoning delta shows
-// as a subtle, live "Thinking" block so the chain of thought is visible as it
-// arrives, before collapsing into the trace once finalized.
+// LiveDeltaBubble renders an assistant message token stream still in flight.
 function LiveDeltaBubble({ event }: { event: ConversationEvent }) {
   const text = event.text ?? "";
-  if (event.type === "reasoning_delta") {
-    return (
-      <div className="mr-auto max-w-[min(44rem,92%)] rounded-md border border-slate-200 bg-white/90 px-3 py-2 text-sm shadow-sm shadow-slate-200/60">
-        <div className="mb-1 flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500">
-          <span>Thinking</span>
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400" />
-        </div>
-        <p className="whitespace-pre-wrap break-words text-slate-600">{text}</p>
-      </div>
-    );
-  }
   return (
     <article className="mr-auto max-w-[min(44rem,85%)] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 shadow-sm shadow-slate-200/60">
       <div className="mb-1 flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500">
