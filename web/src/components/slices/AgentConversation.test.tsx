@@ -97,6 +97,47 @@ describe("AgentConversation", () => {
     expect(details).toHaveAttribute("open");
   });
 
+  it("coalesces streamed token deltas and replaces them with the final", async () => {
+    const api = makeApi([
+      {
+        conversationId: "conv_1",
+        role: "agent",
+        type: "message_delta",
+        text: "Hel",
+        itemId: "msg_1"
+      },
+      {
+        conversationId: "conv_1",
+        role: "agent",
+        type: "message_delta",
+        text: "Hello wor",
+        itemId: "msg_1"
+      },
+      {
+        id: "evt_final",
+        conversationId: "conv_1",
+        seq: "4",
+        role: "agent",
+        type: "message",
+        text: "Hello world",
+        itemId: "msg_1"
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    // The persisted final supersedes the in-progress delta: only one bubble
+    // with the final text remains, and the interim text is gone.
+    expect(await screen.findByText("Hello world")).toBeInTheDocument();
+    expect(screen.queryByText("Hello wor")).not.toBeInTheDocument();
+  });
+
   it("shows a Reconnect button and re-attaches the stream after an error", async () => {
     let attempts = 0;
     const api = {

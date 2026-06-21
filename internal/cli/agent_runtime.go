@@ -2,25 +2,32 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 )
 
 // agentRuntimeEvent is one categorized chunk of agent runtime output. Role/Type
 // mirror the AgentEvent/ConversationEvent contract (proto/core/v1/agent.proto):
 // role is "agent" | "system" | "tool"; type is "message" | "reasoning" |
-// "tool_call" | "tool_output" | "status" | "error" | "delta". Data carries the
-// raw structured payload (JSON) when one is available.
+// "tool_call" | "tool_output" | "status" | "error" | "message_delta" |
+// "reasoning_delta". Data carries a raw structured payload (JSON) when one is
+// available. ItemID correlates streamed deltas with their finalized event, and
+// Ephemeral marks a live-only token delta the server relays without persisting.
 type agentRuntimeEvent struct {
-	Role  string
-	Type  string
-	Text  string
-	Data  string
-	Final bool
+	Role      string
+	Type      string
+	Text      string
+	Data      string
+	ItemID    string
+	Ephemeral bool
+	Final     bool
 }
 
 type agentRuntime interface {
@@ -33,126 +40,405 @@ type codexRuntime struct {
 	Binary string
 }
 
+// deltaThrottle bounds how often accumulated token deltas are flushed upstream
+// as ephemeral events, so a fast token stream doesn't overwhelm the relay.
+const deltaThrottle = 60 * time.Millisecond
+
 func (r codexRuntime) Run(ctx context.Context, workdir, prompt string, emit func(agentRuntimeEvent)) error {
 	binary := r.Binary
 	if binary == "" {
 		binary = "codex"
 	}
 
-	// --json makes codex emit structured JSONL thread events on stdout so we can
-	// categorize them (agent messages vs. reasoning vs. tool activity) instead
-	// of forwarding raw transcript text. Human-readable diagnostics still go to
-	// stderr, which we keep separate so they never pollute the JSON stream.
-	//
-	// The reasoning-summary config is required for codex to emit `reasoning`
-	// thread items at all: without it the model still reasons (reported only as
-	// usage token counts) but the JSON stream carries no reasoning items, so the
-	// UI would show tool calls with no accompanying thinking.
-	cmd := exec.CommandContext(ctx, binary, "exec", "--json",
-		"-c", "model_reasoning_summary=detailed",
-		"-c", "model_reasoning_summary_format=experimental",
-		"--dangerously-bypass-approvals-and-sandbox", "--cd", workdir, prompt)
+	// `codex app-server` is a long-lived JSON-RPC server over stdio. Driving it
+	// (rather than `codex exec`) gives token-level streaming: agent message and
+	// reasoning text arrive as deltas we relay live, with finalized items
+	// persisted at the end of each turn.
+	cmd := exec.CommandContext(ctx, binary, "app-server")
 	cmd.Dir = workdir
 
-	stdout, writer := io.Pipe()
-	cmd.Stdout = writer
-
-	stderrReader, stderrWriter := io.Pipe()
-	cmd.Stderr = stderrWriter
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr safeBuffer
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		_ = writer.Close()
-		_ = stdout.Close()
-		_ = stderrWriter.Close()
-		_ = stderrReader.Close()
 		return err
 	}
 
-	// Drain stderr concurrently, keeping the tail to surface on a non-zero exit.
-	stderrCh := make(chan string, 1)
-	go func() {
-		stderrCh <- drainStderr(stderrReader)
-	}()
-
 	waitCh := make(chan error, 1)
-	go func() {
-		err := cmd.Wait()
-		_ = writer.Close()
-		_ = stderrWriter.Close()
-		waitCh <- err
+	go func() { waitCh <- cmd.Wait() }()
+
+	client := newCodexClient(stdin)
+	turn := &codexTurn{emit: emit, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
+	go client.readLoop(stdout, turn)
+
+	// Always tear the server down: close stdin, kill, and reap so we never leak
+	// an app-server process between turns.
+	defer func() {
+		_ = stdin.Close()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		<-waitCh
 	}()
 
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+	stderrErr := func(base error) error {
+		if tail := strings.TrimSpace(stderr.String()); tail != "" {
+			return fmt.Errorf("%w: %s", base, lastLines(tail, 5))
 		}
-		for _, event := range parseCodexLine(line) {
-			emit(event)
-		}
+		return base
 	}
-	scanErr := scanner.Err()
-	waitErr := <-waitCh
-	stderrTail := <-stderrCh
-	_ = stdout.Close()
-	_ = stderrReader.Close()
 
-	if scanErr != nil {
-		return scanErr
+	if _, err := client.call(ctx, "initialize", initializeParams()); err != nil {
+		return stderrErr(fmt.Errorf("codex initialize failed: %w", err))
 	}
-	if waitErr != nil {
+	if err := client.notify("initialized", struct{}{}); err != nil {
+		return stderrErr(fmt.Errorf("codex initialized notify failed: %w", err))
+	}
+
+	threadRaw, err := client.call(ctx, "thread/start", map[string]any{
+		"cwd":            workdir,
+		"sandbox":        "danger-full-access",
+		"approvalPolicy": "never",
+	})
+	if err != nil {
+		return stderrErr(fmt.Errorf("codex thread/start failed: %w", err))
+	}
+	var threadResp struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+	}
+	if err := json.Unmarshal(threadRaw, &threadResp); err != nil || threadResp.Thread.ID == "" {
+		return stderrErr(fmt.Errorf("codex thread/start returned no thread id"))
+	}
+
+	if _, err := client.call(ctx, "turn/start", map[string]any{
+		"threadId": threadResp.Thread.ID,
+		"summary":  "detailed",
+		"input":    []map[string]any{{"type": "text", "text": prompt}},
+	}); err != nil {
+		return stderrErr(fmt.Errorf("codex turn/start failed: %w", err))
+	}
+
+	// Stream until the turn completes, the server stops, or we're cancelled.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-turn.done:
+		return err
+	case <-client.closed:
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if stderrTail != "" {
-			return fmt.Errorf("%w: %s", waitErr, stderrTail)
-		}
-		return waitErr
+		return stderrErr(fmt.Errorf("codex app-server exited before the turn completed"))
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+}
+
+func initializeParams() map[string]any {
+	version := cliVersionInfo().Version
+	if strings.TrimSpace(version) == "" {
+		version = "dev"
+	}
+	return map[string]any{
+		"clientInfo": map[string]any{
+			"name":    "gitslice",
+			"title":   "gitslice agent",
+			"version": version,
+		},
+	}
+}
+
+// ---- JSON-RPC plumbing ----
+
+type jsonrpcMessage struct {
+	ID     json.RawMessage `json:"id,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *jsonrpcError   `json:"error,omitempty"`
+}
+
+type jsonrpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *jsonrpcError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("jsonrpc error %d: %s", e.Code, e.Message)
+}
+
+type codexClient struct {
+	mu     sync.Mutex // serializes writes to stdin
+	stdin  io.Writer
+	nextID int64
+
+	pmu     sync.Mutex
+	pending map[int64]chan jsonrpcMessage
+	closed  chan struct{}
+	once    sync.Once
+}
+
+func newCodexClient(stdin io.Writer) *codexClient {
+	return &codexClient{
+		stdin:   stdin,
+		pending: map[int64]chan jsonrpcMessage{},
+		closed:  make(chan struct{}),
+	}
+}
+
+func (c *codexClient) write(v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, err := c.stdin.Write(append(data, '\n')); err != nil {
+		return err
 	}
 	return nil
 }
 
-// drainStderr reads stderr to completion and returns a trimmed tail of the last
-// few lines, used to enrich the error returned on a non-zero exit.
-func drainStderr(r io.Reader) string {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 16*1024), 1024*1024)
-	var lines []string
+func (c *codexClient) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	c.pmu.Lock()
+	c.nextID++
+	id := c.nextID
+	ch := make(chan jsonrpcMessage, 1)
+	c.pending[id] = ch
+	c.pmu.Unlock()
+	defer func() {
+		c.pmu.Lock()
+		delete(c.pending, id)
+		c.pmu.Unlock()
+	}()
+
+	if err := c.write(map[string]any{"id": id, "method": method, "params": params}); err != nil {
+		return nil, err
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.closed:
+		return nil, io.ErrUnexpectedEOF
+	case msg := <-ch:
+		if msg.Error != nil {
+			return nil, msg.Error
+		}
+		return msg.Result, nil
+	}
+}
+
+func (c *codexClient) notify(method string, params any) error {
+	return c.write(map[string]any{"method": method, "params": params})
+}
+
+func (c *codexClient) reply(id json.RawMessage, result any) error {
+	return c.write(map[string]any{"id": id, "result": result})
+}
+
+// readLoop consumes the app-server's stdout, routing responses to waiters and
+// notifications/requests to the turn handler. It runs until stdout closes.
+func (c *codexClient) readLoop(stdout io.Reader, turn *codexTurn) {
+	defer c.once.Do(func() { close(c.closed) })
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			lines = append(lines, line)
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var msg jsonrpcMessage
+		if err := json.Unmarshal(line, &msg); err != nil {
+			continue
+		}
+		switch {
+		case msg.Method != "" && len(msg.ID) > 0:
+			// Server -> client request. We run with approvalPolicy "never", so
+			// approvals shouldn't arrive; reply best-effort to avoid stalling.
+			c.handleServerRequest(msg)
+		case msg.Method != "":
+			turn.handleNotification(msg.Method, msg.Params)
+		case len(msg.ID) > 0:
+			c.deliver(msg)
 		}
 	}
-	const maxTail = 5
-	if len(lines) > maxTail {
-		lines = lines[len(lines)-maxTail:]
+}
+
+func (c *codexClient) deliver(msg jsonrpcMessage) {
+	var id int64
+	if err := json.Unmarshal(msg.ID, &id); err != nil {
+		return
 	}
-	return strings.Join(lines, "\n")
+	c.pmu.Lock()
+	ch := c.pending[id]
+	c.pmu.Unlock()
+	if ch != nil {
+		ch <- msg
+	}
 }
 
-// codexEnvelope is the outer JSONL frame emitted by `codex exec --json`.
-type codexEnvelope struct {
-	Type    string          `json:"type"`
-	Item    json.RawMessage `json:"item"`
-	Message string          `json:"message"`
-	Error   string          `json:"error"`
+func (c *codexClient) handleServerRequest(msg jsonrpcMessage) {
+	switch msg.Method {
+	case "item/commandExecution/requestApproval",
+		"item/fileChange/requestApproval",
+		"item/permissions/requestApproval",
+		"applyPatchApproval",
+		"execCommandApproval":
+		_ = c.reply(msg.ID, map[string]any{"decision": "approved"})
+	default:
+		_ = c.reply(msg.ID, map[string]any{})
+	}
 }
 
-// codexItem covers the union of fields across codex thread item types. Only the
-// fields relevant to a given item.type are populated; the rest stay zero.
+// ---- Turn streaming ----
+
+type codexTurn struct {
+	emit  func(agentRuntimeEvent)
+	accum map[string]*deltaAccum // itemId -> accumulated delta text (reader goroutine only)
+	done  chan error
+	once  sync.Once
+}
+
+type deltaAccum struct {
+	typ       string // "message_delta" | "reasoning_delta"
+	buf       strings.Builder
+	lastFlush time.Time
+}
+
+func (t *codexTurn) finish(err error) {
+	t.once.Do(func() { t.done <- err })
+}
+
+func (t *codexTurn) handleNotification(method string, params json.RawMessage) {
+	switch method {
+	case "item/agentMessage/delta":
+		t.accumulate(params, "message_delta")
+	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta":
+		t.accumulate(params, "reasoning_delta")
+	case "item/completed":
+		t.handleItemCompleted(params)
+	case "turn/completed":
+		t.finish(nil)
+	case "error":
+		t.handleError(params)
+	}
+}
+
+func (t *codexTurn) accumulate(params json.RawMessage, typ string) {
+	var p struct {
+		Delta  string `json:"delta"`
+		ItemID string `json:"itemId"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil || p.ItemID == "" {
+		return
+	}
+	st := t.accum[p.ItemID]
+	if st == nil {
+		st = &deltaAccum{typ: typ}
+		t.accum[p.ItemID] = st
+	}
+	st.buf.WriteString(p.Delta)
+
+	now := time.Now()
+	if now.Sub(st.lastFlush) < deltaThrottle {
+		return
+	}
+	st.lastFlush = now
+	t.emit(agentRuntimeEvent{
+		Role:      "agent",
+		Type:      typ,
+		Text:      st.buf.String(),
+		ItemID:    p.ItemID,
+		Ephemeral: true,
+	})
+}
+
+func (t *codexTurn) handleItemCompleted(params json.RawMessage) {
+	var p struct {
+		Item json.RawMessage `json:"item"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil || len(p.Item) == 0 {
+		return
+	}
+	var item codexItem
+	if err := json.Unmarshal(p.Item, &item); err != nil {
+		return
+	}
+	delete(t.accum, item.ID)
+	data := string(p.Item)
+
+	switch item.Type {
+	case "userMessage":
+		// Echo of the user's own input; already persisted by the server.
+		return
+	case "agentMessage":
+		text := strings.TrimSpace(item.Text)
+		if text == "" {
+			return
+		}
+		t.emit(agentRuntimeEvent{Role: "agent", Type: "message", Text: text, ItemID: item.ID})
+	case "reasoning":
+		text := strings.TrimSpace(item.Text)
+		if text == "" {
+			return
+		}
+		t.emit(agentRuntimeEvent{Role: "agent", Type: "reasoning", Text: text, Data: data, ItemID: item.ID})
+	case "commandExecution", "fileChange", "patchApply", "mcpToolCall", "webSearch", "todoList":
+		t.emit(agentRuntimeEvent{Role: "tool", Type: "tool_call", Text: codexItemLabel(item), Data: data, ItemID: item.ID})
+	default:
+		// Unknown item type: surface its payload so nothing is silently dropped.
+		t.emit(agentRuntimeEvent{Role: "agent", Type: "delta", Text: codexItemLabel(item), Data: data, ItemID: item.ID})
+	}
+}
+
+func (t *codexTurn) handleError(params json.RawMessage) {
+	var p struct {
+		Error json.RawMessage `json:"error"`
+	}
+	_ = json.Unmarshal(params, &p)
+	msg := errorMessage(p.Error)
+	t.emit(agentRuntimeEvent{Role: "system", Type: "error", Text: msg, Data: string(p.Error)})
+	t.finish(fmt.Errorf("codex turn error: %s", msg))
+}
+
+func errorMessage(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return "agent runtime reported an error"
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil && strings.TrimSpace(s) != "" {
+		return s
+	}
+	var obj struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &obj); err == nil && strings.TrimSpace(obj.Message) != "" {
+		return obj.Message
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// codexItem covers the union of fields across app-server thread item types
+// (camelCase). Only the fields relevant to a given item.type are populated.
 type codexItem struct {
 	ID               string `json:"id"`
 	Type             string `json:"type"`
 	Text             string `json:"text"`
 	Command          string `json:"command"`
-	AggregatedOutput string `json:"aggregated_output"`
-	ExitCode         *int   `json:"exit_code"`
+	AggregatedOutput string `json:"aggregatedOutput"`
+	ExitCode         *int   `json:"exitCode"`
 	Status           string `json:"status"`
 	Server           string `json:"server"`
 	Tool             string `json:"tool"`
@@ -163,77 +449,12 @@ type codexItem struct {
 	} `json:"changes"`
 }
 
-// parseCodexLine converts one JSONL event line into zero or more categorized
-// runtime events. Non-JSON lines are forwarded as opaque deltas so nothing is
-// silently dropped if codex changes its output.
-func parseCodexLine(line string) []agentRuntimeEvent {
-	var env codexEnvelope
-	if err := json.Unmarshal([]byte(line), &env); err != nil || env.Type == "" {
-		return []agentRuntimeEvent{{Role: "agent", Type: "delta", Text: line}}
-	}
-
-	switch env.Type {
-	case "item.completed":
-		if event, ok := codexItemEvent(env.Item); ok {
-			return []agentRuntimeEvent{event}
-		}
-		return nil
-	case "error", "turn.failed":
-		text := strings.TrimSpace(env.Message)
-		if text == "" {
-			text = strings.TrimSpace(env.Error)
-		}
-		if text == "" {
-			text = "agent runtime reported an error"
-		}
-		return []agentRuntimeEvent{{Role: "system", Type: "error", Text: text, Data: line}}
-	default:
-		// thread.started, turn.started, item.started, item.updated,
-		// turn.completed, and any future envelope types carry no user-facing
-		// content of their own.
-		return nil
-	}
-}
-
-// codexItemEvent maps a completed thread item to a categorized runtime event.
-func codexItemEvent(raw json.RawMessage) (agentRuntimeEvent, bool) {
-	if len(raw) == 0 {
-		return agentRuntimeEvent{}, false
-	}
-	var item codexItem
-	if err := json.Unmarshal(raw, &item); err != nil {
-		return agentRuntimeEvent{Role: "agent", Type: "delta", Data: string(raw)}, true
-	}
-	data := string(raw)
-
-	switch item.Type {
-	case "agent_message":
-		text := strings.TrimSpace(item.Text)
-		if text == "" {
-			return agentRuntimeEvent{}, false
-		}
-		return agentRuntimeEvent{Role: "agent", Type: "message", Text: text}, true
-	case "reasoning":
-		text := strings.TrimSpace(item.Text)
-		if text == "" {
-			return agentRuntimeEvent{}, false
-		}
-		return agentRuntimeEvent{Role: "agent", Type: "reasoning", Text: text, Data: data}, true
-	case "command_execution":
-		return agentRuntimeEvent{Role: "tool", Type: "tool_call", Text: codexItemLabel(item), Data: data}, true
-	case "file_change", "patch_apply", "mcp_tool_call", "web_search", "todo_list":
-		return agentRuntimeEvent{Role: "tool", Type: "tool_call", Text: codexItemLabel(item), Data: data}, true
-	default:
-		return agentRuntimeEvent{Role: "agent", Type: "delta", Text: codexItemLabel(item), Data: data}, true
-	}
-}
-
 // codexItemLabel builds a short, human-readable label for a tool/trace item.
 func codexItemLabel(item codexItem) string {
 	switch item.Type {
-	case "command_execution":
+	case "commandExecution":
 		return strings.TrimSpace(item.Command)
-	case "file_change", "patch_apply":
+	case "fileChange", "patchApply":
 		paths := make([]string, 0, len(item.Changes))
 		for _, change := range item.Changes {
 			if strings.TrimSpace(change.Path) != "" {
@@ -244,7 +465,7 @@ func codexItemLabel(item codexItem) string {
 			return "edit " + strings.Join(paths, ", ")
 		}
 		return "file change"
-	case "mcp_tool_call":
+	case "mcpToolCall":
 		name := strings.TrimSpace(item.Tool)
 		if item.Server != "" {
 			name = strings.TrimSpace(item.Server) + "." + name
@@ -253,12 +474,12 @@ func codexItemLabel(item codexItem) string {
 			return name
 		}
 		return "tool call"
-	case "web_search":
+	case "webSearch":
 		if q := strings.TrimSpace(item.Query); q != "" {
 			return "search: " + q
 		}
 		return "web search"
-	case "todo_list":
+	case "todoList":
 		return "todo list"
 	default:
 		if text := strings.TrimSpace(item.Text); text != "" {
@@ -266,4 +487,30 @@ func codexItemLabel(item codexItem) string {
 		}
 		return strings.TrimSpace(item.Type)
 	}
+}
+
+// safeBuffer is a goroutine-safe bytes.Buffer for collecting stderr.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *safeBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }

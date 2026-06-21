@@ -58,10 +58,14 @@ message ConversationEvent {
   string conversation_id = 2;
   int64 seq = 3;
   string role = 4; // "user" | "agent" | "system"
-  string type = 5; // "message" | "tool_call" | "tool_output" | "status" | "error" | "delta"
+  string type = 5; // "message" | "reasoning" | "tool_call" | "tool_output" | "status" | "error" | "message_delta" | "reasoning_delta" | "delta"
   string text = 6;
   string data_json = 7; // optional structured payload
   string created_at = 8;
+  // item_id ties streamed deltas (seq == 0, ephemeral) to the persisted final
+  // event for the same runtime item, so clients can coalesce token streams into
+  // a single message. Only populated on the live wire; empty on replay.
+  string item_id = 9;
 }
 
 // ---- Daemon <-> server stream payloads ----
@@ -88,10 +92,15 @@ message Heartbeat {}
 message AgentEvent {
   string conversation_id = 1;
   string role = 2; // usually "agent" or "system"
-  string type = 3; // "message" | "tool_call" | "tool_output" | "status" | "error" | "delta"
+  string type = 3; // "message" | "reasoning" | "tool_call" | "tool_output" | "status" | "error" | "message_delta" | "reasoning_delta" | "delta"
   string text = 4;
   string data_json = 5;
   bool final = 6;
+  // item_id correlates streamed deltas with their finalized event.
+  string item_id = 7;
+  // ephemeral marks a live-only delta the server relays to subscribers without
+  // persisting it (no seq is assigned). Finalized events leave this false.
+  bool ephemeral = 8;
 }
 
 message ConversationStarted {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -78,74 +79,116 @@ func TestForwardAgentRuntimePropagatesError(t *testing.T) {
 	assertAgentEvent(t, events[0], "conv-1", "agent", "message", "partial", false)
 }
 
-func TestParseCodexLineCategorizesEvents(t *testing.T) {
+func TestForwardAgentRuntimePropagatesItemIDAndEphemeral(t *testing.T) {
+	runtime := fakeAgentRuntime{emits: []agentRuntimeEvent{
+		{Role: "agent", Type: "message_delta", Text: "hel", ItemID: "msg_1", Ephemeral: true},
+		{Role: "agent", Type: "message", Text: "hello", ItemID: "msg_1"},
+	}}
+	var events []*corev1.AgentEvent
+	err := forwardAgentRuntime(context.Background(), runtime, "/tmp/work", "conv-1", "prompt", func(event *corev1.AgentEvent) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatalf("forwardAgentRuntime returned error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("event count = %d, want 2", len(events))
+	}
+	if !events[0].GetEphemeral() || events[0].GetType() != "message_delta" || events[0].GetItemId() != "msg_1" {
+		t.Fatalf("delta event = %+v, want ephemeral message_delta item msg_1", events[0])
+	}
+	if events[1].GetEphemeral() || events[1].GetType() != "message" || events[1].GetItemId() != "msg_1" {
+		t.Fatalf("final event = %+v, want persisted message item msg_1", events[1])
+	}
+}
+
+func TestCodexTurnCategorizesCompletedItems(t *testing.T) {
 	cases := []struct {
 		name     string
-		line     string
+		params   string
 		wantRole string
 		wantType string
 		wantText string
+		wantSkip bool
 	}{
 		{
 			name:     "agent message",
-			line:     `{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"hello"}}`,
-			wantRole: "agent",
-			wantType: "message",
-			wantText: "hello",
+			params:   `{"item":{"id":"msg_0","type":"agentMessage","text":"hello"}}`,
+			wantRole: "agent", wantType: "message", wantText: "hello",
 		},
 		{
 			name:     "command execution",
-			line:     `{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"echo hi","exit_code":0,"status":"completed"}}`,
-			wantRole: "tool",
-			wantType: "tool_call",
-			wantText: "echo hi",
+			params:   `{"item":{"id":"call_1","type":"commandExecution","command":"echo hi","exitCode":0,"status":"completed","aggregatedOutput":"hi\n"}}`,
+			wantRole: "tool", wantType: "tool_call", wantText: "echo hi",
 		},
 		{
 			name:     "reasoning",
-			line:     `{"type":"item.completed","item":{"id":"item_2","type":"reasoning","text":"thinking"}}`,
-			wantRole: "agent",
-			wantType: "reasoning",
-			wantText: "thinking",
+			params:   `{"item":{"id":"r_1","type":"reasoning","text":"thinking"}}`,
+			wantRole: "agent", wantType: "reasoning", wantText: "thinking",
 		},
 		{
-			name:     "error envelope",
-			line:     `{"type":"error","message":"model unavailable"}`,
-			wantRole: "system",
-			wantType: "error",
-			wantText: "model unavailable",
-		},
-		{
-			name:     "non-json line",
-			line:     `Reading additional input from stdin...`,
-			wantRole: "agent",
-			wantType: "delta",
-			wantText: "Reading additional input from stdin...",
+			name:     "user message skipped",
+			params:   `{"item":{"id":"u_1","type":"userMessage","text":"hi"}}`,
+			wantSkip: true,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			events := parseCodexLine(tc.line)
-			if len(events) != 1 {
-				t.Fatalf("event count = %d, want 1", len(events))
+			var got []agentRuntimeEvent
+			turn := &codexTurn{emit: func(e agentRuntimeEvent) { got = append(got, e) }, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
+			turn.handleNotification("item/completed", json.RawMessage(tc.params))
+			if tc.wantSkip {
+				if len(got) != 0 {
+					t.Fatalf("expected no events, got %+v", got)
+				}
+				return
 			}
-			got := events[0]
-			if got.Role != tc.wantRole || got.Type != tc.wantType || got.Text != tc.wantText {
-				t.Fatalf("got %+v, want role=%q type=%q text=%q", got, tc.wantRole, tc.wantType, tc.wantText)
+			if len(got) != 1 {
+				t.Fatalf("event count = %d, want 1 (%+v)", len(got), got)
+			}
+			e := got[0]
+			if e.Role != tc.wantRole || e.Type != tc.wantType || e.Text != tc.wantText || e.Ephemeral {
+				t.Fatalf("got %+v, want role=%q type=%q text=%q non-ephemeral", e, tc.wantRole, tc.wantType, tc.wantText)
 			}
 		})
 	}
 }
 
-func TestParseCodexLineSkipsEnvelopeNoise(t *testing.T) {
-	for _, line := range []string{
-		`{"type":"thread.started","thread_id":"abc"}`,
-		`{"type":"turn.started"}`,
-		`{"type":"turn.completed","usage":{"input_tokens":1}}`,
-		`{"type":"item.started","item":{"id":"item_1","type":"command_execution","status":"in_progress"}}`,
-	} {
-		if events := parseCodexLine(line); len(events) != 0 {
-			t.Fatalf("line %q produced %d events, want 0", line, len(events))
+func TestCodexTurnStreamsThrottledDeltas(t *testing.T) {
+	var got []agentRuntimeEvent
+	turn := &codexTurn{emit: func(e agentRuntimeEvent) { got = append(got, e) }, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
+	// First delta flushes immediately (zero lastFlush); subsequent within the
+	// throttle window are buffered, so accumulated text grows when it does flush.
+	turn.handleNotification("item/agentMessage/delta", json.RawMessage(`{"itemId":"msg_0","delta":"Hel"}`))
+	turn.handleNotification("item/agentMessage/delta", json.RawMessage(`{"itemId":"msg_0","delta":"lo"}`))
+	if len(got) < 1 {
+		t.Fatalf("expected at least one ephemeral delta, got none")
+	}
+	first := got[0]
+	if !first.Ephemeral || first.Type != "message_delta" || first.ItemID != "msg_0" || first.Text != "Hel" {
+		t.Fatalf("first delta = %+v, want ephemeral message_delta msg_0 text=Hel", first)
+	}
+	// Completion emits the persisted final and clears accumulation.
+	turn.handleNotification("item/completed", json.RawMessage(`{"item":{"id":"msg_0","type":"agentMessage","text":"Hello"}}`))
+	last := got[len(got)-1]
+	if last.Ephemeral || last.Type != "message" || last.Text != "Hello" {
+		t.Fatalf("final = %+v, want persisted message text=Hello", last)
+	}
+	if _, ok := turn.accum["msg_0"]; ok {
+		t.Fatalf("accumulation for msg_0 should be cleared after completion")
+	}
+}
+
+func TestCodexTurnCompletionSignalsDone(t *testing.T) {
+	turn := &codexTurn{emit: func(agentRuntimeEvent) {}, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
+	turn.handleNotification("turn/completed", nil)
+	select {
+	case err := <-turn.done:
+		if err != nil {
+			t.Fatalf("done err = %v, want nil", err)
 		}
+	default:
+		t.Fatalf("turn/completed did not signal done")
 	}
 }
 

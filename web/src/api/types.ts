@@ -556,6 +556,9 @@ export interface ConversationEvent {
   text?: string;
   dataJson?: string;
   createdAt?: string;
+  // Correlates streamed token deltas (seq 0, ephemeral) with the persisted
+  // final event for the same runtime item. Empty on replayed history.
+  itemId?: string;
 }
 
 export interface ListDaemonsRequest {}
