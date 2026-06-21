@@ -30,6 +30,7 @@ import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
 import { LoginPage } from "./LoginPage";
 import { SliceCreatePage } from "./SliceCreatePage";
+import { SliceAgentsPage } from "./SliceAgentsPage";
 import { SliceDetailPage } from "./SliceDetailPage";
 import { SliceSettingsPage } from "./SliceSettingsPage";
 import { SlicesPage } from "./SlicesPage";
@@ -258,6 +259,12 @@ const sliceSettingsRoute = createRoute({
   component: SliceSettingsPage
 });
 
+const sliceAgentsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "slices/$account/$slice/agents",
+  component: SliceAgentsPage
+});
+
 // Public, shareable changeset list URL: /changesets?slice=<account:slice>.
 // Readable anonymously for public slices; write actions stay gated behind auth.
 const changesetsRoute = createRoute({
@@ -449,6 +456,7 @@ const routeTree = rootRoute.addChildren([
     slicesRoute,
     sliceCreateRoute,
     sliceSettingsRoute,
+    sliceAgentsRoute,
     stacksRoute,
     stackCreateRoute,
     stackDetailRoute,
