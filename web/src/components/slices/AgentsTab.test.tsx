@@ -168,6 +168,52 @@ describe("AgentsTab", () => {
     });
     expect(within(sidebar).getByLabelText("Agent daemon")).toBeInTheDocument();
   });
+
+  it("opens the conversation list as a mobile drawer", async () => {
+    const api = makeApi({
+      conversations: [
+        {
+          id: "conv_one",
+          title: "Only chat",
+          status: "active",
+          updatedAt: "2026-06-21T16:00:00Z"
+        }
+      ]
+    });
+
+    renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
+
+    // The conversation auto-selects, so the chat toolbar exposes the mobile
+    // "Conversations" drawer trigger (the desktop toggle reads "Hide
+    // conversations" instead).
+    // Query fresh each time: auto-selecting the conversation swaps the empty
+    // state for the chat view, which recreates the toolbar node.
+    const drawerToggle = () =>
+      screen.getByRole("button", { name: "Conversations" });
+    // The in-drawer Close button is always mounted (only hidden via a
+    // `lg:hidden` CSS class); the tap-to-dismiss backdrop is what appears when
+    // the drawer opens, so assert against the count of dismiss buttons.
+    const dismissCount = () =>
+      screen.queryAllByRole("button", { name: "Close conversations" }).length;
+
+    await screen.findByRole("button", { name: "Conversations" });
+    expect(drawerToggle()).toHaveAttribute("aria-expanded", "false");
+    const closedCount = dismissCount();
+
+    fireEvent.click(drawerToggle());
+
+    // Opening adds the backdrop button on top of the always-present Close.
+    expect(dismissCount()).toBeGreaterThan(closedCount);
+    expect(drawerToggle()).toHaveAttribute("aria-expanded", "true");
+
+    // Selecting a conversation closes the drawer again.
+    const sidebar = screen.getByRole("complementary", {
+      name: "Agent conversations"
+    });
+    fireEvent.click(within(sidebar).getByRole("button", { name: /Only chat/ }));
+    expect(dismissCount()).toBe(closedCount);
+    expect(drawerToggle()).toHaveAttribute("aria-expanded", "false");
+  });
 });
 
 // react-query requires a provider; tests that previously rendered AgentsTab

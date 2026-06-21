@@ -48,6 +48,10 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
   const [selectedDaemonId, setSelectedDaemonId] = useState("");
   const [title, setTitle] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  // Mobile drawer state, separate from the desktop column collapse. On small
+  // screens the conversation list slides in from the left like the file tree;
+  // on lg+ it is a static column governed by isSidebarOpen.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   // Keep daemon selection valid as the online set changes. We only reassign
@@ -98,6 +102,8 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
       setTitle("");
       setIsCreateOpen(false);
       setIsSidebarOpen(true);
+      // On mobile, close the drawer so the freshly created chat is in view.
+      setMobileSidebarOpen(false);
     }
   });
 
@@ -145,15 +151,28 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
   }
 
   const sidebarToggle = (
-    <button
-      aria-controls="agent-conversation-sidebar"
-      aria-expanded={isSidebarOpen}
-      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
-      onClick={() => setIsSidebarOpen((open) => !open)}
-      type="button"
-    >
-      {isSidebarOpen ? "Hide conversations" : "Show conversations"}
-    </button>
+    <div className="flex items-center gap-2">
+      {/* Mobile: open the conversation list as a left drawer. */}
+      <button
+        aria-controls="agent-conversation-sidebar"
+        aria-expanded={mobileSidebarOpen}
+        className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98] lg:hidden"
+        onClick={() => setMobileSidebarOpen(true)}
+        type="button"
+      >
+        Conversations
+      </button>
+      {/* Desktop: collapse/expand the static left column. */}
+      <button
+        aria-controls="agent-conversation-sidebar"
+        aria-expanded={isSidebarOpen}
+        className="hidden rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98] lg:inline-flex"
+        onClick={() => setIsSidebarOpen((open) => !open)}
+        type="button"
+      >
+        {isSidebarOpen ? "Hide conversations" : "Show conversations"}
+      </button>
+    </div>
   );
 
   const createError = createMutation.error
@@ -171,12 +190,35 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
             : "lg:grid-cols-[minmax(0,1fr)]"
         )}
       >
-        {isSidebarOpen ? (
+        {mobileSidebarOpen ? (
+          <button
+            aria-label="Close conversations"
+            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+            onClick={() => setMobileSidebarOpen(false)}
+            type="button"
+          />
+        ) : null}
+        {isSidebarOpen || mobileSidebarOpen ? (
           <aside
             aria-label="Agent conversations"
-            className="border-b border-slate-200 p-4 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-5"
+            className={cn(
+              "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-white p-4 shadow-xl transition-transform duration-200",
+              mobileSidebarOpen ? "translate-x-0" : "-translate-x-full",
+              "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:bg-transparent lg:p-5 lg:shadow-none lg:transition-none lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-slate-200",
+              isSidebarOpen ? "" : "lg:hidden"
+            )}
             id="agent-conversation-sidebar"
           >
+            <div className="mb-3 flex justify-end lg:hidden">
+              <button
+                aria-label="Close conversations"
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                onClick={() => setMobileSidebarOpen(false)}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-zinc-950">
@@ -299,9 +341,11 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
                               ? "bg-slate-100 text-zinc-950"
                               : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
                           )}
-                          onClick={() =>
-                            setSelectedConversationId(conversation.id ?? "")
-                          }
+                          onClick={() => {
+                            setSelectedConversationId(conversation.id ?? "");
+                            // Close the mobile drawer so the chat is revealed.
+                            setMobileSidebarOpen(false);
+                          }}
                           type="button"
                         >
                           <span className="block truncate font-semibold">
@@ -362,6 +406,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
                       className="mt-4 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
                       onClick={() => {
                         setIsSidebarOpen(true);
+                        setMobileSidebarOpen(true);
                         setIsCreateOpen(true);
                       }}
                       type="button"

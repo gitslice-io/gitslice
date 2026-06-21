@@ -87,6 +87,20 @@ stream. Fixed by splitting into two effects — a reset keyed on `[conversationI
 monotonic nonce that only ever increments. Added a regression test asserting the
 draft survives a Reconnect. Full web suite now 5 files / 21 tests.
 
+Mobile layout follow-up (left drawer): on phones the Agents page stacked the
+conversation list on top of the chat. Reworked `AgentsTab` to mirror the file
+tree's responsive sidebar: a left slide-in drawer on small screens (`fixed
+inset-y-0 left-0` + translate, with a dimming backdrop and a Close button) and
+the existing static left column on `lg+`. Added a `mobileSidebarOpen` state
+distinct from the desktop `isSidebarOpen` collapse; the chat toolbar shows a
+mobile-only "Conversations" trigger and the desktop-only "Hide/Show
+conversations" toggle. Selecting a conversation or creating one closes the
+drawer. The aside is now always mounted (drawer pattern), so the desktop
+collapse keeps it rendered only when `isSidebarOpen || mobileSidebarOpen`.
+Verified with a real headless-Chromium screenshot at 390px (drawer slides in
+from the left over the dimmed chat) and 1280px (unchanged two-column). Added a
+drawer toggle test; full web suite 5 files / 22 tests.
+
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 
