@@ -33,7 +33,6 @@ export function AgentConversation({
   // Bumping retryKey re-runs the stream effect after a stream error, without
   // needing to remount the component or change conversationId.
   const [retryKey, setRetryKey] = useState(0);
-  const endRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // Tracked as a ref so scroll position changes don't trigger re-renders; the
   // scroll-on-new-event effect reads the latest value at effect time.
@@ -91,12 +90,18 @@ export function AgentConversation({
 
   // Auto-scroll on new events only when the user is already parked at the
   // bottom; otherwise typing/scrolling up to read history would be yanked
-  // away on every streamed token.
+  // away on every streamed token. Scroll the container directly rather than
+  // scrollIntoView() — the latter walks up to the nearest scrollable ancestor
+  // (on mobile that's the document), which yanks the whole page around on
+  // every streamed event.
   useEffect(() => {
     if (!stickToBottomRef.current) {
       return;
     }
-    endRef.current?.scrollIntoView?.({ block: "end" });
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [events.length]);
 
   function handleScroll() {
@@ -119,6 +124,9 @@ export function AgentConversation({
 
     setIsSending(true);
     setSendError("");
+    // Sending is an explicit intent to follow the conversation, so re-stick to
+    // the bottom even if the user had scrolled up to read history.
+    stickToBottomRef.current = true;
     try {
       const response = await api.sendAgentMessage({ conversationId, text });
       const sentEvent = response.event;
@@ -136,7 +144,7 @@ export function AgentConversation({
   }
 
   return (
-    <div className="flex h-full min-h-[26rem] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -208,7 +216,6 @@ export function AgentConversation({
             )}
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
       <form
@@ -427,7 +434,15 @@ function traceEventLabel(event: ConversationEvent) {
 }
 
 function traceEventContent(event: ConversationEvent) {
-  return event.text || event.dataJson || "";
+  const text = event.text ?? "";
+  const data = event.dataJson ?? "";
+  // Tool events carry a short label in `text` (e.g. the command) and the full
+  // structured payload in `dataJson` (e.g. captured output). Show both so the
+  // trace is actually inspectable, but avoid duplicating when they're equal.
+  if (text && data && text !== data) {
+    return `${text}\n${data}`;
+  }
+  return text || data;
 }
 
 function traceGroupKey(events: ConversationEvent[], index: number) {

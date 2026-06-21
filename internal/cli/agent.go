@@ -668,40 +668,24 @@ func (q *agentSendQueue) err() error {
 }
 
 func forwardAgentRuntime(ctx context.Context, runtime agentRuntime, workdir, conversationID, prompt string, emitEvent func(*corev1.AgentEvent)) error {
-	var finalEvent *corev1.AgentEvent
-	err := runtime.Run(ctx, workdir, prompt, func(text string, final bool) {
-		event := agentEventFromRuntimeOutput(conversationID, text, final)
-		if final {
-			finalEvent = event
-			return
+	return runtime.Run(ctx, workdir, prompt, func(event agentRuntimeEvent) {
+		role := event.Role
+		if role == "" {
+			role = "agent"
 		}
-		emitEvent(event)
+		eventType := event.Type
+		if eventType == "" {
+			eventType = "delta"
+		}
+		emitEvent(&corev1.AgentEvent{
+			ConversationId: conversationID,
+			Role:           role,
+			Type:           eventType,
+			Text:           event.Text,
+			DataJson:       event.Data,
+			Final:          event.Final,
+		})
 	})
-	if err != nil {
-		return err
-	}
-	if finalEvent == nil {
-		finalEvent = agentEventFromRuntimeOutput(conversationID, "", true)
-	}
-	emitEvent(finalEvent)
-	return nil
-}
-
-func agentEventFromRuntimeOutput(conversationID, text string, final bool) *corev1.AgentEvent {
-	eventType := "delta"
-	if final {
-		eventType = "status"
-		if strings.TrimSpace(text) != "" {
-			eventType = "message"
-		}
-	}
-	return &corev1.AgentEvent{
-		ConversationId: conversationID,
-		Role:           "agent",
-		Type:           eventType,
-		Text:           text,
-		Final:          final,
-	}
 }
 
 func registerDaemonMessage(name, runtimeName string) *corev1.DaemonMessage {
