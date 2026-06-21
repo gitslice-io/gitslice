@@ -43,7 +43,14 @@ func (r codexRuntime) Run(ctx context.Context, workdir, prompt string, emit func
 	// categorize them (agent messages vs. reasoning vs. tool activity) instead
 	// of forwarding raw transcript text. Human-readable diagnostics still go to
 	// stderr, which we keep separate so they never pollute the JSON stream.
+	//
+	// The reasoning-summary config is required for codex to emit `reasoning`
+	// thread items at all: without it the model still reasons (reported only as
+	// usage token counts) but the JSON stream carries no reasoning items, so the
+	// UI would show tool calls with no accompanying thinking.
 	cmd := exec.CommandContext(ctx, binary, "exec", "--json",
+		"-c", "model_reasoning_summary=detailed",
+		"-c", "model_reasoning_summary_format=experimental",
 		"--dangerously-bypass-approvals-and-sandbox", "--cd", workdir, prompt)
 	cmd.Dir = workdir
 
