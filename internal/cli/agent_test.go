@@ -10,25 +10,28 @@ import (
 )
 
 type fakeAgentRuntime struct {
-	emits []agentRuntimeEvent
-	err   error
+	emits    []agentRuntimeEvent
+	threadID string
+	err      error
+	gotTurn  agentTurn
 }
 
-func (r fakeAgentRuntime) Run(ctx context.Context, workdir, prompt string, emit func(agentRuntimeEvent)) error {
+func (r *fakeAgentRuntime) Run(ctx context.Context, turn agentTurn, emit func(agentRuntimeEvent)) (string, error) {
+	r.gotTurn = turn
 	for _, e := range r.emits {
 		emit(e)
 	}
-	return r.err
+	return r.threadID, r.err
 }
 
 func TestForwardAgentRuntimeForwardsCategorizedEvents(t *testing.T) {
-	runtime := fakeAgentRuntime{emits: []agentRuntimeEvent{
+	runtime := &fakeAgentRuntime{emits: []agentRuntimeEvent{
 		{Role: "tool", Type: "tool_call", Text: "echo hi", Data: `{"command":"echo hi"}`},
 		{Role: "agent", Type: "reasoning", Text: "thinking"},
 		{Role: "agent", Type: "message", Text: "done"},
 	}}
 	var events []*corev1.AgentEvent
-	err := forwardAgentRuntime(context.Background(), runtime, "/tmp/work", "conv-1", "prompt", func(event *corev1.AgentEvent) {
+	_, err := forwardAgentRuntime(context.Background(), runtime, agentTurn{Workdir: "/tmp/work", Prompt: "prompt"}, "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
@@ -46,9 +49,9 @@ func TestForwardAgentRuntimeForwardsCategorizedEvents(t *testing.T) {
 }
 
 func TestForwardAgentRuntimeDefaultsRoleAndType(t *testing.T) {
-	runtime := fakeAgentRuntime{emits: []agentRuntimeEvent{{Text: "bare"}}}
+	runtime := &fakeAgentRuntime{emits: []agentRuntimeEvent{{Text: "bare"}}}
 	var events []*corev1.AgentEvent
-	err := forwardAgentRuntime(context.Background(), runtime, "/tmp/work", "conv-1", "prompt", func(event *corev1.AgentEvent) {
+	_, err := forwardAgentRuntime(context.Background(), runtime, agentTurn{Workdir: "/tmp/work", Prompt: "prompt"}, "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
@@ -62,12 +65,12 @@ func TestForwardAgentRuntimeDefaultsRoleAndType(t *testing.T) {
 
 func TestForwardAgentRuntimePropagatesError(t *testing.T) {
 	wantErr := errors.New("boom")
-	runtime := fakeAgentRuntime{
+	runtime := &fakeAgentRuntime{
 		emits: []agentRuntimeEvent{{Role: "agent", Type: "message", Text: "partial"}},
 		err:   wantErr,
 	}
 	var events []*corev1.AgentEvent
-	err := forwardAgentRuntime(context.Background(), runtime, "/tmp/work", "conv-1", "prompt", func(event *corev1.AgentEvent) {
+	_, err := forwardAgentRuntime(context.Background(), runtime, agentTurn{Workdir: "/tmp/work", Prompt: "prompt"}, "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if !errors.Is(err, wantErr) {
@@ -80,12 +83,12 @@ func TestForwardAgentRuntimePropagatesError(t *testing.T) {
 }
 
 func TestForwardAgentRuntimePropagatesItemIDAndEphemeral(t *testing.T) {
-	runtime := fakeAgentRuntime{emits: []agentRuntimeEvent{
+	runtime := &fakeAgentRuntime{emits: []agentRuntimeEvent{
 		{Role: "agent", Type: "message_delta", Text: "hel", ItemID: "msg_1", Ephemeral: true},
 		{Role: "agent", Type: "message", Text: "hello", ItemID: "msg_1"},
 	}}
 	var events []*corev1.AgentEvent
-	err := forwardAgentRuntime(context.Background(), runtime, "/tmp/work", "conv-1", "prompt", func(event *corev1.AgentEvent) {
+	_, err := forwardAgentRuntime(context.Background(), runtime, agentTurn{Workdir: "/tmp/work", Prompt: "prompt"}, "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
@@ -99,6 +102,40 @@ func TestForwardAgentRuntimePropagatesItemIDAndEphemeral(t *testing.T) {
 	}
 	if events[1].GetEphemeral() || events[1].GetType() != "message" || events[1].GetItemId() != "msg_1" {
 		t.Fatalf("final event = %+v, want persisted message item msg_1", events[1])
+	}
+}
+
+func TestForwardAgentRuntimePassesThreadAndReturnsNewID(t *testing.T) {
+	runtime := &fakeAgentRuntime{
+		threadID: "thread-new",
+		emits:    []agentRuntimeEvent{{Role: "agent", Type: "message", Text: "ok"}},
+	}
+	gotThread, err := forwardAgentRuntime(
+		context.Background(),
+		runtime,
+		agentTurn{Workdir: "/tmp/work", Prompt: "hi", ThreadID: "thread-prev"},
+		"conv-1",
+		func(*corev1.AgentEvent) {},
+	)
+	if err != nil {
+		t.Fatalf("forwardAgentRuntime returned error: %v", err)
+	}
+	if runtime.gotTurn.ThreadID != "thread-prev" {
+		t.Fatalf("runtime saw thread id %q, want thread-prev", runtime.gotTurn.ThreadID)
+	}
+	if gotThread != "thread-new" {
+		t.Fatalf("returned thread id = %q, want thread-new", gotThread)
+	}
+}
+
+func TestConversationThreadIDRoundTrip(t *testing.T) {
+	conv := &agentConversation{}
+	if conv.getThreadID() != "" {
+		t.Fatalf("new conversation thread id = %q, want empty", conv.getThreadID())
+	}
+	conv.setThreadID("thread-xyz")
+	if conv.getThreadID() != "thread-xyz" {
+		t.Fatalf("thread id = %q, want thread-xyz", conv.getThreadID())
 	}
 }
 

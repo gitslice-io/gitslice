@@ -30,10 +30,20 @@ type agentRuntimeEvent struct {
 	Final     bool
 }
 
+// agentTurn describes a single turn to run. ThreadID, when set, resumes a prior
+// runtime session so the model retains context across turns; it's empty for the
+// first turn of a conversation.
+type agentTurn struct {
+	Workdir  string
+	Prompt   string
+	ThreadID string
+}
+
 type agentRuntime interface {
-	// Run executes one turn in workdir for the given prompt, calling emit for
-	// each categorized event. It must stop when ctx is cancelled.
-	Run(ctx context.Context, workdir, prompt string, emit func(agentRuntimeEvent)) error
+	// Run executes one turn for the given request, calling emit for each
+	// categorized event, and returns the runtime session/thread id to reuse on
+	// the next turn. It must stop when ctx is cancelled.
+	Run(ctx context.Context, turn agentTurn, emit func(agentRuntimeEvent)) (threadID string, err error)
 }
 
 type codexRuntime struct {
@@ -44,7 +54,9 @@ type codexRuntime struct {
 // as ephemeral events, so a fast token stream doesn't overwhelm the relay.
 const deltaThrottle = 60 * time.Millisecond
 
-func (r codexRuntime) Run(ctx context.Context, workdir, prompt string, emit func(agentRuntimeEvent)) error {
+func (r codexRuntime) Run(ctx context.Context, turn agentTurn, emit func(agentRuntimeEvent)) (string, error) {
+	workdir := turn.Workdir
+	prompt := turn.Prompt
 	binary := r.Binary
 	if binary == "" {
 		binary = "codex"
@@ -59,25 +71,25 @@ func (r codexRuntime) Run(ctx context.Context, workdir, prompt string, emit func
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return err
+		return "", err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return "", err
 	}
 	var stderr safeBuffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return "", err
 	}
 
 	waitCh := make(chan error, 1)
 	go func() { waitCh <- cmd.Wait() }()
 
 	client := newCodexClient(stdin)
-	turn := &codexTurn{emit: emit, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
-	go client.readLoop(stdout, turn)
+	stream := &codexTurn{emit: emit, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
+	go client.readLoop(stdout, stream)
 
 	// Always tear the server down: close stdin, kill, and reap so we never leak
 	// an app-server process between turns.
@@ -97,49 +109,87 @@ func (r codexRuntime) Run(ctx context.Context, workdir, prompt string, emit func
 	}
 
 	if _, err := client.call(ctx, "initialize", initializeParams()); err != nil {
-		return stderrErr(fmt.Errorf("codex initialize failed: %w", err))
+		return "", stderrErr(fmt.Errorf("codex initialize failed: %w", err))
 	}
 	if err := client.notify("initialized", struct{}{}); err != nil {
-		return stderrErr(fmt.Errorf("codex initialized notify failed: %w", err))
+		return "", stderrErr(fmt.Errorf("codex initialized notify failed: %w", err))
 	}
 
-	threadRaw, err := client.call(ctx, "thread/start", map[string]any{
+	threadID, err := client.openThread(ctx, workdir, turn.ThreadID)
+	if err != nil {
+		return "", stderrErr(err)
+	}
+
+	if _, err := client.call(ctx, "turn/start", map[string]any{
+		"threadId": threadID,
+		"summary":  "detailed",
+		"input":    []map[string]any{{"type": "text", "text": prompt}},
+	}); err != nil {
+		// The thread is live even if this turn failed to start; return its id so
+		// the next attempt can resume it.
+		return threadID, stderrErr(fmt.Errorf("codex turn/start failed: %w", err))
+	}
+
+	// Stream until the turn completes, the server stops, or we're cancelled. The
+	// thread id is returned in every case so the conversation keeps continuity.
+	select {
+	case <-ctx.Done():
+		return threadID, ctx.Err()
+	case err := <-stream.done:
+		return threadID, err
+	case <-client.closed:
+		if ctx.Err() != nil {
+			return threadID, ctx.Err()
+		}
+		return threadID, stderrErr(fmt.Errorf("codex app-server exited before the turn completed"))
+	}
+}
+
+// openThread resumes an existing codex thread when resumeID is set, falling back
+// to starting a fresh thread if no id is given or the resume fails (e.g. the
+// session has aged out). It returns the live thread id either way.
+func (c *codexClient) openThread(ctx context.Context, workdir, resumeID string) (string, error) {
+	base := map[string]any{
 		"cwd":            workdir,
 		"sandbox":        "danger-full-access",
 		"approvalPolicy": "never",
-	})
-	if err != nil {
-		return stderrErr(fmt.Errorf("codex thread/start failed: %w", err))
 	}
-	var threadResp struct {
+	if resumeID != "" {
+		params := map[string]any{"threadId": resumeID}
+		for k, v := range base {
+			params[k] = v
+		}
+		if raw, err := c.call(ctx, "thread/resume", params); err == nil {
+			if id := parseThreadID(raw); id != "" {
+				return id, nil
+			}
+		} else if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		// Resume failed for a non-cancellation reason: start fresh below.
+	}
+
+	raw, err := c.call(ctx, "thread/start", base)
+	if err != nil {
+		return "", fmt.Errorf("codex thread/start failed: %w", err)
+	}
+	id := parseThreadID(raw)
+	if id == "" {
+		return "", fmt.Errorf("codex thread/start returned no thread id")
+	}
+	return id, nil
+}
+
+func parseThreadID(raw json.RawMessage) string {
+	var resp struct {
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
-	if err := json.Unmarshal(threadRaw, &threadResp); err != nil || threadResp.Thread.ID == "" {
-		return stderrErr(fmt.Errorf("codex thread/start returned no thread id"))
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return ""
 	}
-
-	if _, err := client.call(ctx, "turn/start", map[string]any{
-		"threadId": threadResp.Thread.ID,
-		"summary":  "detailed",
-		"input":    []map[string]any{{"type": "text", "text": prompt}},
-	}); err != nil {
-		return stderrErr(fmt.Errorf("codex turn/start failed: %w", err))
-	}
-
-	// Stream until the turn completes, the server stops, or we're cancelled.
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-turn.done:
-		return err
-	case <-client.closed:
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return stderrErr(fmt.Errorf("codex app-server exited before the turn completed"))
-	}
+	return resp.Thread.ID
 }
 
 func initializeParams() map[string]any {
