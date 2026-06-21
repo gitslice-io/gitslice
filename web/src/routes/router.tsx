@@ -1,11 +1,23 @@
 import {
+  HeadContent,
   Outlet,
-  createRootRoute,
+  Scripts,
+  createRootRouteWithContext,
   createRoute,
-  createRouter
+  createRouter,
+  useRouter
 } from "@tanstack/react-router";
+import {
+  HydrationBoundary,
+  QueryClient,
+  QueryClientProvider,
+  dehydrate,
+  type DehydratedState
+} from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
+import appCss from "../index.css?url";
+import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
 import { SelectionProvider, useSelection } from "../state/selection";
@@ -25,10 +37,61 @@ import { StackDetailPage } from "./StackDetailPage";
 import { StackRestackPage } from "./StackRestackPage";
 import { StackSubmitPage } from "./StackSubmitPage";
 import { StacksPage } from "./StacksPage";
+import { parseSliceSearch } from "./stackPageUtils";
 
-const rootRoute = createRootRoute({
+interface RouterContext {
+  getDehydratedQueryState: () => DehydratedState | undefined;
+  queryClient: QueryClient;
+}
+
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 15_000,
+        retry: 1,
+        refetchOnWindowFocus: false
+      }
+    }
+  });
+}
+
+const rootRoute = createRootRouteWithContext<RouterContext>()({
+  head: () => ({
+    meta: [
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1.0" },
+      { title: "Gitslice" }
+    ],
+    links: [{ rel: "stylesheet", href: appCss }]
+  }),
+  shellComponent: RootDocument,
   component: () => <Outlet />
 });
+
+function RootDocument({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const { getDehydratedQueryState, queryClient } = router.options
+    .context as RouterContext;
+
+  return (
+    <html lang="en">
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        <ClerkAuthProvider>
+          <QueryClientProvider client={queryClient}>
+            <HydrationBoundary state={getDehydratedQueryState()}>
+              {children}
+            </HydrationBoundary>
+          </QueryClientProvider>
+        </ClerkAuthProvider>
+        <Scripts />
+      </body>
+    </html>
+  );
+}
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -128,6 +191,21 @@ const sliceCreateRoute = createRoute({
 const sliceDetailRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice",
+  loader: async ({ context, params }) => {
+    if (import.meta.env.SSR && params.account && params.slice) {
+      try {
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        const ref = { account: params.account, slice: params.slice };
+        await context.queryClient.ensureQueryData({
+          queryKey: ["sliceRef", params.account, params.slice],
+          queryFn: () => api.resolveSlice({ ref })
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
   component: SliceDetailPage
 });
 
@@ -142,6 +220,28 @@ const sliceSettingsRoute = createRoute({
 const changesetsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "changesets",
+  loaderDeps: ({ search }) => ({
+    slice: (search as { slice?: unknown }).slice
+  }),
+  loader: async ({ context, deps }) => {
+    if (import.meta.env.SSR) {
+      const sliceRef = parseSliceSearch(deps.slice);
+      if (sliceRef) {
+        try {
+          const { createServerApiClient } = await import("../api/serverApi");
+          const api = await createServerApiClient();
+          const { account, slice } = sliceRef;
+          await context.queryClient.ensureQueryData({
+            queryKey: ["changesets", account, slice],
+            queryFn: () =>
+              api.listChangesets({ authoringSlice: { account, slice } })
+          });
+        } catch {
+          // The component keeps the existing client-side load/error behavior.
+        }
+      }
+    }
+  },
   component: ChangesetsPage
 });
 
@@ -179,6 +279,20 @@ const stackSubmitRoute = createRoute({
 const changesetShortRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "cs/$id",
+  loader: async ({ context, params }) => {
+    if (import.meta.env.SSR) {
+      try {
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        await context.queryClient.ensureQueryData({
+          queryKey: ["changeset", params.id],
+          queryFn: () => api.getChangeset({ changesetId: params.id })
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
   component: ChangesetDetailPage
 });
 
@@ -205,14 +319,42 @@ const routeTree = rootRoute.addChildren([
   ])
 ]);
 
-export const router = createRouter({
-  routeTree,
-  defaultPreload: "intent",
-  scrollRestoration: true
-});
+export function getRouter() {
+  const queryClient = createQueryClient();
+  let dehydratedQueryState: DehydratedState | undefined;
+
+  return createRouter({
+    routeTree,
+    context: {
+      getDehydratedQueryState: () => dehydratedQueryState,
+      queryClient
+    },
+    defaultPreload: "intent",
+    defaultPreloadStaleTime: 0,
+    scrollRestoration: true,
+    dehydrate: () => {
+      dehydratedQueryState = dehydrate(queryClient, {
+        shouldDehydrateMutation: () => false
+      });
+      return {
+        queryClient: JSON.parse(JSON.stringify(dehydratedQueryState))
+      };
+    },
+    hydrate: (dehydrated) => {
+      dehydratedQueryState = dehydrated?.queryClient;
+    }
+  });
+}
 
 declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router;
+    router: ReturnType<typeof getRouter>;
+  }
+}
+
+declare module "@tanstack/react-start" {
+  interface Register {
+    ssr: true;
+    router: ReturnType<typeof getRouter>;
   }
 }

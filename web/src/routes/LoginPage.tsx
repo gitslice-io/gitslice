@@ -1,4 +1,4 @@
-import { SignIn, useAuth } from "@clerk/clerk-react";
+import { SignIn, useAuth } from "@clerk/tanstack-react-start";
 import { Navigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
@@ -7,9 +7,10 @@ import { CLI_LOGIN_SEARCH_STORAGE_KEY } from "../auth/cliLogin";
 
 export function LoginPage() {
   const { isLoaded, isSignedIn } = useAuth();
-  const pendingCliLoginSearch = sessionStorage.getItem(
-    CLI_LOGIN_SEARCH_STORAGE_KEY
-  );
+  const pendingCliLoginSearch =
+    typeof window === "undefined"
+      ? null
+      : sessionStorage.getItem(CLI_LOGIN_SEARCH_STORAGE_KEY);
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !pendingCliLoginSearch) {

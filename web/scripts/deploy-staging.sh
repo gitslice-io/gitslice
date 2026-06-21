@@ -33,6 +33,9 @@ fi
 
 cd "$WEB_ROOT"
 npm run build
+if [[ -n "${CLERK_SECRET_KEY:-}" ]]; then
+  printf '%s' "$CLERK_SECRET_KEY" | npx wrangler secret put CLERK_SECRET_KEY --env staging
+fi
 # Use npx so the locally-installed wrangler resolves regardless of how this
 # script is invoked (bare `wrangler` only works when node_modules/.bin is on
 # PATH, e.g. under `npm run`).

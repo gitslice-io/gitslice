@@ -2,10 +2,19 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "gitslice-web",
   "compatibility_date": "2026-06-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": ".output/server/index.mjs",
   "assets": {
-    "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "directory": ".output/public",
+    "binding": "ASSETS"
   },
+  "no_bundle": true,
+  "rules": [
+    {
+      "type": "ESModule",
+      "globs": ["**/*.mjs", "**/*.js"]
+    }
+  ],
   "vars": {
     "PUBLIC_API_BASE_URL": "https://api.gitslice.io"
   },
