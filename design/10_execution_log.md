@@ -5917,3 +5917,49 @@ go test ./internal/ratelimit/... ./server/...                 # pass
 GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/cli ./tests/rpc
 #   ok tests/cli (102s), ok tests/rpc (62s)
 ```
+
+## 2026-06-21: Bring Your Own Agent — Server Foundation (Phase 1)
+
+Goal: let a user run their own coding agent (`gs agent start`, codex runtime) on
+their machine and drive it from the slice detail page's Agents tab, streaming
+conversation traffic between the browser and the daemon via the central server.
+See design/16_bring_your_own_agent.md for the full design.
+
+This entry covers Phase 1: the server-side foundation (proto, data model,
+storage, relay hub, wiring, e2e). CLI daemon and web tab follow in later phases.
+
+Architecture decision — relay over a daemon-held bidi stream. The daemon runs
+behind NAT with no inbound connectivity, so it cannot be dialed. Instead it holds
+one persistent outbound `AgentService.Connect` bidirectional stream; the server
+is a stateless relay (`service/agent_hub.go`) that routes between the browser
+(unary + server-streaming `StreamConversation`, surfaced through the gateway) and
+the daemon, keyed by conversation id. All conversation events are persisted with
+a per-conversation monotonic `seq` (`agent_conversation_events`), so history
+reloads from Postgres and a reconnecting web stream replays from `after_seq` then
+tails live. Daemon scope is account-wide; each conversation binds to one slice.
+
+New surface:
+- `proto/core/v1/agent.proto` (+ generated stubs/gateway).
+- Migration `0014_agents.sql`: `agent_daemons`, `agent_conversations`,
+  `agent_conversation_events`.
+- `storage.AgentStore` (interface + memory + postgres impls).
+- `service.AgentService` + `agentHub`; wired into `service.New`, gRPC
+  registration, and the gateway.
+
+Bug found + fixed — `serverHandlerTransport.Drain() is not implemented` panic at
+shutdown. gRPC is multiplexed over HTTP via `grpcServer.ServeHTTP` (h2c handler
+transport), which does not implement `Drain()`. `grpcServer.GracefulStop()`
+therefore panics whenever a server stream is still open at shutdown. No prior
+streaming RPC was long-lived enough to be open at stop, but the daemon Connect
+stream always is. Fixed in `server/server.go` by bounding the HTTP drain with
+`serverShutdownTimeout` (5s) and replacing `GracefulStop()` with `Stop()` (the
+combined HTTP server already drains in-flight requests gracefully first).
+
+Verification:
+```bash
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 -run TestAgentConversationRelay ./tests/rpc -v
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/rpc ./tests/cli
+go test ./...
+# all ok; new tests/rpc/agent_test.go drives an in-test echo daemon through the
+# full register -> create conversation -> send -> echo -> stream + replay path.
+```

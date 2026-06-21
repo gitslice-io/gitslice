@@ -36,6 +36,7 @@ func NewHTTPGateway(ctx context.Context, grpcEndpoint string) (http.Handler, err
 		corev1.RegisterWorkspaceServiceHandlerFromEndpoint,
 		corev1.RegisterChangesetServiceHandlerFromEndpoint,
 		corev1.RegisterChangesetStackServiceHandlerFromEndpoint,
+		corev1.RegisterAgentServiceHandlerFromEndpoint,
 	}
 	for _, register := range registerHandlers {
 		if err := register(ctx, mux, grpcEndpoint, opts); err != nil {

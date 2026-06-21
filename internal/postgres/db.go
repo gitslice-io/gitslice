@@ -18,6 +18,7 @@ type DB struct {
 	repository *RepositoryStore
 	slices     *SliceStore
 	changesets *ChangesetStore
+	agents     *AgentStore
 }
 
 func Open(ctx context.Context, databaseURL string) (*DB, error) {
@@ -70,6 +71,10 @@ func (d *DB) Changesets() *ChangesetStore {
 	return d.changesets
 }
 
+func (d *DB) Agents() *AgentStore {
+	return d.agents
+}
+
 func (d *DB) initStores() {
 	d.auth = &AuthStore{db: d.db}
 	d.blobs = &BlobStore{db: d.db}
@@ -80,4 +85,5 @@ func (d *DB) initStores() {
 		repository: d.repository,
 		slices:     d.slices,
 	}
+	d.agents = &AgentStore{db: d.db}
 }
