@@ -31,7 +31,7 @@ vi.mock("../api/useApi", () => ({
   useApi: () => apiMock.current
 }));
 
-vi.mock("@clerk/clerk-react", () => ({
+vi.mock("@clerk/tanstack-react-start", () => ({
   useAuth: () => ({
     isLoaded: true,
     isSignedIn: true

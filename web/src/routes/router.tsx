@@ -1,11 +1,23 @@
 import {
+  HeadContent,
   Outlet,
-  createRootRoute,
+  Scripts,
+  createRootRouteWithContext,
   createRoute,
-  createRouter
+  createRouter,
+  useRouter
 } from "@tanstack/react-router";
+import {
+  HydrationBoundary,
+  QueryClient,
+  QueryClientProvider,
+  dehydrate,
+  type DehydratedState
+} from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
+import appCss from "../index.css?url";
+import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
 import { SelectionProvider, useSelection } from "../state/selection";
@@ -26,9 +38,59 @@ import { StackRestackPage } from "./StackRestackPage";
 import { StackSubmitPage } from "./StackSubmitPage";
 import { StacksPage } from "./StacksPage";
 
-const rootRoute = createRootRoute({
+interface RouterContext {
+  getDehydratedQueryState: () => DehydratedState | undefined;
+  queryClient: QueryClient;
+}
+
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 15_000,
+        retry: 1,
+        refetchOnWindowFocus: false
+      }
+    }
+  });
+}
+
+const rootRoute = createRootRouteWithContext<RouterContext>()({
+  head: () => ({
+    meta: [
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1.0" },
+      { title: "Gitslice" }
+    ],
+    links: [{ rel: "stylesheet", href: appCss }]
+  }),
+  shellComponent: RootDocument,
   component: () => <Outlet />
 });
+
+function RootDocument({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const { getDehydratedQueryState, queryClient } = router.options
+    .context as RouterContext;
+
+  return (
+    <html lang="en">
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        <ClerkAuthProvider>
+          <QueryClientProvider client={queryClient}>
+            <HydrationBoundary state={getDehydratedQueryState()}>
+              {children}
+            </HydrationBoundary>
+          </QueryClientProvider>
+        </ClerkAuthProvider>
+        <Scripts />
+      </body>
+    </html>
+  );
+}
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -205,14 +267,42 @@ const routeTree = rootRoute.addChildren([
   ])
 ]);
 
-export const router = createRouter({
-  routeTree,
-  defaultPreload: "intent",
-  scrollRestoration: true
-});
+export function getRouter() {
+  const queryClient = createQueryClient();
+  let dehydratedQueryState: DehydratedState | undefined;
+
+  return createRouter({
+    routeTree,
+    context: {
+      getDehydratedQueryState: () => dehydratedQueryState,
+      queryClient
+    },
+    defaultPreload: "intent",
+    defaultPreloadStaleTime: 0,
+    scrollRestoration: true,
+    dehydrate: () => {
+      dehydratedQueryState = dehydrate(queryClient, {
+        shouldDehydrateMutation: () => false
+      });
+      return {
+        queryClient: JSON.parse(JSON.stringify(dehydratedQueryState))
+      };
+    },
+    hydrate: (dehydrated) => {
+      dehydratedQueryState = dehydrated?.queryClient;
+    }
+  });
+}
 
 declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router;
+    router: ReturnType<typeof getRouter>;
+  }
+}
+
+declare module "@tanstack/react-start" {
+  interface Register {
+    ssr: true;
+    router: ReturnType<typeof getRouter>;
   }
 }

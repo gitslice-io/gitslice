@@ -1,4 +1,4 @@
-import { ClerkProvider } from "@clerk/clerk-react";
+import { ClerkProvider } from "@clerk/tanstack-react-start";
 import type { ReactNode } from "react";
 
 interface ClerkAuthProviderProps {
@@ -26,5 +26,9 @@ export function ClerkAuthProvider({ children }: ClerkAuthProviderProps) {
     );
   }
 
-  return <ClerkProvider publishableKey={publishableKey}>{children}</ClerkProvider>;
+  return (
+    <ClerkProvider afterSignOutUrl="/login" publishableKey={publishableKey}>
+      {children}
+    </ClerkProvider>
+  );
 }

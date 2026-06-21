@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useAuth, UserButton } from "@clerk/clerk-react";
+import { useAuth, UserButton } from "@clerk/tanstack-react-start";
 
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
@@ -78,7 +78,6 @@ export function TopBar() {
             // larger than our placeholder, which is the residual jump.
             <div className="flex size-8 shrink-0 items-center justify-center">
               <UserButton
-                afterSignOutUrl="/login"
                 appearance={{
                   elements: {
                     rootBox: "size-8",

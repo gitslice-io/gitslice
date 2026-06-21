@@ -12,7 +12,7 @@ const authMock = vi.hoisted(() => ({
   }
 }));
 
-vi.mock("@clerk/clerk-react", () => ({
+vi.mock("@clerk/tanstack-react-start", () => ({
   useAuth: () => authMock.current
 }));
 
