@@ -21,6 +21,8 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [selectedDaemonId, setSelectedDaemonId] = useState("");
   const [title, setTitle] = useState("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -111,6 +113,8 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
       ]);
       setSelectedConversationId(conversation.id ?? "");
       setTitle("");
+      setIsCreateOpen(false);
+      setIsSidebarOpen(true);
     } catch (error) {
       setCreateError(getErrorMessage(error));
     } finally {
@@ -149,131 +153,187 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
     );
   }
 
-  return (
-    <SlicePanel className="min-h-[34rem] p-0 lg:h-full lg:min-h-0">
-      <div className="grid h-full min-h-0 gap-0 lg:grid-cols-[21rem_minmax(0,1fr)]">
-        <aside className="border-b border-slate-200 p-4 lg:min-h-0 lg:border-b-0 lg:border-r lg:p-5">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-950">Agents</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              Online daemons for {sliceKey}
-            </p>
-          </div>
+  const sidebarToggle = (
+    <button
+      aria-controls="agent-conversation-sidebar"
+      aria-expanded={isSidebarOpen}
+      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+      onClick={() => setIsSidebarOpen((open) => !open)}
+      type="button"
+    >
+      {isSidebarOpen ? "Hide conversations" : "Show conversations"}
+    </button>
+  );
 
-          {onlineDaemons.length === 0 ? (
-            <div className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700">
-              <p className="font-semibold text-zinc-950">No online daemons</p>
-              <p className="mt-2 leading-6">
-                Run{" "}
-                <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-slate-800">
-                  gs agent start
-                </code>{" "}
-                in an empty directory to make an agent available here.
-              </p>
+  return (
+    <SlicePanel className="min-h-[34rem] overflow-hidden p-0 lg:h-full lg:min-h-0">
+      <div
+        className={cn(
+          "grid h-full min-h-0 gap-0",
+          isSidebarOpen
+            ? "lg:grid-cols-[20rem_minmax(0,1fr)]"
+            : "lg:grid-cols-[minmax(0,1fr)]"
+        )}
+      >
+        {isSidebarOpen ? (
+          <aside
+            aria-label="Agent conversations"
+            className="border-b border-slate-200 p-4 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-5"
+            id="agent-conversation-sidebar"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-zinc-950">
+                  Conversations
+                </h2>
+                <p className="mt-1 truncate text-xs leading-5 text-slate-500">
+                  {sliceKey}
+                </p>
+              </div>
+              <button
+                className="shrink-0 rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+                disabled={!onlineDaemons.length || isCreating}
+                onClick={() => {
+                  setCreateError("");
+                  setIsCreateOpen((open) => !open);
+                }}
+                type="button"
+              >
+                {isCreateOpen ? "Cancel" : "New conversation"}
+              </button>
             </div>
-          ) : (
-            <div className="mt-4 grid gap-2">
-              {onlineDaemons.map((daemon) => (
-                <div
-                  className="rounded-md border border-slate-200 bg-white px-3 py-3"
-                  key={daemon.id ?? daemon.name}
+
+            {isCreateOpen && onlineDaemons.length ? (
+              <form className="mt-4 grid gap-3" onSubmit={createConversation}>
+                <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
+                  Agent daemon
+                  <select
+                    className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+                    onChange={(event) =>
+                      setSelectedDaemonId(event.target.value)
+                    }
+                    value={selectedDaemonId}
+                  >
+                    {onlineDaemons.map((daemon) => (
+                      <option
+                        key={daemon.id ?? daemon.name}
+                        value={daemon.id ?? ""}
+                      >
+                        {daemon.name || daemon.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
+                  Title
+                  <input
+                    className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="Optional"
+                    value={title}
+                  />
+                </label>
+                {createError ? (
+                  <p className="text-sm text-rose-700">{createError}</p>
+                ) : null}
+                <button
+                  className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+                  disabled={!selectedDaemonId || isCreating}
+                  type="submit"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="min-w-0 truncate text-sm font-semibold text-zinc-950">
-                      {daemon.name || daemon.id || "Unnamed agent"}
-                    </p>
-                    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      online
-                    </span>
-                  </div>
-                  <p className="mt-1 truncate font-mono text-xs text-slate-500">
-                    {daemon.runtime || "runtime"} {daemon.version || ""}
+                  {isCreating ? "Creating..." : "Create conversation"}
+                </button>
+              </form>
+            ) : null}
+
+            <div className="mt-5">
+              <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+                Daemons
+              </h3>
+              {onlineDaemons.length === 0 ? (
+                <div className="mt-3 rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700">
+                  <p className="font-semibold text-zinc-950">
+                    No online daemons
+                  </p>
+                  <p className="mt-2 leading-6">
+                    Run{" "}
+                    <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-slate-800">
+                      gs agent start
+                    </code>{" "}
+                    in an empty directory to make an agent available here.
                   </p>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {onlineDaemons.length ? (
-            <form className="mt-5 grid gap-3" onSubmit={createConversation}>
-              <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
-                Agent daemon
-                <select
-                  className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
-                  onChange={(event) => setSelectedDaemonId(event.target.value)}
-                  value={selectedDaemonId}
-                >
+              ) : (
+                <div className="mt-3 grid gap-2">
                   {onlineDaemons.map((daemon) => (
-                    <option
+                    <div
+                      className="rounded-md border border-slate-200 bg-white px-3 py-3"
                       key={daemon.id ?? daemon.name}
-                      value={daemon.id ?? ""}
                     >
-                      {daemon.name || daemon.id}
-                    </option>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="min-w-0 truncate text-sm font-semibold text-zinc-950">
+                          {daemon.name || daemon.id || "Unnamed agent"}
+                        </p>
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          online
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate font-mono text-xs text-slate-500">
+                        {daemon.runtime || "runtime"} {daemon.version || ""}
+                      </p>
+                    </div>
                   ))}
-                </select>
-              </label>
-              <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
-                Title
-                <input
-                  className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="Optional"
-                  value={title}
-                />
-              </label>
-              {createError ? (
-                <p className="text-sm text-rose-700">{createError}</p>
-              ) : null}
-              <button
-                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
-                disabled={!selectedDaemonId || isCreating}
-                type="submit"
-              >
-                {isCreating ? "Creating..." : "New conversation"}
-              </button>
-            </form>
-          ) : null}
+                </div>
+              )}
+            </div>
 
-          <div className="mt-6 border-t border-slate-200 pt-4">
-            <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500">
-              Conversations
-            </h3>
-            {conversations.length === 0 ? (
-              <p className="mt-3 rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
-                No conversations yet.
-              </p>
-            ) : (
-              <div className="mt-3 grid gap-1.5">
-                {conversations.map((conversation) => (
-                  <button
-                    className={cn(
-                      "min-w-0 rounded-md px-3 py-2 text-left text-sm transition active:scale-[0.98]",
-                      conversation.id === selectedConversationId
-                        ? "bg-slate-100 text-zinc-950"
-                        : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
-                    )}
-                    key={conversation.id}
-                    onClick={() =>
-                      setSelectedConversationId(conversation.id ?? "")
-                    }
-                    type="button"
-                  >
-                    <span className="block truncate font-semibold">
-                      {conversation.title ||
-                        conversation.id ||
-                        "Untitled conversation"}
-                    </span>
-                    <span className="mt-1 block truncate font-mono text-xs text-slate-500">
-                      {conversation.status || "active"}
-                    </span>
-                  </button>
-                ))}
+            <div className="mt-5 border-t border-slate-200 pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+                  History
+                </h3>
+                {conversations.length ? (
+                  <span className="font-mono text-xs text-slate-400">
+                    {conversations.length}
+                  </span>
+                ) : null}
               </div>
-            )}
-          </div>
-        </aside>
+              {conversations.length === 0 ? (
+                <p className="mt-3 rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+                  No conversations yet.
+                </p>
+              ) : (
+                <div className="mt-3 grid gap-1.5">
+                  {conversations.map((conversation) => (
+                    <button
+                      className={cn(
+                        "min-w-0 rounded-md px-3 py-2 text-left text-sm transition active:scale-[0.98]",
+                        conversation.id === selectedConversationId
+                          ? "bg-slate-100 text-zinc-950"
+                          : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
+                      )}
+                      key={conversation.id}
+                      onClick={() =>
+                        setSelectedConversationId(conversation.id ?? "")
+                      }
+                      type="button"
+                    >
+                      <span className="block truncate font-semibold">
+                        {conversation.title ||
+                          conversation.id ||
+                          "Untitled conversation"}
+                      </span>
+                      <span className="mt-1 block truncate font-mono text-xs text-slate-500">
+                        {conversation.status || "active"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </aside>
+        ) : null}
 
         <div className="min-h-[26rem] min-w-0 lg:min-h-0">
           {selectedConversationId ? (
@@ -281,17 +341,25 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
               api={api}
               conversation={selectedConversation}
               conversationId={selectedConversationId}
+              toolbar={sidebarToggle}
             />
           ) : (
-            <div className="flex h-full min-h-[26rem] items-center justify-center p-6 text-center">
-              <div className="max-w-sm">
-                <h2 className="text-base font-semibold text-zinc-950">
-                  No conversation selected
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Create a conversation with an online daemon to start sending
-                  messages.
-                </p>
+            <div className="flex h-full min-h-[26rem] flex-col">
+              <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="text-base font-semibold text-zinc-950">
+                    No conversation selected
+                  </h2>
+                  {sidebarToggle}
+                </div>
+              </div>
+              <div className="flex flex-1 items-center justify-center p-6 text-center">
+                <div className="max-w-sm">
+                  <p className="text-sm leading-6 text-slate-600">
+                    Create a conversation with an online daemon to start sending
+                    messages.
+                  </p>
+                </div>
               </div>
             </div>
           )}

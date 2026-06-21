@@ -6123,3 +6123,36 @@ Results: the patched daemon is online, the fresh `ready` conversation is
 hydrated locally, a test message through staging returned Codex `OK` events, the
 daemon stayed online after the turn, focused web tests passed, the web build and
 deploy passed, and `go build ./cmd/...` passed.
+
+## 2026-06-21: BYOA - Agent Page Conversation Sidebar
+
+Goal: optimize the slice Agents page so conversation navigation is a toggleable
+sidebar, the new-conversation action lives with that sidebar, and verbose agent
+trace/tool output does not dominate the chat transcript.
+
+Changes:
+- `AgentsTab` now renders conversation navigation as a labelled complementary
+  sidebar with a `Hide conversations` / `Show conversations` toggle. The main
+  chat panel expands to the full width when the sidebar is hidden.
+- The new-conversation entry point moved to the top of the sidebar. It opens the
+  daemon/title form in place and closes after a successful create.
+- `AgentConversation` accepts a small toolbar slot for page-level controls and
+  groups consecutive trace-like events (`delta`, reasoning/thinking, tool calls,
+  tool output, and tool-role events) into collapsed detail blocks by default.
+  Normal user/agent messages and capture-status links remain expanded.
+- Focused component tests now cover sidebar toggling, sidebar-local create form
+  placement, newest-conversation selection, capture links, and collapsed trace
+  rendering.
+
+Verification:
+```bash
+cd web && npm test -- src/components/slices/AgentsTab.test.tsx src/components/slices/AgentConversation.test.tsx
+cd web && npm test
+cd web && npm run build
+cd web && npm test -- src/components/slices/AgentsTab.test.tsx src/components/slices/AgentConversation.test.tsx
+```
+
+Results: focused component tests passed (2 files, 5 tests), the full web test
+suite passed (5 files, 16 tests), and the production build passed. The build
+still emits the existing Vite/Nitro dependency and large-chunk warnings but
+exits successfully.

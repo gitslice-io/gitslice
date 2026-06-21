@@ -1,5 +1,6 @@
 import {
   FormEvent,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -15,12 +16,14 @@ interface AgentConversationProps {
   api: ApiClient;
   conversation?: Conversation;
   conversationId: string;
+  toolbar?: ReactNode;
 }
 
 export function AgentConversation({
   api,
   conversation,
-  conversationId
+  conversationId,
+  toolbar
 }: AgentConversationProps) {
   const [events, setEvents] = useState<ConversationEvent[]>([]);
   const [draft, setDraft] = useState("");
@@ -32,6 +35,10 @@ export function AgentConversation({
   const title = useMemo(
     () => conversation?.title || conversationId,
     [conversation?.title, conversationId]
+  );
+  const conversationItems = useMemo(
+    () => groupConversationEvents(events),
+    [events]
   );
 
   useEffect(() => {
@@ -107,9 +114,12 @@ export function AgentConversation({
               </p>
             ) : null}
           </div>
-          <span className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
-            {conversation?.status || "active"}
-          </span>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {toolbar}
+            <span className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
+              {conversation?.status || "active"}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -134,12 +144,19 @@ export function AgentConversation({
           </div>
         ) : (
           <div className="grid gap-3">
-            {events.map((event, index) => (
-              <ConversationEventBubble
-                event={event}
-                key={eventKey(event, index)}
-              />
-            ))}
+            {conversationItems.map((item, index) =>
+              item.kind === "trace" ? (
+                <ConversationTraceGroup
+                  events={item.events}
+                  key={traceGroupKey(item.events, index)}
+                />
+              ) : (
+                <ConversationEventBubble
+                  event={item.event}
+                  key={eventKey(item.event, index)}
+                />
+              )
+            )}
           </div>
         )}
         <div ref={endRef} />
@@ -172,6 +189,79 @@ export function AgentConversation({
         </div>
       </form>
     </div>
+  );
+}
+
+type ConversationItem =
+  | { kind: "event"; event: ConversationEvent }
+  | { kind: "trace"; events: ConversationEvent[] };
+
+function groupConversationEvents(events: ConversationEvent[]): ConversationItem[] {
+  const items: ConversationItem[] = [];
+  let traceEvents: ConversationEvent[] = [];
+
+  function flushTraceEvents() {
+    if (traceEvents.length) {
+      items.push({ kind: "trace", events: traceEvents });
+      traceEvents = [];
+    }
+  }
+
+  for (const event of events) {
+    if (isTraceEvent(event)) {
+      traceEvents.push(event);
+      continue;
+    }
+
+    flushTraceEvents();
+    items.push({ kind: "event", event });
+  }
+
+  flushTraceEvents();
+  return items;
+}
+
+function ConversationTraceGroup({ events }: { events: ConversationEvent[] }) {
+  return (
+    <details className="mr-auto max-w-[min(44rem,92%)] rounded-md border border-slate-200 bg-white/90 text-sm shadow-sm shadow-slate-200/60">
+      <summary className="flex cursor-pointer items-start justify-between gap-3 px-3 py-2 text-slate-700 transition hover:bg-slate-50">
+        <span className="min-w-0">
+          <span className="block truncate font-semibold">
+            {traceGroupLabel(events)}
+          </span>
+          {tracePreview(events) ? (
+            <span className="mt-0.5 block truncate font-mono text-xs text-slate-500">
+              {tracePreview(events)}
+            </span>
+          ) : null}
+        </span>
+        <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+          details
+        </span>
+      </summary>
+      <div className="grid gap-2 border-t border-slate-100 bg-slate-50/70 p-3">
+        {events.map((event, index) => (
+          <div
+            className="rounded-md bg-white p-2 shadow-sm shadow-slate-200/50"
+            key={eventKey(event, index)}
+          >
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500">
+              <span>{traceEventLabel(event)}</span>
+              {hasSequence(event) ? (
+                <span className="text-slate-400">#{event.seq}</span>
+              ) : null}
+            </div>
+            {traceEventContent(event) ? (
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700">
+                {traceEventContent(event)}
+              </pre>
+            ) : (
+              <p className="text-xs text-slate-500">No payload</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -229,6 +319,74 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
       )}
     </article>
   );
+}
+
+function isTraceEvent(event: ConversationEvent) {
+  const role = (event.role ?? "").toLowerCase();
+  const type = (event.type ?? "").toLowerCase();
+  return (
+    role === "tool" ||
+    type === "delta" ||
+    type === "tool_call" ||
+    type === "tool_output" ||
+    type === "thinking" ||
+    type === "thinking_trace" ||
+    type === "reasoning" ||
+    type === "reasoning_delta"
+  );
+}
+
+function traceGroupLabel(events: ConversationEvent[]) {
+  const hasToolEvent = events.some((event) => {
+    const type = (event.type ?? "").toLowerCase();
+    return type === "tool_call" || type === "tool_output";
+  });
+  const hasTraceEvent = events.some((event) => {
+    const type = (event.type ?? "").toLowerCase();
+    return (
+      type === "delta" ||
+      type === "thinking" ||
+      type === "thinking_trace" ||
+      type === "reasoning" ||
+      type === "reasoning_delta"
+    );
+  });
+
+  if (hasToolEvent && hasTraceEvent) {
+    return `Trace and tools (${events.length})`;
+  }
+  if (hasToolEvent) {
+    return `Tool activity (${events.length})`;
+  }
+  return `Agent trace (${events.length})`;
+}
+
+function tracePreview(events: ConversationEvent[]) {
+  const firstContent = events
+    .map(traceEventContent)
+    .find((content) => content.trim() !== "");
+  if (!firstContent) {
+    return "";
+  }
+  return firstContent.trim().split(/\r?\n/, 1)[0];
+}
+
+function traceEventLabel(event: ConversationEvent) {
+  const role = event.role || "agent";
+  const type = event.type || "trace";
+  return `${role} ${type}`;
+}
+
+function traceEventContent(event: ConversationEvent) {
+  return event.text || event.dataJson || "";
+}
+
+function traceGroupKey(events: ConversationEvent[], index: number) {
+  const first = events[0] ? eventIdentity(events[0]) : "";
+  const last = events[events.length - 1]
+    ? eventIdentity(events[events.length - 1])
+    : "";
+  return `trace:${first || index}:${last || events.length}`;
 }
 
 function appendConversationEvent(
