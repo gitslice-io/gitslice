@@ -131,9 +131,11 @@ a chat panel. Sends via `SendAgentMessage`; receives via `StreamConversation`
    wiring, rpc test with an in-test echo daemon.
 2. **CLI daemon — DONE.** `gs agent start/status/stop` + codex runtime.
 3. **Web Agents tab — DONE.** chat UI with streaming.
-4. **Changeset integration + polish — IN PROGRESS.** Conversation↔patchset
-   linkage is done (below). Remaining: deterministic per-turn auto-capture in the
-   daemon (currently the agent or user triggers `gs cs update` in the workspace).
+4. **Changeset integration + polish — DONE.** Conversation↔patchset linkage
+   (below) plus deterministic per-turn auto-capture: after each agent turn the
+   daemon runs `gs cs capture`, which snapshots the workspace edits and records
+   them as a conversation-linked patchset (creating the changeset on first use,
+   adding a patchset thereafter, and skipping turns with no edits).
 
 ## Conversations linked to patchsets
 
@@ -156,6 +158,11 @@ the exact exchange behind each revision.
   before_seq)` returns the bounded slice. CLI: `gs cs conversation [changeset]
   [--patchset N]`. Web: an "Agent conversation" panel on the changeset detail
   page shows the messages behind the selected patchset.
+- **Auto-capture:** the daemon calls the hidden `gs cs capture` after each turn.
+  It snapshots the workspace edits, no-ops when there are none, creates the
+  changeset on first use (or adds a patchset), and forwards
+  `WorkspaceConfig.ConversationID` so the patchset is linked. A status event
+  echoes the captured patchset back into the conversation.
 
 ## Implementation notes
 

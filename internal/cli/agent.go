@@ -249,6 +249,7 @@ type agentDaemon struct {
 
 type agentConversation struct {
 	id              string
+	title           string
 	workdir         string
 	workspaceSubdir string
 	ready           chan struct{}
@@ -298,6 +299,7 @@ func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1
 		d.sendSystemError(ctx, conversationID, err)
 		return
 	}
+	conv.title = strings.TrimSpace(start.GetTitle())
 
 	slice := start.GetSlice()
 	if slice == nil || strings.TrimSpace(slice.GetAccount()) == "" || strings.TrimSpace(slice.GetSlice()) == "" {
@@ -361,7 +363,61 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 	}
 	if err != nil {
 		d.sendSystemError(ctx, conversationID, fmt.Errorf("agent runtime failed: %w", err))
+		return
 	}
+
+	// Capture any edits the turn produced as a (conversation-linked) patchset.
+	if ctx.Err() == nil {
+		d.capturePatchset(ctx, conv)
+	}
+}
+
+// capturePatchset records the workspace edits produced by the latest turn as a
+// patchset linked to this conversation. It is best-effort: `gs cs capture` is a
+// no-op when there are no edits, and any failure is surfaced as a status event
+// rather than failing the turn.
+func (d *agentDaemon) capturePatchset(ctx context.Context, conv *agentConversation) {
+	title := conv.title
+	if title == "" {
+		title = "agent: " + conv.id
+	}
+	out, err := d.runWorkspaceGS(ctx, conv, "cs", "capture", "--title", title)
+	if err != nil {
+		text := "patchset capture failed"
+		if out != "" {
+			text = "patchset capture failed: " + out
+		}
+		_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
+			ConversationId: conv.id,
+			Role:           "system",
+			Type:           "error",
+			Text:           text,
+		})
+		return
+	}
+	if out != "" && out != "no changes to capture" {
+		_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
+			ConversationId: conv.id,
+			Role:           "system",
+			Type:           "status",
+			Text:           out,
+		})
+	}
+}
+
+// runWorkspaceGS runs the gs binary against this conversation's workspace subdir,
+// inheriting the daemon's auth/server environment, and returns trimmed combined
+// output.
+func (d *agentDaemon) runWorkspaceGS(ctx context.Context, conv *agentConversation, args ...string) (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd.Dir = conv.workdir
+	cmd.Env = agentWorkspaceInitEnv(d.runner, d.cfg)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
 }
 
 func (d *agentDaemon) handleCancelConversation(cancel *corev1.CancelConversation) {

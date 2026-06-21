@@ -6006,3 +6006,31 @@ cd web && npx tsc --noEmit && npx vitest run && npm run build     # all ok
 # TestPatchsetConversationLink asserts patchset cutoffs (seq 2 then 3 across two
 # UpdateChangeset calls) and that GetConversationEvents returns the right ranges.
 ```
+
+## 2026-06-21: BYOA — Per-Turn Auto-Capture (Phase 4 complete)
+
+Goal: close out Phase 4 so an agent's edits automatically become a
+conversation-linked patchset without the user running gs by hand.
+
+Added a hidden `gs cs capture` command (`runChangesetCapture`): it snapshots the
+workspace edits, is a no-op when there are none (so it can run every turn), and
+either creates the changeset (first use) or adds a patchset, forwarding
+`WorkspaceConfig.ConversationID` so the patchset is linked. Also fixed
+`runChangesetCreate` to forward the conversation id on its embedded first
+patchset (previously unlinked).
+
+The daemon (`internal/cli/agent.go`) now calls `gs cs capture` after each
+successful turn via a new `runWorkspaceGS` helper, surfacing the result (e.g.
+"captured changeset X patchset N") as a system status event in the conversation.
+Capture is best-effort: failures become a status/error event rather than failing
+the turn. `guardChangesetCreate` rejects a second create on an existing draft, so
+capture detects an active draft changeset and updates it instead.
+
+Verification:
+```bash
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 -run TestChangesetCaptureCreatesThenUpdates ./tests/cli -v
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/cli ./tests/rpc
+go test ./...
+# capture is a no-op on a clean workspace, creates patchset 1 on first edits,
+# adds patchset 2 on the next edits (same changeset).
+```

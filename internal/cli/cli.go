@@ -1211,6 +1211,17 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 	csCreateCmd.Flags().StringVar(&createTitle, "title", createTitle, "changeset title")
+	captureTitle := "agent changeset"
+	csCaptureCmd := &cobra.Command{
+		Use:    "capture",
+		Short:  "Capture current workspace edits as a patchset (create or update)",
+		Hidden: true,
+		Args:   noArgs("gs cs capture [--title title]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetCapture(cmd.Context(), *opts, captureTitle)
+		},
+	}
+	csCaptureCmd.Flags().StringVar(&captureTitle, "title", captureTitle, "changeset title used when creating")
 	csUpdateCmd := &cobra.Command{
 		Use:   "update",
 		Short: "Create a new patchset for the current changeset",
@@ -1379,7 +1390,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	csListCmd.Flags().StringVar(&csListSlice, "slice", csListSlice, "authoring slice, defaults to current workspace slice")
 	csListCmd.Flags().StringVar(&csListStatus, "status", csListStatus, "status filter")
 	csListCmd.Flags().IntVar(&csListLimit, "limit", csListLimit, "maximum changesets to list")
-	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csConversationCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
+	csCmd.AddCommand(csCreateCmd, csCaptureCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csConversationCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
 
 	createMessage := ""
 	createParent := ""
@@ -5092,9 +5103,10 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 		return err
 	}
 	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
-		ChangesetId:  cs.Id,
-		BaseCommitId: state.BaseCommitID,
-		FileEdits:    edits,
+		ChangesetId:    cs.Id,
+		BaseCommitId:   state.BaseCommitID,
+		FileEdits:      edits,
+		ConversationId: ws.ConversationID,
 	})
 	if err != nil {
 		return err
@@ -5121,6 +5133,97 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	if webURL != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
 	}
+	return nil
+}
+
+// runChangesetCapture snapshots the current workspace edits and records them as a
+// patchset, creating the changeset on first use and adding a patchset thereafter.
+// It is a no-op when the workspace has no pending edits, so an agent daemon can
+// call it after every turn without producing empty patchsets. The conversation
+// link comes from the workspace config (WorkspaceConfig.ConversationID).
+func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, title string) error {
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+
+	edits, _, err := r.snapshotEdits(ctx, conn, cfg, ws, true)
+	if err != nil {
+		return err
+	}
+	if len(edits) == 0 {
+		if !opts.jsonOutput() && !opts.Quiet {
+			fmt.Fprintln(r.Stdout, "no changes to capture")
+		}
+		return nil
+	}
+
+	// Reuse the current draft changeset when one exists; otherwise create one.
+	reuse := false
+	if state.CurrentChangesetID != "" {
+		cs, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: state.CurrentChangesetID})
+		if err == nil {
+			switch cs.Status {
+			case "submitted", "abandoned":
+			default:
+				reuse = true
+			}
+		} else if grpcstatus.Code(err) != codes.NotFound {
+			return err
+		}
+	}
+
+	changesetID := state.CurrentChangesetID
+	expectedPatchsetID := state.CurrentPatchsetID
+	if !reuse {
+		cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
+			AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+			TargetRef:      postgres.DefaultTargetRef,
+			BaseCommitId:   state.BaseCommitID,
+			Title:          title,
+		})
+		if err != nil {
+			return err
+		}
+		changesetID = cs.Id
+		expectedPatchsetID = ""
+	}
+
+	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
+		ChangesetId:               changesetID,
+		ExpectedCurrentPatchsetId: expectedPatchsetID,
+		BaseCommitId:              state.BaseCommitID,
+		FileEdits:                 edits,
+		ConversationId:            ws.ConversationID,
+	})
+	if err != nil {
+		return err
+	}
+	state.CurrentChangesetID = changesetID
+	state.CurrentPatchsetID = patchset.Id
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+
+	label := firstNonEmpty(storage.ShortChangesetID(changesetID), changesetID)
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, changesetOutput{
+			ChangesetID:    changesetID,
+			PatchsetID:     patchset.Id,
+			PatchsetNumber: patchset.Number,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "captured changeset %s patchset %d\n", label, patchset.Number)
 	return nil
 }
 
