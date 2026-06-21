@@ -303,7 +303,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
                   </p>
                 </div>
               ) : (
-                <div className="mt-3 grid gap-2">
+                <div className="mt-3 grid grid-cols-1 gap-2">
                   {onlineDaemons.map((daemon) => (
                     <DaemonRow daemon={daemon} key={daemon.id ?? daemon.name} />
                   ))}
@@ -327,7 +327,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
                   No conversations yet.
                 </p>
               ) : (
-                <ul className="mt-3 grid gap-1.5">
+                <ul className="mt-3 grid grid-cols-1 gap-1.5">
                   {conversations.map((conversation) => {
                     const isSelected =
                       conversation.id === selectedConversationId;
@@ -430,16 +430,16 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
 function DaemonRow({ daemon }: { daemon: AgentDaemon }) {
   return (
     <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="min-w-0 truncate text-sm font-semibold text-zinc-950">
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 break-words text-sm font-semibold text-zinc-950">
           {daemon.name || daemon.id || "Unnamed agent"}
         </p>
-        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700">
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           online
         </span>
       </div>
-      <p className="mt-1 truncate font-mono text-xs text-slate-500">
+      <p className="mt-1 break-all font-mono text-xs text-slate-500">
         {daemon.runtime || "runtime"} {daemon.version || ""}
       </p>
     </div>
