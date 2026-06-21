@@ -180,6 +180,7 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
   const isUser = role === "user";
   const isAgent = role === "agent";
   const content = event.text || event.dataJson || event.type || "";
+  const capturedPatchset = parseCapturedPatchset(event);
 
   return (
     <article
@@ -205,7 +206,21 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
           <span className="text-slate-400">#{event.seq}</span>
         ) : null}
       </div>
-      {event.dataJson && !event.text ? (
+      {capturedPatchset ? (
+        <div className="grid gap-2">
+          <p className="font-medium text-zinc-950">
+            Captured patchset {capturedPatchset.patchsetNumber}
+          </p>
+          <a
+            className="inline-flex w-fit max-w-full items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-semibold text-zinc-900 underline decoration-slate-300 underline-offset-4 transition hover:border-slate-400 hover:decoration-slate-700 active:scale-[0.98]"
+            href={`/cs/${encodeURIComponent(capturedPatchset.changesetId)}`}
+          >
+            <span className="truncate">
+              changeset {capturedPatchset.changesetId}
+            </span>
+          </a>
+        </div>
+      ) : event.dataJson && !event.text ? (
         <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-100 p-2 font-mono text-xs text-slate-700">
           {event.dataJson}
         </pre>
@@ -260,4 +275,22 @@ function eventKey(event: ConversationEvent, index: number) {
 
 function hasSequence(event: ConversationEvent) {
   return event.seq !== undefined && event.seq !== "";
+}
+
+function parseCapturedPatchset(event: ConversationEvent) {
+  if (event.role !== "system" || event.type !== "status" || !event.text) {
+    return null;
+  }
+
+  const match = event.text
+    .trim()
+    .match(/^captured changeset ([^\s]+) patchset ([1-9][0-9]*)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    changesetId: match[1],
+    patchsetNumber: match[2]
+  };
 }

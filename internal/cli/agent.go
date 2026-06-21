@@ -110,34 +110,70 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 	agentCtx, cancel := context.WithCancel(signalCtx)
 	defer cancel()
 
-	conn, err := dial(agentCtx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	client := corev1.NewAgentServiceClient(conn)
-	stream, err := client.Connect(authContext(agentCtx, cfg))
-	if err != nil {
-		return err
-	}
-
-	sendQueue := newAgentSendQueue(agentCtx, stream, agentSendBuffer)
 	daemon := &agentDaemon{
 		runner:        r,
 		cfg:           cfg,
 		runtime:       runtime,
 		workingDir:    root,
-		sendQueue:     sendQueue,
 		conversations: map[string]*agentConversation{},
 	}
 	defer func() {
 		daemon.cancelAll()
 		cancel()
-		_ = sendQueue.wait()
 	}()
 
-	if err := sendQueue.send(agentCtx, registerDaemonMessage(in.Name, runtimeName)); err != nil {
+	reportedOnline := false
+	for {
+		err := daemon.serveAgentConnection(agentCtx, opts, in.Name, runtimeName, !reportedOnline)
+		if err == nil {
+			return nil
+		}
+		if agentCtx.Err() != nil {
+			return nil
+		}
+		reportedOnline = true
+		if !opts.Quiet {
+			fmt.Fprintf(r.stderr(), "agent stream disconnected: %v; reconnecting...\n", err)
+		}
+		select {
+		case <-agentCtx.Done():
+			return nil
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOptions, name, runtimeName string, reportOnline bool) error {
+	conn, err := dial(ctx, d.cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	connCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	client := corev1.NewAgentServiceClient(conn)
+	stream, err := client.Connect(authContext(connCtx, d.cfg))
+	if err != nil {
+		return err
+	}
+
+	sendQueue := newAgentSendQueue(connCtx, stream, agentSendBuffer)
+	d.mu.Lock()
+	d.sendQueue = sendQueue
+	d.mu.Unlock()
+	defer func() {
+		cancel()
+		_ = sendQueue.wait()
+		d.mu.Lock()
+		if d.sendQueue == sendQueue {
+			d.sendQueue = nil
+		}
+		d.mu.Unlock()
+	}()
+
+	if err := sendQueue.send(connCtx, registerDaemonMessage(name, runtimeName)); err != nil {
 		return err
 	}
 	registered, err := stream.Recv()
@@ -148,25 +184,24 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 	if ack == nil || strings.TrimSpace(ack.GetDaemonId()) == "" {
 		return userError("agent_protocol_error", "server did not acknowledge agent daemon registration", "Try restarting the daemon.")
 	}
-	if opts.jsonOutput() {
-		if err := r.writeJSONOutput(opts, map[string]string{
+	if reportOnline && opts.jsonOutput() {
+		if err := d.runner.writeJSONOutput(opts, map[string]string{
 			"daemon_id": ack.GetDaemonId(),
 			"status":    "online",
 		}); err != nil {
 			return err
 		}
-	} else if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "agent daemon %s online\n", ack.GetDaemonId())
+	} else if reportOnline && !opts.Quiet {
+		fmt.Fprintf(d.runner.Stdout, "agent daemon %s online\n", ack.GetDaemonId())
 	}
 
-	go daemon.runHeartbeat(agentCtx, cancel)
+	go d.runHeartbeat(connCtx, cancel)
 
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
-			clean := agentStreamEndedCleanly(signalCtx, err)
 			cancel()
-			if clean {
+			if agentStreamEndedCleanly(ctx, err) {
 				return nil
 			}
 			if queueErr := sendQueue.err(); queueErr != nil && !errors.Is(queueErr, context.Canceled) {
@@ -174,7 +209,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 			}
 			return err
 		}
-		daemon.handleServerMessage(agentCtx, cancel, msg)
+		d.handleServerMessage(connCtx, cancel, msg)
 	}
 }
 
@@ -270,7 +305,7 @@ func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.Ca
 	case *corev1.ServerMessage_Cancel:
 		d.handleCancelConversation(payload.Cancel)
 	case *corev1.ServerMessage_Ping:
-		if err := d.sendQueue.send(ctx, heartbeatDaemonMessage()); err != nil {
+		if err := d.sendDaemonMessage(ctx, heartbeatDaemonMessage()); err != nil {
 			cancel()
 		}
 	}
@@ -284,7 +319,7 @@ func (d *agentDaemon) runHeartbeat(ctx context.Context, cancel context.CancelFun
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := d.sendQueue.send(ctx, heartbeatDaemonMessage()); err != nil {
+			if err := d.sendDaemonMessage(ctx, heartbeatDaemonMessage()); err != nil {
 				cancel()
 				return
 			}
@@ -477,9 +512,19 @@ func (d *agentDaemon) hydrateWorkspace(ctx context.Context, conv *agentConversat
 }
 
 func (d *agentDaemon) sendAgentEvent(ctx context.Context, event *corev1.AgentEvent) error {
-	return d.sendQueue.send(ctx, &corev1.DaemonMessage{
+	return d.sendDaemonMessage(ctx, &corev1.DaemonMessage{
 		Payload: &corev1.DaemonMessage_Event{Event: event},
 	})
+}
+
+func (d *agentDaemon) sendDaemonMessage(ctx context.Context, msg *corev1.DaemonMessage) error {
+	d.mu.Lock()
+	sendQueue := d.sendQueue
+	d.mu.Unlock()
+	if sendQueue == nil {
+		return context.Canceled
+	}
+	return sendQueue.send(ctx, msg)
 }
 
 func (d *agentDaemon) sendSystemError(ctx context.Context, conversationID string, err error) {

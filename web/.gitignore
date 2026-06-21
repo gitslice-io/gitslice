@@ -4,3 +4,6 @@ dist/
 .tanstack/
 .wrangler/
 *.tsbuildinfo
+
+# clerk configuration (can include secrets)
+/.clerk/
