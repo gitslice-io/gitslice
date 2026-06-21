@@ -152,6 +152,49 @@ describe("AgentConversation", () => {
     // contract is "click Reconnect, get fresh events".
     expect(vi.mocked(api.streamConversation).mock.calls.length).toBeGreaterThan(1);
   });
+
+  it("preserves an in-progress draft across a Reconnect", async () => {
+    let attempts = 0;
+    const api = {
+      sendAgentMessage: vi.fn(),
+      streamConversation: vi.fn(async function* (
+        _request: { conversationId: string; afterSeq: number },
+        signal: AbortSignal
+      ) {
+        attempts += 1;
+        if (attempts === 1) {
+          if (!signal.aborted) {
+            throw new Error("stream exploded");
+          }
+          return;
+        }
+        // Second attempt: keep the stream open (no events) so the draft the
+        // user typed before reconnecting is the only thing under test.
+      })
+    } as unknown as ApiClient;
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    // Type a draft while the stream is errored, then reconnect.
+    const reconnect = await screen.findByRole("button", { name: "Reconnect" });
+    const textarea = screen.getByPlaceholderText(
+      "Ask the agent to inspect or edit this slice"
+    );
+    fireEvent.change(textarea, { target: { value: "half-written prompt" } });
+    fireEvent.click(reconnect);
+
+    // The reconnect must not wipe the user's unsent text.
+    await waitFor(() =>
+      expect(vi.mocked(api.streamConversation).mock.calls.length).toBeGreaterThan(1)
+    );
+    expect(textarea).toHaveValue("half-written prompt");
+  });
 });
 
 function makeApi(events: ConversationEvent[]) {

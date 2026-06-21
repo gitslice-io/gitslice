@@ -75,6 +75,18 @@ suite passed (5 files, 20 tests), TypeScript build was clean, and the
 production build completed with only the pre-existing Vite/Nitro large-chunk
 warnings.
 
+Review follow-up (effect split): the first cut bundled the conversation-switch
+resets (`setEvents`/`setDraft`/`setStreamError`) and the `retryKey` reset into
+the same stream effect keyed on `[api, conversationId, retryKey]`. That had two
+defects: clicking **Reconnect** (which bumps `retryKey`) re-ran the effect and
+wiped the user's in-progress draft, and `setRetryKey(0)` *inside* that effect
+made one click toggle `0→1→0`, spinning up and immediately aborting an extra
+stream. Fixed by splitting into two effects — a reset keyed on `[conversationId]`
+(clears transcript/draft/errors, leaves `retryKey` alone) and the stream keyed on
+`[api, conversationId, retryKey]` with no state resets. `retryKey` is now a
+monotonic nonce that only ever increments. Added a regression test asserting the
+draft survives a Reconnect. Full web suite now 5 files / 21 tests.
+
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 

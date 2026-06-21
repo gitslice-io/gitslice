@@ -48,14 +48,20 @@ export function AgentConversation({
     [events]
   );
 
+  // Reset transcript state only when the conversation actually changes. This is
+  // deliberately separate from the stream effect below so that a Reconnect
+  // (which bumps retryKey) re-attaches the stream without wiping the user's
+  // in-progress draft or the partial transcript already on screen.
   useEffect(() => {
     setEvents([]);
     setStreamError("");
     setSendError("");
     setDraft("");
-    setRetryKey(0);
     // When switching conversations, treat the new view as "stick to bottom".
     stickToBottomRef.current = true;
+  }, [conversationId]);
+
+  useEffect(() => {
     const controller = new AbortController();
 
     async function readStream() {
