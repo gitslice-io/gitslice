@@ -37,6 +37,7 @@ import { StackDetailPage } from "./StackDetailPage";
 import { StackRestackPage } from "./StackRestackPage";
 import { StackSubmitPage } from "./StackSubmitPage";
 import { StacksPage } from "./StacksPage";
+import { parseSliceSearch } from "./stackPageUtils";
 
 interface RouterContext {
   getDehydratedQueryState: () => DehydratedState | undefined;
@@ -190,6 +191,21 @@ const sliceCreateRoute = createRoute({
 const sliceDetailRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice",
+  loader: async ({ context, params }) => {
+    if (import.meta.env.SSR && params.account && params.slice) {
+      try {
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        const ref = { account: params.account, slice: params.slice };
+        await context.queryClient.ensureQueryData({
+          queryKey: ["sliceRef", params.account, params.slice],
+          queryFn: () => api.resolveSlice({ ref })
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
   component: SliceDetailPage
 });
 
@@ -204,6 +220,28 @@ const sliceSettingsRoute = createRoute({
 const changesetsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "changesets",
+  loaderDeps: ({ search }) => ({
+    slice: (search as { slice?: unknown }).slice
+  }),
+  loader: async ({ context, deps }) => {
+    if (import.meta.env.SSR) {
+      const sliceRef = parseSliceSearch(deps.slice);
+      if (sliceRef) {
+        try {
+          const { createServerApiClient } = await import("../api/serverApi");
+          const api = await createServerApiClient();
+          const { account, slice } = sliceRef;
+          await context.queryClient.ensureQueryData({
+            queryKey: ["changesets", account, slice],
+            queryFn: () =>
+              api.listChangesets({ authoringSlice: { account, slice } })
+          });
+        } catch {
+          // The component keeps the existing client-side load/error behavior.
+        }
+      }
+    }
+  },
   component: ChangesetsPage
 });
 
