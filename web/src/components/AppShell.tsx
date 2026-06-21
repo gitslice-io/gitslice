@@ -10,7 +10,7 @@ export function AppShell() {
   return (
     <div className="min-h-[100dvh] bg-slate-50 text-zinc-900">
       <TopBar />
-      <main className="px-4 py-6 md:px-8 md:py-8">
+      <main className="px-2 py-6 sm:px-4 md:px-8 md:py-8">
         <Outlet />
       </main>
     </div>
