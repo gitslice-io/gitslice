@@ -308,7 +308,7 @@ function RestackResult({ entries }: { entries: Changeset[] }) {
           <h3 className="text-sm font-semibold text-rose-950">
             Conflict details
           </h3>
-          <div className="mt-3 grid gap-3">
+          <div className="mt-3 grid grid-cols-1 gap-3">
             {conflictRows.map(({ changeset, conflict }, index) => (
               <RestackConflictDetail
                 changeset={changeset}

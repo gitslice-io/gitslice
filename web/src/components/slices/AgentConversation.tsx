@@ -346,7 +346,7 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
         ) : null}
       </div>
       {capturedPatchset ? (
-        <div className="grid gap-2">
+        <div className="grid grid-cols-1 gap-2">
           <p className="font-medium text-zinc-950">
             Captured patchset {capturedPatchset.patchsetNumber}
           </p>

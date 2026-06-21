@@ -383,7 +383,7 @@ export function DiffViewer({
                 onSelect={selectFile}
               />
             </aside>
-            <div className="grid min-w-0 gap-3 md:gap-4">
+            <div className="grid grid-cols-1 min-w-0 gap-3 md:gap-4">
               {files.map((file) => (
                 <DiffFilePanel
                   file={file}
