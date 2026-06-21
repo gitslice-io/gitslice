@@ -1,6 +1,6 @@
 import { Link, useParams } from "@tanstack/react-router";
 
-type DocSection = "start" | "concepts" | "git-users" | "cli";
+type DocSection = "start" | "concepts" | "agents" | "git-users" | "cli";
 
 interface DocParams {
   section?: string;
@@ -20,6 +20,11 @@ const docSections: Array<{
     id: "concepts",
     title: "Concepts",
     description: "How accounts, slices, workspaces, changesets, and commits fit."
+  },
+  {
+    id: "agents",
+    title: "Agents",
+    description: "Run your own coding agent and drive it from a slice."
   },
   {
     id: "git-users",
@@ -177,6 +182,21 @@ const commandGroups = [
       ["gs slice update", "Change included paths or policy."],
       ["gs slice history", "Inspect slice definition versions."]
     ]
+  },
+  {
+    title: "Agents",
+    commands: [
+      [
+        "gs agent start",
+        "Run a local agent daemon in an empty directory (codex runtime)."
+      ],
+      ["gs agent status", "List your agent daemons and whether they are online."],
+      ["gs agent stop", "How to stop a running daemon (Ctrl-C)."],
+      [
+        "gs cs conversation",
+        "Show the agent conversation that produced each patchset."
+      ]
+    ]
   }
 ];
 
@@ -187,6 +207,7 @@ function docPath(section: DocSection) {
 function normalizeSection(value: string | undefined): DocSection {
   if (
     value === "concepts" ||
+    value === "agents" ||
     value === "git-users" ||
     value === "cli"
   ) {
@@ -254,6 +275,7 @@ export function DocPage() {
       <div className="min-w-0">
         {section === "start" ? <StartHereDoc /> : null}
         {section === "concepts" ? <ConceptsDoc /> : null}
+        {section === "agents" ? <AgentsDoc /> : null}
         {section === "git-users" ? <GitUsersDoc /> : null}
         {section === "cli" ? <CliReferenceDoc /> : null}
       </div>
@@ -377,6 +399,104 @@ function ConceptsDoc() {
             ))}
           </div>
         </div>
+      </section>
+    </div>
+  );
+}
+
+function AgentsDoc() {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Gitslice docs"
+        title="Agents"
+        description="Bring your own coding agent. Run an agent daemon on your machine and drive it from a slice's Agents page; each conversation works in its own slice workspace, and its edits land as a normal changeset."
+      />
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
+        <h2 className="text-base font-semibold text-zinc-950">How it works</h2>
+        <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+          <li>
+            <span className="font-semibold text-zinc-950">Daemon:</span> you run{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              gs agent start
+            </code>{" "}
+            in an empty directory. It holds one outbound connection to the server,
+            so it works from behind a firewall with no inbound ports.
+          </li>
+          <li>
+            <span className="font-semibold text-zinc-950">Runtime:</span> the
+            first supported agent is the{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              codex
+            </code>{" "}
+            CLI, which must be installed and on your PATH.
+          </li>
+          <li>
+            <span className="font-semibold text-zinc-950">Conversations:</span>{" "}
+            open a slice&apos;s Agents page and start a conversation. Each one runs
+            in its own workspace sub-directory bound to that slice, so multiple
+            conversations stay isolated.
+          </li>
+          <li>
+            <span className="font-semibold text-zinc-950">Changesets:</span> after
+            each turn the agent&apos;s edits are captured as a patchset on a
+            changeset for the slice — linked back to the exact conversation that
+            produced it.
+          </li>
+        </ul>
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
+        <h2 className="text-base font-semibold text-zinc-950">Get started</h2>
+        <ol className="mt-4 space-y-5">
+          {[
+            {
+              title: "Start a daemon",
+              description:
+                "Sign in once, then start the daemon in a fresh, empty directory. It stays online while the process runs.",
+              command: "gs auth login\nmkdir my-agent && cd my-agent\ngs agent start"
+            },
+            {
+              title: "Open the Agents page",
+              description:
+                "On any slice you can write, use the Agents link in the header (next to Changesets and Settings) and start a conversation against your online daemon.",
+              command: undefined
+            },
+            {
+              title: "Review the result",
+              description:
+                "As the agent works, its edits land as patchsets. Open the changeset to see each patchset alongside the conversation that produced it, or use the CLI.",
+              command: "gs cs conversation <changeset>"
+            }
+          ].map((step, index) => (
+            <li className="flex gap-3 text-sm leading-6" key={step.title}>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+                {index + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold text-zinc-950">{step.title}</h3>
+                <p className="mt-1 text-slate-600">{step.description}</p>
+                {step.command ? (
+                  <CommandBlock>{step.command}</CommandBlock>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="mt-8 grid gap-4 md:grid-cols-2">
+        <NextDocCard
+          description="Look up the gs agent and conversation commands."
+          section="cli"
+          title="CLI reference"
+        />
+        <NextDocCard
+          description="Understand slices, workspaces, and changesets first."
+          section="concepts"
+          title="Core concepts"
+        />
       </section>
     </div>
   );
