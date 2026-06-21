@@ -1179,7 +1179,7 @@ function shortPatchsetId(patchsetId: string) {
   return patchsetId.replace(/^ps_/, "").slice(0, 12);
 }
 
-function sortedPatchsets(changeset?: Changeset) {
+export function sortedPatchsets(changeset?: Changeset) {
   return [...(changeset?.patchsets || [])].sort((left, right) => {
     const leftNumber = numericPatchsetNumber(left);
     const rightNumber = numericPatchsetNumber(right);

@@ -20,8 +20,9 @@ import appCss from "../index.css?url";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
+import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { SelectionProvider, useSelection } from "../state/selection";
-import { ChangesetDetailPage } from "./ChangesetDetailPage";
+import { ChangesetDetailPage, sortedPatchsets } from "./ChangesetDetailPage";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
 import { CliLoginPage } from "./CliLoginPage";
@@ -37,7 +38,11 @@ import { StackDetailPage } from "./StackDetailPage";
 import { StackRestackPage } from "./StackRestackPage";
 import { StackSubmitPage } from "./StackSubmitPage";
 import { StacksPage } from "./StacksPage";
-import { parseSliceSearch } from "./stackPageUtils";
+import {
+  entryByChangesetId,
+  parseSliceSearch,
+  sortedStackEntries
+} from "./stackPageUtils";
 
 interface RouterContext {
   getDehydratedQueryState: () => DehydratedState | undefined;
@@ -197,10 +202,25 @@ const sliceDetailRoute = createRoute({
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
         const ref = { account: params.account, slice: params.slice };
-        await context.queryClient.ensureQueryData({
-          queryKey: ["sliceRef", params.account, params.slice],
-          queryFn: () => api.resolveSlice({ ref })
-        });
+        // The default view resolves the slice and the latest global ref (which
+        // yields the commit the file tree renders from); both fire on first
+        // paint and have no derived inputs, so prefetch them together.
+        await Promise.all([
+          context.queryClient.ensureQueryData({
+            queryKey: ["sliceRef", params.account, params.slice],
+            queryFn: () => api.resolveSlice({ ref })
+          }),
+          context.queryClient.ensureQueryData({
+            queryKey: ["globalRef", GLOBAL_REF_NAME],
+            queryFn: async () => {
+              const latest = await api.getRef({ refName: GLOBAL_REF_NAME });
+              if (!latest.commitId) {
+                throw new Error("Latest global state did not return a commit id.");
+              }
+              return latest;
+            }
+          })
+        ]);
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -218,10 +238,18 @@ const sliceSettingsRoute = createRoute({
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
         const ref = { account: params.account, slice: params.slice };
-        await context.queryClient.ensureQueryData({
-          queryKey: ["sliceRef", params.account, params.slice],
-          queryFn: () => api.resolveSlice({ ref })
-        });
+        // Settings resolves the slice and (in the definition form) the latest
+        // global ref; both render on first paint.
+        await Promise.all([
+          context.queryClient.ensureQueryData({
+            queryKey: ["sliceRef", params.account, params.slice],
+            queryFn: () => api.resolveSlice({ ref })
+          }),
+          context.queryClient.ensureQueryData({
+            queryKey: ["globalRef", GLOBAL_REF_NAME],
+            queryFn: () => api.getRef({ refName: GLOBAL_REF_NAME })
+          })
+        ]);
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -303,15 +331,40 @@ const stackCreateRoute = createRoute({
 const stackDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "dependencies/$id",
-  loader: async ({ context, params }) => {
+  loaderDeps: ({ search }) => ({
+    entry: (search as { entry?: unknown }).entry
+  }),
+  loader: async ({ context, params, deps }) => {
     if (import.meta.env.SSR && params.id) {
       try {
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData({
+        const stack = await context.queryClient.ensureQueryData({
           queryKey: ["stack", params.id],
           queryFn: () => api.getStack({ stackId: params.id })
         });
+        // Mirror the component's entry selection so the diff it renders by
+        // default is prefilled under the same key.
+        const entries = sortedStackEntries(stack);
+        const defaultEntryId =
+          stack.activeEntryId ||
+          stack.rootEntryId ||
+          entries[0]?.changesetId ||
+          "";
+        const requestedEntryId =
+          typeof deps.entry === "string" ? deps.entry : "";
+        const selectedEntry =
+          entryByChangesetId(entries, requestedEntryId || defaultEntryId) ??
+          entries[0] ??
+          null;
+        const selectedChangesetId = selectedEntry?.changesetId ?? "";
+        if (selectedChangesetId) {
+          await context.queryClient.ensureQueryData({
+            queryKey: ["stackEntryDiff", params.id, selectedChangesetId],
+            queryFn: () =>
+              api.diffChangeset({ changesetId: selectedChangesetId })
+          });
+        }
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -341,10 +394,43 @@ const changesetShortRoute = createRoute({
       try {
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData({
+        const changeset = await context.queryClient.ensureQueryData({
           queryKey: ["changeset", params.id],
           queryFn: () => api.getChangeset({ changesetId: params.id })
         });
+        // The diff is the page's primary content; the slice's changesets back
+        // the dependent-changeset list. Both render on first paint and derive
+        // only from the changeset just fetched, so prefill them under the same
+        // keys the component uses.
+        const canonicalChangesetId = changeset.id || params.id;
+        const patchsets = sortedPatchsets(changeset);
+        const toPatchset =
+          changeset.currentPatchsetId ||
+          patchsets[patchsets.length - 1]?.id ||
+          "";
+        const authoringSlice = changeset.authoringSlice;
+        await Promise.all([
+          context.queryClient.ensureQueryData({
+            queryKey: ["changesetDiff", canonicalChangesetId, "", toPatchset],
+            queryFn: () =>
+              api.diffChangeset({
+                changesetId: canonicalChangesetId,
+                fromPatchset: undefined,
+                toPatchset: toPatchset || undefined
+              })
+          }),
+          authoringSlice?.account && authoringSlice?.slice
+            ? context.queryClient.ensureQueryData({
+                queryKey: [
+                  "changesetsBySlice",
+                  authoringSlice.account,
+                  authoringSlice.slice
+                ],
+                queryFn: () =>
+                  api.listChangesets({ authoringSlice, limit: 200 })
+              })
+            : Promise.resolve(undefined)
+        ]);
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
