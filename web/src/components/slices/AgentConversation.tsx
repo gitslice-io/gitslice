@@ -192,7 +192,7 @@ export function AgentConversation({
             </div>
           </div>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {conversationItems.map((item, index) =>
               item.kind === "trace" ? (
                 <ConversationTraceGroup
@@ -288,7 +288,7 @@ function ConversationTraceGroup({ events }: { events: ConversationEvent[] }) {
           details
         </span>
       </summary>
-      <div className="grid gap-2 border-t border-slate-100 bg-slate-50/70 p-3">
+      <div className="grid grid-cols-1 gap-2 border-t border-slate-100 bg-slate-50/70 p-3">
         {events.map((event, index) => (
           <div
             className="rounded-md bg-white p-2 shadow-sm shadow-slate-200/50"
