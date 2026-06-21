@@ -1500,12 +1500,14 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		insert into patchsets(
 			id, changeset_id, number, base_commit_id, author_subject_id, file_edits,
 			changed_paths, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements,
-			base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id, created_at
+			base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id, created_at,
+			authoring_conversation_id, authoring_conversation_seq
 		)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 	`, patchset.Id, changesetID, patchset.Number, patchset.BaseCommitId, patchset.Author,
 		fileEditsJSON, changedJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON, patchset.Kind, submitRequirementsJSON,
-		patchset.BaseKind, nullString(patchset.BasePatchsetId), nullString(patchset.BaseTreeId), nullString(patchset.ResultTreeId), nullString(patchset.StackParentPatchsetId), createdAt)
+		patchset.BaseKind, nullString(patchset.BasePatchsetId), nullString(patchset.BaseTreeId), nullString(patchset.ResultTreeId), nullString(patchset.StackParentPatchsetId), createdAt,
+		nullString(patchset.AuthoringConversationId), patchset.AuthoringConversationSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -2835,7 +2837,8 @@ func (s *ChangesetStore) listPatchsets(ctx context.Context, changesetID string) 
 	rows, err := s.db.QueryContext(ctx, `
 		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
 		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements,
-		       base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id
+		       base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id,
+		       authoring_conversation_id, authoring_conversation_seq
 		from patchsets
 		where changeset_id = $1
 		order by number
@@ -2859,7 +2862,8 @@ func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.
 	row := tx.QueryRowContext(ctx, `
 		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
 		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements,
-		       base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id
+		       base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id,
+		       authoring_conversation_id, authoring_conversation_seq
 		from patchsets
 		where id = $1
 	`, patchsetID)
@@ -2869,12 +2873,13 @@ func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.
 func scanPatchset(row scanner) (*corev1.Patchset, error) {
 	var patchset corev1.Patchset
 	var changedJSON, fileEditsJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON, submitRequirementsJSON []byte
-	var basePatchsetID, baseTreeID, resultTreeID, stackParentPatchsetID sql.NullString
+	var basePatchsetID, baseTreeID, resultTreeID, stackParentPatchsetID, authoringConversationID sql.NullString
 	var createdAt time.Time
 	err := row.Scan(&patchset.Id, &patchset.ChangesetId, &patchset.Number, &patchset.BaseCommitId,
 		&patchset.Author, &createdAt, &changedJSON, &fileEditsJSON, &coverageJSON,
 		&pathBasesJSON, &readSetJSON, &writeSetJSON, &conflictsJSON, &patchset.Kind, &submitRequirementsJSON,
-		&patchset.BaseKind, &basePatchsetID, &baseTreeID, &resultTreeID, &stackParentPatchsetID)
+		&patchset.BaseKind, &basePatchsetID, &baseTreeID, &resultTreeID, &stackParentPatchsetID,
+		&authoringConversationID, &patchset.AuthoringConversationSeq)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -2913,6 +2918,9 @@ func scanPatchset(row scanner) (*corev1.Patchset, error) {
 	}
 	if stackParentPatchsetID.Valid {
 		patchset.StackParentPatchsetId = stackParentPatchsetID.String
+	}
+	if authoringConversationID.Valid {
+		patchset.AuthoringConversationId = authoringConversationID.String
 	}
 	return &patchset, nil
 }

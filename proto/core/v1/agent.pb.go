@@ -1489,6 +1489,120 @@ func (x *StreamConversationRequest) GetAfterSeq() int64 {
 	return 0
 }
 
+type GetConversationEventsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	// Returns events with after_seq < seq <= before_seq. before_seq <= 0 means no
+	// upper bound.
+	AfterSeq      int64 `protobuf:"varint,2,opt,name=after_seq,json=afterSeq,proto3" json:"after_seq,omitempty"`
+	BeforeSeq     int64 `protobuf:"varint,3,opt,name=before_seq,json=beforeSeq,proto3" json:"before_seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConversationEventsRequest) Reset() {
+	*x = GetConversationEventsRequest{}
+	mi := &file_proto_core_v1_agent_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConversationEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConversationEventsRequest) ProtoMessage() {}
+
+func (x *GetConversationEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_agent_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConversationEventsRequest.ProtoReflect.Descriptor instead.
+func (*GetConversationEventsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *GetConversationEventsRequest) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *GetConversationEventsRequest) GetAfterSeq() int64 {
+	if x != nil {
+		return x.AfterSeq
+	}
+	return 0
+}
+
+func (x *GetConversationEventsRequest) GetBeforeSeq() int64 {
+	if x != nil {
+		return x.BeforeSeq
+	}
+	return 0
+}
+
+type GetConversationEventsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Conversation  *Conversation          `protobuf:"bytes,1,opt,name=conversation,proto3" json:"conversation,omitempty"`
+	Events        []*ConversationEvent   `protobuf:"bytes,2,rep,name=events,proto3" json:"events,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConversationEventsResponse) Reset() {
+	*x = GetConversationEventsResponse{}
+	mi := &file_proto_core_v1_agent_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConversationEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConversationEventsResponse) ProtoMessage() {}
+
+func (x *GetConversationEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_agent_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConversationEventsResponse.ProtoReflect.Descriptor instead.
+func (*GetConversationEventsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *GetConversationEventsResponse) GetConversation() *Conversation {
+	if x != nil {
+		return x.Conversation
+	}
+	return nil
+}
+
+func (x *GetConversationEventsResponse) GetEvents() []*ConversationEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
 var File_proto_core_v1_agent_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_agent_proto_rawDesc = "" +
@@ -1594,7 +1708,15 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x05event\x18\x01 \x01(\v2#.gitslice.core.v1.ConversationEventR\x05event\"a\n" +
 	"\x19StreamConversationRequest\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x1b\n" +
-	"\tafter_seq\x18\x02 \x01(\x03R\bafterSeq2\xbe\x05\n" +
+	"\tafter_seq\x18\x02 \x01(\x03R\bafterSeq\"\x83\x01\n" +
+	"\x1cGetConversationEventsRequest\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x1b\n" +
+	"\tafter_seq\x18\x02 \x01(\x03R\bafterSeq\x12\x1d\n" +
+	"\n" +
+	"before_seq\x18\x03 \x01(\x03R\tbeforeSeq\"\xa0\x01\n" +
+	"\x1dGetConversationEventsResponse\x12B\n" +
+	"\fconversation\x18\x01 \x01(\v2\x1e.gitslice.core.v1.ConversationR\fconversation\x12;\n" +
+	"\x06events\x18\x02 \x03(\v2#.gitslice.core.v1.ConversationEventR\x06events2\xb8\x06\n" +
 	"\fAgentService\x12O\n" +
 	"\aConnect\x12\x1f.gitslice.core.v1.DaemonMessage\x1a\x1f.gitslice.core.v1.ServerMessage(\x010\x01\x12Z\n" +
 	"\vListDaemons\x12$.gitslice.core.v1.ListDaemonsRequest\x1a%.gitslice.core.v1.ListDaemonsResponse\x12a\n" +
@@ -1602,7 +1724,8 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x11ListConversations\x12*.gitslice.core.v1.ListConversationsRequest\x1a+.gitslice.core.v1.ListConversationsResponse\x12[\n" +
 	"\x0fGetConversation\x12(.gitslice.core.v1.GetConversationRequest\x1a\x1e.gitslice.core.v1.Conversation\x12i\n" +
 	"\x10SendAgentMessage\x12).gitslice.core.v1.SendAgentMessageRequest\x1a*.gitslice.core.v1.SendAgentMessageResponse\x12h\n" +
-	"\x12StreamConversation\x12+.gitslice.core.v1.StreamConversationRequest\x1a#.gitslice.core.v1.ConversationEvent0\x01B6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x12StreamConversation\x12+.gitslice.core.v1.StreamConversationRequest\x1a#.gitslice.core.v1.ConversationEvent0\x01\x12x\n" +
+	"\x15GetConversationEvents\x12..gitslice.core.v1.GetConversationEventsRequest\x1a/.gitslice.core.v1.GetConversationEventsResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_agent_proto_rawDescOnce sync.Once
@@ -1616,35 +1739,37 @@ func file_proto_core_v1_agent_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_agent_proto_rawDescData
 }
 
-var file_proto_core_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_proto_core_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_proto_core_v1_agent_proto_goTypes = []any{
-	(*AgentDaemon)(nil),               // 0: gitslice.core.v1.AgentDaemon
-	(*Conversation)(nil),              // 1: gitslice.core.v1.Conversation
-	(*ConversationEvent)(nil),         // 2: gitslice.core.v1.ConversationEvent
-	(*DaemonMessage)(nil),             // 3: gitslice.core.v1.DaemonMessage
-	(*RegisterDaemon)(nil),            // 4: gitslice.core.v1.RegisterDaemon
-	(*Heartbeat)(nil),                 // 5: gitslice.core.v1.Heartbeat
-	(*AgentEvent)(nil),                // 6: gitslice.core.v1.AgentEvent
-	(*ConversationStarted)(nil),       // 7: gitslice.core.v1.ConversationStarted
-	(*ServerMessage)(nil),             // 8: gitslice.core.v1.ServerMessage
-	(*DaemonRegistered)(nil),          // 9: gitslice.core.v1.DaemonRegistered
-	(*StartConversation)(nil),         // 10: gitslice.core.v1.StartConversation
-	(*DeliverUserMessage)(nil),        // 11: gitslice.core.v1.DeliverUserMessage
-	(*CancelConversation)(nil),        // 12: gitslice.core.v1.CancelConversation
-	(*Ping)(nil),                      // 13: gitslice.core.v1.Ping
-	(*ListDaemonsRequest)(nil),        // 14: gitslice.core.v1.ListDaemonsRequest
-	(*ListDaemonsResponse)(nil),       // 15: gitslice.core.v1.ListDaemonsResponse
-	(*CreateConversationRequest)(nil), // 16: gitslice.core.v1.CreateConversationRequest
-	(*ListConversationsRequest)(nil),  // 17: gitslice.core.v1.ListConversationsRequest
-	(*ListConversationsResponse)(nil), // 18: gitslice.core.v1.ListConversationsResponse
-	(*GetConversationRequest)(nil),    // 19: gitslice.core.v1.GetConversationRequest
-	(*SendAgentMessageRequest)(nil),   // 20: gitslice.core.v1.SendAgentMessageRequest
-	(*SendAgentMessageResponse)(nil),  // 21: gitslice.core.v1.SendAgentMessageResponse
-	(*StreamConversationRequest)(nil), // 22: gitslice.core.v1.StreamConversationRequest
-	(*SliceRef)(nil),                  // 23: gitslice.core.v1.SliceRef
+	(*AgentDaemon)(nil),                   // 0: gitslice.core.v1.AgentDaemon
+	(*Conversation)(nil),                  // 1: gitslice.core.v1.Conversation
+	(*ConversationEvent)(nil),             // 2: gitslice.core.v1.ConversationEvent
+	(*DaemonMessage)(nil),                 // 3: gitslice.core.v1.DaemonMessage
+	(*RegisterDaemon)(nil),                // 4: gitslice.core.v1.RegisterDaemon
+	(*Heartbeat)(nil),                     // 5: gitslice.core.v1.Heartbeat
+	(*AgentEvent)(nil),                    // 6: gitslice.core.v1.AgentEvent
+	(*ConversationStarted)(nil),           // 7: gitslice.core.v1.ConversationStarted
+	(*ServerMessage)(nil),                 // 8: gitslice.core.v1.ServerMessage
+	(*DaemonRegistered)(nil),              // 9: gitslice.core.v1.DaemonRegistered
+	(*StartConversation)(nil),             // 10: gitslice.core.v1.StartConversation
+	(*DeliverUserMessage)(nil),            // 11: gitslice.core.v1.DeliverUserMessage
+	(*CancelConversation)(nil),            // 12: gitslice.core.v1.CancelConversation
+	(*Ping)(nil),                          // 13: gitslice.core.v1.Ping
+	(*ListDaemonsRequest)(nil),            // 14: gitslice.core.v1.ListDaemonsRequest
+	(*ListDaemonsResponse)(nil),           // 15: gitslice.core.v1.ListDaemonsResponse
+	(*CreateConversationRequest)(nil),     // 16: gitslice.core.v1.CreateConversationRequest
+	(*ListConversationsRequest)(nil),      // 17: gitslice.core.v1.ListConversationsRequest
+	(*ListConversationsResponse)(nil),     // 18: gitslice.core.v1.ListConversationsResponse
+	(*GetConversationRequest)(nil),        // 19: gitslice.core.v1.GetConversationRequest
+	(*SendAgentMessageRequest)(nil),       // 20: gitslice.core.v1.SendAgentMessageRequest
+	(*SendAgentMessageResponse)(nil),      // 21: gitslice.core.v1.SendAgentMessageResponse
+	(*StreamConversationRequest)(nil),     // 22: gitslice.core.v1.StreamConversationRequest
+	(*GetConversationEventsRequest)(nil),  // 23: gitslice.core.v1.GetConversationEventsRequest
+	(*GetConversationEventsResponse)(nil), // 24: gitslice.core.v1.GetConversationEventsResponse
+	(*SliceRef)(nil),                      // 25: gitslice.core.v1.SliceRef
 }
 var file_proto_core_v1_agent_proto_depIdxs = []int32{
-	23, // 0: gitslice.core.v1.Conversation.slice:type_name -> gitslice.core.v1.SliceRef
+	25, // 0: gitslice.core.v1.Conversation.slice:type_name -> gitslice.core.v1.SliceRef
 	4,  // 1: gitslice.core.v1.DaemonMessage.register:type_name -> gitslice.core.v1.RegisterDaemon
 	5,  // 2: gitslice.core.v1.DaemonMessage.heartbeat:type_name -> gitslice.core.v1.Heartbeat
 	6,  // 3: gitslice.core.v1.DaemonMessage.event:type_name -> gitslice.core.v1.AgentEvent
@@ -1654,31 +1779,35 @@ var file_proto_core_v1_agent_proto_depIdxs = []int32{
 	11, // 7: gitslice.core.v1.ServerMessage.user_message:type_name -> gitslice.core.v1.DeliverUserMessage
 	12, // 8: gitslice.core.v1.ServerMessage.cancel:type_name -> gitslice.core.v1.CancelConversation
 	13, // 9: gitslice.core.v1.ServerMessage.ping:type_name -> gitslice.core.v1.Ping
-	23, // 10: gitslice.core.v1.StartConversation.slice:type_name -> gitslice.core.v1.SliceRef
+	25, // 10: gitslice.core.v1.StartConversation.slice:type_name -> gitslice.core.v1.SliceRef
 	0,  // 11: gitslice.core.v1.ListDaemonsResponse.daemons:type_name -> gitslice.core.v1.AgentDaemon
-	23, // 12: gitslice.core.v1.CreateConversationRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	23, // 13: gitslice.core.v1.ListConversationsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	25, // 12: gitslice.core.v1.CreateConversationRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	25, // 13: gitslice.core.v1.ListConversationsRequest.slice:type_name -> gitslice.core.v1.SliceRef
 	1,  // 14: gitslice.core.v1.ListConversationsResponse.conversations:type_name -> gitslice.core.v1.Conversation
 	2,  // 15: gitslice.core.v1.SendAgentMessageResponse.event:type_name -> gitslice.core.v1.ConversationEvent
-	3,  // 16: gitslice.core.v1.AgentService.Connect:input_type -> gitslice.core.v1.DaemonMessage
-	14, // 17: gitslice.core.v1.AgentService.ListDaemons:input_type -> gitslice.core.v1.ListDaemonsRequest
-	16, // 18: gitslice.core.v1.AgentService.CreateConversation:input_type -> gitslice.core.v1.CreateConversationRequest
-	17, // 19: gitslice.core.v1.AgentService.ListConversations:input_type -> gitslice.core.v1.ListConversationsRequest
-	19, // 20: gitslice.core.v1.AgentService.GetConversation:input_type -> gitslice.core.v1.GetConversationRequest
-	20, // 21: gitslice.core.v1.AgentService.SendAgentMessage:input_type -> gitslice.core.v1.SendAgentMessageRequest
-	22, // 22: gitslice.core.v1.AgentService.StreamConversation:input_type -> gitslice.core.v1.StreamConversationRequest
-	8,  // 23: gitslice.core.v1.AgentService.Connect:output_type -> gitslice.core.v1.ServerMessage
-	15, // 24: gitslice.core.v1.AgentService.ListDaemons:output_type -> gitslice.core.v1.ListDaemonsResponse
-	1,  // 25: gitslice.core.v1.AgentService.CreateConversation:output_type -> gitslice.core.v1.Conversation
-	18, // 26: gitslice.core.v1.AgentService.ListConversations:output_type -> gitslice.core.v1.ListConversationsResponse
-	1,  // 27: gitslice.core.v1.AgentService.GetConversation:output_type -> gitslice.core.v1.Conversation
-	21, // 28: gitslice.core.v1.AgentService.SendAgentMessage:output_type -> gitslice.core.v1.SendAgentMessageResponse
-	2,  // 29: gitslice.core.v1.AgentService.StreamConversation:output_type -> gitslice.core.v1.ConversationEvent
-	23, // [23:30] is the sub-list for method output_type
-	16, // [16:23] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	1,  // 16: gitslice.core.v1.GetConversationEventsResponse.conversation:type_name -> gitslice.core.v1.Conversation
+	2,  // 17: gitslice.core.v1.GetConversationEventsResponse.events:type_name -> gitslice.core.v1.ConversationEvent
+	3,  // 18: gitslice.core.v1.AgentService.Connect:input_type -> gitslice.core.v1.DaemonMessage
+	14, // 19: gitslice.core.v1.AgentService.ListDaemons:input_type -> gitslice.core.v1.ListDaemonsRequest
+	16, // 20: gitslice.core.v1.AgentService.CreateConversation:input_type -> gitslice.core.v1.CreateConversationRequest
+	17, // 21: gitslice.core.v1.AgentService.ListConversations:input_type -> gitslice.core.v1.ListConversationsRequest
+	19, // 22: gitslice.core.v1.AgentService.GetConversation:input_type -> gitslice.core.v1.GetConversationRequest
+	20, // 23: gitslice.core.v1.AgentService.SendAgentMessage:input_type -> gitslice.core.v1.SendAgentMessageRequest
+	22, // 24: gitslice.core.v1.AgentService.StreamConversation:input_type -> gitslice.core.v1.StreamConversationRequest
+	23, // 25: gitslice.core.v1.AgentService.GetConversationEvents:input_type -> gitslice.core.v1.GetConversationEventsRequest
+	8,  // 26: gitslice.core.v1.AgentService.Connect:output_type -> gitslice.core.v1.ServerMessage
+	15, // 27: gitslice.core.v1.AgentService.ListDaemons:output_type -> gitslice.core.v1.ListDaemonsResponse
+	1,  // 28: gitslice.core.v1.AgentService.CreateConversation:output_type -> gitslice.core.v1.Conversation
+	18, // 29: gitslice.core.v1.AgentService.ListConversations:output_type -> gitslice.core.v1.ListConversationsResponse
+	1,  // 30: gitslice.core.v1.AgentService.GetConversation:output_type -> gitslice.core.v1.Conversation
+	21, // 31: gitslice.core.v1.AgentService.SendAgentMessage:output_type -> gitslice.core.v1.SendAgentMessageResponse
+	2,  // 32: gitslice.core.v1.AgentService.StreamConversation:output_type -> gitslice.core.v1.ConversationEvent
+	24, // 33: gitslice.core.v1.AgentService.GetConversationEvents:output_type -> gitslice.core.v1.GetConversationEventsResponse
+	26, // [26:34] is the sub-list for method output_type
+	18, // [18:26] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_agent_proto_init() }
@@ -1706,7 +1835,7 @@ func file_proto_core_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_agent_proto_rawDesc), len(file_proto_core_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

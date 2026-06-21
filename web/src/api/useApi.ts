@@ -28,6 +28,8 @@ import type {
   DiffChangesetResponse,
   Empty,
   GetConversationRequest,
+  GetConversationEventsRequest,
+  GetConversationEventsResponse,
   GetAuthStatusRequest,
   GetAuthStatusResponse,
   GetBlobStatusRequest,
@@ -147,6 +149,9 @@ export interface ApiClient {
   sendAgentMessage(
     request: SendAgentMessageRequest
   ): Promise<SendAgentMessageResponse>;
+  getConversationEvents(
+    request: GetConversationEventsRequest
+  ): Promise<GetConversationEventsResponse>;
   streamConversation(
     request: StreamConversationRequest,
     signal: AbortSignal

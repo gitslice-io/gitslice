@@ -290,6 +290,25 @@ func (s *AgentService) StreamConversation(req *corev1.StreamConversationRequest,
 	}
 }
 
+func (s *AgentService) GetConversationEvents(ctx context.Context, req *corev1.GetConversationEventsRequest) (*corev1.GetConversationEventsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conv, err := s.Agents.GetConversation(ctx, req.ConversationId)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionRead); err != nil {
+		return nil, err
+	}
+	events, err := s.Agents.ListEventsRange(ctx, req.ConversationId, req.AfterSeq, req.BeforeSeq)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.GetConversationEventsResponse{Conversation: conv, Events: events}, nil
+}
+
 func (s *AgentService) requireOwnedDaemon(ctx context.Context, subjectID, daemonID string) error {
 	daemons, err := s.Agents.ListDaemons(ctx, subjectID)
 	if err != nil {

@@ -254,6 +254,125 @@ export function ChangesetDetailPage() {
         isError={diffQuery.isError}
         isLoading={diffQuery.isPending}
       />
+
+      <PatchsetConversationPanel
+        patchsets={patchsets}
+        selectedPatchsetId={selectedToPatchset}
+        enabled={Boolean(isLoaded)}
+      />
+    </section>
+  );
+}
+
+function patchsetConversationRange(
+  patchsets: Patchset[],
+  selectedPatchsetId: string
+): { conversationId: string; afterSeq: number; beforeSeq: number } | null {
+  const selected = patchsets.find((patchset) => patchset.id === selectedPatchsetId);
+  const conversationId = selected?.authoringConversationId ?? "";
+  if (!selected || !conversationId) {
+    return null;
+  }
+  const beforeSeq = Number(selected.authoringConversationSeq ?? 0);
+  const selectedNumber = Number(selected.number ?? 0);
+  // The exchange behind this patchset starts after the previous patchset that
+  // came from the same conversation (the cutoffs are recorded server-side).
+  let afterSeq = 0;
+  for (const patchset of patchsets) {
+    if (patchset.authoringConversationId !== conversationId) {
+      continue;
+    }
+    const number = Number(patchset.number ?? 0);
+    if (number < selectedNumber) {
+      afterSeq = Math.max(afterSeq, Number(patchset.authoringConversationSeq ?? 0));
+    }
+  }
+  return { conversationId, afterSeq, beforeSeq };
+}
+
+function PatchsetConversationPanel({
+  patchsets,
+  selectedPatchsetId,
+  enabled
+}: {
+  patchsets: Patchset[];
+  selectedPatchsetId: string;
+  enabled: boolean;
+}) {
+  const api = useApi();
+  const range = useMemo(
+    () => patchsetConversationRange(patchsets, selectedPatchsetId),
+    [patchsets, selectedPatchsetId]
+  );
+
+  const eventsQuery = useQuery({
+    enabled: Boolean(enabled && range),
+    queryKey: [
+      "conversationEvents",
+      range?.conversationId ?? "",
+      range?.afterSeq ?? 0,
+      range?.beforeSeq ?? 0
+    ],
+    queryFn: () =>
+      api.getConversationEvents({
+        conversationId: range!.conversationId,
+        afterSeq: range!.afterSeq,
+        beforeSeq: range!.beforeSeq
+      })
+  });
+
+  if (!range) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-semibold text-zinc-950">Agent conversation</h2>
+        <p className="mt-2 text-sm text-slate-600">
+          This patchset was not produced by an agent conversation.
+        </p>
+      </section>
+    );
+  }
+
+  const events = eventsQuery.data?.events ?? [];
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-sm font-semibold text-zinc-950">Agent conversation</h2>
+      <p className="mt-1 text-xs text-slate-500">
+        The exchange that produced this patchset.
+      </p>
+      {eventsQuery.isPending ? (
+        <p className="mt-3 text-sm text-slate-600">Loading conversation…</p>
+      ) : eventsQuery.isError ? (
+        <p className="mt-3 text-sm text-rose-600">
+          Could not load the conversation for this patchset.
+        </p>
+      ) : events.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-600">No messages for this patchset.</p>
+      ) : (
+        <ul className="mt-3 space-y-3">
+          {events.map((event) => (
+            <li
+              key={event.id ?? `${event.seq}`}
+              className={cn(
+                "rounded-lg border px-3 py-2 text-sm",
+                event.role === "user"
+                  ? "border-zinc-200 bg-zinc-50"
+                  : event.role === "system"
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-slate-200 bg-white"
+              )}
+            >
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {event.role ?? "agent"}
+                {event.type && event.type !== "message" ? ` · ${event.type}` : ""}
+              </div>
+              <div className="whitespace-pre-wrap break-words text-slate-800">
+                {event.text}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

@@ -191,6 +191,35 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 	return out, nil
 }
 
+func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq int64) ([]*corev1.ConversationEvent, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []*corev1.ConversationEvent
+	for _, ev := range s.b.agentEvents[conversationID] {
+		if ev.Seq <= afterSeq {
+			continue
+		}
+		if beforeSeq > 0 && ev.Seq > beforeSeq {
+			continue
+		}
+		out = append(out, cloneEvent(ev))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	return out, nil
+}
+
+func (s *AgentStore) LatestEventSeq(ctx context.Context, conversationID string) (int64, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var max int64
+	for _, ev := range s.b.agentEvents[conversationID] {
+		if ev.Seq > max {
+			max = ev.Seq
+		}
+	}
+	return max, nil
+}
+
 func cloneDaemon(d *corev1.AgentDaemon) *corev1.AgentDaemon {
 	c := *d
 	return &c

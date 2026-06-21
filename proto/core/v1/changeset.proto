@@ -80,6 +80,12 @@ message Patchset {
   string base_tree_id = 19;
   string result_tree_id = 20;
   string stack_parent_patchset_id = 21;
+  // The agent conversation that authored this patchset, if any, and the
+  // conversation event seq at the moment the patchset was created. The events
+  // that produced this patchset are those with
+  // prev_patchset.authoring_conversation_seq < seq <= authoring_conversation_seq.
+  string authoring_conversation_id = 22;
+  int64 authoring_conversation_seq = 23;
 }
 
 message ChangesetStack {
@@ -220,6 +226,9 @@ message UpdateChangesetRequest {
   string base_kind = 7;
   string base_patchset_id = 8;
   string expected_parent_patchset_id = 9;
+  // Optional agent conversation that produced these edits. When set, the server
+  // records it (with the conversation's current event seq) on the new patchset.
+  string conversation_id = 10;
 }
 
 message SubmitChangesetRequest {

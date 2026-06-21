@@ -294,6 +294,8 @@ export interface Patchset {
   baseTreeId?: string;
   resultTreeId?: string;
   stackParentPatchsetId?: string;
+  authoringConversationId?: string;
+  authoringConversationSeq?: Int64String;
 }
 
 export interface Changeset {
@@ -593,4 +595,15 @@ export interface SendAgentMessageResponse {
 export interface StreamConversationRequest {
   conversationId?: string;
   afterSeq?: Int64String | number;
+}
+
+export interface GetConversationEventsRequest {
+  conversationId?: string;
+  afterSeq?: Int64String | number;
+  beforeSeq?: Int64String | number;
+}
+
+export interface GetConversationEventsResponse {
+  conversation?: Conversation;
+  events?: ConversationEvent[];
 }

@@ -218,6 +218,45 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 	return out, rows.Err()
 }
 
+func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq int64) ([]*corev1.ConversationEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select id, conversation_id, seq, role, type, text, data_json, created_at
+		from agent_conversation_events
+		where conversation_id = $1 and seq > $2 and ($3 <= 0 or seq <= $3)
+		order by seq asc
+	`, conversationID, afterSeq, beforeSeq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.ConversationEvent
+	for rows.Next() {
+		var (
+			ev        corev1.ConversationEvent
+			createdAt time.Time
+		)
+		if err := rows.Scan(&ev.Id, &ev.ConversationId, &ev.Seq, &ev.Role, &ev.Type, &ev.Text, &ev.DataJson, &createdAt); err != nil {
+			return nil, err
+		}
+		ev.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
+		out = append(out, &ev)
+	}
+	return out, rows.Err()
+}
+
+func (s *AgentStore) LatestEventSeq(ctx context.Context, conversationID string) (int64, error) {
+	var seq sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `
+		select max(seq) from agent_conversation_events where conversation_id = $1
+	`, conversationID).Scan(&seq); err != nil {
+		return 0, err
+	}
+	if !seq.Valid {
+		return 0, nil
+	}
+	return seq.Int64, nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }

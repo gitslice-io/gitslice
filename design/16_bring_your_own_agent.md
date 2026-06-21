@@ -128,13 +128,34 @@ a chat panel. Sends via `SendAgentMessage`; receives via `StreamConversation`
 
 1. **Foundation (server) — DONE.** proto + generated stubs, migration,
    `AgentStore` (interface + memory + postgres), hub service, server/gateway
-   wiring, rpc test with an in-test echo daemon. *(owned by main agent)*
-2. **CLI daemon — IN PROGRESS.** `gs agent start/status/stop` + codex runtime.
-   *(codex worktree `codex/agent-cli`)*
-3. **Web Agents tab — IN PROGRESS.** chat UI with streaming. *(codex worktree
-   `codex/agent-web`)*
-4. **Changeset integration + polish — TODO.** agent edits flow to a changeset
-   visible on the slice; e2e coverage.
+   wiring, rpc test with an in-test echo daemon.
+2. **CLI daemon — DONE.** `gs agent start/status/stop` + codex runtime.
+3. **Web Agents tab — DONE.** chat UI with streaming.
+4. **Changeset integration + polish — IN PROGRESS.** Conversation↔patchset
+   linkage is done (below). Remaining: deterministic per-turn auto-capture in the
+   daemon (currently the agent or user triggers `gs cs update` in the workspace).
+
+## Conversations linked to patchsets
+
+Every patchset records the agent conversation that produced it and the
+conversation event `seq` at creation time, so the changeset/patchset UI can show
+the exact exchange behind each revision.
+
+- **Model:** `patchsets.authoring_conversation_id` +
+  `patchsets.authoring_conversation_seq` (migration `0015`). Patchset N's
+  exchange is the events with `prev_cutoff < seq <= authoring_conversation_seq`,
+  where `prev_cutoff` is the previous patchset's seq for the *same* conversation.
+- **Write path:** the agent workspace is stamped with the conversation id at
+  hydration (`gs workspace init --agent-conversation <id>`, written to
+  `WorkspaceConfig.ConversationID`). `gs cs update` forwards it as
+  `UpdateChangesetRequest.conversation_id`; the server validates the conversation
+  belongs to the changeset's slice and records the link with the conversation's
+  current `LatestEventSeq` as the cutoff (computed server-side, so the CLI never
+  tracks seqs).
+- **Read path:** `AgentService.GetConversationEvents(conversation_id, after_seq,
+  before_seq)` returns the bounded slice. CLI: `gs cs conversation [changeset]
+  [--patchset N]`. Web: an "Agent conversation" panel on the changeset detail
+  page shows the messages behind the selected patchset.
 
 ## Implementation notes
 

@@ -25,6 +25,8 @@ import type {
   DiffChangesetResponse,
   Empty,
   GetConversationRequest,
+  GetConversationEventsRequest,
+  GetConversationEventsResponse,
   GetAuthStatusRequest,
   GetAuthStatusResponse,
   GetBlobStatusRequest,
@@ -354,6 +356,12 @@ export function createApiClient({
       invoke<SendAgentMessageRequest, SendAgentMessageResponse>(
         "AgentService",
         "SendAgentMessage",
+        request
+      ),
+    getConversationEvents: (request) =>
+      invoke<GetConversationEventsRequest, GetConversationEventsResponse>(
+        "AgentService",
+        "GetConversationEvents",
         request
       ),
     streamConversation: async function* (request, signal) {

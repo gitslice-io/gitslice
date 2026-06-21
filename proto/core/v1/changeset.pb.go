@@ -280,8 +280,14 @@ type Patchset struct {
 	BaseTreeId            string                 `protobuf:"bytes,19,opt,name=base_tree_id,json=baseTreeId,proto3" json:"base_tree_id,omitempty"`
 	ResultTreeId          string                 `protobuf:"bytes,20,opt,name=result_tree_id,json=resultTreeId,proto3" json:"result_tree_id,omitempty"`
 	StackParentPatchsetId string                 `protobuf:"bytes,21,opt,name=stack_parent_patchset_id,json=stackParentPatchsetId,proto3" json:"stack_parent_patchset_id,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// The agent conversation that authored this patchset, if any, and the
+	// conversation event seq at the moment the patchset was created. The events
+	// that produced this patchset are those with
+	// prev_patchset.authoring_conversation_seq < seq <= authoring_conversation_seq.
+	AuthoringConversationId  string `protobuf:"bytes,22,opt,name=authoring_conversation_id,json=authoringConversationId,proto3" json:"authoring_conversation_id,omitempty"`
+	AuthoringConversationSeq int64  `protobuf:"varint,23,opt,name=authoring_conversation_seq,json=authoringConversationSeq,proto3" json:"authoring_conversation_seq,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *Patchset) Reset() {
@@ -459,6 +465,20 @@ func (x *Patchset) GetStackParentPatchsetId() string {
 		return x.StackParentPatchsetId
 	}
 	return ""
+}
+
+func (x *Patchset) GetAuthoringConversationId() string {
+	if x != nil {
+		return x.AuthoringConversationId
+	}
+	return ""
+}
+
+func (x *Patchset) GetAuthoringConversationSeq() int64 {
+	if x != nil {
+		return x.AuthoringConversationSeq
+	}
+	return 0
 }
 
 type ChangesetStack struct {
@@ -1636,8 +1656,11 @@ type UpdateChangesetRequest struct {
 	BaseKind                  string                 `protobuf:"bytes,7,opt,name=base_kind,json=baseKind,proto3" json:"base_kind,omitempty"`
 	BasePatchsetId            string                 `protobuf:"bytes,8,opt,name=base_patchset_id,json=basePatchsetId,proto3" json:"base_patchset_id,omitempty"`
 	ExpectedParentPatchsetId  string                 `protobuf:"bytes,9,opt,name=expected_parent_patchset_id,json=expectedParentPatchsetId,proto3" json:"expected_parent_patchset_id,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Optional agent conversation that produced these edits. When set, the server
+	// records it (with the conversation's current event seq) on the new patchset.
+	ConversationId string `protobuf:"bytes,10,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateChangesetRequest) Reset() {
@@ -1729,6 +1752,13 @@ func (x *UpdateChangesetRequest) GetBasePatchsetId() string {
 func (x *UpdateChangesetRequest) GetExpectedParentPatchsetId() string {
 	if x != nil {
 		return x.ExpectedParentPatchsetId
+	}
+	return ""
+}
+
+func (x *UpdateChangesetRequest) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
 	}
 	return ""
 }
@@ -3051,7 +3081,7 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\tbase_kind\x18\x17 \x01(\tR\bbaseKind\x12\x1f\n" +
 	"\vstack_depth\x18\x18 \x01(\x03R\n" +
 	"stackDepth\x12#\n" +
-	"\rsibling_order\x18\x19 \x01(\x03R\fsiblingOrder\"\x8e\a\n" +
+	"\rsibling_order\x18\x19 \x01(\x03R\fsiblingOrder\"\x88\b\n" +
 	"\bPatchset\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x16\n" +
@@ -3078,7 +3108,9 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\fbase_tree_id\x18\x13 \x01(\tR\n" +
 	"baseTreeId\x12$\n" +
 	"\x0eresult_tree_id\x18\x14 \x01(\tR\fresultTreeId\x127\n" +
-	"\x18stack_parent_patchset_id\x18\x15 \x01(\tR\x15stackParentPatchsetId\"\xc2\x03\n" +
+	"\x18stack_parent_patchset_id\x18\x15 \x01(\tR\x15stackParentPatchsetId\x12:\n" +
+	"\x19authoring_conversation_id\x18\x16 \x01(\tR\x17authoringConversationId\x12<\n" +
+	"\x1aauthoring_conversation_seq\x18\x17 \x01(\x03R\x18authoringConversationSeq\"\xc2\x03\n" +
 	"\x0eChangesetStack\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12C\n" +
 	"\x0fauthoring_slice\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x1d\n" +
@@ -3186,7 +3218,7 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x04diff\x18\x05 \x01(\tR\x04diff\x12)\n" +
 	"\x10changeset_handle\x18\x06 \x01(\tR\x0fchangesetHandle\x120\n" +
 	"\x14from_patchset_handle\x18\a \x01(\tR\x12fromPatchsetHandle\x12,\n" +
-	"\x12to_patchset_handle\x18\b \x01(\tR\x10toPatchsetHandle\"\xca\x03\n" +
+	"\x12to_patchset_handle\x18\b \x01(\tR\x10toPatchsetHandle\"\xf3\x03\n" +
 	"\x16UpdateChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12?\n" +
 	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\x12$\n" +
@@ -3197,7 +3229,9 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\rpatchset_kind\x18\x06 \x01(\tR\fpatchsetKind\x12\x1b\n" +
 	"\tbase_kind\x18\a \x01(\tR\bbaseKind\x12(\n" +
 	"\x10base_patchset_id\x18\b \x01(\tR\x0ebasePatchsetId\x12=\n" +
-	"\x1bexpected_parent_patchset_id\x18\t \x01(\tR\x18expectedParentPatchsetId\"|\n" +
+	"\x1bexpected_parent_patchset_id\x18\t \x01(\tR\x18expectedParentPatchsetId\x12'\n" +
+	"\x0fconversation_id\x18\n" +
+	" \x01(\tR\x0econversationId\"|\n" +
 	"\x16SubmitChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12?\n" +
 	"\x1cexpected_current_patchset_id\x18\x02 \x01(\tR\x19expectedCurrentPatchsetId\"<\n" +

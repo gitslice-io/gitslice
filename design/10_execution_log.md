@@ -5963,3 +5963,46 @@ go test ./...
 # all ok; new tests/rpc/agent_test.go drives an in-test echo daemon through the
 # full register -> create conversation -> send -> echo -> stream + replay path.
 ```
+
+## 2026-06-21: BYOA — Conversations Linked to Patchsets
+
+Goal: make the agent conversation that produced a change viewable for every
+changeset and patchset. For each patchset you can see the exact exchange that
+caused it.
+
+Phases 2 (CLI daemon) and 3 (web Agents tab) were implemented by delegated codex
+agents in worktrees and integrated after the main agent re-ran build/test/lint.
+This entry covers the conversation↔patchset linkage built on top.
+
+Design — per-patchset linkage with a server-computed seq cutoff. Each patchset
+records `authoring_conversation_id` and `authoring_conversation_seq` (migration
+0015). Patchset N's exchange is the conversation events with
+`prev_cutoff < seq <= seq[N]`, where prev_cutoff is the prior patchset's cutoff
+for the same conversation. The CLI never tracks seqs: it passes only the
+conversation id, and the server stamps the conversation's current
+`LatestEventSeq` at patchset-creation time, which (because the daemon persists a
+turn's events before a patchset is captured) is exactly the end of that turn.
+
+Surface:
+- proto: `Patchset.authoring_conversation_id/seq`,
+  `UpdateChangesetRequest.conversation_id`,
+  `AgentService.GetConversationEvents(conversation_id, after_seq, before_seq)`.
+- storage.AgentStore: `LatestEventSeq`, `ListEventsRange` (memory + postgres).
+- ChangesetService gains an AgentStore; `UpdateChangeset` validates the
+  conversation belongs to the changeset slice and stamps the link.
+- CLI: `WorkspaceConfig.ConversationID`, hidden `workspace init
+  --agent-conversation`, `cs update` forwarding, and `gs cs conversation
+  [changeset] [--patchset N]`. The daemon stamps the conversation id at
+  hydration so any `gs cs` run in the workspace links automatically.
+- web: "Agent conversation" panel on the changeset detail page driven by the
+  selected patchset's recorded conversation + seq range.
+
+Verification:
+```bash
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 -run 'TestPatchsetConversationLink|TestAgentConversationRelay' ./tests/rpc -v
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/rpc      # full, ok 55s
+go test ./...                                                     # ok
+cd web && npx tsc --noEmit && npx vitest run && npm run build     # all ok
+# TestPatchsetConversationLink asserts patchset cutoffs (seq 2 then 3 across two
+# UpdateChangeset calls) and that GetConversationEvents returns the right ranges.
+```

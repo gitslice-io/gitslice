@@ -69,6 +69,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			Changesets:  stores.Changesets,
 			Repository:  stores.Repository,
 			Slices:      stores.Slices,
+			Agents:      stores.Agents,
 			ObjectStore: objectStore,
 			validator:   validator,
 		},

@@ -83,6 +83,9 @@ type WorkspaceConfig struct {
 	DefinitionHash string   `json:"definition_hash"`
 	IncludedPaths  []string `json:"included_paths"`
 	BaseCommitID   string   `json:"base_commit_id"`
+	// ConversationID links changesets authored in this workspace to an agent
+	// conversation (set when an agent daemon hydrates a conversation workspace).
+	ConversationID string `json:"conversation_id,omitempty"`
 }
 
 type WorkspaceState struct {
@@ -143,6 +146,9 @@ type commandOptions struct {
 	Debug          bool
 	Trace          bool
 	SyncMerge      string
+	// AgentConversationID, when set on `workspace init`, stamps the workspace
+	// config so changesets authored here link to the agent conversation.
+	AgentConversationID string
 }
 
 func (o commandOptions) jsonOutput() bool {
@@ -936,6 +942,8 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
 		},
 	}
+	workspaceInitCmd.Flags().StringVar(&opts.AgentConversationID, "agent-conversation", "", "link changesets in this workspace to an agent conversation id")
+	_ = workspaceInitCmd.Flags().MarkHidden("agent-conversation")
 	workspaceHydrateCmd := &cobra.Command{
 		Use:   "hydrate <path> [path...]",
 		Short: "Hydrate workspace files through the client object cache",
@@ -1288,6 +1296,21 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runChangesetVersions(cmd.Context(), *opts, id)
 		},
 	}
+	csConversationPatchset := ""
+	csConversationCmd := &cobra.Command{
+		Use:   "conversation [changeset]",
+		Short: "Show the agent conversation that produced each patchset",
+		Args:  maxArgs(1, "gs cs conversation [changeset] [--patchset n]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := ""
+			if len(args) > 0 {
+				id = args[0]
+			}
+			return r.runChangesetConversation(cmd.Context(), *opts, id, csConversationPatchset)
+		},
+	}
+	csConversationCmd.Flags().StringVar(&csConversationPatchset, "patchset", csConversationPatchset, "only show the conversation for this patchset number")
+
 	csDiffPatchset := ""
 	csDiffFrom := ""
 	csDiffTo := ""
@@ -1356,7 +1379,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	csListCmd.Flags().StringVar(&csListSlice, "slice", csListSlice, "authoring slice, defaults to current workspace slice")
 	csListCmd.Flags().StringVar(&csListStatus, "status", csListStatus, "status filter")
 	csListCmd.Flags().IntVar(&csListLimit, "limit", csListLimit, "maximum changesets to list")
-	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
+	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csConversationCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
 
 	createMessage := ""
 	createParent := ""
@@ -3372,6 +3395,7 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 		DefinitionHash: slice.DefinitionHash,
 		IncludedPaths:  slice.Definition.IncludedPaths,
 		BaseCommitID:   refRecord.CommitId,
+		ConversationID: strings.TrimSpace(opts.AgentConversationID),
 	}
 	if err := r.writeWorkspaceConfig(workspace); err != nil {
 		return err
@@ -5307,6 +5331,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 		ExpectedCurrentPatchsetId: state.CurrentPatchsetID,
 		BaseCommitId:              state.BaseCommitID,
 		FileEdits:                 edits,
+		ConversationId:            ws.ConversationID,
 	})
 	if err != nil {
 		return err
@@ -7624,6 +7649,92 @@ func (r Runner) runChangesetShow(ctx context.Context, opts commandOptions, reque
 		return nil
 	}
 	printChangesetDetails(r.Stdout, cs, false)
+	return nil
+}
+
+type patchsetConversationView struct {
+	Patchset       int64                       `json:"patchset"`
+	PatchsetHandle string                      `json:"patchset_handle,omitempty"`
+	ConversationID string                      `json:"conversation_id,omitempty"`
+	Events         []*corev1.ConversationEvent `json:"events,omitempty"`
+}
+
+func (r Runner) runChangesetConversation(ctx context.Context, opts commandOptions, requestedID, patchsetSel string) error {
+	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
+	if err != nil {
+		return err
+	}
+	cs, err := r.getChangeset(ctx, cfg, changesetID)
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	agent := corev1.NewAgentServiceClient(conn)
+	callCtx := authContext(ctx, cfg)
+
+	patchsetSel = strings.TrimSpace(patchsetSel)
+	// Per conversation, each patchset's exchange is the events after the previous
+	// patchset's cutoff up to this one's. Walk all patchsets in order so cutoffs
+	// stay correct even when a single patchset is selected.
+	prevByConv := map[string]int64{}
+	views := make([]patchsetConversationView, 0, len(cs.Patchsets))
+	for _, ps := range cs.Patchsets {
+		convID := ps.GetAuthoringConversationId()
+		after := prevByConv[convID]
+		before := ps.GetAuthoringConversationSeq()
+		if convID != "" {
+			prevByConv[convID] = before
+		}
+		if patchsetSel != "" && fmt.Sprintf("%d", ps.GetNumber()) != patchsetSel {
+			continue
+		}
+		view := patchsetConversationView{Patchset: ps.GetNumber(), PatchsetHandle: ps.GetHandle(), ConversationID: convID}
+		if convID != "" {
+			res, err := agent.GetConversationEvents(callCtx, &corev1.GetConversationEventsRequest{
+				ConversationId: convID,
+				AfterSeq:       after,
+				BeforeSeq:      before,
+			})
+			if err != nil {
+				return err
+			}
+			view.Events = res.GetEvents()
+		}
+		views = append(views, view)
+	}
+
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"changeset_id": cs.GetId(), "patchsets": views})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if len(views) == 0 {
+		fmt.Fprintln(r.Stdout, "no patchsets")
+		return nil
+	}
+	for _, view := range views {
+		label := fmt.Sprintf("patchset %d", view.Patchset)
+		if view.PatchsetHandle != "" {
+			label = view.PatchsetHandle
+		}
+		if view.ConversationID == "" {
+			fmt.Fprintf(r.Stdout, "%s: (no agent conversation)\n", label)
+			continue
+		}
+		fmt.Fprintf(r.Stdout, "%s  conversation %s\n", label, view.ConversationID)
+		if len(view.Events) == 0 {
+			fmt.Fprintln(r.Stdout, "  (no messages)")
+		}
+		for _, ev := range view.Events {
+			fmt.Fprintf(r.Stdout, "  [%s/%s] %s\n", ev.GetRole(), ev.GetType(), ev.GetText())
+		}
+		fmt.Fprintln(r.Stdout)
+	}
 	return nil
 }
 

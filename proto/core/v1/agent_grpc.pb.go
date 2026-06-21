@@ -19,13 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	AgentService_Connect_FullMethodName            = "/gitslice.core.v1.AgentService/Connect"
-	AgentService_ListDaemons_FullMethodName        = "/gitslice.core.v1.AgentService/ListDaemons"
-	AgentService_CreateConversation_FullMethodName = "/gitslice.core.v1.AgentService/CreateConversation"
-	AgentService_ListConversations_FullMethodName  = "/gitslice.core.v1.AgentService/ListConversations"
-	AgentService_GetConversation_FullMethodName    = "/gitslice.core.v1.AgentService/GetConversation"
-	AgentService_SendAgentMessage_FullMethodName   = "/gitslice.core.v1.AgentService/SendAgentMessage"
-	AgentService_StreamConversation_FullMethodName = "/gitslice.core.v1.AgentService/StreamConversation"
+	AgentService_Connect_FullMethodName               = "/gitslice.core.v1.AgentService/Connect"
+	AgentService_ListDaemons_FullMethodName           = "/gitslice.core.v1.AgentService/ListDaemons"
+	AgentService_CreateConversation_FullMethodName    = "/gitslice.core.v1.AgentService/CreateConversation"
+	AgentService_ListConversations_FullMethodName     = "/gitslice.core.v1.AgentService/ListConversations"
+	AgentService_GetConversation_FullMethodName       = "/gitslice.core.v1.AgentService/GetConversation"
+	AgentService_SendAgentMessage_FullMethodName      = "/gitslice.core.v1.AgentService/SendAgentMessage"
+	AgentService_StreamConversation_FullMethodName    = "/gitslice.core.v1.AgentService/StreamConversation"
+	AgentService_GetConversationEvents_FullMethodName = "/gitslice.core.v1.AgentService/GetConversationEvents"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -42,6 +43,9 @@ type AgentServiceClient interface {
 	GetConversation(ctx context.Context, in *GetConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
 	SendAgentMessage(ctx context.Context, in *SendAgentMessageRequest, opts ...grpc.CallOption) (*SendAgentMessageResponse, error)
 	StreamConversation(ctx context.Context, in *StreamConversationRequest, opts ...grpc.CallOption) (AgentService_StreamConversationClient, error)
+	// GetConversationEvents returns a bounded slice of a conversation's persisted
+	// events. Used to show the exchange that produced a given patchset.
+	GetConversationEvents(ctx context.Context, in *GetConversationEventsRequest, opts ...grpc.CallOption) (*GetConversationEventsResponse, error)
 }
 
 type agentServiceClient struct {
@@ -160,6 +164,15 @@ func (x *agentServiceStreamConversationClient) Recv() (*ConversationEvent, error
 	return m, nil
 }
 
+func (c *agentServiceClient) GetConversationEvents(ctx context.Context, in *GetConversationEventsRequest, opts ...grpc.CallOption) (*GetConversationEventsResponse, error) {
+	out := new(GetConversationEventsResponse)
+	err := c.cc.Invoke(ctx, AgentService_GetConversationEvents_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations should embed UnimplementedAgentServiceServer
 // for forward compatibility
@@ -174,6 +187,9 @@ type AgentServiceServer interface {
 	GetConversation(context.Context, *GetConversationRequest) (*Conversation, error)
 	SendAgentMessage(context.Context, *SendAgentMessageRequest) (*SendAgentMessageResponse, error)
 	StreamConversation(*StreamConversationRequest, AgentService_StreamConversationServer) error
+	// GetConversationEvents returns a bounded slice of a conversation's persisted
+	// events. Used to show the exchange that produced a given patchset.
+	GetConversationEvents(context.Context, *GetConversationEventsRequest) (*GetConversationEventsResponse, error)
 }
 
 // UnimplementedAgentServiceServer should be embedded to have forward compatible implementations.
@@ -200,6 +216,9 @@ func (UnimplementedAgentServiceServer) SendAgentMessage(context.Context, *SendAg
 }
 func (UnimplementedAgentServiceServer) StreamConversation(*StreamConversationRequest, AgentService_StreamConversationServer) error {
 	return status.Errorf(codes.Unimplemented, "method StreamConversation not implemented")
+}
+func (UnimplementedAgentServiceServer) GetConversationEvents(context.Context, *GetConversationEventsRequest) (*GetConversationEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetConversationEvents not implemented")
 }
 
 // UnsafeAgentServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -350,6 +369,24 @@ func (x *agentServiceStreamConversationServer) Send(m *ConversationEvent) error 
 	return x.ServerStream.SendMsg(m)
 }
 
+func _AgentService_GetConversationEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConversationEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetConversationEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetConversationEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetConversationEvents(ctx, req.(*GetConversationEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -376,6 +413,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendAgentMessage",
 			Handler:    _AgentService_SendAgentMessage_Handler,
+		},
+		{
+			MethodName: "GetConversationEvents",
+			Handler:    _AgentService_GetConversationEvents_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

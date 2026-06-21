@@ -406,7 +406,7 @@ func (d *agentDaemon) hydrateWorkspace(ctx context.Context, conv *agentConversat
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, exe, "--quiet", "workspace", "init", sliceRef)
+	cmd := exec.CommandContext(ctx, exe, "--quiet", "workspace", "init", sliceRef, "--agent-conversation", conv.id)
 	cmd.Dir = conv.workdir
 	cmd.Env = agentWorkspaceInitEnv(d.runner, d.cfg)
 	output, err := cmd.CombinedOutput()
