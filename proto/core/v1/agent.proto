@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+import "proto/core/v1/common.proto";
+
+option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+
+// AgentService powers the "bring your own agent" feature. A user runs a long
+// lived agent daemon on their own machine (`gs agent start`) that holds a single
+// persistent bidirectional Connect stream to the server. The server relays
+// conversation traffic between the browser (unary + StreamConversation) and the
+// daemon (Connect), keyed by conversation id. See design/16_bring_your_own_agent.md.
+service AgentService {
+  // Connect is the daemon's long-lived bidirectional channel. The first message
+  // the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
+  rpc Connect(stream DaemonMessage) returns (stream ServerMessage);
+
+  // Web-facing RPCs (surfaced through the gRPC-gateway).
+  rpc ListDaemons(ListDaemonsRequest) returns (ListDaemonsResponse);
+  rpc CreateConversation(CreateConversationRequest) returns (Conversation);
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+  rpc GetConversation(GetConversationRequest) returns (Conversation);
+  rpc SendAgentMessage(SendAgentMessageRequest) returns (SendAgentMessageResponse);
+  rpc StreamConversation(StreamConversationRequest) returns (stream ConversationEvent);
+  // GetConversationEvents returns a bounded slice of a conversation's persisted
+  // events. Used to show the exchange that produced a given patchset.
+  rpc GetConversationEvents(GetConversationEventsRequest) returns (GetConversationEventsResponse);
+}
+
+message AgentDaemon {
+  string id = 1;
+  string account = 2;
+  string name = 3;
+  string runtime = 4; // e.g. "codex"
+  string version = 5;
+  string status = 6; // "online" | "offline"
+  string last_seen_at = 7;
+  string created_at = 8;
+}
+
+message Conversation {
+  string id = 1;
+  string daemon_id = 2;
+  string slice_id = 3;
+  SliceRef slice = 4;
+  string title = 5;
+  string status = 6; // "active" | "closed" | "error"
+  string workspace_subdir = 7;
+  string created_at = 8;
+  string updated_at = 9;
+}
+
+// ConversationEvent is one persisted, ordered entry in a conversation. It covers
+// both user input and streamed agent output.
+message ConversationEvent {
+  string id = 1;
+  string conversation_id = 2;
+  int64 seq = 3;
+  string role = 4; // "user" | "agent" | "system"
+  string type = 5; // "message" | "tool_call" | "tool_output" | "status" | "error" | "delta"
+  string text = 6;
+  string data_json = 7; // optional structured payload
+  string created_at = 8;
+}
+
+// ---- Daemon <-> server stream payloads ----
+
+message DaemonMessage {
+  oneof payload {
+    RegisterDaemon register = 1;
+    Heartbeat heartbeat = 2;
+    AgentEvent event = 3;
+    ConversationStarted started = 4;
+  }
+}
+
+message RegisterDaemon {
+  string name = 1;
+  string runtime = 2;
+  string version = 3;
+}
+
+message Heartbeat {}
+
+// AgentEvent is a single chunk of agent output for a conversation. final marks
+// the end of an agent turn.
+message AgentEvent {
+  string conversation_id = 1;
+  string role = 2; // usually "agent" or "system"
+  string type = 3; // "message" | "tool_call" | "tool_output" | "status" | "error" | "delta"
+  string text = 4;
+  string data_json = 5;
+  bool final = 6;
+}
+
+message ConversationStarted {
+  string conversation_id = 1;
+  string workspace_subdir = 2;
+}
+
+message ServerMessage {
+  oneof payload {
+    DaemonRegistered registered = 1;
+    StartConversation start = 2;
+    DeliverUserMessage user_message = 3;
+    CancelConversation cancel = 4;
+    Ping ping = 5;
+  }
+}
+
+message DaemonRegistered {
+  string daemon_id = 1;
+}
+
+message StartConversation {
+  string conversation_id = 1;
+  SliceRef slice = 2;
+  string slice_id = 3;
+  string server_addr = 4; // server address the daemon should hydrate the workspace from
+  string title = 5;
+}
+
+message DeliverUserMessage {
+  string conversation_id = 1;
+  string text = 2;
+}
+
+message CancelConversation {
+  string conversation_id = 1;
+}
+
+message Ping {}
+
+// ---- Web-facing request/response ----
+
+message ListDaemonsRequest {}
+
+message ListDaemonsResponse {
+  repeated AgentDaemon daemons = 1;
+}
+
+message CreateConversationRequest {
+  string daemon_id = 1;
+  SliceRef slice = 2;
+  string title = 3;
+}
+
+message ListConversationsRequest {
+  SliceRef slice = 1;
+  string daemon_id = 2;
+}
+
+message ListConversationsResponse {
+  repeated Conversation conversations = 1;
+}
+
+message GetConversationRequest {
+  string conversation_id = 1;
+}
+
+message SendAgentMessageRequest {
+  string conversation_id = 1;
+  string text = 2;
+}
+
+message SendAgentMessageResponse {
+  ConversationEvent event = 1;
+}
+
+message StreamConversationRequest {
+  string conversation_id = 1;
+  int64 after_seq = 2;
+}
+
+message GetConversationEventsRequest {
+  string conversation_id = 1;
+  // Returns events with after_seq < seq <= before_seq. before_seq <= 0 means no
+  // upper bound.
+  int64 after_seq = 2;
+  int64 before_seq = 3;
+}
+
+message GetConversationEventsResponse {
+  Conversation conversation = 1;
+  repeated ConversationEvent events = 2;
+}

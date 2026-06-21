@@ -5917,3 +5917,120 @@ go test ./internal/ratelimit/... ./server/...                 # pass
 GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/cli ./tests/rpc
 #   ok tests/cli (102s), ok tests/rpc (62s)
 ```
+
+## 2026-06-21: Bring Your Own Agent — Server Foundation (Phase 1)
+
+Goal: let a user run their own coding agent (`gs agent start`, codex runtime) on
+their machine and drive it from the slice detail page's Agents tab, streaming
+conversation traffic between the browser and the daemon via the central server.
+See design/16_bring_your_own_agent.md for the full design.
+
+This entry covers Phase 1: the server-side foundation (proto, data model,
+storage, relay hub, wiring, e2e). CLI daemon and web tab follow in later phases.
+
+Architecture decision — relay over a daemon-held bidi stream. The daemon runs
+behind NAT with no inbound connectivity, so it cannot be dialed. Instead it holds
+one persistent outbound `AgentService.Connect` bidirectional stream; the server
+is a stateless relay (`service/agent_hub.go`) that routes between the browser
+(unary + server-streaming `StreamConversation`, surfaced through the gateway) and
+the daemon, keyed by conversation id. All conversation events are persisted with
+a per-conversation monotonic `seq` (`agent_conversation_events`), so history
+reloads from Postgres and a reconnecting web stream replays from `after_seq` then
+tails live. Daemon scope is account-wide; each conversation binds to one slice.
+
+New surface:
+- `proto/core/v1/agent.proto` (+ generated stubs/gateway).
+- Migration `0014_agents.sql`: `agent_daemons`, `agent_conversations`,
+  `agent_conversation_events`.
+- `storage.AgentStore` (interface + memory + postgres impls).
+- `service.AgentService` + `agentHub`; wired into `service.New`, gRPC
+  registration, and the gateway.
+
+Bug found + fixed — `serverHandlerTransport.Drain() is not implemented` panic at
+shutdown. gRPC is multiplexed over HTTP via `grpcServer.ServeHTTP` (h2c handler
+transport), which does not implement `Drain()`. `grpcServer.GracefulStop()`
+therefore panics whenever a server stream is still open at shutdown. No prior
+streaming RPC was long-lived enough to be open at stop, but the daemon Connect
+stream always is. Fixed in `server/server.go` by bounding the HTTP drain with
+`serverShutdownTimeout` (5s) and replacing `GracefulStop()` with `Stop()` (the
+combined HTTP server already drains in-flight requests gracefully first).
+
+Verification:
+```bash
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 -run TestAgentConversationRelay ./tests/rpc -v
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/rpc ./tests/cli
+go test ./...
+# all ok; new tests/rpc/agent_test.go drives an in-test echo daemon through the
+# full register -> create conversation -> send -> echo -> stream + replay path.
+```
+
+## 2026-06-21: BYOA — Conversations Linked to Patchsets
+
+Goal: make the agent conversation that produced a change viewable for every
+changeset and patchset. For each patchset you can see the exact exchange that
+caused it.
+
+Phases 2 (CLI daemon) and 3 (web Agents tab) were implemented by delegated codex
+agents in worktrees and integrated after the main agent re-ran build/test/lint.
+This entry covers the conversation↔patchset linkage built on top.
+
+Design — per-patchset linkage with a server-computed seq cutoff. Each patchset
+records `authoring_conversation_id` and `authoring_conversation_seq` (migration
+0015). Patchset N's exchange is the conversation events with
+`prev_cutoff < seq <= seq[N]`, where prev_cutoff is the prior patchset's cutoff
+for the same conversation. The CLI never tracks seqs: it passes only the
+conversation id, and the server stamps the conversation's current
+`LatestEventSeq` at patchset-creation time, which (because the daemon persists a
+turn's events before a patchset is captured) is exactly the end of that turn.
+
+Surface:
+- proto: `Patchset.authoring_conversation_id/seq`,
+  `UpdateChangesetRequest.conversation_id`,
+  `AgentService.GetConversationEvents(conversation_id, after_seq, before_seq)`.
+- storage.AgentStore: `LatestEventSeq`, `ListEventsRange` (memory + postgres).
+- ChangesetService gains an AgentStore; `UpdateChangeset` validates the
+  conversation belongs to the changeset slice and stamps the link.
+- CLI: `WorkspaceConfig.ConversationID`, hidden `workspace init
+  --agent-conversation`, `cs update` forwarding, and `gs cs conversation
+  [changeset] [--patchset N]`. The daemon stamps the conversation id at
+  hydration so any `gs cs` run in the workspace links automatically.
+- web: "Agent conversation" panel on the changeset detail page driven by the
+  selected patchset's recorded conversation + seq range.
+
+Verification:
+```bash
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 -run 'TestPatchsetConversationLink|TestAgentConversationRelay' ./tests/rpc -v
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/rpc      # full, ok 55s
+go test ./...                                                     # ok
+cd web && npx tsc --noEmit && npx vitest run && npm run build     # all ok
+# TestPatchsetConversationLink asserts patchset cutoffs (seq 2 then 3 across two
+# UpdateChangeset calls) and that GetConversationEvents returns the right ranges.
+```
+
+## 2026-06-21: BYOA — Per-Turn Auto-Capture (Phase 4 complete)
+
+Goal: close out Phase 4 so an agent's edits automatically become a
+conversation-linked patchset without the user running gs by hand.
+
+Added a hidden `gs cs capture` command (`runChangesetCapture`): it snapshots the
+workspace edits, is a no-op when there are none (so it can run every turn), and
+either creates the changeset (first use) or adds a patchset, forwarding
+`WorkspaceConfig.ConversationID` so the patchset is linked. Also fixed
+`runChangesetCreate` to forward the conversation id on its embedded first
+patchset (previously unlinked).
+
+The daemon (`internal/cli/agent.go`) now calls `gs cs capture` after each
+successful turn via a new `runWorkspaceGS` helper, surfacing the result (e.g.
+"captured changeset X patchset N") as a system status event in the conversation.
+Capture is best-effort: failures become a status/error event rather than failing
+the turn. `guardChangesetCreate` rejects a second create on an existing draft, so
+capture detects an active draft changeset and updates it instead.
+
+Verification:
+```bash
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 -run TestChangesetCaptureCreatesThenUpdates ./tests/cli -v
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/cli ./tests/rpc
+go test ./...
+# capture is a no-op on a clean workspace, creates patchset 1 on first edits,
+# adds patchset 2 on the next edits (same changeset).
+```

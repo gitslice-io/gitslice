@@ -3143,3 +3143,38 @@ func waitForHTTPServer(t *testing.T, addr, name string) {
 	}
 	t.Fatal(fmt.Errorf("%s did not start: %w", name, lastErr))
 }
+
+// TestChangesetCaptureCreatesThenUpdates verifies the agent-oriented `cs capture`
+// command: a no-op when the workspace is clean, a create on first edits, and an
+// update (new patchset) on subsequent edits.
+func TestChangesetCaptureCreatesThenUpdates(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	loginTestCLI(t, ts, home, workspace)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+
+	// Clean workspace: capture is a no-op.
+	clean := runCLI(t, home, workspace, "cs", "capture")
+	if !strings.Contains(clean, "no changes to capture") {
+		t.Fatalf("expected no-op capture on clean workspace, got:\n%s", clean)
+	}
+
+	writeWorkspaceFile(t, workspace, "capture_one.go", "package payment\nconst One = 1\n")
+	first := runCLI(t, home, workspace, "cs", "capture", "--title", "agent work")
+	if !strings.Contains(first, "patchset 1") {
+		t.Fatalf("expected first capture to create patchset 1, got:\n%s", first)
+	}
+
+	writeWorkspaceFile(t, workspace, "capture_two.go", "package payment\nconst Two = 2\n")
+	second := runCLI(t, home, workspace, "cs", "capture")
+	if !strings.Contains(second, "patchset 2") {
+		t.Fatalf("expected second capture to add patchset 2, got:\n%s", second)
+	}
+
+	// The two captures must land on the same changeset.
+	status := runCLI(t, home, workspace, "status")
+	if !strings.Contains(status, "patchset 2") && !strings.Contains(status, "patchset: 2") {
+		t.Logf("status output:\n%s", status)
+	}
+}

@@ -83,6 +83,9 @@ type WorkspaceConfig struct {
 	DefinitionHash string   `json:"definition_hash"`
 	IncludedPaths  []string `json:"included_paths"`
 	BaseCommitID   string   `json:"base_commit_id"`
+	// ConversationID links changesets authored in this workspace to an agent
+	// conversation (set when an agent daemon hydrates a conversation workspace).
+	ConversationID string `json:"conversation_id,omitempty"`
 }
 
 type WorkspaceState struct {
@@ -143,6 +146,9 @@ type commandOptions struct {
 	Debug          bool
 	Trace          bool
 	SyncMerge      string
+	// AgentConversationID, when set on `workspace init`, stamps the workspace
+	// config so changesets authored here link to the agent conversation.
+	AgentConversationID string
 }
 
 func (o commandOptions) jsonOutput() bool {
@@ -936,6 +942,8 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
 		},
 	}
+	workspaceInitCmd.Flags().StringVar(&opts.AgentConversationID, "agent-conversation", "", "link changesets in this workspace to an agent conversation id")
+	_ = workspaceInitCmd.Flags().MarkHidden("agent-conversation")
 	workspaceHydrateCmd := &cobra.Command{
 		Use:   "hydrate <path> [path...]",
 		Short: "Hydrate workspace files through the client object cache",
@@ -1203,6 +1211,17 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 	csCreateCmd.Flags().StringVar(&createTitle, "title", createTitle, "changeset title")
+	captureTitle := "agent changeset"
+	csCaptureCmd := &cobra.Command{
+		Use:    "capture",
+		Short:  "Capture current workspace edits as a patchset (create or update)",
+		Hidden: true,
+		Args:   noArgs("gs cs capture [--title title]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runChangesetCapture(cmd.Context(), *opts, captureTitle)
+		},
+	}
+	csCaptureCmd.Flags().StringVar(&captureTitle, "title", captureTitle, "changeset title used when creating")
 	csUpdateCmd := &cobra.Command{
 		Use:   "update",
 		Short: "Create a new patchset for the current changeset",
@@ -1288,6 +1307,21 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runChangesetVersions(cmd.Context(), *opts, id)
 		},
 	}
+	csConversationPatchset := ""
+	csConversationCmd := &cobra.Command{
+		Use:   "conversation [changeset]",
+		Short: "Show the agent conversation that produced each patchset",
+		Args:  maxArgs(1, "gs cs conversation [changeset] [--patchset n]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := ""
+			if len(args) > 0 {
+				id = args[0]
+			}
+			return r.runChangesetConversation(cmd.Context(), *opts, id, csConversationPatchset)
+		},
+	}
+	csConversationCmd.Flags().StringVar(&csConversationPatchset, "patchset", csConversationPatchset, "only show the conversation for this patchset number")
+
 	csDiffPatchset := ""
 	csDiffFrom := ""
 	csDiffTo := ""
@@ -1356,7 +1390,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	csListCmd.Flags().StringVar(&csListSlice, "slice", csListSlice, "authoring slice, defaults to current workspace slice")
 	csListCmd.Flags().StringVar(&csListStatus, "status", csListStatus, "status filter")
 	csListCmd.Flags().IntVar(&csListLimit, "limit", csListLimit, "maximum changesets to list")
-	csCmd.AddCommand(csCreateCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
+	csCmd.AddCommand(csCreateCmd, csCaptureCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csConversationCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
 
 	createMessage := ""
 	createParent := ""
@@ -1835,7 +1869,8 @@ home slice root, for example /nic/notes.`,
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceDeleteCmd)
 
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd)
+	agentCmd := r.agentCommand(opts)
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd, agentCmd)
 	return root
 }
 
@@ -3371,6 +3406,7 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 		DefinitionHash: slice.DefinitionHash,
 		IncludedPaths:  slice.Definition.IncludedPaths,
 		BaseCommitID:   refRecord.CommitId,
+		ConversationID: strings.TrimSpace(opts.AgentConversationID),
 	}
 	if err := r.writeWorkspaceConfig(workspace); err != nil {
 		return err
@@ -5067,9 +5103,10 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 		return err
 	}
 	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
-		ChangesetId:  cs.Id,
-		BaseCommitId: state.BaseCommitID,
-		FileEdits:    edits,
+		ChangesetId:    cs.Id,
+		BaseCommitId:   state.BaseCommitID,
+		FileEdits:      edits,
+		ConversationId: ws.ConversationID,
 	})
 	if err != nil {
 		return err
@@ -5096,6 +5133,97 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	if webURL != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
 	}
+	return nil
+}
+
+// runChangesetCapture snapshots the current workspace edits and records them as a
+// patchset, creating the changeset on first use and adding a patchset thereafter.
+// It is a no-op when the workspace has no pending edits, so an agent daemon can
+// call it after every turn without producing empty patchsets. The conversation
+// link comes from the workspace config (WorkspaceConfig.ConversationID).
+func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, title string) error {
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	callCtx := authContext(ctx, cfg)
+	changesetClient := corev1.NewChangesetServiceClient(conn)
+
+	edits, _, err := r.snapshotEdits(ctx, conn, cfg, ws, true)
+	if err != nil {
+		return err
+	}
+	if len(edits) == 0 {
+		if !opts.jsonOutput() && !opts.Quiet {
+			fmt.Fprintln(r.Stdout, "no changes to capture")
+		}
+		return nil
+	}
+
+	// Reuse the current draft changeset when one exists; otherwise create one.
+	reuse := false
+	if state.CurrentChangesetID != "" {
+		cs, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: state.CurrentChangesetID})
+		if err == nil {
+			switch cs.Status {
+			case "submitted", "abandoned":
+			default:
+				reuse = true
+			}
+		} else if grpcstatus.Code(err) != codes.NotFound {
+			return err
+		}
+	}
+
+	changesetID := state.CurrentChangesetID
+	expectedPatchsetID := state.CurrentPatchsetID
+	if !reuse {
+		cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
+			AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+			TargetRef:      postgres.DefaultTargetRef,
+			BaseCommitId:   state.BaseCommitID,
+			Title:          title,
+		})
+		if err != nil {
+			return err
+		}
+		changesetID = cs.Id
+		expectedPatchsetID = ""
+	}
+
+	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
+		ChangesetId:               changesetID,
+		ExpectedCurrentPatchsetId: expectedPatchsetID,
+		BaseCommitId:              state.BaseCommitID,
+		FileEdits:                 edits,
+		ConversationId:            ws.ConversationID,
+	})
+	if err != nil {
+		return err
+	}
+	state.CurrentChangesetID = changesetID
+	state.CurrentPatchsetID = patchset.Id
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+
+	label := firstNonEmpty(storage.ShortChangesetID(changesetID), changesetID)
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, changesetOutput{
+			ChangesetID:    changesetID,
+			PatchsetID:     patchset.Id,
+			PatchsetNumber: patchset.Number,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "captured changeset %s patchset %d\n", label, patchset.Number)
 	return nil
 }
 
@@ -5306,6 +5434,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 		ExpectedCurrentPatchsetId: state.CurrentPatchsetID,
 		BaseCommitId:              state.BaseCommitID,
 		FileEdits:                 edits,
+		ConversationId:            ws.ConversationID,
 	})
 	if err != nil {
 		return err
@@ -7623,6 +7752,92 @@ func (r Runner) runChangesetShow(ctx context.Context, opts commandOptions, reque
 		return nil
 	}
 	printChangesetDetails(r.Stdout, cs, false)
+	return nil
+}
+
+type patchsetConversationView struct {
+	Patchset       int64                       `json:"patchset"`
+	PatchsetHandle string                      `json:"patchset_handle,omitempty"`
+	ConversationID string                      `json:"conversation_id,omitempty"`
+	Events         []*corev1.ConversationEvent `json:"events,omitempty"`
+}
+
+func (r Runner) runChangesetConversation(ctx context.Context, opts commandOptions, requestedID, patchsetSel string) error {
+	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
+	if err != nil {
+		return err
+	}
+	cs, err := r.getChangeset(ctx, cfg, changesetID)
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	agent := corev1.NewAgentServiceClient(conn)
+	callCtx := authContext(ctx, cfg)
+
+	patchsetSel = strings.TrimSpace(patchsetSel)
+	// Per conversation, each patchset's exchange is the events after the previous
+	// patchset's cutoff up to this one's. Walk all patchsets in order so cutoffs
+	// stay correct even when a single patchset is selected.
+	prevByConv := map[string]int64{}
+	views := make([]patchsetConversationView, 0, len(cs.Patchsets))
+	for _, ps := range cs.Patchsets {
+		convID := ps.GetAuthoringConversationId()
+		after := prevByConv[convID]
+		before := ps.GetAuthoringConversationSeq()
+		if convID != "" {
+			prevByConv[convID] = before
+		}
+		if patchsetSel != "" && fmt.Sprintf("%d", ps.GetNumber()) != patchsetSel {
+			continue
+		}
+		view := patchsetConversationView{Patchset: ps.GetNumber(), PatchsetHandle: ps.GetHandle(), ConversationID: convID}
+		if convID != "" {
+			res, err := agent.GetConversationEvents(callCtx, &corev1.GetConversationEventsRequest{
+				ConversationId: convID,
+				AfterSeq:       after,
+				BeforeSeq:      before,
+			})
+			if err != nil {
+				return err
+			}
+			view.Events = res.GetEvents()
+		}
+		views = append(views, view)
+	}
+
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"changeset_id": cs.GetId(), "patchsets": views})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if len(views) == 0 {
+		fmt.Fprintln(r.Stdout, "no patchsets")
+		return nil
+	}
+	for _, view := range views {
+		label := fmt.Sprintf("patchset %d", view.Patchset)
+		if view.PatchsetHandle != "" {
+			label = view.PatchsetHandle
+		}
+		if view.ConversationID == "" {
+			fmt.Fprintf(r.Stdout, "%s: (no agent conversation)\n", label)
+			continue
+		}
+		fmt.Fprintf(r.Stdout, "%s  conversation %s\n", label, view.ConversationID)
+		if len(view.Events) == 0 {
+			fmt.Fprintln(r.Stdout, "  (no messages)")
+		}
+		for _, ev := range view.Events {
+			fmt.Fprintf(r.Stdout, "  [%s/%s] %s\n", ev.GetRole(), ev.GetType(), ev.GetText())
+		}
+		fmt.Fprintln(r.Stdout)
+	}
 	return nil
 }
 

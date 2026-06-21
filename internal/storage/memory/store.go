@@ -27,6 +27,7 @@ type Stores struct {
 	Repository *RepositoryStore
 	Slices     *SliceStore
 	Objects    *ObjectStore
+	Agents     *AgentStore
 
 	backend *backend
 }
@@ -69,6 +70,11 @@ type backend struct {
 
 	entitiesByPath map[string]storage.CurrentPathEntity
 	entityChanges  map[string][]storage.HistoryEntityRef
+
+	agentDaemons     map[string]*corev1.AgentDaemon
+	agentConvs       map[string]*corev1.Conversation
+	agentEvents      map[string][]*corev1.ConversationEvent
+	agentConvNextSeq map[string]int64
 }
 
 type cliLoginSession struct {
@@ -114,6 +120,10 @@ func New() *Stores {
 		importedCommits:         map[string][]storage.GitImportedCommitRecord{},
 		entitiesByPath:          map[string]storage.CurrentPathEntity{},
 		entityChanges:           map[string][]storage.HistoryEntityRef{},
+		agentDaemons:            map[string]*corev1.AgentDaemon{},
+		agentConvs:              map[string]*corev1.Conversation{},
+		agentEvents:             map[string][]*corev1.ConversationEvent{},
+		agentConvNextSeq:        map[string]int64{},
 	}
 	root := &corev1.Commit{
 		Id:         "mem_root",
@@ -132,6 +142,7 @@ func New() *Stores {
 		Repository: &RepositoryStore{b: b},
 		Slices:     &SliceStore{b: b},
 		Objects:    &ObjectStore{b: b},
+		Agents:     &AgentStore{b: b},
 		backend:    b,
 	}
 }

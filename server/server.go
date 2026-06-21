@@ -45,6 +45,11 @@ const (
 	gatewayWriteTimeout      = 60 * time.Second
 	gatewayIdleTimeout       = 120 * time.Second
 
+	// serverShutdownTimeout bounds how long graceful HTTP drain waits before the
+	// gRPC server is force-stopped; long-lived daemon Connect streams never go
+	// idle on their own.
+	serverShutdownTimeout = 5 * time.Second
+
 	gitReadHeaderTimeout = 10 * time.Second
 	gitIdleTimeout       = 120 * time.Second
 )
@@ -107,6 +112,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Changesets: db.Changesets(),
 		Repository: db.Repository(),
 		Slices:     db.Slices(),
+		Agents:     db.Agents(),
 	}
 	handlers := service.New(stores, objectStore)
 	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg)
@@ -184,16 +190,29 @@ func Run(ctx context.Context, cfg Config) error {
 			errCh <- gitHTTPServer.Serve(gitHTTPLis)
 		}()
 	}
-	select {
-	case <-ctx.Done():
-		_ = combinedServer.Shutdown(context.Background())
-		grpcServer.GracefulStop()
+	shutdown := func() {
+		// Bound the HTTP drain: long-lived AgentService.Connect streams would
+		// otherwise keep the combined server from ever going idle.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+		defer cancel()
+		_ = combinedServer.Shutdown(shutdownCtx)
+		// gRPC is multiplexed over HTTP via grpcServer.ServeHTTP; that
+		// serverHandlerTransport does not implement Drain(), so GracefulStop()
+		// panics whenever a server stream is still open at shutdown (as the
+		// daemon Connect stream always is). Stop() closes the handler
+		// transports without draining, which is correct here because
+		// combinedServer.Shutdown already drained in-flight HTTP/gRPC requests.
+		grpcServer.Stop()
 		if gatewayServer != nil {
-			_ = gatewayServer.Shutdown(context.Background())
+			_ = gatewayServer.Shutdown(shutdownCtx)
 		}
 		if gitHTTPServer != nil {
-			_ = gitHTTPServer.Shutdown(context.Background())
+			_ = gitHTTPServer.Shutdown(shutdownCtx)
 		}
+	}
+	select {
+	case <-ctx.Done():
+		shutdown()
 		return ctx.Err()
 	case err := <-errCh:
 		if errors.Is(err, grpc.ErrServerStopped) {
@@ -202,14 +221,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
-		_ = combinedServer.Shutdown(context.Background())
-		grpcServer.GracefulStop()
-		if gatewayServer != nil {
-			_ = gatewayServer.Shutdown(context.Background())
-		}
-		if gitHTTPServer != nil {
-			_ = gitHTTPServer.Shutdown(context.Background())
-		}
+		shutdown()
 		return err
 	}
 }
@@ -308,6 +320,7 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 	corev1.RegisterWorkspaceServiceServer(grpcServer, handlers.Workspace)
 	corev1.RegisterChangesetServiceServer(grpcServer, handlers.Changeset)
 	corev1.RegisterChangesetStackServiceServer(grpcServer, handlers.Stack)
+	corev1.RegisterAgentServiceServer(grpcServer, handlers.Agent)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)

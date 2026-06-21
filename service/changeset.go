@@ -26,6 +26,7 @@ type ChangesetService struct {
 	Changesets  storage.ChangesetStore
 	Repository  storage.RepositoryStore
 	Slices      storage.SliceStore
+	Agents      storage.AgentStore
 	ObjectStore ObjectStore
 	validator   diffValidator
 }
@@ -202,6 +203,9 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		BaseTreeId:            baseTreeID,
 		StackParentPatchsetId: basePatchsetID,
 	}
+	if err := s.applyAuthoringConversation(ctx, patchset, slice.Id, req.ConversationId); err != nil {
+		return nil, err
+	}
 	patchset, err = s.Changesets.AddPatchset(ctx, cs.Id, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
 		return nil, grpcError(err)
@@ -216,6 +220,31 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		}
 	}
 	return patchset, nil
+}
+
+// applyAuthoringConversation stamps the agent conversation that produced a
+// patchset, recording the conversation's current latest event seq as the cutoff
+// so the patchset's exchange is the events in (prevCutoff, seq]. The conversation
+// must belong to the same slice as the changeset.
+func (s *ChangesetService) applyAuthoringConversation(ctx context.Context, patchset *corev1.Patchset, sliceID, conversationID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" || s.Agents == nil {
+		return nil
+	}
+	conv, err := s.Agents.GetConversation(ctx, conversationID)
+	if err != nil {
+		return grpcError(err)
+	}
+	if conv.SliceId != sliceID {
+		return status.Error(codes.InvalidArgument, "conversation does not belong to the changeset slice")
+	}
+	seq, err := s.Agents.LatestEventSeq(ctx, conversationID)
+	if err != nil {
+		return grpcError(err)
+	}
+	patchset.AuthoringConversationId = conversationID
+	patchset.AuthoringConversationSeq = seq
+	return nil
 }
 
 func (s *ChangesetService) patchsetBaseSource(ctx context.Context, cs *corev1.Changeset, req *corev1.UpdateChangesetRequest, baseCommitID string) (baseKind, basePatchsetID, baseTreeID string, err error) {

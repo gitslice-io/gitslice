@@ -123,3 +123,56 @@ type SliceStore interface {
 	Delete(ctx context.Context, sliceID string) error
 	CoveringIDsByPath(ctx context.Context, paths []string) (map[string][]string, error)
 }
+
+// AgentDaemonInput is the registration payload for an agent daemon.
+type AgentDaemonInput struct {
+	SubjectID string
+	Account   string
+	Name      string
+	Runtime   string
+	Version   string
+}
+
+// ConversationInput is the creation payload for an agent conversation.
+type ConversationInput struct {
+	DaemonID  string
+	SubjectID string
+	SliceID   string
+	Account   string
+	SliceName string
+	Title     string
+}
+
+// ConversationFilter narrows ListConversations. Empty fields are ignored.
+type ConversationFilter struct {
+	SliceID   string
+	DaemonID  string
+	SubjectID string
+}
+
+// AgentStore persists agent daemons, conversations, and conversation events for
+// the bring-your-own-agent feature. See design/16_bring_your_own_agent.md.
+type AgentStore interface {
+	// RegisterDaemon upserts a daemon row and marks it online, returning the
+	// daemon row (id generated when not already present for the subject+name).
+	RegisterDaemon(ctx context.Context, in AgentDaemonInput) (*corev1.AgentDaemon, error)
+	SetDaemonStatus(ctx context.Context, daemonID, status string) error
+	GetDaemon(ctx context.Context, daemonID string) (*corev1.AgentDaemon, error)
+	ListDaemons(ctx context.Context, subjectID string) ([]*corev1.AgentDaemon, error)
+
+	CreateConversation(ctx context.Context, in ConversationInput) (*corev1.Conversation, error)
+	GetConversation(ctx context.Context, conversationID string) (*corev1.Conversation, error)
+	ListConversations(ctx context.Context, filter ConversationFilter) ([]*corev1.Conversation, error)
+	SetConversationStatus(ctx context.Context, conversationID, status string) error
+
+	// AppendEvent assigns the next per-conversation seq atomically and returns
+	// the stored event.
+	AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON string) (*corev1.ConversationEvent, error)
+	ListEvents(ctx context.Context, conversationID string, afterSeq int64) ([]*corev1.ConversationEvent, error)
+	// ListEventsRange returns events with afterSeq < seq <= beforeSeq. A
+	// beforeSeq <= 0 means no upper bound.
+	ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq int64) ([]*corev1.ConversationEvent, error)
+	// LatestEventSeq returns the highest event seq for a conversation, or 0 when
+	// it has no events.
+	LatestEventSeq(ctx context.Context, conversationID string) (int64, error)
+}

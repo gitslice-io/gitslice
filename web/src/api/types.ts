@@ -294,6 +294,8 @@ export interface Patchset {
   baseTreeId?: string;
   resultTreeId?: string;
   stackParentPatchsetId?: string;
+  authoringConversationId?: string;
+  authoringConversationSeq?: Int64String;
 }
 
 export interface Changeset {
@@ -520,4 +522,88 @@ export interface SubmitChangesetResponse {
 export interface AbandonChangesetRequest {
   changesetId?: string;
   reason?: string;
+}
+
+export interface AgentDaemon {
+  id?: string;
+  account?: string;
+  name?: string;
+  runtime?: string;
+  version?: string;
+  status?: string;
+  lastSeenAt?: string;
+  createdAt?: string;
+}
+
+export interface Conversation {
+  id?: string;
+  daemonId?: string;
+  sliceId?: string;
+  slice?: SliceRef;
+  title?: string;
+  status?: string;
+  workspaceSubdir?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ConversationEvent {
+  id?: string;
+  conversationId?: string;
+  seq?: Int64String;
+  role?: string;
+  type?: string;
+  text?: string;
+  dataJson?: string;
+  createdAt?: string;
+}
+
+export interface ListDaemonsRequest {}
+
+export interface ListDaemonsResponse {
+  daemons?: AgentDaemon[];
+}
+
+export interface CreateConversationRequest {
+  daemonId?: string;
+  slice?: SliceRef;
+  title?: string;
+}
+
+export interface ListConversationsRequest {
+  slice?: SliceRef;
+  daemonId?: string;
+}
+
+export interface ListConversationsResponse {
+  conversations?: Conversation[];
+}
+
+export interface GetConversationRequest {
+  conversationId?: string;
+}
+
+export interface SendAgentMessageRequest {
+  conversationId?: string;
+  text?: string;
+}
+
+export interface SendAgentMessageResponse {
+  event?: ConversationEvent;
+}
+
+export interface StreamConversationRequest {
+  conversationId?: string;
+  afterSeq?: Int64String | number;
+}
+
+export interface GetConversationEventsRequest {
+  conversationId?: string;
+  afterSeq?: Int64String | number;
+  beforeSeq?: Int64String | number;
+}
+
+export interface GetConversationEventsResponse {
+  conversation?: Conversation;
+  events?: ConversationEvent[];
 }
