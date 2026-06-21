@@ -212,6 +212,21 @@ const sliceDetailRoute = createRoute({
 const sliceSettingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices/$account/$slice/settings",
+  loader: async ({ context, params }) => {
+    if (import.meta.env.SSR && params.account && params.slice) {
+      try {
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        const ref = { account: params.account, slice: params.slice };
+        await context.queryClient.ensureQueryData({
+          queryKey: ["sliceRef", params.account, params.slice],
+          queryFn: () => api.resolveSlice({ ref })
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
   component: SliceSettingsPage
 });
 
@@ -248,6 +263,34 @@ const changesetsRoute = createRoute({
 const stacksRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "dependencies",
+  loaderDeps: ({ search }) => ({
+    slice: (search as { slice?: unknown }).slice,
+    status: (search as { status?: unknown }).status
+  }),
+  loader: async ({ context, deps }) => {
+    if (import.meta.env.SSR) {
+      const sliceRef = parseSliceSearch(deps.slice);
+      if (sliceRef) {
+        const status = typeof deps.status === "string" ? deps.status : "";
+        try {
+          const { createServerApiClient } = await import("../api/serverApi");
+          const api = await createServerApiClient();
+          const { account, slice } = sliceRef;
+          await context.queryClient.ensureQueryData({
+            queryKey: ["stacks", account, slice, status],
+            queryFn: () =>
+              api.listStacks({
+                authoringSlice: sliceRef,
+                status,
+                limit: 100
+              })
+          });
+        } catch {
+          // The component keeps the existing client-side load/error behavior.
+        }
+      }
+    }
+  },
   component: StacksPage
 });
 
@@ -260,6 +303,20 @@ const stackCreateRoute = createRoute({
 const stackDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "dependencies/$id",
+  loader: async ({ context, params }) => {
+    if (import.meta.env.SSR && params.id) {
+      try {
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        await context.queryClient.ensureQueryData({
+          queryKey: ["stack", params.id],
+          queryFn: () => api.getStack({ stackId: params.id })
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
   component: StackDetailPage
 });
 
