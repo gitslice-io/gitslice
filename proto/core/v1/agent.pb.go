@@ -237,12 +237,16 @@ type ConversationEvent struct {
 	ConversationId string                 `protobuf:"bytes,2,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	Seq            int64                  `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
 	Role           string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"` // "user" | "agent" | "system"
-	Type           string                 `protobuf:"bytes,5,opt,name=type,proto3" json:"type,omitempty"` // "message" | "tool_call" | "tool_output" | "status" | "error" | "delta"
+	Type           string                 `protobuf:"bytes,5,opt,name=type,proto3" json:"type,omitempty"` // "message" | "reasoning" | "tool_call" | "tool_output" | "status" | "error" | "message_delta" | "reasoning_delta" | "delta"
 	Text           string                 `protobuf:"bytes,6,opt,name=text,proto3" json:"text,omitempty"`
 	DataJson       string                 `protobuf:"bytes,7,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"` // optional structured payload
 	CreatedAt      string                 `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// item_id ties streamed deltas (seq == 0, ephemeral) to the persisted final
+	// event for the same runtime item, so clients can coalesce token streams into
+	// a single message. Only populated on the live wire; empty on replay.
+	ItemId        string `protobuf:"bytes,9,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConversationEvent) Reset() {
@@ -327,6 +331,13 @@ func (x *ConversationEvent) GetDataJson() string {
 func (x *ConversationEvent) GetCreatedAt() string {
 	if x != nil {
 		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *ConversationEvent) GetItemId() string {
+	if x != nil {
+		return x.ItemId
 	}
 	return ""
 }
@@ -547,12 +558,17 @@ type AgentEvent struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	Role           string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"` // usually "agent" or "system"
-	Type           string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"` // "message" | "tool_call" | "tool_output" | "status" | "error" | "delta"
+	Type           string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"` // "message" | "reasoning" | "tool_call" | "tool_output" | "status" | "error" | "message_delta" | "reasoning_delta" | "delta"
 	Text           string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
 	DataJson       string                 `protobuf:"bytes,5,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"`
 	Final          bool                   `protobuf:"varint,6,opt,name=final,proto3" json:"final,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// item_id correlates streamed deltas with their finalized event.
+	ItemId string `protobuf:"bytes,7,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	// ephemeral marks a live-only delta the server relays to subscribers without
+	// persisting it (no seq is assigned). Finalized events leave this false.
+	Ephemeral     bool `protobuf:"varint,8,opt,name=ephemeral,proto3" json:"ephemeral,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AgentEvent) Reset() {
@@ -623,6 +639,20 @@ func (x *AgentEvent) GetDataJson() string {
 func (x *AgentEvent) GetFinal() bool {
 	if x != nil {
 		return x.Final
+	}
+	return false
+}
+
+func (x *AgentEvent) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *AgentEvent) GetEphemeral() bool {
+	if x != nil {
+		return x.Ephemeral
 	}
 	return false
 }
@@ -1630,7 +1660,7 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\tR\tupdatedAt\"\xd6\x01\n" +
+	"updated_at\x18\t \x01(\tR\tupdatedAt\"\xef\x01\n" +
 	"\x11ConversationEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x10\n" +
@@ -1640,7 +1670,8 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x04text\x18\x06 \x01(\tR\x04text\x12\x1b\n" +
 	"\tdata_json\x18\a \x01(\tR\bdataJson\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\b \x01(\tR\tcreatedAt\"\x90\x02\n" +
+	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x17\n" +
+	"\aitem_id\x18\t \x01(\tR\x06itemId\"\x90\x02\n" +
 	"\rDaemonMessage\x12>\n" +
 	"\bregister\x18\x01 \x01(\v2 .gitslice.core.v1.RegisterDaemonH\x00R\bregister\x12;\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x1b.gitslice.core.v1.HeartbeatH\x00R\theartbeat\x124\n" +
@@ -1651,7 +1682,7 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aruntime\x18\x02 \x01(\tR\aruntime\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\"\v\n" +
-	"\tHeartbeat\"\xa4\x01\n" +
+	"\tHeartbeat\"\xdb\x01\n" +
 	"\n" +
 	"AgentEvent\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x12\n" +
@@ -1659,7 +1690,9 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x12\n" +
 	"\x04text\x18\x04 \x01(\tR\x04text\x12\x1b\n" +
 	"\tdata_json\x18\x05 \x01(\tR\bdataJson\x12\x14\n" +
-	"\x05final\x18\x06 \x01(\bR\x05final\"i\n" +
+	"\x05final\x18\x06 \x01(\bR\x05final\x12\x17\n" +
+	"\aitem_id\x18\a \x01(\tR\x06itemId\x12\x1c\n" +
+	"\tephemeral\x18\b \x01(\bR\tephemeral\"i\n" +
 	"\x13ConversationStarted\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12)\n" +
 	"\x10workspace_subdir\x18\x02 \x01(\tR\x0fworkspaceSubdir\"\xd6\x02\n" +

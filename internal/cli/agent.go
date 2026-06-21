@@ -684,6 +684,8 @@ func forwardAgentRuntime(ctx context.Context, runtime agentRuntime, workdir, con
 			Text:           event.Text,
 			DataJson:       event.Data,
 			Final:          event.Final,
+			ItemId:         event.ItemID,
+			Ephemeral:      event.Ephemeral,
 		})
 	})
 }

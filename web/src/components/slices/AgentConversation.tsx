@@ -26,6 +26,13 @@ export function AgentConversation({
   toolbar
 }: AgentConversationProps) {
   const [events, setEvents] = useState<ConversationEvent[]>([]);
+  // In-progress token streams, keyed by runtime item id. These are ephemeral
+  // (never persisted server-side) and are cleared when the matching finalized
+  // event arrives. Stored separately from `events` so they don't pollute the
+  // persisted, seq-ordered transcript.
+  const [liveDeltas, setLiveDeltas] = useState<Map<string, ConversationEvent>>(
+    () => new Map()
+  );
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState("");
   const [streamError, setStreamError] = useState("");
@@ -46,6 +53,7 @@ export function AgentConversation({
     () => groupConversationEvents(events),
     [events]
   );
+  const liveItems = useMemo(() => [...liveDeltas.values()], [liveDeltas]);
 
   // Reset transcript state only when the conversation actually changes. This is
   // deliberately separate from the stream effect below so that a Reconnect
@@ -53,6 +61,7 @@ export function AgentConversation({
   // in-progress draft or the partial transcript already on screen.
   useEffect(() => {
     setEvents([]);
+    setLiveDeltas(new Map());
     setStreamError("");
     setSendError("");
     setDraft("");
@@ -62,6 +71,9 @@ export function AgentConversation({
 
   useEffect(() => {
     const controller = new AbortController();
+    // Each stream attempt starts from seq 0, so drop any stale in-progress
+    // deltas; persisted finals will re-arrive and any live tail re-streams.
+    setLiveDeltas(new Map());
 
     async function readStream() {
       try {
@@ -72,7 +84,26 @@ export function AgentConversation({
           if (controller.signal.aborted) {
             return;
           }
+          if (isLiveDelta(event)) {
+            setLiveDeltas((current) => {
+              const next = new Map(current);
+              next.set(event.itemId as string, event);
+              return next;
+            });
+            continue;
+          }
           setEvents((current) => appendConversationEvent(current, event));
+          // A finalized event supersedes its in-progress delta bubble.
+          if (event.itemId) {
+            setLiveDeltas((current) => {
+              if (!current.has(event.itemId as string)) {
+                return current;
+              }
+              const next = new Map(current);
+              next.delete(event.itemId as string);
+              return next;
+            });
+          }
         }
       } catch (error) {
         if (!controller.signal.aborted) {
@@ -102,7 +133,9 @@ export function AgentConversation({
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [events.length]);
+    // `liveDeltas` changes identity on every streamed token, so this also keeps
+    // the view pinned to the bottom as a message streams in.
+  }, [events.length, liveDeltas]);
 
   function handleScroll() {
     const el = scrollContainerRef.current;
@@ -188,7 +221,7 @@ export function AgentConversation({
           </div>
         ) : null}
 
-        {events.length === 0 ? (
+        {events.length === 0 && liveItems.length === 0 ? (
           <div className="flex min-h-64 items-center justify-center text-center">
             <div className="max-w-sm">
               <h3 className="text-sm font-semibold text-zinc-950">
@@ -214,6 +247,9 @@ export function AgentConversation({
                 />
               )
             )}
+            {liveItems.map((event) => (
+              <LiveDeltaBubble event={event} key={`live:${event.itemId}`} />
+            ))}
           </div>
         )}
       </div>
@@ -318,6 +354,48 @@ function ConversationTraceGroup({ events }: { events: ConversationEvent[] }) {
         ))}
       </div>
     </details>
+  );
+}
+
+// isLiveDelta detects an ephemeral, in-progress token stream: an agent
+// message/reasoning delta carrying an item id but no persisted seq.
+function isLiveDelta(event: ConversationEvent): event is ConversationEvent & {
+  itemId: string;
+} {
+  const type = event.type ?? "";
+  return (
+    Boolean(event.itemId) &&
+    (type === "message_delta" || type === "reasoning_delta")
+  );
+}
+
+// LiveDeltaBubble renders a token stream still in flight. A message delta looks
+// like a normal agent bubble (with a streaming caret); a reasoning delta shows
+// as a subtle, live "Thinking" block so the chain of thought is visible as it
+// arrives, before collapsing into the trace once finalized.
+function LiveDeltaBubble({ event }: { event: ConversationEvent }) {
+  const text = event.text ?? "";
+  if (event.type === "reasoning_delta") {
+    return (
+      <div className="mr-auto max-w-[min(44rem,92%)] rounded-md border border-slate-200 bg-white/90 px-3 py-2 text-sm shadow-sm shadow-slate-200/60">
+        <div className="mb-1 flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500">
+          <span>Thinking</span>
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400" />
+        </div>
+        <p className="whitespace-pre-wrap break-words text-slate-600">{text}</p>
+      </div>
+    );
+  }
+  return (
+    <article className="mr-auto max-w-[min(44rem,85%)] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 shadow-sm shadow-slate-200/60">
+      <div className="mb-1 flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500">
+        <span>agent</span>
+      </div>
+      <p className="whitespace-pre-wrap break-words">
+        {text}
+        <span className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse bg-zinc-400 align-baseline" />
+      </p>
+    </article>
   );
 }
 
