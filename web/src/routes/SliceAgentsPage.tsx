@@ -40,7 +40,7 @@ export function SliceAgentsPage() {
   const sliceRouteParams = toSliceRouteParams(sliceRef);
 
   return (
-    <section className="mx-auto flex w-full max-w-[100rem] flex-col gap-4 lg:h-[calc(100dvh-8rem)] lg:overflow-hidden">
+    <section className="mx-auto flex h-[calc(100dvh-8rem)] w-full max-w-[100rem] flex-col gap-4 overflow-hidden">
       <Breadcrumb
         items={[
           { label: "Slices", to: "/slices" },
@@ -67,7 +67,7 @@ export function SliceAgentsPage() {
           {getErrorMessage(sliceQuery.error)}
         </SliceNotice>
       ) : sliceRef ? (
-        <div className="min-h-0 lg:flex-1 lg:overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <AgentsTab api={api} slice={sliceRef} />
         </div>
       ) : (

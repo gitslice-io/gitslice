@@ -181,7 +181,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
   const isCreating = createMutation.isPending;
 
   return (
-    <SlicePanel className="min-h-[34rem] overflow-hidden p-0 lg:h-full lg:min-h-0">
+    <SlicePanel className="h-full min-h-0 overflow-hidden p-0">
       <div
         className={cn(
           "grid h-full min-h-0 gap-0",
@@ -376,7 +376,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
           </aside>
         ) : null}
 
-        <div className="min-h-[26rem] min-w-0 lg:min-h-0">
+        <div className="min-h-0 min-w-0">
           {selectedConversationId ? (
             <AgentConversation
               api={api}
@@ -385,7 +385,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
               toolbar={sidebarToggle}
             />
           ) : (
-            <div className="flex h-full min-h-[26rem] flex-col">
+            <div className="flex h-full min-h-0 flex-col">
               <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h2 className="text-base font-semibold text-zinc-950">
