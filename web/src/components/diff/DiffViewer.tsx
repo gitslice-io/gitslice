@@ -375,7 +375,7 @@ export function DiffViewer({
             <DiffErrorBox message={errorMessage(error)} />
           </div>
         ) : hasTextualDiff ? (
-          <div className="grid gap-3 p-3 md:p-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+          <div className="grid gap-3 p-2 sm:p-3 md:p-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
             <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
               <ChangedFilesTree
                 activeId={activeId}
@@ -577,12 +577,12 @@ function UnifiedDiff({
                 return (
                   <span
                     className={cn(
-                      "grid min-h-5 grid-cols-[1.75rem_1.75rem_minmax(0,1fr)] whitespace-pre px-2 py-0.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
+                      "grid min-h-5 grid-cols-[1.75rem_minmax(0,1fr)] whitespace-pre px-1.5 py-0.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
                       diffLineClass(line.kind)
                     )}
                     key={`${index}-${line.text}`}
                   >
-                    <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
+                    <span className="hidden select-none pr-1 text-right text-[10px] text-slate-400 sm:block sm:pr-3 sm:text-xs">
                       {line.oldNumber ?? ""}
                     </span>
                     <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
