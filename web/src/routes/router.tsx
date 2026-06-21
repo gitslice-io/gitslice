@@ -241,6 +241,20 @@ const stackSubmitRoute = createRoute({
 const changesetShortRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "cs/$id",
+  loader: async ({ context, params }) => {
+    if (import.meta.env.SSR) {
+      try {
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        await context.queryClient.ensureQueryData({
+          queryKey: ["changeset", params.id],
+          queryFn: () => api.getChangeset({ changesetId: params.id })
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
   component: ChangesetDetailPage
 });
 
