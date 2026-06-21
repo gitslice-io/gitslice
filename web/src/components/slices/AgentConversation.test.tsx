@@ -96,6 +96,62 @@ describe("AgentConversation", () => {
     fireEvent.click(summary);
     expect(details).toHaveAttribute("open");
   });
+
+  it("shows a Reconnect button and re-attaches the stream after an error", async () => {
+    let attempts = 0;
+    const api = {
+      sendAgentMessage: vi.fn(),
+      streamConversation: vi.fn(async function* (
+        _request: { conversationId: string; afterSeq: number },
+        signal: AbortSignal
+      ) {
+        attempts += 1;
+        if (attempts === 1) {
+          // Yield one event so the user can see the partial transcript, then
+          // blow up to simulate the server hanging up.
+          yield {
+            id: "evt_1",
+            conversationId: "conv_1",
+            seq: "1",
+            role: "agent",
+            type: "message",
+            text: "partial"
+          };
+          if (!signal.aborted) {
+            throw new Error("stream exploded");
+          }
+          return;
+        }
+        yield {
+          id: "evt_2",
+          conversationId: "conv_1",
+          seq: "2",
+          role: "agent",
+          type: "message",
+          text: "reconnected"
+        };
+      })
+    } as unknown as ApiClient;
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    expect(await screen.findByText("partial")).toBeInTheDocument();
+    const reconnect = await screen.findByRole("button", { name: "Reconnect" });
+    fireEvent.click(reconnect);
+
+    expect(await screen.findByText("reconnected")).toBeInTheDocument();
+    // The retry must have triggered at least one additional stream call after
+    // the initial failure. We don't assert exact count — StrictMode or React
+    // 18's effect re-runs can add extra attempts, but the user-visible
+    // contract is "click Reconnect, get fresh events".
+    expect(vi.mocked(api.streamConversation).mock.calls.length).toBeGreaterThan(1);
+  });
 });
 
 function makeApi(events: ConversationEvent[]) {

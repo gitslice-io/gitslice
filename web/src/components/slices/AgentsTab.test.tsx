@@ -8,8 +8,11 @@ import {
   waitFor,
   within
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { Conversation } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { AgentsTab } from "./AgentsTab";
 
@@ -22,7 +25,7 @@ describe("AgentsTab", () => {
   it("renders online daemons and the empty conversation state", async () => {
     const api = makeApi();
 
-    render(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
+    renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
 
     const sidebar = await screen.findByRole("complementary", {
       name: "Agent conversations"
@@ -43,7 +46,7 @@ describe("AgentsTab", () => {
   it("toggles the conversation sidebar and opens the create form there", async () => {
     const api = makeApi();
 
-    render(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
+    renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
 
     const sidebar = await screen.findByRole("complementary", {
       name: "Agent conversations"
@@ -86,12 +89,101 @@ describe("AgentsTab", () => {
       ]
     });
 
-    render(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
+    renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
 
     expect(await screen.findByRole("heading", { name: "Fresh chat" }))
       .toBeInTheDocument();
   });
+
+  it("renders a status pill with aria-current on the selected conversation", async () => {
+    const api = makeApi({
+      conversations: [
+        {
+          id: "conv_one",
+          title: "Only chat",
+          status: "active",
+          createdAt: "2026-06-21T16:00:00Z"
+        }
+      ]
+    });
+
+    renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
+
+    // The button's accessible name combines title + status, so match loosely.
+    const selected = await screen.findByRole("button", { name: /Only chat/ });
+    expect(selected).toHaveAttribute("aria-current", "true");
+    // Status text is rendered inside the button as an uppercase pill.
+    expect(within(selected).getByText("active")).toBeInTheDocument();
+  });
+
+  it("optimistically prepends a newly created conversation", async () => {
+    const created: Conversation = {
+      id: "conv_new",
+      title: "Freshly minted",
+      status: "active"
+    };
+    const api = makeApi({ onCreate: () => created });
+
+    renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
+
+    const sidebar = await screen.findByRole("complementary", {
+      name: "Agent conversations"
+    });
+    fireEvent.click(
+      within(sidebar).getByRole("button", { name: "New conversation" })
+    );
+    fireEvent.click(
+      within(sidebar).getByRole("button", { name: "Create conversation" })
+    );
+
+    expect(await screen.findByRole("heading", { name: "Freshly minted" }))
+      .toBeInTheDocument();
+    expect(api.createConversation).toHaveBeenCalledWith({
+      daemonId: "daemon_1",
+      slice: { account: "nic", slice: "home" },
+      title: undefined
+    });
+  });
+
+  it("reopens the sidebar and create form from the empty-state shortcut", async () => {
+    const api = makeApi();
+
+    renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
+
+    // Wait for daemons to load so the empty-state CTA appears.
+    await screen.findByRole("complementary", {
+      name: "Agent conversations"
+    });
+    // Sidebar starts open; close it to expose the empty-state CTA.
+    fireEvent.click(screen.getByRole("button", { name: "Hide conversations" }));
+    expect(
+      screen.queryByRole("complementary", { name: "Agent conversations" })
+    ).not.toBeInTheDocument();
+
+    // The empty state exposes its own "New conversation" shortcut.
+    fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+
+    const sidebar = await screen.findByRole("complementary", {
+      name: "Agent conversations"
+    });
+    expect(within(sidebar).getByLabelText("Agent daemon")).toBeInTheDocument();
+  });
 });
+
+// react-query requires a provider; tests that previously rendered AgentsTab
+// directly now go through this helper. The client is configured to fail fast
+// so mutation/query errors don't get retried into flaky timeouts.
+function renderWithClient(element: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { retry: false },
+      queries: { retry: false, gcTime: 0, staleTime: 0 }
+    }
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>{element}</QueryClientProvider>
+  );
+}
 
 function makeApi(
   overrides: {
@@ -99,10 +191,21 @@ function makeApi(
       id: string;
       title: string;
       status: string;
-      createdAt: string;
+      createdAt?: string;
+      updatedAt?: string;
     }>;
+    onCreate?: () => Conversation;
   } = {}
 ) {
+  const conversations: Conversation[] = (overrides.conversations ?? []).map(
+    (c) => ({
+      id: c.id,
+      title: c.title,
+      status: c.status,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt
+    })
+  );
   return {
     listDaemons: vi.fn().mockResolvedValue({
       daemons: [
@@ -118,10 +221,13 @@ function makeApi(
         }
       ]
     }),
-    listConversations: vi.fn().mockResolvedValue({
-      conversations: overrides.conversations ?? []
+    listConversations: vi.fn().mockResolvedValue({ conversations }),
+    createConversation: vi.fn().mockImplementation(async () => {
+      if (overrides.onCreate) {
+        return overrides.onCreate();
+      }
+      throw new Error("createConversation not stubbed");
     }),
-    createConversation: vi.fn(),
     getConversation: vi.fn(),
     sendAgentMessage: vi.fn(),
     streamConversation: vi.fn(async function* () {})

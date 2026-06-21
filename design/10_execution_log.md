@@ -1,5 +1,80 @@
 # Gitslice Execution Log
 
+## 2026-06-21: Agents Page Cleanup — react-query, Smart Scroll, Stream Retry
+
+Request:
+
+- the slice Agents page (`SliceAgentsPage` / `AgentsTab` / `AgentConversation`)
+  had drifted from the rest of the web app: it used hand-rolled
+  `useState` + `useEffect` data fetching while every other tab had migrated to
+  `@tanstack/react-query`. Traceback UX was also rough — every streamed token
+  yanked the scroll position back to the bottom, and stream errors had no
+  recovery path beyond navigating away.
+
+Changes:
+
+- `AgentsTab` now reads `listDaemons` and `listConversations` through
+  `useQuery`, keyed `["agentDaemons"]` and `["sliceConversations", sliceKey]`.
+  This matches the convention in `SliceDetailPage`, `SliceSettingsPage`, etc.,
+  and brings refetch/cache/dedupe behavior in for free.
+- `createConversation` is now a `useMutation` that optimistically prepends the
+  returned `Conversation` into the list cache via
+  `queryClient.setQueryData<Conversation[]>(...)`. The cache stores the array
+  directly (matching the `queryFn` return type), not the wire-level
+  `ListConversationsResponse` object — getting that wrong caused
+  `conversations is not iterable` until corrected.
+- Selection state (`selectedDaemonId`, `selectedConversationId`) is now derived
+  from data via small `useEffect`s that only reassign when the current pick is
+  gone, so user selections survive refetches. The duplicate
+  `nextOnlineDaemons` filter inside the old load handler is gone; there is now
+  one `onlineDaemons` memo.
+- Conversation rows render status as a colored `ConversationStatusPill`
+  (active/idle/error/default) instead of bare mono text, and include a
+  `formatRelativeTime(updatedAt)` preview. The selected row carries
+  `aria-current="true"`. Sort now prefers `updatedAt` over `createdAt` for a
+  more accurate "newest activity first" ordering.
+- When the sidebar is closed and no conversation is selected, the empty state
+  now offers its own `New conversation` shortcut that reopens the sidebar and
+  opens the create form in one click.
+- `AgentConversation` only auto-scrolls when the user is already parked near
+  the bottom (96px slop). Scrolling up to read history no longer fights the
+  stream. The scroll container has an `onScroll` handler that updates a
+  `stickToBottomRef` (a ref, not state, so it doesn't trigger re-renders).
+- Switching conversations resets `events`, `draft`, `sendError`,
+  `streamError`, and `retryKey`, so stale draft text no longer leaks between
+  conversations.
+- Stream errors render a `Reconnect` button. Clicking it bumps a `retryKey`
+  state that re-runs the stream effect without remounting the component, so
+  the prior partial transcript stays on screen.
+
+Important decisions and learnings:
+
+- `setQueryData<ListConversationsResponse>` was wrong because the cache type is
+  whatever the `queryFn` returns (`Conversation[]`), not the response wrapper.
+  TypeScript will happily accept the cast and then explode at runtime; always
+  match the `queryFn` return type.
+- Auto-scroll on `events.length` change is the wrong trigger if you don't also
+  track user intent — `scrollIntoView` will silently steal focus/scroll from
+  a user reading earlier history.
+- React 18 (and StrictMode in particular) will re-run async-generator stream
+  effects, so tests that assert exact `streamConversation` call counts are
+  brittle. The new Reconnect test asserts `mock.calls.length > 1` instead of
+  an exact count.
+
+Verification:
+
+```bash
+cd web && npx vitest run --environment jsdom src/components/slices/AgentsTab.test.tsx src/components/slices/AgentConversation.test.tsx
+cd web && npx vitest run --environment jsdom
+cd web && npx tsc -b
+cd web && npm run build
+```
+
+Results: focused component tests passed (2 files, 9 tests), the full web test
+suite passed (5 files, 20 tests), TypeScript build was clean, and the
+production build completed with only the pre-existing Vite/Nitro large-chunk
+warnings.
+
 This log captures implementation notes, decisions, and important learnings while
 turning the design docs into the first Go prototype.
 

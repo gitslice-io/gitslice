@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   AgentDaemon,
@@ -16,113 +17,99 @@ interface AgentsTabProps {
 }
 
 export function AgentsTab({ api, slice }: AgentsTabProps) {
-  const [daemons, setDaemons] = useState<AgentDaemon[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const queryClient = useQueryClient();
+  const sliceKey = `${slice.account ?? ""}:${slice.slice ?? ""}`;
+  const sliceDefined = Boolean(slice.account && slice.slice);
+
+  const daemonsQuery = useQuery({
+    enabled: sliceDefined,
+    queryKey: ["agentDaemons"],
+    queryFn: async () => (await api.listDaemons({})).daemons ?? []
+  });
+
+  const conversationsQuery = useQuery({
+    enabled: sliceDefined,
+    queryKey: ["sliceConversations", sliceKey],
+    queryFn: async () =>
+      (await api.listConversations({ slice })).conversations ?? []
+  });
+
+  const daemons = daemonsQuery.data ?? [];
+  const onlineDaemons = useMemo(
+    () => daemons.filter((daemon) => daemon.status === "online"),
+    [daemons]
+  );
+  const conversations = useMemo(
+    () => sortConversationsNewestFirst(conversationsQuery.data ?? []),
+    [conversationsQuery.data]
+  );
+
   const [selectedConversationId, setSelectedConversationId] = useState("");
   const [selectedDaemonId, setSelectedDaemonId] = useState("");
   const [title, setTitle] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
-  const [loadError, setLoadError] = useState("");
-  const [createError, setCreateError] = useState("");
 
-  const sliceKey = `${slice.account ?? ""}:${slice.slice ?? ""}`;
-  const onlineDaemons = useMemo(
-    () => daemons.filter((daemon) => daemon.status === "online"),
-    [daemons]
-  );
+  // Keep daemon selection valid as the online set changes. We only reassign
+  // when the current pick is gone; we never clobber a user-chosen daemon.
+  useEffect(() => {
+    setSelectedDaemonId((current) =>
+      onlineDaemons.some((daemon) => daemon.id === current)
+        ? current
+        : (onlineDaemons[0]?.id ?? "")
+    );
+  }, [onlineDaemons]);
+
+  // Default-select the newest conversation, but never overwrite an active
+  // selection that still exists in the list.
+  useEffect(() => {
+    setSelectedConversationId((current) => {
+      if (current && conversations.some((c) => c.id === current)) {
+        return current;
+      }
+      return conversations[0]?.id ?? "";
+    });
+  }, [conversations]);
+
   const selectedConversation = conversations.find(
     (conversation) => conversation.id === selectedConversationId
   );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAgents() {
-      setIsLoading(true);
-      setLoadError("");
-      try {
-        const [daemonResponse, conversationResponse] = await Promise.all([
-          api.listDaemons({}),
-          api.listConversations({ slice })
-        ]);
-
-        if (cancelled) {
-          return;
-        }
-
-        const nextDaemons = daemonResponse.daemons ?? [];
-        const nextConversations = sortConversationsNewestFirst(
-          conversationResponse.conversations ?? []
-        );
-        const nextOnlineDaemons = nextDaemons.filter(
-          (daemon) => daemon.status === "online"
-        );
-
-        setDaemons(nextDaemons);
-        setConversations(nextConversations);
-        setSelectedDaemonId((current) =>
-          nextOnlineDaemons.some((daemon) => daemon.id === current)
-            ? current
-            : nextOnlineDaemons[0]?.id ?? ""
-        );
-        setSelectedConversationId((current) =>
-          current &&
-          nextConversations.some((conversation) => conversation.id === current)
-            ? current
-            : nextConversations[0]?.id ?? ""
-        );
-      } catch (error) {
-        if (!cancelled) {
-          setLoadError(getErrorMessage(error));
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
+  const createMutation = useMutation({
+    mutationFn: (input: { daemonId: string; title: string }) =>
+      api.createConversation({
+        daemonId: input.daemonId,
+        slice,
+        title: input.title || undefined
+      }),
+    onSuccess: (conversation) => {
+      // Optimistically prepend so the user sees their conversation instantly;
+      // the next refetch will reconcile against server truth. The query cache
+      // stores the array directly (the queryFn returns Conversation[]), so we
+      // must update with an array too — not the wire-level response object.
+      queryClient.setQueryData<Conversation[]>(
+        ["sliceConversations", sliceKey],
+        (current) => [
+          conversation,
+          ...(current ?? []).filter((item) => item.id !== conversation.id)
+        ]
+      );
+      setSelectedConversationId(conversation.id ?? "");
+      setTitle("");
+      setIsCreateOpen(false);
+      setIsSidebarOpen(true);
     }
-
-    void loadAgents();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [api, slice, sliceKey]);
+  });
 
   async function createConversation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedDaemonId) {
       return;
     }
-
-    setIsCreating(true);
-    setCreateError("");
-    try {
-      const conversation = await api.createConversation({
-        daemonId: selectedDaemonId,
-        slice,
-        title: title.trim() || undefined
-      });
-
-      setConversations((current) => [
-        conversation,
-        ...current.filter((item) => item.id !== conversation.id)
-      ]);
-      setSelectedConversationId(conversation.id ?? "");
-      setTitle("");
-      setIsCreateOpen(false);
-      setIsSidebarOpen(true);
-    } catch (error) {
-      setCreateError(getErrorMessage(error));
-    } finally {
-      setIsCreating(false);
-    }
+    createMutation.mutate({ daemonId: selectedDaemonId, title: title.trim() });
   }
 
-  if (!slice.account || !slice.slice) {
+  if (!sliceDefined) {
     return (
       <SliceNotice title="Missing slice" tone="error">
         Agent conversations need an account and slice name.
@@ -130,7 +117,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
     );
   }
 
-  if (isLoading) {
+  if (daemonsQuery.isPending && conversationsQuery.isPending) {
     return (
       <SlicePanel className="min-h-[28rem]">
         <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
@@ -144,6 +131,10 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
       </SlicePanel>
     );
   }
+
+  const loadError =
+    (daemonsQuery.error && getErrorMessage(daemonsQuery.error)) ||
+    (conversationsQuery.error && getErrorMessage(conversationsQuery.error));
 
   if (loadError) {
     return (
@@ -164,6 +155,11 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
       {isSidebarOpen ? "Hide conversations" : "Show conversations"}
     </button>
   );
+
+  const createError = createMutation.error
+    ? getErrorMessage(createMutation.error)
+    : "";
+  const isCreating = createMutation.isPending;
 
   return (
     <SlicePanel className="min-h-[34rem] overflow-hidden p-0 lg:h-full lg:min-h-0">
@@ -194,7 +190,8 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
                 className="shrink-0 rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
                 disabled={!onlineDaemons.length || isCreating}
                 onClick={() => {
-                  setCreateError("");
+                  // Clear stale mutation errors so the form reopens cleanly.
+                  createMutation.reset();
                   setIsCreateOpen((open) => !open);
                 }}
                 type="button"
@@ -266,23 +263,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
               ) : (
                 <div className="mt-3 grid gap-2">
                   {onlineDaemons.map((daemon) => (
-                    <div
-                      className="rounded-md border border-slate-200 bg-white px-3 py-3"
-                      key={daemon.id ?? daemon.name}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="min-w-0 truncate text-sm font-semibold text-zinc-950">
-                          {daemon.name || daemon.id || "Unnamed agent"}
-                        </p>
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          online
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate font-mono text-xs text-slate-500">
-                        {daemon.runtime || "runtime"} {daemon.version || ""}
-                      </p>
-                    </div>
+                    <DaemonRow daemon={daemon} key={daemon.id ?? daemon.name} />
                   ))}
                 </div>
               )}
@@ -304,32 +285,48 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
                   No conversations yet.
                 </p>
               ) : (
-                <div className="mt-3 grid gap-1.5">
-                  {conversations.map((conversation) => (
-                    <button
-                      className={cn(
-                        "min-w-0 rounded-md px-3 py-2 text-left text-sm transition active:scale-[0.98]",
-                        conversation.id === selectedConversationId
-                          ? "bg-slate-100 text-zinc-950"
-                          : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
-                      )}
-                      key={conversation.id}
-                      onClick={() =>
-                        setSelectedConversationId(conversation.id ?? "")
-                      }
-                      type="button"
-                    >
-                      <span className="block truncate font-semibold">
-                        {conversation.title ||
-                          conversation.id ||
-                          "Untitled conversation"}
-                      </span>
-                      <span className="mt-1 block truncate font-mono text-xs text-slate-500">
-                        {conversation.status || "active"}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                <ul className="mt-3 grid gap-1.5">
+                  {conversations.map((conversation) => {
+                    const isSelected =
+                      conversation.id === selectedConversationId;
+                    return (
+                      <li key={conversation.id}>
+                        <button
+                          aria-current={isSelected ? "true" : undefined}
+                          className={cn(
+                            "min-w-0 w-full rounded-md px-3 py-2 text-left text-sm transition active:scale-[0.98]",
+                            isSelected
+                              ? "bg-slate-100 text-zinc-950"
+                              : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
+                          )}
+                          onClick={() =>
+                            setSelectedConversationId(conversation.id ?? "")
+                          }
+                          type="button"
+                        >
+                          <span className="block truncate font-semibold">
+                            {conversation.title ||
+                              conversation.id ||
+                              "Untitled conversation"}
+                          </span>
+                          <span className="mt-1 flex items-center gap-2">
+                            <ConversationStatusPill
+                              status={conversation.status}
+                            />
+                            {conversation.updatedAt ? (
+                              <span
+                                className="truncate font-mono text-[0.7rem] text-slate-400"
+                                title={conversation.updatedAt}
+                              >
+                                {formatRelativeTime(conversation.updatedAt)}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
           </aside>
@@ -356,9 +353,22 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
               <div className="flex flex-1 items-center justify-center p-6 text-center">
                 <div className="max-w-sm">
                   <p className="text-sm leading-6 text-slate-600">
-                    Create a conversation with an online daemon to start sending
-                    messages.
+                    {onlineDaemons.length
+                      ? "Start a new conversation with an online daemon, or pick one from the sidebar."
+                      : "Run gs agent start to make an agent available, then create a conversation."}
                   </p>
+                  {onlineDaemons.length ? (
+                    <button
+                      className="mt-4 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+                      onClick={() => {
+                        setIsSidebarOpen(true);
+                        setIsCreateOpen(true);
+                      }}
+                      type="button"
+                    >
+                      New conversation
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -367,6 +377,67 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
       </div>
     </SlicePanel>
   );
+}
+
+// Local components kept stateless so they don't re-render when the parent's
+// selection state changes. Each row only depends on its own props.
+
+function DaemonRow({ daemon }: { daemon: AgentDaemon }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-sm font-semibold text-zinc-950">
+          {daemon.name || daemon.id || "Unnamed agent"}
+        </p>
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          online
+        </span>
+      </div>
+      <p className="mt-1 truncate font-mono text-xs text-slate-500">
+        {daemon.runtime || "runtime"} {daemon.version || ""}
+      </p>
+    </div>
+  );
+}
+
+function ConversationStatusPill({ status }: { status?: string }) {
+  const value = status || "active";
+  const tone =
+    value === "active"
+      ? "bg-emerald-50 text-emerald-700"
+      : value === "idle"
+        ? "bg-slate-100 text-slate-600"
+        : value === "error" || value === "failed"
+          ? "bg-rose-50 text-rose-700"
+          : "bg-slate-100 text-slate-600";
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-normal",
+        tone
+      )}
+    >
+      {value}
+    </span>
+  );
+}
+
+function formatRelativeTime(iso: string) {
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) {
+    return "";
+  }
+  const seconds = Math.round((Date.now() - then) / 1000);
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  // For older items fall back to a short calendar date.
+  return new Date(then).toISOString().slice(0, 10);
 }
 
 function sortConversationsNewestFirst(conversations: Conversation[]) {
@@ -381,10 +452,10 @@ function sortConversationsNewestFirst(conversations: Conversation[]) {
 }
 
 function conversationSortTime(conversation: Conversation) {
-  const created = Date.parse(conversation.createdAt ?? "");
-  if (Number.isFinite(created)) {
-    return created;
-  }
   const updated = Date.parse(conversation.updatedAt ?? "");
-  return Number.isFinite(updated) ? updated : 0;
+  if (Number.isFinite(updated)) {
+    return updated;
+  }
+  const created = Date.parse(conversation.createdAt ?? "");
+  return Number.isFinite(created) ? created : 0;
 }
