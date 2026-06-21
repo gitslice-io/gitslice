@@ -30,7 +30,14 @@ export function AgentConversation({
   const [sendError, setSendError] = useState("");
   const [streamError, setStreamError] = useState("");
   const [isSending, setIsSending] = useState(false);
+  // Bumping retryKey re-runs the stream effect after a stream error, without
+  // needing to remount the component or change conversationId.
+  const [retryKey, setRetryKey] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Tracked as a ref so scroll position changes don't trigger re-renders; the
+  // scroll-on-new-event effect reads the latest value at effect time.
+  const stickToBottomRef = useRef(true);
 
   const title = useMemo(
     () => conversation?.title || conversationId,
@@ -41,9 +48,20 @@ export function AgentConversation({
     [events]
   );
 
+  // Reset transcript state only when the conversation actually changes. This is
+  // deliberately separate from the stream effect below so that a Reconnect
+  // (which bumps retryKey) re-attaches the stream without wiping the user's
+  // in-progress draft or the partial transcript already on screen.
   useEffect(() => {
     setEvents([]);
     setStreamError("");
+    setSendError("");
+    setDraft("");
+    // When switching conversations, treat the new view as "stick to bottom".
+    stickToBottomRef.current = true;
+  }, [conversationId]);
+
+  useEffect(() => {
     const controller = new AbortController();
 
     async function readStream() {
@@ -69,11 +87,28 @@ export function AgentConversation({
     return () => {
       controller.abort();
     };
-  }, [api, conversationId]);
+  }, [api, conversationId, retryKey]);
 
+  // Auto-scroll on new events only when the user is already parked at the
+  // bottom; otherwise typing/scrolling up to read history would be yanked
+  // away on every streamed token.
   useEffect(() => {
+    if (!stickToBottomRef.current) {
+      return;
+    }
     endRef.current?.scrollIntoView?.({ block: "end" });
   }, [events.length]);
+
+  function handleScroll() {
+    const el = scrollContainerRef.current;
+    if (!el) {
+      return;
+    }
+    // 96px slop so minor scrollback / scrollbar rounding doesn't detach.
+    const atBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+    stickToBottomRef.current = atBottom;
+  }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,11 +158,25 @@ export function AgentConversation({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-4 sm:px-5">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-4 py-4 sm:px-5"
+        onScroll={handleScroll}
+        ref={scrollContainerRef}
+      >
         {streamError ? (
           <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
             <p className="font-semibold">Stream stopped</p>
             <p className="mt-1 leading-6">{streamError}</p>
+            <button
+              className="mt-2 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 transition hover:bg-rose-100 active:scale-[0.98]"
+              onClick={() => {
+                setStreamError("");
+                setRetryKey((value) => value + 1);
+              }}
+              type="button"
+            >
+              Reconnect
+            </button>
           </div>
         ) : null}
 
