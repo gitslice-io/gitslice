@@ -48,7 +48,6 @@ import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
-import { AgentsTab } from "../components/slices/AgentsTab";
 import { cn } from "../lib/cn";
 
 interface SliceParams {
@@ -58,10 +57,7 @@ interface SliceParams {
 
 interface SliceSearch {
   path?: unknown;
-  tab?: unknown;
 }
-
-type SliceDetailTab = "files" | "agents";
 
 interface GitCloneEnv extends ImportMetaEnv {
   readonly VITE_GITSLICE_GIT_HTTP_BASE_URL?: string;
@@ -90,7 +86,6 @@ export function SliceDetailPage() {
     [routeAccount, routeSlice]
   );
   const selectedPath = pathSearchValue(search.path);
-  const activeTab = sliceTabSearchValue(search.tab);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showTree, setShowTree] = useState(true);
   const [mobileFilesOpen, setMobileFilesOpen] = useState(false);
@@ -214,23 +209,6 @@ export function SliceDetailPage() {
     });
   }
 
-  function selectTab(tab: SliceDetailTab) {
-    if (!sliceRouteParams) {
-      return;
-    }
-
-    const nextSearch: SliceSearch = selectedPath ? { path: selectedPath } : {};
-    if (tab !== "files") {
-      nextSearch.tab = tab;
-    }
-
-    void navigate({
-      params: sliceRouteParams as never,
-      search: nextSearch as never,
-      to: "/slices/$account/$slice"
-    });
-  }
-
   function stagePendingEdit(edit: PendingEdit) {
     if (!canEdit) {
       return;
@@ -307,17 +285,15 @@ export function SliceDetailPage() {
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {activeTab === "files" ? (
-            <button
-              aria-controls="slice-file-tree-panel"
-              aria-expanded={mobileFilesOpen}
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
-              onClick={() => setMobileFilesOpen(true)}
-              type="button"
-            >
-              Files
-            </button>
-          ) : null}
+          <button
+            aria-controls="slice-file-tree-panel"
+            aria-expanded={mobileFilesOpen}
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
+            onClick={() => setMobileFilesOpen(true)}
+            type="button"
+          >
+            Files
+          </button>
           <Link
             className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
             search={{ slice: sliceLabel } as never}
@@ -325,6 +301,15 @@ export function SliceDetailPage() {
           >
             Changesets
           </Link>
+          {isSignedIn && sliceRouteParams ? (
+            <Link
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              params={sliceRouteParams as never}
+              to="/slices/$account/$slice/agents"
+            >
+              Agents
+            </Link>
+          ) : null}
           {canEdit && sliceRouteParams ? (
             <Link
               className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
@@ -349,20 +334,7 @@ export function SliceDetailPage() {
         />
       ) : null}
 
-      <SliceDetailTabs active={activeTab} onSelect={selectTab} />
-
-      {activeTab === "agents" ? (
-        <div className="mt-4 min-h-0 lg:flex-1 lg:overflow-hidden">
-          {sliceRef ? (
-            <AgentsTab api={api} slice={sliceRef} />
-          ) : (
-            <SliceNotice title="Missing slice" tone="error">
-              Agent conversations need an account and slice name.
-            </SliceNotice>
-          )}
-        </div>
-      ) : (
-        <>
+      <>
           <div
             className={[
               "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
@@ -470,50 +442,8 @@ export function SliceDetailPage() {
             sliceLabel={sliceLabel}
             sliceRef={sliceRef}
           />
-        </>
-      )}
+      </>
     </section>
-  );
-}
-
-function SliceDetailTabs({
-  active,
-  onSelect
-}: {
-  active: SliceDetailTab;
-  onSelect(tab: SliceDetailTab): void;
-}) {
-  return (
-    <div className="mt-4 border-b border-slate-200">
-      <nav
-        aria-label="Slice views"
-        className="-mb-px flex min-w-0 gap-1 overflow-x-auto"
-      >
-        <button
-          className={sliceDetailTabClass(active === "files")}
-          onClick={() => onSelect("files")}
-          type="button"
-        >
-          Files
-        </button>
-        <button
-          className={sliceDetailTabClass(active === "agents")}
-          onClick={() => onSelect("agents")}
-          type="button"
-        >
-          Agents
-        </button>
-      </nav>
-    </div>
-  );
-}
-
-function sliceDetailTabClass(active: boolean) {
-  return cn(
-    "shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition active:scale-[0.98]",
-    active
-      ? "border-zinc-950 text-zinc-950"
-      : "border-transparent text-slate-600 hover:border-slate-300 hover:text-zinc-950"
   );
 }
 
@@ -1896,10 +1826,6 @@ function pathSearchValue(value: unknown) {
   return typeof value === "string" && value.trim()
     ? normalizeRepositoryPath(value)
     : "";
-}
-
-function sliceTabSearchValue(value: unknown): SliceDetailTab {
-  return value === "agents" ? "agents" : "files";
 }
 
 function buildGitCloneHint(account?: string, slug?: string) {

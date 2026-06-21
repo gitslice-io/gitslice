@@ -117,12 +117,14 @@ Postgres log. The daemon is the only place agent code runs.
 A `Runtime` interface abstracts the agent process; `codexRuntime` is the first
 implementation (wrapping `codex exec`, reusing the patterns in CLAUDE.md).
 
-### Web: Agents tab (`web/src/routes/SliceDetailPage.tsx` + new components)
+### Web: Agents page (`web/src/routes/SliceAgentsPage.tsx` + components)
 
-A new tab lists the subject's online daemons and the slice's conversations, with
-a chat panel. Sends via `SendAgentMessage`; receives via `StreamConversation`
-(fetch + ReadableStream); loads history from `GetConversation` /
-`ListConversations`.
+Agents is its own per-slice route, `/slices/$account/$slice/agents`, a peer of
+Changesets and Settings in the slice header (not a sub-tab of the file browser).
+It lists the subject's online daemons and the slice's conversations, with a chat
+panel. Sends via `SendAgentMessage`; receives via `StreamConversation` (fetch +
+ReadableStream); loads history from `GetConversation` / `ListConversations`. The
+reusable chat UI lives in `web/src/components/slices/AgentsTab.tsx`.
 
 ## Phasing
 
