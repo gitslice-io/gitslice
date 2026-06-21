@@ -52,7 +52,9 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
         }
 
         const nextDaemons = daemonResponse.daemons ?? [];
-        const nextConversations = conversationResponse.conversations ?? [];
+        const nextConversations = sortConversationsNewestFirst(
+          conversationResponse.conversations ?? []
+        );
         const nextOnlineDaemons = nextDaemons.filter(
           (daemon) => daemon.status === "online"
         );
@@ -297,4 +299,24 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
       </div>
     </SlicePanel>
   );
+}
+
+function sortConversationsNewestFirst(conversations: Conversation[]) {
+  return [...conversations].sort((left, right) => {
+    const leftTime = conversationSortTime(left);
+    const rightTime = conversationSortTime(right);
+    if (leftTime !== rightTime) {
+      return rightTime - leftTime;
+    }
+    return (right.id ?? "").localeCompare(left.id ?? "");
+  });
+}
+
+function conversationSortTime(conversation: Conversation) {
+  const created = Date.parse(conversation.createdAt ?? "");
+  if (Number.isFinite(created)) {
+    return created;
+  }
+  const updated = Date.parse(conversation.updatedAt ?? "");
+  return Number.isFinite(updated) ? updated : 0;
 }

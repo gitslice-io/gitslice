@@ -6034,3 +6034,92 @@ go test ./...
 # capture is a no-op on a clean workspace, creates patchset 1 on first edits,
 # adds patchset 2 on the next edits (same changeset).
 ```
+
+## 2026-06-21: BYOA - Web Capture Status Links
+
+Goal: make the web agent conversation clearly surface changesets and patchsets
+created by per-turn auto-capture, then verify the existing multi-patchset agent
+flow still works.
+
+The server and CLI daemon already create one draft changeset per agent
+conversation workspace and append later agent turns as additional patchsets via
+`gs cs capture`. The web chat previously rendered the daemon's capture status as
+plain text, so the user had to manually copy the short changeset id. The chat
+now recognizes the daemon's exact status format,
+`captured changeset <id> patchset <n>`, and renders it as a "Captured patchset"
+message with a direct `/cs/<id>` link. The parser is intentionally narrow so
+ordinary system status text is not converted into navigation.
+
+Added `AgentConversation.test.tsx` to stream a capture status event through the
+component and assert that the patchset label and changeset link render.
+
+Verification:
+```bash
+cd web && npm run build
+cd web && npx vitest run --environment jsdom src/components/slices/AgentConversation.test.tsx src/components/slices/AgentsTab.test.tsx
+go test -count=1 -run 'TestPatchsetConversationLink|TestAgentConversationRelay' ./tests/rpc -v
+go test ./...
+go build ./cmd/...
+cd web && npx vitest run --environment jsdom
+```
+
+Results: web build, full web tests, `go test ./...`, and `go build ./cmd/...`
+passed. The targeted RPC command compiled and ran, but the real Postgres RPC
+tests skipped in this environment because `GITSLICE_TEST_DATABASE_URL` is not
+set; those tests remain the right end-to-end gate when a local Postgres URL is
+available.
+
+## 2026-06-21: BYOA - Staging Agent Chat Recovery
+
+Goal: fix staging agent chat after the browser showed "Failed to fetch" /
+stalled chat behavior for the `nic` account.
+
+Findings:
+- The staging API CORS preflight and authenticated AgentService calls from
+  `https://agenttools.dev` were healthy.
+- The first web message did reach the daemon and Codex responded; events were
+  persisted, including a captured patchset. Shortly afterward the daemon process
+  exited with `RST_STREAM INTERNAL_ERROR` from the long-lived `Connect` stream,
+  leaving the daemon offline.
+- Existing conversations created before the daemon restart are not recoverable by
+  a fresh process because the daemon's in-memory conversation workspace map is
+  process-local. A reconnect inside the same process is therefore required for
+  transport resets.
+- `SendAgentMessage` currently persists user messages even when the daemon is not
+  connected; this should be tightened in a future server-side fix so the browser
+  gets a clear unavailable state instead of a message that no daemon can process.
+
+Changes:
+- `gs agent start` now keeps a single daemon object alive and reconnects its
+  server `Connect` stream after transient stream errors, preserving the
+  conversation/workspace map across reconnects. Direct send-queue access was
+  guarded so runtime output during disconnects returns a send error instead of
+  risking a nil queue panic.
+- Rebuilt `/home/nic/.local/bin/gs-staging-agent` and restarted the staging
+  daemon for account `nic` with daemon id
+  `agent_4961b7574c17f7180c1ac4968bb540f3`.
+- Created a fresh `ready` conversation
+  `conv_d9b4f329f4b6a00af7fb840ca85f9177` on `nic:home` for the live daemon.
+- Updated the web Agents tab to sort conversations newest-first, so the fresh
+  valid conversation is selected before stale pre-restart conversations.
+- Deployed the staging web app; live `agenttools.dev` now serves the bundle with
+  the capture-link code and newest-first conversation behavior.
+
+Verification:
+```bash
+go test ./internal/cli
+go build ./cmd/...
+cd web && npx vitest run --environment jsdom src/components/slices/AgentsTab.test.tsx src/components/slices/AgentConversation.test.tsx
+cd web && npm run build
+npm --prefix web run deploy:staging
+/home/nic/.local/bin/gs-staging-agent agent status --json
+curl -sS --max-time 20 https://agenttools.dev/ | rg -o '/assets/index-[^"]+\.js'
+curl -sS --max-time 20 https://agenttools.dev/assets/index-Dov95Nin.js | rg -o 'Captured patchset|captured changeset'
+curl -sS -X POST https://api.agenttools.dev/gitslice.core.v1.AgentService/SendAgentMessage ...
+curl -sS -X POST https://api.agenttools.dev/gitslice.core.v1.AgentService/GetConversationEvents ...
+```
+
+Results: the patched daemon is online, the fresh `ready` conversation is
+hydrated locally, a test message through staging returned Codex `OK` events, the
+daemon stayed online after the turn, focused web tests passed, the web build and
+deploy passed, and `go build ./cmd/...` passed.

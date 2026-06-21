@@ -25,9 +25,42 @@ describe("AgentsTab", () => {
       })
     );
   });
+
+  it("selects the newest conversation first", async () => {
+    const api = makeApi({
+      conversations: [
+        {
+          id: "conv_old",
+          title: "Old chat",
+          status: "active",
+          createdAt: "2026-06-21T16:00:00Z"
+        },
+        {
+          id: "conv_new",
+          title: "Fresh chat",
+          status: "active",
+          createdAt: "2026-06-21T16:45:00Z"
+        }
+      ]
+    });
+
+    render(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
+
+    expect(await screen.findByRole("heading", { name: "Fresh chat" }))
+      .toBeInTheDocument();
+  });
 });
 
-function makeApi() {
+function makeApi(
+  overrides: {
+    conversations?: Array<{
+      id: string;
+      title: string;
+      status: string;
+      createdAt: string;
+    }>;
+  } = {}
+) {
   return {
     listDaemons: vi.fn().mockResolvedValue({
       daemons: [
@@ -43,7 +76,9 @@ function makeApi() {
         }
       ]
     }),
-    listConversations: vi.fn().mockResolvedValue({ conversations: [] }),
+    listConversations: vi.fn().mockResolvedValue({
+      conversations: overrides.conversations ?? []
+    }),
     createConversation: vi.fn(),
     getConversation: vi.fn(),
     sendAgentMessage: vi.fn(),
