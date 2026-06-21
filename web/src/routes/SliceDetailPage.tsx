@@ -48,6 +48,8 @@ import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
+import { AgentsTab } from "../components/slices/AgentsTab";
+import { cn } from "../lib/cn";
 
 interface SliceParams {
   account?: string;
@@ -56,7 +58,10 @@ interface SliceParams {
 
 interface SliceSearch {
   path?: unknown;
+  tab?: unknown;
 }
+
+type SliceDetailTab = "files" | "agents";
 
 interface GitCloneEnv extends ImportMetaEnv {
   readonly VITE_GITSLICE_GIT_HTTP_BASE_URL?: string;
@@ -85,6 +90,7 @@ export function SliceDetailPage() {
     [routeAccount, routeSlice]
   );
   const selectedPath = pathSearchValue(search.path);
+  const activeTab = sliceTabSearchValue(search.tab);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showTree, setShowTree] = useState(true);
   const [mobileFilesOpen, setMobileFilesOpen] = useState(false);
@@ -208,6 +214,23 @@ export function SliceDetailPage() {
     });
   }
 
+  function selectTab(tab: SliceDetailTab) {
+    if (!sliceRouteParams) {
+      return;
+    }
+
+    const nextSearch: SliceSearch = selectedPath ? { path: selectedPath } : {};
+    if (tab !== "files") {
+      nextSearch.tab = tab;
+    }
+
+    void navigate({
+      params: sliceRouteParams as never,
+      search: nextSearch as never,
+      to: "/slices/$account/$slice"
+    });
+  }
+
   function stagePendingEdit(edit: PendingEdit) {
     if (!canEdit) {
       return;
@@ -284,15 +307,17 @@ export function SliceDetailPage() {
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            aria-controls="slice-file-tree-panel"
-            aria-expanded={mobileFilesOpen}
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
-            onClick={() => setMobileFilesOpen(true)}
-            type="button"
-          >
-            Files
-          </button>
+          {activeTab === "files" ? (
+            <button
+              aria-controls="slice-file-tree-panel"
+              aria-expanded={mobileFilesOpen}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
+              onClick={() => setMobileFilesOpen(true)}
+              type="button"
+            >
+              Files
+            </button>
+          ) : null}
           <Link
             className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
             search={{ slice: sliceLabel } as never}
@@ -324,112 +349,171 @@ export function SliceDetailPage() {
         />
       ) : null}
 
-      <div
-        className={[
-          "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
-          showTree
-            ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
-            : "lg:grid-cols-[2.75rem_minmax(0,1fr)]"
-        ].join(" ")}
-      >
-        {mobileFilesOpen ? (
-          <button
-            aria-label="Close files"
-            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
-            onClick={() => setMobileFilesOpen(false)}
-            type="button"
-          />
-        ) : null}
-        {/* Collapsed rail: re-opens the file tree (desktop only). */}
-        <button
-          aria-controls="slice-file-tree-panel"
-          aria-expanded={false}
-          aria-label="Show files"
-          className={[
-            "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 bg-white px-1.5 py-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]",
-            showTree ? "" : "lg:flex"
-          ].join(" ")}
-          onClick={() => setShowTree(true)}
-          title="Show files"
-          type="button"
-        >
-          <span aria-hidden="true" className="text-sm leading-none">
-            »
-          </span>
-          <span className="[writing-mode:vertical-rl]">Files</span>
-        </button>
-        <aside
-          className={[
-            "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-slate-50 p-4 shadow-xl transition-transform duration-200",
-            mobileFilesOpen ? "translate-x-0" : "-translate-x-full",
-            "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:transition-none lg:h-full lg:min-h-0 lg:overflow-y-auto",
-            showTree ? "" : "lg:hidden"
-          ].join(" ")}
-          id="slice-file-tree-panel"
-        >
-          <div className="mb-3 flex items-center justify-between lg:hidden">
-            <span className="text-sm font-semibold text-zinc-950">Files</span>
+      <SliceDetailTabs active={activeTab} onSelect={selectTab} />
+
+      {activeTab === "agents" ? (
+        <div className="mt-4 min-h-0 lg:flex-1 lg:overflow-hidden">
+          {sliceRef ? (
+            <AgentsTab api={api} slice={sliceRef} />
+          ) : (
+            <SliceNotice title="Missing slice" tone="error">
+              Agent conversations need an account and slice name.
+            </SliceNotice>
+          )}
+        </div>
+      ) : (
+        <>
+          <div
+            className={[
+              "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
+              showTree
+                ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
+                : "lg:grid-cols-[2.75rem_minmax(0,1fr)]"
+            ].join(" ")}
+          >
+            {mobileFilesOpen ? (
+              <button
+                aria-label="Close files"
+                className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+                onClick={() => setMobileFilesOpen(false)}
+                type="button"
+              />
+            ) : null}
+            {/* Collapsed rail: re-opens the file tree (desktop only). */}
             <button
-              aria-label="Close files"
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              onClick={() => setMobileFilesOpen(false)}
+              aria-controls="slice-file-tree-panel"
+              aria-expanded={false}
+              aria-label="Show files"
+              className={[
+                "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 bg-white px-1.5 py-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]",
+                showTree ? "" : "lg:flex"
+              ].join(" ")}
+              onClick={() => setShowTree(true)}
+              title="Show files"
               type="button"
             >
-              Close
+              <span aria-hidden="true" className="text-sm leading-none">
+                »
+              </span>
+              <span className="[writing-mode:vertical-rl]">Files</span>
             </button>
+            <aside
+              className={[
+                "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-slate-50 p-4 shadow-xl transition-transform duration-200",
+                mobileFilesOpen ? "translate-x-0" : "-translate-x-full",
+                "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:transition-none lg:h-full lg:min-h-0 lg:overflow-y-auto",
+                showTree ? "" : "lg:hidden"
+              ].join(" ")}
+              id="slice-file-tree-panel"
+            >
+              <div className="mb-3 flex items-center justify-between lg:hidden">
+                <span className="text-sm font-semibold text-zinc-950">
+                  Files
+                </span>
+                <button
+                  aria-label="Close files"
+                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                  onClick={() => setMobileFilesOpen(false)}
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+              <SliceFolderNavigator
+                api={api}
+                commitId={commitId}
+                includedPaths={includedPaths}
+                isLatestLoading={latestQuery.isPending}
+                isSelectedDirectory={isDirectory}
+                onCollapse={() => setShowTree(false)}
+                onSelectPath={(nextPath) => {
+                  selectPath(nextPath);
+                  setMobileFilesOpen(false);
+                }}
+                selectedPath={selectedPath}
+                sliceId={sliceId || sliceRouteKey}
+                sliceRef={sliceRef}
+              />
+            </aside>
+
+            <div className="min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto">
+              <SliceSourceWorkspace
+                commitError={latestQuery.error}
+                commitId={commitId}
+                createDirectory={createDirectory}
+                directoryEntries={currentEntries}
+                directoryError={directoryQuery.error}
+                entry={entry}
+                fileContent={decodeBase64File(fileQuery.data?.data)}
+                fileError={fileQuery.error}
+                includedPaths={includedPaths}
+                isDirectoryLoading={directoryQuery.isPending}
+                isFileLoading={fileQuery.isPending}
+                isLatestLoading={latestQuery.isPending}
+                isPathLoading={pathQuery.isLoading}
+                onOpenHistory={() => setHistoryOpen(true)}
+                onSelectPath={selectPath}
+                onStageEdit={canEdit ? stagePendingEdit : undefined}
+                pathError={pathQuery.error}
+                pendingEdits={pendingEdits}
+                selectedPath={selectedPath}
+              />
+            </div>
           </div>
-          <SliceFolderNavigator
+          <HistoryDrawer
             api={api}
             commitId={commitId}
-            includedPaths={includedPaths}
-            isLatestLoading={latestQuery.isPending}
-            isSelectedDirectory={isDirectory}
-            onCollapse={() => setShowTree(false)}
-            onSelectPath={(nextPath) => {
-              selectPath(nextPath);
-              setMobileFilesOpen(false);
-            }}
+            onClose={() => setHistoryOpen(false)}
+            open={historyOpen}
             selectedPath={selectedPath}
             sliceId={sliceId || sliceRouteKey}
+            sliceLabel={sliceLabel}
             sliceRef={sliceRef}
           />
-        </aside>
-
-        <div className="min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto">
-          <SliceSourceWorkspace
-            commitError={latestQuery.error}
-            commitId={commitId}
-            createDirectory={createDirectory}
-            directoryEntries={currentEntries}
-            directoryError={directoryQuery.error}
-            entry={entry}
-            fileContent={decodeBase64File(fileQuery.data?.data)}
-            fileError={fileQuery.error}
-            includedPaths={includedPaths}
-            isDirectoryLoading={directoryQuery.isPending}
-            isFileLoading={fileQuery.isPending}
-            isLatestLoading={latestQuery.isPending}
-            isPathLoading={pathQuery.isLoading}
-            onOpenHistory={() => setHistoryOpen(true)}
-            onSelectPath={selectPath}
-            onStageEdit={canEdit ? stagePendingEdit : undefined}
-            pathError={pathQuery.error}
-            pendingEdits={pendingEdits}
-            selectedPath={selectedPath}
-          />
-        </div>
-      </div>
-      <HistoryDrawer
-        api={api}
-        commitId={commitId}
-        onClose={() => setHistoryOpen(false)}
-        open={historyOpen}
-        selectedPath={selectedPath}
-        sliceId={sliceId || sliceRouteKey}
-        sliceLabel={sliceLabel}
-        sliceRef={sliceRef}
-      />
+        </>
+      )}
     </section>
+  );
+}
+
+function SliceDetailTabs({
+  active,
+  onSelect
+}: {
+  active: SliceDetailTab;
+  onSelect(tab: SliceDetailTab): void;
+}) {
+  return (
+    <div className="mt-4 border-b border-slate-200">
+      <nav
+        aria-label="Slice views"
+        className="-mb-px flex min-w-0 gap-1 overflow-x-auto"
+      >
+        <button
+          className={sliceDetailTabClass(active === "files")}
+          onClick={() => onSelect("files")}
+          type="button"
+        >
+          Files
+        </button>
+        <button
+          className={sliceDetailTabClass(active === "agents")}
+          onClick={() => onSelect("agents")}
+          type="button"
+        >
+          Agents
+        </button>
+      </nav>
+    </div>
+  );
+}
+
+function sliceDetailTabClass(active: boolean) {
+  return cn(
+    "shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition active:scale-[0.98]",
+    active
+      ? "border-zinc-950 text-zinc-950"
+      : "border-transparent text-slate-600 hover:border-slate-300 hover:text-zinc-950"
   );
 }
 
@@ -1812,6 +1896,10 @@ function pathSearchValue(value: unknown) {
   return typeof value === "string" && value.trim()
     ? normalizeRepositoryPath(value)
     : "";
+}
+
+function sliceTabSearchValue(value: unknown): SliceDetailTab {
+  return value === "agents" ? "agents" : "files";
 }
 
 function buildGitCloneHint(account?: string, slug?: string) {

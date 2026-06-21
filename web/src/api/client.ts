@@ -13,6 +13,9 @@ import type {
   CompleteCliLoginRequest,
   CompleteCliLoginResponse,
   AddStackEntryRequest,
+  Conversation,
+  ConversationEvent,
+  CreateConversationRequest,
   CreateChangesetRequest,
   CreateStackRequest,
   CreateSliceRequest,
@@ -21,6 +24,7 @@ import type {
   DiffChangesetRequest,
   DiffChangesetResponse,
   Empty,
+  GetConversationRequest,
   GetAuthStatusRequest,
   GetAuthStatusResponse,
   GetBlobStatusRequest,
@@ -30,10 +34,14 @@ import type {
   GetRefRequest,
   GetSliceRequest,
   GetStackRequest,
+  ListDaemonsRequest,
+  ListDaemonsResponse,
   ListCommitsRequest,
   ListCommitsResponse,
   ListChangesetsRequest,
   ListChangesetsResponse,
+  ListConversationsRequest,
+  ListConversationsResponse,
   ListDirectoryRequest,
   ListDirectoryResponse,
   ListSlicesRequest,
@@ -51,7 +59,10 @@ import type {
   ResolvePathRequest,
   ResolvePathResponse,
   ResolveSliceRequest,
+  SendAgentMessageRequest,
+  SendAgentMessageResponse,
   Slice,
+  StreamConversationRequest,
   SubmitStackRequest,
   SubmitStackResponse,
   SubmitChangesetRequest,
@@ -69,7 +80,8 @@ export type RpcService =
   | "BlobService"
   | "SliceService"
   | "ChangesetService"
-  | "ChangesetStackService";
+  | "ChangesetStackService"
+  | "AgentService";
 
 export interface RpcErrorBody {
   code?: string | number;
@@ -313,7 +325,41 @@ export function createApiClient({
         "ChangesetStackService",
         "SubmitStack",
         request
-      )
+      ),
+    listDaemons: (request) =>
+      invoke<ListDaemonsRequest, ListDaemonsResponse>(
+        "AgentService",
+        "ListDaemons",
+        request
+      ),
+    createConversation: (request) =>
+      invoke<CreateConversationRequest, Conversation>(
+        "AgentService",
+        "CreateConversation",
+        request
+      ),
+    listConversations: (request) =>
+      invoke<ListConversationsRequest, ListConversationsResponse>(
+        "AgentService",
+        "ListConversations",
+        request
+      ),
+    getConversation: (request) =>
+      invoke<GetConversationRequest, Conversation>(
+        "AgentService",
+        "GetConversation",
+        request
+      ),
+    sendAgentMessage: (request) =>
+      invoke<SendAgentMessageRequest, SendAgentMessageResponse>(
+        "AgentService",
+        "SendAgentMessage",
+        request
+      ),
+    streamConversation: async function* (request, signal) {
+      const token = await getToken();
+      yield* streamConversation(request, token, signal, baseUrl);
+    }
   };
 }
 
@@ -345,4 +391,92 @@ export async function callRpc<TRequest, TResponse>(
   }
 
   return parsed as TResponse;
+}
+
+export async function* streamConversation(
+  req: StreamConversationRequest,
+  token: string | null | undefined,
+  signal: AbortSignal,
+  baseUrl = defaultApiBaseUrl
+): AsyncGenerator<ConversationEvent> {
+  const trimmedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const response = await fetch(
+    `${trimmedBaseUrl}/gitslice.core.v1.AgentService/StreamConversation`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(req ?? {}),
+      signal
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    const parsed = text ? JSON.parse(text) : {};
+    throw new RpcError(response.status, parsed as RpcErrorBody);
+  }
+
+  if (!response.body) {
+    throw new Error("StreamConversation did not return a response body.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (signal.aborted) {
+          return;
+        }
+        const event = parseConversationStreamLine(line, response.status);
+        if (event) {
+          yield event;
+        }
+      }
+    }
+
+    if (signal.aborted) {
+      return;
+    }
+
+    buffer += decoder.decode();
+    const event = parseConversationStreamLine(buffer, response.status);
+    if (event && !signal.aborted) {
+      yield event;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseConversationStreamLine(line: string, status: number) {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(trimmed) as {
+    result?: ConversationEvent;
+    error?: RpcErrorBody;
+  };
+
+  if (parsed.error) {
+    throw new RpcError(status, parsed.error);
+  }
+
+  return parsed.result;
 }

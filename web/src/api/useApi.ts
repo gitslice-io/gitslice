@@ -16,6 +16,9 @@ import type {
   CompleteCliLoginRequest,
   CompleteCliLoginResponse,
   AddStackEntryRequest,
+  Conversation,
+  ConversationEvent,
+  CreateConversationRequest,
   CreateChangesetRequest,
   CreateStackRequest,
   CreateSliceRequest,
@@ -24,6 +27,7 @@ import type {
   DiffChangesetRequest,
   DiffChangesetResponse,
   Empty,
+  GetConversationRequest,
   GetAuthStatusRequest,
   GetAuthStatusResponse,
   GetBlobStatusRequest,
@@ -33,10 +37,14 @@ import type {
   GetRefRequest,
   GetSliceRequest,
   GetStackRequest,
+  ListDaemonsRequest,
+  ListDaemonsResponse,
   ListCommitsRequest,
   ListCommitsResponse,
   ListChangesetsRequest,
   ListChangesetsResponse,
+  ListConversationsRequest,
+  ListConversationsResponse,
   ListDirectoryRequest,
   ListDirectoryResponse,
   ListSlicesRequest,
@@ -54,7 +62,10 @@ import type {
   ResolvePathRequest,
   ResolvePathResponse,
   ResolveSliceRequest,
+  SendAgentMessageRequest,
+  SendAgentMessageResponse,
   Slice,
+  StreamConversationRequest,
   SubmitStackRequest,
   SubmitStackResponse,
   SubmitChangesetRequest,
@@ -127,6 +138,19 @@ export interface ApiClient {
   ): Promise<DetachStackEntryResponse>;
   restack(request: RestackRequest): Promise<RestackResponse>;
   submitStack(request: SubmitStackRequest): Promise<SubmitStackResponse>;
+  listDaemons(request: ListDaemonsRequest): Promise<ListDaemonsResponse>;
+  createConversation(request: CreateConversationRequest): Promise<Conversation>;
+  listConversations(
+    request: ListConversationsRequest
+  ): Promise<ListConversationsResponse>;
+  getConversation(request: GetConversationRequest): Promise<Conversation>;
+  sendAgentMessage(
+    request: SendAgentMessageRequest
+  ): Promise<SendAgentMessageResponse>;
+  streamConversation(
+    request: StreamConversationRequest,
+    signal: AbortSignal
+  ): AsyncGenerator<ConversationEvent>;
 }
 
 export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
