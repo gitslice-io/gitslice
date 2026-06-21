@@ -126,13 +126,30 @@ a chat panel. Sends via `SendAgentMessage`; receives via `StreamConversation`
 
 ## Phasing
 
-1. **Foundation (server):** proto + generated stubs, migration, `AgentStore`
-   (interface + memory + postgres), hub service, server/gateway wiring, rpc test
-   with an in-test echo daemon. *(owned by main agent)*
-2. **CLI daemon:** `gs agent start/status/stop` + codex runtime. *(codex)*
-3. **Web Agents tab:** chat UI with streaming. *(codex)*
-4. **Changeset integration + polish:** agent edits flow to a changeset visible
-   on the slice; e2e coverage.
+1. **Foundation (server) — DONE.** proto + generated stubs, migration,
+   `AgentStore` (interface + memory + postgres), hub service, server/gateway
+   wiring, rpc test with an in-test echo daemon. *(owned by main agent)*
+2. **CLI daemon — IN PROGRESS.** `gs agent start/status/stop` + codex runtime.
+   *(codex worktree `codex/agent-cli`)*
+3. **Web Agents tab — IN PROGRESS.** chat UI with streaming. *(codex worktree
+   `codex/agent-web`)*
+4. **Changeset integration + polish — TODO.** agent edits flow to a changeset
+   visible on the slice; e2e coverage.
+
+## Implementation notes
+
+- **Shutdown can't `GracefulStop` the gRPC server.** gRPC is multiplexed over
+  the same HTTP listener via `grpcServer.ServeHTTP` (`server/server.go`,
+  `NewCombinedGRPCGatewayHandler`). That `serverHandlerTransport` does not
+  implement `Drain()`, so `grpcServer.GracefulStop()` panics whenever a server
+  stream is still open at shutdown — and a daemon's `Connect` stream always is.
+  Shutdown therefore bounds the HTTP drain (`serverShutdownTimeout`) and then
+  calls `grpcServer.Stop()`; the combined HTTP server has already drained
+  in-flight requests gracefully by that point. See the 2026-06-21 execution-log
+  entry.
+- The hub holds no durable state. Live `publish` to web subscribers is
+  best-effort/non-blocking; correctness comes from the persisted event log plus
+  `after_seq` replay on (re)subscribe.
 
 ## Future work
 
