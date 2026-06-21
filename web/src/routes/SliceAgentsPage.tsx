@@ -40,7 +40,7 @@ export function SliceAgentsPage() {
   const sliceRouteParams = toSliceRouteParams(sliceRef);
 
   return (
-    <section className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6 lg:h-[calc(100vh-4rem)]">
+    <section className="mx-auto flex w-full max-w-[100rem] flex-col gap-4 lg:h-[calc(100dvh-8rem)] lg:overflow-hidden">
       <Breadcrumb
         items={[
           { label: "Slices", to: "/slices" },
