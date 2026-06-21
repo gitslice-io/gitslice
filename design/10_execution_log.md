@@ -6257,3 +6257,74 @@ Results: focused component tests passed (2 files, 5 tests), the full web test
 suite passed (5 files, 16 tests), and the production build passed. The build
 still emits the existing Vite/Nitro dependency and large-chunk warnings but
 exits successfully.
+
+## 2026-06-21: BYOA - Live Thinking Bubble Ordering
+
+Goal: fix the web agent chat so a live reasoning/thinking bubble appears at the
+point where it arrived in the conversation instead of always rendering at the
+bottom of the transcript.
+
+Decision: keep ephemeral deltas out of the persisted `events` array, but store
+each live delta with a local anchor: the latest persisted conversation `seq` at
+the moment that live item first arrives, plus a local arrival order. The render
+merge inserts live deltas after their anchor seq and before later persisted
+events. This preserves the server model where ephemeral deltas do not consume
+conversation seqs, while making the browser transcript chronological during a
+live turn.
+
+Bug found during verification: React may batch state updater evaluation after
+later stream events have advanced refs. Capturing the live delta's `afterSeq`
+outside the `setLiveDeltas` updater is necessary; otherwise the bubble can still
+anchor to the end of the transcript.
+
+Verification:
+```bash
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx
+npm --prefix web test -- src/components/slices/AgentsTab.test.tsx src/components/slices/AgentConversation.test.tsx
+npm --prefix web run build
+```
+
+Results: focused and adjacent web component tests passed, and the production
+build passed. The build still emits existing Vite/Nitro dependency and
+large-chunk warnings but exits successfully.
+
+## 2026-06-21: BYOA - Persist Runtime Thinking Deltas
+
+Goal: persist agent thinking/reasoning token streams instead of treating them as
+live-only browser state.
+
+Decision: runtime delta events (`message_delta`, `reasoning_delta`) now go
+through the same `AgentStore.AppendEvent` path as finalized agent events. That
+assigns every delta a normal per-conversation `seq`, so reloads and patchset
+conversation ranges can include the reasoning/thinking output that was visible
+during the turn. `item_id` is now stored on `agent_conversation_events` so
+clients can still coalesce token snapshots with the finalized runtime item.
+
+Schema and API notes:
+- added migration `0016_agent_event_item_id.sql`
+- updated `AgentStore.AppendEvent` to accept `itemID`
+- updated Postgres and memory stores to read/write `ConversationEvent.item_id`
+- regenerated `proto/core/v1` after updating the `agent.proto` comments
+- the web chat now treats persisted deltas as coalescable stream entries while
+  still advancing its persisted-seq cursor
+
+Verification:
+```bash
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false proto/core/v1/*.proto
+protoc --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative --grpc-gateway_opt=generate_unbound_methods=true proto/core/v1/*.proto
+go test ./service -run TestAgentServicePersistsRuntimeDeltas -v
+go test -count=1 ./service
+go test ./service ./tests/rpc
+go test -count=1 -run TestAgentConversationPersistsRuntimeDeltas ./tests/rpc -v
+go test ./...
+go build ./cmd/...
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx src/components/slices/AgentsTab.test.tsx
+npm --prefix web run build
+```
+
+Results: local Go tests/build, focused service/RPC tests, focused web tests, and
+the production web build passed. The build still emits existing Vite/Nitro
+dependency and large-chunk warnings but exits successfully. The real Postgres
+RPC e2e gate was not run locally because `GITSLICE_TEST_DATABASE_URL` is unset
+and there is no `env.local`; the new RPC test will exercise the Postgres path
+when that gate is configured.

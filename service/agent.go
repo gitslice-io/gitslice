@@ -115,27 +115,10 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 			if eventType == "" {
 				eventType = "message"
 			}
-			if ev.Ephemeral {
-				// Live-only token delta: relay to subscribers without persisting.
-				// seq stays 0 so StreamConversation forwards it past the replay
-				// cursor; item_id lets clients coalesce it into one message.
-				s.hub.publish(ev.ConversationId, &corev1.ConversationEvent{
-					ConversationId: ev.ConversationId,
-					Role:           role,
-					Type:           eventType,
-					Text:           ev.Text,
-					DataJson:       ev.DataJson,
-					ItemId:         ev.ItemId,
-				})
-				continue
-			}
-			stored, err := s.Agents.AppendEvent(ctx, ev.ConversationId, role, eventType, ev.Text, ev.DataJson)
+			stored, err := s.Agents.AppendEvent(ctx, ev.ConversationId, role, eventType, ev.Text, ev.DataJson, ev.ItemId)
 			if err != nil {
 				continue
 			}
-			// item_id is not persisted, but stamping it on the live copy lets
-			// subscribers clear the matching in-progress delta bubble.
-			stored.ItemId = ev.ItemId
 			s.hub.publish(ev.ConversationId, stored)
 		}
 	}
@@ -246,7 +229,7 @@ func (s *AgentService) SendAgentMessage(ctx context.Context, req *corev1.SendAge
 	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionWrite); err != nil {
 		return nil, err
 	}
-	ev, err := s.Agents.AppendEvent(ctx, conv.Id, "user", "message", req.Text, "")
+	ev, err := s.Agents.AppendEvent(ctx, conv.Id, "user", "message", req.Text, "", "")
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -296,14 +279,6 @@ func (s *AgentService) StreamConversation(req *corev1.StreamConversationRequest,
 		case <-ctx.Done():
 			return nil
 		case ev := <-ch:
-			// Ephemeral deltas carry no seq (0); forward them as-is. Persisted
-			// events are seq-gated to de-duplicate against the replay above.
-			if ev.Seq == 0 {
-				if err := stream.Send(ev); err != nil {
-					return grpcError(err)
-				}
-				continue
-			}
 			if ev.Seq <= lastSeq {
 				continue
 			}

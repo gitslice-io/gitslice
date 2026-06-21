@@ -241,9 +241,9 @@ type ConversationEvent struct {
 	Text           string                 `protobuf:"bytes,6,opt,name=text,proto3" json:"text,omitempty"`
 	DataJson       string                 `protobuf:"bytes,7,opt,name=data_json,json=dataJson,proto3" json:"data_json,omitempty"` // optional structured payload
 	CreatedAt      string                 `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// item_id ties streamed deltas (seq == 0, ephemeral) to the persisted final
-	// event for the same runtime item, so clients can coalesce token streams into
-	// a single message. Only populated on the live wire; empty on replay.
+	// item_id ties streamed deltas to the persisted final event for the same
+	// runtime item, so clients can coalesce token streams into a single message.
+	// It is persisted for replay when the daemon supplies it.
 	ItemId        string `protobuf:"bytes,9,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -564,8 +564,8 @@ type AgentEvent struct {
 	Final          bool                   `protobuf:"varint,6,opt,name=final,proto3" json:"final,omitempty"`
 	// item_id correlates streamed deltas with their finalized event.
 	ItemId string `protobuf:"bytes,7,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
-	// ephemeral marks a live-only delta the server relays to subscribers without
-	// persisting it (no seq is assigned). Finalized events leave this false.
+	// ephemeral marks a runtime token delta. The server still persists the delta;
+	// clients use type + item_id to coalesce it with the finalized event.
 	Ephemeral     bool `protobuf:"varint,8,opt,name=ephemeral,proto3" json:"ephemeral,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

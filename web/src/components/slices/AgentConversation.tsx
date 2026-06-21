@@ -26,11 +26,10 @@ export function AgentConversation({
   toolbar
 }: AgentConversationProps) {
   const [events, setEvents] = useState<ConversationEvent[]>([]);
-  // In-progress token streams, keyed by runtime item id. These are ephemeral
-  // (never persisted server-side) and are cleared when the matching finalized
-  // event arrives. Stored separately from `events` so they don't pollute the
-  // persisted, seq-ordered transcript.
-  const [liveDeltas, setLiveDeltas] = useState<Map<string, ConversationEvent>>(
+  // In-progress token streams, keyed by runtime item id. They are stored
+  // separately from finalized events so the UI can coalesce streamed snapshots
+  // until the matching finalized event arrives.
+  const [liveDeltas, setLiveDeltas] = useState<Map<string, LiveDeltaEntry>>(
     () => new Map()
   );
   const [draft, setDraft] = useState("");
@@ -41,6 +40,8 @@ export function AgentConversation({
   // needing to remount the component or change conversationId.
   const [retryKey, setRetryKey] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const latestPersistedSeqRef = useRef(0);
+  const liveDeltaOrderRef = useRef(0);
   // Tracked as a ref so scroll position changes don't trigger re-renders; the
   // scroll-on-new-event effect reads the latest value at effect time.
   const stickToBottomRef = useRef(true);
@@ -50,10 +51,9 @@ export function AgentConversation({
     [conversation?.title, conversationId]
   );
   const conversationItems = useMemo(
-    () => groupConversationEvents(events),
-    [events]
+    () => groupConversationEvents(events, [...liveDeltas.values()]),
+    [events, liveDeltas]
   );
-  const liveItems = useMemo(() => [...liveDeltas.values()], [liveDeltas]);
 
   // Reset transcript state only when the conversation actually changes. This is
   // deliberately separate from the stream effect below so that a Reconnect
@@ -62,6 +62,8 @@ export function AgentConversation({
   useEffect(() => {
     setEvents([]);
     setLiveDeltas(new Map());
+    latestPersistedSeqRef.current = 0;
+    liveDeltaOrderRef.current = 0;
     setStreamError("");
     setSendError("");
     setDraft("");
@@ -85,13 +87,22 @@ export function AgentConversation({
             return;
           }
           if (isLiveDelta(event)) {
+            const afterSeq = latestPersistedSeqRef.current;
+            const order = liveDeltaOrderRef.current++;
             setLiveDeltas((current) => {
               const next = new Map(current);
-              next.set(event.itemId as string, event);
+              const existing = current.get(event.itemId as string);
+              next.set(event.itemId as string, {
+                afterSeq: existing?.afterSeq ?? afterSeq,
+                event,
+                order: existing?.order ?? order
+              });
               return next;
             });
+            rememberPersistedEventSeq(event, latestPersistedSeqRef);
             continue;
           }
+          rememberPersistedEventSeq(event, latestPersistedSeqRef);
           setEvents((current) => appendConversationEvent(current, event));
           // A finalized event supersedes its in-progress delta bubble.
           if (event.itemId) {
@@ -164,6 +175,7 @@ export function AgentConversation({
       const response = await api.sendAgentMessage({ conversationId, text });
       const sentEvent = response.event;
       if (sentEvent) {
+        rememberPersistedEventSeq(sentEvent, latestPersistedSeqRef);
         setEvents((current) =>
           appendConversationEvent(current, sentEvent)
         );
@@ -221,7 +233,7 @@ export function AgentConversation({
           </div>
         ) : null}
 
-        {events.length === 0 && liveItems.length === 0 ? (
+        {events.length === 0 && liveDeltas.size === 0 ? (
           <div className="flex min-h-64 items-center justify-center text-center">
             <div className="max-w-sm">
               <h3 className="text-sm font-semibold text-zinc-950">
@@ -240,6 +252,11 @@ export function AgentConversation({
                   events={item.events}
                   key={traceGroupKey(item.events, index)}
                 />
+              ) : item.kind === "live" ? (
+                <LiveDeltaBubble
+                  event={item.entry.event}
+                  key={`live:${item.entry.event.itemId}`}
+                />
               ) : (
                 <ConversationEventBubble
                   event={item.event}
@@ -247,9 +264,6 @@ export function AgentConversation({
                 />
               )
             )}
-            {liveItems.map((event) => (
-              <LiveDeltaBubble event={event} key={`live:${event.itemId}`} />
-            ))}
           </div>
         )}
       </div>
@@ -286,11 +300,23 @@ export function AgentConversation({
 
 type ConversationItem =
   | { kind: "event"; event: ConversationEvent }
-  | { kind: "trace"; events: ConversationEvent[] };
+  | { kind: "trace"; events: ConversationEvent[] }
+  | { kind: "live"; entry: LiveDeltaEntry };
 
-function groupConversationEvents(events: ConversationEvent[]): ConversationItem[] {
+interface LiveDeltaEntry {
+  afterSeq: number;
+  event: ConversationEvent;
+  order: number;
+}
+
+function groupConversationEvents(
+  events: ConversationEvent[],
+  liveDeltas: LiveDeltaEntry[]
+): ConversationItem[] {
   const items: ConversationItem[] = [];
   let traceEvents: ConversationEvent[] = [];
+  const liveEntries = [...liveDeltas].sort(compareLiveDeltaEntries);
+  let liveIndex = 0;
 
   function flushTraceEvents() {
     if (traceEvents.length) {
@@ -299,7 +325,23 @@ function groupConversationEvents(events: ConversationEvent[]): ConversationItem[
     }
   }
 
+  function flushLiveDeltasBefore(seq: number) {
+    while (
+      liveIndex < liveEntries.length &&
+      liveEntries[liveIndex].afterSeq < seq
+    ) {
+      flushTraceEvents();
+      items.push({ kind: "live", entry: liveEntries[liveIndex] });
+      liveIndex += 1;
+    }
+  }
+
   for (const event of events) {
+    const seq = eventSequenceNumber(event);
+    if (seq !== undefined) {
+      flushLiveDeltasBefore(seq);
+    }
+
     if (isTraceEvent(event)) {
       traceEvents.push(event);
       continue;
@@ -310,6 +352,10 @@ function groupConversationEvents(events: ConversationEvent[]): ConversationItem[
   }
 
   flushTraceEvents();
+  while (liveIndex < liveEntries.length) {
+    items.push({ kind: "live", entry: liveEntries[liveIndex] });
+    liveIndex += 1;
+  }
   return items;
 }
 
@@ -551,12 +597,34 @@ function compareConversationEvents(
   left: ConversationEvent,
   right: ConversationEvent
 ) {
-  const leftSeq = Number(left.seq);
-  const rightSeq = Number(right.seq);
-  if (Number.isFinite(leftSeq) && Number.isFinite(rightSeq)) {
+  const leftSeq = eventSequenceNumber(left);
+  const rightSeq = eventSequenceNumber(right);
+  if (leftSeq !== undefined && rightSeq !== undefined) {
     return leftSeq - rightSeq;
   }
   return 0;
+}
+
+function compareLiveDeltaEntries(left: LiveDeltaEntry, right: LiveDeltaEntry) {
+  if (left.afterSeq !== right.afterSeq) {
+    return left.afterSeq - right.afterSeq;
+  }
+  return left.order - right.order;
+}
+
+function rememberPersistedEventSeq(
+  event: ConversationEvent,
+  latestPersistedSeqRef: { current: number }
+) {
+  const seq = eventSequenceNumber(event);
+  if (seq !== undefined && seq > latestPersistedSeqRef.current) {
+    latestPersistedSeqRef.current = seq;
+  }
+}
+
+function eventSequenceNumber(event: ConversationEvent) {
+  const seq = Number(event.seq);
+  return Number.isFinite(seq) && seq > 0 ? seq : undefined;
 }
 
 function eventIdentity(event: ConversationEvent) {

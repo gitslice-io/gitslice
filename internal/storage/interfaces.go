@@ -167,7 +167,7 @@ type AgentStore interface {
 
 	// AppendEvent assigns the next per-conversation seq atomically and returns
 	// the stored event.
-	AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON string) (*corev1.ConversationEvent, error)
+	AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string) (*corev1.ConversationEvent, error)
 	ListEvents(ctx context.Context, conversationID string, afterSeq int64) ([]*corev1.ConversationEvent, error)
 	// ListEventsRange returns events with afterSeq < seq <= beforeSeq. A
 	// beforeSeq <= 0 means no upper bound.

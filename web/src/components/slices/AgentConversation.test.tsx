@@ -138,6 +138,59 @@ describe("AgentConversation", () => {
     expect(screen.queryByText("Hello wor")).not.toBeInTheDocument();
   });
 
+  it("keeps persisted thinking deltas ordered before later persisted events", async () => {
+    const api = makeApi([
+      {
+        id: "evt_user",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "inspect the workspace"
+      },
+      {
+        id: "evt_thinking",
+        conversationId: "conv_1",
+        seq: "2",
+        role: "agent",
+        type: "reasoning_delta",
+        text: "checking the file tree",
+        itemId: "think_1"
+      },
+      {
+        id: "evt_tool",
+        conversationId: "conv_1",
+        seq: "3",
+        role: "agent",
+        type: "tool_call",
+        text: "rg agent"
+      },
+      {
+        id: "evt_done",
+        conversationId: "conv_1",
+        seq: "4",
+        role: "agent",
+        type: "message",
+        text: "Done."
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    const thinking = await screen.findByText("Thinking");
+    const toolSummary = await screen.findByText("Tool activity (1)");
+    const done = screen.getByText("Done.");
+
+    expectElementBefore(thinking, toolSummary);
+    expectElementBefore(toolSummary, done);
+  });
+
   it("shows a Reconnect button and re-attaches the stream after an error", async () => {
     let attempts = 0;
     const api = {
@@ -247,4 +300,10 @@ function makeApi(events: ConversationEvent[]) {
       }
     })
   } as unknown as ApiClient;
+}
+
+function expectElementBefore(left: Element, right: Element) {
+  expect(
+    left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).not.toBe(0);
 }

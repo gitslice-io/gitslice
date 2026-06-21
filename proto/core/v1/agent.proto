@@ -62,9 +62,9 @@ message ConversationEvent {
   string text = 6;
   string data_json = 7; // optional structured payload
   string created_at = 8;
-  // item_id ties streamed deltas (seq == 0, ephemeral) to the persisted final
-  // event for the same runtime item, so clients can coalesce token streams into
-  // a single message. Only populated on the live wire; empty on replay.
+  // item_id ties streamed deltas to the persisted final event for the same
+  // runtime item, so clients can coalesce token streams into a single message.
+  // It is persisted for replay when the daemon supplies it.
   string item_id = 9;
 }
 
@@ -98,8 +98,8 @@ message AgentEvent {
   bool final = 6;
   // item_id correlates streamed deltas with their finalized event.
   string item_id = 7;
-  // ephemeral marks a live-only delta the server relays to subscribers without
-  // persisting it (no seq is assigned). Finalized events leave this false.
+  // ephemeral marks a runtime token delta. The server still persists the delta;
+  // clients use type + item_id to coalesce it with the finalized event.
   bool ephemeral = 8;
 }
 

@@ -86,8 +86,10 @@ Flow:
    `StartConversation` over its stream.
 3. Web `SendAgentMessage{conversation_id, text}` → persist a `user` event →
    push `DeliverUserMessage` to the daemon.
-4. Daemon `AgentEvent` → persist event (assign `seq`) → fan out to all live
-   `StreamConversation` subscribers for that conversation.
+4. Daemon `AgentEvent` → persist event (assign `seq`, preserving `item_id` when
+   present) → fan out to all live `StreamConversation` subscribers for that
+   conversation. Runtime token deltas are persisted too; clients use
+   `type + item_id` to coalesce them with the finalized item.
 5. Web `StreamConversation{conversation_id, after_seq}` → replay persisted
    events with `seq > after_seq`, then subscribe to the live hub topic.
 
@@ -102,7 +104,7 @@ Postgres log. The daemon is the only place agent code runs.
   slice_name, title, status, workspace_subdir, next_seq, created_at,
   updated_at)`
 - `agent_conversation_events(id pk, conversation_id fk, seq, role, type, text,
-  data_json, created_at, unique(conversation_id, seq))`
+  data_json, item_id, created_at, unique(conversation_id, seq))`
 
 ### CLI: `gs agent` (`internal/cli/agent.go`)
 
@@ -180,6 +182,10 @@ the exact exchange behind each revision.
 - The hub holds no durable state. Live `publish` to web subscribers is
   best-effort/non-blocking; correctness comes from the persisted event log plus
   `after_seq` replay on (re)subscribe.
+- Runtime token deltas (`message_delta`, `reasoning_delta`) are part of that
+  persisted log. The daemon still marks them as `ephemeral` to signal coalescing
+  behavior to clients, but the server assigns a normal conversation seq so
+  reasoning/thinking output survives reloads and patchset conversation ranges.
 
 ## Future work
 

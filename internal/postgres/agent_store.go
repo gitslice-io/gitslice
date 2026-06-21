@@ -147,7 +147,7 @@ func (s *AgentStore) SetConversationStatus(ctx context.Context, conversationID, 
 	return nil
 }
 
-func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON string) (*corev1.ConversationEvent, error) {
+func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string) (*corev1.ConversationEvent, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -172,9 +172,9 @@ func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, even
 	}
 	var createdAt time.Time
 	err = tx.QueryRowContext(ctx, `
-		insert into agent_conversation_events(id, conversation_id, seq, role, type, text, data_json)
-		values ($1, $2, $3, $4, $5, $6, $7) returning created_at
-	`, id, conversationID, seq, role, eventType, text, dataJSON).Scan(&createdAt)
+		insert into agent_conversation_events(id, conversation_id, seq, role, type, text, data_json, item_id)
+		values ($1, $2, $3, $4, $5, $6, $7, $8) returning created_at
+	`, id, conversationID, seq, role, eventType, text, dataJSON, itemID).Scan(&createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -190,12 +190,13 @@ func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, even
 		Text:           text,
 		DataJson:       dataJSON,
 		CreatedAt:      createdAt.UTC().Format(time.RFC3339Nano),
+		ItemId:         itemID,
 	}, nil
 }
 
 func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afterSeq int64) ([]*corev1.ConversationEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, conversation_id, seq, role, type, text, data_json, created_at
+		select id, conversation_id, seq, role, type, text, data_json, created_at, item_id
 		from agent_conversation_events
 		where conversation_id = $1 and seq > $2 order by seq asc
 	`, conversationID, afterSeq)
@@ -209,7 +210,7 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 			ev        corev1.ConversationEvent
 			createdAt time.Time
 		)
-		if err := rows.Scan(&ev.Id, &ev.ConversationId, &ev.Seq, &ev.Role, &ev.Type, &ev.Text, &ev.DataJson, &createdAt); err != nil {
+		if err := rows.Scan(&ev.Id, &ev.ConversationId, &ev.Seq, &ev.Role, &ev.Type, &ev.Text, &ev.DataJson, &createdAt, &ev.ItemId); err != nil {
 			return nil, err
 		}
 		ev.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
@@ -220,7 +221,7 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 
 func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq int64) ([]*corev1.ConversationEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, conversation_id, seq, role, type, text, data_json, created_at
+		select id, conversation_id, seq, role, type, text, data_json, created_at, item_id
 		from agent_conversation_events
 		where conversation_id = $1 and seq > $2 and ($3 <= 0 or seq <= $3)
 		order by seq asc
@@ -235,7 +236,7 @@ func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string,
 			ev        corev1.ConversationEvent
 			createdAt time.Time
 		)
-		if err := rows.Scan(&ev.Id, &ev.ConversationId, &ev.Seq, &ev.Role, &ev.Type, &ev.Text, &ev.DataJson, &createdAt); err != nil {
+		if err := rows.Scan(&ev.Id, &ev.ConversationId, &ev.Seq, &ev.Role, &ev.Type, &ev.Text, &ev.DataJson, &createdAt, &ev.ItemId); err != nil {
 			return nil, err
 		}
 		ev.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)

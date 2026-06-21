@@ -149,6 +149,79 @@ func TestAgentConversationRelay(t *testing.T) {
 	}
 }
 
+func TestAgentConversationPersistsRuntimeDeltas(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	agent := corev1.NewAgentServiceClient(conn)
+
+	daemonCtx, cancelDaemon := context.WithCancel(ctx)
+	defer cancelDaemon()
+	stream, err := agent.Connect(daemonCtx)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Register{Register: &corev1.RegisterDaemon{
+		Name:    "delta-daemon",
+		Runtime: "test",
+	}}}); err != nil {
+		t.Fatalf("send register: %v", err)
+	}
+	reg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv registered: %v", err)
+	}
+	daemonID := reg.GetRegistered().GetDaemonId()
+
+	conv, err := agent.CreateConversation(ctx, &corev1.CreateConversationRequest{
+		DaemonId: daemonID,
+		Slice:    &corev1.SliceRef{Account: "acme", Slice: "backend"},
+		Title:    "delta persistence",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Event{Event: &corev1.AgentEvent{
+		ConversationId: conv.Id,
+		Role:           "agent",
+		Type:           "reasoning_delta",
+		Text:           "checking",
+		ItemId:         "reason_1",
+		Ephemeral:      true,
+	}}}); err != nil {
+		t.Fatalf("send reasoning delta: %v", err)
+	}
+
+	events, err := agent.GetConversationEvents(ctx, &corev1.GetConversationEventsRequest{ConversationId: conv.Id})
+	if err != nil {
+		t.Fatalf("GetConversationEvents: %v", err)
+	}
+	if len(events.Events) != 1 {
+		t.Fatalf("events = %d, want 1 (%#v)", len(events.Events), events.Events)
+	}
+	ev := events.Events[0]
+	if ev.Seq != 1 || ev.Type != "reasoning_delta" || ev.Text != "checking" || ev.ItemId != "reason_1" {
+		t.Fatalf("persisted delta = %#v, want seq 1 reasoning_delta with item id", ev)
+	}
+
+	replayCtx, cancelReplay := context.WithCancel(ctx)
+	defer cancelReplay()
+	replay, err := agent.StreamConversation(replayCtx, &corev1.StreamConversationRequest{ConversationId: conv.Id})
+	if err != nil {
+		t.Fatalf("replay StreamConversation: %v", err)
+	}
+	replayed, err := replay.Recv()
+	if err != nil {
+		t.Fatalf("replay recv: %v", err)
+	}
+	if replayed.Seq != 1 || replayed.Type != "reasoning_delta" || replayed.ItemId != "reason_1" {
+		t.Fatalf("replayed delta = %#v, want persisted reasoning_delta with item id", replayed)
+	}
+}
+
 // TestPatchsetConversationLink verifies that a patchset created with a
 // conversation id records the conversation and the correct event-seq cutoff, and
 // that GetConversationEvents returns the exchange that produced each patchset.

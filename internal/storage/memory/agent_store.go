@@ -147,7 +147,7 @@ func (s *AgentStore) SetConversationStatus(ctx context.Context, conversationID, 
 	return nil
 }
 
-func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON string) (*corev1.ConversationEvent, error) {
+func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string) (*corev1.ConversationEvent, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	c, ok := s.b.agentConvs[conversationID]
@@ -172,6 +172,7 @@ func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, even
 		Text:           text,
 		DataJson:       dataJSON,
 		CreatedAt:      nowRFC(),
+		ItemId:         itemID,
 	}
 	s.b.agentEvents[conversationID] = append(s.b.agentEvents[conversationID], ev)
 	c.UpdatedAt = ev.CreatedAt

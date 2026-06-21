@@ -19,7 +19,7 @@ import (
 // "tool_call" | "tool_output" | "status" | "error" | "message_delta" |
 // "reasoning_delta". Data carries a raw structured payload (JSON) when one is
 // available. ItemID correlates streamed deltas with their finalized event, and
-// Ephemeral marks a live-only token delta the server relays without persisting.
+// Ephemeral marks a runtime token delta that clients should coalesce.
 type agentRuntimeEvent struct {
 	Role      string
 	Type      string
@@ -50,8 +50,8 @@ type codexRuntime struct {
 	Binary string
 }
 
-// deltaThrottle bounds how often accumulated token deltas are flushed upstream
-// as ephemeral events, so a fast token stream doesn't overwhelm the relay.
+// deltaThrottle bounds how often accumulated token deltas are flushed upstream,
+// so a fast token stream doesn't overwhelm the relay.
 const deltaThrottle = 60 * time.Millisecond
 
 func (r codexRuntime) Run(ctx context.Context, turn agentTurn, emit func(agentRuntimeEvent)) (string, error) {
