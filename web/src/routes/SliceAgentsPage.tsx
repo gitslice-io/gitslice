@@ -39,21 +39,44 @@ export function SliceAgentsPage() {
   const sliceLabel = sliceRef ? `${sliceRef.account}:${sliceRef.slice}` : "";
   const sliceRouteParams = toSliceRouteParams(sliceRef);
 
+  const breadcrumb = (
+    <Breadcrumb
+      items={[
+        { label: "Slices", to: "/slices" },
+        sliceRouteParams
+          ? {
+              label: sliceLabel,
+              to: "/slices/$account/$slice",
+              params: sliceRouteParams
+            }
+          : { label: sliceLabel },
+        { label: "Agents" }
+      ]}
+    />
+  );
+
+  // For the live conversation, the breadcrumb is handed to AgentsTab so it
+  // scrolls away with the conversation (like the changeset list page) rather
+  // than staying pinned. The notice/loading states keep it pinned at the top.
+  const isSliceLoading = sliceQuery.isPending && Boolean(routeSliceRef);
+  if (
+    sliceRef &&
+    !(isLoaded && !isSignedIn) &&
+    !isSliceLoading &&
+    !sliceQuery.isError
+  ) {
+    return (
+      <section className="mx-auto flex h-[calc(100dvh-6.5rem)] w-full max-w-[100rem] flex-col overflow-hidden sm:h-[calc(100dvh-7rem)] md:h-[calc(100dvh-8rem)]">
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <AgentsTab api={api} leading={breadcrumb} slice={sliceRef} />
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="mx-auto flex h-[calc(100dvh-6.5rem)] w-full max-w-[100rem] flex-col gap-4 overflow-hidden sm:h-[calc(100dvh-7rem)] md:h-[calc(100dvh-8rem)]">
-      <Breadcrumb
-        items={[
-          { label: "Slices", to: "/slices" },
-          sliceRouteParams
-            ? {
-                label: sliceLabel,
-                to: "/slices/$account/$slice",
-                params: sliceRouteParams
-              }
-            : { label: sliceLabel },
-          { label: "Agents" }
-        ]}
-      />
+      {breadcrumb}
 
       {isLoaded && !isSignedIn ? (
         <SliceNotice title="Sign in to use agents">
@@ -66,10 +89,6 @@ export function SliceAgentsPage() {
         <SliceNotice title="Could not load slice" tone="error">
           {getErrorMessage(sliceQuery.error)}
         </SliceNotice>
-      ) : sliceRef ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <AgentsTab api={api} slice={sliceRef} />
-        </div>
       ) : (
         <SliceNotice title="Missing slice" tone="error">
           Agent conversations need an account and slice name.
