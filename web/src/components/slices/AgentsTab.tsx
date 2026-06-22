@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
@@ -13,13 +13,10 @@ import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 interface AgentsTabProps {
   api: ApiClient;
-  // Rendered at the top of the conversation pane (above its header) so the page
-  // breadcrumb scrolls away with the conversation instead of staying pinned.
-  leading?: ReactNode;
   slice: SliceRef;
 }
 
-export function AgentsTab({ api, leading, slice }: AgentsTabProps) {
+export function AgentsTab({ api, slice }: AgentsTabProps) {
   const queryClient = useQueryClient();
   const sliceKey = `${slice.account ?? ""}:${slice.slice ?? ""}`;
   const sliceDefined = Boolean(slice.account && slice.slice);
@@ -390,14 +387,10 @@ export function AgentsTab({ api, leading, slice }: AgentsTabProps) {
               api={api}
               conversation={selectedConversation}
               conversationId={selectedConversationId}
-              leading={leading}
               toolbar={sidebarToggle}
             />
           ) : (
             <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-slate-50/60">
-              {leading ? (
-                <div className="px-3 pt-3 pb-4 sm:px-5">{leading}</div>
-              ) : null}
               <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-5">
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="truncate text-sm font-semibold text-zinc-950">

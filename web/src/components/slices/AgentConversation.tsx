@@ -18,9 +18,6 @@ interface AgentConversationProps {
   api: ApiClient;
   conversation?: Conversation;
   conversationId: string;
-  // Rendered at the top of the scroll region, above the conversation header, so
-  // it scrolls away with the rest of the header (e.g. the page breadcrumb).
-  leading?: ReactNode;
   toolbar?: ReactNode;
 }
 
@@ -28,7 +25,6 @@ export function AgentConversation({
   api,
   conversation,
   conversationId,
-  leading,
   toolbar
 }: AgentConversationProps) {
   const [events, setEvents] = useState<ConversationEvent[]>([]);
@@ -233,12 +229,9 @@ export function AgentConversation({
             above it, so it collapses out of view as you scroll the transcript —
             like the changeset detail page, whose header is normal page flow.
             Since the view is anchored to the latest message, the header starts
-            scrolled away, handing its space to the conversation. The breadcrumb
-            (leading) sits above the white header band on the grey scroll
-            background, matching where every other page places it. */}
-        {leading ? (
-          <div className="px-3 pt-3 pb-4 sm:px-5">{leading}</div>
-        ) : null}
+            scrolled away, handing its space to the conversation. The page
+            breadcrumb lives outside this panel, pinned above it like every
+            other slice page. */}
         <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
