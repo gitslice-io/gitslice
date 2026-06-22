@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
@@ -246,4 +248,54 @@ func assertAgentEvent(t *testing.T, event *corev1.AgentEvent, conversationID, ro
 	if event.GetFinal() != final {
 		t.Fatalf("final = %t, want %t", event.GetFinal(), final)
 	}
+}
+
+func TestRequireAgentWorkspaceDir(t *testing.T) {
+	mkdirAll := func(t *testing.T, path string) {
+		t.Helper()
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+	}
+	writeFile := func(t *testing.T, path string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	t.Run("empty dir is allowed", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := (Runner{Dir: dir}).requireAgentWorkspaceDir(); err != nil {
+			t.Fatalf("empty dir: unexpected error: %v", err)
+		}
+	})
+
+	t.Run("prior conversations dir is allowed", func(t *testing.T) {
+		dir := t.TempDir()
+		mkdirAll(t, filepath.Join(dir, "conversations", "conv_1"))
+		writeFile(t, filepath.Join(dir, ".DS_Store"))
+		if err := (Runner{Dir: dir}).requireAgentWorkspaceDir(); err != nil {
+			t.Fatalf("conversations dir: unexpected error: %v", err)
+		}
+	})
+
+	t.Run("unrelated file is rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "notes.txt"))
+		err := (Runner{Dir: dir}).requireAgentWorkspaceDir()
+		if !isUserErrorCode(err, "agent_workspace_not_empty") {
+			t.Fatalf("expected agent_workspace_not_empty, got %v", err)
+		}
+	})
+
+	t.Run("inside an existing workspace is rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		mkdirAll(t, filepath.Join(dir, ".gs"))
+		writeFile(t, filepath.Join(dir, ".gs", "slice.json"))
+		err := (Runner{Dir: dir}).requireAgentWorkspaceDir()
+		if !isUserErrorCode(err, "already_in_workspace") {
+			t.Fatalf("expected already_in_workspace, got %v", err)
+		}
+	})
 }

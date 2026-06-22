@@ -89,7 +89,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 	if err != nil {
 		return err
 	}
-	if err := r.requireEmptyWorkspaceInitDir(); err != nil {
+	if err := r.requireAgentWorkspaceDir(); err != nil {
 		return err
 	}
 

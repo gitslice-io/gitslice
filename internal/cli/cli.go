@@ -3454,6 +3454,36 @@ func (r Runner) requireEmptyWorkspaceInitDir() error {
 	return userError("workspace_not_empty", "workspace init requires an empty directory", "Create a new empty directory and run gs init <slice|account:slice> there.")
 }
 
+// requireAgentWorkspaceDir validates the working directory for `gs agent start`.
+// Unlike requireEmptyWorkspaceInitDir (used by `gs init`), it tolerates the
+// daemon's own prior state — the `conversations/` subdir written by an earlier
+// run — so the daemon can restart in place and rehydrate those conversations
+// (and their runtime thread continuity) from disk. It still refuses to run
+// inside an existing gitslice workspace, and refuses a directory holding
+// unrelated files so the daemon is not pointed at a populated dir by mistake.
+func (r Runner) requireAgentWorkspaceDir() error {
+	if root, err := r.workspaceRoot(); err == nil {
+		return userError("already_in_workspace", "already inside a gitslice workspace: "+root, "Start the agent daemon in its own directory, outside any workspace.")
+	} else if !isUserErrorCode(err, "not_in_workspace") {
+		return err
+	}
+	entries, err := os.ReadDir(r.cwd())
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		// The daemon's own conversations live under conversations/; ignore
+		// hidden dotfiles (e.g. .DS_Store) that tools may drop. Anything else
+		// means this is not a daemon-owned directory.
+		if name == "conversations" || strings.HasPrefix(name, ".") {
+			continue
+		}
+		return userError("agent_workspace_not_empty", "agent workspace directory has unexpected contents: "+name, "Start the agent daemon in an empty directory (a prior daemon's conversations/ is allowed).")
+	}
+	return nil
+}
+
 func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, requested []string) error {
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
