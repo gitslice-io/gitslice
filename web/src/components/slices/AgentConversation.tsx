@@ -216,98 +216,105 @@ export function AgentConversation({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-slate-200 px-3 py-3 sm:px-5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-zinc-950">
-              {title}
-            </h2>
-            {conversation?.workspaceSubdir ? (
-              <p className="truncate font-mono text-xs text-slate-500">
-                {conversation.workspaceSubdir}
-              </p>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {toolbar}
-            <span className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
-              {conversation?.status || "active"}
-            </span>
-          </div>
-        </div>
-        {streamError ? (
-          <div
-            aria-label="Conversation stream status"
-            aria-live="polite"
-            className="mt-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:flex-row sm:items-center sm:justify-between"
-            role="status"
-          >
-            <div className="min-w-0">
-              <p className="font-semibold">
-                {isStreamReconnecting
-                  ? "Stream stopped; reconnecting"
-                  : "Stream stopped"}
-              </p>
-              <p
-                className="mt-0.5 truncate leading-5 text-amber-900/80"
-                title={streamError}
-              >
-                {streamError}
-              </p>
-            </div>
-            <button
-              className="w-fit rounded-md border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-900 transition hover:bg-amber-100 active:scale-[0.98]"
-              onClick={() => {
-                setStreamError("");
-                setIsStreamReconnecting(false);
-                setRetryKey((value) => value + 1);
-              }}
-              type="button"
-            >
-              Reconnect now
-            </button>
-          </div>
-        ) : null}
-      </div>
-
       <div
-        className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-3 py-4 sm:px-5"
+        className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60"
         onScroll={handleScroll}
         ref={scrollContainerRef}
       >
-        {events.length === 0 && liveDeltas.size === 0 ? (
-          <div className="flex min-h-64 items-center justify-center text-center">
-            <div className="max-w-sm">
-              <h3 className="text-sm font-semibold text-zinc-950">
-                No messages yet
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Send a message to start this agent conversation.
-              </p>
+        {/* The header lives at the top of the scroll region rather than pinned
+            above it, so it collapses out of view as you scroll the transcript —
+            like the changeset detail page, whose header is normal page flow.
+            Since the view is anchored to the latest message, the header starts
+            scrolled away, handing its space to the conversation. */}
+        <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold text-zinc-950">
+                {title}
+              </h2>
+              {conversation?.workspaceSubdir ? (
+                <p className="truncate font-mono text-xs text-slate-500">
+                  {conversation.workspaceSubdir}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {toolbar}
+              <span className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
+                {conversation?.status || "active"}
+              </span>
             </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3">
-            {conversationItems.map((item, index) =>
-              item.kind === "trace" ? (
-                <ConversationTraceGroup
-                  events={item.events}
-                  key={traceGroupKey(item.events, index)}
-                />
-              ) : item.kind === "live" ? (
-                <LiveDeltaBubble
-                  event={item.entry.event}
-                  key={`live:${item.entry.event.itemId}`}
-                />
-              ) : (
-                <ConversationEventBubble
-                  event={item.event}
-                  key={eventKey(item.event, index)}
-                />
-              )
-            )}
-          </div>
-        )}
+          {streamError ? (
+            <div
+              aria-label="Conversation stream status"
+              aria-live="polite"
+              className="mt-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+              role="status"
+            >
+              <div className="min-w-0">
+                <p className="font-semibold">
+                  {isStreamReconnecting
+                    ? "Stream stopped; reconnecting"
+                    : "Stream stopped"}
+                </p>
+                <p
+                  className="mt-0.5 truncate leading-5 text-amber-900/80"
+                  title={streamError}
+                >
+                  {streamError}
+                </p>
+              </div>
+              <button
+                className="w-fit rounded-md border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-900 transition hover:bg-amber-100 active:scale-[0.98]"
+                onClick={() => {
+                  setStreamError("");
+                  setIsStreamReconnecting(false);
+                  setRetryKey((value) => value + 1);
+                }}
+                type="button"
+              >
+                Reconnect now
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="px-3 py-4 sm:px-5">
+          {events.length === 0 && liveDeltas.size === 0 ? (
+            <div className="flex min-h-64 items-center justify-center text-center">
+              <div className="max-w-sm">
+                <h3 className="text-sm font-semibold text-zinc-950">
+                  No messages yet
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Send a message to start this agent conversation.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {conversationItems.map((item, index) =>
+                item.kind === "trace" ? (
+                  <ConversationTraceGroup
+                    events={item.events}
+                    key={traceGroupKey(item.events, index)}
+                  />
+                ) : item.kind === "live" ? (
+                  <LiveDeltaBubble
+                    event={item.entry.event}
+                    key={`live:${item.entry.event.itemId}`}
+                  />
+                ) : (
+                  <ConversationEventBubble
+                    event={item.event}
+                    key={eventKey(item.event, index)}
+                  />
+                )
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <form
