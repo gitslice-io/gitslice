@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ const (
 	defaultAgentRuntime = "codex"
 	agentSendBuffer     = 128
 	agentHeartbeat      = 15 * time.Second
+	agentMetaFilename   = ".agent-meta.json"
 )
 
 type agentStartOptions struct {
@@ -117,6 +119,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		workingDir:    root,
 		conversations: map[string]*agentConversation{},
 	}
+	daemon.loadExistingConversations()
 	defer func() {
 		daemon.cancelAll()
 		cancel()
@@ -284,17 +287,30 @@ type agentDaemon struct {
 
 type agentConversation struct {
 	id              string
-	title           string
 	workdir         string
 	workspaceSubdir string
 	ready           chan struct{}
 	readyOnce       sync.Once
 	readyErr        error
 
-	runMu         sync.Mutex
-	stateMu       sync.Mutex
+	runMu   sync.Mutex
+	stateMu sync.Mutex
+
+	title         string
+	sliceAccount  string
+	sliceName     string
+	sliceID       string
 	cancel        context.CancelFunc
 	codexThreadID string // runtime session to resume across turns; guarded by stateMu
+}
+
+type conversationMeta struct {
+	ConversationID string `json:"conversation_id"`
+	Title          string `json:"title"`
+	ThreadID       string `json:"thread_id"`
+	SliceAccount   string `json:"slice_account"`
+	SliceName      string `json:"slice_name"`
+	SliceID        string `json:"slice_id"`
 }
 
 func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.CancelFunc, msg *corev1.ServerMessage) {
@@ -335,13 +351,28 @@ func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1
 		d.sendSystemError(ctx, conversationID, err)
 		return
 	}
-	conv.title = strings.TrimSpace(start.GetTitle())
 
 	slice := start.GetSlice()
 	if slice == nil || strings.TrimSpace(slice.GetAccount()) == "" || strings.TrimSpace(slice.GetSlice()) == "" {
 		err := userError("invalid_agent_conversation", "server started an agent conversation without a valid slice", "Try creating a new conversation.")
 		conv.setReady(err)
 		d.sendSystemError(ctx, conversationID, err)
+		return
+	}
+	conv.setConversationInfo(
+		strings.TrimSpace(start.GetTitle()),
+		strings.TrimSpace(slice.GetAccount()),
+		strings.TrimSpace(slice.GetSlice()),
+		strings.TrimSpace(start.GetSliceId()),
+	)
+	if conv.isReady() {
+		d.persistConversationMeta(conv)
+		_ = d.sendQueue.send(ctx, &corev1.DaemonMessage{
+			Payload: &corev1.DaemonMessage_Started{Started: &corev1.ConversationStarted{
+				ConversationId:  conversationID,
+				WorkspaceSubdir: conv.workspaceSubdir,
+			}},
+		})
 		return
 	}
 	if err := d.hydrateWorkspace(ctx, conv, sliceRefLabel(slice)); err != nil {
@@ -351,6 +382,7 @@ func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1
 	}
 
 	conv.setReady(nil)
+	d.persistConversationMeta(conv)
 	_ = d.sendQueue.send(ctx, &corev1.DaemonMessage{
 		Payload: &corev1.DaemonMessage_Started{Started: &corev1.ConversationStarted{
 			ConversationId:  conversationID,
@@ -393,6 +425,7 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 	// even if this turn was cancelled or errored mid-stream.
 	if threadID != "" {
 		conv.setThreadID(threadID)
+		d.persistConversationMeta(conv)
 	}
 	if errors.Is(err, context.Canceled) {
 		if ctx.Err() == nil {
@@ -422,7 +455,7 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 // no-op when there are no edits, and any failure is surfaced as a status event
 // rather than failing the turn.
 func (d *agentDaemon) capturePatchset(ctx context.Context, conv *agentConversation) {
-	title := conv.title
+	title := conv.getTitle()
 	if title == "" {
 		title = "agent: " + conv.id
 	}
@@ -499,6 +532,46 @@ func (d *agentDaemon) getConversation(conversationID string) *agentConversation 
 	return d.conversations[conversationID]
 }
 
+func (d *agentDaemon) loadExistingConversations() {
+	conversationsDir := filepath.Join(d.workingDir, "conversations")
+	entries, err := os.ReadDir(conversationsDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		meta, err := readConversationMeta(filepath.Join(conversationsDir, entry.Name(), agentMetaFilename))
+		if err != nil {
+			continue
+		}
+		meta.ConversationID = strings.TrimSpace(meta.ConversationID)
+		if meta.ConversationID == "" || meta.ConversationID != entry.Name() {
+			continue
+		}
+		subdir, workdir, err := agentConversationPaths(d.workingDir, meta.ConversationID)
+		if err != nil {
+			continue
+		}
+		conv := &agentConversation{
+			id:              meta.ConversationID,
+			workdir:         workdir,
+			workspaceSubdir: subdir,
+			ready:           make(chan struct{}),
+		}
+		conv.setConversationInfo(meta.Title, meta.SliceAccount, meta.SliceName, meta.SliceID)
+		conv.setThreadID(meta.ThreadID)
+		conv.setReady(nil)
+
+		d.mu.Lock()
+		if d.conversations[conv.id] == nil {
+			d.conversations[conv.id] = conv
+		}
+		d.mu.Unlock()
+	}
+}
+
 func (d *agentDaemon) hydrateWorkspace(ctx context.Context, conv *agentConversation, sliceRef string) error {
 	if err := os.MkdirAll(conv.workdir, 0o755); err != nil {
 		return err
@@ -562,6 +635,61 @@ func (d *agentDaemon) cancelAll() {
 	}
 }
 
+func (d *agentDaemon) persistConversationMeta(conv *agentConversation) {
+	if err := writeConversationMeta(conv); err != nil {
+		fmt.Fprintf(d.runner.stderr(), "agent metadata persist failed for conversation %s: %v\n", conv.id, err)
+	}
+}
+
+func writeConversationMeta(conv *agentConversation) error {
+	meta := conv.meta()
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	tmp, err := os.CreateTemp(conv.workdir, ".agent-meta-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, filepath.Join(conv.workdir, agentMetaFilename)); err != nil {
+		return err
+	}
+	removeTmp = false
+	return nil
+}
+
+func readConversationMeta(path string) (conversationMeta, error) {
+	var meta conversationMeta
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return meta, err
+	}
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return meta, err
+	}
+	return meta, nil
+}
+
 func (c *agentConversation) waitReady(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -573,6 +701,17 @@ func (c *agentConversation) waitReady(ctx context.Context) error {
 	}
 }
 
+func (c *agentConversation) isReady() bool {
+	select {
+	case <-c.ready:
+		c.stateMu.Lock()
+		defer c.stateMu.Unlock()
+		return c.readyErr == nil
+	default:
+		return false
+	}
+}
+
 func (c *agentConversation) setReady(err error) {
 	c.readyOnce.Do(func() {
 		c.stateMu.Lock()
@@ -580,6 +719,35 @@ func (c *agentConversation) setReady(err error) {
 		c.stateMu.Unlock()
 		close(c.ready)
 	})
+}
+
+func (c *agentConversation) setConversationInfo(title, sliceAccount, sliceName, sliceID string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.title = title
+	c.sliceAccount = sliceAccount
+	c.sliceName = sliceName
+	c.sliceID = sliceID
+}
+
+func (c *agentConversation) getTitle() string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.title
+}
+
+func (c *agentConversation) meta() conversationMeta {
+	threadID := c.getThreadID()
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return conversationMeta{
+		ConversationID: c.id,
+		Title:          c.title,
+		ThreadID:       threadID,
+		SliceAccount:   c.sliceAccount,
+		SliceName:      c.sliceName,
+		SliceID:        c.sliceID,
+	}
 }
 
 func (c *agentConversation) setCancel(cancel context.CancelFunc) {
