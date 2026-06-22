@@ -16,6 +16,8 @@ import { AgentConversation } from "./AgentConversation";
 describe("AgentConversation", () => {
   afterEach(() => {
     cleanup();
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -197,7 +199,7 @@ describe("AgentConversation", () => {
     expect(traceDetails).toHaveTextContent("rg agent");
   });
 
-  it("shows a Reconnect button and re-attaches the stream after an error", async () => {
+  it("shows stream failures in the header and auto-reconnects", async () => {
     let attempts = 0;
     const api = {
       sendAgentMessage: vi.fn(),
@@ -242,18 +244,23 @@ describe("AgentConversation", () => {
     );
 
     expect(await screen.findByText("partial")).toBeInTheDocument();
-    const reconnect = await screen.findByRole("button", { name: "Reconnect" });
-    fireEvent.click(reconnect);
+    const status = await screen.findByRole("status", {
+      name: "Conversation stream status"
+    });
+    expect(status).toHaveTextContent("Stream stopped; reconnecting");
+    expect(status).toHaveTextContent("stream exploded");
 
-    expect(await screen.findByText("reconnected")).toBeInTheDocument();
+    expect(
+      await screen.findByText("reconnected", {}, { timeout: 3000 })
+    ).toBeInTheDocument();
     // The retry must have triggered at least one additional stream call after
-    // the initial failure. We don't assert exact count — StrictMode or React
+    // the initial failure. We don't assert exact count - StrictMode or React
     // 18's effect re-runs can add extra attempts, but the user-visible
-    // contract is "click Reconnect, get fresh events".
+    // contract is "the header reports the stop, then reconnects itself".
     expect(vi.mocked(api.streamConversation).mock.calls.length).toBeGreaterThan(1);
   });
 
-  it("preserves an in-progress draft across a Reconnect", async () => {
+  it("preserves an in-progress draft across auto-reconnect", async () => {
     let attempts = 0;
     const api = {
       sendAgentMessage: vi.fn(),
@@ -281,17 +288,20 @@ describe("AgentConversation", () => {
       />
     );
 
-    // Type a draft while the stream is errored, then reconnect.
-    const reconnect = await screen.findByRole("button", { name: "Reconnect" });
+    // Type a draft while the stream is errored, then let the automatic retry run.
+    await screen.findByRole("status", {
+      name: "Conversation stream status"
+    });
     const textarea = screen.getByPlaceholderText(
       "Ask the agent to inspect or edit this slice"
     );
     fireEvent.change(textarea, { target: { value: "half-written prompt" } });
-    fireEvent.click(reconnect);
 
     // The reconnect must not wipe the user's unsent text.
-    await waitFor(() =>
-      expect(vi.mocked(api.streamConversation).mock.calls.length).toBeGreaterThan(1)
+    await waitFor(
+      () =>
+        expect(vi.mocked(api.streamConversation).mock.calls.length).toBeGreaterThan(1),
+      { timeout: 3000 }
     );
     expect(textarea).toHaveValue("half-written prompt");
   });

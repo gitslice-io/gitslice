@@ -12,6 +12,8 @@ import type { ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { getErrorMessage } from "./SlicePageParts";
 
+const STREAM_RECONNECT_DELAY_MS = 1500;
+
 interface AgentConversationProps {
   api: ApiClient;
   conversation?: Conversation;
@@ -35,8 +37,9 @@ export function AgentConversation({
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState("");
   const [streamError, setStreamError] = useState("");
+  const [isStreamReconnecting, setIsStreamReconnecting] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  // Bumping retryKey re-runs the stream effect after a stream error, without
+  // Bumping retryKey re-runs the stream effect after a stream stop, without
   // needing to remount the component or change conversationId.
   const [retryKey, setRetryKey] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -65,6 +68,7 @@ export function AgentConversation({
     latestPersistedSeqRef.current = 0;
     liveDeltaOrderRef.current = 0;
     setStreamError("");
+    setIsStreamReconnecting(false);
     setSendError("");
     setDraft("");
     // When switching conversations, treat the new view as "stick to bottom".
@@ -73,9 +77,25 @@ export function AgentConversation({
 
   useEffect(() => {
     const controller = new AbortController();
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     // Each stream attempt starts from seq 0, so drop any stale in-progress
     // deltas; persisted finals will re-arrive and any live tail re-streams.
     setLiveDeltas(new Map());
+    setStreamError("");
+    setIsStreamReconnecting(false);
+
+    function scheduleReconnect(message: string) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      setStreamError(message);
+      setIsStreamReconnecting(true);
+      reconnectTimer = setTimeout(() => {
+        if (!controller.signal.aborted) {
+          setRetryKey((value) => value + 1);
+        }
+      }, STREAM_RECONNECT_DELAY_MS);
+    }
 
     async function readStream() {
       try {
@@ -116,9 +136,12 @@ export function AgentConversation({
             });
           }
         }
+        if (!controller.signal.aborted) {
+          scheduleReconnect("Stream closed before the conversation finished.");
+        }
       } catch (error) {
         if (!controller.signal.aborted) {
-          setStreamError(getErrorMessage(error));
+          scheduleReconnect(getErrorMessage(error));
         }
       }
     }
@@ -127,6 +150,9 @@ export function AgentConversation({
 
     return () => {
       controller.abort();
+      if (reconnectTimer !== undefined) {
+        clearTimeout(reconnectTimer);
+      }
     };
   }, [api, conversationId, retryKey]);
 
@@ -209,6 +235,39 @@ export function AgentConversation({
             </span>
           </div>
         </div>
+        {streamError ? (
+          <div
+            aria-label="Conversation stream status"
+            aria-live="polite"
+            className="mt-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+            role="status"
+          >
+            <div className="min-w-0">
+              <p className="font-semibold">
+                {isStreamReconnecting
+                  ? "Stream stopped; reconnecting"
+                  : "Stream stopped"}
+              </p>
+              <p
+                className="mt-0.5 truncate leading-5 text-amber-900/80"
+                title={streamError}
+              >
+                {streamError}
+              </p>
+            </div>
+            <button
+              className="w-fit rounded-md border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-900 transition hover:bg-amber-100 active:scale-[0.98]"
+              onClick={() => {
+                setStreamError("");
+                setIsStreamReconnecting(false);
+                setRetryKey((value) => value + 1);
+              }}
+              type="button"
+            >
+              Reconnect now
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -216,23 +275,6 @@ export function AgentConversation({
         onScroll={handleScroll}
         ref={scrollContainerRef}
       >
-        {streamError ? (
-          <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
-            <p className="font-semibold">Stream stopped</p>
-            <p className="mt-1 leading-6">{streamError}</p>
-            <button
-              className="mt-2 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 transition hover:bg-rose-100 active:scale-[0.98]"
-              onClick={() => {
-                setStreamError("");
-                setRetryKey((value) => value + 1);
-              }}
-              type="button"
-            >
-              Reconnect
-            </button>
-          </div>
-        ) : null}
-
         {events.length === 0 && liveDeltas.size === 0 ? (
           <div className="flex min-h-64 items-center justify-center text-center">
             <div className="max-w-sm">

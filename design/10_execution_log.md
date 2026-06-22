@@ -6352,3 +6352,30 @@ Results: the focused conversation test passed (6 tests), the adjacent Agents
 page and conversation tests passed (13 tests), and the production web build
 passed. The build still emits the existing Vite/Nitro dependency and
 large-chunk warnings but exits successfully.
+
+## 2026-06-21: BYOA - Agent Stream Header Reconnect
+
+Goal: make web agent stream failures visible even in long conversations and
+recover from transient stream stops without requiring the user to notice and
+click a transcript-local retry action.
+
+Decision: `AgentConversation` now renders stream-stop state in the conversation
+header as an accessible live status block, outside the scrollable transcript.
+Stream errors and unexpected stream completion schedule an automatic reconnect
+after a short delay, while the manual `Reconnect now` button remains available
+for an immediate retry. Retries still re-stream from `after_seq = 0` and rely on
+the existing event de-duplication so partial transcript state remains robust
+across persisted replay.
+
+Verification:
+```bash
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx
+npm --prefix web test -- src/components/slices/AgentsTab.test.tsx src/components/slices/AgentConversation.test.tsx
+npm --prefix web test
+npm --prefix web run build
+```
+
+Results: focused conversation tests passed (6 tests), adjacent Agents page and
+conversation tests passed (13 tests), the full web test suite passed (24 tests),
+and the production web build passed. The build still emits the existing
+Vite/Nitro dependency and large-chunk warnings but exits successfully.
