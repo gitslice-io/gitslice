@@ -132,8 +132,13 @@ type Conversation struct {
 	WorkspaceSubdir string                 `protobuf:"bytes,7,opt,name=workspace_subdir,json=workspaceSubdir,proto3" json:"workspace_subdir,omitempty"`
 	CreatedAt       string                 `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt       string                 `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// daemon_online is a read-time annotation (not persisted) set by the server
+	// from the live daemon hub: true when this conversation's daemon currently
+	// holds a Connect stream and can serve messages. Web uses it to disable the
+	// composer ("show but disable") when the agent is offline.
+	DaemonOnline  bool `protobuf:"varint,10,opt,name=daemon_online,json=daemonOnline,proto3" json:"daemon_online,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Conversation) Reset() {
@@ -227,6 +232,13 @@ func (x *Conversation) GetUpdatedAt() string {
 		return x.UpdatedAt
 	}
 	return ""
+}
+
+func (x *Conversation) GetDaemonOnline() bool {
+	if x != nil {
+		return x.DaemonOnline
+	}
+	return false
 }
 
 // ConversationEvent is one persisted, ordered entry in a conversation. It covers
@@ -1648,7 +1660,7 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\flast_seen_at\x18\a \x01(\tR\n" +
 	"lastSeenAt\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\b \x01(\tR\tcreatedAt\"\x9f\x02\n" +
+	"created_at\x18\b \x01(\tR\tcreatedAt\"\xc4\x02\n" +
 	"\fConversation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tdaemon_id\x18\x02 \x01(\tR\bdaemonId\x12\x19\n" +
@@ -1660,7 +1672,9 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\tR\tupdatedAt\"\xef\x01\n" +
+	"updated_at\x18\t \x01(\tR\tupdatedAt\x12#\n" +
+	"\rdaemon_online\x18\n" +
+	" \x01(\bR\fdaemonOnline\"\xef\x01\n" +
 	"\x11ConversationEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x10\n" +

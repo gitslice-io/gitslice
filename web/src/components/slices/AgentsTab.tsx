@@ -360,6 +360,11 @@ export function AgentsTab({ api, leading, slice }: AgentsTabProps) {
                             <ConversationStatusPill
                               status={conversation.status}
                             />
+                            {conversation.daemonOnline === false ? (
+                              <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[0.7rem] font-medium text-amber-700">
+                                Offline
+                              </span>
+                            ) : null}
                             {conversation.updatedAt ? (
                               <span
                                 className="truncate font-mono text-[0.7rem] text-slate-400"
