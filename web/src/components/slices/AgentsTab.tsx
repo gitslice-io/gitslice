@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
@@ -13,10 +13,13 @@ import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 interface AgentsTabProps {
   api: ApiClient;
+  // Rendered at the top of the conversation pane (above its header) so the page
+  // breadcrumb scrolls away with the conversation instead of staying pinned.
+  leading?: ReactNode;
   slice: SliceRef;
 }
 
-export function AgentsTab({ api, slice }: AgentsTabProps) {
+export function AgentsTab({ api, leading, slice }: AgentsTabProps) {
   const queryClient = useQueryClient();
   const sliceKey = `${slice.account ?? ""}:${slice.slice ?? ""}`;
   const sliceDefined = Boolean(slice.account && slice.slice);
@@ -382,11 +385,13 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
               api={api}
               conversation={selectedConversation}
               conversationId={selectedConversationId}
+              leading={leading}
               toolbar={sidebarToggle}
             />
           ) : (
-            <div className="flex h-full min-h-0 flex-col">
+            <div className="flex h-full min-h-0 flex-col overflow-y-auto">
               <div className="border-b border-slate-200 px-3 py-3 sm:px-5">
+                {leading ? <div className="mb-2">{leading}</div> : null}
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="truncate text-sm font-semibold text-zinc-950">
                     No conversation selected
