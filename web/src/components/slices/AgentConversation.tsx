@@ -216,19 +216,19 @@ export function AgentConversation({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-slate-200 px-3 py-4 sm:px-5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="border-b border-slate-200 px-3 py-3 sm:px-5">
+        <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold text-zinc-950">
+            <h2 className="truncate text-sm font-semibold text-zinc-950">
               {title}
             </h2>
             {conversation?.workspaceSubdir ? (
-              <p className="mt-1 truncate font-mono text-xs text-slate-500">
+              <p className="truncate font-mono text-xs text-slate-500">
                 {conversation.workspaceSubdir}
               </p>
             ) : null}
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {toolbar}
             <span className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
               {conversation?.status || "active"}
@@ -311,30 +311,28 @@ export function AgentConversation({
       </div>
 
       <form
-        className="border-t border-slate-200 bg-white px-3 py-4 sm:px-5"
+        className="border-t border-slate-200 bg-white px-3 py-3 sm:px-5"
         onSubmit={sendMessage}
       >
-        <label className="grid gap-2 text-sm font-medium text-zinc-800">
-          Message
+        <div className="flex items-end gap-2">
           <textarea
-            className="max-h-48 min-h-24 w-full min-w-0 resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+            aria-label="Message"
+            className="max-h-48 min-h-16 w-full min-w-0 resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Ask the agent to inspect or edit this slice"
             value={draft}
           />
-        </label>
-        {sendError ? (
-          <p className="mt-2 text-sm text-rose-700">{sendError}</p>
-        ) : null}
-        <div className="mt-3 flex justify-end">
           <button
-            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="shrink-0 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
             disabled={isSending || !draft.trim()}
             type="submit"
           >
             {isSending ? "Sending..." : "Send"}
           </button>
         </div>
+        {sendError ? (
+          <p className="mt-2 text-sm text-rose-700">{sendError}</p>
+        ) : null}
       </form>
     </div>
   );
