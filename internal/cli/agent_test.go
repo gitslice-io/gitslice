@@ -12,32 +12,61 @@ import (
 )
 
 type fakeAgentRuntime struct {
-	emits    []agentRuntimeEvent
-	threadID string
-	err      error
-	gotTurn  agentTurn
+	session    *fakeAgentSession
+	openErr    error
+	gotWorkdir string
+	gotResume  string
+	openCount  int
 }
 
-func (r *fakeAgentRuntime) Run(ctx context.Context, turn agentTurn, emit func(agentRuntimeEvent)) (string, error) {
-	r.gotTurn = turn
-	for _, e := range r.emits {
+func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID string) (agentSession, error) {
+	r.openCount++
+	r.gotWorkdir = workdir
+	r.gotResume = resumeThreadID
+	if r.openErr != nil {
+		return nil, r.openErr
+	}
+	if r.session == nil {
+		r.session = &fakeAgentSession{}
+	}
+	return r.session, nil
+}
+
+type fakeAgentSession struct {
+	emits     []agentRuntimeEvent
+	threadID  string
+	err       error
+	gotPrompt string
+	closed    int
+}
+
+func (s *fakeAgentSession) RunTurn(ctx context.Context, prompt string, emit func(agentRuntimeEvent)) error {
+	s.gotPrompt = prompt
+	for _, e := range s.emits {
 		emit(e)
 	}
-	return r.threadID, r.err
+	return s.err
 }
 
-func TestForwardAgentRuntimeForwardsCategorizedEvents(t *testing.T) {
-	runtime := &fakeAgentRuntime{emits: []agentRuntimeEvent{
+func (s *fakeAgentSession) ThreadID() string { return s.threadID }
+
+func (s *fakeAgentSession) Close() { s.closed++ }
+
+func TestForwardAgentTurnForwardsCategorizedEvents(t *testing.T) {
+	session := &fakeAgentSession{emits: []agentRuntimeEvent{
 		{Role: "tool", Type: "tool_call", Text: "echo hi", Data: `{"command":"echo hi"}`},
 		{Role: "agent", Type: "reasoning", Text: "thinking"},
 		{Role: "agent", Type: "message", Text: "done"},
 	}}
 	var events []*corev1.AgentEvent
-	_, err := forwardAgentRuntime(context.Background(), runtime, agentTurn{Workdir: "/tmp/work", Prompt: "prompt"}, "conv-1", func(event *corev1.AgentEvent) {
+	err := forwardAgentTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
-		t.Fatalf("forwardAgentRuntime returned error: %v", err)
+		t.Fatalf("forwardAgentTurn returned error: %v", err)
+	}
+	if session.gotPrompt != "prompt" {
+		t.Fatalf("session prompt = %q, want prompt", session.gotPrompt)
 	}
 	if len(events) != 3 {
 		t.Fatalf("event count = %d, want 3", len(events))
@@ -50,14 +79,14 @@ func TestForwardAgentRuntimeForwardsCategorizedEvents(t *testing.T) {
 	assertAgentEvent(t, events[2], "conv-1", "agent", "message", "done", false)
 }
 
-func TestForwardAgentRuntimeDefaultsRoleAndType(t *testing.T) {
-	runtime := &fakeAgentRuntime{emits: []agentRuntimeEvent{{Text: "bare"}}}
+func TestForwardAgentTurnDefaultsRoleAndType(t *testing.T) {
+	session := &fakeAgentSession{emits: []agentRuntimeEvent{{Text: "bare"}}}
 	var events []*corev1.AgentEvent
-	_, err := forwardAgentRuntime(context.Background(), runtime, agentTurn{Workdir: "/tmp/work", Prompt: "prompt"}, "conv-1", func(event *corev1.AgentEvent) {
+	err := forwardAgentTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
-		t.Fatalf("forwardAgentRuntime returned error: %v", err)
+		t.Fatalf("forwardAgentTurn returned error: %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("event count = %d, want 1", len(events))
@@ -65,14 +94,14 @@ func TestForwardAgentRuntimeDefaultsRoleAndType(t *testing.T) {
 	assertAgentEvent(t, events[0], "conv-1", "agent", "delta", "bare", false)
 }
 
-func TestForwardAgentRuntimePropagatesError(t *testing.T) {
+func TestForwardAgentTurnPropagatesError(t *testing.T) {
 	wantErr := errors.New("boom")
-	runtime := &fakeAgentRuntime{
+	session := &fakeAgentSession{
 		emits: []agentRuntimeEvent{{Role: "agent", Type: "message", Text: "partial"}},
 		err:   wantErr,
 	}
 	var events []*corev1.AgentEvent
-	_, err := forwardAgentRuntime(context.Background(), runtime, agentTurn{Workdir: "/tmp/work", Prompt: "prompt"}, "conv-1", func(event *corev1.AgentEvent) {
+	err := forwardAgentTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if !errors.Is(err, wantErr) {
@@ -84,17 +113,17 @@ func TestForwardAgentRuntimePropagatesError(t *testing.T) {
 	assertAgentEvent(t, events[0], "conv-1", "agent", "message", "partial", false)
 }
 
-func TestForwardAgentRuntimePropagatesItemIDAndEphemeral(t *testing.T) {
-	runtime := &fakeAgentRuntime{emits: []agentRuntimeEvent{
+func TestForwardAgentTurnPropagatesItemIDAndEphemeral(t *testing.T) {
+	session := &fakeAgentSession{emits: []agentRuntimeEvent{
 		{Role: "agent", Type: "message_delta", Text: "hel", ItemID: "msg_1", Ephemeral: true},
 		{Role: "agent", Type: "message", Text: "hello", ItemID: "msg_1"},
 	}}
 	var events []*corev1.AgentEvent
-	_, err := forwardAgentRuntime(context.Background(), runtime, agentTurn{Workdir: "/tmp/work", Prompt: "prompt"}, "conv-1", func(event *corev1.AgentEvent) {
+	err := forwardAgentTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
-		t.Fatalf("forwardAgentRuntime returned error: %v", err)
+		t.Fatalf("forwardAgentTurn returned error: %v", err)
 	}
 	if len(events) != 2 {
 		t.Fatalf("event count = %d, want 2", len(events))
@@ -107,26 +136,51 @@ func TestForwardAgentRuntimePropagatesItemIDAndEphemeral(t *testing.T) {
 	}
 }
 
-func TestForwardAgentRuntimePassesThreadAndReturnsNewID(t *testing.T) {
-	runtime := &fakeAgentRuntime{
-		threadID: "thread-new",
-		emits:    []agentRuntimeEvent{{Role: "agent", Type: "message", Text: "ok"}},
+func TestEnsureSessionResumesThreadID(t *testing.T) {
+	session := &fakeAgentSession{threadID: "thread-new"}
+	runtime := &fakeAgentRuntime{session: session}
+	conv := &agentConversation{
+		workdir:       "/tmp/work",
+		codexThreadID: "thread-prev",
 	}
-	gotThread, err := forwardAgentRuntime(
-		context.Background(),
-		runtime,
-		agentTurn{Workdir: "/tmp/work", Prompt: "hi", ThreadID: "thread-prev"},
-		"conv-1",
-		func(*corev1.AgentEvent) {},
-	)
+
+	got, err := conv.ensureSession(context.Background(), runtime)
 	if err != nil {
-		t.Fatalf("forwardAgentRuntime returned error: %v", err)
+		t.Fatalf("ensureSession returned error: %v", err)
 	}
-	if runtime.gotTurn.ThreadID != "thread-prev" {
-		t.Fatalf("runtime saw thread id %q, want thread-prev", runtime.gotTurn.ThreadID)
+	if got != session {
+		t.Fatalf("ensureSession returned %p, want %p", got, session)
 	}
-	if gotThread != "thread-new" {
-		t.Fatalf("returned thread id = %q, want thread-new", gotThread)
+	if runtime.gotWorkdir != "/tmp/work" {
+		t.Fatalf("runtime workdir = %q, want /tmp/work", runtime.gotWorkdir)
+	}
+	if runtime.gotResume != "thread-prev" {
+		t.Fatalf("runtime resume id = %q, want thread-prev", runtime.gotResume)
+	}
+	if got.ThreadID() != "thread-new" {
+		t.Fatalf("session thread id = %q, want thread-new", got.ThreadID())
+	}
+}
+
+func TestEnsureSessionCaches(t *testing.T) {
+	session := &fakeAgentSession{threadID: "thread-1"}
+	runtime := &fakeAgentRuntime{session: session}
+	conv := &agentConversation{workdir: "/tmp/work"}
+
+	first, err := conv.ensureSession(context.Background(), runtime)
+	if err != nil {
+		t.Fatalf("first ensureSession returned error: %v", err)
+	}
+	runtime.session = &fakeAgentSession{threadID: "thread-2"}
+	second, err := conv.ensureSession(context.Background(), runtime)
+	if err != nil {
+		t.Fatalf("second ensureSession returned error: %v", err)
+	}
+	if first != second {
+		t.Fatalf("ensureSession returned different sessions: %p then %p", first, second)
+	}
+	if runtime.openCount != 1 {
+		t.Fatalf("OpenSession calls = %d, want 1", runtime.openCount)
 	}
 }
 
