@@ -386,9 +386,9 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
             />
           ) : (
             <div className="flex h-full min-h-0 flex-col">
-              <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <h2 className="text-base font-semibold text-zinc-950">
+              <div className="border-b border-slate-200 px-3 py-3 sm:px-5">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="truncate text-sm font-semibold text-zinc-950">
                     No conversation selected
                   </h2>
                   {sidebarToggle}
