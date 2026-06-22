@@ -1464,6 +1464,15 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		}
 	}
 	patchset.ResultTreeId = resultTreeID
+	if currentPatchsetID.Valid && len(patchset.Conflicts) == 0 {
+		current, err := getPatchsetTx(ctx, tx, currentPatchsetID.String)
+		if err != nil {
+			return nil, err
+		}
+		if current.ResultTreeId == patchset.ResultTreeId && current.BaseTreeId == patchset.BaseTreeId {
+			return current, nil
+		}
+	}
 	fileEditsJSON, err := encodeJSON(patchset.FileEdits)
 	if err != nil {
 		return nil, err

@@ -3172,9 +3172,26 @@ func TestChangesetCaptureCreatesThenUpdates(t *testing.T) {
 		t.Fatalf("expected second capture to add patchset 2, got:\n%s", second)
 	}
 
-	// The two captures must land on the same changeset.
-	status := runCLI(t, home, workspace, "status")
-	if !strings.Contains(status, "patchset 2") && !strings.Contains(status, "patchset: 2") {
-		t.Logf("status output:\n%s", status)
+	third := runCLI(t, home, workspace, "cs", "capture")
+	if !strings.Contains(third, "no changes to capture") {
+		t.Fatalf("expected repeated capture to be a no-op, got:\n%s", third)
+	}
+	if strings.Contains(third, "patchset 3") {
+		t.Fatalf("repeated capture created patchset 3:\n%s", third)
+	}
+
+	// The captures must land on the same changeset, and the no-op capture must
+	// leave the current patchset unchanged: exactly two patchsets exist.
+	versionsRaw := runCLI(t, home, workspace, "cs", "versions", "--json")
+	var versions struct {
+		Patchsets []struct {
+			Number int64 `json:"number"`
+		} `json:"patchsets"`
+	}
+	if err := json.Unmarshal([]byte(versionsRaw), &versions); err != nil {
+		t.Fatalf("parse cs versions json: %v\n%s", err, versionsRaw)
+	}
+	if len(versions.Patchsets) != 2 {
+		t.Fatalf("expected exactly 2 patchsets after no-op capture, got %d:\n%s", len(versions.Patchsets), versionsRaw)
 	}
 }

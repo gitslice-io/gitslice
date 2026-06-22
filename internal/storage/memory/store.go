@@ -1090,6 +1090,10 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		return nil, err
 	}
 	next.ResultTreeId = resultTreeID
+	if current := currentPatchset(cs); current != nil && len(next.Conflicts) == 0 &&
+		current.ResultTreeId == next.ResultTreeId && current.BaseTreeId == next.BaseTreeId {
+		return clonePatchset(current), nil
+	}
 	next.Id = s.b.nextIDLocked("ps")
 	next.ChangesetId = changesetID
 	next.Number = int64(len(cs.Patchsets) + 1)
@@ -2348,10 +2352,34 @@ func (b *backend) previewTreeForPatchsetLocked(baseTreeID string, edits []*corev
 	if len(edits) == 0 {
 		return baseTreeID, nil
 	}
-	treeID := b.nextIDLocked("mem_tree_preview")
+	treeID := memoryPreviewTreeID(files, dirs)
 	b.previewFiles[treeID] = files
 	b.previewDirs[treeID] = dirs
 	return treeID, nil
+}
+
+func memoryPreviewTreeID(files map[string]storage.FileEntry, dirs map[string]struct{}) string {
+	type snapshot struct {
+		Files []storage.FileEntry `json:"files"`
+		Dirs  []string            `json:"dirs"`
+	}
+	out := snapshot{
+		Files: make([]storage.FileEntry, 0, len(files)),
+		Dirs:  make([]string, 0, len(dirs)),
+	}
+	for _, file := range files {
+		out.Files = append(out.Files, file)
+	}
+	sort.Slice(out.Files, func(i, j int) bool {
+		return out.Files[i].Path < out.Files[j].Path
+	})
+	for dir := range dirs {
+		out.Dirs = append(out.Dirs, dir)
+	}
+	sort.Strings(out.Dirs)
+	payload, _ := json.Marshal(out)
+	sum := sha256.Sum256(payload)
+	return "mem_tree_preview_" + hex.EncodeToString(sum[:])
 }
 
 func (b *backend) filesAndDirsForRootTreeLocked(rootTreeID string) (map[string]storage.FileEntry, map[string]struct{}, bool) {

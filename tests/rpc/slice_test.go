@@ -315,6 +315,89 @@ func TestChangesetServiceListAndDiff(t *testing.T) {
 	}
 }
 
+func TestUpdateChangesetDeduplicatesIdenticalPatchset(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+
+	ref, err := clients.repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBlob, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{
+		Data:  []byte("package payment\nconst Dedup = 1\n"),
+		Slice: testPaymentSliceRef(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := clients.changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      postgres.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "rpc patchset dedup",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEdit := &corev1.FileEdit{
+		Op:          "upsert",
+		Path:        "/acme/payment/rpc_dedup.go",
+		BlobId:      firstBlob.BlobId,
+		ContentHash: firstBlob.ContentHash,
+		Mode:        0o644,
+	}
+	firstPatchset, err := clients.changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits:    []*corev1.FileEdit{firstEdit},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicatePatchset, err := clients.changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: firstPatchset.Id,
+		BaseCommitId:              ref.CommitId,
+		FileEdits:                 []*corev1.FileEdit{firstEdit},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicatePatchset.Id != firstPatchset.Id || duplicatePatchset.Number != firstPatchset.Number {
+		t.Fatalf("duplicate patchset = (%q, %d), want (%q, %d)", duplicatePatchset.Id, duplicatePatchset.Number, firstPatchset.Id, firstPatchset.Number)
+	}
+
+	secondBlob, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{
+		Data:  []byte("package payment\nconst Dedup = 2\n"),
+		Slice: testPaymentSliceRef(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedPatchset, err := clients.changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: duplicatePatchset.Id,
+		BaseCommitId:              ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        "/acme/payment/rpc_dedup.go",
+			BlobId:      secondBlob.BlobId,
+			ContentHash: secondBlob.ContentHash,
+			Mode:        0o644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedPatchset.Id == firstPatchset.Id || changedPatchset.Number != firstPatchset.Number+1 {
+		t.Fatalf("changed patchset = (%q, %d), want new patchset number %d", changedPatchset.Id, changedPatchset.Number, firstPatchset.Number+1)
+	}
+}
+
 func TestRPCAuthenticationBoundary(t *testing.T) {
 	ts := startRPCServer(t)
 	conn := dialTestGRPC(t, ts.addr)
