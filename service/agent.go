@@ -88,6 +88,7 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 			}
 		}
 	}()
+	go s.replayDaemonConversations(ctx, daemon.Id, conn)
 
 	for {
 		msg, err := stream.Recv()
@@ -120,6 +121,32 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 				continue
 			}
 			s.hub.publish(ev.ConversationId, stored)
+		}
+	}
+}
+
+func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID string, conn *daemonConn) {
+	convs, err := s.Agents.ListConversations(ctx, storage.ConversationFilter{DaemonID: daemonID})
+	if err != nil {
+		return
+	}
+	for _, conv := range convs {
+		if conv == nil || (conv.Status != "" && conv.Status != "active") {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if !conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Start{Start: &corev1.StartConversation{
+			ConversationId: conv.Id,
+			Slice:          conv.Slice,
+			SliceId:        conv.SliceId,
+			ServerAddr:     s.serverAddr,
+			Title:          conv.Title,
+		}}}) {
+			return
 		}
 	}
 }
@@ -174,6 +201,7 @@ func (s *AgentService) CreateConversation(ctx context.Context, req *corev1.Creat
 			Title:          conv.Title,
 		}}})
 	}
+	s.annotateConversation(conv)
 	return conv, nil
 }
 
@@ -196,6 +224,9 @@ func (s *AgentService) ListConversations(ctx context.Context, req *corev1.ListCo
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	for _, conv := range convs {
+		s.annotateConversation(conv)
+	}
 	return &corev1.ListConversationsResponse{Conversations: convs}, nil
 }
 
@@ -211,6 +242,7 @@ func (s *AgentService) GetConversation(ctx context.Context, req *corev1.GetConve
 	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionRead); err != nil {
 		return nil, err
 	}
+	s.annotateConversation(conv)
 	return conv, nil
 }
 
@@ -306,7 +338,20 @@ func (s *AgentService) GetConversationEvents(ctx context.Context, req *corev1.Ge
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	s.annotateConversation(conv)
 	return &corev1.GetConversationEventsResponse{Conversation: conv, Events: events}, nil
+}
+
+func (s *AgentService) annotateConversation(c *corev1.Conversation) {
+	if c == nil {
+		return
+	}
+	c.DaemonOnline = false
+	if c.GetDaemonId() == "" {
+		return
+	}
+	_, ok := s.hub.daemon(c.GetDaemonId())
+	c.DaemonOnline = ok
 }
 
 func (s *AgentService) requireOwnedDaemon(ctx context.Context, subjectID, daemonID string) error {

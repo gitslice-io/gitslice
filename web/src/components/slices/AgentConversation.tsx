@@ -61,6 +61,7 @@ export function AgentConversation({
     () => groupConversationEvents(events, [...liveDeltas.values()]),
     [events, liveDeltas]
   );
+  const agentOffline = conversation?.daemonOnline === false;
 
   // Reset transcript state only when the conversation actually changes. This is
   // deliberately separate from the stream effect below so that a Reconnect
@@ -191,6 +192,9 @@ export function AgentConversation({
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (agentOffline) {
+      return;
+    }
     const text = draft.trim();
     if (!text || isSending) {
       return;
@@ -330,17 +334,31 @@ export function AgentConversation({
         className="border-t border-slate-200 bg-white px-3 py-3 sm:px-5"
         onSubmit={sendMessage}
       >
+        {agentOffline ? (
+          <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            This agent is offline. Run{" "}
+            <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-amber-900">
+              gs agent start
+            </code>{" "}
+            on the machine hosting it to resume the conversation.
+          </div>
+        ) : null}
         <div className="flex items-end gap-2">
           <textarea
             aria-label="Message"
-            className="max-h-48 min-h-16 w-full min-w-0 resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+            className="max-h-48 min-h-16 w-full min-w-0 resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            disabled={agentOffline}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask the agent to inspect or edit this slice"
+            placeholder={
+              agentOffline
+                ? "Agent is offline - start the daemon to continue"
+                : "Ask the agent to inspect or edit this slice"
+            }
             value={draft}
           />
           <button
             className="shrink-0 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
-            disabled={isSending || !draft.trim()}
+            disabled={isSending || !draft.trim() || agentOffline}
             type="submit"
           >
             {isSending ? "Sending..." : "Send"}
