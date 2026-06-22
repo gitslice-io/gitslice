@@ -58,6 +58,13 @@ export function AgentConversation({
     [events, liveDeltas]
   );
   const agentOffline = conversation?.daemonOnline === false;
+  // While the agent is mid-turn it can be seconds before any message text
+  // arrives (process spin-up, thread resume, reasoning). Surface a "working"
+  // pill so the wait reads as activity, not a hang.
+  const agentWorkingLabel = useMemo(
+    () => (agentOffline ? null : agentTurnLabel(events, liveDeltas)),
+    [agentOffline, events, liveDeltas]
+  );
 
   // Reset transcript state only when the conversation actually changes. This is
   // deliberately separate from the stream effect below so that a Reconnect
@@ -318,6 +325,9 @@ export function AgentConversation({
                   />
                 )
               )}
+              {agentWorkingLabel ? (
+                <AgentWorkingIndicator label={agentWorkingLabel} />
+              ) : null}
             </div>
           )}
         </div>
@@ -492,6 +502,83 @@ function LiveDeltaBubble({ event }: { event: ConversationEvent }) {
         <span className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse bg-zinc-400 align-baseline" />
       </p>
     </article>
+  );
+}
+
+// agentTurnLabel reports what the agent appears to be doing while the user is
+// waiting on a reply, or null when the agent is idle. The turn is "in flight"
+// from the user's most recent message until a finalized agent message, an
+// error, or a status event (cancellation / patchset capture) closes it. An
+// actively streaming assistant message is its own indicator — the
+// LiveDeltaBubble shows an animated cursor — so we return null in that case to
+// avoid a redundant second affordance.
+function agentTurnLabel(
+  events: ConversationEvent[],
+  liveDeltas: Map<string, LiveDeltaEntry>
+): string | null {
+  let lastUserSeq = 0;
+  for (const event of events) {
+    if ((event.role ?? "").toLowerCase() === "user") {
+      const seq = eventSequenceNumber(event);
+      if (seq !== undefined && seq > lastUserSeq) {
+        lastUserSeq = seq;
+      }
+    }
+  }
+  if (lastUserSeq === 0 || liveDeltas.size > 0) {
+    return null;
+  }
+
+  let label = "Agent is working…";
+  for (const event of events) {
+    const seq = eventSequenceNumber(event);
+    if (seq === undefined || seq <= lastUserSeq) {
+      continue;
+    }
+    const role = (event.role ?? "").toLowerCase();
+    const type = (event.type ?? "").toLowerCase();
+    // A finalized agent message, an error, or a status event (e.g. "canceled"
+    // or a captured patchset) marks the end of the turn.
+    if (
+      (role === "agent" && type === "message") ||
+      type === "error" ||
+      type === "status"
+    ) {
+      return null;
+    }
+    // Otherwise the most recent activity hints at what it's doing now.
+    if (type === "reasoning" || type === "reasoning_delta") {
+      label = "Agent is thinking…";
+    } else if (
+      role === "tool" ||
+      type === "tool_call" ||
+      type === "tool_output"
+    ) {
+      label = "Agent is working…";
+    }
+  }
+
+  return label;
+}
+
+// AgentWorkingIndicator is the animated "agent is busy" affordance shown at the
+// tail of the transcript while a turn is in flight but no token stream is yet
+// visible.
+function AgentWorkingIndicator({ label }: { label: string }) {
+  return (
+    <div
+      aria-label="Agent activity"
+      aria-live="polite"
+      className="mr-auto flex w-fit items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm shadow-slate-200/60"
+      role="status"
+    >
+      <span aria-hidden="true" className="flex gap-1">
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
+      </span>
+      <span>{label}</span>
+    </div>
   );
 }
 

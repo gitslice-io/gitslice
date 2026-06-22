@@ -199,6 +199,97 @@ describe("AgentConversation", () => {
     expect(traceDetails).toHaveTextContent("rg agent");
   });
 
+  it("shows a working indicator while the agent is mid-turn", async () => {
+    const api = makeApi([
+      {
+        id: "evt_user",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "inspect the workspace"
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    const status = await screen.findByRole("status", { name: "Agent activity" });
+    expect(status).toHaveTextContent("Agent is working…");
+  });
+
+  it("reads the indicator as thinking while reasoning streams", async () => {
+    const api = makeApi([
+      {
+        id: "evt_user",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "inspect the workspace"
+      },
+      {
+        id: "evt_think",
+        conversationId: "conv_1",
+        seq: "2",
+        role: "agent",
+        type: "reasoning_delta",
+        text: "checking the file tree",
+        itemId: "think_1"
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    const status = await screen.findByRole("status", { name: "Agent activity" });
+    expect(status).toHaveTextContent("Agent is thinking…");
+  });
+
+  it("clears the working indicator once the agent replies", async () => {
+    const api = makeApi([
+      {
+        id: "evt_user",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "inspect the workspace"
+      },
+      {
+        id: "evt_done",
+        conversationId: "conv_1",
+        seq: "2",
+        role: "agent",
+        type: "message",
+        text: "Done."
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    expect(await screen.findByText("Done.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("status", { name: "Agent activity" })
+    ).not.toBeInTheDocument();
+  });
+
   it("shows stream failures in the header and auto-reconnects", async () => {
     let attempts = 0;
     const api = {
