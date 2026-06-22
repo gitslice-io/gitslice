@@ -38,6 +38,7 @@ type fakeAgentSession struct {
 	err       error
 	gotPrompt string
 	closed    int
+	dead      bool
 }
 
 func (s *fakeAgentSession) RunTurn(ctx context.Context, prompt string, emit func(agentRuntimeEvent)) error {
@@ -49,6 +50,8 @@ func (s *fakeAgentSession) RunTurn(ctx context.Context, prompt string, emit func
 }
 
 func (s *fakeAgentSession) ThreadID() string { return s.threadID }
+
+func (s *fakeAgentSession) Alive() bool { return !s.dead }
 
 func (s *fakeAgentSession) Close() { s.closed++ }
 
@@ -181,6 +184,39 @@ func TestEnsureSessionCaches(t *testing.T) {
 	}
 	if runtime.openCount != 1 {
 		t.Fatalf("OpenSession calls = %d, want 1", runtime.openCount)
+	}
+}
+
+func TestEnsureSessionReopensDeadSession(t *testing.T) {
+	first := &fakeAgentSession{threadID: "thread-1"}
+	runtime := &fakeAgentRuntime{session: first}
+	conv := &agentConversation{workdir: "/tmp/work"}
+
+	got, err := conv.ensureSession(context.Background(), runtime)
+	if err != nil {
+		t.Fatalf("first ensureSession returned error: %v", err)
+	}
+	if got != first {
+		t.Fatalf("first ensureSession returned unexpected session")
+	}
+
+	// The warm session dies between turns; the next turn must drop and reopen it.
+	first.dead = true
+	second := &fakeAgentSession{threadID: "thread-2"}
+	runtime.session = second
+
+	got, err = conv.ensureSession(context.Background(), runtime)
+	if err != nil {
+		t.Fatalf("second ensureSession returned error: %v", err)
+	}
+	if got != second {
+		t.Fatalf("ensureSession did not reopen the dead session")
+	}
+	if runtime.openCount != 2 {
+		t.Fatalf("OpenSession calls = %d, want 2", runtime.openCount)
+	}
+	if first.closed != 1 {
+		t.Fatalf("stale session Close calls = %d, want 1", first.closed)
 	}
 }
 

@@ -50,6 +50,9 @@ type agentSession interface {
 	RunTurn(ctx context.Context, prompt string, emit func(agentRuntimeEvent)) error
 	// ThreadID returns the runtime thread id (for persistence / future resume).
 	ThreadID() string
+	// Alive reports whether the session's process is still running, so a session
+	// that died between turns can be discarded and reopened.
+	Alive() bool
 	// Close tears down the session's process. Safe to call more than once.
 	Close()
 }
@@ -73,6 +76,15 @@ type codexSession struct {
 }
 
 func (s *codexSession) ThreadID() string { return s.threadID }
+
+func (s *codexSession) Alive() bool {
+	select {
+	case <-s.client.closed:
+		return false
+	default:
+		return true
+	}
+}
 
 func (s *codexSession) stderrErr(base error) error {
 	if tail := strings.TrimSpace(s.stderr.String()); tail != "" {

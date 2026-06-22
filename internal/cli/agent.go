@@ -793,13 +793,21 @@ func (c *agentConversation) setThreadID(id string) {
 
 func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRuntime) (agentSession, error) {
 	c.stateMu.Lock()
-	if c.session != nil {
+	if c.session != nil && c.session.Alive() {
 		session := c.session
 		c.stateMu.Unlock()
 		return session, nil
 	}
+	// A session that died between turns (e.g. the app-server crashed) is stale;
+	// drop and tear it down so this turn transparently opens a fresh one and
+	// resumes via the persisted thread id.
+	stale := c.session
+	c.session = nil
 	resume := c.codexThreadID
 	c.stateMu.Unlock()
+	if stale != nil {
+		stale.Close()
+	}
 
 	session, err := runtime.OpenSession(ctx, c.workdir, resume)
 	if err != nil {
