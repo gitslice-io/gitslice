@@ -30,20 +30,31 @@ type agentRuntimeEvent struct {
 	Final     bool
 }
 
-// agentTurn describes a single turn to run. ThreadID, when set, resumes a prior
-// runtime session so the model retains context across turns; it's empty for the
-// first turn of a conversation.
-type agentTurn struct {
-	Workdir  string
-	Prompt   string
-	ThreadID string
+// agentRuntime opens long-lived runtime sessions, one per conversation.
+type agentRuntime interface {
+	// OpenSession starts a long-lived runtime session for the given workspace,
+	// resuming resumeThreadID when non-empty. The session's underlying process
+	// is bound to ctx (the daemon's lifetime) and lives until Close is called;
+	// it is not tied to any single turn's context.
+	OpenSession(ctx context.Context, workdir, resumeThreadID string) (agentSession, error)
 }
 
-type agentRuntime interface {
-	// Run executes one turn for the given request, calling emit for each
-	// categorized event, and returns the runtime session/thread id to reuse on
-	// the next turn. It must stop when ctx is cancelled.
-	Run(ctx context.Context, turn agentTurn, emit func(agentRuntimeEvent)) (threadID string, err error)
+// agentSession is a warm runtime session bound to one conversation workspace.
+// Turns reuse the same underlying process. It is not safe for concurrent turns;
+// the daemon serializes turns per conversation (conv.runMu).
+type agentSession interface {
+	// RunTurn runs a single turn, calling emit for each categorized event. It
+	// returns when the turn completes, the process exits, or ctx is cancelled.
+	// Cancelling ctx makes RunTurn return ctx.Err(); it does not itself tear the
+	// session down (the caller decides whether to Close).
+	RunTurn(ctx context.Context, prompt string, emit func(agentRuntimeEvent)) error
+	// ThreadID returns the runtime thread id (for persistence / future resume).
+	ThreadID() string
+	// Alive reports whether the session's process is still running, so a session
+	// that died between turns can be discarded and reopened.
+	Alive() bool
+	// Close tears down the session's process. Safe to call more than once.
+	Close()
 }
 
 type codexRuntime struct {
@@ -54,95 +65,133 @@ type codexRuntime struct {
 // so a fast token stream doesn't overwhelm the relay.
 const deltaThrottle = 60 * time.Millisecond
 
-func (r codexRuntime) Run(ctx context.Context, turn agentTurn, emit func(agentRuntimeEvent)) (string, error) {
-	workdir := turn.Workdir
-	prompt := turn.Prompt
+type codexSession struct {
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	client    *codexClient
+	stderr    *safeBuffer
+	waitCh    chan error
+	threadID  string
+	closeOnce sync.Once
+}
+
+func (s *codexSession) ThreadID() string { return s.threadID }
+
+func (s *codexSession) Alive() bool {
+	select {
+	case <-s.client.closed:
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *codexSession) stderrErr(base error) error {
+	if tail := strings.TrimSpace(s.stderr.String()); tail != "" {
+		return fmt.Errorf("%w: %s", base, lastLines(tail, 5))
+	}
+	return base
+}
+
+func (s *codexSession) Close() {
+	s.closeOnce.Do(func() {
+		_ = s.stdin.Close()
+		if s.cmd.Process != nil {
+			_ = s.cmd.Process.Kill()
+		}
+		<-s.waitCh
+	})
+}
+
+func (s *codexSession) RunTurn(ctx context.Context, prompt string, emit func(agentRuntimeEvent)) error {
+	select {
+	case <-s.client.closed:
+		return s.stderrErr(fmt.Errorf("codex app-server is not running"))
+	default:
+	}
+
+	turn := &codexTurn{emit: emit, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
+	s.client.setTurn(turn)
+	defer s.client.setTurn(nil)
+
+	if _, err := s.client.call(ctx, "turn/start", map[string]any{
+		"threadId": s.threadID,
+		"summary":  "detailed",
+		"input":    []map[string]any{{"type": "text", "text": prompt}},
+	}); err != nil {
+		return s.stderrErr(fmt.Errorf("codex turn/start failed: %w", err))
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-turn.done:
+		return err
+	case <-s.client.closed:
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return s.stderrErr(fmt.Errorf("codex app-server exited before the turn completed"))
+	}
+}
+
+func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID string) (agentSession, error) {
 	binary := r.Binary
 	if binary == "" {
 		binary = "codex"
 	}
 
 	// `codex app-server` is a long-lived JSON-RPC server over stdio. Driving it
-	// (rather than `codex exec`) gives token-level streaming: agent message and
-	// reasoning text arrive as deltas we relay live, with finalized items
-	// persisted at the end of each turn.
+	// gives token-level streaming: agent message and reasoning text arrive as
+	// deltas we relay live, with finalized items persisted at turn completion.
 	cmd := exec.CommandContext(ctx, binary, "app-server")
 	cmd.Dir = workdir
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	var stderr safeBuffer
-	cmd.Stderr = &stderr
+	stderr := &safeBuffer{}
+	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	waitCh := make(chan error, 1)
 	go func() { waitCh <- cmd.Wait() }()
 
 	client := newCodexClient(stdin)
-	stream := &codexTurn{emit: emit, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
-	go client.readLoop(stdout, stream)
-
-	// Always tear the server down: close stdin, kill, and reap so we never leak
-	// an app-server process between turns.
-	defer func() {
-		_ = stdin.Close()
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		<-waitCh
-	}()
-
-	stderrErr := func(base error) error {
-		if tail := strings.TrimSpace(stderr.String()); tail != "" {
-			return fmt.Errorf("%w: %s", base, lastLines(tail, 5))
-		}
-		return base
+	session := &codexSession{
+		cmd:    cmd,
+		stdin:  stdin,
+		client: client,
+		stderr: stderr,
+		waitCh: waitCh,
 	}
+	go client.readLoop(stdout)
 
 	if _, err := client.call(ctx, "initialize", initializeParams()); err != nil {
-		return "", stderrErr(fmt.Errorf("codex initialize failed: %w", err))
+		session.Close()
+		return nil, session.stderrErr(fmt.Errorf("codex initialize failed: %w", err))
 	}
 	if err := client.notify("initialized", struct{}{}); err != nil {
-		return "", stderrErr(fmt.Errorf("codex initialized notify failed: %w", err))
+		session.Close()
+		return nil, session.stderrErr(fmt.Errorf("codex initialized notify failed: %w", err))
 	}
 
-	threadID, err := client.openThread(ctx, workdir, turn.ThreadID)
+	threadID, err := client.openThread(ctx, workdir, resumeThreadID)
 	if err != nil {
-		return "", stderrErr(err)
+		session.Close()
+		return nil, session.stderrErr(err)
 	}
 
-	if _, err := client.call(ctx, "turn/start", map[string]any{
-		"threadId": threadID,
-		"summary":  "detailed",
-		"input":    []map[string]any{{"type": "text", "text": prompt}},
-	}); err != nil {
-		// The thread is live even if this turn failed to start; return its id so
-		// the next attempt can resume it.
-		return threadID, stderrErr(fmt.Errorf("codex turn/start failed: %w", err))
-	}
-
-	// Stream until the turn completes, the server stops, or we're cancelled. The
-	// thread id is returned in every case so the conversation keeps continuity.
-	select {
-	case <-ctx.Done():
-		return threadID, ctx.Err()
-	case err := <-stream.done:
-		return threadID, err
-	case <-client.closed:
-		if ctx.Err() != nil {
-			return threadID, ctx.Err()
-		}
-		return threadID, stderrErr(fmt.Errorf("codex app-server exited before the turn completed"))
-	}
+	session.threadID = threadID
+	return session, nil
 }
 
 // openThread resumes an existing codex thread when resumeID is set, falling back
@@ -233,6 +282,9 @@ type codexClient struct {
 	stdin  io.Writer
 	nextID int64
 
+	tmu     sync.Mutex
+	curTurn *codexTurn
+
 	pmu     sync.Mutex
 	pending map[int64]chan jsonrpcMessage
 	closed  chan struct{}
@@ -298,9 +350,21 @@ func (c *codexClient) reply(id json.RawMessage, result any) error {
 	return c.write(map[string]any{"id": id, "result": result})
 }
 
+func (c *codexClient) setTurn(turn *codexTurn) {
+	c.tmu.Lock()
+	defer c.tmu.Unlock()
+	c.curTurn = turn
+}
+
+func (c *codexClient) currentTurn() *codexTurn {
+	c.tmu.Lock()
+	defer c.tmu.Unlock()
+	return c.curTurn
+}
+
 // readLoop consumes the app-server's stdout, routing responses to waiters and
 // notifications/requests to the turn handler. It runs until stdout closes.
-func (c *codexClient) readLoop(stdout io.Reader, turn *codexTurn) {
+func (c *codexClient) readLoop(stdout io.Reader) {
 	defer c.once.Do(func() { close(c.closed) })
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -319,7 +383,9 @@ func (c *codexClient) readLoop(stdout io.Reader, turn *codexTurn) {
 			// approvals shouldn't arrive; reply best-effort to avoid stalling.
 			c.handleServerRequest(msg)
 		case msg.Method != "":
-			turn.handleNotification(msg.Method, msg.Params)
+			if t := c.currentTurn(); t != nil {
+				t.handleNotification(msg.Method, msg.Params)
+			}
 		case len(msg.ID) > 0:
 			c.deliver(msg)
 		}

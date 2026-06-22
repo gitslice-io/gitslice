@@ -116,6 +116,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		runner:        r,
 		cfg:           cfg,
 		runtime:       runtime,
+		baseCtx:       agentCtx,
 		workingDir:    root,
 		conversations: map[string]*agentConversation{},
 	}
@@ -278,6 +279,7 @@ type agentDaemon struct {
 	runner     Runner
 	cfg        UserConfig
 	runtime    agentRuntime
+	baseCtx    context.Context
 	workingDir string
 	sendQueue  *agentSendQueue
 
@@ -302,6 +304,7 @@ type agentConversation struct {
 	sliceID       string
 	cancel        context.CancelFunc
 	codexThreadID string // runtime session to resume across turns; guarded by stateMu
+	session       agentSession
 }
 
 type conversationMeta struct {
@@ -409,24 +412,37 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 		return
 	}
 
+	// Reuse the conversation's warm runtime session, opening one on the first
+	// turn (or after a prior turn tore it down). The process lives on d.baseCtx
+	// so it survives per-turn cancellation and server reconnects.
+	session, err := conv.ensureSession(d.baseCtx, d.runtime)
+	if err != nil {
+		d.sendSystemError(ctx, conversationID, fmt.Errorf("agent runtime failed: %w", err))
+		return
+	}
+	// Persist the thread id the session resumed/started so a daemon restart can
+	// resume the same runtime thread.
+	if id := session.ThreadID(); id != "" && id != conv.getThreadID() {
+		conv.setThreadID(id)
+		d.persistConversationMeta(conv)
+	}
+
 	runCtx, cancel := context.WithCancel(ctx)
 	conv.setCancel(cancel)
 	defer conv.clearCancel(cancel)
 	defer cancel()
 
-	threadID, err := forwardAgentRuntime(runCtx, d.runtime, agentTurn{
-		Workdir:  conv.workdir,
-		Prompt:   msg.GetText(),
-		ThreadID: conv.getThreadID(),
-	}, conversationID, func(event *corev1.AgentEvent) {
+	err = forwardAgentTurn(runCtx, session, msg.GetText(), conversationID, func(event *corev1.AgentEvent) {
 		_ = d.sendAgentEvent(runCtx, event)
 	})
-	// Remember the runtime thread so the next turn resumes with prior context,
-	// even if this turn was cancelled or errored mid-stream.
-	if threadID != "" {
-		conv.setThreadID(threadID)
-		d.persistConversationMeta(conv)
+
+	// A cancelled or errored turn can leave the app-server mid-turn or in a bad
+	// state; tear the session down so the next turn starts clean and resumes via
+	// the persisted thread id.
+	if err != nil {
+		conv.closeSession()
 	}
+
 	if errors.Is(err, context.Canceled) {
 		if ctx.Err() == nil {
 			_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
@@ -632,6 +648,7 @@ func (d *agentDaemon) cancelAll() {
 	d.mu.Unlock()
 	for _, conv := range conversations {
 		conv.cancelRun()
+		conv.closeSession()
 	}
 }
 
@@ -774,6 +791,44 @@ func (c *agentConversation) setThreadID(id string) {
 	c.codexThreadID = id
 }
 
+func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRuntime) (agentSession, error) {
+	c.stateMu.Lock()
+	if c.session != nil && c.session.Alive() {
+		session := c.session
+		c.stateMu.Unlock()
+		return session, nil
+	}
+	// A session that died between turns (e.g. the app-server crashed) is stale;
+	// drop and tear it down so this turn transparently opens a fresh one and
+	// resumes via the persisted thread id.
+	stale := c.session
+	c.session = nil
+	resume := c.codexThreadID
+	c.stateMu.Unlock()
+	if stale != nil {
+		stale.Close()
+	}
+
+	session, err := runtime.OpenSession(ctx, c.workdir, resume)
+	if err != nil {
+		return nil, err
+	}
+	c.stateMu.Lock()
+	c.session = session
+	c.stateMu.Unlock()
+	return session, nil
+}
+
+func (c *agentConversation) closeSession() {
+	c.stateMu.Lock()
+	session := c.session
+	c.session = nil
+	c.stateMu.Unlock()
+	if session != nil {
+		session.Close()
+	}
+}
+
 func (c *agentConversation) cancelRun() {
 	c.stateMu.Lock()
 	cancel := c.cancel
@@ -857,8 +912,8 @@ func (q *agentSendQueue) err() error {
 	return q.sendErr
 }
 
-func forwardAgentRuntime(ctx context.Context, runtime agentRuntime, turn agentTurn, conversationID string, emitEvent func(*corev1.AgentEvent)) (string, error) {
-	return runtime.Run(ctx, turn, func(event agentRuntimeEvent) {
+func forwardAgentTurn(ctx context.Context, session agentSession, prompt, conversationID string, emitEvent func(*corev1.AgentEvent)) error {
+	return session.RunTurn(ctx, prompt, func(event agentRuntimeEvent) {
 		role := event.Role
 		if role == "" {
 			role = "agent"
