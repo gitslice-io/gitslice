@@ -199,6 +199,126 @@ describe("AgentConversation", () => {
     expect(traceDetails).toHaveTextContent("rg agent");
   });
 
+  it("coalesces cumulative reasoning snapshots into a single trace entry", async () => {
+    const api = makeApi([
+      {
+        id: "evt_user",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "ok"
+      },
+      {
+        id: "evt_think_1",
+        conversationId: "conv_1",
+        seq: "2",
+        role: "agent",
+        type: "reasoning_delta",
+        text: "The",
+        itemId: "think_1"
+      },
+      {
+        id: "evt_think_2",
+        conversationId: "conv_1",
+        seq: "3",
+        role: "agent",
+        type: "reasoning_delta",
+        text: "The user said",
+        itemId: "think_1"
+      },
+      {
+        id: "evt_think_3",
+        conversationId: "conv_1",
+        seq: "4",
+        role: "agent",
+        type: "reasoning_delta",
+        text: "The user said ok, which",
+        itemId: "think_1"
+      },
+      {
+        id: "evt_done",
+        conversationId: "conv_1",
+        seq: "5",
+        role: "agent",
+        type: "message",
+        text: "Done."
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    // The three growing-prefix snapshots collapse to one trace entry, not three.
+    const traceSummary = await screen.findByText("Agent trace (1)");
+    const traceDetails = traceSummary.closest("details");
+    expect(traceDetails).not.toBeNull();
+    fireEvent.click(traceSummary);
+    // Only the latest snapshot survives.
+    expect(traceDetails).toHaveTextContent("The user said ok, which");
+    expect(traceDetails?.querySelectorAll("pre").length ?? 0).toBe(1);
+  });
+
+  it("lets the finalized reasoning event supersede its snapshots", async () => {
+    const api = makeApi([
+      {
+        id: "evt_user",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "ok"
+      },
+      {
+        id: "evt_think_1",
+        conversationId: "conv_1",
+        seq: "2",
+        role: "agent",
+        type: "reasoning_delta",
+        text: "The user said",
+        itemId: "think_1"
+      },
+      {
+        id: "evt_think_final",
+        conversationId: "conv_1",
+        seq: "3",
+        role: "agent",
+        type: "reasoning",
+        text: "The user said ok, which means continue.",
+        itemId: "think_1"
+      },
+      {
+        id: "evt_done",
+        conversationId: "conv_1",
+        seq: "4",
+        role: "agent",
+        type: "message",
+        text: "Done."
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    const traceSummary = await screen.findByText("Agent trace (1)");
+    const traceDetails = traceSummary.closest("details");
+    fireEvent.click(traceSummary);
+    expect(traceDetails).toHaveTextContent(
+      "The user said ok, which means continue."
+    );
+    expect(traceDetails?.querySelectorAll("pre").length ?? 0).toBe(1);
+  });
+
   it("shows a working indicator while the agent is mid-turn", async () => {
     const api = makeApi([
       {
