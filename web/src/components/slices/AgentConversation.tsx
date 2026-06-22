@@ -229,9 +229,13 @@ export function AgentConversation({
             above it, so it collapses out of view as you scroll the transcript —
             like the changeset detail page, whose header is normal page flow.
             Since the view is anchored to the latest message, the header starts
-            scrolled away, handing its space to the conversation. */}
+            scrolled away, handing its space to the conversation. The breadcrumb
+            (leading) sits above the white header band on the grey scroll
+            background, matching where every other page places it. */}
+        {leading ? (
+          <div className="px-3 pt-3 pb-4 sm:px-5">{leading}</div>
+        ) : null}
         <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-5">
-          {leading ? <div className="mb-2">{leading}</div> : null}
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <h2 className="truncate text-sm font-semibold text-zinc-950">

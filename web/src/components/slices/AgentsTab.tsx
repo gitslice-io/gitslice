@@ -389,9 +389,11 @@ export function AgentsTab({ api, leading, slice }: AgentsTabProps) {
               toolbar={sidebarToggle}
             />
           ) : (
-            <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-              <div className="border-b border-slate-200 px-3 py-3 sm:px-5">
-                {leading ? <div className="mb-2">{leading}</div> : null}
+            <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-slate-50/60">
+              {leading ? (
+                <div className="px-3 pt-3 pb-4 sm:px-5">{leading}</div>
+              ) : null}
+              <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-5">
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="truncate text-sm font-semibold text-zinc-950">
                     No conversation selected
