@@ -545,6 +545,10 @@ export interface Conversation {
   workspaceSubdir?: string;
   createdAt?: string;
   updatedAt?: string;
+  // Read-time annotation from the server: true when this conversation's daemon
+  // currently holds a live Connect stream. False/undefined means the agent is
+  // offline and the composer should be disabled.
+  daemonOnline?: boolean;
 }
 
 export interface ConversationEvent {

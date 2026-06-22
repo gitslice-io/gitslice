@@ -49,6 +49,11 @@ message Conversation {
   string workspace_subdir = 7;
   string created_at = 8;
   string updated_at = 9;
+  // daemon_online is a read-time annotation (not persisted) set by the server
+  // from the live daemon hub: true when this conversation's daemon currently
+  // holds a Connect stream and can serve messages. Web uses it to disable the
+  // composer ("show but disable") when the agent is offline.
+  bool daemon_online = 10;
 }
 
 // ConversationEvent is one persisted, ordered entry in a conversation. It covers
