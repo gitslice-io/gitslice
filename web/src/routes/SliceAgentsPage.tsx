@@ -55,30 +55,25 @@ export function SliceAgentsPage() {
     />
   );
 
-  // For the live conversation, the breadcrumb is handed to AgentsTab so it
-  // scrolls away with the conversation (like the changeset list page) rather
-  // than staying pinned. The notice/loading states keep it pinned at the top.
+  // The breadcrumb stays pinned at the top across every state — the same
+  // convention as the changesets list page — instead of scrolling away inside
+  // the conversation.
   const isSliceLoading = sliceQuery.isPending && Boolean(routeSliceRef);
-  if (
+  const showConversation =
     sliceRef &&
     !(isLoaded && !isSignedIn) &&
     !isSliceLoading &&
-    !sliceQuery.isError
-  ) {
-    return (
-      <section className="mx-auto flex h-[calc(100dvh-6.5rem)] w-full max-w-[100rem] flex-col overflow-hidden sm:h-[calc(100dvh-7rem)] md:h-[calc(100dvh-8rem)]">
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <AgentsTab api={api} leading={breadcrumb} slice={sliceRef} />
-        </div>
-      </section>
-    );
-  }
+    !sliceQuery.isError;
 
   return (
     <section className="mx-auto flex h-[calc(100dvh-6.5rem)] w-full max-w-[100rem] flex-col gap-4 overflow-hidden sm:h-[calc(100dvh-7rem)] md:h-[calc(100dvh-8rem)]">
       {breadcrumb}
 
-      {isLoaded && !isSignedIn ? (
+      {showConversation ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <AgentsTab api={api} slice={sliceRef} />
+        </div>
+      ) : isLoaded && !isSignedIn ? (
         <SliceNotice title="Sign in to use agents">
           Agent conversations require a signed-in account. Sign in to start or
           view conversations for this slice.
