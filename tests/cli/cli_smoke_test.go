@@ -3194,4 +3194,29 @@ func TestChangesetCaptureCreatesThenUpdates(t *testing.T) {
 	if len(versions.Patchsets) != 2 {
 		t.Fatalf("expected exactly 2 patchsets after no-op capture, got %d:\n%s", len(versions.Patchsets), versionsRaw)
 	}
+
+	// Simulate the agent daemon's per-turn workspace, which reuses the linked
+	// changeset but does not carry the local current-patchset id forward. A
+	// repeat capture with no edits must still be a no-op (detected against the
+	// server's current patchset), not a phantom "captured patchset 2".
+	statePath := filepath.Join(workspace, ".gs", "state.json")
+	var st map[string]any
+	if err := readJSONFile(statePath, &st); err != nil {
+		t.Fatalf("read workspace state: %v", err)
+	}
+	st["current_patchset_id"] = ""
+	stateJSON, err := json.Marshal(st)
+	if err != nil {
+		t.Fatalf("marshal workspace state: %v", err)
+	}
+	if err := os.WriteFile(statePath, stateJSON, 0o644); err != nil {
+		t.Fatalf("write workspace state: %v", err)
+	}
+	noopAfterReset := runCLI(t, home, workspace, "cs", "capture")
+	if !strings.Contains(noopAfterReset, "no changes to capture") {
+		t.Fatalf("expected no-op capture after losing local patchset id, got:\n%s", noopAfterReset)
+	}
+	if strings.Contains(noopAfterReset, "patchset 3") {
+		t.Fatalf("capture after losing local patchset id created a phantom patchset:\n%s", noopAfterReset)
+	}
 }

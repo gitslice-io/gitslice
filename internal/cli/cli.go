@@ -5196,7 +5196,12 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	}
 
 	// Reuse the current draft changeset when one exists; otherwise create one.
+	// priorPatchsetID is the changeset's current patchset as the server sees it
+	// before this update; the server dedups no-op patchsets by returning that
+	// same patchset, so we use it (not local state, which the agent daemon's
+	// per-turn workspace doesn't reliably carry forward) to detect "no changes".
 	reuse := false
+	priorPatchsetID := ""
 	if state.CurrentChangesetID != "" {
 		cs, err := changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: state.CurrentChangesetID})
 		if err == nil {
@@ -5204,6 +5209,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 			case "submitted", "abandoned":
 			default:
 				reuse = true
+				priorPatchsetID = cs.CurrentPatchsetId
 			}
 		} else if grpcstatus.Code(err) != codes.NotFound {
 			return err
@@ -5211,7 +5217,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	}
 
 	changesetID := state.CurrentChangesetID
-	expectedPatchsetID := state.CurrentPatchsetID
+	expectedPatchsetID := priorPatchsetID
 	if !reuse {
 		cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
 			AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
@@ -5224,6 +5230,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 		}
 		changesetID = cs.Id
 		expectedPatchsetID = ""
+		priorPatchsetID = ""
 	}
 
 	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
@@ -5236,7 +5243,14 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	if err != nil {
 		return err
 	}
-	if reuse && expectedPatchsetID != "" && patchset.Id == expectedPatchsetID {
+	if priorPatchsetID != "" && patchset.Id == priorPatchsetID {
+		// No new patchset: the edits leave the changeset content unchanged.
+		// Keep local state pointing at the live patchset so later turns agree.
+		state.CurrentChangesetID = changesetID
+		state.CurrentPatchsetID = patchset.Id
+		if err := r.writeWorkspaceState(state); err != nil {
+			return err
+		}
 		if opts.jsonOutput() {
 			return r.writeJSONOutput(opts, changesetOutput{
 				ChangesetID:    changesetID,
