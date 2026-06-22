@@ -724,11 +724,32 @@ function appendConversationEvent(
     return current;
   }
 
-  const next = [...current, event];
+  // Each persisted reasoning_delta carries the full cumulative snapshot, so
+  // keeping every one stacks the trace with growing-prefix duplicates. Coalesce
+  // by item: a new snapshot — or the finalized reasoning event — supersedes the
+  // earlier snapshots for the same item. (message_delta is coalesced live, so
+  // it never reaches this list.)
+  const base =
+    event.itemId && isReasoningEvent(event)
+      ? current.filter(
+          (item) => !(item.itemId === event.itemId && isReasoningDelta(item))
+        )
+      : current;
+
+  const next = [...base, event];
   if (hasSequence(event)) {
     next.sort(compareConversationEvents);
   }
   return next;
+}
+
+function isReasoningDelta(event: ConversationEvent) {
+  return (event.type ?? "").toLowerCase() === "reasoning_delta";
+}
+
+function isReasoningEvent(event: ConversationEvent) {
+  const type = (event.type ?? "").toLowerCase();
+  return type === "reasoning_delta" || type === "reasoning";
 }
 
 function compareConversationEvents(
