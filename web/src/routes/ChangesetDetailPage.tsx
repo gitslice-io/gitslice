@@ -14,7 +14,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { Changeset, Patchset } from "../api/types";
+import type { Changeset, ConversationEvent, Patchset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { DiffViewer } from "../components/diff/DiffViewer";
@@ -333,6 +333,12 @@ function PatchsetConversationPanel({
   }
 
   const events = eventsQuery.data?.events ?? [];
+  // Persisted streams carry every cumulative `*_delta` snapshot (the growing
+  // "Thanks", "Thanks. Send me the", … prefixes of one streamed message). Drop
+  // those superseded snapshots and tuck reasoning/tool trace behind a collapsed
+  // disclosure, so the panel reads as the finalized exchange — not the raw token
+  // stream that produced it.
+  const items = buildConversationView(events);
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -346,34 +352,160 @@ function PatchsetConversationPanel({
         <p className="mt-3 text-sm text-rose-600">
           Could not load the conversation for this patchset.
         </p>
-      ) : events.length === 0 ? (
+      ) : items.length === 0 ? (
         <p className="mt-3 text-sm text-slate-600">No messages for this patchset.</p>
       ) : (
         <ul className="mt-3 space-y-3">
-          {events.map((event) => (
-            <li
-              key={event.id ?? `${event.seq}`}
-              className={cn(
-                "rounded-lg border px-3 py-2 text-sm",
-                event.role === "user"
-                  ? "border-zinc-200 bg-zinc-50"
-                  : event.role === "system"
-                    ? "border-amber-200 bg-amber-50"
-                    : "border-slate-200 bg-white"
-              )}
-            >
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {event.role ?? "agent"}
-                {event.type && event.type !== "message" ? ` · ${event.type}` : ""}
-              </div>
-              <div className="whitespace-pre-wrap break-words text-slate-800">
-                {event.text}
-              </div>
-            </li>
-          ))}
+          {items.map((item, index) =>
+            item.kind === "trace" ? (
+              <li key={`trace-${index}`}>
+                <ConversationTrace events={item.events} />
+              </li>
+            ) : (
+              <li
+                key={item.event.id ?? `${item.event.seq}-${index}`}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-sm",
+                  item.event.role === "user"
+                    ? "border-zinc-200 bg-zinc-50"
+                    : item.event.role === "system"
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-slate-200 bg-white"
+                )}
+              >
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {item.event.role ?? "agent"}
+                  {item.event.type && item.event.type !== "message"
+                    ? ` · ${item.event.type}`
+                    : ""}
+                </div>
+                <div className="whitespace-pre-wrap break-words text-slate-800">
+                  {item.event.text}
+                </div>
+              </li>
+            )
+          )}
         </ul>
       )}
     </section>
+  );
+}
+
+type ConversationViewItem =
+  | { kind: "message"; event: ConversationEvent }
+  | { kind: "trace"; events: ConversationEvent[] };
+
+// buildConversationView turns the raw persisted event stream into what the
+// patchset panel should actually show: finalized messages inline, with
+// reasoning/tool trace grouped behind a collapsed disclosure. The streamed
+// `*_delta` snapshots are cumulative, so a finalized event supersedes its own
+// snapshots and only the latest snapshot survives when no final arrived.
+function buildConversationView(
+  events: ConversationEvent[]
+): ConversationViewItem[] {
+  const coalesced = coalesceStreamedEvents(events);
+  const items: ConversationViewItem[] = [];
+  let trace: ConversationEvent[] = [];
+
+  const flushTrace = () => {
+    if (trace.length) {
+      items.push({ kind: "trace", events: trace });
+      trace = [];
+    }
+  };
+
+  for (const event of coalesced) {
+    if (isTraceEvent(event)) {
+      trace.push(event);
+      continue;
+    }
+    flushTrace();
+    items.push({ kind: "message", event });
+  }
+  flushTrace();
+  return items;
+}
+
+// coalesceStreamedEvents drops cumulative `*_delta` snapshots that a finalized
+// event of the same item already covers, and collapses any remaining snapshots
+// for an item to their latest (most complete) entry.
+function coalesceStreamedEvents(
+  events: ConversationEvent[]
+): ConversationEvent[] {
+  const finalizedKeys = new Set<string>();
+  for (const event of events) {
+    const type = (event.type ?? "").toLowerCase();
+    if (event.itemId && !type.endsWith("_delta")) {
+      finalizedKeys.add(`${event.itemId}:${type}`);
+    }
+  }
+
+  const result: ConversationEvent[] = [];
+  // Where the latest snapshot for a given delta item currently sits, so a newer
+  // snapshot can replace it in place rather than appending a duplicate.
+  const snapshotIndex = new Map<string, number>();
+  for (const event of events) {
+    const type = (event.type ?? "").toLowerCase();
+    if (!type.endsWith("_delta")) {
+      result.push(event);
+      continue;
+    }
+    // A finalized event for this item supersedes its snapshots entirely.
+    if (event.itemId && finalizedKeys.has(`${event.itemId}:${type.slice(0, -6)}`)) {
+      continue;
+    }
+    const key = `${event.itemId ?? ""}:${type}`;
+    const existing = event.itemId ? snapshotIndex.get(key) : undefined;
+    if (existing !== undefined) {
+      result[existing] = event;
+      continue;
+    }
+    if (event.itemId) {
+      snapshotIndex.set(key, result.length);
+    }
+    result.push(event);
+  }
+  return result;
+}
+
+function isTraceEvent(event: ConversationEvent) {
+  const role = (event.role ?? "").toLowerCase();
+  const type = (event.type ?? "").toLowerCase();
+  return (
+    role === "tool" ||
+    type === "delta" ||
+    type === "tool_call" ||
+    type === "tool_output" ||
+    type === "thinking" ||
+    type === "thinking_trace" ||
+    type === "reasoning" ||
+    type === "reasoning_delta" ||
+    type === "message_delta"
+  );
+}
+
+// ConversationTrace collapses the reasoning/tool activity between two messages
+// into a single disclosure, so the panel defaults to the finalized exchange.
+function ConversationTrace({ events }: { events: ConversationEvent[] }) {
+  return (
+    <details className="rounded-lg border border-slate-200 bg-slate-50/70 text-sm">
+      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-zinc-950">
+        Agent thinking ({events.length})
+      </summary>
+      <ul className="space-y-2 border-t border-slate-200 px-3 py-2">
+        {events.map((event, index) => (
+          <li key={event.id ?? `${event.seq}-${index}`}>
+            <div className="mb-0.5 text-[0.7rem] font-semibold uppercase tracking-wide text-slate-400">
+              {event.role ?? "agent"}
+              {event.type ? ` · ${event.type}` : ""}
+            </div>
+            <div className="whitespace-pre-wrap break-words text-slate-600">
+              {event.text || event.dataJson}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
