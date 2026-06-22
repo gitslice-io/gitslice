@@ -473,7 +473,7 @@ func (d *agentDaemon) capturePatchset(ctx context.Context, conv *agentConversati
 		})
 		return
 	}
-	if out != "" && out != "no changes to capture" {
+	if out != "" && out != "no changes to capture" && out != "no changes since last patchset" {
 		_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
 			ConversationId: conv.id,
 			Role:           "system",

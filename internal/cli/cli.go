@@ -5236,6 +5236,19 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	if err != nil {
 		return err
 	}
+	if reuse && expectedPatchsetID != "" && patchset.Id == expectedPatchsetID {
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, changesetOutput{
+				ChangesetID:    changesetID,
+				PatchsetID:     patchset.Id,
+				PatchsetNumber: patchset.Number,
+			})
+		}
+		if !opts.Quiet {
+			fmt.Fprintln(r.Stdout, "no changes to capture")
+		}
+		return nil
+	}
 	state.CurrentChangesetID = changesetID
 	state.CurrentPatchsetID = patchset.Id
 	if err := r.writeWorkspaceState(state); err != nil {
@@ -5459,6 +5472,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 	if err != nil {
 		return err
 	}
+	previousPatchsetID := state.CurrentPatchsetID
 	patchset, err := corev1.NewChangesetServiceClient(conn).UpdateChangeset(authContext(ctx, cfg), &corev1.UpdateChangesetRequest{
 		ChangesetId:               state.CurrentChangesetID,
 		ExpectedCurrentPatchsetId: state.CurrentPatchsetID,
@@ -5469,6 +5483,22 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 	if err != nil {
 		return err
 	}
+	label := firstNonEmpty(storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
+	webURL := webResourceURL("/cs/" + label)
+	if previousPatchsetID != "" && patchset.Id == previousPatchsetID {
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, changesetOutput{
+				ChangesetID:    state.CurrentChangesetID,
+				PatchsetID:     patchset.Id,
+				PatchsetNumber: patchset.Number,
+				WebURL:         webURL,
+			})
+		}
+		if !opts.Quiet {
+			fmt.Fprintln(r.Stdout, "no changes since last patchset")
+		}
+		return nil
+	}
 	state.CurrentPatchsetID = patchset.Id
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
@@ -5478,8 +5508,6 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 			return err
 		}
 	}
-	label := firstNonEmpty(storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
-	webURL := webResourceURL("/cs/" + label)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID:    state.CurrentChangesetID,

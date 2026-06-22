@@ -1,5 +1,48 @@
 # Gitslice Execution Log
 
+## 2026-06-22: Patchset Deduplication for No-Diff Updates
+
+Request:
+
+- skip creating a new patchset when `gs cs capture`, `gs cs update`, or another
+  `UpdateChangeset` caller produces the same base tree and result tree as the
+  changeset's current patchset.
+- suppress agent-daemon system status messages for the no-op sentinel output.
+
+Implemented:
+
+- PostgreSQL and memory `AddPatchset` now run the existing expected-current
+  patchset check first, compute `BaseTreeId` and `ResultTreeId`, then return the
+  current patchset without inserting/appending when current/new base tree ids
+  match, current/new result tree ids match, and the incoming patchset has no
+  conflicts.
+- memory preview tree ids are now deterministic over the materialized snapshot,
+  so repeated identical edit sets can compare equal in the same way PostgreSQL's
+  content-addressed tree store does.
+- `gs cs capture` reports `no changes to capture` for reused changeset dedup
+  hits, and `gs cs update` reports `no changes since last patchset`; JSON output
+  still returns the unchanged patchset payload and quiet mode stays silent.
+- agent capture status filtering now suppresses both no-op sentinels.
+- updated CLI/RPC coverage for no-op dedup and adjusted the memory stack stale
+  parent fixture to advance the parent with real content, since a same-content
+  parent update is now intentionally deduped.
+
+Verification:
+
+```bash
+gofmt -l .
+go build ./...
+go vet ./...    # still fails on pre-existing protobuf copylock diagnostics
+go test ./internal/... ./service/... ./tests/cli/... ./tests/rpc/...
+go test ./tests/cli -run TestChangesetCaptureCreatesThenUpdates -count=1
+go test ./tests/rpc -run TestUpdateChangesetDeduplicatesIdenticalPatchset -count=1
+```
+
+`gofmt -l .`, `go build ./...`, the combined Go test command, and both focused
+dedup regression tests passed. `go vet ./...` continues to fail only on the
+existing protobuf `copylocks` diagnostics in memory/service clone and request
+copy helpers.
+
 ## 2026-06-21: Agents Page Cleanup — react-query, Smart Scroll, Stream Retry
 
 Request:

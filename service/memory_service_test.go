@@ -409,6 +409,13 @@ func TestStackValidationRejectsMismatchedSliceStaleParentAndParentAbandon(t *tes
 		t.Fatal(err)
 	}
 
+	nextRootBlob, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{
+		Data:  []byte("package payment\nconst ValidationRoot = 2\n"),
+		Slice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
 		ChangesetId:               root.Id,
 		ExpectedCurrentPatchsetId: rootPatchset.Id,
@@ -416,8 +423,8 @@ func TestStackValidationRejectsMismatchedSliceStaleParentAndParentAbandon(t *tes
 		FileEdits: []*corev1.FileEdit{{
 			Op:          "upsert",
 			Path:        "/acme/payment/validation_root.go",
-			BlobId:      rootPatchset.FileEdits[0].BlobId,
-			ContentHash: rootPatchset.FileEdits[0].ContentHash,
+			BlobId:      nextRootBlob.BlobId,
+			ContentHash: nextRootBlob.ContentHash,
 			Mode:        0o100644,
 		}},
 	})
