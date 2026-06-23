@@ -260,7 +260,7 @@ export function DocPage() {
 
   return (
     <section className="mx-auto grid w-full max-w-[100rem] gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="lg:sticky lg:top-24 lg:self-start">
+      <aside className="lg:sticky lg:top-6 lg:self-start">
         <div className="grid gap-2">
           {docSections.map((item) => (
             <SectionLink

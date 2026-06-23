@@ -10,10 +10,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import {
   SliceLoadingBlock,
   SliceNotice,
-  SlicePageHeader,
   getErrorMessage
 } from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
@@ -72,22 +72,23 @@ export function ChangesetsPage() {
     );
   }
   breadcrumbItems.push({ label: "Changesets" });
+  const pageTitle = sliceRef ? `${account}:${slice} · Changesets` : "Changesets";
+  const description = sliceRef
+    ? "Review and merge changesets authored against this slice."
+    : "Open a slice and use its Changesets tab to see the slice-scoped review queue.";
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="mb-4">
-        <Breadcrumb items={breadcrumbItems} />
-      </div>
-      <SlicePageHeader
-        eyebrow="Changesets"
-        title={sliceRef ? `${account}:${slice} · Changesets` : "Changesets"}
-        description={
-          sliceRef
-            ? "Review and merge changesets authored against this slice."
-            : "Open a slice and use its Changesets tab to see the slice-scoped review queue."
+      <PageHeader
+        breadcrumb={<Breadcrumb items={breadcrumbItems} />}
+        title={
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+            {pageTitle}
+          </h1>
         }
       />
-      <div className="mt-6">
+      <p className="mb-4 text-sm leading-6 text-slate-600">{description}</p>
+      <div className="mt-0">
         {!sliceRef ? (
           <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
         ) : !isLoaded || changesetsQuery.isPending ? (
