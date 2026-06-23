@@ -136,25 +136,26 @@ export function StackDetailPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="mb-4">
-        <Breadcrumb
-          items={[
-            { label: "Dependencies", to: "/dependencies" },
-            ...(sliceLabel
-              ? [
-                  {
-                    label: sliceLabel,
-                    search: { slice: sliceLabel },
-                    to: "/dependencies"
-                  }
-                ]
-              : []),
-            { label: shortStackId(stack.id) || stackDisplayName(stack) }
-          ]}
-        />
-      </div>
-
-      <StackHeader stack={stack} />
+      <StackHeader
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: "Dependencies", to: "/dependencies" },
+              ...(sliceLabel
+                ? [
+                    {
+                      label: sliceLabel,
+                      search: { slice: sliceLabel },
+                      to: "/dependencies"
+                    }
+                  ]
+                : []),
+              { label: shortStackId(stack.id) || stackDisplayName(stack) }
+            ]}
+          />
+        }
+        stack={stack}
+      />
 
       {actionMessage ? (
         <div className="mt-5">

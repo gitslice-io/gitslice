@@ -4,10 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import type { Slice } from "../api/types";
 import { useApi } from "../api/useApi";
 import { shortHash } from "../lib/objectId";
+import { PageHeader } from "../components/PageHeader";
 import {
   SliceLoadingBlock,
   SliceNotice,
-  SlicePageHeader,
   formatPathPreview,
   getErrorMessage,
   sliceDisplayName
@@ -52,8 +52,8 @@ export function SlicesPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <SlicePageHeader
-        actions={
+      <PageHeader
+        primaryAction={
           <Link
             className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
             to="/slices/new"
@@ -61,9 +61,15 @@ export function SlicesPage() {
             New slice
           </Link>
         }
-        title={effectiveAccount ? `Slices for ${effectiveAccount}` : "Slices"}
-        description="Definitions for slices under the selected account."
+        title={
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+            {effectiveAccount ? `Slices for ${effectiveAccount}` : "Slices"}
+          </h1>
+        }
       />
+      <p className="mb-4 text-sm leading-6 text-slate-600">
+        Definitions for slices under the selected account.
+      </p>
 
       <div className="mt-8">
         {selection.isLoading ? (

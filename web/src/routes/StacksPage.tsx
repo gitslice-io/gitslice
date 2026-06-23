@@ -5,10 +5,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { ChangesetStack, SliceRef } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import {
   SliceLoadingBlock,
-  SliceNotice,
-  SlicePageHeader
+  SliceNotice
 } from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
 import {
@@ -58,16 +58,16 @@ export function StacksPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="mb-4">
-        <Breadcrumb
-          items={[
-            { label: "Slices", to: "/slices" },
-            sliceLabel ? { label: sliceLabel } : { label: "Dependencies" }
-          ]}
-        />
-      </div>
-      <SlicePageHeader
-        actions={
+      <PageHeader
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: "Slices", to: "/slices" },
+              sliceLabel ? { label: sliceLabel } : { label: "Dependencies" }
+            ]}
+          />
+        }
+        primaryAction={
           <Link
             className={secondaryButtonClass}
             search={sliceLabel ? ({ slice: sliceLabel } as never) : undefined}
@@ -76,14 +76,17 @@ export function StacksPage() {
             Create changeset
           </Link>
         }
-        description={
-          sliceLabel
-            ? "Review dependency trees, open individual changesets, and update or submit related changesets together."
-            : "Open a dependency tree by id, or choose a slice scope to list active dependent changesets."
+        title={
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+            {sliceLabel ? `${sliceLabel} · Dependencies` : "Dependencies"}
+          </h1>
         }
-        eyebrow="Dependencies"
-        title={sliceLabel ? `${sliceLabel} · Dependencies` : "Dependencies"}
       />
+      <p className="mb-4 text-sm leading-6 text-slate-600">
+        {sliceLabel
+          ? "Review dependency trees, open individual changesets, and update or submit related changesets together."
+          : "Open a dependency tree by id, or choose a slice scope to list active dependent changesets."}
+      </p>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0">
