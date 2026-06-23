@@ -623,9 +623,6 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
       >
         <span>{role}</span>
         {event.type ? <span>{event.type}</span> : null}
-        {hasSequence(event) ? (
-          <span className="text-slate-400">#{event.seq}</span>
-        ) : null}
       </div>
       {capturedPatchset ? (
         <div className="grid grid-cols-1 gap-2">
