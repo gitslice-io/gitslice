@@ -181,10 +181,10 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
   const isCreating = createMutation.isPending;
 
   return (
-    <SlicePanel className="h-full min-h-0 overflow-hidden p-0">
+    <SlicePanel className="p-0">
       <div
         className={cn(
-          "grid h-full min-h-0 gap-0",
+          "grid gap-0",
           isSidebarOpen
             ? "lg:grid-cols-[20rem_minmax(0,1fr)]"
             : "lg:grid-cols-[minmax(0,1fr)]"
@@ -204,7 +204,11 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
             className={cn(
               "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-white p-4 shadow-xl transition-transform duration-200",
               mobileSidebarOpen ? "translate-x-0" : "-translate-x-full",
-              "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:bg-transparent lg:p-5 lg:shadow-none lg:transition-none lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-slate-200",
+              // On desktop the list becomes a sticky column so it stays in view
+              // while the transcript scrolls the page, instead of scrolling off
+              // into an empty gutter. self-start keeps the grid item from
+              // stretching so sticky has room to resolve.
+              "lg:sticky lg:top-16 lg:z-auto lg:max-h-[calc(100dvh-5rem)] lg:w-auto lg:max-w-none lg:translate-x-0 lg:self-start lg:overflow-y-auto lg:border-r lg:border-slate-200 lg:bg-transparent lg:p-5 lg:shadow-none lg:transition-none",
               isSidebarOpen ? "" : "lg:hidden"
             )}
             id="agent-conversation-sidebar"
@@ -390,7 +394,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
               toolbar={sidebarToggle}
             />
           ) : (
-            <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-slate-50/60">
+            <div className="flex min-h-[60vh] flex-col bg-slate-50/60">
               <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-5">
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="truncate text-sm font-semibold text-zinc-950">

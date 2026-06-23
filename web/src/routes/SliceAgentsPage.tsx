@@ -57,9 +57,9 @@ export function SliceAgentsPage() {
     />
   );
 
-  // PageHeader keeps the breadcrumb pinned at the top across every state — the
-  // same convention as the changesets list page — instead of scrolling away
-  // inside the conversation.
+  // The page scrolls as one document — the same model as the changesets list:
+  // the app header scrolls away, the contextual PageHeader stays pinned at the
+  // top (sticky), and the conversation composer pins to the viewport bottom.
   const isSliceLoading = sliceQuery.isPending && Boolean(routeSliceRef);
   const showConversation =
     sliceRef &&
@@ -68,7 +68,7 @@ export function SliceAgentsPage() {
     !sliceQuery.isError;
 
   return (
-    <section className="mx-auto flex h-[calc(100dvh-6.5rem)] w-full max-w-[100rem] flex-col gap-4 overflow-hidden sm:h-[calc(100dvh-7rem)] md:h-[calc(100dvh-8rem)]">
+    <section className="mx-auto w-full max-w-[100rem]">
       <PageHeader
         actions={[
           ...(sliceRouteParams
@@ -108,9 +108,7 @@ export function SliceAgentsPage() {
       />
 
       {showConversation ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <AgentsTab api={api} slice={sliceRef} />
-        </div>
+        <AgentsTab api={api} slice={sliceRef} />
       ) : isLoaded && !isSignedIn ? (
         <SliceNotice title="Sign in to use agents">
           Agent conversations require a signed-in account. Sign in to start or
