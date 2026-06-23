@@ -54,6 +54,62 @@ describe("AgentConversation", () => {
     );
   });
 
+  it("renders agent messages as markdown", async () => {
+    const api = makeApi([
+      {
+        id: "evt_1",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "agent",
+        type: "message",
+        text: "Here is **bold** text and a [link](https://example.com).\n\n- one\n- two"
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    // Inline emphasis and lists become real elements rather than literal markup.
+    const strong = await screen.findByText("bold");
+    expect(strong.tagName).toBe("STRONG");
+    const link = screen.getByRole("link", { name: "link" });
+    expect(link).toHaveAttribute("href", "https://example.com");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByText("one").tagName).toBe("LI");
+  });
+
+  it("keeps user messages as literal text, not markdown", async () => {
+    const api = makeApi([
+      {
+        id: "evt_1",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "use **stars** literally"
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    // The user's asterisks are preserved verbatim instead of becoming <strong>.
+    expect(
+      await screen.findByText("use **stars** literally")
+    ).toBeInTheDocument();
+  });
+
   it("collapses trace and tool events separately from messages", async () => {
     const api = makeApi([
       {
