@@ -23,12 +23,12 @@ export function PageHeader({
   menuLabel = "Actions"
 }: PageHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 mb-4 flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/95 py-3 backdrop-blur">
-      <div className="min-w-0 flex-1">
+    <header className="sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 bg-slate-50/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      <div className="min-w-0 sm:flex-1">
         {breadcrumb}
         {title ? <div className="mt-1 min-w-0">{title}</div> : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:shrink-0">
         {primaryAction}
         {actions && actions.length > 0 ? (
           <ActionMenu items={actions} label={menuLabel} />
