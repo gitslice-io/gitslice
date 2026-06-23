@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -10,6 +11,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type PointerEvent,
+  type Ref,
   type ReactNode
 } from "react";
 import { createPortal } from "react-dom";
@@ -31,8 +33,35 @@ export function ChangesetDetailPage() {
   const changesetId = params.id ?? "";
   const [abandonReason, setAbandonReason] = useState("");
   const [actionError, setActionError] = useState("");
+  const [conversationOpen, setConversationOpen] = useState(false);
   const [fromPatchset, setFromPatchset] = useState("");
+  const [isWide, setIsWide] = useState(() =>
+    typeof window === "undefined" || typeof window.matchMedia !== "function"
+      ? false
+      : window.matchMedia("(min-width: 1280px)").matches
+  );
   const [toPatchset, setToPatchset] = useState("");
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return;
+    }
+
+    const wideQuery = window.matchMedia("(min-width: 1280px)");
+    const updateIsWide = () => {
+      setIsWide(wideQuery.matches);
+    };
+
+    updateIsWide();
+    wideQuery.addEventListener("change", updateIsWide);
+
+    return () => {
+      wideQuery.removeEventListener("change", updateIsWide);
+    };
+  }, []);
 
   const changesetQuery = useQuery({
     // Wait for Clerk to resolve before fetching: this page is public, but a
@@ -129,6 +158,7 @@ export function ChangesetDetailPage() {
       queryKey: ["changeset", changesetId]
     });
   };
+  const closeConversation = useCallback(() => setConversationOpen(false), []);
 
   const mergeMutation = useMutation({
     mutationFn: async () => {
@@ -248,18 +278,36 @@ export function ChangesetDetailPage() {
         toPatchset={selectedToPatchset}
       />
 
-      <DiffViewer
-        diffResponse={diffQuery.data}
-        error={diffQuery.error}
-        isError={diffQuery.isError}
-        isLoading={diffQuery.isPending}
-      />
+      <div className={cn(isWide && conversationOpen && "flex items-start gap-3")}>
+        <div className={cn(isWide && conversationOpen && "min-w-0 flex-1")}>
+          <DiffViewer
+            diffResponse={diffQuery.data}
+            error={diffQuery.error}
+            isError={diffQuery.isError}
+            isLoading={diffQuery.isPending}
+          />
+        </div>
+        <ConversationDrawer
+          docked={isWide}
+          enabled={Boolean(isLoaded)}
+          onClose={closeConversation}
+          open={conversationOpen}
+          patchsets={patchsets}
+          selectedPatchsetId={selectedToPatchset}
+        />
+      </div>
 
-      <PatchsetConversationPanel
-        patchsets={patchsets}
-        selectedPatchsetId={selectedToPatchset}
-        enabled={Boolean(isLoaded)}
-      />
+      {!conversationOpen ? (
+        <button
+          aria-expanded={conversationOpen}
+          className="fixed bottom-4 right-4 z-30 inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-zinc-950 px-4 text-sm font-medium text-white shadow-lg shadow-slate-900/20 transition hover:bg-zinc-800 active:scale-[0.98]"
+          onClick={() => setConversationOpen(true)}
+          type="button"
+        >
+          <span aria-hidden="true">💬</span>
+          <span>Conversation</span>
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -290,15 +338,162 @@ function patchsetConversationRange(
   return { conversationId, afterSeq, beforeSeq };
 }
 
-function PatchsetConversationPanel({
-  patchsets,
-  selectedPatchsetId,
-  enabled
-}: {
+type PatchsetConversationProps = {
   patchsets: Patchset[];
   selectedPatchsetId: string;
   enabled: boolean;
+};
+
+function ConversationDrawer({
+  docked,
+  enabled,
+  onClose,
+  open,
+  patchsets,
+  selectedPatchsetId
+}: PatchsetConversationProps & {
+  docked: boolean;
+  onClose(): void;
+  open: boolean;
 }) {
+  const [entered, setEntered] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open || docked || typeof document === "undefined") {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [docked, onClose, open]);
+
+  useEffect(() => {
+    if (!open || docked || typeof window === "undefined") {
+      setEntered(false);
+      return;
+    }
+
+    setEntered(false);
+    const frame = window.requestAnimationFrame(() => setEntered(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [docked, open]);
+
+  useEffect(() => {
+    if (!open || docked) {
+      return;
+    }
+
+    closeButtonRef.current?.focus();
+  }, [docked, open]);
+
+  if (!open) {
+    return null;
+  }
+
+  const drawerContent = (
+    <>
+      <ConversationDrawerHeader
+        closeButtonRef={closeButtonRef}
+        onClose={onClose}
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <PatchsetConversationContent
+          enabled={enabled}
+          patchsets={patchsets}
+          selectedPatchsetId={selectedPatchsetId}
+        />
+      </div>
+    </>
+  );
+
+  if (docked) {
+    return (
+      <aside className="mt-2.5 flex max-h-[calc(100dvh-2rem)] w-[24rem] shrink-0 flex-col overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3 xl:sticky xl:top-4 xl:self-start">
+        {drawerContent}
+      </aside>
+    );
+  }
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-40">
+      <button
+        aria-label="Close conversation drawer"
+        className={cn(
+          "fixed inset-0 bg-black/30 transition-opacity duration-200",
+          entered ? "opacity-100" : "opacity-0"
+        )}
+        onClick={onClose}
+        type="button"
+      />
+      <aside
+        aria-label="Agent conversation"
+        aria-modal="true"
+        className={cn(
+          "fixed inset-y-0 right-0 z-10 flex w-full max-w-[28rem] transform flex-col overflow-hidden bg-white shadow-xl transition-transform duration-200",
+          entered ? "translate-x-0" : "translate-x-full"
+        )}
+        role="dialog"
+      >
+        {drawerContent}
+      </aside>
+    </div>,
+    document.body
+  );
+}
+
+function ConversationDrawerHeader({
+  closeButtonRef,
+  onClose
+}: {
+  closeButtonRef?: Ref<HTMLButtonElement>;
+  onClose(): void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+      <div className="min-w-0">
+        <h2 className="text-sm font-semibold text-zinc-950">
+          Agent conversation
+        </h2>
+        <p className="mt-1 text-xs text-slate-500">
+          The exchange that produced this patchset.
+        </p>
+      </div>
+      <button
+        aria-label="Close conversation"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+        onClick={onClose}
+        ref={closeButtonRef}
+        type="button"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
+function PatchsetConversationContent({
+  patchsets,
+  selectedPatchsetId,
+  enabled
+}: PatchsetConversationProps) {
   const api = useApi();
   const range = useMemo(
     () => patchsetConversationRange(patchsets, selectedPatchsetId),
@@ -323,12 +518,9 @@ function PatchsetConversationPanel({
 
   if (!range) {
     return (
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-zinc-950">Agent conversation</h2>
-        <p className="mt-2 text-sm text-slate-600">
-          This patchset was not produced by an agent conversation.
-        </p>
-      </section>
+      <p className="text-sm text-slate-600">
+        This patchset was not produced by an agent conversation.
+      </p>
     );
   }
 
@@ -341,21 +533,17 @@ function PatchsetConversationPanel({
   const items = buildConversationView(events);
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-sm font-semibold text-zinc-950">Agent conversation</h2>
-      <p className="mt-1 text-xs text-slate-500">
-        The exchange that produced this patchset.
-      </p>
+    <>
       {eventsQuery.isPending ? (
-        <p className="mt-3 text-sm text-slate-600">Loading conversation…</p>
+        <p className="text-sm text-slate-600">Loading conversation…</p>
       ) : eventsQuery.isError ? (
-        <p className="mt-3 text-sm text-rose-600">
+        <p className="text-sm text-rose-600">
           Could not load the conversation for this patchset.
         </p>
       ) : items.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-600">No messages for this patchset.</p>
+        <p className="text-sm text-slate-600">No messages for this patchset.</p>
       ) : (
-        <ul className="mt-3 space-y-3">
+        <ul className="space-y-3">
           {items.map((item, index) =>
             item.kind === "trace" ? (
               <li key={`trace-${index}`}>
@@ -387,7 +575,7 @@ function PatchsetConversationPanel({
           )}
         </ul>
       )}
-    </section>
+    </>
   );
 }
 
