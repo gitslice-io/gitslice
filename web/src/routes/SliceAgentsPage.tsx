@@ -1,9 +1,10 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import { AgentsTab } from "../components/slices/AgentsTab";
 import {
   SliceLoadingBlock,
@@ -20,6 +21,7 @@ interface SliceParams {
 export function SliceAgentsPage() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
+  const navigate = useNavigate();
   const params = useParams({ strict: false }) as SliceParams;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
@@ -55,9 +57,9 @@ export function SliceAgentsPage() {
     />
   );
 
-  // The breadcrumb stays pinned at the top across every state — the same
-  // convention as the changesets list page — instead of scrolling away inside
-  // the conversation.
+  // PageHeader keeps the breadcrumb pinned at the top across every state — the
+  // same convention as the changesets list page — instead of scrolling away
+  // inside the conversation.
   const isSliceLoading = sliceQuery.isPending && Boolean(routeSliceRef);
   const showConversation =
     sliceRef &&
@@ -67,7 +69,43 @@ export function SliceAgentsPage() {
 
   return (
     <section className="mx-auto flex h-[calc(100dvh-6.5rem)] w-full max-w-[100rem] flex-col gap-4 overflow-hidden sm:h-[calc(100dvh-7rem)] md:h-[calc(100dvh-8rem)]">
-      {breadcrumb}
+      <PageHeader
+        actions={[
+          ...(sliceRouteParams
+            ? [
+                {
+                  label: "Slice detail",
+                  onSelect: () =>
+                    navigate({
+                      to: "/slices/$account/$slice",
+                      params: sliceRouteParams as never
+                    })
+                }
+              ]
+            : []),
+          {
+            label: "Changesets",
+            onSelect: () =>
+              navigate({
+                to: "/changesets",
+                search: { slice: sliceLabel } as never
+              })
+          },
+          ...(sliceRouteParams
+            ? [
+                {
+                  label: "Settings",
+                  onSelect: () =>
+                    navigate({
+                      to: "/slices/$account/$slice/settings",
+                      params: sliceRouteParams as never
+                    })
+                }
+              ]
+            : [])
+        ]}
+        breadcrumb={breadcrumb}
+      />
 
       {showConversation ? (
         <div className="min-h-0 flex-1 overflow-hidden">

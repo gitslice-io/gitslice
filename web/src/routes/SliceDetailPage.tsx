@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@clerk/tanstack-react-start";
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
 import type { SliceRef, TreeEntry } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -236,53 +237,64 @@ export function SliceDetailPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 pb-3 sm:gap-3">
-        <div className="w-full min-w-0 sm:w-auto sm:flex-1">
+      <PageHeader
+        actions={[
+          {
+            label: "Changesets",
+            onSelect: () =>
+              navigate({
+                to: "/changesets",
+                search: { slice: sliceLabel } as never
+              })
+          },
+          ...(isSignedIn && sliceRouteParams
+            ? [
+                {
+                  label: "Agents",
+                  onSelect: () =>
+                    navigate({
+                      to: "/slices/$account/$slice/agents",
+                      params: sliceRouteParams as never
+                    })
+                }
+              ]
+            : []),
+          ...(canEdit && sliceRouteParams
+            ? [
+                {
+                  label: "Settings",
+                  onSelect: () =>
+                    navigate({
+                      to: "/slices/$account/$slice/settings",
+                      params: sliceRouteParams as never
+                    })
+                }
+              ]
+            : [])
+        ]}
+        breadcrumb={
           <Breadcrumb
             items={[
               { label: "Slices", to: "/slices" },
               { label: sliceLabel }
             ]}
           />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            aria-controls="slice-file-tree-panel"
-            aria-expanded={mobileFilesOpen}
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
-            onClick={() => setMobileFilesOpen(true)}
-            type="button"
-          >
-            Files
-          </button>
-          <Link
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-            search={{ slice: sliceLabel } as never}
-            to="/changesets"
-          >
-            Changesets
-          </Link>
-          {isSignedIn && sliceRouteParams ? (
-            <Link
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              params={sliceRouteParams as never}
-              to="/slices/$account/$slice/agents"
+        }
+        primaryAction={
+          <>
+            <button
+              aria-controls="slice-file-tree-panel"
+              aria-expanded={mobileFilesOpen}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
+              onClick={() => setMobileFilesOpen(true)}
+              type="button"
             >
-              Agents
-            </Link>
-          ) : null}
-          {canEdit && sliceRouteParams ? (
-            <Link
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              params={sliceRouteParams as never}
-              to="/slices/$account/$slice/settings"
-            >
-              Settings
-            </Link>
-          ) : null}
-          <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
-        </div>
-      </div>
+              Files
+            </button>
+            <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
+          </>
+        }
+      />
 
       {pendingEdits.length ? (
         <PendingChangesBanner
@@ -406,4 +418,3 @@ export function SliceDetailPage() {
     </section>
   );
 }
-
