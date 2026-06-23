@@ -73,7 +73,8 @@ export function shortPatchsetId(patchsetId: string) {
 
 export function patchsetConversationRange(
   patchsets: Patchset[],
-  selectedPatchsetId: string
+  selectedPatchsetId: string,
+  fromPatchsetId?: string
 ): { conversationId: string; afterSeq: number; beforeSeq: number } | null {
   const selected = patchsets.find((patchset) => patchset.id === selectedPatchsetId);
   const conversationId = selected?.authoringConversationId ?? "";
@@ -81,6 +82,24 @@ export function patchsetConversationRange(
     return null;
   }
   const beforeSeq = Number(selected.authoringConversationSeq ?? 0);
+
+  // When the comparison's "from" handle is provided, trim the conversation to
+  // the segment that produced the visible diff range (from, to] instead of just
+  // the patchset that immediately precedes the selected one.
+  if (fromPatchsetId !== undefined) {
+    // An empty "from" means the recorded base: include the whole conversation
+    // up to the selected patchset, mirroring the full-changeset diff.
+    if (!fromPatchsetId) {
+      return { conversationId, afterSeq: 0, beforeSeq };
+    }
+    const from = patchsets.find((patchset) => patchset.id === fromPatchsetId);
+    const afterSeq =
+      from && from.authoringConversationId === conversationId
+        ? Number(from.authoringConversationSeq ?? 0)
+        : 0;
+    return { conversationId, afterSeq, beforeSeq };
+  }
+
   const selectedNumber = Number(selected.number ?? 0);
   let afterSeq = 0;
   for (const patchset of patchsets) {

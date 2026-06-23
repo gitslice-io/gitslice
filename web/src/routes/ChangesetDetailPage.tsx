@@ -291,6 +291,7 @@ export function ChangesetDetailPage() {
         <ConversationDrawer
           docked={isWide}
           enabled={Boolean(isLoaded)}
+          fromPatchsetId={fromPatchset}
           onClose={closeConversation}
           open={conversationOpen}
           patchsets={patchsets}

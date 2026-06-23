@@ -21,12 +21,14 @@ export type ConversationViewItem =
 export interface PatchsetConversationProps {
   patchsets: Patchset[];
   selectedPatchsetId: string;
+  fromPatchsetId: string;
   enabled: boolean;
 }
 
 export function ConversationDrawer({
   docked,
   enabled,
+  fromPatchsetId,
   onClose,
   open,
   patchsets,
@@ -93,6 +95,7 @@ export function ConversationDrawer({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <PatchsetConversationContent
           enabled={enabled}
+          fromPatchsetId={fromPatchsetId}
           patchsets={patchsets}
           selectedPatchsetId={selectedPatchsetId}
         />
@@ -153,7 +156,7 @@ export function ConversationDrawerHeader({
           Agent conversation
         </h2>
         <p className="mt-1 text-xs text-slate-500">
-          The exchange that produced this patchset.
+          The exchange behind the selected diff.
         </p>
       </div>
       <button
@@ -172,12 +175,13 @@ export function ConversationDrawerHeader({
 export function PatchsetConversationContent({
   patchsets,
   selectedPatchsetId,
+  fromPatchsetId,
   enabled
 }: PatchsetConversationProps) {
   const api = useApi();
   const range = useMemo(
-    () => patchsetConversationRange(patchsets, selectedPatchsetId),
-    [patchsets, selectedPatchsetId]
+    () => patchsetConversationRange(patchsets, selectedPatchsetId, fromPatchsetId),
+    [patchsets, selectedPatchsetId, fromPatchsetId]
   );
 
   const eventsQuery = useQuery({
