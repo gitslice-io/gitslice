@@ -290,7 +290,11 @@ const changesetsRoute = createRoute({
 const changesetShortRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "cs/$id",
-  loader: async ({ context, params }) => {
+  loaderDeps: ({ search }) => ({
+    from: (search as { from?: unknown }).from,
+    to: (search as { to?: unknown }).to
+  }),
+  loader: async ({ context, deps, params }) => {
     if (import.meta.env.SSR) {
       try {
         const { createServerApiClient } = await import("../api/serverApi");
@@ -305,18 +309,34 @@ const changesetShortRoute = createRoute({
         // keys the component uses.
         const canonicalChangesetId = changeset.id || params.id;
         const patchsets = sortedPatchsets(changeset);
+        const ids = new Set(
+          patchsets
+            .map((patchset) => patchset.id)
+            .filter((id): id is string => Boolean(id))
+        );
+        // Mirror the component's URL-driven from/to resolution so the prefilled
+        // diff matches the shared link and the page renders it without a refetch.
+        const fromPatchset =
+          typeof deps.from === "string" && ids.has(deps.from) ? deps.from : "";
         const toPatchset =
-          changeset.currentPatchsetId ||
-          patchsets[patchsets.length - 1]?.id ||
-          "";
+          typeof deps.to === "string" && ids.has(deps.to)
+            ? deps.to
+            : changeset.currentPatchsetId ||
+              patchsets[patchsets.length - 1]?.id ||
+              "";
         const authoringSlice = changeset.authoringSlice;
         await Promise.all([
           context.queryClient.ensureQueryData({
-            queryKey: ["changesetDiff", canonicalChangesetId, "", toPatchset],
+            queryKey: [
+              "changesetDiff",
+              canonicalChangesetId,
+              fromPatchset,
+              toPatchset
+            ],
             queryFn: () =>
               api.diffChangeset({
                 changesetId: canonicalChangesetId,
-                fromPatchset: undefined,
+                fromPatchset: fromPatchset || undefined,
                 toPatchset: toPatchset || undefined
               })
           }),

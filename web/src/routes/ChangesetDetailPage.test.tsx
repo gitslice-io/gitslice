@@ -18,11 +18,32 @@ const apiMock = vi.hoisted(() => ({
   current: {} as Record<string, unknown>
 }));
 
-const routerMock = vi.hoisted(() => ({
-  navigate: vi.fn(),
-  params: {} as Record<string, string>,
-  search: {} as Record<string, unknown>
-}));
+const routerMock = vi.hoisted(() => {
+  const listeners = new Set<() => void>();
+  let search: Record<string, unknown> = {};
+  return {
+    navigate: vi.fn() as ReturnType<typeof vi.fn>,
+    params: {} as Record<string, string>,
+    get search() {
+      return search;
+    },
+    set search(next: Record<string, unknown>) {
+      search = next;
+    },
+    // Mirror the router: replacing the search object notifies subscribers so
+    // components reading it via useSearch re-render.
+    setSearch(next: Record<string, unknown>) {
+      search = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    }
+  };
+});
 
 vi.mock("../api/useApi", () => ({
   useApi: () => apiMock.current
@@ -35,12 +56,20 @@ vi.mock("@clerk/tanstack-react-start", () => ({
   })
 }));
 
-vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
-  useNavigate: () => routerMock.navigate,
-  useParams: () => routerMock.params,
-  useSearch: () => routerMock.search
-}));
+vi.mock("@tanstack/react-router", async () => {
+  const React = await import("react");
+  return {
+    Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
+    useNavigate: () => routerMock.navigate,
+    useParams: () => routerMock.params,
+    useSearch: () =>
+      React.useSyncExternalStore(
+        routerMock.subscribe,
+        () => routerMock.search,
+        () => routerMock.search
+      )
+  };
+});
 
 vi.mock("../components/diff/DiffViewer", () => ({
   DiffViewer: () => <div data-testid="diff-viewer">Diff viewer</div>
@@ -48,7 +77,23 @@ vi.mock("../components/diff/DiffViewer", () => ({
 
 describe("changeset detail page", () => {
   beforeEach(() => {
-    routerMock.navigate = vi.fn();
+    // Apply the component's search update (the URL-driven from/to handles) and
+    // notify subscribers, the way the real router would.
+    routerMock.navigate = vi.fn((options?: { search?: unknown }) => {
+      if (!options) {
+        return;
+      }
+      const nextSearch =
+        typeof options.search === "function"
+          ? (options.search as (prev: Record<string, unknown>) => Record<
+              string,
+              unknown
+            >)(routerMock.search)
+          : (options.search as Record<string, unknown> | undefined);
+      if (nextSearch !== undefined) {
+        routerMock.setSearch(nextSearch);
+      }
+    });
     routerMock.params = { id: "stk_parser" };
     routerMock.search = {};
     apiMock.current = makeApi();
@@ -111,6 +156,47 @@ describe("changeset detail page", () => {
 
     await waitFor(() =>
       expect(api.diffChangeset).toHaveBeenLastCalledWith({
+        changesetId: "cs_child",
+        fromPatchset: "ps_child_1",
+        toPatchset: "ps_child_2"
+      })
+    );
+    // The selection is captured in the URL so it is shareable / survives reload.
+    expect(routerMock.navigate).toHaveBeenCalled();
+    expect(routerMock.search).toEqual({ from: "ps_child_1" });
+  });
+
+  it("drives the diff from URL from/to params on first render", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = { from: "ps_child_1", to: "ps_child_2" };
+    const api = makeApi();
+    const detail = changeset("cs_child", "use parser in payment API", {
+      patchsetId: "ps_child_2",
+      patchsetNumber: "2",
+      stackId: "stk_parser"
+    });
+    detail.patchsets = [
+      {
+        ...(detail.patchsets?.[0] ?? {}),
+        createdAt: "2026-06-18T00:00:00Z",
+        id: "ps_child_1",
+        number: "1"
+      },
+      {
+        ...(detail.patchsets?.[0] ?? {}),
+        createdAt: "2026-06-18T00:01:00Z",
+        id: "ps_child_2",
+        number: "2"
+      }
+    ];
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: [], diff: "" });
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    await waitFor(() =>
+      expect(api.diffChangeset).toHaveBeenCalledWith({
         changesetId: "cs_child",
         fromPatchset: "ps_child_1",
         toPatchset: "ps_child_2"
