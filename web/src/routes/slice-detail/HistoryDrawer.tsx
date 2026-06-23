@@ -1,0 +1,179 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+
+import type { Changeset, SliceRef } from "../../api/types";
+import type { ApiClient } from "../../api/useApi";
+import { shortChangesetId, shortHash } from "../../lib/objectId";
+import { SliceNotice } from "../../components/slices/SlicePageParts";
+import { GLOBAL_REF_NAME } from "../../lib/globalRef";
+
+interface HistoryDrawerProps {
+  api: ApiClient;
+  commitId: string;
+  onClose(): void;
+  open: boolean;
+  selectedPath: string;
+  sliceId: string;
+  sliceLabel: string;
+  sliceRef: SliceRef | undefined;
+}
+
+export function HistoryDrawer({
+  api,
+  commitId,
+  onClose,
+  open,
+  selectedPath,
+  sliceId,
+  sliceLabel,
+  sliceRef
+}: HistoryDrawerProps) {
+  const commitsQuery = useQuery({
+    enabled: Boolean(open && commitId && sliceRef?.account && sliceRef?.slice),
+    queryKey: [
+      "sliceCommits",
+      sliceId,
+      commitId,
+      selectedPath,
+      sliceRef?.account,
+      sliceRef?.slice
+    ],
+    queryFn: () =>
+      api.listCommits({
+        refName: GLOBAL_REF_NAME,
+        slice: sliceRef,
+        path: selectedPath || undefined,
+        limit: 50
+      })
+  });
+
+  const changesetsQuery = useQuery({
+    enabled: Boolean(open && sliceRef?.account && sliceRef?.slice),
+    queryKey: ["sliceHistoryChangesets", sliceRef?.account, sliceRef?.slice],
+    queryFn: () =>
+      api.listChangesets({
+        authoringSlice: sliceRef,
+        limit: 200
+      })
+  });
+
+  const changesetByCommit = (() => {
+    const next = new Map<string, Changeset>();
+    for (const changeset of changesetsQuery.data?.changesets ?? []) {
+      if (changeset.commitId) {
+        next.set(changeset.commitId, changeset);
+      }
+    }
+    return next;
+  })();
+
+  const commits = commitsQuery.data?.commits ?? [];
+
+  return (
+    <>
+      {open ? (
+        <button
+          aria-label="Close history"
+          className="fixed inset-0 z-40 bg-black/30"
+          onClick={onClose}
+          type="button"
+        />
+      ) : null}
+      <aside
+        aria-hidden={!open}
+        className={[
+          "fixed inset-y-0 right-0 z-50 flex w-full max-w-md transform flex-col bg-white shadow-xl transition-transform duration-200",
+          open ? "translate-x-0" : "translate-x-full"
+        ].join(" ")}
+      >
+        <div className="border-b border-slate-200 px-4 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-zinc-950">
+                History
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">{sliceLabel}</p>
+              <p className="mt-1 break-all font-mono text-xs text-slate-500">
+                {selectedPath || "Slice root"}
+              </p>
+            </div>
+            <button
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              onClick={onClose}
+              type="button"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {commitsQuery.isPending ? (
+            <div className="grid gap-2">
+              <div className="h-14 animate-pulse rounded-md bg-slate-100" />
+              <div className="h-14 animate-pulse rounded-md bg-slate-100" />
+              <div className="h-14 animate-pulse rounded-md bg-slate-100" />
+            </div>
+          ) : commitsQuery.isError ? (
+            <SliceNotice title="Could not load history" tone="error">
+              {commitsQuery.error?.message}
+            </SliceNotice>
+          ) : commits.length === 0 ? (
+            <SliceNotice title="No history for this path yet.">
+              No commits touch this path.
+            </SliceNotice>
+          ) : (
+            <div className="grid grid-cols-1 gap-2">
+              {commits.map((commit) => {
+                const changeset = commit.id
+                  ? changesetByCommit.get(commit.id)
+                  : undefined;
+                const summary =
+                  commit.message?.split("\n")[0] || "(no message)";
+                const shortCommitId = shortHash(commit.id);
+
+                return (
+                  <div
+                    className="rounded-md border border-slate-200 bg-white px-3 py-3"
+                    key={commit.id ?? `${summary}-${commit.createdAt ?? ""}`}
+                  >
+                    <p className="font-medium text-zinc-950">{summary}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                      {shortCommitId ? (
+                        <span
+                          className="font-mono text-xs text-slate-500"
+                          title={commit.id}
+                        >
+                          {shortCommitId}
+                        </span>
+                      ) : null}
+                      {commit.author ? <span>{commit.author}</span> : null}
+                      {commit.createdAt ? <span>{commit.createdAt}</span> : null}
+                    </div>
+                    {changeset ? (
+                      <div className="mt-2">
+                        <Link
+                          className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700 transition hover:bg-white hover:text-zinc-950"
+                          onClick={onClose}
+                          params={{
+                            id: shortChangesetId(changeset.id ?? "") || ""
+                          }}
+                          to="/cs/$id"
+                        >
+                          {shortChangesetId(changeset.id ?? "") ||
+                            (changeset.number
+                              ? `#${changeset.number}`
+                              : changeset.id)}
+                        </Link>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
