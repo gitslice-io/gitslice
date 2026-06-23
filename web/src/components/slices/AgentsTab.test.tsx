@@ -43,7 +43,7 @@ describe("AgentsTab", () => {
     );
   });
 
-  it("toggles the conversation sidebar and opens the create form there", async () => {
+  it("toggles the conversation sidebar and opens the create form in a dialog", async () => {
     const api = makeApi();
 
     renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
@@ -55,10 +55,15 @@ describe("AgentsTab", () => {
       within(sidebar).getByRole("button", { name: "New conversation" })
     );
 
-    expect(within(sidebar).getByLabelText("Agent daemon"))
-      .toHaveValue("daemon_1");
-    expect(within(sidebar).getByRole("button", { name: "Create conversation" }))
-      .toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", {
+      name: "New conversation"
+    });
+    expect(within(dialog).getByLabelText("Agent daemon")).toHaveValue(
+      "daemon_1"
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Create conversation" })
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Hide conversations" }));
     expect(
@@ -132,8 +137,11 @@ describe("AgentsTab", () => {
     fireEvent.click(
       within(sidebar).getByRole("button", { name: "New conversation" })
     );
+    const dialog = await screen.findByRole("dialog", {
+      name: "New conversation"
+    });
     fireEvent.click(
-      within(sidebar).getByRole("button", { name: "Create conversation" })
+      within(dialog).getByRole("button", { name: "Create conversation" })
     );
 
     expect(await screen.findByRole("heading", { name: "Freshly minted" }))
@@ -145,7 +153,7 @@ describe("AgentsTab", () => {
     });
   });
 
-  it("reopens the sidebar and create form from the empty-state shortcut", async () => {
+  it("opens the create dialog from the empty-state shortcut", async () => {
     const api = makeApi();
 
     renderWithClient(<AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />);
@@ -160,13 +168,14 @@ describe("AgentsTab", () => {
       screen.queryByRole("complementary", { name: "Agent conversations" })
     ).not.toBeInTheDocument();
 
-    // The empty state exposes its own "New conversation" shortcut.
+    // The empty state exposes its own "New conversation" shortcut, which opens
+    // the create form as a centered dialog regardless of the sidebar state.
     fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
 
-    const sidebar = await screen.findByRole("complementary", {
-      name: "Agent conversations"
+    const dialog = await screen.findByRole("dialog", {
+      name: "New conversation"
     });
-    expect(within(sidebar).getByLabelText("Agent daemon")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Agent daemon")).toBeInTheDocument();
   });
 
   it("opens the conversation list as a mobile drawer", async () => {

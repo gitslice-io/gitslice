@@ -8,6 +8,7 @@ import type {
 } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
+import { Popup } from "../Popup";
 import { AgentConversation } from "./AgentConversation";
 import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
@@ -113,6 +114,16 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
       return;
     }
     createMutation.mutate({ daemonId: selectedDaemonId, title: title.trim() });
+  }
+
+  function openCreate() {
+    // Clear stale mutation errors so the form opens cleanly.
+    createMutation.reset();
+    setIsCreateOpen(true);
+  }
+
+  function closeCreate() {
+    setIsCreateOpen(false);
   }
 
   if (!sliceDefined) {
@@ -235,59 +246,12 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
               <button
                 className="shrink-0 rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
                 disabled={!onlineDaemons.length || isCreating}
-                onClick={() => {
-                  // Clear stale mutation errors so the form reopens cleanly.
-                  createMutation.reset();
-                  setIsCreateOpen((open) => !open);
-                }}
+                onClick={openCreate}
                 type="button"
               >
-                {isCreateOpen ? "Cancel" : "New conversation"}
+                New conversation
               </button>
             </div>
-
-            {isCreateOpen && onlineDaemons.length ? (
-              <form className="mt-4 grid gap-3" onSubmit={createConversation}>
-                <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
-                  Agent daemon
-                  <select
-                    className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
-                    onChange={(event) =>
-                      setSelectedDaemonId(event.target.value)
-                    }
-                    value={selectedDaemonId}
-                  >
-                    {onlineDaemons.map((daemon) => (
-                      <option
-                        key={daemon.id ?? daemon.name}
-                        value={daemon.id ?? ""}
-                      >
-                        {daemon.name || daemon.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
-                  Title
-                  <input
-                    className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
-                    onChange={(event) => setTitle(event.target.value)}
-                    placeholder="Optional"
-                    value={title}
-                  />
-                </label>
-                {createError ? (
-                  <p className="text-sm text-rose-700">{createError}</p>
-                ) : null}
-                <button
-                  className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
-                  disabled={!selectedDaemonId || isCreating}
-                  type="submit"
-                >
-                  {isCreating ? "Creating..." : "Create conversation"}
-                </button>
-              </form>
-            ) : null}
 
             <div className="mt-5">
               <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500">
@@ -413,11 +377,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
                   {onlineDaemons.length ? (
                     <button
                       className="mt-4 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
-                      onClick={() => {
-                        setIsSidebarOpen(true);
-                        setMobileSidebarOpen(true);
-                        setIsCreateOpen(true);
-                      }}
+                      onClick={openCreate}
                       type="button"
                     >
                       New conversation
@@ -429,6 +389,64 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
           )}
         </div>
       </div>
+
+      <Popup
+        description={sliceKey}
+        onClose={closeCreate}
+        open={isCreateOpen}
+        title="New conversation"
+      >
+        {onlineDaemons.length ? (
+          <form className="grid gap-3" onSubmit={createConversation}>
+            <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
+              Agent daemon
+              <select
+                className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+                onChange={(event) => setSelectedDaemonId(event.target.value)}
+                value={selectedDaemonId}
+              >
+                {onlineDaemons.map((daemon) => (
+                  <option key={daemon.id ?? daemon.name} value={daemon.id ?? ""}>
+                    {daemon.name || daemon.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
+              Title
+              <input
+                className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Optional"
+                value={title}
+              />
+            </label>
+            {createError ? (
+              <p className="text-sm text-rose-700">{createError}</p>
+            ) : null}
+            <div className="mt-1 flex justify-end gap-2">
+              <button
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                onClick={closeCreate}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+                disabled={!selectedDaemonId || isCreating}
+                type="submit"
+              >
+                {isCreating ? "Creating..." : "Create conversation"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <p className="text-sm text-slate-600">
+            No online daemons are available right now.
+          </p>
+        )}
+      </Popup>
     </SlicePanel>
   );
 }
