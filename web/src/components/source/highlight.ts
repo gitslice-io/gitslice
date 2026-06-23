@@ -18,14 +18,16 @@ const loadedLangs = new Set<string>();
 function getHighlighter(): Promise<HighlighterCore> {
   if (!highlighterPromise) {
     highlighterPromise = (async () => {
-      const [{ createHighlighterCore }, { createJavaScriptRegexEngine }, { bundledThemes }] =
+      const [{ createHighlighterCore }, { createJavaScriptRegexEngine }, theme] =
         await Promise.all([
           import("shiki/core"),
           import("shiki/engine/javascript"),
-          import("shiki/themes")
+          // Import the single theme we use directly instead of the `shiki/themes`
+          // barrel, which code-splits a chunk referencing every bundled theme.
+          import("@shikijs/themes/github-light")
         ]);
       return createHighlighterCore({
-        themes: [bundledThemes[THEME]],
+        themes: [theme.default],
         langs: [],
         // forgiving: tolerate grammar patterns the JS engine can't express
         // rather than throwing — trades a little fidelity for no WASM.
