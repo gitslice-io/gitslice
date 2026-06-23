@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
   useCallback,
@@ -40,16 +40,16 @@ export function ChangesetDetailPage() {
   const { isLoaded, isSignedIn } = useAuth();
   const params = useParams({ strict: false }) as { id?: string };
   const changesetId = params.id ?? "";
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as { from?: string; to?: string };
   const [abandonReason, setAbandonReason] = useState("");
   const [actionError, setActionError] = useState("");
   const [conversationOpen, setConversationOpen] = useState(false);
-  const [fromPatchset, setFromPatchset] = useState("");
   const [isWide, setIsWide] = useState(() =>
     typeof window === "undefined" || typeof window.matchMedia !== "function"
       ? false
       : window.matchMedia("(min-width: 1280px)").matches
   );
-  const [toPatchset, setToPatchset] = useState("");
 
   useEffect(() => {
     if (
@@ -111,33 +111,53 @@ export function ChangesetDetailPage() {
   const canonicalChangesetId = changeset?.id || changesetId;
   const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";
   const patchsets = useMemo(() => sortedPatchsets(changeset), [changeset]);
-  const patchsetIdsKey = patchsets.map((patchset) => patchset.id || "").join("|");
+  const patchsetIds = useMemo(
+    () =>
+      new Set(
+        patchsets
+          .map((patchset) => patchset.id)
+          .filter((id): id is string => Boolean(id))
+      ),
+    [patchsets]
+  );
+  const defaultToPatchset =
+    changeset?.currentPatchsetId || patchsets[patchsets.length - 1]?.id || "";
+  // The compare handles live in the URL (?from=&to=) so a selection is
+  // shareable and survives reloads. Fall back to the recorded base / current
+  // patchset when a param is missing or no longer points at a real patchset.
+  const fromPatchset =
+    search.from && patchsetIds.has(search.from) ? search.from : "";
   const selectedToPatchset =
-    toPatchset ||
-    changeset?.currentPatchsetId ||
-    patchsets[patchsets.length - 1]?.id ||
-    "";
+    search.to && patchsetIds.has(search.to) ? search.to : defaultToPatchset;
 
-  useEffect(() => {
-    if (!changeset) {
-      setFromPatchset("");
-      setToPatchset("");
-      return;
-    }
-
-    const ids = new Set(
-      patchsets
-        .map((patchset) => patchset.id)
-        .filter((id): id is string => Boolean(id))
-    );
-    const defaultTo =
-      changeset.currentPatchsetId || patchsets[patchsets.length - 1]?.id || "";
-
-    setFromPatchset((current) =>
-      current === "" || ids.has(current) ? current : ""
-    );
-    setToPatchset((current) => (current && ids.has(current) ? current : defaultTo));
-  }, [changeset, patchsetIdsKey, patchsets]);
+  const updateCompareSearch = useCallback(
+    (next: { from?: string; to?: string }) => {
+      void navigate({
+        params: { id: changesetId } as never,
+        replace: true,
+        search: ((prev: Record<string, unknown>) => {
+          const merged: Record<string, unknown> = { ...prev, ...next };
+          // Keep the recorded base / default target out of the URL.
+          for (const key of ["from", "to"] as const) {
+            if (!merged[key]) {
+              delete merged[key];
+            }
+          }
+          return merged;
+        }) as never,
+        to: "/cs/$id"
+      });
+    },
+    [changesetId, navigate]
+  );
+  const handleFromPatchsetChange = useCallback(
+    (value: string) => updateCompareSearch({ from: value }),
+    [updateCompareSearch]
+  );
+  const handleToPatchsetChange = useCallback(
+    (value: string) => updateCompareSearch({ to: value }),
+    [updateCompareSearch]
+  );
 
   const diffQuery = useQuery({
     enabled: Boolean(changeset && canonicalChangesetId),
@@ -273,8 +293,8 @@ export function ChangesetDetailPage() {
       <PatchsetComparePanel
         currentPatchsetId={changeset.currentPatchsetId}
         fromPatchset={fromPatchset}
-        onFromPatchsetChange={setFromPatchset}
-        onToPatchsetChange={setToPatchset}
+        onFromPatchsetChange={handleFromPatchsetChange}
+        onToPatchsetChange={handleToPatchsetChange}
         patchsets={patchsets}
         toPatchset={selectedToPatchset}
       />
