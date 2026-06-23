@@ -4,11 +4,9 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import { normalizeRepositoryPath } from "../components/source/sourceUtils";
-import {
-  SliceNotice,
-  SlicePageHeader
-} from "../components/slices/SlicePageParts";
+import { SliceNotice } from "../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { useSelection } from "../state/selection";
 import {
@@ -136,19 +134,24 @@ export function StackCreatePage() {
 
   return (
     <section className="mx-auto w-full max-w-[72rem]">
-      <div className="mb-4">
-        <Breadcrumb
-          items={[
-            { label: "Dependencies", to: "/dependencies" },
-            { label: "Create" }
-          ]}
-        />
-      </div>
-      <SlicePageHeader
-        description="Create a root changeset and optionally add the first patchset file."
-        eyebrow="Dependencies"
-        title="Create changeset"
+      <PageHeader
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: "Dependencies", to: "/dependencies" },
+              { label: "Create" }
+            ]}
+          />
+        }
+        title={
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+            Create changeset
+          </h1>
+        }
       />
+      <p className="mb-4 text-sm leading-6 text-slate-600">
+        Create a root changeset and optionally add the first patchset file.
+      </p>
 
       <form
         className="mt-8 grid gap-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"

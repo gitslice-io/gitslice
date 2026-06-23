@@ -5,10 +5,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { Changeset, PatchsetConflict } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import {
   SliceLoadingBlock,
-  SliceNotice,
-  SlicePageHeader
+  SliceNotice
 } from "../components/slices/SlicePageParts";
 import { shortChangesetId } from "../lib/objectId";
 import {
@@ -102,22 +102,21 @@ export function StackRestackPage() {
 
   return (
     <section className="mx-auto w-full max-w-[84rem]">
-      <div className="mb-4">
-        <Breadcrumb
-          items={[
-            { label: "Dependencies", to: "/dependencies" },
-            {
-              label: shortStackId(stack.id) || stackDisplayName(stack),
-              params: { id: stackId },
-              to: "/dependencies/$id"
-            },
-            { label: "Update" }
-          ]}
-        />
-      </div>
-
-      <SlicePageHeader
-        actions={
+      <PageHeader
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: "Dependencies", to: "/dependencies" },
+              {
+                label: shortStackId(stack.id) || stackDisplayName(stack),
+                params: { id: stackId },
+                to: "/dependencies/$id"
+              },
+              { label: "Update" }
+            ]}
+          />
+        }
+        primaryAction={
           <button
             className={secondaryButtonClass}
             onClick={() => {
@@ -128,10 +127,16 @@ export function StackRestackPage() {
             Back to dependencies
           </button>
         }
-        description="Preview the dependent changesets that will be replayed, then create updated patchsets through the server."
-        eyebrow="Update dependents"
-        title={stackDisplayName(stack)}
+        title={
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+            {stackDisplayName(stack)}
+          </h1>
+        }
       />
+      <p className="mb-4 text-sm leading-6 text-slate-600">
+        Preview the dependent changesets that will be replayed, then create
+        updated patchsets through the server.
+      </p>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-w-0 space-y-6">

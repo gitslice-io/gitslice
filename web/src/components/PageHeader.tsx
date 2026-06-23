@@ -4,7 +4,7 @@ import { ActionMenu, type ActionMenuItem } from "./source/ActionMenu";
 
 interface PageHeaderProps {
   /** Pass a <Breadcrumb .../> element. */
-  breadcrumb: ReactNode;
+  breadcrumb?: ReactNode;
   /** Optional second line under the breadcrumb (e.g. an entity title + badge). */
   title?: ReactNode;
   /** Optional single always-visible action node (rendered left of the menu). */

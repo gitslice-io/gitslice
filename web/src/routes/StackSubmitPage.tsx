@@ -5,10 +5,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { SubmitStackEntryResult } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import {
   SliceLoadingBlock,
-  SliceNotice,
-  SlicePageHeader
+  SliceNotice
 } from "../components/slices/SlicePageParts";
 import { shortChangesetId } from "../lib/objectId";
 import {
@@ -98,22 +98,21 @@ export function StackSubmitPage() {
 
   return (
     <section className="mx-auto w-full max-w-[84rem]">
-      <div className="mb-4">
-        <Breadcrumb
-          items={[
-            { label: "Dependencies", to: "/dependencies" },
-            {
-              label: shortStackId(stack.id) || stackDisplayName(stack),
-              params: { id: stackId },
-              to: "/dependencies/$id"
-            },
-            { label: "Submit" }
-          ]}
-        />
-      </div>
-
-      <SlicePageHeader
-        actions={
+      <PageHeader
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: "Dependencies", to: "/dependencies" },
+              {
+                label: shortStackId(stack.id) || stackDisplayName(stack),
+                params: { id: stackId },
+                to: "/dependencies/$id"
+              },
+              { label: "Submit" }
+            ]}
+          />
+        }
+        primaryAction={
           <button
             className={secondaryButtonClass}
             onClick={() => {
@@ -124,10 +123,15 @@ export function StackSubmitPage() {
             Back to dependencies
           </button>
         }
-        description={`Submit base-before-dependent against ${stack.targetRef || "the target ref"} from base ${formatCommit(stack.baseCommitId)}.`}
-        eyebrow="Submit dependencies"
-        title={stackDisplayName(stack)}
+        title={
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+            {stackDisplayName(stack)}
+          </h1>
+        }
       />
+      <p className="mb-4 text-sm leading-6 text-slate-600">
+        {`Submit base-before-dependent against ${stack.targetRef || "the target ref"} from base ${formatCommit(stack.baseCommitId)}.`}
+      </p>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-w-0 space-y-6">

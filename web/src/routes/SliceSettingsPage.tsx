@@ -6,6 +6,7 @@ import type { SliceDefinition } from "../api/types";
 import { useApi } from "../api/useApi";
 import { shortHash } from "../lib/objectId";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import {
   SliceDefinitionForm,
   toVisibilityOption,
@@ -164,25 +165,31 @@ export function SliceSettingsPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="mb-5">
-        <Breadcrumb
-          items={[
-            { label: "Slices", to: "/slices" },
-            sliceRouteParams
-              ? {
-                  label: sliceLabel,
-                  params: sliceRouteParams,
-                  to: "/slices/$account/$slice"
-                }
-              : { label: sliceLabel },
-            { label: "Settings" }
-          ]}
-        />
-      </div>
-      <SlicePageHeader
-        title={`Slice Settings: ${sliceLabel}`}
-        description="Edit the supported slice definition fields only."
+      <PageHeader
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: "Slices", to: "/slices" },
+              sliceRouteParams
+                ? {
+                    label: sliceLabel,
+                    params: sliceRouteParams,
+                    to: "/slices/$account/$slice"
+                  }
+                : { label: sliceLabel },
+              { label: "Settings" }
+            ]}
+          />
+        }
+        title={
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+            {`Slice Settings: ${sliceLabel}`}
+          </h1>
+        }
       />
+      <p className="mb-4 text-sm leading-6 text-slate-600">
+        Edit the supported slice definition fields only.
+      </p>
 
       <form className="mt-8 space-y-6" onSubmit={saveDefinition}>
         <SlicePanel>
