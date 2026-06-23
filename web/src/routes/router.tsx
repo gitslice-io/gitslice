@@ -34,16 +34,7 @@ import { SliceAgentsPage } from "./SliceAgentsPage";
 import { SliceDetailPage } from "./SliceDetailPage";
 import { SliceSettingsPage } from "./SliceSettingsPage";
 import { SlicesPage } from "./SlicesPage";
-import { StackCreatePage } from "./StackCreatePage";
-import { StackDetailPage } from "./StackDetailPage";
-import { StackRestackPage } from "./StackRestackPage";
-import { StackSubmitPage } from "./StackSubmitPage";
-import { StacksPage } from "./StacksPage";
-import {
-  entryByChangesetId,
-  parseSliceSearch,
-  sortedStackEntries
-} from "./stackPageUtils";
+import { parseSliceSearch } from "./stackPageUtils";
 
 interface RouterContext {
   getDehydratedQueryState: () => DehydratedState | undefined;
@@ -295,103 +286,6 @@ const changesetsRoute = createRoute({
   component: ChangesetsPage
 });
 
-const stacksRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "dependencies",
-  loaderDeps: ({ search }) => ({
-    slice: (search as { slice?: unknown }).slice,
-    status: (search as { status?: unknown }).status
-  }),
-  loader: async ({ context, deps }) => {
-    if (import.meta.env.SSR) {
-      const sliceRef = parseSliceSearch(deps.slice);
-      if (sliceRef) {
-        const status = typeof deps.status === "string" ? deps.status : "";
-        try {
-          const { createServerApiClient } = await import("../api/serverApi");
-          const api = await createServerApiClient();
-          const { account, slice } = sliceRef;
-          await context.queryClient.ensureQueryData({
-            queryKey: ["stacks", account, slice, status],
-            queryFn: () =>
-              api.listStacks({
-                authoringSlice: sliceRef,
-                status,
-                limit: 100
-              })
-          });
-        } catch {
-          // The component keeps the existing client-side load/error behavior.
-        }
-      }
-    }
-  },
-  component: StacksPage
-});
-
-const stackCreateRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "dependencies/new",
-  component: StackCreatePage
-});
-
-const stackDetailRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "dependencies/$id",
-  loaderDeps: ({ search }) => ({
-    entry: (search as { entry?: unknown }).entry
-  }),
-  loader: async ({ context, params, deps }) => {
-    if (import.meta.env.SSR && params.id) {
-      try {
-        const { createServerApiClient } = await import("../api/serverApi");
-        const api = await createServerApiClient();
-        const stack = await context.queryClient.ensureQueryData({
-          queryKey: ["stack", params.id],
-          queryFn: () => api.getStack({ stackId: params.id })
-        });
-        // Mirror the component's entry selection so the diff it renders by
-        // default is prefilled under the same key.
-        const entries = sortedStackEntries(stack);
-        const defaultEntryId =
-          stack.activeEntryId ||
-          stack.rootEntryId ||
-          entries[0]?.changesetId ||
-          "";
-        const requestedEntryId =
-          typeof deps.entry === "string" ? deps.entry : "";
-        const selectedEntry =
-          entryByChangesetId(entries, requestedEntryId || defaultEntryId) ??
-          entries[0] ??
-          null;
-        const selectedChangesetId = selectedEntry?.changesetId ?? "";
-        if (selectedChangesetId) {
-          await context.queryClient.ensureQueryData({
-            queryKey: ["stackEntryDiff", params.id, selectedChangesetId],
-            queryFn: () =>
-              api.diffChangeset({ changesetId: selectedChangesetId })
-          });
-        }
-      } catch {
-        // The component keeps the existing client-side load/error behavior.
-      }
-    }
-  },
-  component: StackDetailPage
-});
-
-const stackRestackRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "dependencies/$id/update",
-  component: StackRestackPage
-});
-
-const stackSubmitRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "dependencies/$id/submit",
-  component: StackSubmitPage
-});
-
 // Primary, shareable changeset URL: /cs/<short changeset id>.
 const changesetShortRoute = createRoute({
   getParentRoute: () => publicAppRoute,
@@ -456,12 +350,7 @@ const routeTree = rootRoute.addChildren([
     slicesRoute,
     sliceCreateRoute,
     sliceSettingsRoute,
-    sliceAgentsRoute,
-    stacksRoute,
-    stackCreateRoute,
-    stackDetailRoute,
-    stackRestackRoute,
-    stackSubmitRoute
+    sliceAgentsRoute
   ]),
   publicAppRoute.addChildren([
     sliceDetailRoute,
