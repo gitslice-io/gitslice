@@ -212,6 +212,81 @@ describe("patchsetConversationRange", () => {
       beforeSeq: 20
     });
   });
+
+  it("trims to the selected from patchset", () => {
+    const patchsets: Patchset[] = [
+      {
+        id: "ps_1",
+        number: "1",
+        authoringConversationId: "conv_1",
+        authoringConversationSeq: "10"
+      },
+      {
+        id: "ps_2",
+        number: "2",
+        authoringConversationId: "conv_1",
+        authoringConversationSeq: "20"
+      },
+      {
+        id: "ps_3",
+        number: "3",
+        authoringConversationId: "conv_1",
+        authoringConversationSeq: "30"
+      }
+    ];
+    const result = patchsetConversationRange(patchsets, "ps_3", "ps_1");
+    expect(result).toEqual({
+      conversationId: "conv_1",
+      afterSeq: 10,
+      beforeSeq: 30
+    });
+  });
+
+  it("includes the whole conversation when from is the recorded base", () => {
+    const patchsets: Patchset[] = [
+      {
+        id: "ps_1",
+        number: "1",
+        authoringConversationId: "conv_1",
+        authoringConversationSeq: "10"
+      },
+      {
+        id: "ps_2",
+        number: "2",
+        authoringConversationId: "conv_1",
+        authoringConversationSeq: "20"
+      }
+    ];
+    const result = patchsetConversationRange(patchsets, "ps_2", "");
+    expect(result).toEqual({
+      conversationId: "conv_1",
+      afterSeq: 0,
+      beforeSeq: 20
+    });
+  });
+
+  it("ignores a from patchset from a different conversation", () => {
+    const patchsets: Patchset[] = [
+      {
+        id: "ps_1",
+        number: "1",
+        authoringConversationId: "conv_0",
+        authoringConversationSeq: "5"
+      },
+      {
+        id: "ps_2",
+        number: "2",
+        authoringConversationId: "conv_1",
+        authoringConversationSeq: "20"
+      }
+    ];
+    const result = patchsetConversationRange(patchsets, "ps_2", "ps_1");
+    expect(result).toEqual({
+      conversationId: "conv_1",
+      afterSeq: 0,
+      beforeSeq: 20
+    });
+  });
 });
 
 describe("timelineIndexForValue", () => {
