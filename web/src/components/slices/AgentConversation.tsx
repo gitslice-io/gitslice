@@ -10,6 +10,7 @@ import {
 import type { Conversation, ConversationEvent } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
+import { renderMarkdownToHtml } from "../../lib/markdown";
 import { getErrorMessage } from "./SlicePageParts";
 
 const STREAM_RECONNECT_DELAY_MS = 1500;
@@ -480,6 +481,20 @@ function ConversationTraceGroup({ events }: { events: ConversationEvent[] }) {
   );
 }
 
+// MessageMarkdown renders an agent message as sanitized markdown. Parsing is
+// synchronous so a streaming message re-renders cleanly on every token. The
+// prose classes are tuned for chat bubbles: tight vertical rhythm and no
+// leading/trailing margin so the rendered block sits flush in the bubble.
+function MessageMarkdown({ source }: { source: string }) {
+  const html = useMemo(() => renderMarkdownToHtml(source), [source]);
+  return (
+    <div
+      className="prose prose-sm prose-slate max-w-none break-words prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:text-zinc-900 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 // isLiveDelta detects an in-progress assistant message stream. Reasoning and
 // tool trace events stay in the normal event list so they render in the
 // collapsed trace groups by default.
@@ -497,10 +512,8 @@ function LiveDeltaBubble({ event }: { event: ConversationEvent }) {
       <div className="mb-1 flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500">
         <span>agent</span>
       </div>
-      <p className="whitespace-pre-wrap break-words">
-        {text}
-        <span className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse bg-zinc-400 align-baseline" />
-      </p>
+      <MessageMarkdown source={text} />
+      <span className="mt-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-zinc-400 align-baseline" />
     </article>
   );
 }
@@ -632,6 +645,8 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
         <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-100 p-2 font-mono text-xs text-slate-700">
           {event.dataJson}
         </pre>
+      ) : isAgent && event.text ? (
+        <MessageMarkdown source={content} />
       ) : (
         <p className="whitespace-pre-wrap break-words">{content}</p>
       )}
