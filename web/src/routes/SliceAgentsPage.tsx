@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -21,7 +21,6 @@ interface SliceParams {
 export function SliceAgentsPage() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
-  const navigate = useNavigate();
   const params = useParams({ strict: false }) as SliceParams;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
@@ -69,43 +68,7 @@ export function SliceAgentsPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <PageHeader
-        actions={[
-          ...(sliceRouteParams
-            ? [
-                {
-                  label: "Slice detail",
-                  onSelect: () =>
-                    navigate({
-                      to: "/slices/$account/$slice",
-                      params: sliceRouteParams as never
-                    })
-                }
-              ]
-            : []),
-          {
-            label: "Changesets",
-            onSelect: () =>
-              navigate({
-                to: "/changesets",
-                search: { slice: sliceLabel } as never
-              })
-          },
-          ...(sliceRouteParams
-            ? [
-                {
-                  label: "Settings",
-                  onSelect: () =>
-                    navigate({
-                      to: "/slices/$account/$slice/settings",
-                      params: sliceRouteParams as never
-                    })
-                }
-              ]
-            : [])
-        ]}
-        breadcrumb={breadcrumb}
-      />
+      <PageHeader breadcrumb={breadcrumb} />
 
       {showConversation ? (
         <AgentsTab api={api} slice={sliceRef} />
