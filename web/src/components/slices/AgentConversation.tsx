@@ -43,7 +43,6 @@ export function AgentConversation({
   // Bumping retryKey re-runs the stream effect after a stream stop, without
   // needing to remount the component or change conversationId.
   const [retryKey, setRetryKey] = useState(0);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const latestPersistedSeqRef = useRef(0);
   const liveDeltaOrderRef = useRef(0);
   // Tracked as a ref so scroll position changes don't trigger re-renders; the
@@ -165,34 +164,33 @@ export function AgentConversation({
     };
   }, [api, conversationId, retryKey]);
 
-  // Auto-scroll on new events only when the user is already parked at the
-  // bottom; otherwise typing/scrolling up to read history would be yanked
-  // away on every streamed token. Scroll the container directly rather than
-  // scrollIntoView() — the latter walks up to the nearest scrollable ancestor
-  // (on mobile that's the document), which yanks the whole page around on
-  // every streamed event.
+  // The whole page is the scroll container now (the composer pins to the
+  // viewport bottom via position: sticky, matching the changesets list's
+  // scroll model). Auto-scroll on new events only when the user is already
+  // parked at the bottom; otherwise scrolling up to read history would be
+  // yanked away on every streamed token.
   useEffect(() => {
     if (!stickToBottomRef.current) {
       return;
     }
-    const el = scrollContainerRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
+    const scroller = document.scrollingElement ?? document.documentElement;
+    scroller.scrollTop = scroller.scrollHeight;
     // `liveDeltas` changes identity on every streamed token, so this also keeps
     // the view pinned to the bottom as a message streams in.
   }, [events.length, liveDeltas]);
 
-  function handleScroll() {
-    const el = scrollContainerRef.current;
-    if (!el) {
-      return;
+  // Track whether the user is parked at the bottom of the page so the effect
+  // above only follows the stream when they haven't scrolled up to read.
+  useEffect(() => {
+    function onScroll() {
+      const scroller = document.scrollingElement ?? document.documentElement;
+      // 96px slop so minor scrollback / scrollbar rounding doesn't detach.
+      stickToBottomRef.current =
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 96;
     }
-    // 96px slop so minor scrollback / scrollbar rounding doesn't detach.
-    const atBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 96;
-    stickToBottomRef.current = atBottom;
-  }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -227,12 +225,8 @@ export function AgentConversation({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div
-        className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60"
-        onScroll={handleScroll}
-        ref={scrollContainerRef}
-      >
+    <div className="flex min-h-[calc(100dvh-12rem)] flex-col">
+      <div className="flex-1 bg-slate-50/60">
         {/* The header lives at the top of the scroll region rather than pinned
             above it, so it collapses out of view as you scroll the transcript —
             like the changeset detail page, whose header is normal page flow.
@@ -335,7 +329,7 @@ export function AgentConversation({
       </div>
 
       <form
-        className="border-t border-slate-200 bg-white px-3 py-3 sm:px-5"
+        className="sticky bottom-0 z-20 border-t border-slate-200 bg-white px-3 py-3 sm:px-5"
         onSubmit={sendMessage}
       >
         {agentOffline ? (
