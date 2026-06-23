@@ -12,6 +12,7 @@ import {
 import type { Changeset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
 
@@ -243,14 +244,16 @@ export function ChangesetDetailPage() {
   const actionBusy = mergeMutation.isPending || abandonMutation.isPending;
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="mb-3 hidden sm:block">
-        <Breadcrumb
-          items={changesetBreadcrumbItems({
-            changeset,
-            sliceSearch
-          })}
-        />
-      </div>
+      <PageHeader
+        breadcrumb={
+          <Breadcrumb
+            items={changesetBreadcrumbItems({
+              changeset,
+              sliceSearch
+            })}
+          />
+        }
+      />
 
       <HeaderCard
         abandonReason={abandonReason}

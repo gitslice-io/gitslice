@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { PageHeader } from "../components/PageHeader";
 import {
   SliceDefinitionForm,
   validateIncludedPaths,
@@ -11,7 +12,6 @@ import {
 } from "../components/slices/SliceDefinitionForm";
 import {
   SliceNotice,
-  SlicePageHeader,
   SlicePanel,
   getErrorMessage
 } from "../components/slices/SlicePageParts";
@@ -102,19 +102,25 @@ export function SliceCreatePage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <div className="mb-5">
-        <Breadcrumb
-          items={[
-            { label: "Slices", to: "/slices" },
-            { label: "New slice" }
-          ]}
-        />
-      </div>
-      <SlicePageHeader
-        eyebrow="Slices"
-        title="New slice"
-        description="Create a slice under your signed-in account with a visibility value and included source paths."
+      <PageHeader
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: "Slices", to: "/slices" },
+              { label: "New slice" }
+            ]}
+          />
+        }
+        title={
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+            New slice
+          </h1>
+        }
       />
+      <p className="mb-4 text-sm leading-6 text-slate-600">
+        Create a slice under your signed-in account with a visibility value and
+        included source paths.
+      </p>
 
       <form className="mt-8 space-y-6" onSubmit={createSlice}>
         <SlicePanel className="space-y-4">
