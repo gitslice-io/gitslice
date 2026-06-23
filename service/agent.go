@@ -231,10 +231,11 @@ func (s *AgentService) ListConversations(ctx context.Context, req *corev1.ListCo
 }
 
 func (s *AgentService) GetConversation(ctx context.Context, req *corev1.GetConversationRequest) (*corev1.Conversation, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// Reads follow the slice's visibility: public slices expose their
+	// conversations to anyone, so authorize against the slice (ActionRead)
+	// rather than requiring a subject up front. SendAgentMessage stays
+	// write-gated so only authorized members can talk.
+	subjectID := optionalSubject(ctx)
 	conv, err := s.Agents.GetConversation(ctx, req.ConversationId)
 	if err != nil {
 		return nil, grpcError(err)
@@ -277,10 +278,7 @@ func (s *AgentService) SendAgentMessage(ctx context.Context, req *corev1.SendAge
 
 func (s *AgentService) StreamConversation(req *corev1.StreamConversationRequest, stream corev1.AgentService_StreamConversationServer) error {
 	ctx := stream.Context()
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return err
-	}
+	subjectID := optionalSubject(ctx)
 	conv, err := s.Agents.GetConversation(ctx, req.ConversationId)
 	if err != nil {
 		return grpcError(err)
@@ -323,10 +321,7 @@ func (s *AgentService) StreamConversation(req *corev1.StreamConversationRequest,
 }
 
 func (s *AgentService) GetConversationEvents(ctx context.Context, req *corev1.GetConversationEventsRequest) (*corev1.GetConversationEventsResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	conv, err := s.Agents.GetConversation(ctx, req.ConversationId)
 	if err != nil {
 		return nil, grpcError(err)
