@@ -7,8 +7,11 @@ import {
   useState
 } from "react";
 
+import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+
 import type { Conversation, ConversationEvent } from "../../api/types";
-import type { ApiClient } from "../../api/useApi";
+import { useApi, type ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { renderMarkdownToHtml } from "../../lib/markdown";
 import { getErrorMessage } from "./SlicePageParts";
@@ -686,14 +689,7 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
           <p className="font-medium text-zinc-950">
             Captured patchset {capturedPatchset.patchsetNumber}
           </p>
-          <a
-            className="inline-flex w-fit max-w-full items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-semibold text-zinc-900 underline decoration-slate-300 underline-offset-4 transition hover:border-slate-400 hover:decoration-slate-700 active:scale-[0.98]"
-            href={`/cs/${encodeURIComponent(capturedPatchset.changesetId)}`}
-          >
-            <span className="truncate">
-              changeset {capturedPatchset.changesetId}
-            </span>
-          </a>
+          <CapturedChangesetLink changesetId={capturedPatchset.changesetId} />
         </div>
       ) : event.dataJson && !event.text ? (
         <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-100 p-2 font-mono text-xs text-slate-700">
@@ -705,6 +701,36 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
         <p className="whitespace-pre-wrap break-words">{content}</p>
       )}
     </article>
+  );
+}
+
+// Links to the changeset detail with a client-side transition (not a bare <a>,
+// which would hard-reload the SPA — rebooting auth/session and refetching
+// everything in both directions). Both routes share the same publicApp shell,
+// so this swaps only the outlet and keeps the conversation in the query cache,
+// making the return trip instant. Hovering warms the changeset query so the
+// detail header renders without a round-trip on click.
+function CapturedChangesetLink({ changesetId }: { changesetId: string }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  const prefetchChangeset = () => {
+    void queryClient.prefetchQuery({
+      queryKey: ["changeset", changesetId],
+      queryFn: () => api.getChangeset({ changesetId })
+    });
+  };
+
+  return (
+    <Link
+      className="inline-flex w-fit max-w-full items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-semibold text-zinc-900 underline decoration-slate-300 underline-offset-4 transition hover:border-slate-400 hover:decoration-slate-700 active:scale-[0.98]"
+      onFocus={prefetchChangeset}
+      onMouseEnter={prefetchChangeset}
+      params={{ id: changesetId }}
+      to="/cs/$id"
+    >
+      <span className="truncate">changeset {changesetId}</span>
+    </Link>
   );
 }
 
