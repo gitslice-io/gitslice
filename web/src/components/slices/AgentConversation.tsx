@@ -19,6 +19,7 @@ interface AgentConversationProps {
   api: ApiClient;
   conversation?: Conversation;
   conversationId: string;
+  readOnly?: boolean;
   toolbar?: ReactNode;
 }
 
@@ -26,6 +27,7 @@ export function AgentConversation({
   api,
   conversation,
   conversationId,
+  readOnly = false,
   toolbar
 }: AgentConversationProps) {
   const [events, setEvents] = useState<ConversationEvent[]>([]);
@@ -40,11 +42,15 @@ export function AgentConversation({
   const [streamError, setStreamError] = useState("");
   const [isStreamReconnecting, setIsStreamReconnecting] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   // Bumping retryKey re-runs the stream effect after a stream stop, without
   // needing to remount the component or change conversationId.
   const [retryKey, setRetryKey] = useState(0);
   const latestPersistedSeqRef = useRef(0);
   const liveDeltaOrderRef = useRef(0);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
   // Tracked as a ref so scroll position changes don't trigger re-renders; the
   // scroll-on-new-event effect reads the latest value at effect time.
   const stickToBottomRef = useRef(true);
@@ -192,6 +198,39 @@ export function AgentConversation({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current !== undefined) {
+        clearTimeout(copyTimerRef.current);
+      }
+    },
+    []
+  );
+
+  async function copyConversationLink() {
+    if (
+      typeof window === "undefined" ||
+      typeof navigator === "undefined" ||
+      !navigator.clipboard
+    ) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+    } catch {
+      return;
+    }
+    setLinkCopied(true);
+    if (copyTimerRef.current !== undefined) {
+      clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = setTimeout(() => {
+      setLinkCopied(false);
+      copyTimerRef.current = undefined;
+    }, 1500);
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (agentOffline) {
@@ -248,6 +287,15 @@ export function AgentConversation({
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {toolbar}
+              <button
+                className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+                onClick={() => {
+                  void copyConversationLink();
+                }}
+                type="button"
+              >
+                {linkCopied ? "Copied!" : "Copy link"}
+              </button>
               <span className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
                 {conversation?.status || "active"}
               </span>
@@ -328,44 +376,46 @@ export function AgentConversation({
         </div>
       </div>
 
-      <form
-        className="sticky bottom-0 z-20 border-t border-slate-200 bg-white px-3 py-3 sm:px-5"
-        onSubmit={sendMessage}
-      >
-        {agentOffline ? (
-          <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            This agent is offline. Run{" "}
-            <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-amber-900">
-              gs agent start
-            </code>{" "}
-            on the machine hosting it to resume the conversation.
+      {readOnly ? null : (
+        <form
+          className="sticky bottom-0 z-20 border-t border-slate-200 bg-white px-3 py-3 sm:px-5"
+          onSubmit={sendMessage}
+        >
+          {agentOffline ? (
+            <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              This agent is offline. Run{" "}
+              <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-amber-900">
+                gs agent start
+              </code>{" "}
+              on the machine hosting it to resume the conversation.
+            </div>
+          ) : null}
+          <div className="flex items-end gap-2">
+            <textarea
+              aria-label="Message"
+              className="max-h-48 min-h-16 w-full min-w-0 resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+              disabled={agentOffline}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={
+                agentOffline
+                  ? "Agent is offline - start the daemon to continue"
+                  : "Ask the agent to inspect or edit this slice"
+              }
+              value={draft}
+            />
+            <button
+              className="shrink-0 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+              disabled={isSending || !draft.trim() || agentOffline}
+              type="submit"
+            >
+              {isSending ? "Sending..." : "Send"}
+            </button>
           </div>
-        ) : null}
-        <div className="flex items-end gap-2">
-          <textarea
-            aria-label="Message"
-            className="max-h-48 min-h-16 w-full min-w-0 resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-            disabled={agentOffline}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={
-              agentOffline
-                ? "Agent is offline - start the daemon to continue"
-                : "Ask the agent to inspect or edit this slice"
-            }
-            value={draft}
-          />
-          <button
-            className="shrink-0 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
-            disabled={isSending || !draft.trim() || agentOffline}
-            type="submit"
-          >
-            {isSending ? "Sending..." : "Send"}
-          </button>
-        </div>
-        {sendError ? (
-          <p className="mt-2 text-sm text-rose-700">{sendError}</p>
-        ) : null}
-      </form>
+          {sendError ? (
+            <p className="mt-2 text-sm text-rose-700">{sendError}</p>
+          ) : null}
+        </form>
+      )}
     </div>
   );
 }
