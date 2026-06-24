@@ -12,7 +12,7 @@ import {
   SliceLoadingBlock,
   SliceNotice,
   SlicePanel,
-  getErrorMessage
+  getErrorMessage,
 } from "../components/slices/SlicePageParts";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 
@@ -38,13 +38,13 @@ export function SliceAgentsPage() {
   const sliceQuery = useQuery({
     enabled: Boolean(isLoaded && isSignedIn && routeSliceRef),
     queryKey: ["sliceRef", routeAccount, routeSlice],
-    queryFn: () => api.resolveSlice({ ref: routeSliceRef })
+    queryFn: () => api.resolveSlice({ ref: routeSliceRef }),
   });
 
   const conversationQuery = useQuery({
     enabled: Boolean(!isSignedIn && conversationId),
     queryKey: ["conversation", conversationId],
-    queryFn: () => api.getConversation({ conversationId })
+    queryFn: () => api.getConversation({ conversationId }),
   });
 
   const slice = sliceQuery.data;
@@ -57,10 +57,10 @@ export function SliceAgentsPage() {
       ? {
           label: sliceLabel,
           to: "/slices/$account/$slice",
-          params: sliceRouteParams
+          params: sliceRouteParams,
         }
       : { label: sliceLabel },
-    { label: "Agents" }
+    { label: "Conversations" },
   ];
   if (conversationId) {
     breadcrumbItems.push({ label: "Conversation" });
@@ -70,16 +70,26 @@ export function SliceAgentsPage() {
     (id: string) => {
       void navigate({
         to: "/slices/$account/$slice/agents/$conversationId",
-        params: { account: routeAccount, slice: routeSlice, conversationId: id },
-        replace: true
+        params: {
+          account: routeAccount,
+          slice: routeSlice,
+          conversationId: id,
+        },
+        replace: true,
       });
     },
-    [navigate, routeAccount, routeSlice]
+    [navigate, routeAccount, routeSlice],
   );
 
-  const breadcrumb = (
-    <Breadcrumb items={breadcrumbItems} />
-  );
+  const onBackToConversations = useCallback(() => {
+    void navigate({
+      to: "/slices/$account/$slice/agents",
+      params: { account: routeAccount, slice: routeSlice },
+      replace: true,
+    });
+  }, [navigate, routeAccount, routeSlice]);
+
+  const breadcrumb = <Breadcrumb items={breadcrumbItems} />;
 
   // The page scrolls as one document — the same model as the changesets list:
   // the app header scrolls away, the contextual PageHeader stays pinned at the
@@ -102,6 +112,7 @@ export function SliceAgentsPage() {
         <AgentsTab
           api={api}
           conversationId={conversationId}
+          onBack={onBackToConversations}
           onSelectConversation={onSelectConversation}
           slice={sliceRef}
         />
