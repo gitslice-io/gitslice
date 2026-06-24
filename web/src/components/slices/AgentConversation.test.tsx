@@ -8,10 +8,45 @@ import {
   waitFor
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 
 import type { ConversationEvent } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { AgentConversation } from "./AgentConversation";
+
+// The captured-changeset link navigates client-side via TanStack's <Link>, and
+// prefetches the changeset on hover via useApi()/useQueryClient(). None of these
+// have a provider in these bare component renders, so stub them. The Link stub
+// resolves `$param` segments so the rendered href still matches the real route.
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    params,
+    children,
+    ...rest
+  }: {
+    to: string;
+    params?: Record<string, string>;
+    children?: ReactNode;
+  } & Record<string, unknown>) => {
+    const href = to.replace(/\$([A-Za-z0-9_]+)/g, (_match, key: string) =>
+      encodeURIComponent(params?.[key] ?? "")
+    );
+    return (
+      <a href={href} {...rest}>
+        {children}
+      </a>
+    );
+  }
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({ prefetchQuery: vi.fn() })
+}));
+
+vi.mock("../../api/useApi", () => ({
+  useApi: () => ({ getChangeset: vi.fn() })
+}));
 
 describe("AgentConversation", () => {
   afterEach(() => {
