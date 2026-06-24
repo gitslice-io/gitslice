@@ -14,6 +14,11 @@ import { renderMarkdownToHtml } from "../../lib/markdown";
 import { getErrorMessage } from "./SlicePageParts";
 
 const STREAM_RECONNECT_DELAY_MS = 1500;
+// Control event the daemon emits when an agent turn ends. It is not part of the
+// visible transcript; it only closes the "agent is working" indicator. A turn
+// can emit several finalized messages before it finishes, so this marker — not a
+// finalized message — is the reliable end-of-turn signal.
+const TURN_COMPLETE_TYPE = "turn_complete";
 
 interface AgentConversationProps {
   api: ApiClient;
@@ -459,6 +464,11 @@ function groupConversationEvents(
   }
 
   for (const event of events) {
+    // turn_complete is a control marker (it closes the working indicator), not
+    // visible transcript content.
+    if ((event.type ?? "").toLowerCase() === TURN_COMPLETE_TYPE) {
+      continue;
+    }
     const seq = eventSequenceNumber(event);
     if (seq !== undefined) {
       flushLiveDeltasBefore(seq);
@@ -594,10 +604,13 @@ function agentTurnLabel(
     }
     const role = (event.role ?? "").toLowerCase();
     const type = (event.type ?? "").toLowerCase();
-    // A finalized agent message, an error, or a status event (e.g. "canceled"
-    // or a captured patchset) marks the end of the turn.
+    // The explicit turn_complete marker, an error, or a status event (e.g.
+    // "canceled" or a captured patchset) marks the end of the turn. A finalized
+    // agent message does NOT: a turn can emit several messages and keep working
+    // (more reasoning / tool calls) before it finishes, so the indicator must
+    // stay up until turn_complete.
     if (
-      (role === "agent" && type === "message") ||
+      type === TURN_COMPLETE_TYPE ||
       type === "error" ||
       type === "status"
     ) {

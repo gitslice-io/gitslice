@@ -462,7 +462,7 @@ describe("AgentConversation", () => {
     expect(status).toHaveTextContent("Agent is thinking…");
   });
 
-  it("clears the working indicator once the agent replies", async () => {
+  it("clears the working indicator once the turn completes", async () => {
     const api = makeApi([
       {
         id: "evt_user",
@@ -479,6 +479,13 @@ describe("AgentConversation", () => {
         role: "agent",
         type: "message",
         text: "Done."
+      },
+      {
+        id: "evt_turn_complete",
+        conversationId: "conv_1",
+        seq: "3",
+        role: "system",
+        type: "turn_complete"
       }
     ]);
 
@@ -494,6 +501,44 @@ describe("AgentConversation", () => {
     expect(
       screen.queryByRole("status", { name: "Agent activity" })
     ).not.toBeInTheDocument();
+    // The turn_complete marker is a control event, never shown in the transcript.
+    expect(screen.queryByText("turn_complete")).not.toBeInTheDocument();
+  });
+
+  it("keeps the working indicator after an agent message until the turn completes", async () => {
+    const api = makeApi([
+      {
+        id: "evt_user",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "inspect the workspace"
+      },
+      {
+        id: "evt_msg",
+        conversationId: "conv_1",
+        seq: "2",
+        role: "agent",
+        type: "message",
+        text: "Looking into it now."
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    // The agent has sent a message but no turn_complete marker yet, so the turn
+    // is still in flight and the indicator must remain visible.
+    expect(await screen.findByText("Looking into it now.")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("status", { name: "Agent activity" })
+    ).toBeInTheDocument();
   });
 
   it("shows stream failures in the header and auto-reconnects", async () => {
