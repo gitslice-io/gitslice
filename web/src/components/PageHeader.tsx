@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { ActionMenu, type ActionMenuItem } from "./source/ActionMenu";
 
@@ -22,8 +22,41 @@ export function PageHeader({
   actions,
   menuLabel = "Actions"
 }: PageHeaderProps) {
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Publish the sticky header's height so other sticky elements (e.g. the diff
+  // file switcher) can pin themselves directly below it instead of being hidden
+  // underneath. The breadcrumb can wrap to two lines on mobile, so measure it
+  // rather than hardcoding an offset.
+  useEffect(() => {
+    const element = headerRef.current;
+    if (!element || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const root = document.documentElement;
+    const update = () => {
+      root.style.setProperty(
+        "--page-header-height",
+        `${element.offsetHeight}px`
+      );
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--page-header-height");
+    };
+  }, []);
+
   return (
-    <header className="sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 bg-slate-50/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+    <header
+      className="sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 bg-slate-50/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+      ref={headerRef}
+    >
       <div className="min-w-0 sm:flex-1">
         {breadcrumb}
         {title ? <div className="mt-1 min-w-0">{title}</div> : null}

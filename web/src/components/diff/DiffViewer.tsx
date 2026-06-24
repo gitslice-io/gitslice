@@ -325,7 +325,7 @@ export function DiffViewer({
   return (
     <>
       <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white lg:py-3 lg:backdrop-blur-none">
+        <div className="sticky top-[var(--page-header-height,3rem)] z-20 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white lg:py-3 lg:backdrop-blur-none">
           <div className="flex items-center justify-between gap-2 md:gap-3">
             <div className="min-w-0 flex-1 lg:flex-none">
               <div className="hidden flex-wrap items-baseline gap-x-2 gap-y-0.5 lg:flex">
