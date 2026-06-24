@@ -291,10 +291,12 @@ export function ChangesetDetailPage() {
       />
 
       <PatchsetComparePanel
+        conversationOpen={conversationOpen}
         currentPatchsetId={changeset.currentPatchsetId}
         fromPatchset={fromPatchset}
         onFromPatchsetChange={handleFromPatchsetChange}
         onToPatchsetChange={handleToPatchsetChange}
+        onToggleConversation={() => setConversationOpen((open) => !open)}
         patchsets={patchsets}
         toPatchset={selectedToPatchset}
       />
@@ -318,18 +320,6 @@ export function ChangesetDetailPage() {
           selectedPatchsetId={selectedToPatchset}
         />
       </div>
-
-      {!conversationOpen ? (
-        <button
-          aria-expanded={conversationOpen}
-          className="fixed bottom-4 right-4 z-30 inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-zinc-950 px-4 text-sm font-medium text-white shadow-lg shadow-slate-900/20 transition hover:bg-zinc-800 active:scale-[0.98]"
-          onClick={() => setConversationOpen(true)}
-          type="button"
-        >
-          <span aria-hidden="true">💬</span>
-          <span>Conversation</span>
-        </button>
-      ) : null}
     </section>
   );
 }

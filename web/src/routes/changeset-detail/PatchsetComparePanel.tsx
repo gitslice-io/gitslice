@@ -5,17 +5,21 @@ import { findPatchset, patchsetOptionLabel } from "./patchsetUtils";
 import { PatchsetTimeline } from "./PatchsetTimeline";
 
 export function PatchsetComparePanel({
+  conversationOpen,
   currentPatchsetId,
   fromPatchset,
   onFromPatchsetChange,
   onToPatchsetChange,
+  onToggleConversation,
   patchsets,
   toPatchset
 }: {
+  conversationOpen: boolean;
   currentPatchsetId?: string;
   fromPatchset: string;
   onFromPatchsetChange(value: string): void;
   onToPatchsetChange(value: string): void;
+  onToggleConversation(): void;
   patchsets: Patchset[];
   toPatchset: string;
 }) {
@@ -52,6 +56,21 @@ export function PatchsetComparePanel({
             <span className="mx-1 text-slate-400">→</span>
             <span>{toLabel || "selected patchset"}</span>
           </p>
+        </button>
+        <button
+          aria-expanded={conversationOpen}
+          aria-label="Toggle conversation for the selected patchset"
+          className={cn(
+            "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium shadow-sm transition active:scale-[0.98] md:text-xs",
+            conversationOpen
+              ? "border-zinc-900 bg-zinc-950 text-white hover:bg-zinc-800"
+              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
+          )}
+          onClick={onToggleConversation}
+          type="button"
+        >
+          <span aria-hidden="true">💬</span>
+          <span className="hidden sm:inline">Conversation</span>
         </button>
       </div>
       <div
