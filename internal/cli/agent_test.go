@@ -6,23 +6,63 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
-type fakeAgentRuntime struct {
-	session    *fakeAgentSession
-	openErr    error
-	gotWorkdir string
-	gotResume  string
-	openCount  int
+func TestAgentWorkspaceInstructionsIncludesEditableScope(t *testing.T) {
+	got := agentWorkspaceInstructions([]string{"src/", "docs"})
+	for _, want := range []string{"src/", "docs/", "only edit files"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("instructions missing %q:\n%s", want, got)
+		}
+	}
+
+	// No included paths falls back to generic scope guidance, not an empty list.
+	fallback := agentWorkspaceInstructions(nil)
+	if !strings.Contains(fallback, "included paths") {
+		t.Fatalf("fallback instructions missing scope guidance:\n%s", fallback)
+	}
 }
 
-func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID string) (agentSession, error) {
+func TestConversationIncludedPaths(t *testing.T) {
+	workdir := t.TempDir()
+	gsDir := filepath.Join(workdir, ".gs")
+	if err := os.MkdirAll(gsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := WorkspaceConfig{IncludedPaths: []string{"src/", "lib/"}}
+	if err := writeJSONFile(filepath.Join(gsDir, "slice.json"), cfg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := conversationIncludedPaths(workdir)
+	if len(got) != 2 || got[0] != "src/" || got[1] != "lib/" {
+		t.Fatalf("conversationIncludedPaths = %v, want [src/ lib/]", got)
+	}
+
+	// Missing config is best-effort: nil, no panic.
+	if got := conversationIncludedPaths(t.TempDir()); got != nil {
+		t.Fatalf("conversationIncludedPaths(empty) = %v, want nil", got)
+	}
+}
+
+type fakeAgentRuntime struct {
+	session         *fakeAgentSession
+	openErr         error
+	gotWorkdir      string
+	gotResume       string
+	gotInstructions string
+	openCount       int
+}
+
+func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string) (agentSession, error) {
 	r.openCount++
 	r.gotWorkdir = workdir
 	r.gotResume = resumeThreadID
+	r.gotInstructions = instructions
 	if r.openErr != nil {
 		return nil, r.openErr
 	}

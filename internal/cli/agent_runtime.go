@@ -33,10 +33,12 @@ type agentRuntimeEvent struct {
 // agentRuntime opens long-lived runtime sessions, one per conversation.
 type agentRuntime interface {
 	// OpenSession starts a long-lived runtime session for the given workspace,
-	// resuming resumeThreadID when non-empty. The session's underlying process
-	// is bound to ctx (the daemon's lifetime) and lives until Close is called;
-	// it is not tied to any single turn's context.
-	OpenSession(ctx context.Context, workdir, resumeThreadID string) (agentSession, error)
+	// resuming resumeThreadID when non-empty. instructions is runtime-agnostic
+	// guidance the runtime injects however it sees fit (codex delivers it as
+	// developerInstructions; it is never written to the workspace). The session's
+	// underlying process is bound to ctx (the daemon's lifetime) and lives until
+	// Close is called; it is not tied to any single turn's context.
+	OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string) (agentSession, error)
 }
 
 // agentSession is a warm runtime session bound to one conversation workspace.
@@ -135,7 +137,7 @@ func (s *codexSession) RunTurn(ctx context.Context, prompt string, emit func(age
 	}
 }
 
-func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID string) (agentSession, error) {
+func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string) (agentSession, error) {
 	binary := r.Binary
 	if binary == "" {
 		binary = "codex"
@@ -184,7 +186,7 @@ func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID s
 		return nil, session.stderrErr(fmt.Errorf("codex initialized notify failed: %w", err))
 	}
 
-	threadID, err := client.openThread(ctx, workdir, resumeThreadID)
+	threadID, err := client.openThread(ctx, workdir, resumeThreadID, instructions)
 	if err != nil {
 		session.Close()
 		return nil, session.stderrErr(err)
@@ -197,11 +199,18 @@ func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID s
 // openThread resumes an existing codex thread when resumeID is set, falling back
 // to starting a fresh thread if no id is given or the resume fails (e.g. the
 // session has aged out). It returns the live thread id either way.
-func (c *codexClient) openThread(ctx context.Context, workdir, resumeID string) (string, error) {
+func (c *codexClient) openThread(ctx context.Context, workdir, resumeID, instructions string) (string, error) {
 	base := map[string]any{
 		"cwd":            workdir,
 		"sandbox":        "danger-full-access",
 		"approvalPolicy": "never",
+	}
+	// developerInstructions layers gitslice guidance on top of codex's base
+	// system prompt for every turn in the thread, without writing anything to the
+	// workspace (so it never lands in a captured patchset). Honored by both
+	// thread/start and thread/resume.
+	if strings.TrimSpace(instructions) != "" {
+		base["developerInstructions"] = instructions
 	}
 	if resumeID != "" {
 		params := map[string]any{"threadId": resumeID}
