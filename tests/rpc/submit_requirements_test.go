@@ -107,7 +107,7 @@ func TestRPCSubmitFailingRequiredCheckBlocks(t *testing.T) {
 	assertChangesetBlockedReason(t, ctx, clients.changeset, changesetID, `required check "unit" is failing`)
 }
 
-func TestRPCSubmitDefinitionHashDriftBlocksRefresh(t *testing.T) {
+func TestRPCSubmitTightenedApprovalsBlocksWithSpecificReason(t *testing.T) {
 	ts := startRPCServer(t)
 	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
@@ -139,8 +139,69 @@ func TestRPCSubmitDefinitionHashDriftBlocksRefresh(t *testing.T) {
 		ChangesetId:               changesetID,
 		ExpectedCurrentPatchsetId: patchsetID,
 	})
-	assertSubmitBlocked(t, err, "requirements changed, refresh the changeset")
-	assertChangesetBlockedReason(t, ctx, clients.changeset, changesetID, "requirements changed, refresh the changeset")
+	assertSubmitBlocked(t, err, "required approvals not satisfied: requires 1 distinct non-author approval(s), has 0")
+	assertChangesetBlockedReason(t, ctx, clients.changeset, changesetID, "required approvals not satisfied: requires 1 distinct non-author approval(s), has 0")
+}
+
+func TestRPCSubmitAutoRefreshesLoosenedApprovals(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	// Slice starts requiring one approval; the patchset is recorded under that
+	// requirement (the narrow submit-requirements hash includes required_approvals).
+	sliceRef := createSubmitRequirementSlice(t, ctx, clients, slices, "loosened-approvals", 1, nil)
+	changesetID, patchsetID := createDirectPatchsetForSlice(
+		t,
+		ctx,
+		clients,
+		sliceRef,
+		"/acme/payment/loosened-approvals/change.go",
+		"package loosenedapprovals\nconst V = 1\n",
+		"loosened approvals",
+	)
+	slice, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: sliceRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Loosen the requirement to zero approvals. This changes the narrow
+	// submit-requirements hash (which previously forced a "requirements changed"
+	// block), but live evaluation now passes, so the submit must proceed without
+	// any manual refresh.
+	if _, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                slice.Id,
+		ExpectedDefinitionHash: slice.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:     slice.Definition.IncludedPaths,
+			Visibility:        slice.Definition.Visibility,
+			RequiredApprovals: 0,
+			RequiredChecks:    nil,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	submitted, err := clients.changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               changesetID,
+		ExpectedCurrentPatchsetId: patchsetID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submitted.Status != "pending_publish" && submitted.Status != "submitted" {
+		t.Fatalf("unexpected submit response: %#v", submitted)
+	}
+	cs, err := clients.changeset.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: changesetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.Status != "pending_publish" && cs.Status != "submitted" {
+		t.Fatalf("changeset status = %q, want pending_publish or submitted", cs.Status)
+	}
 }
 
 func TestRPCSubmitVisibilityChangeDoesNotBlockRefresh(t *testing.T) {
