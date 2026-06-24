@@ -147,12 +147,31 @@ func (s *AgentStore) SetConversationStatus(ctx context.Context, conversationID, 
 	return nil
 }
 
-func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string) (*corev1.ConversationEvent, error) {
+func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string, clientSeq int64) (*corev1.ConversationEvent, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	// Dedup resends: if the daemon's per-conversation client_seq was already
+	// stored, return the existing event without advancing the server seq.
+	if clientSeq > 0 {
+		existing, err := scanEventRow(tx.QueryRowContext(ctx, `
+			select id, conversation_id, seq, role, type, text, data_json, created_at, item_id, client_seq
+			from agent_conversation_events
+			where conversation_id = $1 and client_seq = $2
+		`, conversationID, clientSeq))
+		if err == nil {
+			if err := tx.Commit(); err != nil {
+				return nil, false, err
+			}
+			return existing, false, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, false, err
+		}
+	}
 
 	var seq int64
 	err = tx.QueryRowContext(ctx, `
@@ -160,26 +179,26 @@ func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, even
 		where id = $1 returning next_seq - 1
 	`, conversationID).Scan(&seq)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, storage.ErrNotFound
+		return nil, false, storage.ErrNotFound
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	id, err := objectid.RandomID("ev")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var createdAt time.Time
 	err = tx.QueryRowContext(ctx, `
-		insert into agent_conversation_events(id, conversation_id, seq, role, type, text, data_json, item_id)
-		values ($1, $2, $3, $4, $5, $6, $7, $8) returning created_at
-	`, id, conversationID, seq, role, eventType, text, dataJSON, itemID).Scan(&createdAt)
+		insert into agent_conversation_events(id, conversation_id, seq, role, type, text, data_json, item_id, client_seq)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning created_at
+	`, id, conversationID, seq, role, eventType, text, dataJSON, itemID, clientSeq).Scan(&createdAt)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	return &corev1.ConversationEvent{
 		Id:             id,
@@ -191,12 +210,27 @@ func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, even
 		DataJson:       dataJSON,
 		CreatedAt:      createdAt.UTC().Format(time.RFC3339Nano),
 		ItemId:         itemID,
-	}, nil
+		ClientSeq:      clientSeq,
+	}, true, nil
+}
+
+// scanEventRow scans a single agent_conversation_events row (with client_seq) in
+// the standard column order into a ConversationEvent.
+func scanEventRow(row interface{ Scan(...any) error }) (*corev1.ConversationEvent, error) {
+	var (
+		ev        corev1.ConversationEvent
+		createdAt time.Time
+	)
+	if err := row.Scan(&ev.Id, &ev.ConversationId, &ev.Seq, &ev.Role, &ev.Type, &ev.Text, &ev.DataJson, &createdAt, &ev.ItemId, &ev.ClientSeq); err != nil {
+		return nil, err
+	}
+	ev.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
+	return &ev, nil
 }
 
 func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afterSeq int64) ([]*corev1.ConversationEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, conversation_id, seq, role, type, text, data_json, created_at, item_id
+		select id, conversation_id, seq, role, type, text, data_json, created_at, item_id, client_seq
 		from agent_conversation_events
 		where conversation_id = $1 and seq > $2 order by seq asc
 	`, conversationID, afterSeq)
@@ -206,22 +240,18 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 	defer rows.Close()
 	var out []*corev1.ConversationEvent
 	for rows.Next() {
-		var (
-			ev        corev1.ConversationEvent
-			createdAt time.Time
-		)
-		if err := rows.Scan(&ev.Id, &ev.ConversationId, &ev.Seq, &ev.Role, &ev.Type, &ev.Text, &ev.DataJson, &createdAt, &ev.ItemId); err != nil {
+		ev, err := scanEventRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		ev.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		out = append(out, &ev)
+		out = append(out, ev)
 	}
 	return out, rows.Err()
 }
 
 func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq int64) ([]*corev1.ConversationEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, conversation_id, seq, role, type, text, data_json, created_at, item_id
+		select id, conversation_id, seq, role, type, text, data_json, created_at, item_id, client_seq
 		from agent_conversation_events
 		where conversation_id = $1 and seq > $2 and ($3 <= 0 or seq <= $3)
 		order by seq asc
@@ -232,15 +262,11 @@ func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string,
 	defer rows.Close()
 	var out []*corev1.ConversationEvent
 	for rows.Next() {
-		var (
-			ev        corev1.ConversationEvent
-			createdAt time.Time
-		)
-		if err := rows.Scan(&ev.Id, &ev.ConversationId, &ev.Seq, &ev.Role, &ev.Type, &ev.Text, &ev.DataJson, &createdAt, &ev.ItemId); err != nil {
+		ev, err := scanEventRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		ev.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-		out = append(out, &ev)
+		out = append(out, ev)
 	}
 	return out, rows.Err()
 }

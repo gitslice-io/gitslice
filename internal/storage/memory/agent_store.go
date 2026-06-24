@@ -147,12 +147,19 @@ func (s *AgentStore) SetConversationStatus(ctx context.Context, conversationID, 
 	return nil
 }
 
-func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string) (*corev1.ConversationEvent, error) {
+func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string, clientSeq int64) (*corev1.ConversationEvent, bool, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	c, ok := s.b.agentConvs[conversationID]
 	if !ok {
-		return nil, storage.ErrNotFound
+		return nil, false, storage.ErrNotFound
+	}
+	if clientSeq > 0 {
+		for _, ev := range s.b.agentEvents[conversationID] {
+			if ev.ClientSeq == clientSeq {
+				return cloneEvent(ev), false, nil
+			}
+		}
 	}
 	seq := s.b.agentConvNextSeq[conversationID]
 	if seq == 0 {
@@ -161,7 +168,7 @@ func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, even
 	s.b.agentConvNextSeq[conversationID] = seq + 1
 	id, err := objectid.RandomID("ev")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	ev := &corev1.ConversationEvent{
 		Id:             id,
@@ -173,10 +180,11 @@ func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, even
 		DataJson:       dataJSON,
 		CreatedAt:      nowRFC(),
 		ItemId:         itemID,
+		ClientSeq:      clientSeq,
 	}
 	s.b.agentEvents[conversationID] = append(s.b.agentEvents[conversationID], ev)
 	c.UpdatedAt = ev.CreatedAt
-	return cloneEvent(ev), nil
+	return cloneEvent(ev), true, nil
 }
 
 func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afterSeq int64) ([]*corev1.ConversationEvent, error) {

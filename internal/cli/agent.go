@@ -25,6 +25,10 @@ const (
 	agentSendBuffer     = 128
 	agentHeartbeat      = 15 * time.Second
 	agentMetaFilename   = ".agent-meta.json"
+	// agentMaxPendingEvents bounds a conversation's unacked outbound buffer. Acks
+	// are per-event and keep this near-empty in practice; the cap only guards the
+	// degenerate case where the server stops acking.
+	agentMaxPendingEvents = 10000
 )
 
 type agentStartOptions struct {
@@ -199,6 +203,10 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 		fmt.Fprintf(d.runner.Stdout, "agent daemon %s online\n", ack.GetDaemonId())
 	}
 
+	// Resend any events buffered while disconnected over the fresh stream. The
+	// server dedups by (conversation_id, client_seq), so replaying already-
+	// persisted events is idempotent.
+	go d.resendPendingAll()
 	go d.runHeartbeat(connCtx, cancel)
 
 	for {
@@ -298,6 +306,21 @@ type agentConversation struct {
 	runMu   sync.Mutex
 	stateMu sync.Mutex
 
+	// outMu guards the outbound event buffer. Turn output is assigned a
+	// per-conversation client_seq and buffered here until the server acks it, so
+	// the events survive a Connect reconnect and are resent (the server dedups by
+	// client_seq). All sends for a conversation go through flushPendingLocked
+	// under outMu, which keeps them strictly ordered even across a reconnect.
+	outMu          sync.Mutex
+	nextClientSeq  int64
+	pending        []*corev1.AgentEvent // emitted, not yet acked; ascending client_seq
+	ackedClientSeq int64
+	// flushedSeq is the highest client_seq already handed to flushQueue, so steady
+	// state sends each event once. When the live send queue changes (reconnect),
+	// flushPendingLocked resets flushedSeq to ackedClientSeq and resends the rest.
+	flushedSeq int64
+	flushQueue *agentSendQueue
+
 	title         string
 	sliceAccount  string
 	sliceName     string
@@ -328,6 +351,100 @@ func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.Ca
 		if err := d.sendDaemonMessage(ctx, heartbeatDaemonMessage()); err != nil {
 			cancel()
 		}
+	case *corev1.ServerMessage_Ack:
+		d.handleEventAck(payload.Ack)
+	}
+}
+
+// emitConversationEvent assigns the next per-conversation client_seq, buffers
+// the event for ack/resend, and best-effort flushes the pending buffer over the
+// current send queue. Buffered events survive Connect reconnects: the server
+// dedups by (conversation_id, client_seq), so re-sending unacked events is
+// idempotent. This is the delivery path for durable turn output; transient
+// ephemeral token deltas use the unsequenced sendAgentEvent path instead.
+func (d *agentDaemon) emitConversationEvent(conv *agentConversation, event *corev1.AgentEvent) {
+	conv.outMu.Lock()
+	defer conv.outMu.Unlock()
+	conv.nextClientSeq++
+	event.ClientSeq = conv.nextClientSeq
+	conv.pending = append(conv.pending, event)
+	if len(conv.pending) > agentMaxPendingEvents {
+		// Degenerate: the server has not acked for a very long time. Drop the
+		// oldest so the daemon does not grow unbounded.
+		fmt.Fprintf(d.runner.stderr(), "agent outbound buffer overflow for %s; dropping oldest event\n", conv.id)
+		conv.pending = conv.pending[1:]
+	}
+	d.flushPendingLocked(conv)
+}
+
+// flushPendingLocked sends every buffered event in client_seq order over the
+// current send queue. The caller must hold conv.outMu, which serializes sends
+// for the conversation (so a reconnect resend cannot interleave with new
+// emits). Best-effort: it stops at the first failure (nil queue or send error),
+// leaving the rest buffered for the next flush or reconnect. Sends use a
+// background context so a finished or cancelled turn still flushes; agentSendQueue
+// returns promptly once its connection context is done.
+func (d *agentDaemon) flushPendingLocked(conv *agentConversation) {
+	d.mu.Lock()
+	sq := d.sendQueue
+	d.mu.Unlock()
+	if sq == nil {
+		return
+	}
+	// New connection epoch: resend everything still unacked over the fresh queue.
+	if sq != conv.flushQueue {
+		conv.flushQueue = sq
+		conv.flushedSeq = conv.ackedClientSeq
+	}
+	for _, ev := range conv.pending {
+		if ev.ClientSeq <= conv.flushedSeq {
+			continue
+		}
+		msg := &corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Event{Event: ev}}
+		if err := sq.send(context.Background(), msg); err != nil {
+			return
+		}
+		conv.flushedSeq = ev.ClientSeq
+	}
+}
+
+// handleEventAck drops events the server has durably persisted from the
+// conversation's resend buffer.
+func (d *agentDaemon) handleEventAck(ack *corev1.EventAck) {
+	if ack == nil {
+		return
+	}
+	conv := d.getConversation(strings.TrimSpace(ack.GetConversationId()))
+	if conv == nil {
+		return
+	}
+	conv.outMu.Lock()
+	defer conv.outMu.Unlock()
+	if ack.GetAckedClientSeq() > conv.ackedClientSeq {
+		conv.ackedClientSeq = ack.GetAckedClientSeq()
+	}
+	kept := conv.pending[:0]
+	for _, ev := range conv.pending {
+		if ev.ClientSeq > conv.ackedClientSeq {
+			kept = append(kept, ev)
+		}
+	}
+	conv.pending = kept
+}
+
+// resendPendingAll re-flushes every active conversation's buffered events after
+// a (re)connect, in client_seq order per conversation.
+func (d *agentDaemon) resendPendingAll() {
+	d.mu.Lock()
+	convs := make([]*agentConversation, 0, len(d.conversations))
+	for _, conv := range d.conversations {
+		convs = append(convs, conv)
+	}
+	d.mu.Unlock()
+	for _, conv := range convs {
+		conv.outMu.Lock()
+		d.flushPendingLocked(conv)
+		conv.outMu.Unlock()
 	}
 }
 
@@ -408,7 +525,7 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 
 	conv.runMu.Lock()
 	defer conv.runMu.Unlock()
-	if err := ctx.Err(); err != nil {
+	if err := d.baseCtx.Err(); err != nil {
 		return
 	}
 
@@ -427,13 +544,28 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 		d.persistConversationMeta(conv)
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
+	// Root the turn at d.baseCtx, NOT the connection context, so a Connect
+	// reconnect (e.g. Cloudflare resetting the stream) does not cancel a running
+	// turn. The turn is cancelled only by an explicit server CancelConversation
+	// (via conv.setCancel) or daemon shutdown (d.baseCtx). Turn output is buffered
+	// per-conversation and resent on reconnect, so events are not lost either.
+	runCtx, cancel := context.WithCancel(d.baseCtx)
 	conv.setCancel(cancel)
 	defer conv.clearCancel(cancel)
 	defer cancel()
 
 	err = forwardAgentTurn(runCtx, session, msg.GetText(), conversationID, func(event *corev1.AgentEvent) {
-		_ = d.sendAgentEvent(runCtx, event)
+		// Ephemeral token deltas are high-frequency and transient: the finalized
+		// event supersedes them (clients coalesce by item_id), so they go
+		// best-effort and are not sequenced/acked/resent. Only durable events
+		// (finalized messages, tool calls, status, errors) get the ack+resend
+		// guarantee — which keeps ack volume to roughly one per finalized item
+		// instead of one per token.
+		if event.Ephemeral {
+			_ = d.sendAgentEvent(runCtx, event)
+			return
+		}
+		d.emitConversationEvent(conv, event)
 	})
 
 	// A cancelled or errored turn can leave the app-server mid-turn or in a bad
@@ -444,8 +576,10 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 	}
 
 	if errors.Is(err, context.Canceled) {
-		if ctx.Err() == nil {
-			_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
+		// Suppress the terminal status only on daemon shutdown; a server-initiated
+		// cancel should still surface "canceled" to the user.
+		if d.baseCtx.Err() == nil {
+			d.emitConversationEvent(conv, &corev1.AgentEvent{
 				ConversationId: conversationID,
 				Role:           "agent",
 				Type:           "status",
@@ -456,13 +590,22 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 		return
 	}
 	if err != nil {
-		d.sendSystemError(ctx, conversationID, fmt.Errorf("agent runtime failed: %w", err))
+		if d.baseCtx.Err() == nil {
+			d.emitConversationEvent(conv, &corev1.AgentEvent{
+				ConversationId: conversationID,
+				Role:           "system",
+				Type:           "error",
+				Text:           fmt.Errorf("agent runtime failed: %w", err).Error(),
+				Final:          true,
+			})
+		}
 		return
 	}
 
 	// Capture any edits the turn produced as a (conversation-linked) patchset.
-	if ctx.Err() == nil {
-		d.capturePatchset(ctx, conv)
+	// Use d.baseCtx so a reconnect mid-turn does not skip capture.
+	if d.baseCtx.Err() == nil {
+		d.capturePatchset(d.baseCtx, conv)
 	}
 }
 
