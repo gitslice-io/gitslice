@@ -1,6 +1,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@clerk/tanstack-react-start";
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearch,
+} from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
 import type { SliceRef, TreeEntry } from "../api/types";
@@ -13,7 +18,7 @@ import {
   SlicePageHeader,
   SlicePanel,
   getErrorMessage,
-  sliceDisplayName
+  sliceDisplayName,
 } from "../components/slices/SlicePageParts";
 import {
   decodeBase64File,
@@ -21,11 +26,11 @@ import {
   isSliceProjectionDirectoryPath,
   listDirectoryAll,
   normalizeRepositoryPath,
-  syntheticDirectoryEntry
+  syntheticDirectoryEntry,
 } from "../components/source/sourceUtils";
 import {
   useDraftChangesetController,
-  type PendingEdit
+  type PendingEdit,
 } from "../components/source/SliceEditing";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
@@ -62,12 +67,11 @@ export function SliceDetailPage() {
       routeAccount && routeSlice
         ? { account: routeAccount, slice: routeSlice }
         : undefined,
-    [routeAccount, routeSlice]
+    [routeAccount, routeSlice],
   );
   const selectedPath = pathSearchValue(search.path);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showTree, setShowTree] = useState(true);
-  const [mobileFilesOpen, setMobileFilesOpen] = useState(false);
   const canEdit = Boolean(isLoaded && isSignedIn && account);
 
   useEffect(() => {
@@ -77,7 +81,7 @@ export function SliceDetailPage() {
   const sliceQuery = useQuery({
     enabled: Boolean(isLoaded && routeSliceRef),
     queryKey: ["sliceRef", routeAccount, routeSlice],
-    queryFn: () => api.resolveSlice({ ref: routeSliceRef })
+    queryFn: () => api.resolveSlice({ ref: routeSliceRef }),
   });
 
   const latestQuery = useQuery({
@@ -89,7 +93,7 @@ export function SliceDetailPage() {
         throw new Error("Latest global state did not return a commit id.");
       }
       return ref;
-    }
+    },
   });
 
   const slice = sliceQuery.data;
@@ -106,21 +110,21 @@ export function SliceDetailPage() {
     commitId,
     sliceLabel,
     sliceRef,
-    authorUsername: canEdit ? account : ""
+    authorUsername: canEdit ? account : "",
   });
   const pendingEdits = draftChangeset.edits;
   const isProjectedDirectoryPath = isSliceProjectionDirectoryPath(
     selectedPath,
-    slice?.definition?.includedPaths ?? []
+    slice?.definition?.includedPaths ?? [],
   );
 
   const pathQuery = useQuery({
     enabled: Boolean(
       commitId &&
-        selectedPath &&
-        !isProjectedDirectoryPath &&
-        sliceRef?.account &&
-        sliceRef?.slice
+      selectedPath &&
+      !isProjectedDirectoryPath &&
+      sliceRef?.account &&
+      sliceRef?.slice,
     ),
     queryKey: [
       "slicePath",
@@ -128,9 +132,10 @@ export function SliceDetailPage() {
       commitId,
       selectedPath,
       sliceRef?.account,
-      sliceRef?.slice
+      sliceRef?.slice,
     ],
-    queryFn: () => api.resolvePath({ commitId, path: selectedPath, slice: sliceRef })
+    queryFn: () =>
+      api.resolvePath({ commitId, path: selectedPath, slice: sliceRef }),
   });
 
   const entry = isProjectedDirectoryPath
@@ -140,27 +145,33 @@ export function SliceDetailPage() {
   const isFile = entry?.kind === "ENTRY_KIND_FILE";
 
   const directoryQuery = useQuery({
-    enabled: Boolean(commitId && sliceRef?.account && sliceRef?.slice && isDirectory),
+    enabled: Boolean(
+      commitId && sliceRef?.account && sliceRef?.slice && isDirectory,
+    ),
     queryKey: [
       "sliceDirectory",
       sliceRouteKey,
       commitId,
       selectedPath,
       sliceRef?.account,
-      sliceRef?.slice
+      sliceRef?.slice,
     ],
     queryFn: () =>
       listDirectoryAll(api, {
         allowMissingDirectory: isProjectedDirectoryPath,
         commitId,
         path: selectedPath,
-        slice: sliceRef
-      })
+        slice: sliceRef,
+      }),
   });
 
   const fileQuery = useQuery({
     enabled: Boolean(
-      commitId && selectedPath && isFile && sliceRef?.account && sliceRef?.slice
+      commitId &&
+      selectedPath &&
+      isFile &&
+      sliceRef?.account &&
+      sliceRef?.slice,
     ),
     queryKey: [
       "sliceFile",
@@ -168,9 +179,10 @@ export function SliceDetailPage() {
       commitId,
       selectedPath,
       sliceRef?.account,
-      sliceRef?.slice
+      sliceRef?.slice,
     ],
-    queryFn: () => api.readFile({ commitId, path: selectedPath, slice: sliceRef })
+    queryFn: () =>
+      api.readFile({ commitId, path: selectedPath, slice: sliceRef }),
   });
 
   function selectPath(path: string) {
@@ -181,7 +193,7 @@ export function SliceDetailPage() {
     void navigate({
       params: sliceRouteParams as never,
       search: path ? ({ path } as never) : ({} as never),
-      to: "/slices/$account/$slice"
+      to: "/slices/$account/$slice",
     });
   }
 
@@ -234,29 +246,25 @@ export function SliceDetailPage() {
     .filter(Boolean);
   const createDirectory =
     selectedPath || (projectedRoots.length === 1 ? projectedRoots[0] : "");
+  const treePanelVisibility = selectedPath
+    ? showTree
+      ? "hidden lg:block"
+      : "hidden"
+    : showTree
+      ? "block"
+      : "block lg:hidden";
+  const workspaceVisibility = selectedPath ? "block" : "hidden lg:block";
 
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
       <PageHeader
         breadcrumb={
           <Breadcrumb
-            items={[
-              { label: "Slices", to: "/slices" },
-              { label: sliceLabel }
-            ]}
+            items={[{ label: "Slices", to: "/slices" }, { label: sliceLabel }]}
           />
         }
         primaryAction={
           <>
-            <button
-              aria-controls="slice-file-tree-panel"
-              aria-expanded={mobileFilesOpen}
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] lg:hidden"
-              onClick={() => setMobileFilesOpen(true)}
-              type="button"
-            >
-              Files
-            </button>
             <Link
               className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
               search={{ slice: sliceLabel } as never}
@@ -270,7 +278,7 @@ export function SliceDetailPage() {
                 params={sliceRouteParams as never}
                 to="/slices/$account/$slice/agents"
               >
-                Agents
+                Conversations
               </Link>
             ) : null}
             {canEdit && sliceRouteParams ? (
@@ -299,112 +307,100 @@ export function SliceDetailPage() {
       ) : null}
 
       <>
-          <div
-            className={[
-              "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
-              showTree
-                ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
-                : "lg:grid-cols-[2.75rem_minmax(0,1fr)]"
-            ].join(" ")}
+        <div
+          className={cn(
+            "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
+            showTree
+              ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
+              : "lg:grid-cols-[2.75rem_minmax(0,1fr)]",
+          )}
+        >
+          <button
+            aria-controls="slice-file-tree-panel"
+            aria-expanded={false}
+            aria-label="Show files"
+            className={cn(
+              "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 bg-white px-1.5 py-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]",
+              showTree ? "" : "lg:flex",
+            )}
+            onClick={() => setShowTree(true)}
+            title="Show files"
+            type="button"
           >
-            {mobileFilesOpen ? (
-              <button
-                aria-label="Close files"
-                className="fixed inset-0 z-30 bg-black/30 lg:hidden"
-                onClick={() => setMobileFilesOpen(false)}
-                type="button"
-              />
-            ) : null}
-            <button
-              aria-controls="slice-file-tree-panel"
-              aria-expanded={false}
-              aria-label="Show files"
-              className={[
-                "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 bg-white px-1.5 py-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]",
-                showTree ? "" : "lg:flex"
-              ].join(" ")}
-              onClick={() => setShowTree(true)}
-              title="Show files"
-              type="button"
-            >
-              <span aria-hidden="true" className="text-sm leading-none">
-                »
-              </span>
-              <span className="[writing-mode:vertical-rl]">Files</span>
-            </button>
-            <aside
-              className={[
-                "fixed inset-y-0 left-0 z-40 w-80 max-w-[85%] transform overflow-y-auto bg-slate-50 p-4 shadow-xl transition-transform duration-200",
-                mobileFilesOpen ? "translate-x-0" : "-translate-x-full",
-                "lg:static lg:z-auto lg:w-auto lg:max-w-none lg:translate-x-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:transition-none lg:h-full lg:min-h-0 lg:overflow-y-auto",
-                showTree ? "" : "lg:hidden"
-              ].join(" ")}
-              id="slice-file-tree-panel"
-            >
-              <div className="mb-3 flex items-center justify-between lg:hidden">
-                <span className="text-sm font-semibold text-zinc-950">
-                  Files
-                </span>
-                <button
-                  aria-label="Close files"
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                  onClick={() => setMobileFilesOpen(false)}
-                  type="button"
-                >
-                  Close
-                </button>
-              </div>
-              <SliceFolderNavigator
-                api={api}
-                commitId={commitId}
-                includedPaths={includedPaths}
-                isLatestLoading={latestQuery.isPending}
-                isSelectedDirectory={isDirectory}
-                onCollapse={() => setShowTree(false)}
-                onSelectPath={(nextPath) => {
-                  selectPath(nextPath);
-                  setMobileFilesOpen(false);
-                }}
-                selectedPath={selectedPath}
-                sliceId={sliceId || sliceRouteKey}
-                sliceRef={sliceRef}
-              />
-            </aside>
+            <span aria-hidden="true" className="text-sm leading-none">
+              »
+            </span>
+            <span className="[writing-mode:vertical-rl]">Files</span>
+          </button>
+          <aside
+            className={cn(
+              "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
+              treePanelVisibility,
+            )}
+            id="slice-file-tree-panel"
+          >
+            <SliceFolderNavigator
+              api={api}
+              commitId={commitId}
+              includedPaths={includedPaths}
+              isLatestLoading={latestQuery.isPending}
+              isSelectedDirectory={isDirectory}
+              onCollapse={() => setShowTree(false)}
+              onSelectPath={selectPath}
+              selectedPath={selectedPath}
+              sliceId={sliceId || sliceRouteKey}
+              sliceRef={sliceRef}
+            />
+          </aside>
 
-            <div className="min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto">
-              <SliceSourceWorkspace
-                commitError={latestQuery.error}
-                commitId={commitId}
-                createDirectory={createDirectory}
-                directoryEntries={currentEntries}
-                directoryError={directoryQuery.error}
-                entry={entry}
-                fileContent={decodeBase64File(fileQuery.data?.data)}
-                fileError={fileQuery.error}
-                includedPaths={includedPaths}
-                isDirectoryLoading={directoryQuery.isPending}
-                isFileLoading={fileQuery.isPending}
-                isLatestLoading={latestQuery.isPending}
-                isPathLoading={pathQuery.isLoading}
-                onOpenHistory={() => setHistoryOpen(true)}
-                onSelectPath={selectPath}
-                onStageEdit={canEdit ? stagePendingEdit : undefined}
-                pathError={pathQuery.error}
-                pendingEdits={pendingEdits}
-                selectedPath={selectedPath}
-              />
+          <div
+            className={cn(
+              "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
+              workspaceVisibility,
+            )}
+          >
+            <div className="mb-3 lg:hidden">
+              <button
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                onClick={() => selectPath("")}
+                type="button"
+              >
+                ← Files
+              </button>
             </div>
+            <SliceSourceWorkspace
+              commitError={latestQuery.error}
+              commitId={commitId}
+              createDirectory={createDirectory}
+              directoryEntries={currentEntries}
+              directoryError={directoryQuery.error}
+              entry={entry}
+              fileContent={decodeBase64File(fileQuery.data?.data)}
+              fileError={fileQuery.error}
+              includedPaths={includedPaths}
+              isDirectoryLoading={directoryQuery.isPending}
+              isFileLoading={fileQuery.isPending}
+              isLatestLoading={latestQuery.isPending}
+              isPathLoading={pathQuery.isLoading}
+              onOpenHistory={() => setHistoryOpen(true)}
+              onSelectPath={selectPath}
+              onStageEdit={canEdit ? stagePendingEdit : undefined}
+              pathError={pathQuery.error}
+              pendingEdits={pendingEdits}
+              selectedPath={selectedPath}
+            />
           </div>
-          <HistoryDrawer
-            api={api}
-            commitId={commitId}
-            onClose={() => setHistoryOpen(false)}
-            open={historyOpen}
-            selectedPath={selectedPath}
-            sliceId={sliceId || sliceRouteKey}
-            sliceLabel={sliceLabel}
-            sliceRef={sliceRef}
-          />
+        </div>
+        <HistoryDrawer
+          api={api}
+          commitId={commitId}
+          onClose={() => setHistoryOpen(false)}
+          open={historyOpen}
+          selectedPath={selectedPath}
+          sliceId={sliceId || sliceRouteKey}
+          sliceLabel={sliceLabel}
+          sliceRef={sliceRef}
+        />
       </>
     </section>
   );
