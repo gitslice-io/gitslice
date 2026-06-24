@@ -1752,16 +1752,6 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 			return nil, blockSubmitTx(ctx, tx, cs.ID, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
 		}
 	}
-	recordedHash := ""
-	if patchset.SubmitRequirements != nil {
-		recordedHash = patchset.SubmitRequirements.SourceSliceDefinitionHash
-	}
-	if recordedHash == "" {
-		recordedHash = latestReq.SourceSliceDefinitionHash
-	}
-	if recordedHash != latestReq.SourceSliceDefinitionHash {
-		return nil, blockSubmitTx(ctx, tx, cs.ID, "requirements changed, refresh the changeset")
-	}
 	approvalSubjects, err := approvalSubjectsTx(ctx, tx, cs.ID, patchset.Id)
 	if err != nil {
 		return nil, err
