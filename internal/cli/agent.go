@@ -29,6 +29,11 @@ const (
 	// are per-event and keep this near-empty in practice; the cap only guards the
 	// degenerate case where the server stops acking.
 	agentMaxPendingEvents = 10000
+	// agentTurnCompleteType marks the end of an agent turn. A turn can emit
+	// several finalized messages/tool calls before it finishes, so this explicit
+	// control event — not a finalized message — is the reliable turn-end signal
+	// for clients (which render it invisibly).
+	agentTurnCompleteType = "turn_complete"
 )
 
 type agentStartOptions struct {
@@ -606,6 +611,19 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 	// Use d.baseCtx so a reconnect mid-turn does not skip capture.
 	if d.baseCtx.Err() == nil {
 		d.capturePatchset(d.baseCtx, conv)
+		// Mark the end of the turn so clients can keep the "agent is working"
+		// affordance up across interim messages/tool calls and only drop it when
+		// the turn truly finishes. A turn can emit several agent messages before
+		// it is done, so a finalized message is NOT a reliable end-of-turn signal;
+		// this explicit marker is. The cancel/error paths above already emit their
+		// own terminal events, so this covers the normal success path. It is a
+		// control event (clients hide it from the transcript).
+		d.emitConversationEvent(conv, &corev1.AgentEvent{
+			ConversationId: conversationID,
+			Role:           "system",
+			Type:           agentTurnCompleteType,
+			Final:          true,
+		})
 	}
 }
 
