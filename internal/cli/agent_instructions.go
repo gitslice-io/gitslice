@@ -79,6 +79,12 @@ const agentWorkspaceInstructionsCommands = `- Use the ` + "`gs`" + ` CLI for sou
     gs cs status         show the current changeset status
     gs cs show           show the current changeset details
   Run ` + "`gs --help`" + ` or ` + "`gs <command> --help`" + ` for anything else.
+- If a ` + "`gs`" + ` command fails with an authentication error (e.g. "not logged in",
+  "invalid token", or an Unauthenticated/Unauthorized response), do NOT try to
+  re-authenticate or work around it yourself — you run with the agent daemon's
+  credentials and cannot complete a login from here. Tell the user to run
+  ` + "`gs auth login`" + ` on the machine running the agent daemon and approve the
+  sign-in URL it prints in their browser, then retry.
 - Do NOT create AGENTS.md, CLAUDE.md, or other agent-instruction files in the
   workspace. These instructions are provided out-of-band; writing such a file
   would pollute the slice's changeset.`
