@@ -110,6 +110,36 @@ describe("AgentConversation", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders read-only transcripts without the message composer", async () => {
+    const api = makeApi([
+      {
+        id: "evt_1",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "agent",
+        type: "message",
+        text: "Shared transcript"
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+        readOnly
+      />
+    );
+
+    expect(await screen.findByText("Shared transcript")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: /message/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Send" })
+    ).not.toBeInTheDocument();
+  });
+
   it("collapses trace and tool events separately from messages", async () => {
     const api = makeApi([
       {

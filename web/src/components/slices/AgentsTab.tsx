@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
@@ -14,10 +14,17 @@ import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 interface AgentsTabProps {
   api: ApiClient;
+  conversationId?: string;
+  onSelectConversation?: (id: string) => void;
   slice: SliceRef;
 }
 
-export function AgentsTab({ api, slice }: AgentsTabProps) {
+export function AgentsTab({
+  api,
+  conversationId,
+  onSelectConversation,
+  slice
+}: AgentsTabProps) {
   const queryClient = useQueryClient();
   const sliceKey = `${slice.account ?? ""}:${slice.slice ?? ""}`;
   const sliceDefined = Boolean(slice.account && slice.slice);
@@ -55,6 +62,14 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
+  const selectConversation = useCallback(
+    (id: string) => {
+      setSelectedConversationId(id);
+      onSelectConversation?.(id);
+    },
+    [onSelectConversation]
+  );
+
   // Keep daemon selection valid as the online set changes. We only reassign
   // when the current pick is gone; we never clobber a user-chosen daemon.
   useEffect(() => {
@@ -65,16 +80,41 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
     );
   }, [onlineDaemons]);
 
+  useEffect(() => {
+    if (!conversationId) {
+      return;
+    }
+    setSelectedConversationId((current) =>
+      current === conversationId ? current : conversationId
+    );
+  }, [conversationId]);
+
   // Default-select the newest conversation, but never overwrite an active
   // selection that still exists in the list.
   useEffect(() => {
-    setSelectedConversationId((current) => {
-      if (current && conversations.some((c) => c.id === current)) {
-        return current;
-      }
-      return conversations[0]?.id ?? "";
-    });
-  }, [conversations]);
+    if (conversationsQuery.isPending) {
+      return;
+    }
+    if (
+      selectedConversationId &&
+      conversations.some((c) => c.id === selectedConversationId)
+    ) {
+      return;
+    }
+    const next = conversations[0]?.id ?? "";
+    if (next === selectedConversationId) {
+      return;
+    }
+    setSelectedConversationId(next);
+    if (next) {
+      onSelectConversation?.(next);
+    }
+  }, [
+    conversations,
+    conversationsQuery.isPending,
+    onSelectConversation,
+    selectedConversationId
+  ]);
 
   const selectedConversation = conversations.find(
     (conversation) => conversation.id === selectedConversationId
@@ -99,7 +139,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
           ...(current ?? []).filter((item) => item.id !== conversation.id)
         ]
       );
-      setSelectedConversationId(conversation.id ?? "");
+      selectConversation(conversation.id ?? "");
       setTitle("");
       setIsCreateOpen(false);
       setIsSidebarOpen(true);
@@ -310,7 +350,7 @@ export function AgentsTab({ api, slice }: AgentsTabProps) {
                               : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
                           )}
                           onClick={() => {
-                            setSelectedConversationId(conversation.id ?? "");
+                            selectConversation(conversation.id ?? "");
                             // Close the mobile drawer so the chat is revealed.
                             setMobileSidebarOpen(false);
                           }}

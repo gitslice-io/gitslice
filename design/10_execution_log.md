@@ -6422,3 +6422,34 @@ Results: focused conversation tests passed (6 tests), adjacent Agents page and
 conversation tests passed (13 tests), the full web test suite passed (24 tests),
 and the production web build passed. The build still emits the existing
 Vite/Nitro dependency and large-chunk warnings but exits successfully.
+
+## 2026-06-24: Web Agent Conversation Share URLs
+
+Goal: put the selected web agent conversation id in the URL and allow public
+slice conversation links to render a read-only transcript for anonymous users.
+
+Decision: moved the agents route under the public app route and added
+`/slices/$account/$slice/agents/$conversationId` with an SSR best-effort
+`getConversation` prefetch. Signed-in users still resolve the slice and render
+the full `AgentsTab` experience; anonymous users with a conversation id skip
+auth-only list calls and load just that conversation in a read-only
+`AgentConversation`.
+
+Implementation note: `AgentsTab` keeps its internal selection state but now
+syncs down from an optional URL prop and calls an optional selection callback
+when default-selecting, clicking, or creating conversations. The default
+selection waits for the conversation list query to settle so a URL-provided id
+is not cleared before the list arrives.
+
+Verification:
+```bash
+cd web
+npm ci
+npx tsc -p tsconfig.app.json --noEmit
+npm run test --silent
+npm run build
+```
+
+Results: install, TypeScript, full web tests, and production build passed. The
+web package has no `lint` script. The build still emits existing Vite/Nitro
+dependency and large-chunk warnings but exits successfully.

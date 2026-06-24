@@ -251,8 +251,29 @@ const sliceSettingsRoute = createRoute({
 });
 
 const sliceAgentsRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice/agents",
+  component: SliceAgentsPage
+});
+
+const sliceAgentConversationRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "slices/$account/$slice/agents/$conversationId",
+  loader: async ({ context, params }) => {
+    if (import.meta.env.SSR && params.conversationId) {
+      try {
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        await context.queryClient.ensureQueryData({
+          queryKey: ["conversation", params.conversationId],
+          queryFn: () =>
+            api.getConversation({ conversationId: params.conversationId })
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
   component: SliceAgentsPage
 });
 
@@ -369,11 +390,12 @@ const routeTree = rootRoute.addChildren([
     docSectionRoute,
     slicesRoute,
     sliceCreateRoute,
-    sliceSettingsRoute,
-    sliceAgentsRoute
+    sliceSettingsRoute
   ]),
   publicAppRoute.addChildren([
     sliceDetailRoute,
+    sliceAgentsRoute,
+    sliceAgentConversationRoute,
     changesetsRoute,
     changesetShortRoute
   ])
