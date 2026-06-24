@@ -2472,10 +2472,14 @@ func submitRequirementsForMemorySlice(slice *corev1.Slice) *corev1.SubmitRequire
 	if slice == nil {
 		return req
 	}
-	req.SourceSliceDefinitionHash = slice.DefinitionHash
 	if slice.Definition != nil {
 		req.RequiredApprovals = slice.Definition.RequiredApprovals
 		req.RequiredChecks = append([]string(nil), slice.Definition.RequiredChecks...)
+		req.SourceSliceDefinitionHash = storage.SubmitRequirementsHash(
+			slice.Definition.IncludedPaths,
+			slice.Definition.RequiredApprovals,
+			slice.Definition.RequiredChecks,
+		)
 	}
 	return req
 }

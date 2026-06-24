@@ -2732,14 +2732,13 @@ func submitRequirementsForSliceTx(ctx context.Context, tx *sql.Tx, sliceID strin
 }
 
 func submitRequirementsAndIncludedPathsForSliceTx(ctx context.Context, tx *sql.Tx, sliceID string) (*corev1.SubmitRequirements, []string, error) {
-	var definitionHash string
 	var requiredApprovals int64
 	var includedJSON, requiredChecksJSON []byte
 	err := tx.QueryRowContext(ctx, `
-		select definition_hash, included_paths, required_approvals, required_checks
+		select included_paths, required_approvals, required_checks
 		from slices
 		where id = $1
-	`, sliceID).Scan(&definitionHash, &includedJSON, &requiredApprovals, &requiredChecksJSON)
+	`, sliceID).Scan(&includedJSON, &requiredApprovals, &requiredChecksJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
@@ -2755,9 +2754,13 @@ func submitRequirementsAndIncludedPathsForSliceTx(ctx context.Context, tx *sql.T
 		return nil, nil, err
 	}
 	return &corev1.SubmitRequirements{
-		RequiredApprovals:         int32(requiredApprovals),
-		RequiredChecks:            requiredChecks,
-		SourceSliceDefinitionHash: definitionHash,
+		RequiredApprovals: int32(requiredApprovals),
+		RequiredChecks:    requiredChecks,
+		SourceSliceDefinitionHash: storage.SubmitRequirementsHash(
+			included,
+			int32(requiredApprovals),
+			requiredChecks,
+		),
 	}, included, nil
 }
 

@@ -143,6 +143,61 @@ func TestRPCSubmitDefinitionHashDriftBlocksRefresh(t *testing.T) {
 	assertChangesetBlockedReason(t, ctx, clients.changeset, changesetID, "requirements changed, refresh the changeset")
 }
 
+func TestRPCSubmitVisibilityChangeDoesNotBlockRefresh(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	sliceRef := createSubmitRequirementSlice(t, ctx, clients, slices, "visibility-change", 0, nil)
+	changesetID, patchsetID := createDirectPatchsetForSlice(
+		t,
+		ctx,
+		clients,
+		sliceRef,
+		"/acme/payment/visibility-change/change.go",
+		"package visibilitychange\nconst V = 1\n",
+		"visibility change",
+	)
+	slice, err := slices.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: sliceRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slices.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                slice.Id,
+		ExpectedDefinitionHash: slice.DefinitionHash,
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:     slice.Definition.IncludedPaths,
+			Visibility:        "public",
+			RequiredApprovals: slice.Definition.RequiredApprovals,
+			RequiredChecks:    slice.Definition.RequiredChecks,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	submitted, err := clients.changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               changesetID,
+		ExpectedCurrentPatchsetId: patchsetID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submitted.Status != "pending_publish" && submitted.Status != "submitted" {
+		t.Fatalf("unexpected submit response: %#v", submitted)
+	}
+	cs, err := clients.changeset.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: changesetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.Status != "pending_publish" && cs.Status != "submitted" {
+		t.Fatalf("changeset status = %q, want pending_publish or submitted", cs.Status)
+	}
+}
+
 func createSubmitRequirementSlice(t *testing.T, ctx context.Context, clients testCoreClients, slices corev1.SliceServiceClient, slug string, requiredApprovals int32, requiredChecks []string) *corev1.SliceRef {
 	t.Helper()
 	seedPath := "/acme/payment/" + slug + "/seed.txt"

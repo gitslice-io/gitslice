@@ -784,9 +784,13 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		AffectedPaths: affected,
 		Coverage:      coverage,
 		SubmitRequirements: &corev1.SubmitRequirements{
-			RequiredApprovals:         slice.Definition.RequiredApprovals,
-			RequiredChecks:            append([]string(nil), slice.Definition.RequiredChecks...),
-			SourceSliceDefinitionHash: slice.DefinitionHash,
+			RequiredApprovals: slice.Definition.RequiredApprovals,
+			RequiredChecks:    append([]string(nil), slice.Definition.RequiredChecks...),
+			SourceSliceDefinitionHash: storage.SubmitRequirementsHash(
+				slice.Definition.IncludedPaths,
+				slice.Definition.RequiredApprovals,
+				slice.Definition.RequiredChecks,
+			),
 		},
 		PathBases: pathBases,
 		ReadSet:   readSet,
