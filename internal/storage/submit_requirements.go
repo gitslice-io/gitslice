@@ -1,7 +1,11 @@
 package storage
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
@@ -50,6 +54,40 @@ func EvaluateSubmitRequirements(req *corev1.SubmitRequirements, author string, a
 		}
 	}
 	return ""
+}
+
+// SubmitRequirementsHash hashes only the fields that gate whether a patchset is
+// still valid to submit: included paths and the required approvals/checks. It
+// deliberately excludes slice visibility and definition version, so cosmetic
+// definition edits (e.g. flipping visibility) do not force open changesets to
+// refresh. Inputs are canonicalized (sorted) so ordering differences between
+// callers do not change the hash.
+func SubmitRequirementsHash(includedPaths []string, requiredApprovals int32, requiredChecks []string) string {
+	included := make([]string, len(includedPaths))
+	copy(included, includedPaths)
+	sort.Strings(included)
+
+	checks := make([]string, 0, len(requiredChecks))
+	for _, check := range requiredChecks {
+		check = strings.TrimSpace(check)
+		if check == "" {
+			continue
+		}
+		checks = append(checks, check)
+	}
+	sort.Strings(checks)
+
+	payload, _ := json.Marshal(struct {
+		IncludedPaths     []string `json:"included_paths"`
+		RequiredApprovals int32    `json:"required_approvals"`
+		RequiredChecks    []string `json:"required_checks"`
+	}{
+		IncludedPaths:     included,
+		RequiredApprovals: requiredApprovals,
+		RequiredChecks:    checks,
+	})
+	sum := sha256.Sum256(payload)
+	return "submitreq_sha256:" + hex.EncodeToString(sum[:])
 }
 
 func DistinctNonAuthorApprovalCount(author string, subjectIDs []string) int32 {

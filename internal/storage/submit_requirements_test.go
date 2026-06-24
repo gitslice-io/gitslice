@@ -43,3 +43,20 @@ func TestEvaluateSubmitRequirementsChecks(t *testing.T) {
 		t.Fatalf("reason = %q, want satisfied", reason)
 	}
 }
+
+func TestSubmitRequirementsHashCanonicalizesInputs(t *testing.T) {
+	included := []string{"/acme/payment", "/acme"}
+	checks := []string{" integration ", "", "unit"}
+
+	got := SubmitRequirementsHash(included, 2, checks)
+	reordered := SubmitRequirementsHash([]string{"/acme", "/acme/payment"}, 2, []string{"unit", "integration"})
+	if got != reordered {
+		t.Fatalf("hash changed after reordering/normalizing inputs:\n got %q\nwant %q", got, reordered)
+	}
+	if got == SubmitRequirementsHash([]string{"/acme", "/acme/payment"}, 1, []string{"unit", "integration"}) {
+		t.Fatalf("hash did not change when required approvals changed")
+	}
+	if included[0] != "/acme/payment" || checks[0] != " integration " || checks[1] != "" {
+		t.Fatalf("SubmitRequirementsHash mutated caller inputs: included=%#v checks=%#v", included, checks)
+	}
+}

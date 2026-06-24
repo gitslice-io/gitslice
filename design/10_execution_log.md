@@ -6453,3 +6453,32 @@ npm run build
 Results: install, TypeScript, full web tests, and production build passed. The
 web package has no `lint` script. The build still emits existing Vite/Nitro
 dependency and large-chunk warnings but exits successfully.
+
+## 2026-06-24: Narrow Submit Requirement Freshness Hash
+
+Goal: stop visibility-only slice definition edits from forcing open changesets
+to refresh, while preserving submit blocking when included paths, required
+approvals, or required checks change.
+
+Decision: added a storage-level submit-requirements hash that includes only
+included paths, required approval count, and required checks. The existing full
+slice definition hashes remain unchanged and still include visibility/version
+for `UpdateSliceDefinition` optimistic concurrency and projection identity.
+
+Verification:
+
+```bash
+gofmt -l .
+go build ./...
+go vet ./...
+go test ./internal/storage/... ./service/... ./internal/postgres/... ./internal/storage/memory/...
+go test ./tests/rpc/ -run 'SubmitRequirements|HashDrift|Visibility'
+go test ./tests/rpc/ -run 'SubmitRequirements|HashDrift|Visibility' -v
+```
+
+Results: formatting, build, and package tests passed. The focused RPC command
+compiled the package, but the matching real Postgres tests were skipped because
+`GITSLICE_TEST_DATABASE_URL` is not set in this environment; the verbose rerun
+confirmed the skip reason. `go vet ./...` failed on existing protobuf copy-lock
+warnings in service and in-memory clone helpers; no new submit-requirements hash
+warnings were reported.
