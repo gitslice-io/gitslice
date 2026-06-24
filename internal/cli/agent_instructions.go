@@ -1,0 +1,84 @@
+package cli
+
+import (
+	"path/filepath"
+	"strings"
+)
+
+// agentWorkspaceInstructions returns the runtime-agnostic guidance injected into
+// every agent conversation. It is delivered per-runtime (codex receives it as
+// `developerInstructions` on thread start/resume, so nothing is written into the
+// workspace and `gs cs capture` never picks it up); a future runtime that reads
+// an on-disk AGENTS.md can write this same text to that file.
+//
+// includedPaths is the slice's editable scope (from .gs/slice.json); the agent
+// may only edit files under those prefixes.
+func agentWorkspaceInstructions(includedPaths []string) string {
+	var b strings.Builder
+	b.WriteString(agentWorkspaceInstructionsPreamble)
+	b.WriteString("\n")
+	b.WriteString(agentWorkspaceEditableScope(includedPaths))
+	b.WriteString("\n")
+	b.WriteString(agentWorkspaceInstructionsCommands)
+	return b.String()
+}
+
+// agentWorkspaceEditableScope renders the editable-paths section. Only files
+// under the slice's included paths are part of the workspace; edits anywhere
+// else are out of scope and will not be captured.
+func agentWorkspaceEditableScope(includedPaths []string) string {
+	if len(includedPaths) == 0 {
+		return "- You may only edit files under this slice's included paths. Run " +
+			"`gs status` to see the workspace scope."
+	}
+	var b strings.Builder
+	b.WriteString("- You may only edit files under this slice's included path(s):\n")
+	for _, p := range includedPaths {
+		b.WriteString("    ")
+		b.WriteString(strings.TrimRight(p, "/"))
+		b.WriteString("/\n")
+	}
+	b.WriteString("  Files outside these paths are not part of the workspace; do not " +
+		"create or edit files elsewhere, as those changes are out of scope and will " +
+		"not be captured.")
+	return b.String()
+}
+
+// conversationIncludedPaths reads the editable scope for a conversation's
+// hydrated workspace from its .gs/slice.json. Best-effort: a missing or
+// unreadable config yields nil, and the instructions fall back to generic
+// scope guidance.
+func conversationIncludedPaths(workdir string) []string {
+	var cfg WorkspaceConfig
+	if err := readJSONFile(filepath.Join(workdir, ".gs", "slice.json"), &cfg); err != nil {
+		return nil
+	}
+	return cfg.IncludedPaths
+}
+
+const agentWorkspaceInstructionsPreamble = `You are working inside a Gitslice workspace, NOT a git repository.
+
+- This directory is a gitslice workspace bound to a single slice. It is not a git
+  repo: do not run ` + "`git`" + ` commands. Git is not the source of truth here, and
+  git operations will not reflect or persist your work.
+- Edit files directly with your normal tools. Your changes are captured
+  automatically as a patchset at the end of each turn — you do not need to commit
+  or run any capture command yourself.
+- NEVER create or update a changeset yourself. The Gitslice agent daemon monitors
+  this workspace and creates and updates the changeset automatically. Do not run
+  ` + "`gs cs create`" + `, ` + "`gs cs update`" + `, ` + "`gs cs capture`" + `, ` + "`gs cs submit`" + `, or
+  similar changeset-mutating commands — read-only inspection like ` + "`gs cs status`" + `
+  and ` + "`gs cs show`" + ` is fine.`
+
+const agentWorkspaceInstructionsCommands = `- Use the ` + "`gs`" + ` CLI for source-control operations. Useful commands:
+    gs status            show the workspace status (pending edits)
+    gs log               show slice history
+    gs diff              show changes against the slice base
+    gs show <commit>     show a specific commit
+    gs sync              pull the latest slice state into the workspace
+    gs cs status         show the current changeset status
+    gs cs show           show the current changeset details
+  Run ` + "`gs --help`" + ` or ` + "`gs <command> --help`" + ` for anything else.
+- Do NOT create AGENTS.md, CLAUDE.md, or other agent-instruction files in the
+  workspace. These instructions are provided out-of-band; writing such a file
+  would pollute the slice's changeset.`

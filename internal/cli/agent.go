@@ -809,7 +809,7 @@ func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRunt
 		stale.Close()
 	}
 
-	session, err := runtime.OpenSession(ctx, c.workdir, resume)
+	session, err := runtime.OpenSession(ctx, c.workdir, resume, agentWorkspaceInstructions(conversationIncludedPaths(c.workdir)))
 	if err != nil {
 		return nil, err
 	}

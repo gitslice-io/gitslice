@@ -87,6 +87,18 @@ func TestCodexRuntimeRunTurnPropagatesError(t *testing.T) {
 	}
 }
 
+func TestCodexRuntimeForwardsDeveloperInstructions(t *testing.T) {
+	const instructions = "gitslice workspace: do not use git"
+	t.Setenv("GS_FAKE_CODEX_EXPECT_INSTRUCTIONS", instructions)
+
+	// The fake app-server rejects thread/start unless developerInstructions
+	// matches, so a successful session proves the instructions were forwarded.
+	session := openFakeCodexSessionWithInstructions(t, "", instructions)
+	if got := session.ThreadID(); got != "thread-fake-1" {
+		t.Fatalf("ThreadID() = %q, want thread-fake-1", got)
+	}
+}
+
 func TestCodexRuntimeResumesThread(t *testing.T) {
 	session := openFakeCodexSession(t, "thread-existing-7")
 
@@ -120,10 +132,15 @@ func TestCodexRuntimeRunTurnEmitsToolCall(t *testing.T) {
 
 func openFakeCodexSession(t *testing.T, resumeThreadID string) agentSession {
 	t.Helper()
+	return openFakeCodexSessionWithInstructions(t, resumeThreadID, "")
+}
+
+func openFakeCodexSessionWithInstructions(t *testing.T, resumeThreadID, instructions string) agentSession {
+	t.Helper()
 	t.Setenv("GS_FAKE_CODEX", "1")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	session, err := (codexRuntime{Binary: os.Args[0]}).OpenSession(ctx, t.TempDir(), resumeThreadID)
+	session, err := (codexRuntime{Binary: os.Args[0]}).OpenSession(ctx, t.TempDir(), resumeThreadID, instructions)
 	if err != nil {
 		cancel()
 		t.Fatalf("OpenSession returned error: %v", err)
@@ -162,6 +179,12 @@ func fakeCodexAppServer(in io.Reader, out io.Writer) {
 		case "initialized":
 			continue
 		case "thread/start":
+			if want := os.Getenv("GS_FAKE_CODEX_EXPECT_INSTRUCTIONS"); want != "" && fakeCodexDeveloperInstructions(msg.Params) != want {
+				if !fakeCodexRespondError(writer, msg.ID, -32602, "missing developerInstructions") {
+					return
+				}
+				continue
+			}
 			if !fakeCodexRespond(writer, msg.ID, map[string]any{
 				"thread": map[string]string{"id": "thread-fake-1"},
 			}) {
@@ -195,6 +218,14 @@ func fakeCodexThreadID(params json.RawMessage) string {
 	}
 	_ = json.Unmarshal(params, &p)
 	return p.ThreadID
+}
+
+func fakeCodexDeveloperInstructions(params json.RawMessage) string {
+	var p struct {
+		DeveloperInstructions string `json:"developerInstructions"`
+	}
+	_ = json.Unmarshal(params, &p)
+	return p.DeveloperInstructions
 }
 
 func fakeCodexRunScript(writer *bufio.Writer, script string) bool {
