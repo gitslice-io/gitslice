@@ -71,6 +71,10 @@ message ConversationEvent {
   // runtime item, so clients can coalesce token streams into a single message.
   // It is persisted for replay when the daemon supplies it.
   string item_id = 9;
+  // client_seq is the daemon's per-conversation sequence for this event (0 for
+  // server-origin or legacy events). Persisted so AppendEvent can dedup resends
+  // on (conversation_id, client_seq).
+  int64 client_seq = 10;
 }
 
 // ---- Daemon <-> server stream payloads ----
@@ -106,6 +110,11 @@ message AgentEvent {
   // ephemeral marks a runtime token delta. The server still persists the delta;
   // clients use type + item_id to coalesce it with the finalized event.
   bool ephemeral = 8;
+  // client_seq is a per-conversation monotonic sequence assigned by the daemon.
+  // The server dedups on (conversation_id, client_seq) and acks it so the daemon
+  // can resend unacked events after a Connect reconnect without duplicating them.
+  // 0 means unsequenced (server-origin or legacy events) and is never deduped.
+  int64 client_seq = 9;
 }
 
 message ConversationStarted {
@@ -120,6 +129,7 @@ message ServerMessage {
     DeliverUserMessage user_message = 3;
     CancelConversation cancel = 4;
     Ping ping = 5;
+    EventAck ack = 6;
   }
 }
 
@@ -145,6 +155,14 @@ message CancelConversation {
 }
 
 message Ping {}
+
+// EventAck tells the daemon the server has durably persisted (or already had)
+// every agent event for this conversation up to acked_client_seq, so the daemon
+// can drop those from its resend buffer.
+message EventAck {
+  string conversation_id = 1;
+  int64 acked_client_seq = 2;
+}
 
 // ---- Web-facing request/response ----
 

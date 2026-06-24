@@ -166,8 +166,11 @@ type AgentStore interface {
 	SetConversationStatus(ctx context.Context, conversationID, status string) error
 
 	// AppendEvent assigns the next per-conversation seq atomically and returns
-	// the stored event.
-	AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string) (*corev1.ConversationEvent, error)
+	// the stored event. When clientSeq > 0 it is the daemon's per-conversation
+	// sequence and AppendEvent dedups on (conversationID, clientSeq): a repeat is
+	// not inserted, does not advance the server seq, and returns inserted=false
+	// (with the previously stored event). clientSeq <= 0 is always inserted.
+	AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string, clientSeq int64) (ev *corev1.ConversationEvent, inserted bool, err error)
 	ListEvents(ctx context.Context, conversationID string, afterSeq int64) ([]*corev1.ConversationEvent, error)
 	// ListEventsRange returns events with afterSeq < seq <= beforeSeq. A
 	// beforeSeq <= 0 means no upper bound.

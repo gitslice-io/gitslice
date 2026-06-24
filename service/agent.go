@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/storage"
@@ -11,6 +12,16 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// agentDaemonPingInterval is how often the server pushes a keepalive Ping on
+// each daemon Connect stream. The daemon's long-lived Connect stream produces
+// no server->daemon frames between turns, so a proxy in front of the server
+// (nginx grpc_read_timeout, the Cloudflare edge) resets the streamed response
+// once its idle window elapses — observed at ~125s in staging — tearing the
+// stream down. Pinging well inside that window keeps it warm; the daemon answers
+// each Ping with a heartbeat, keeping the daemon->server direction alive too.
+// Must stay comfortably below the shortest read/idle timeout of any proxy.
+const agentDaemonPingInterval = 20 * time.Second
 
 // AgentService implements the bring-your-own-agent API: a relay between agent
 // daemons (Connect) and the web UI (unary + StreamConversation). See
@@ -73,12 +84,23 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		return grpcError(err)
 	}
 
-	// Writer goroutine: gRPC allows one concurrent Send alongside the Recv loop.
+	// Writer goroutine: gRPC allows one concurrent Send alongside the Recv loop,
+	// so every server->daemon write (queued messages and keepalive pings) is
+	// funneled through here. The ping ticker keeps the stream from idling out at
+	// a proxy in front of the server; see agentDaemonPingInterval.
 	go func() {
+		ping := time.NewTicker(agentDaemonPingInterval)
+		defer ping.Stop()
 		for {
 			select {
 			case msg := <-conn.send:
 				if err := stream.Send(msg); err != nil {
+					return
+				}
+			case <-ping.C:
+				if err := stream.Send(&corev1.ServerMessage{
+					Payload: &corev1.ServerMessage_Ping{Ping: &corev1.Ping{}},
+				}); err != nil {
 					return
 				}
 			case <-conn.done:
@@ -116,11 +138,23 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 			if eventType == "" {
 				eventType = "message"
 			}
-			stored, err := s.Agents.AppendEvent(ctx, ev.ConversationId, role, eventType, ev.Text, ev.DataJson, ev.ItemId)
+			stored, inserted, err := s.Agents.AppendEvent(ctx, ev.ConversationId, role, eventType, ev.Text, ev.DataJson, ev.ItemId, ev.ClientSeq)
 			if err != nil {
 				continue
 			}
-			s.hub.publish(ev.ConversationId, stored)
+			// Only fan out a genuinely new event; a resent duplicate (deduped by
+			// client_seq) was already published when first stored.
+			if inserted {
+				s.hub.publish(ev.ConversationId, stored)
+			}
+			// Ack sequenced events so the daemon can drop them from its resend
+			// buffer. Ack duplicates too: a dup means it is already durable.
+			if ev.ClientSeq > 0 {
+				conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Ack{Ack: &corev1.EventAck{
+					ConversationId: ev.ConversationId,
+					AckedClientSeq: ev.ClientSeq,
+				}}})
+			}
 		}
 	}
 }
@@ -262,7 +296,7 @@ func (s *AgentService) SendAgentMessage(ctx context.Context, req *corev1.SendAge
 	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionWrite); err != nil {
 		return nil, err
 	}
-	ev, err := s.Agents.AppendEvent(ctx, conv.Id, "user", "message", req.Text, "", "")
+	ev, _, err := s.Agents.AppendEvent(ctx, conv.Id, "user", "message", req.Text, "", "", 0)
 	if err != nil {
 		return nil, grpcError(err)
 	}
