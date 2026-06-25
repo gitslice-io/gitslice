@@ -33,7 +33,6 @@ import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceAgentsPage } from "./SliceAgentsPage";
 import { SliceDetailPage } from "./SliceDetailPage";
 import { SliceSettingsPage } from "./SliceSettingsPage";
-import { SlicesPage } from "./SlicesPage";
 import { parseSliceSearch } from "./stackPageUtils";
 
 interface RouterContext {
@@ -176,7 +175,7 @@ const docSectionRoute = createRoute({
 const slicesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices",
-  component: SlicesPage
+  component: HomePage
 });
 
 const sliceCreateRoute = createRoute({

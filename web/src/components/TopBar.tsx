@@ -5,7 +5,7 @@ import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
 
 const navItems = [
-  { label: "Slices", to: "/slices", section: "slices" },
+  { label: "Home", to: "/", section: "slices" },
   { label: "doc", to: "/doc", section: "doc" }
 ] as const;
 

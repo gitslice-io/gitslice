@@ -78,7 +78,7 @@ export function changesetBreadcrumbItems({
   changeset: Changeset;
   sliceSearch: string;
 }): Crumb[] {
-  const items: Crumb[] = [{ label: "Slices", to: "/slices" }];
+  const items: Crumb[] = [{ label: "Home", to: "/" }];
 
   if (sliceSearch) {
     const routeParams = toSliceRouteParams(changeset.authoringSlice);

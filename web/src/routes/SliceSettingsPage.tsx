@@ -169,7 +169,7 @@ export function SliceSettingsPage() {
         breadcrumb={
           <Breadcrumb
             items={[
-              { label: "Slices", to: "/slices" },
+              { label: "Home", to: "/" },
               sliceRouteParams
                 ? {
                     label: sliceLabel,

@@ -260,7 +260,7 @@ export function SliceDetailPage() {
       <PageHeader
         breadcrumb={
           <Breadcrumb
-            items={[{ label: "Slices", to: "/slices" }, { label: sliceLabel }]}
+            items={[{ label: "Home", to: "/" }, { label: sliceLabel }]}
           />
         }
         primaryAction={

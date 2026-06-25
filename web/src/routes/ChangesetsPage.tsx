@@ -58,7 +58,7 @@ export function ChangesetsPage() {
     [changesetsQuery.data?.changesets]
   );
 
-  const breadcrumbItems: Crumb[] = [{ label: "Slices", to: "/slices" }];
+  const breadcrumbItems: Crumb[] = [{ label: "Home", to: "/" }];
   if (sliceRef) {
     const routeParams = toSliceRouteParams(sliceRef);
     breadcrumbItems.push(
