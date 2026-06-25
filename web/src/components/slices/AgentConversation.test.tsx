@@ -89,6 +89,56 @@ describe("AgentConversation", () => {
     );
   });
 
+  it("backfills persisted history in one batch and tails the stream", async () => {
+    const persisted: ConversationEvent[] = [
+      {
+        id: "evt_1",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "user",
+        type: "message",
+        text: "first question"
+      },
+      {
+        id: "evt_2",
+        conversationId: "conv_1",
+        seq: "2",
+        role: "agent",
+        type: "message",
+        text: "first answer"
+      }
+    ];
+    const api = {
+      sendAgentMessage: vi.fn(),
+      getConversationEvents: vi.fn(async () => ({ events: persisted })),
+      // The stream only carries the live tail here; the batch already rendered
+      // the history, so the stream must open after the last persisted seq.
+      streamConversation: vi.fn(async function* () {})
+    } as unknown as ApiClient;
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    expect(await screen.findByText("first answer")).toBeInTheDocument();
+    expect(screen.getByText("first question")).toBeInTheDocument();
+    expect(api.getConversationEvents).toHaveBeenCalledWith({
+      conversationId: "conv_1",
+      afterSeq: 0
+    });
+    // Tailing from the last persisted seq, not replaying from 0.
+    await waitFor(() =>
+      expect(api.streamConversation).toHaveBeenCalledWith(
+        { conversationId: "conv_1", afterSeq: 2 },
+        expect.any(AbortSignal)
+      )
+    );
+  });
+
   it("renders agent messages as markdown", async () => {
     const api = makeApi([
       {
@@ -580,6 +630,7 @@ describe("AgentConversation", () => {
     let attempts = 0;
     const api = {
       sendAgentMessage: vi.fn(),
+      getConversationEvents: vi.fn(async () => ({ events: [] })),
       streamConversation: vi.fn(async function* (
         _request: { conversationId: string; afterSeq: number },
         signal: AbortSignal
@@ -641,6 +692,7 @@ describe("AgentConversation", () => {
     let attempts = 0;
     const api = {
       sendAgentMessage: vi.fn(),
+      getConversationEvents: vi.fn(async () => ({ events: [] })),
       streamConversation: vi.fn(async function* (
         _request: { conversationId: string; afterSeq: number },
         signal: AbortSignal
@@ -687,6 +739,10 @@ describe("AgentConversation", () => {
 function makeApi(events: ConversationEvent[]) {
   return {
     sendAgentMessage: vi.fn(),
+    // Backfill returns no persisted history here, so the transcript still
+    // arrives through the stream — these tests exercise the streaming/live-delta
+    // path. The batch backfill path has its own test below.
+    getConversationEvents: vi.fn(async () => ({ events: [] })),
     streamConversation: vi.fn(async function* () {
       for (const event of events) {
         yield event;
