@@ -106,7 +106,7 @@ export function SliceCreatePage() {
         breadcrumb={
           <Breadcrumb
             items={[
-              { label: "Slices", to: "/slices" },
+              { label: "Home", to: "/" },
               { label: "New slice" }
             ]}
           />

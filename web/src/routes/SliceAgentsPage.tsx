@@ -52,7 +52,7 @@ export function SliceAgentsPage() {
   const sliceLabel = sliceRef ? `${sliceRef.account}:${sliceRef.slice}` : "";
   const sliceRouteParams = toSliceRouteParams(sliceRef);
   const breadcrumbItems = [
-    { label: "Slices", to: "/slices" },
+    { label: "Home", to: "/" },
     sliceRouteParams
       ? {
           label: sliceLabel,

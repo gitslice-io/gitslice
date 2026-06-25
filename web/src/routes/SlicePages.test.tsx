@@ -5,9 +5,9 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { HomePage } from "./HomePage";
 import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceDetailPage } from "./SliceDetailPage";
-import { SlicesPage } from "./SlicesPage";
 import { SliceSettingsPage } from "./SliceSettingsPage";
 
 const apiMock = vi.hoisted(() => ({
@@ -85,7 +85,7 @@ describe("slice route pages (render smoke)", () => {
   }
 
   it("renders the slices list", async () => {
-    renderRoute(<SlicesPage />);
+    renderRoute(<HomePage />);
     await waitFor(() => expect(apiMock.current.listSlices).toHaveBeenCalled());
     await flushAsync();
     expectHealthy();
@@ -161,6 +161,8 @@ function makeApi() {
       entry: { kind: "ENTRY_KIND_DIRECTORY", path: "/nic" }
     }),
     readFile: vi.fn().mockResolvedValue({ data: btoa("hi\n") }),
+    listConversations: vi.fn().mockResolvedValue({ conversations: [] }),
+    listDaemons: vi.fn().mockResolvedValue({ daemons: [] }),
     listCommits: vi.fn().mockResolvedValue({ commits: [] }),
     listChangesets: vi.fn().mockResolvedValue({ changesets: [] }),
     updateSliceDefinition: vi.fn().mockResolvedValue(slice.definition),
