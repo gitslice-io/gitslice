@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/internal/treestore"
@@ -43,7 +45,20 @@ type entityChange struct {
 	Mode        uint32
 }
 
-const outboxKindCommitPublished = "commit_published"
+const (
+	outboxKindCommitPublished = "commit_published"
+
+	submitRetryAttempts = 5
+	submitRetryBaseWait = 5 * time.Millisecond
+)
+
+func isRetryableSerializationError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == "40001" || pgErr.Code == "40P01"
+}
 
 type commitPublishedPayload struct {
 	TargetRef    string    `json:"target_ref"`
@@ -1655,6 +1670,24 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	defer func() {
 		storage.RecordSubmitResult(err)
 	}()
+	for attempt := 0; attempt < submitRetryAttempts; attempt++ {
+		res, err = s.submitOnce(ctx, changesetID, expectedCurrentPatchsetID)
+		if err == nil || !isRetryableSerializationError(err) || attempt == submitRetryAttempts-1 {
+			return res, err
+		}
+		wait := time.Duration(attempt+1) * submitRetryBaseWait
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return res, err
+}
+
+func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
