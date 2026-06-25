@@ -15,6 +15,7 @@ const apiMock = vi.hoisted(() => ({
 }));
 
 const routerMock = vi.hoisted(() => ({
+  back: vi.fn(),
   navigate: vi.fn(),
   params: {} as Record<string, string>,
   search: {} as Record<string, unknown>
@@ -43,6 +44,7 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
   useNavigate: () => routerMock.navigate,
   useParams: () => routerMock.params,
+  useRouter: () => ({ history: { back: routerMock.back } }),
   useSearch: () => routerMock.search
 }));
 
@@ -59,6 +61,7 @@ describe("slice route pages (render smoke)", () => {
 
   beforeEach(() => {
     routerMock.navigate = vi.fn();
+    routerMock.back = vi.fn();
     routerMock.params = { account: "nic", slice: "home" };
     routerMock.search = {};
     apiMock.current = makeApi();

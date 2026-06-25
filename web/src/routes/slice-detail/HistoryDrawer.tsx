@@ -158,7 +158,6 @@ export function HistoryDrawer({
                       {changeset ? (
                         <Link
                           className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-700 transition hover:bg-white hover:text-zinc-950"
-                          onClick={onClose}
                           params={{
                             id: shortChangesetId(changeset.id ?? "") || ""
                           }}
