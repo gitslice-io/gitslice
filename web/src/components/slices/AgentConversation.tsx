@@ -2,6 +2,7 @@ import {
   FormEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -51,6 +52,11 @@ export function AgentConversation({
   const [isStreamReconnecting, setIsStreamReconnecting] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  // False until the persisted transcript has been backfilled in one batch (see
+  // the stream effect). Gates the empty state so "No messages yet" doesn't flash
+  // before history arrives, and lets the view render the whole transcript in a
+  // single commit instead of one snap-to-bottom per replayed event.
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   // Bumping retryKey re-runs the stream effect after a stream stop, without
   // needing to remount the component or change conversationId.
   const [retryKey, setRetryKey] = useState(0);
@@ -93,6 +99,7 @@ export function AgentConversation({
     setIsStreamReconnecting(false);
     setSendError("");
     setDraft("");
+    setHistoryLoaded(false);
     // When switching conversations, treat the new view as "stick to bottom".
     stickToBottomRef.current = true;
   }, [conversationId]);
@@ -119,10 +126,44 @@ export function AgentConversation({
       }, STREAM_RECONNECT_DELAY_MS);
     }
 
+    // Backfill the persisted transcript in one request before opening the
+    // stream, so the whole history lands in a single commit. Previously the
+    // stream was opened at afterSeq 0 and replayed every persisted event one at
+    // a time; each arrival grew the page and snapped it to the bottom, so
+    // opening a conversation read as a stutter of downward jumps. On a reconnect
+    // (retryKey bump without a conversation change) we already hold the history,
+    // so latestPersistedSeqRef is non-zero and we skip straight to tailing.
+    async function backfillHistory() {
+      if (latestPersistedSeqRef.current !== 0) {
+        return;
+      }
+      try {
+        const history = await api.getConversationEvents({
+          conversationId,
+          afterSeq: 0
+        });
+        if (controller.signal.aborted) {
+          return;
+        }
+        const historyEvents = history.events ?? [];
+        if (historyEvents.length) {
+          for (const event of historyEvents) {
+            rememberPersistedEventSeq(event, latestPersistedSeqRef);
+          }
+          setEvents((current) =>
+            historyEvents.reduce(appendConversationEvent, current)
+          );
+        }
+      } catch {
+        // Fall through to streaming from seq 0, which still backfills the
+        // transcript (just event-by-event) — better than rendering nothing.
+      }
+    }
+
     async function readStream() {
       try {
         for await (const event of api.streamConversation(
-          { conversationId, afterSeq: 0 },
+          { conversationId, afterSeq: latestPersistedSeqRef.current },
           controller.signal
         )) {
           if (controller.signal.aborted) {
@@ -168,7 +209,16 @@ export function AgentConversation({
       }
     }
 
-    void readStream();
+    async function run() {
+      await backfillHistory();
+      if (controller.signal.aborted) {
+        return;
+      }
+      setHistoryLoaded(true);
+      await readStream();
+    }
+
+    void run();
 
     return () => {
       controller.abort();
@@ -183,7 +233,12 @@ export function AgentConversation({
   // scroll model). Auto-scroll on new events only when the user is already
   // parked at the bottom; otherwise scrolling up to read history would be
   // yanked away on every streamed token.
-  useEffect(() => {
+  //
+  // useLayoutEffect (not useEffect) so the scroll correction runs after the DOM
+  // grows but before the browser paints. With a plain effect the browser first
+  // paints the taller transcript at the old scroll position and only then jumps
+  // to the bottom, so every appended event flashed a visible downward lurch.
+  useLayoutEffect(() => {
     if (!stickToBottomRef.current) {
       return;
     }
@@ -346,16 +401,25 @@ export function AgentConversation({
 
         <div className="px-3 py-4 sm:px-5">
           {events.length === 0 && liveDeltas.size === 0 ? (
-            <div className="flex min-h-64 items-center justify-center text-center">
-              <div className="max-w-sm">
-                <h3 className="text-sm font-semibold text-zinc-950">
-                  No messages yet
-                </h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Send a message to start this agent conversation.
-                </p>
+            !historyLoaded ? (
+              <div
+                aria-hidden
+                className="flex min-h-64 items-center justify-center"
+              >
+                <span className="h-2 w-24 animate-pulse rounded bg-slate-200" />
               </div>
-            </div>
+            ) : (
+              <div className="flex min-h-64 items-center justify-center text-center">
+                <div className="max-w-sm">
+                  <h3 className="text-sm font-semibold text-zinc-950">
+                    No messages yet
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Send a message to start this agent conversation.
+                  </p>
+                </div>
+              </div>
+            )
           ) : (
             <div className="grid grid-cols-1 gap-3">
               {conversationItems.map((item, index) =>
