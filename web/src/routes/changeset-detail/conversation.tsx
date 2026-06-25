@@ -12,6 +12,7 @@ import type { ConversationEvent, Patchset } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "../../lib/cn";
+import { renderMarkdownToHtml } from "../../lib/markdown";
 import { patchsetConversationRange } from "./patchsetUtils";
 
 export type ConversationViewItem =
@@ -246,15 +247,35 @@ export function PatchsetConversationContent({
                     ? ` · ${item.event.type}`
                     : ""}
                 </div>
-                <div className="whitespace-pre-wrap break-words text-slate-800">
-                  {item.event.text}
-                </div>
+                {item.event.role === "user" ||
+                item.event.role === "system" ||
+                !item.event.text ? (
+                  <div className="whitespace-pre-wrap break-words text-slate-800">
+                    {item.event.text}
+                  </div>
+                ) : (
+                  <MessageMarkdown source={item.event.text} />
+                )}
               </li>
             )
           )}
         </ul>
       )}
     </>
+  );
+}
+
+// MessageMarkdown renders an agent message as sanitized markdown, matching the
+// live conversation view (AgentConversation) so the drawer doesn't show raw
+// markdown source. Parsing is synchronous; the prose classes are tuned for the
+// compact drawer bubbles.
+function MessageMarkdown({ source }: { source: string }) {
+  const html = useMemo(() => renderMarkdownToHtml(source), [source]);
+  return (
+    <div
+      className="prose prose-sm prose-slate max-w-none break-words text-slate-800 prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:text-zinc-900 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 }
 
