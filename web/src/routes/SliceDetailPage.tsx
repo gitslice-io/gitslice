@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
   Link,
   useNavigate,
   useParams,
+  useRouter,
   useSearch,
 } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -51,11 +52,13 @@ interface SliceParams {
 
 interface SliceSearch {
   path?: unknown;
+  history?: unknown;
 }
 
 export function SliceDetailPage() {
   const api = useApi();
   const navigate = useNavigate();
+  const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
   const { account } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
@@ -70,13 +73,12 @@ export function SliceDetailPage() {
     [routeAccount, routeSlice],
   );
   const selectedPath = pathSearchValue(search.path);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // The history view's open state lives in the URL (the `history` search param)
+  // rather than local state so the browser/mobile back gesture closes it instead
+  // of navigating away from the slice page entirely.
+  const historyOpen = Boolean(search.history);
   const [showTree, setShowTree] = useState(true);
   const canEdit = Boolean(isLoaded && isSignedIn && account);
-
-  useEffect(() => {
-    setHistoryOpen(false);
-  }, [selectedPath]);
 
   const sliceQuery = useQuery({
     enabled: Boolean(isLoaded && routeSliceRef),
@@ -195,6 +197,29 @@ export function SliceDetailPage() {
       search: path ? ({ path } as never) : ({} as never),
       to: "/slices/$account/$slice",
     });
+  }
+
+  function openHistory() {
+    if (!sliceRouteParams) {
+      return;
+    }
+    // Push a new history entry so "back" (including the mobile swipe) pops the
+    // history view and returns to this slice page instead of leaving it.
+    void navigate({
+      params: sliceRouteParams as never,
+      search: {
+        ...(selectedPath ? { path: selectedPath } : {}),
+        history: "1",
+      } as never,
+      to: "/slices/$account/$slice",
+    });
+  }
+
+  function closeHistory() {
+    if (historyOpen) {
+      // Mirror the back gesture: pop the entry openHistory pushed.
+      router.history.back();
+    }
   }
 
   function stagePendingEdit(edit: PendingEdit) {
@@ -382,7 +407,7 @@ export function SliceDetailPage() {
               isFileLoading={fileQuery.isPending}
               isLatestLoading={latestQuery.isPending}
               isPathLoading={pathQuery.isLoading}
-              onOpenHistory={() => setHistoryOpen(true)}
+              onOpenHistory={openHistory}
               onSelectPath={selectPath}
               onStageEdit={canEdit ? stagePendingEdit : undefined}
               pathError={pathQuery.error}
@@ -394,7 +419,7 @@ export function SliceDetailPage() {
         <HistoryDrawer
           api={api}
           commitId={commitId}
-          onClose={() => setHistoryOpen(false)}
+          onClose={closeHistory}
           open={historyOpen}
           selectedPath={selectedPath}
           sliceId={sliceId || sliceRouteKey}
