@@ -51,12 +51,22 @@ export function SlicesList() {
 
   return (
     <section>
-      <h2 className="text-sm font-semibold text-zinc-950">Slices</h2>
-      <p className="mb-4 text-sm leading-6 text-slate-600">
-        Definitions for slices under the selected account.
-      </p>
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-zinc-950">Slices</h2>
+          <p className="text-sm leading-6 text-slate-600">
+            Definitions for slices under the selected account.
+          </p>
+        </div>
+        <Link
+          className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+          to="/slices/new"
+        >
+          New slice
+        </Link>
+      </div>
 
-      <div className="mt-8">
+      <div className="mt-4">
         {selection.isLoading ? (
           <SliceLoadingBlock />
         ) : selection.error ? (
