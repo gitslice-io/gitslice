@@ -42,7 +42,7 @@ export function SliceAgentsPage() {
   });
 
   const conversationQuery = useQuery({
-    enabled: Boolean(!isSignedIn && conversationId),
+    enabled: Boolean(isLoaded && conversationId),
     queryKey: ["conversation", conversationId],
     queryFn: () => api.getConversation({ conversationId }),
   });
@@ -63,7 +63,8 @@ export function SliceAgentsPage() {
     { label: "Conversations" },
   ];
   if (conversationId) {
-    breadcrumbItems.push({ label: "Conversation" });
+    const conversationTitle = conversationQuery.data?.title?.trim();
+    breadcrumbItems.push({ label: conversationTitle || "Conversation" });
   }
 
   const onSelectConversation = useCallback(
