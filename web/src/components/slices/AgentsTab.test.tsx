@@ -20,6 +20,7 @@ describe("AgentsTab", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("renders online daemons and the empty conversation state", async () => {
@@ -272,7 +273,59 @@ describe("AgentsTab", () => {
       screen.getByRole("complementary", { name: "Agent conversations" }),
     ).toBeInTheDocument();
   });
+
+  it("auto-opens the newest conversation on desktop when the route is unselected", async () => {
+    stubMatchMedia(true);
+    const onSelectConversation = vi.fn();
+    const api = makeApi({
+      conversations: [
+        {
+          id: "conv_new",
+          title: "Newest chat",
+          status: "active",
+          updatedAt: "2026-06-22T10:00:00Z",
+        },
+        {
+          id: "conv_old",
+          title: "Older chat",
+          status: "active",
+          updatedAt: "2026-06-20T10:00:00Z",
+        },
+      ],
+    });
+
+    renderWithClient(
+      <AgentsTab
+        api={api}
+        conversationId=""
+        onSelectConversation={onSelectConversation}
+        slice={{ account: "nic", slice: "home" }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onSelectConversation).toHaveBeenCalledWith("conv_new"),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Newest chat" }),
+    ).toBeInTheDocument();
+  });
 });
+
+// Stubs window.matchMedia (absent in jsdom) so the component can resolve the lg
+// breakpoint. Cleared by vi.unstubAllGlobals() in afterEach.
+function stubMatchMedia(matches: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
 
 // react-query requires a provider; tests that previously rendered AgentsTab
 // directly now go through this helper. The client is configured to fail fast

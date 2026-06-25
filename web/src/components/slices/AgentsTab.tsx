@@ -55,6 +55,11 @@ export function AgentsTab({
   const [title, setTitle] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  // Tracks the lg breakpoint so we only auto-open the newest conversation on
+  // desktop. On mobile the list is a full-screen view of its own, so
+  // auto-opening would trap the user in a transcript with no way back to the
+  // list. Defaults to false (also the SSR value) and resolves on mount.
+  const [isDesktop, setIsDesktop] = useState(false);
 
   const selectConversation = useCallback(
     (id: string) => {
@@ -68,6 +73,20 @@ export function AgentsTab({
     setSelectedConversationId("");
     onBack?.();
   }, [onBack]);
+
+  // Resolve the lg breakpoint on the client and keep it in sync as the viewport
+  // crosses it (resize / rotate). Guarded for SSR and jsdom, where matchMedia
+  // may be absent — there isDesktop stays false.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) {
+      return;
+    }
+    const query = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   // Keep daemon selection valid as the online set changes. We only reassign
   // when the current pick is gone; we never clobber a user-chosen daemon.
@@ -89,9 +108,18 @@ export function AgentsTab({
   }, [conversationId]);
 
   // Default-select the newest conversation, but never overwrite an active
-  // selection that still exists in the list.
+  // selection that still exists in the list. This runs when there is no
+  // conversation in the URL, in two cases:
+  //   - uncontrolled (conversationId === undefined): always, e.g. in tests;
+  //   - controlled but empty (conversationId === ""): desktop only, so the
+  //     mobile full-screen list stays put instead of trapping the user in a
+  //     transcript. A non-empty conversationId means a specific conversation is
+  //     intended, so we leave it alone.
   useEffect(() => {
-    if (conversationId !== undefined) {
+    if (conversationId) {
+      return;
+    }
+    if (conversationId === "" && !isDesktop) {
       return;
     }
     if (conversationsQuery.isPending) {
@@ -115,6 +143,7 @@ export function AgentsTab({
     conversations,
     conversationsQuery.isPending,
     conversationId,
+    isDesktop,
     onSelectConversation,
     selectedConversationId,
   ]);
