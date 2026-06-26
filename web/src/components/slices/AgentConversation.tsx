@@ -165,6 +165,55 @@ export function AgentConversation({
       }
     }
 
+    // When a turn captures a patchset, the gsfile: file links in that turn's
+    // already-streamed messages can upgrade from a slice-file URL to the precise
+    // changeset+patchset URL (the server resolves them per read, and the patchset
+    // now exists). Re-read the transcript once and merge ONLY the refreshed text
+    // into the events we already hold — matched by identity, never adding,
+    // removing, or reordering events — so links update in place without changing
+    // the rendered structure (no scroll jump, no flicker). Best-effort: on any
+    // failure the links still upgrade on the next reload.
+    async function refreshResolvedLinks() {
+      let refreshed;
+      try {
+        refreshed = await api.getConversationEvents({
+          conversationId,
+          afterSeq: 0
+        });
+      } catch {
+        return;
+      }
+      if (controller.signal.aborted) {
+        return;
+      }
+      const freshByKey = new Map<string, ConversationEvent>();
+      for (const event of refreshed.events ?? []) {
+        if (event.id) {
+          freshByKey.set(`id:${event.id}`, event);
+        }
+        if (event.conversationId && hasSequence(event)) {
+          freshByKey.set(`seq:${event.conversationId}:${event.seq}`, event);
+        }
+      }
+      setEvents((current) => {
+        let changed = false;
+        const next = current.map((event) => {
+          const fresh =
+            (event.id ? freshByKey.get(`id:${event.id}`) : undefined) ??
+            (event.conversationId && hasSequence(event)
+              ? freshByKey.get(`seq:${event.conversationId}:${event.seq}`)
+              : undefined);
+          if (fresh && fresh.text !== undefined && fresh.text !== event.text) {
+            changed = true;
+            return { ...event, text: fresh.text };
+          }
+          return event;
+        });
+        // Returning the same reference when nothing changed avoids a re-render.
+        return changed ? next : current;
+      });
+    }
+
     async function readStream() {
       try {
         for await (const event of api.streamConversation(
@@ -202,6 +251,11 @@ export function AgentConversation({
               next.delete(event.itemId as string);
               return next;
             });
+          }
+          // A patchset was just captured for this turn: re-resolve the turn's
+          // file links in place so they upgrade from slice-file to changeset URLs.
+          if (isPatchsetStatusEvent(event)) {
+            void refreshResolvedLinks();
           }
         }
         if (!controller.signal.aborted) {
@@ -1048,6 +1102,19 @@ function eventKey(event: ConversationEvent, index: number) {
 
 function hasSequence(event: ConversationEvent) {
   return event.seq !== undefined && event.seq !== "";
+}
+
+// isPatchsetStatusEvent reports whether an event is the daemon's end-of-turn
+// "captured/created/updated … patchset N" status marker. The daemon persists the
+// patchset (stamping it with the turn's conversation seq) before emitting this,
+// so its arrival is the moment the server can resolve this turn's gsfile: links
+// to the changeset+patchset — see refreshResolvedLinks in the stream effect.
+function isPatchsetStatusEvent(event: ConversationEvent) {
+  return (
+    event.role === "system" &&
+    event.type === "status" &&
+    /\bpatchset\b/i.test(event.text ?? "")
+  );
 }
 
 function parseCapturedPatchset(event: ConversationEvent) {

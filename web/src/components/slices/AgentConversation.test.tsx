@@ -112,6 +112,81 @@ describe("AgentConversation", () => {
     );
   });
 
+  it("upgrades a turn's file links in place when its patchset is captured", async () => {
+    const messageEvent: ConversationEvent = {
+      id: "evt_msg",
+      conversationId: "conv_1",
+      seq: "5",
+      role: "agent",
+      type: "message",
+      // Before the patchset exists the server resolves the gsfile: link to the
+      // slice-file view; this is what streams in first.
+      text: "Edited [foo.ts](/slices/acme/backend?path=foo.ts)."
+    };
+    const captureEvent: ConversationEvent = {
+      id: "evt_cap",
+      conversationId: "conv_1",
+      seq: "6",
+      role: "system",
+      type: "status",
+      text: "captured changeset abc123def0 patchset 1"
+    };
+    const upgradedMessage: ConversationEvent = {
+      ...messageEvent,
+      text: "Edited [foo.ts](/cs/abc123def0?to=ps_1&file=foo.ts)."
+    };
+
+    // Gate the capture event so we can observe the pre-capture (slice) link
+    // before the upgrade fires.
+    let releaseCapture: () => void = () => {};
+    const capturePending = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+
+    const getConversationEvents = vi
+      .fn()
+      .mockResolvedValueOnce({ events: [] }) // initial backfill: no history yet
+      .mockResolvedValue({ events: [upgradedMessage, captureEvent] }); // refetch
+
+    const api = {
+      closeConversation: vi.fn(),
+      sendAgentMessage: vi.fn(),
+      getConversationEvents,
+      streamConversation: vi.fn(async function* () {
+        yield messageEvent;
+        await capturePending;
+        yield captureEvent;
+      })
+    } as unknown as ApiClient;
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    // The message first renders pointing at the slice-file view.
+    const link = await screen.findByRole("link", { name: "foo.ts" });
+    expect(link).toHaveAttribute("href", "/slices/acme/backend?path=foo.ts");
+
+    // The patchset lands: its status event streams in and the link upgrades in
+    // place to the precise changeset+patchset URL.
+    releaseCapture();
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "foo.ts" })).toHaveAttribute(
+        "href",
+        "/cs/abc123def0?to=ps_1&file=foo.ts"
+      )
+    );
+
+    // The upgrade swaps text in place — it does not duplicate the message.
+    expect(screen.getAllByRole("link", { name: "foo.ts" })).toHaveLength(1);
+    // One backfill + exactly one capture-triggered refetch.
+    expect(getConversationEvents).toHaveBeenCalledTimes(2);
+  });
+
   it("backfills persisted history in one batch and tails the stream", async () => {
     const persisted: ConversationEvent[] = [
       {
