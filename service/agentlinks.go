@@ -90,7 +90,7 @@ func rewriteAgentFileURL(raw string, rc linkRewriteContext) (string, bool) {
 		u.RawQuery = "to=" + url.QueryEscape(owner.GetId()) + "&file=" + url.QueryEscape(relpath)
 	} else {
 		u.Path = "/slices/" + rc.account + "/" + rc.slug
-		u.RawQuery = "path=" + url.QueryEscape(relpath)
+		u.RawQuery = "path=" + url.QueryEscape(canonicalAgentSlicePath(relpath))
 	}
 	if hasFragment {
 		u.Fragment = fragment
@@ -110,6 +110,10 @@ func agentFileRelpath(raw string, rc linkRewriteContext) (relpath string, fragme
 			return "", "", false, false
 		}
 	}
+	if unescaped, err := url.PathUnescape(relpath); err == nil {
+		relpath = unescaped
+	}
+	relpath = stripAgentLineSuffix(relpath)
 	relpath, ok = cleanAgentFileRelpath(relpath)
 	return relpath, fragment, hasFragment, ok
 }
@@ -141,12 +145,17 @@ func conversationWorkspaceRelpath(raw, conversationID string) (string, bool) {
 }
 
 func cleanAgentFileRelpath(relpath string) (string, bool) {
+	relpath = strings.TrimSpace(relpath)
 	relpath = strings.TrimPrefix(relpath, "./")
 	relpath = path.Clean(relpath)
 	if relpath == "." || relpath == "" || strings.HasPrefix(relpath, "/") || relpath == ".." || strings.HasPrefix(relpath, "../") {
 		return "", false
 	}
 	return relpath, true
+}
+
+func canonicalAgentSlicePath(relpath string) string {
+	return "/" + strings.TrimPrefix(relpath, "/")
 }
 
 func owningPatchset(patchsets []*corev1.Patchset, seq int64) *corev1.Patchset {
@@ -183,6 +192,10 @@ func patchsetChangedPath(patchset *corev1.Patchset, relpath string) bool {
 
 func comparableAgentFilePath(p string) string {
 	p = strings.TrimSpace(p)
+	if unescaped, err := url.PathUnescape(p); err == nil {
+		p = unescaped
+	}
+	p = stripAgentLineSuffix(p)
 	p = strings.TrimPrefix(p, "./")
 	p = strings.TrimPrefix(p, "/")
 	p = path.Clean(p)
@@ -190,4 +203,42 @@ func comparableAgentFilePath(p string) string {
 		return ""
 	}
 	return p
+}
+
+func stripAgentLineSuffix(p string) string {
+	for {
+		colon := strings.LastIndexByte(p, ':')
+		slash := strings.LastIndexAny(p, `/\`)
+		if colon <= slash {
+			return p
+		}
+		suffix := strings.TrimSpace(p[colon+1:])
+		if !isAgentLineSuffix(suffix) {
+			return p
+		}
+		p = strings.TrimSpace(p[:colon])
+	}
+}
+
+func isAgentLineSuffix(s string) bool {
+	if s == "" {
+		return false
+	}
+	parts := strings.Split(s, "-")
+	if len(parts) > 2 {
+		return false
+	}
+	for _, part := range parts {
+		part = strings.TrimPrefix(part, "L")
+		part = strings.TrimPrefix(part, "l")
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }

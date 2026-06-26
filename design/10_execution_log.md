@@ -6599,3 +6599,29 @@ Results: focused server link-rewrite tests, focused web transcript tests, the
 full service package, the full Go test suite, command builds, and web production
 build passed. The web build still emits existing Vite/Nitro dependency and
 chunk-size warnings.
+
+## 2026-06-26: Canonical Slice File Links From Agent Transcripts
+
+Goal: fix agent transcript slice fallback links like
+`/slices/nic/realtime?path=nic%2Frealtime%2Fsrc%2Fprotocol.rs%3A46`, which
+treated a line suffix as part of the file path and omitted the canonical leading
+slash expected by the slice file view.
+
+Decision: keep changeset diff deep links using the existing slashless `file=`
+value, but encode slice fallback links with a slash-prefixed repository path in
+the `path=` query parameter. Agent link targets are percent-decoded before path
+cleaning, and trailing `:line`, `:line:column`, or `:line-line` suffixes are
+stripped before patchset matching and URL generation.
+
+Verification:
+
+```bash
+go test ./service -run TestRewriteAgentFileLinks
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx
+go test ./service
+go test ./...
+go build ./cmd/...
+```
+
+Results: focused server rewrite tests, focused web transcript fixture tests, the
+full service package, the full Go test suite, and command builds passed.

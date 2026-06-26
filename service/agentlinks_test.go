@@ -31,7 +31,7 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 			name: "slice fallback without patchsets",
 			text: "Open [agent file](gsfile:internal/cli/agent.go).",
 			rc:   base,
-			want: "Open [agent file](/slices/acme/payments?path=internal%2Fcli%2Fagent.go).",
+			want: "Open [agent file](/slices/acme/payments?path=%2Finternal%2Fcli%2Fagent.go).",
 		},
 		{
 			name: "changeset hit in owning patchset",
@@ -82,13 +82,25 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 					{Id: "ps1", ChangesetId: "cs1", ChangedPaths: []string{"a.go"}, AuthoringConversationSeq: 10},
 				},
 			},
-			want: "[a](/slices/acme/payments?path=a.go) [b](/cs/cs2?to=ps2&file=b.go)",
+			want: "[a](/slices/acme/payments?path=%2Fa.go) [b](/cs/cs2?to=ps2&file=b.go)",
 		},
 		{
 			name: "slice fallback carries line fragment",
 			text: "Open [line](gsfile:src/main.go#L42).",
 			rc:   base,
-			want: "Open [line](/slices/acme/payments?path=src%2Fmain.go#L42).",
+			want: "Open [line](/slices/acme/payments?path=%2Fsrc%2Fmain.go#L42).",
+		},
+		{
+			name: "slice fallback strips colon line suffix and canonicalizes path",
+			text: "Open [line](gsfile:nic/realtime/src/protocol.rs:46).",
+			rc:   base,
+			want: "Open [line](/slices/acme/payments?path=%2Fnic%2Frealtime%2Fsrc%2Fprotocol.rs).",
+		},
+		{
+			name: "slice fallback strips escaped colon line suffix",
+			text: "Open [line](gsfile:nic/realtime/src/protocol.rs%3A46).",
+			rc:   base,
+			want: "Open [line](/slices/acme/payments?path=%2Fnic%2Frealtime%2Fsrc%2Fprotocol.rs).",
 		},
 		{
 			name: "changeset hit carries line range fragment",
@@ -107,7 +119,7 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 			name: "label with spaces and special chars preserved",
 			text: "Review [agent file *now*?](gsfile:agent.go).",
 			rc:   base,
-			want: "Review [agent file *now*?](/slices/acme/payments?path=agent.go).",
+			want: "Review [agent file *now*?](/slices/acme/payments?path=%2Fagent.go).",
 		},
 		{
 			name: "multiple gsfile links in one string",
@@ -120,19 +132,19 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 					{Id: "ps1", ChangesetId: "cs1", ChangedPaths: []string{"changed.go"}, AuthoringConversationSeq: 5},
 				},
 			},
-			want: "[one](/cs/cs1?to=ps1&file=changed.go) and [two](/slices/acme/payments?path=other.go)",
+			want: "[one](/cs/cs1?to=ps1&file=changed.go) and [two](/slices/acme/payments?path=%2Fother.go)",
 		},
 		{
 			name: "image link untouched",
 			text: "![alt](gsfile:image.png) [file](gsfile:file.go)",
 			rc:   base,
-			want: "![alt](gsfile:image.png) [file](/slices/acme/payments?path=file.go)",
+			want: "![alt](gsfile:image.png) [file](/slices/acme/payments?path=%2Ffile.go)",
 		},
 		{
 			name: "leading dot slash trimmed",
 			text: "Open [file](gsfile:./file.go).",
 			rc:   base,
-			want: "Open [file](/slices/acme/payments?path=file.go).",
+			want: "Open [file](/slices/acme/payments?path=%2Ffile.go).",
 		},
 		{
 			name: "absolute path unchanged",
@@ -150,13 +162,32 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 			name: "absolute conversation workspace path fallback",
 			text: "Open [README.md](/tmp/gitslice-agent/acme/workspace/conversations/conv1/acme/payments/README.md).",
 			rc:   base,
-			want: "Open [README.md](/slices/acme/payments?path=acme%2Fpayments%2FREADME.md).",
+			want: "Open [README.md](/slices/acme/payments?path=%2Facme%2Fpayments%2FREADME.md).",
 		},
 		{
 			name: "file URL conversation workspace path carries fragment",
 			text: "Open [README.md](file:///tmp/gitslice-agent/acme/workspace/conversations/conv1/acme/payments/README.md#L12).",
 			rc:   base,
-			want: "Open [README.md](/slices/acme/payments?path=acme%2Fpayments%2FREADME.md#L12).",
+			want: "Open [README.md](/slices/acme/payments?path=%2Facme%2Fpayments%2FREADME.md#L12).",
+		},
+		{
+			name: "absolute conversation workspace path strips colon line suffix",
+			text: "Open [protocol.rs](/tmp/gitslice-agent/acme/workspace/conversations/conv1/nic/realtime/src/protocol.rs:46).",
+			rc:   base,
+			want: "Open [protocol.rs](/slices/acme/payments?path=%2Fnic%2Frealtime%2Fsrc%2Fprotocol.rs).",
+		},
+		{
+			name: "changeset hit strips colon line suffix before matching",
+			text: "Open [protocol.rs](gsfile:nic/realtime/src/protocol.rs:46).",
+			rc: linkRewriteContext{
+				account: "acme",
+				slug:    "payments",
+				seq:     5,
+				patchsets: []*corev1.Patchset{
+					{Id: "ps1", ChangesetId: "cs1", ChangedPaths: []string{"/nic/realtime/src/protocol.rs"}, AuthoringConversationSeq: 5},
+				},
+			},
+			want: "Open [protocol.rs](/cs/cs1?to=ps1&file=nic%2Frealtime%2Fsrc%2Fprotocol.rs).",
 		},
 		{
 			name: "absolute conversation workspace path can resolve to patchset",
@@ -214,7 +245,7 @@ func TestRewriteConversationLinksClonesLinkedEvents(t *testing.T) {
 	if linked.Text != "Open [file](gsfile:file.go)." {
 		t.Fatalf("input linked event was mutated: %q", linked.Text)
 	}
-	if got[0].Text != "Open [file](/slices/acme/payments?path=file.go)." {
+	if got[0].Text != "Open [file](/slices/acme/payments?path=%2Ffile.go)." {
 		t.Fatalf("rewritten linked text = %q", got[0].Text)
 	}
 	if got[1] != plain {
@@ -243,7 +274,7 @@ func TestRewriteConversationLinksClonesAbsoluteWorkspaceLinks(t *testing.T) {
 	if linked.Text != "Open [README.md](/tmp/gitslice-agent/acme/workspace/conversations/conv1/acme/payments/README.md)." {
 		t.Fatalf("input linked event was mutated: %q", linked.Text)
 	}
-	if got[0].Text != "Open [README.md](/slices/acme/payments?path=acme%2Fpayments%2FREADME.md)." {
+	if got[0].Text != "Open [README.md](/slices/acme/payments?path=%2Facme%2Fpayments%2FREADME.md)." {
 		t.Fatalf("rewritten linked text = %q", got[0].Text)
 	}
 }
