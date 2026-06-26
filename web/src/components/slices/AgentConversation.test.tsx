@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -252,7 +253,6 @@ describe("AgentConversation", () => {
 
   it("closes active conversations after confirmation and updates cached queries", async () => {
     const api = makeApi([]);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     render(
       <AgentConversation
@@ -263,14 +263,15 @@ describe("AgentConversation", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Close conversation"
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
 
     await waitFor(() =>
       expect(api.closeConversation).toHaveBeenCalledWith({
         conversationId: "conv_1"
       })
-    );
-    expect(window.confirm).toHaveBeenCalledWith(
-      "Close this conversation? Its workspace on the agent will be deleted."
     );
     expect(queryClientMock.current.setQueryData).toHaveBeenCalledWith(
       ["conversation", "conv_1"],
@@ -283,6 +284,29 @@ describe("AgentConversation", () => {
     expect(queryClientMock.current.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["sliceConversations"]
     });
+  });
+
+  it("does not close active conversations when the close dialog is cancelled", async () => {
+    const api = makeApi([]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work", status: "active" }}
+        conversationId="conv_1"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Close conversation"
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(api.closeConversation).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("dialog", { name: "Close conversation" })
+    ).not.toBeInTheDocument();
   });
 
   it("collapses trace and tool events separately from messages", async () => {

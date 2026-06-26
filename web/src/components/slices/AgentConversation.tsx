@@ -13,6 +13,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation, ConversationEvent } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { cn } from "../../lib/cn";
 import { renderMarkdownToHtml } from "../../lib/markdown";
 import { getErrorMessage } from "./SlicePageParts";
@@ -53,6 +54,7 @@ export function AgentConversation({
   const [isStreamReconnecting, setIsStreamReconnecting] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
   // False until the persisted transcript has been backfilled in one batch (see
   // the stream effect). Gates the empty state so "No messages yet" doesn't flash
   // before history arrives, and lets the view render the whole transcript in a
@@ -295,6 +297,7 @@ export function AgentConversation({
       });
       void queryClient.invalidateQueries({ queryKey: ["sliceConversations"] });
       void queryClient.invalidateQueries({ queryKey: ["recentConversations"] });
+      setIsCloseConfirmOpen(false);
     }
   });
 
@@ -324,14 +327,6 @@ export function AgentConversation({
 
   function closeConversation() {
     if (closeConversationMutation.isPending) {
-      return;
-    }
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "Close this conversation? Its workspace on the agent will be deleted."
-      )
-    ) {
       return;
     }
     closeConversationMutation.mutate();
@@ -406,7 +401,7 @@ export function AgentConversation({
                 <button
                   className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                   disabled={closeConversationMutation.isPending}
-                  onClick={closeConversation}
+                  onClick={() => setIsCloseConfirmOpen(true)}
                   type="button"
                 >
                   {closeConversationMutation.isPending ? "Closing..." : "Close"}
@@ -539,6 +534,16 @@ export function AgentConversation({
           ) : null}
         </form>
       )}
+      <ConfirmDialog
+        busy={closeConversationMutation.isPending}
+        confirmLabel="Close"
+        message="Closing deletes the conversation workspace on the agent. The transcript will stay available for review."
+        onCancel={() => setIsCloseConfirmOpen(false)}
+        onConfirm={closeConversation}
+        open={isCloseConfirmOpen}
+        title="Close conversation"
+        tone="danger"
+      />
     </div>
   );
 }
