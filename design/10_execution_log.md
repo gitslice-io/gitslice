@@ -6625,3 +6625,26 @@ go build ./cmd/...
 
 Results: focused server rewrite tests, focused web transcript fixture tests, the
 full service package, the full Go test suite, and command builds passed.
+
+## 2026-06-26: Home Slice Conversation Shortcut
+
+Goal: simplify home-screen slice visibility display and add a direct way to
+start a new agent conversation from each listed slice.
+
+Decision: replace the green/gray visibility badge in the home slice list with a
+neutral icon-only indicator that keeps accessible labels for public/private
+state. Add a per-slice "New conversation" link under the slice name. The link
+targets the existing slice agents route with `newConversation=1`, and the
+agents tab consumes that flag once to open the existing create-conversation
+modal instead of introducing a second creation flow.
+
+Verification:
+
+```bash
+npm --prefix web test -- src/routes/SlicePages.test.tsx
+npm --prefix web run build
+```
+
+Results: the focused slice route smoke test passed. The web production build
+passed; it still emits existing Vite/Nitro dependency, module-directive, and
+chunk-size warnings.

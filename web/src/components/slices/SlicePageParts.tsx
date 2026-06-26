@@ -122,27 +122,58 @@ export function SliceMetadataGrid({ rows }: MetadataGridProps) {
   );
 }
 
-export function VisibilityBadge({ visibility }: { visibility?: string }) {
-  const isPublic = visibility === "public";
+export function VisibilityIcon({ visibility }: { visibility?: string }) {
+  const value = visibility || "unspecified";
+  const isPublic = value === "public";
 
   return (
     <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium capitalize",
-        isPublic
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border-slate-200 bg-slate-50 text-slate-600"
-      )}
+      aria-label={`${value} slice`}
+      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-slate-500"
+      role="img"
+      title={`${value} slice`}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "h-1.5 w-1.5 rounded-full",
-          isPublic ? "bg-emerald-500" : "bg-slate-400"
-        )}
-      />
-      {visibility || "unspecified"}
+      {isPublic ? <PublicSliceIcon /> : <PrivateSliceIcon />}
     </span>
+  );
+}
+
+function PublicSliceIcon() {
+  return (
+    <svg
+      aria-hidden
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17" />
+      <path d="M12 3.5c2.2 2.3 3.4 5.1 3.4 8.5S14.2 18.2 12 20.5" />
+      <path d="M12 3.5C9.8 5.8 8.6 8.6 8.6 12s1.2 6.2 3.4 8.5" />
+    </svg>
+  );
+}
+
+function PrivateSliceIcon() {
+  return (
+    <svg
+      aria-hidden
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+      viewBox="0 0 24 24"
+    >
+      <rect height="9" rx="2" width="14" x="5" y="10.5" />
+      <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+      <path d="M12 14v2" />
+    </svg>
   );
 }
 
