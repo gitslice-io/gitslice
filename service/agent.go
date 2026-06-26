@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/authz"
@@ -11,6 +12,7 @@ import (
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // agentDaemonPingInterval is how often the server pushes a keepalive Ping on
@@ -27,9 +29,10 @@ const agentDaemonPingInterval = 20 * time.Second
 // daemons (Connect) and the web UI (unary + StreamConversation). See
 // design/16_bring_your_own_agent.md.
 type AgentService struct {
-	Auth   storage.AuthStore
-	Slices storage.SliceStore
-	Agents storage.AgentStore
+	Auth       storage.AuthStore
+	Slices     storage.SliceStore
+	Agents     storage.AgentStore
+	Changesets storage.ChangesetStore
 
 	hub        *agentHub
 	serverAddr string
@@ -338,26 +341,34 @@ func (s *AgentService) StreamConversation(req *corev1.StreamConversationRequest,
 	if err != nil {
 		return grpcError(err)
 	}
+	events = s.rewriteConversationLinks(ctx, conv, events)
 	lastSeq := req.AfterSeq
 	for _, ev := range events {
 		if err := stream.Send(ev); err != nil {
 			return grpcError(err)
 		}
-		lastSeq = ev.Seq
+		lastSeq = ev.GetSeq()
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case ev := <-ch:
-			if ev.Seq <= lastSeq {
+		case ev, ok := <-ch:
+			if !ok {
+				return nil
+			}
+			if ev.GetSeq() <= lastSeq {
 				continue
+			}
+			rewritten := s.rewriteConversationLinks(ctx, conv, []*corev1.ConversationEvent{ev})
+			if len(rewritten) > 0 {
+				ev = rewritten[0]
 			}
 			if err := stream.Send(ev); err != nil {
 				return grpcError(err)
 			}
-			lastSeq = ev.Seq
+			lastSeq = ev.GetSeq()
 		}
 	}
 }
@@ -375,6 +386,7 @@ func (s *AgentService) GetConversationEvents(ctx context.Context, req *corev1.Ge
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	events = s.rewriteConversationLinks(ctx, conv, events)
 	s.annotateConversation(conv)
 	return &corev1.GetConversationEventsResponse{Conversation: conv, Events: events}, nil
 }
@@ -416,6 +428,57 @@ func (s *AgentService) CloseConversation(ctx context.Context, req *corev1.CloseC
 	}
 	s.annotateConversation(updated)
 	return updated, nil
+}
+
+// rewriteConversationLinks rewrites gsfile: links in event text to web URLs.
+// It is best-effort: patchset lookup failures degrade to slice-file links. The
+// returned slice never mutates input events; events with rewritten text are
+// cloned first because live hub events are shared across subscribers.
+func (s *AgentService) rewriteConversationLinks(ctx context.Context, conv *corev1.Conversation, events []*corev1.ConversationEvent) []*corev1.ConversationEvent {
+	if conv == nil {
+		return events
+	}
+	slice := conv.GetSlice()
+	account := slice.GetAccount()
+	slug := slice.GetSlice()
+	if account == "" || slug == "" {
+		return events
+	}
+	// Only touch the database when at least one event actually carries a link;
+	// most streamed events (token deltas, status) have none, and this method is
+	// called per live event, so an unconditional lookup would query on every one.
+	hasLink := false
+	for _, ev := range events {
+		if ev != nil && strings.Contains(ev.GetText(), "gsfile:") {
+			hasLink = true
+			break
+		}
+	}
+	if !hasLink {
+		return events
+	}
+	var patchsets []*corev1.Patchset
+	if s.Changesets != nil {
+		if loaded, err := s.Changesets.PatchsetsByConversation(ctx, conv.GetId()); err == nil {
+			patchsets = loaded
+		}
+	}
+	out := make([]*corev1.ConversationEvent, len(events))
+	for i, ev := range events {
+		if ev == nil || !strings.Contains(ev.GetText(), "gsfile:") {
+			out[i] = ev
+			continue
+		}
+		cloned := proto.Clone(ev).(*corev1.ConversationEvent)
+		cloned.Text = rewriteAgentFileLinks(cloned.GetText(), linkRewriteContext{
+			account:   account,
+			slug:      slug,
+			seq:       ev.GetSeq(),
+			patchsets: patchsets,
+		})
+		out[i] = cloned
+	}
+	return out
 }
 
 func (s *AgentService) annotateConversation(c *corev1.Conversation) {

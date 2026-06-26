@@ -1060,6 +1060,30 @@ func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsReq
 	return out, nil
 }
 
+func (s *ChangesetStore) PatchsetsByConversation(ctx context.Context, conversationID string) ([]*corev1.Patchset, error) {
+	if conversationID == "" {
+		return nil, nil
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []*corev1.Patchset
+	for _, cs := range s.b.changesets {
+		for _, patchset := range cs.Patchsets {
+			if patchset.GetAuthoringConversationId() != conversationID {
+				continue
+			}
+			out = append(out, clonePatchset(patchset))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].GetAuthoringConversationSeq() == out[j].GetAuthoringConversationSeq() {
+			return out[i].GetId() < out[j].GetId()
+		}
+		return out[i].GetAuthoringConversationSeq() < out[j].GetAuthoringConversationSeq()
+	})
+	return out, nil
+}
+
 func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
