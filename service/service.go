@@ -83,10 +83,11 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			validator:   validator,
 		},
 		Agent: &AgentService{
-			Auth:   stores.Auth,
-			Slices: stores.Slices,
-			Agents: stores.Agents,
-			hub:    newAgentHub(),
+			Auth:       stores.Auth,
+			Slices:     stores.Slices,
+			Agents:     stores.Agents,
+			Changesets: stores.Changesets,
+			hub:        newAgentHub(),
 		},
 	}
 }

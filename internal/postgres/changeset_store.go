@@ -2893,6 +2893,34 @@ func (s *ChangesetStore) listPatchsets(ctx context.Context, changesetID string) 
 	return out, rows.Err()
 }
 
+func (s *ChangesetStore) PatchsetsByConversation(ctx context.Context, conversationID string) ([]*corev1.Patchset, error) {
+	if conversationID == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
+		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements,
+		       base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id,
+		       authoring_conversation_id, authoring_conversation_seq
+		from patchsets
+		where authoring_conversation_id = $1
+		order by authoring_conversation_seq
+	`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.Patchset
+	for rows.Next() {
+		patchset, err := scanPatchset(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, patchset)
+	}
+	return out, rows.Err()
+}
+
 func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.Patchset, error) {
 	row := tx.QueryRowContext(ctx, `
 		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,

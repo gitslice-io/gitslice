@@ -50,6 +50,10 @@ type ChangesetStore interface {
 	Create(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error)
 	Get(ctx context.Context, changesetID string) (*corev1.Changeset, error)
 	List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error)
+	// PatchsetsByConversation returns every patchset stamped with the given
+	// authoring conversation id, across all changesets, ordered by
+	// authoring_conversation_seq ascending.
+	PatchsetsByConversation(ctx context.Context, conversationID string) ([]*corev1.Patchset, error)
 	AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error)
 	Approve(ctx context.Context, changesetID, subjectID string) (*corev1.ApproveChangesetResponse, error)
 	ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, status string) (*corev1.ReportCheckResultResponse, error)

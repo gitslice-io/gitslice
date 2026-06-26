@@ -1,5 +1,46 @@
 # Gitslice Execution Log
 
+## 2026-06-26: Agent `gsfile:` Transcript Link Rewriting
+
+Request:
+
+- rewrite Markdown inline `gsfile:` file links in agent conversation transcript
+  reads into root-relative web URLs.
+- resolve links to the patchset that owns the event when that patchset changed
+  the referenced path; otherwise fall back to the slice file URL.
+
+Implemented:
+
+- added `ChangesetStore.PatchsetsByConversation(ctx, conversationID)` and
+  implemented it for PostgreSQL and memory stores. PostgreSQL scans the existing
+  patchset column set ordered by `authoring_conversation_seq`; memory filters
+  cloned patchsets and sorts by that cutoff.
+- added pure `service/agentlinks.go` rewriting logic for inline Markdown links,
+  including fragment carry-through, query encoding, image-link exclusion,
+  leading `./` trimming, and unchanged handling for missing slice refs or
+  invalid paths.
+- wired `AgentService` read paths (`GetConversationEvents` and
+  `StreamConversation`) to rewrite event text at read time. Live hub events are
+  cloned with `proto.Clone` before mutation because the hub shares event
+  pointers across subscribers.
+
+Verification:
+
+```bash
+go test ./service -run TestRewrite -count=1
+gofmt -l .
+go build ./...
+go vet ./...
+go test ./service/... ./internal/postgres/... ./internal/storage/...
+go test ./...
+```
+
+`go test ./service -run TestRewrite -count=1`, `gofmt -l .`, `go build ./...`,
+`go test ./service/... ./internal/postgres/... ./internal/storage/...`, and
+`go test ./...` passed. `go vet ./...` still fails only on the pre-existing
+protobuf `copylocks` diagnostics in memory/service clone helpers; no new
+diagnostics point to the agent link rewriter or wiring.
+
 ## 2026-06-22: Patchset Deduplication for No-Diff Updates
 
 Request:
