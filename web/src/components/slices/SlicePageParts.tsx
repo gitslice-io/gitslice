@@ -123,8 +123,24 @@ export function SliceMetadataGrid({ rows }: MetadataGridProps) {
 }
 
 export function VisibilityBadge({ visibility }: { visibility?: string }) {
+  const isPublic = visibility === "public";
+
   return (
-    <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium capitalize",
+        isPublic
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-slate-200 bg-slate-50 text-slate-600"
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          isPublic ? "bg-emerald-500" : "bg-slate-400"
+        )}
+      />
       {visibility || "unspecified"}
     </span>
   );
