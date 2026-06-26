@@ -512,6 +512,56 @@ describe("AgentConversation", () => {
     expect(screen.queryByText("Hello wor")).not.toBeInTheDocument();
   });
 
+  it("coalesces persisted message deltas during history backfill", async () => {
+    const api = {
+      sendAgentMessage: vi.fn(),
+      getConversationEvents: vi.fn(async () => ({
+        events: [
+          {
+            id: "evt_delta_1",
+            conversationId: "conv_1",
+            seq: "1",
+            role: "agent",
+            type: "message_delta",
+            text: "Hel",
+            itemId: "msg_1"
+          },
+          {
+            id: "evt_delta_2",
+            conversationId: "conv_1",
+            seq: "2",
+            role: "agent",
+            type: "message_delta",
+            text: "Hello wor",
+            itemId: "msg_1"
+          },
+          {
+            id: "evt_final",
+            conversationId: "conv_1",
+            seq: "3",
+            role: "agent",
+            type: "message",
+            text: "Hello world",
+            itemId: "msg_1"
+          }
+        ]
+      })),
+      streamConversation: vi.fn(async function* () {})
+    } as unknown as ApiClient;
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    expect(await screen.findByText("Hello world")).toBeInTheDocument();
+    expect(screen.queryByText("Hello wor")).not.toBeInTheDocument();
+    expect(screen.queryByText("message_delta")).not.toBeInTheDocument();
+  });
+
   it("collapses persisted thinking deltas with nearby trace events", async () => {
     const api = makeApi([
       {

@@ -185,6 +185,30 @@ func TestForwardAgentTurnPropagatesItemIDAndEphemeral(t *testing.T) {
 	}
 }
 
+func TestNormalizeAgentWorkspaceEventLinks(t *testing.T) {
+	workdir := t.TempDir()
+	readme := filepath.ToSlash(filepath.Join(workdir, "nic", "realtime", "README.md"))
+	outside := filepath.ToSlash(filepath.Join(t.TempDir(), "README.md"))
+	event := &corev1.AgentEvent{
+		Role: "agent",
+		Type: "message_delta",
+		Text: "Open [README.md](" + readme + "#L3) and [outside](" + outside + ").",
+	}
+
+	normalizeAgentWorkspaceEventLinks(event, workdir)
+
+	want := "Open [README.md](gsfile:nic/realtime/README.md#L3) and [outside](" + outside + ")."
+	if event.GetText() != want {
+		t.Fatalf("normalized text = %q, want %q", event.GetText(), want)
+	}
+
+	reasoning := &corev1.AgentEvent{Role: "agent", Type: "reasoning_delta", Text: "Open [README.md](" + readme + ")."}
+	normalizeAgentWorkspaceEventLinks(reasoning, workdir)
+	if reasoning.GetText() != "Open [README.md]("+readme+")." {
+		t.Fatalf("reasoning text was normalized: %q", reasoning.GetText())
+	}
+}
+
 func TestEnsureSessionResumesThreadID(t *testing.T) {
 	session := &fakeAgentSession{threadID: "thread-new"}
 	runtime := &fakeAgentRuntime{session: session}

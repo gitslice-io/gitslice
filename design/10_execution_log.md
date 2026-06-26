@@ -6523,3 +6523,42 @@ compiled the package, but the matching real Postgres tests were skipped because
 confirmed the skip reason. `go vet ./...` failed on existing protobuf copy-lock
 warnings in service and in-memory clone helpers; no new submit-requirements hash
 warnings were reported.
+
+## 2026-06-26: Agent Workspace Links and Persisted Message Deltas
+
+Goal: fix the public agent transcript where workspace file links pointed at
+local `/tmp/.../conversations/<id>/...` paths and persisted `message_delta`
+events rendered as growing-prefix duplicate messages.
+
+Decision: keep `gsfile:` as the preferred agent instruction, but make
+read-time transcript link rewriting also recognize absolute paths under the
+current conversation workspace marker. This repairs existing persisted
+transcripts without mutating stored event text. On the web client, persisted
+`message_delta` snapshots now coalesce by `item_id` the same way live deltas do;
+the finalized `message` removes its prior snapshots.
+
+Follow-up decision: normalize agent `message_delta` and final `message` events
+in the local daemon before they are sent to the server. If Codex emits a
+Markdown link to an absolute path under the hydrated conversation workspace, the
+daemon converts it to a slice-relative `gsfile:` link. The read-time server
+fallback remains for legacy transcripts and for any client that bypasses the
+current daemon.
+
+Verification:
+
+```bash
+go test ./internal/cli -run 'TestCodexRuntimeWorkspaceLinksNormalizeStreamAndFinal|TestNormalizeAgentWorkspaceEventLinks'
+go test ./internal/cli
+go test ./service -run 'TestRewriteAgentFileLinks|TestRewriteConversationLinksClonesLinkedEvents|TestRewriteConversationLinksClonesAbsoluteWorkspaceLinks'
+go test ./service
+go test ./...
+go build ./cmd/...
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx
+npm --prefix web run build
+```
+
+Results: focused fake Codex daemon-normalization tests, the full CLI package
+test, focused link-rewrite tests, the full service package test, the focused
+agent conversation component test, the full Go test suite, the command build,
+and the web production build passed. The web build still emits existing
+Vite/Nitro dependency and chunk-size warnings.

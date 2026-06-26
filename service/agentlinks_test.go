@@ -8,7 +8,7 @@ import (
 )
 
 func TestRewriteAgentFileLinks(t *testing.T) {
-	base := linkRewriteContext{account: "acme", slug: "payments", seq: 5}
+	base := linkRewriteContext{account: "acme", slug: "payments", conversationID: "conv1", seq: 5}
 	tests := []struct {
 		name string
 		text string
@@ -128,6 +128,44 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 			rc:   linkRewriteContext{slug: "payments", seq: 5},
 			want: "Open [file](gsfile:file.go).",
 		},
+		{
+			name: "absolute conversation workspace path fallback",
+			text: "Open [README.md](/tmp/gitslice-agent/acme/workspace/conversations/conv1/acme/payments/README.md).",
+			rc:   base,
+			want: "Open [README.md](/slices/acme/payments?path=acme%2Fpayments%2FREADME.md).",
+		},
+		{
+			name: "file URL conversation workspace path carries fragment",
+			text: "Open [README.md](file:///tmp/gitslice-agent/acme/workspace/conversations/conv1/acme/payments/README.md#L12).",
+			rc:   base,
+			want: "Open [README.md](/slices/acme/payments?path=acme%2Fpayments%2FREADME.md#L12).",
+		},
+		{
+			name: "absolute conversation workspace path can resolve to patchset",
+			text: "Open [README.md](/tmp/gitslice-agent/acme/workspace/conversations/conv1/acme/payments/README.md).",
+			rc: linkRewriteContext{
+				account:        "acme",
+				slug:           "payments",
+				conversationID: "conv1",
+				seq:            5,
+				patchsets: []*corev1.Patchset{
+					{Id: "ps1", ChangesetId: "cs1", ChangedPaths: []string{"acme/payments/README.md"}, AuthoringConversationSeq: 5},
+				},
+			},
+			want: "Open [README.md](/cs/cs1?to=ps1&file=acme%2Fpayments%2FREADME.md).",
+		},
+		{
+			name: "absolute path from another conversation untouched",
+			text: "Open [README.md](/tmp/gitslice-agent/acme/workspace/conversations/conv2/acme/payments/README.md).",
+			rc:   base,
+			want: "Open [README.md](/tmp/gitslice-agent/acme/workspace/conversations/conv2/acme/payments/README.md).",
+		},
+		{
+			name: "internal app link untouched",
+			text: "Open [changeset](/cs/cs1?to=ps1&file=README.md).",
+			rc:   base,
+			want: "Open [changeset](/cs/cs1?to=ps1&file=README.md).",
+		},
 	}
 
 	for _, tt := range tests {
@@ -163,5 +201,31 @@ func TestRewriteConversationLinksClonesLinkedEvents(t *testing.T) {
 	}
 	if got[1] != plain {
 		t.Fatalf("plain event should pass through without cloning")
+	}
+}
+
+func TestRewriteConversationLinksClonesAbsoluteWorkspaceLinks(t *testing.T) {
+	svc := &AgentService{}
+	conv := &corev1.Conversation{
+		Id:    "conv1",
+		Slice: &corev1.SliceRef{Account: "acme", Slice: "payments"},
+	}
+	linked := &corev1.ConversationEvent{
+		Seq:  1,
+		Text: "Open [README.md](/tmp/gitslice-agent/acme/workspace/conversations/conv1/acme/payments/README.md).",
+	}
+
+	got := svc.rewriteConversationLinks(context.Background(), conv, []*corev1.ConversationEvent{linked})
+	if len(got) != 1 {
+		t.Fatalf("rewriteConversationLinks returned %d events, want 1", len(got))
+	}
+	if got[0] == linked {
+		t.Fatalf("linked event was not cloned")
+	}
+	if linked.Text != "Open [README.md](/tmp/gitslice-agent/acme/workspace/conversations/conv1/acme/payments/README.md)." {
+		t.Fatalf("input linked event was mutated: %q", linked.Text)
+	}
+	if got[0].Text != "Open [README.md](/slices/acme/payments?path=acme%2Fpayments%2FREADME.md)." {
+		t.Fatalf("rewritten linked text = %q", got[0].Text)
 	}
 }

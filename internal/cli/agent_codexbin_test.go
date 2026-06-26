@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
 func TestMain(m *testing.M) {
@@ -60,6 +63,44 @@ func TestCodexRuntimeRunTurnStreamsAndCompletes(t *testing.T) {
 	}
 	if final.Ephemeral || final.ItemID != "msg_fake_1" || final.Text != "Hello from fake codex." {
 		t.Fatalf("final message = %+v, want non-ephemeral msg_fake_1 final text", *final)
+	}
+}
+
+func TestCodexRuntimeWorkspaceLinksNormalizeStreamAndFinal(t *testing.T) {
+	workdir := t.TempDir()
+	t.Setenv("GS_FAKE_CODEX_SCRIPT", "workspace-link")
+	t.Setenv("GS_FAKE_CODEX_WORKDIR", workdir)
+	session := openFakeCodexSessionInWorkdir(t, workdir, "", "")
+
+	ctx, done := context.WithTimeout(context.Background(), 10*time.Second)
+	defer done()
+
+	daemon := &agentDaemon{}
+	conv := &agentConversation{id: "conv_fake_1", workdir: workdir}
+	var events []*corev1.AgentEvent
+	err := forwardAgentTurn(ctx, session, "link the changed file", "conv_fake_1", func(event *corev1.AgentEvent) {
+		daemon.emitAgentTurnEvent(ctx, conv, event)
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatalf("forwardAgentTurn returned error: %v", err)
+	}
+
+	delta := findAgentEvent(events, "agent", "message_delta")
+	if delta == nil {
+		t.Fatalf("missing message_delta event in %+v", events)
+	}
+	if !delta.GetEphemeral() || delta.GetText() != "See [README.md](gsfile:nic/realtime/README.md)." {
+		t.Fatalf("message_delta = %+v, want normalized streamed workspace link", delta)
+	}
+
+	final := findAgentEvent(events, "agent", "message")
+	if final == nil {
+		t.Fatalf("missing final message event in %+v", events)
+	}
+	wantFinal := "See [README.md](gsfile:nic/realtime/README.md) and [docs](https://example.com)."
+	if final.GetEphemeral() || final.GetText() != wantFinal {
+		t.Fatalf("final message = %+v, want normalized final workspace link", final)
 	}
 }
 
@@ -137,10 +178,15 @@ func openFakeCodexSession(t *testing.T, resumeThreadID string) agentSession {
 
 func openFakeCodexSessionWithInstructions(t *testing.T, resumeThreadID, instructions string) agentSession {
 	t.Helper()
+	return openFakeCodexSessionInWorkdir(t, t.TempDir(), resumeThreadID, instructions)
+}
+
+func openFakeCodexSessionInWorkdir(t *testing.T, workdir, resumeThreadID, instructions string) agentSession {
+	t.Helper()
 	t.Setenv("GS_FAKE_CODEX", "1")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	session, err := (codexRuntime{Binary: os.Args[0]}).OpenSession(ctx, t.TempDir(), resumeThreadID, instructions, nil)
+	session, err := (codexRuntime{Binary: os.Args[0]}).OpenSession(ctx, workdir, resumeThreadID, instructions, nil)
 	if err != nil {
 		cancel()
 		t.Fatalf("OpenSession returned error: %v", err)
@@ -154,6 +200,15 @@ func findRuntimeEvent(events []agentRuntimeEvent, role, typ string) *agentRuntim
 	for i := range events {
 		if events[i].Role == role && events[i].Type == typ {
 			return &events[i]
+		}
+	}
+	return nil
+}
+
+func findAgentEvent(events []*corev1.AgentEvent, role, typ string) *corev1.AgentEvent {
+	for _, event := range events {
+		if event.GetRole() == role && event.GetType() == typ {
+			return event
 		}
 	}
 	return nil
@@ -243,6 +298,20 @@ func fakeCodexRunScript(writer *bufio.Writer, script string) bool {
 				"exitCode":         0,
 				"status":           "completed",
 				"aggregatedOutput": "hi\n",
+			},
+		}) && fakeCodexNotify(writer, "turn/completed", map[string]any{})
+	case "workspace-link":
+		readme := filepath.ToSlash(filepath.Join(os.Getenv("GS_FAKE_CODEX_WORKDIR"), "nic", "realtime", "README.md"))
+		delta := fmt.Sprintf("See [README.md](%s).", readme)
+		final := fmt.Sprintf("See [README.md](%s) and [docs](https://example.com).", readme)
+		return fakeCodexNotify(writer, "item/agentMessage/delta", map[string]any{
+			"itemId": "msg_fake_1",
+			"delta":  delta,
+		}) && fakeCodexNotify(writer, "item/completed", map[string]any{
+			"item": map[string]any{
+				"id":   "msg_fake_1",
+				"type": "agentMessage",
+				"text": final,
 			},
 		}) && fakeCodexNotify(writer, "turn/completed", map[string]any{})
 	default:

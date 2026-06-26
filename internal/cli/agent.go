@@ -570,17 +570,7 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 	defer cancel()
 
 	err = forwardAgentTurn(runCtx, session, msg.GetText(), conversationID, func(event *corev1.AgentEvent) {
-		// Ephemeral token deltas are high-frequency and transient: the finalized
-		// event supersedes them (clients coalesce by item_id), so they go
-		// best-effort and are not sequenced/acked/resent. Only durable events
-		// (finalized messages, tool calls, status, errors) get the ack+resend
-		// guarantee — which keeps ack volume to roughly one per finalized item
-		// instead of one per token.
-		if event.Ephemeral {
-			_ = d.sendAgentEvent(runCtx, event)
-			return
-		}
-		d.emitConversationEvent(conv, event)
+		d.emitAgentTurnEvent(runCtx, conv, event)
 	})
 
 	// A cancelled or errored turn can leave the app-server mid-turn or in a bad
@@ -635,6 +625,21 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 			Final:          true,
 		})
 	}
+}
+
+func (d *agentDaemon) emitAgentTurnEvent(ctx context.Context, conv *agentConversation, event *corev1.AgentEvent) {
+	normalizeAgentWorkspaceEventLinks(event, conv.workdir)
+	// Ephemeral token deltas are high-frequency and transient: the finalized
+	// event supersedes them (clients coalesce by item_id), so they go
+	// best-effort and are not sequenced/acked/resent. Only durable events
+	// (finalized messages, tool calls, status, errors) get the ack+resend
+	// guarantee — which keeps ack volume to roughly one per finalized item
+	// instead of one per token.
+	if event.Ephemeral {
+		_ = d.sendAgentEvent(ctx, event)
+		return
+	}
+	d.emitConversationEvent(conv, event)
 }
 
 // capturePatchset records the workspace edits produced by the latest turn as a
