@@ -16,6 +16,7 @@ import { useApi, type ApiClient } from "../../api/useApi";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { cn } from "../../lib/cn";
 import { renderMarkdownToHtml } from "../../lib/markdown";
+import { useInternalLinkClickHandler } from "../../lib/internalLinkNavigation";
 import { getErrorMessage } from "./SlicePageParts";
 
 const STREAM_RECONNECT_DELAY_MS = 1500;
@@ -749,10 +750,12 @@ function ConversationTraceGroup({ events }: { events: ConversationEvent[] }) {
 // leading/trailing margin so the rendered block sits flush in the bubble.
 function MessageMarkdown({ source }: { source: string }) {
   const html = useMemo(() => renderMarkdownToHtml(source), [source]);
+  const onLinkClick = useInternalLinkClickHandler();
   return (
     <div
       className="prose prose-sm prose-slate max-w-none break-words prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:text-zinc-900 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
       dangerouslySetInnerHTML={{ __html: html }}
+      onClick={onLinkClick}
     />
   );
 }

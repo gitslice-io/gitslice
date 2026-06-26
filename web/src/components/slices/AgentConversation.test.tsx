@@ -29,6 +29,10 @@ const queryClientMock = vi.hoisted(() => ({
   }
 }));
 
+// Router history stub so internal markdown links can client-side navigate via
+// useInternalLinkClickHandler() -> useRouter().history.push.
+const routerHistoryMock = vi.hoisted(() => ({ push: vi.fn() }));
+
 // The captured-changeset link navigates client-side via TanStack's <Link>, and
 // prefetches the changeset on hover via useApi()/useQueryClient(). None of these
 // have a provider in these bare component renders, so stub them. The Link stub
@@ -52,7 +56,8 @@ vi.mock("@tanstack/react-router", () => ({
         {children}
       </a>
     );
-  }
+  },
+  useRouter: () => ({ history: routerHistoryMock })
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -265,6 +270,43 @@ describe("AgentConversation", () => {
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(screen.getByText("one").tagName).toBe("LI");
+  });
+
+  it("routes internal markdown links client-side and opens external ones in a new tab", async () => {
+    const api = makeApi([
+      {
+        id: "evt_1",
+        conversationId: "conv_1",
+        seq: "1",
+        role: "agent",
+        type: "message",
+        text: "Open [the changeset](/cs/abc123?to=ps_1&file=foo.ts) or [docs](https://example.com)."
+      }
+    ]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    const internal = await screen.findByRole("link", { name: "the changeset" });
+    const external = screen.getByRole("link", { name: "docs" });
+
+    // External links open in a new tab; internal app links stay in-page so they
+    // can be intercepted for client-side routing.
+    expect(external).toHaveAttribute("target", "_blank");
+    expect(internal).not.toHaveAttribute("target");
+
+    // A plain left-click on an internal link navigates via the router instead of
+    // triggering a full page load.
+    fireEvent.click(internal);
+    expect(routerHistoryMock.push).toHaveBeenCalledWith(
+      "/cs/abc123?to=ps_1&file=foo.ts"
+    );
+    expect(routerHistoryMock.push).toHaveBeenCalledTimes(1);
   });
 
   it("keeps user messages as literal text, not markdown", async () => {

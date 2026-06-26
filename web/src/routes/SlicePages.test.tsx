@@ -16,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
 
 const routerMock = vi.hoisted(() => ({
   back: vi.fn(),
+  push: vi.fn(),
   navigate: vi.fn(),
   params: {} as Record<string, string>,
   search: {} as Record<string, unknown>
@@ -44,7 +45,7 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
   useNavigate: () => routerMock.navigate,
   useParams: () => routerMock.params,
-  useRouter: () => ({ history: { back: routerMock.back } }),
+  useRouter: () => ({ history: { back: routerMock.back, push: routerMock.push } }),
   useSearch: () => routerMock.search
 }));
 
