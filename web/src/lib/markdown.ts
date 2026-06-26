@@ -11,8 +11,16 @@ function getPurifier(): DOMPurify {
     purifier = createDOMPurify(window);
     purifier.addHook("afterSanitizeAttributes", (node) => {
       if (node.tagName === "A" && node.hasAttribute("href")) {
-        node.setAttribute("target", "_blank");
-        node.setAttribute("rel", "noopener noreferrer");
+        // Open external links in a new tab; leave same-origin app links
+        // (root-relative paths like /cs/… or /slices/…) as in-page anchors so
+        // they can be intercepted for client-side routing — see
+        // useInternalLinkClickHandler.
+        const href = node.getAttribute("href") ?? "";
+        const isInternal = href.startsWith("/") && !href.startsWith("//");
+        if (!isInternal) {
+          node.setAttribute("target", "_blank");
+          node.setAttribute("rel", "noopener noreferrer");
+        }
       }
     });
   }

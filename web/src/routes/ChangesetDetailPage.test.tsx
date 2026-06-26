@@ -62,6 +62,7 @@ vi.mock("@tanstack/react-router", async () => {
     Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
     useNavigate: () => routerMock.navigate,
     useParams: () => routerMock.params,
+    useRouter: () => ({ history: { push: vi.fn() } }),
     useSearch: () =>
       React.useSyncExternalStore(
         routerMock.subscribe,
