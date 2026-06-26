@@ -164,6 +164,7 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 	if err != nil {
 		return
 	}
+	activeIDs := make([]string, 0, len(convs))
 	for _, conv := range convs {
 		if conv == nil || (conv.Status != "" && conv.Status != "active") {
 			continue
@@ -182,7 +183,14 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 		}}}) {
 			return
 		}
+		activeIDs = append(activeIDs, conv.Id)
 	}
+	// After replaying the active set, tell the daemon exactly which conversations
+	// are still active so it can reap the on-disk workspaces of any it holds that
+	// were closed while it was offline (the live CloseWorkspace push was missed).
+	conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Reconcile{Reconcile: &corev1.ReconcileWorkspaces{
+		ActiveConversationIds: activeIDs,
+	}}})
 }
 
 func (s *AgentService) ListDaemons(ctx context.Context, _ *corev1.ListDaemonsRequest) (*corev1.ListDaemonsResponse, error) {
@@ -369,6 +377,45 @@ func (s *AgentService) GetConversationEvents(ctx context.Context, req *corev1.Ge
 	}
 	s.annotateConversation(conv)
 	return &corev1.GetConversationEventsResponse{Conversation: conv, Events: events}, nil
+}
+
+// CloseConversation marks a conversation inactive and, when its daemon is
+// online, tells the daemon to tear down and delete the on-disk workspace. The
+// status write is durable and happens regardless of daemon reachability; the
+// persisted event transcript is kept. Closing is write-gated like SendAgentMessage.
+func (s *AgentService) CloseConversation(ctx context.Context, req *corev1.CloseConversationRequest) (*corev1.Conversation, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.ConversationId == "" {
+		return nil, status.Error(codes.InvalidArgument, "conversation_id is required")
+	}
+	conv, err := s.Agents.GetConversation(ctx, req.ConversationId)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionWrite); err != nil {
+		return nil, err
+	}
+	if err := s.Agents.SetConversationStatus(ctx, conv.Id, "inactive"); err != nil {
+		return nil, grpcError(err)
+	}
+	// Best-effort live teardown. If the daemon is offline the dir lingers until a
+	// future reap; the durable inactive status above is what matters for replay
+	// (replayDaemonConversations only re-starts active conversations).
+	if conn, ok := s.hub.daemon(conv.DaemonId); ok {
+		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Close{Close: &corev1.CloseWorkspace{
+			ConversationId:  conv.Id,
+			DeleteWorkspace: true,
+		}}})
+	}
+	updated, err := s.Agents.GetConversation(ctx, conv.Id)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	s.annotateConversation(updated)
+	return updated, nil
 }
 
 func (s *AgentService) annotateConversation(c *corev1.Conversation) {

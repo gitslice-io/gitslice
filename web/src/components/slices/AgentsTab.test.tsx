@@ -110,7 +110,7 @@ describe("AgentsTab", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders a status pill with aria-current on the selected conversation", async () => {
+  it("renders a status dot with aria-current on the selected conversation", async () => {
     const api = makeApi({
       conversations: [
         {
@@ -126,11 +126,11 @@ describe("AgentsTab", () => {
       <AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />,
     );
 
-    // The button's accessible name combines title + status, so match loosely.
     const selected = await screen.findByRole("button", { name: /Only chat/ });
     expect(selected).toHaveAttribute("aria-current", "true");
-    // Status text is rendered inside the button as an uppercase pill.
-    expect(within(selected).getByText("active")).toBeInTheDocument();
+    expect(within(selected).getByTitle("active")).toHaveClass(
+      "bg-emerald-500",
+    );
   });
 
   it("optimistically prepends a newly created conversation", async () => {

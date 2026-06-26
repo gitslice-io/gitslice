@@ -12,6 +12,7 @@ import type {
   CheckUsernameAvailableResponse,
   ChooseUsernameRequest,
   ChooseUsernameResponse,
+  CloseConversationRequest,
   Commit,
   CompleteCliLoginRequest,
   CompleteCliLoginResponse,
@@ -146,6 +147,7 @@ export interface ApiClient {
     request: ListConversationsRequest
   ): Promise<ListConversationsResponse>;
   getConversation(request: GetConversationRequest): Promise<Conversation>;
+  closeConversation(request: CloseConversationRequest): Promise<Conversation>;
   sendAgentMessage(
     request: SendAgentMessageRequest
   ): Promise<SendAgentMessageResponse>;

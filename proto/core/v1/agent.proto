@@ -26,6 +26,10 @@ service AgentService {
   // GetConversationEvents returns a bounded slice of a conversation's persisted
   // events. Used to show the exchange that produced a given patchset.
   rpc GetConversationEvents(GetConversationEventsRequest) returns (GetConversationEventsResponse);
+  // CloseConversation marks a conversation inactive and, when its daemon is
+  // online, tells the daemon to tear down and delete the on-disk workspace. The
+  // persisted event transcript is kept. Returns the updated Conversation.
+  rpc CloseConversation(CloseConversationRequest) returns (Conversation);
 }
 
 message AgentDaemon {
@@ -45,7 +49,7 @@ message Conversation {
   string slice_id = 3;
   SliceRef slice = 4;
   string title = 5;
-  string status = 6; // "active" | "closed" | "error"
+  string status = 6; // "active" | "inactive"
   string workspace_subdir = 7;
   string created_at = 8;
   string updated_at = 9;
@@ -130,7 +134,29 @@ message ServerMessage {
     CancelConversation cancel = 4;
     Ping ping = 5;
     EventAck ack = 6;
+    CloseWorkspace close = 7;
+    ReconcileWorkspaces reconcile = 8;
   }
+}
+
+// ReconcileWorkspaces is sent right after a daemon registers, following the
+// StartConversation replay. It carries the full set of conversation ids that are
+// currently active for this daemon. The daemon removes the on-disk workspace of
+// any conversation it holds locally that is NOT in this set — reaping
+// conversations that were closed while the daemon was offline (the live
+// CloseWorkspace push was missed).
+message ReconcileWorkspaces {
+  repeated string active_conversation_ids = 1;
+}
+
+// CloseWorkspace tells the daemon to stop a conversation and remove its on-disk
+// workspace. Sent when the user closes a conversation while the daemon is
+// online. The daemon cancels any running turn, closes the runtime session,
+// drops the conversation, and removes (or archives) conversations/<id>/.
+message CloseWorkspace {
+  string conversation_id = 1;
+  // delete_workspace removes the workspace dir; false archives it instead.
+  bool delete_workspace = 2;
 }
 
 message DaemonRegistered {
@@ -216,4 +242,8 @@ message GetConversationEventsRequest {
 message GetConversationEventsResponse {
   Conversation conversation = 1;
   repeated ConversationEvent events = 2;
+}
+
+message CloseConversationRequest {
+  string conversation_id = 1;
 }

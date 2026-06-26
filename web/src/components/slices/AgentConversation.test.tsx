@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +14,20 @@ import type { ReactNode } from "react";
 import type { ConversationEvent } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { AgentConversation } from "./AgentConversation";
+
+type MutationOptions<TData> = {
+  mutationFn: () => Promise<TData> | TData;
+  onSuccess?: (data: TData) => void;
+};
+
+const queryClientMock = vi.hoisted(() => ({
+  current: {
+    invalidateQueries: vi.fn(),
+    prefetchQuery: vi.fn(),
+    setQueriesData: vi.fn(),
+    setQueryData: vi.fn()
+  }
+}));
 
 // The captured-changeset link navigates client-side via TanStack's <Link>, and
 // prefetches the changeset on hover via useApi()/useQueryClient(). None of these
@@ -41,7 +56,14 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ prefetchQuery: vi.fn() })
+  useMutation: <TData,>(options: MutationOptions<TData>) => ({
+    isPending: false,
+    mutate: vi.fn(async () => {
+      const data = await options.mutationFn();
+      options.onSuccess?.(data);
+    })
+  }),
+  useQueryClient: () => queryClientMock.current
 }));
 
 vi.mock("../../api/useApi", () => ({
@@ -54,6 +76,7 @@ describe("AgentConversation", () => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   it("links daemon-captured changeset patchsets", async () => {
@@ -222,6 +245,67 @@ describe("AgentConversation", () => {
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Send" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Close" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("closes active conversations after confirmation and updates cached queries", async () => {
+    const api = makeApi([]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work", status: "active" }}
+        conversationId="conv_1"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Close conversation"
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    await waitFor(() =>
+      expect(api.closeConversation).toHaveBeenCalledWith({
+        conversationId: "conv_1"
+      })
+    );
+    expect(queryClientMock.current.setQueryData).toHaveBeenCalledWith(
+      ["conversation", "conv_1"],
+      expect.objectContaining({ id: "conv_1", status: "inactive" })
+    );
+    expect(queryClientMock.current.setQueriesData).toHaveBeenCalledWith(
+      { queryKey: ["sliceConversations"] },
+      expect.any(Function)
+    );
+    expect(queryClientMock.current.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["sliceConversations"]
+    });
+  });
+
+  it("does not close active conversations when the close dialog is cancelled", async () => {
+    const api = makeApi([]);
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work", status: "active" }}
+        conversationId="conv_1"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Close conversation"
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(api.closeConversation).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("dialog", { name: "Close conversation" })
     ).not.toBeInTheDocument();
   });
 
@@ -426,12 +510,18 @@ describe("AgentConversation", () => {
     );
 
     // The three growing-prefix snapshots collapse to one trace entry, not three.
-    const traceSummary = await screen.findByText("Agent trace (1)");
-    const traceDetails = traceSummary.closest("details");
-    expect(traceDetails).not.toBeNull();
-    fireEvent.click(traceSummary);
+    await screen.findByText("Agent trace (1)");
     // Only the latest snapshot survives.
-    expect(traceDetails).toHaveTextContent("The user said ok, which");
+    const latestTrace = await screen.findByText("The user said ok, which", {
+      selector: "pre"
+    });
+    const traceDetails = latestTrace.closest("details");
+    expect(traceDetails).not.toBeNull();
+    expect(traceDetails).not.toHaveAttribute("open");
+    const traceSummary = traceDetails?.querySelector("summary");
+    expect(traceSummary).not.toBeNull();
+    fireEvent.click(traceSummary as HTMLElement);
+    expect(traceDetails).toHaveAttribute("open");
     expect(traceDetails?.querySelectorAll("pre").length ?? 0).toBe(1);
   });
 
@@ -481,12 +571,15 @@ describe("AgentConversation", () => {
       />
     );
 
-    const traceSummary = await screen.findByText("Agent trace (1)");
-    const traceDetails = traceSummary.closest("details");
-    fireEvent.click(traceSummary);
-    expect(traceDetails).toHaveTextContent(
-      "The user said ok, which means continue."
+    await screen.findByText("Agent trace (1)");
+    const finalizedTrace = await screen.findByText(
+      "The user said ok, which means continue.",
+      { selector: "pre" }
     );
+    const traceDetails = finalizedTrace.closest("details");
+    const traceSummary = traceDetails?.querySelector("summary");
+    expect(traceSummary).not.toBeNull();
+    fireEvent.click(traceSummary as HTMLElement);
     expect(traceDetails?.querySelectorAll("pre").length ?? 0).toBe(1);
   });
 
@@ -738,6 +831,10 @@ describe("AgentConversation", () => {
 
 function makeApi(events: ConversationEvent[]) {
   return {
+    closeConversation: vi.fn(async () => ({
+      id: "conv_1",
+      status: "inactive"
+    })),
     sendAgentMessage: vi.fn(),
     // Backfill returns no persisted history here, so the transcript still
     // arrives through the stream — these tests exercise the streaming/live-delta

@@ -127,6 +127,74 @@ func TestAgentServiceDedupsAndAcksClientSeq(t *testing.T) {
 	}
 }
 
+func TestAgentServiceCloseConversationMarksInactiveAndTearsDown(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	stream := newFakeAgentConnectStream(ctx)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- handlers.Agent.Connect(stream) }()
+
+	stream.recv <- &corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Register{Register: &corev1.RegisterDaemon{
+		Name: "close-daemon", Runtime: "test",
+	}}}
+	registered := (<-stream.sent).GetRegistered()
+	if registered == nil || registered.DaemonId == "" {
+		t.Fatalf("registered message = %#v, want daemon id", registered)
+	}
+
+	conv, err := handlers.Agent.CreateConversation(ctx, &corev1.CreateConversationRequest{
+		DaemonId: registered.DaemonId,
+		Slice:    &corev1.SliceRef{Account: "acme", Slice: "home"},
+		Title:    "close me",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	closed, err := handlers.Agent.CloseConversation(ctx, &corev1.CloseConversationRequest{ConversationId: conv.Id})
+	if err != nil {
+		t.Fatalf("CloseConversation: %v", err)
+	}
+	if closed.Status != "inactive" {
+		t.Fatalf("closed.Status = %q, want inactive", closed.Status)
+	}
+
+	closeMsg := waitForClose(t, stream)
+	if closeMsg.GetConversationId() != conv.Id || !closeMsg.GetDeleteWorkspace() {
+		t.Fatalf("close message = %#v, want conversation %s delete_workspace true", closeMsg, conv.Id)
+	}
+
+	close(stream.recv)
+	if err := <-errCh; err != nil {
+		t.Fatalf("Connect returned error: %v", err)
+	}
+
+	got, err := handlers.Agent.GetConversation(ctx, &corev1.GetConversationRequest{ConversationId: conv.Id})
+	if err != nil {
+		t.Fatalf("GetConversation: %v", err)
+	}
+	if got.Status != "inactive" {
+		t.Fatalf("persisted status = %q, want inactive", got.Status)
+	}
+}
+
+// waitForClose reads server->daemon messages until it sees a CloseWorkspace,
+// ignoring other traffic (StartConversation from CreateConversation, etc.).
+func waitForClose(t *testing.T, stream *fakeAgentConnectStream) *corev1.CloseWorkspace {
+	t.Helper()
+	for {
+		select {
+		case msg := <-stream.sent:
+			if c := msg.GetClose(); c != nil {
+				return c
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for CloseWorkspace")
+		}
+	}
+}
+
 // waitForAck reads server->daemon messages until it sees an EventAck, ignoring
 // other traffic (StartConversation from CreateConversation, etc.).
 func waitForAck(t *testing.T, stream *fakeAgentConnectStream) int64 {

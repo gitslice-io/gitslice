@@ -27,6 +27,7 @@ const (
 	AgentService_SendAgentMessage_FullMethodName      = "/gitslice.core.v1.AgentService/SendAgentMessage"
 	AgentService_StreamConversation_FullMethodName    = "/gitslice.core.v1.AgentService/StreamConversation"
 	AgentService_GetConversationEvents_FullMethodName = "/gitslice.core.v1.AgentService/GetConversationEvents"
+	AgentService_CloseConversation_FullMethodName     = "/gitslice.core.v1.AgentService/CloseConversation"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -46,6 +47,10 @@ type AgentServiceClient interface {
 	// GetConversationEvents returns a bounded slice of a conversation's persisted
 	// events. Used to show the exchange that produced a given patchset.
 	GetConversationEvents(ctx context.Context, in *GetConversationEventsRequest, opts ...grpc.CallOption) (*GetConversationEventsResponse, error)
+	// CloseConversation marks a conversation inactive and, when its daemon is
+	// online, tells the daemon to tear down and delete the on-disk workspace. The
+	// persisted event transcript is kept. Returns the updated Conversation.
+	CloseConversation(ctx context.Context, in *CloseConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
 }
 
 type agentServiceClient struct {
@@ -173,6 +178,15 @@ func (c *agentServiceClient) GetConversationEvents(ctx context.Context, in *GetC
 	return out, nil
 }
 
+func (c *agentServiceClient) CloseConversation(ctx context.Context, in *CloseConversationRequest, opts ...grpc.CallOption) (*Conversation, error) {
+	out := new(Conversation)
+	err := c.cc.Invoke(ctx, AgentService_CloseConversation_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations should embed UnimplementedAgentServiceServer
 // for forward compatibility
@@ -190,6 +204,10 @@ type AgentServiceServer interface {
 	// GetConversationEvents returns a bounded slice of a conversation's persisted
 	// events. Used to show the exchange that produced a given patchset.
 	GetConversationEvents(context.Context, *GetConversationEventsRequest) (*GetConversationEventsResponse, error)
+	// CloseConversation marks a conversation inactive and, when its daemon is
+	// online, tells the daemon to tear down and delete the on-disk workspace. The
+	// persisted event transcript is kept. Returns the updated Conversation.
+	CloseConversation(context.Context, *CloseConversationRequest) (*Conversation, error)
 }
 
 // UnimplementedAgentServiceServer should be embedded to have forward compatible implementations.
@@ -219,6 +237,9 @@ func (UnimplementedAgentServiceServer) StreamConversation(*StreamConversationReq
 }
 func (UnimplementedAgentServiceServer) GetConversationEvents(context.Context, *GetConversationEventsRequest) (*GetConversationEventsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConversationEvents not implemented")
+}
+func (UnimplementedAgentServiceServer) CloseConversation(context.Context, *CloseConversationRequest) (*Conversation, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CloseConversation not implemented")
 }
 
 // UnsafeAgentServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -387,6 +408,24 @@ func _AgentService_GetConversationEvents_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_CloseConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CloseConversationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).CloseConversation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_CloseConversation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).CloseConversation(ctx, req.(*CloseConversationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -417,6 +456,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetConversationEvents",
 			Handler:    _AgentService_GetConversationEvents_Handler,
+		},
+		{
+			MethodName: "CloseConversation",
+			Handler:    _AgentService_CloseConversation_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

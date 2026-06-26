@@ -168,6 +168,93 @@ the exact exchange behind each revision.
   `WorkspaceConfig.ConversationID` so the patchset is linked. A status event
   echoes the captured patchset back into the conversation.
 
+## Conversation lifecycle (close / resume)
+
+A conversation has a durable lifecycle **status** and an orthogonal live
+**reachability**. Keeping them separate is the whole point of this section.
+
+- **Status (`agent_conversations.status`): `active` | `inactive`.** The DB is the
+  source of truth. A conversation is born `active` and only becomes `inactive`
+  when the user explicitly closes it. `inactive` is terminal for the workspace:
+  the on-disk dir is deleted (the Postgres transcript is kept). We collapse the
+  older `closed` value into `inactive`, and `error` is **not** a status — runtime
+  failures are surfaced as `error` *events*, leaving the conversation `active`.
+- **Reachability (`Conversation.daemon_online`): a read-time annotation**, set by
+  the server from the live hub, true when the conversation's daemon currently
+  holds a `Connect` stream. This drives "show but disable the composer when the
+  agent is offline". It is **not** persisted and **not** derived from status: an
+  `active` conversation whose daemon is offline is a normal, valid state.
+
+Do **not** infer status from what the agent currently has on disk. The agent
+routinely starts in a **fresh, empty workspace dir**; continuity comes from the
+server replaying `StartConversation` for every `active` conversation on
+(re)connect (`replayDaemonConversations`), i.e. the DB re-hydrates the agent —
+never the reverse. Deriving `active` from disk presence would flip every
+conversation to `inactive` on any fresh-dir restart or daemon-offline window.
+
+### Close / delete flow
+
+1. **Web `CloseConversation(conversation_id)`** (new unary RPC) → authz → `Agents.
+   SetConversationStatus(id, "inactive")`. Persisted immediately, regardless of
+   whether the daemon is reachable.
+2. **If the daemon is online**, the hub pushes a server→daemon
+   `CloseWorkspace{conversation_id, delete_workspace}` `ServerMessage`. The daemon
+   handler `cancelRun()`s any in-flight turn, `closeSession()`s the codex process,
+   drops the conversation from its in-memory map, and removes the workspace:
+   `os.RemoveAll(conv.workdir)` when `delete_workspace` (default), or moves it to
+   `conversations/.archived/<id>/` when archiving.
+3. **If the daemon is offline**, the push is lost; the dir is reaped **lazily and
+   deterministically** via reconciliation. Right after the `StartConversation`
+   replay on (re)register, the server sends one `ReconcileWorkspaces{active_
+   conversation_ids}` carrying the full active set for that daemon
+   (`replayDaemonConversations`). The daemon (`handleReconcileWorkspaces`) removes
+   the workspace of any conversation it holds locally that is **not** in the set.
+   It only reaps *ready* conversations, so a conversation mid-hydration — which is
+   either an active (re)start already in the set, or in progress — is left alone.
+   This needs no grace window: the active set is an explicit snapshot, not a
+   timing guess.
+
+### Re-hydration when the workspace is missing
+
+When the server sends `StartConversation` for an `active` conversation whose dir
+is gone, `handleStartConversation` self-heals **only if the daemon has no ready
+in-memory state** for it: `createConversation` yields a fresh, not-ready conv and
+`hydrateWorkspace` rebuilds the dir via `gs workspace init`. But if the daemon
+already holds the conv as `ready` (e.g. the dir was deleted out from under a
+running daemon), the `isReady()` short-circuit **skips hydration** and codex is
+later launched with `cmd.Dir` pointing at a missing directory, which fails with
+no auto-repair. **Fixed:** `handleStartConversation` now short-circuits only when
+the conv is ready in memory *and* `workspaceDirExists(conv.workdir)`; a ready conv
+whose dir vanished falls through to `hydrateWorkspace` and is rebuilt.
+
+### Resume semantics — two histories, only one is preserved for the agent
+
+There are two distinct "histories", and resume must not conflate them:
+
+1. **The user-visible transcript** — `agent_conversation_events` in Postgres.
+   Source of truth for the web UI (`StreamConversation` replay). Always survives;
+   **never fed to codex.**
+2. **Codex's own session context** — resumed *only* via `codexThreadID`
+   (persisted in the workspace's `.agent-meta.json`). `OpenSession` →
+   `openThread` issues `thread/resume {threadId}`.
+
+`openThread` **silently falls back to `thread/start` — a fresh thread with zero
+history — whenever resume fails**: the id aged out, `.agent-meta.json` was lost
+(deleted/archived dir, fresh-dir restart), or codex's machine-local thread store
+is gone. The workspace *files* are rebuilt by re-hydration, but the agent's
+conversational memory is not, producing a silent divergence: the user sees the
+full transcript while the agent starts cold.
+
+**Fixed:** on a cold `thread/start` fallback (id absent or resume failed),
+`openThread` seeds the new thread from the persisted transcript. The daemon
+fetches the conversation's `agent_conversation_events` (`fetchConversationTranscript`
+→ `GetConversationEvents`), renders user/agent messages + tool calls into a
+bounded block (`renderTranscript`), and the runtime appends it to
+`developerInstructions` for the fresh thread only. The fetch happens lazily on the
+cold path — a successful `thread/resume` pays no cost — and any fetch error is
+non-fatal (start cold rather than fail the turn). Resume continuity now rides on
+the durable Postgres log, not on whether `.agent-meta.json` survived.
+
 ## Implementation notes
 
 - **Shutdown can't `GracefulStop` the gRPC server.** gRPC is multiplexed over
@@ -193,4 +280,4 @@ the exact exchange behind each revision.
   session token.
 - Multiple runtimes (Claude Code, etc.) behind the `Runtime` interface.
 - Daemon-initiated changeset submit surfaced directly in the conversation.
-- Reconnect/resume hardening and back-pressure on slow web subscribers.
+- Back-pressure on slow web subscribers.

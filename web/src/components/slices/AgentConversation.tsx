@@ -9,10 +9,11 @@ import {
 } from "react";
 
 import { Link } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation, ConversationEvent } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { cn } from "../../lib/cn";
 import { renderMarkdownToHtml } from "../../lib/markdown";
 import { getErrorMessage } from "./SlicePageParts";
@@ -39,6 +40,7 @@ export function AgentConversation({
   readOnly = false,
   toolbar
 }: AgentConversationProps) {
+  const queryClient = useQueryClient();
   const [events, setEvents] = useState<ConversationEvent[]>([]);
   // In-progress token streams, keyed by runtime item id. They are stored
   // separately from finalized events so the UI can coalesce streamed snapshots
@@ -52,6 +54,7 @@ export function AgentConversation({
   const [isStreamReconnecting, setIsStreamReconnecting] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
   // False until the persisted transcript has been backfilled in one batch (see
   // the stream effect). Gates the empty state so "No messages yet" doesn't flash
   // before history arrives, and lets the view render the whole transcript in a
@@ -78,6 +81,8 @@ export function AgentConversation({
     [events, liveDeltas]
   );
   const agentOffline = conversation?.daemonOnline === false;
+  const conversationStatus = conversation?.status || "active";
+  const isConversationActive = conversationStatus === "active";
   // While the agent is mid-turn it can be seconds before any message text
   // arrives (process spin-up, thread resume, reasoning). Surface a "working"
   // pill so the wait reads as activity, not a hang.
@@ -270,6 +275,32 @@ export function AgentConversation({
     []
   );
 
+  const closeConversationMutation = useMutation({
+    mutationFn: () => api.closeConversation({ conversationId }),
+    onSuccess: (updatedConversation) => {
+      queryClient.setQueryData<Conversation>(
+        ["conversation", conversationId],
+        updatedConversation
+      );
+      queryClient.setQueriesData<Conversation[]>(
+        { queryKey: ["sliceConversations"] },
+        (current) =>
+          updateConversationList(current, conversationId, updatedConversation)
+      );
+      queryClient.setQueryData<Conversation[]>(
+        ["recentConversations"],
+        (current) =>
+          updateConversationList(current, conversationId, updatedConversation)
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["conversation", conversationId]
+      });
+      void queryClient.invalidateQueries({ queryKey: ["sliceConversations"] });
+      void queryClient.invalidateQueries({ queryKey: ["recentConversations"] });
+      setIsCloseConfirmOpen(false);
+    }
+  });
+
   async function copyConversationLink() {
     if (
       typeof window === "undefined" ||
@@ -292,6 +323,13 @@ export function AgentConversation({
       setLinkCopied(false);
       copyTimerRef.current = undefined;
     }, 1500);
+  }
+
+  function closeConversation() {
+    if (closeConversationMutation.isPending) {
+      return;
+    }
+    closeConversationMutation.mutate();
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -359,9 +397,17 @@ export function AgentConversation({
               >
                 {linkCopied ? "Copied!" : "Copy link"}
               </button>
-              <span className="inline-flex w-fit rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
-                {conversation?.status || "active"}
-              </span>
+              {!readOnly && isConversationActive ? (
+                <button
+                  className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  disabled={closeConversationMutation.isPending}
+                  onClick={() => setIsCloseConfirmOpen(true)}
+                  type="button"
+                >
+                  {closeConversationMutation.isPending ? "Closing..." : "Close"}
+                </button>
+              ) : null}
+              <ConversationStatusDot status={conversationStatus} />
             </div>
           </div>
           {streamError ? (
@@ -488,7 +534,48 @@ export function AgentConversation({
           ) : null}
         </form>
       )}
+      <ConfirmDialog
+        busy={closeConversationMutation.isPending}
+        confirmLabel="Close"
+        message="Closing deletes the conversation workspace on the agent. The transcript will stay available for review."
+        onCancel={() => setIsCloseConfirmOpen(false)}
+        onConfirm={closeConversation}
+        open={isCloseConfirmOpen}
+        title="Close conversation"
+        tone="danger"
+      />
     </div>
+  );
+}
+
+function updateConversationList(
+  current: Conversation[] | undefined,
+  conversationId: string,
+  updatedConversation: Conversation
+) {
+  if (!current) {
+    return current;
+  }
+  return current.map((item) =>
+    item.id === conversationId || item.id === updatedConversation.id
+      ? { ...item, ...updatedConversation }
+      : item
+  );
+}
+
+function ConversationStatusDot({ status }: { status?: string }) {
+  const value = status || "active";
+  const active = value === "active";
+  return (
+    <span
+      aria-label={value}
+      className={cn(
+        "inline-block h-2 w-2 shrink-0 rounded-full",
+        active ? "bg-emerald-500" : "bg-slate-300"
+      )}
+      role="img"
+      title={value}
+    />
   );
 }
 

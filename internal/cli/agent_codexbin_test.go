@@ -140,7 +140,7 @@ func openFakeCodexSessionWithInstructions(t *testing.T, resumeThreadID, instruct
 	t.Setenv("GS_FAKE_CODEX", "1")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	session, err := (codexRuntime{Binary: os.Args[0]}).OpenSession(ctx, t.TempDir(), resumeThreadID, instructions)
+	session, err := (codexRuntime{Binary: os.Args[0]}).OpenSession(ctx, t.TempDir(), resumeThreadID, instructions, nil)
 	if err != nil {
 		cancel()
 		t.Fatalf("OpenSession returned error: %v", err)

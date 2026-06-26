@@ -590,6 +590,10 @@ export interface GetConversationRequest {
   conversationId?: string;
 }
 
+export interface CloseConversationRequest {
+  conversationId?: string;
+}
+
 export interface SendAgentMessageRequest {
   conversationId?: string;
   text?: string;
