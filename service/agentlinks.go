@@ -169,10 +169,25 @@ func owningPatchset(patchsets []*corev1.Patchset, seq int64) *corev1.Patchset {
 }
 
 func patchsetChangedPath(patchset *corev1.Patchset, relpath string) bool {
+	want := comparableAgentFilePath(relpath)
+	if want == "" {
+		return false
+	}
 	for _, changed := range patchset.GetChangedPaths() {
-		if changed == relpath {
+		if comparableAgentFilePath(changed) == want {
 			return true
 		}
 	}
 	return false
+}
+
+func comparableAgentFilePath(p string) string {
+	p = strings.TrimSpace(p)
+	p = strings.TrimPrefix(p, "./")
+	p = strings.TrimPrefix(p, "/")
+	p = path.Clean(p)
+	if p == "." || p == ".." || strings.HasPrefix(p, "../") {
+		return ""
+	}
+	return p
 }

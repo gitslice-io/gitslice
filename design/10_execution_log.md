@@ -6562,3 +6562,40 @@ test, focused link-rewrite tests, the full service package test, the focused
 agent conversation component test, the full Go test suite, the command build,
 and the web production build passed. The web build still emits existing
 Vite/Nitro dependency and chunk-size warnings.
+
+## 2026-06-26: Captured Patchset Link Rehydration
+
+Goal: fix agent file links so a streamed message points at the captured
+changeset and exact patchset when the referenced file is in a future captured
+patchset, and fix the transcript display when a runtime only emits cumulative
+`message_delta` events without a final `message`.
+
+Finding: the live conversation `conv_f9eefa29ddf07dbd07af67c6f24884be` captured
+changeset `52eb09450e` at patchset
+`ps_d0d26d96009b73071ed010c1a74a9b4f`, but the persisted patchset changed path
+was stored as `/nic/realtime/README.md` while the rewritten workspace link was
+matched as `nic/realtime/README.md`. That slash mismatch made the server fall
+back to the slice file URL instead of the changeset URL.
+
+Decision: keep server-side read-time link rewriting as the source of truth for
+`gsfile:` and repaired workspace links. Patchset changed-path comparisons now
+normalize both sides before matching. The web client rehydrates by refetching
+the server-resolved transcript after a capture status, rebuilding the coalesced
+event list, and clearing live deltas so no-final-message turns still upgrade in
+place. Persisted agent `message_delta` bubbles hide the internal event type.
+
+Verification:
+
+```bash
+go test ./service -run TestRewriteAgentFileLinks
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx
+go test ./service
+go test ./...
+go build ./cmd/...
+npm --prefix web run build
+```
+
+Results: focused server link-rewrite tests, focused web transcript tests, the
+full service package, the full Go test suite, command builds, and web production
+build passed. The web build still emits existing Vite/Nitro dependency and
+chunk-size warnings.
