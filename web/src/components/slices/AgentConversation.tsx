@@ -156,9 +156,7 @@ export function AgentConversation({
           for (const event of historyEvents) {
             rememberPersistedEventSeq(event, latestPersistedSeqRef);
           }
-          setEvents((current) =>
-            historyEvents.reduce(appendConversationEvent, current)
-          );
+          setEvents(coalesceConversationEvents(historyEvents));
         }
       } catch {
         // Fall through to streaming from seq 0, which still backfills the
@@ -166,15 +164,12 @@ export function AgentConversation({
       }
     }
 
-    // When a turn captures a patchset, the gsfile: file links in that turn's
-    // already-streamed messages can upgrade from a slice-file URL to the precise
-    // changeset+patchset URL (the server resolves them per read, and the patchset
-    // now exists). Re-read the transcript once and merge ONLY the refreshed text
-    // into the events we already hold — matched by identity, never adding,
-    // removing, or reordering events — so links update in place without changing
-    // the rendered structure (no scroll jump, no flicker). Best-effort: on any
-    // failure the links still upgrade on the next reload.
-    async function refreshResolvedLinks() {
+    // When a turn captures a patchset, links in that turn can upgrade from the
+    // slice-file view to the precise changeset+patchset URL because the server
+    // can now resolve them against the just-created patchset. Re-read and
+    // rebuild the transcript from the server-resolved events; this also clears
+    // any live token bubble when the runtime never emitted a final message event.
+    async function rehydrateResolvedTranscript() {
       let refreshed;
       try {
         refreshed = await api.getConversationEvents({
@@ -187,32 +182,15 @@ export function AgentConversation({
       if (controller.signal.aborted) {
         return;
       }
-      const freshByKey = new Map<string, ConversationEvent>();
-      for (const event of refreshed.events ?? []) {
-        if (event.id) {
-          freshByKey.set(`id:${event.id}`, event);
-        }
-        if (event.conversationId && hasSequence(event)) {
-          freshByKey.set(`seq:${event.conversationId}:${event.seq}`, event);
-        }
+      const refreshedEvents = refreshed.events ?? [];
+      if (!refreshedEvents.length) {
+        return;
       }
-      setEvents((current) => {
-        let changed = false;
-        const next = current.map((event) => {
-          const fresh =
-            (event.id ? freshByKey.get(`id:${event.id}`) : undefined) ??
-            (event.conversationId && hasSequence(event)
-              ? freshByKey.get(`seq:${event.conversationId}:${event.seq}`)
-              : undefined);
-          if (fresh && fresh.text !== undefined && fresh.text !== event.text) {
-            changed = true;
-            return { ...event, text: fresh.text };
-          }
-          return event;
-        });
-        // Returning the same reference when nothing changed avoids a re-render.
-        return changed ? next : current;
-      });
+      for (const event of refreshedEvents) {
+        rememberPersistedEventSeq(event, latestPersistedSeqRef);
+      }
+      setEvents(coalesceConversationEvents(refreshedEvents));
+      setLiveDeltas(new Map());
     }
 
     async function readStream() {
@@ -256,7 +234,7 @@ export function AgentConversation({
           // A patchset was just captured for this turn: re-resolve the turn's
           // file links in place so they upgrade from slice-file to changeset URLs.
           if (isPatchsetStatusEvent(event)) {
-            void refreshResolvedLinks();
+            void rehydrateResolvedTranscript();
           }
         }
         if (!controller.signal.aborted) {
@@ -867,6 +845,7 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
   const role = event.role || "system";
   const isUser = role === "user";
   const isAgent = role === "agent";
+  const hideType = isAgent && isMessageDelta(event);
   const content = event.text || event.dataJson || event.type || "";
   const capturedPatchset = parseCapturedPatchset(event);
 
@@ -890,7 +869,7 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
         )}
       >
         <span>{role}</span>
-        {event.type ? <span>{event.type}</span> : null}
+        {event.type && !hideType ? <span>{event.type}</span> : null}
       </div>
       {capturedPatchset ? (
         <div className="grid grid-cols-1 gap-2">
@@ -1060,6 +1039,10 @@ function appendConversationEvent(
     next.sort(compareConversationEvents);
   }
   return next;
+}
+
+function coalesceConversationEvents(events: ConversationEvent[]) {
+  return events.reduce<ConversationEvent[]>(appendConversationEvent, []);
 }
 
 function isReasoningDelta(event: ConversationEvent) {

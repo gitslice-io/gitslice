@@ -192,6 +192,77 @@ describe("AgentConversation", () => {
     expect(getConversationEvents).toHaveBeenCalledTimes(2);
   });
 
+  it("rehydrates live deltas after capture when no final message arrives", async () => {
+    const deltaEvent: ConversationEvent = {
+      id: "evt_delta",
+      conversationId: "conv_1",
+      seq: "5",
+      role: "agent",
+      type: "message_delta",
+      text: "Edited [foo.ts](/slices/acme/backend?path=foo.ts).",
+      itemId: "msg_1"
+    };
+    const captureEvent: ConversationEvent = {
+      id: "evt_cap",
+      conversationId: "conv_1",
+      seq: "6",
+      role: "system",
+      type: "status",
+      text: "captured changeset abc123def0 patchset 1"
+    };
+    const upgradedDelta: ConversationEvent = {
+      ...deltaEvent,
+      text: "Edited [foo.ts](/cs/abc123def0?to=ps_1&file=foo.ts)."
+    };
+
+    let releaseCapture: () => void = () => {};
+    const capturePending = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+
+    const getConversationEvents = vi
+      .fn()
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValue({ events: [upgradedDelta, captureEvent] });
+
+    const api = {
+      closeConversation: vi.fn(),
+      sendAgentMessage: vi.fn(),
+      getConversationEvents,
+      streamConversation: vi.fn(async function* () {
+        yield deltaEvent;
+        await capturePending;
+        yield captureEvent;
+      })
+    } as unknown as ApiClient;
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    expect(await screen.findByRole("link", { name: "foo.ts" })).toHaveAttribute(
+      "href",
+      "/slices/acme/backend?path=foo.ts"
+    );
+
+    releaseCapture();
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "foo.ts" })).toHaveAttribute(
+        "href",
+        "/cs/abc123def0?to=ps_1&file=foo.ts"
+      )
+    );
+
+    expect(screen.getAllByRole("link", { name: "foo.ts" })).toHaveLength(1);
+    expect(screen.queryByText("message_delta")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edited", { exact: false })).toBeInTheDocument();
+    expect(getConversationEvents).toHaveBeenCalledTimes(2);
+  });
+
   it("backfills persisted history in one batch and tails the stream", async () => {
     const persisted: ConversationEvent[] = [
       {

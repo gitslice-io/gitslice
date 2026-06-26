@@ -52,6 +52,24 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 			want: "Open [agent file](/cs/cs1?to=ps1&file=internal%2Fcli%2Fagent.go).",
 		},
 		{
+			name: "changeset hit normalizes canonical changed path",
+			text: "Open [agent file](gsfile:internal/cli/agent.go).",
+			rc: linkRewriteContext{
+				account: "acme",
+				slug:    "payments",
+				seq:     2,
+				patchsets: []*corev1.Patchset{
+					{
+						Id:                       "ps1",
+						ChangesetId:              "cs1",
+						ChangedPaths:             []string{"/internal/cli/agent.go"},
+						AuthoringConversationSeq: 3,
+					},
+				},
+			},
+			want: "Open [agent file](/cs/cs1?to=ps1&file=internal%2Fcli%2Fagent.go).",
+		},
+		{
 			name: "owning patchset selected by smallest cutoff at or after event seq",
 			text: "[a](gsfile:a.go) [b](gsfile:b.go)",
 			rc: linkRewriteContext{
@@ -149,7 +167,7 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 				conversationID: "conv1",
 				seq:            5,
 				patchsets: []*corev1.Patchset{
-					{Id: "ps1", ChangesetId: "cs1", ChangedPaths: []string{"acme/payments/README.md"}, AuthoringConversationSeq: 5},
+					{Id: "ps1", ChangesetId: "cs1", ChangedPaths: []string{"/acme/payments/README.md"}, AuthoringConversationSeq: 5},
 				},
 			},
 			want: "Open [README.md](/cs/cs1?to=ps1&file=acme%2Fpayments%2FREADME.md).",
