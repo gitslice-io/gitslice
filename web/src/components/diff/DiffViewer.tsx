@@ -47,6 +47,12 @@ interface DiffViewerProps {
   error: unknown;
   isError: boolean;
   isLoading: boolean;
+  /**
+   * Slice-relative path of a file to scroll to and pin as active on load (e.g.
+   * a deep link from an agent transcript's `?file=` param). Applied once per
+   * value, as soon as the diff contains a matching file.
+   */
+  focusFilePath?: string;
 }
 
 type ViewMode = "unified" | "split";
@@ -64,7 +70,8 @@ export function DiffViewer({
   diffResponse,
   error,
   isError,
-  isLoading
+  isLoading,
+  focusFilePath
 }: DiffViewerProps) {
   const files = useMemo(
     () =>
@@ -89,6 +96,9 @@ export function DiffViewer({
   // short trailing file would otherwise report the preceding panel as active.
   // The pin is released on the next real scroll gesture (below).
   const pinnedActiveIdRef = useRef<string | null>(null);
+  // Tracks the focusFilePath we have already scrolled to, so a deep link is
+  // honored once rather than yanking the view back on every diff re-render.
+  const focusAppliedRef = useRef<string | null>(null);
   const changedPathCount = diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
   const totalAdditions = files.reduce((total, file) => total + file.additions, 0);
@@ -295,32 +305,56 @@ export function DiffViewer({
     return () => observer.disconnect();
   }, [files]);
 
-  const mountFileBody = (id: string) => {
-    setMountedDiffBodies((current) => {
-      const currentIds =
-        current.files === files ? current.ids : new Set<string>();
+  const mountFileBody = useCallback(
+    (id: string) => {
+      setMountedDiffBodies((current) => {
+        const currentIds =
+          current.files === files ? current.ids : new Set<string>();
 
-      if (current.files === files && currentIds.has(id)) {
-        return current;
-      }
+        if (current.files === files && currentIds.has(id)) {
+          return current;
+        }
 
-      const next = new Set(currentIds);
-      next.add(id);
-      return { files, ids: next };
-    });
-  };
-
-  const selectFile = (id: string) => {
-    pinnedActiveIdRef.current = id;
-    setActiveId(id);
-    mountFileBody(id);
-    window.setTimeout(() => {
-      document.getElementById(id)?.scrollIntoView({
-        behavior: "smooth",
-        block: "start"
+        const next = new Set(currentIds);
+        next.add(id);
+        return { files, ids: next };
       });
-    }, 0);
-  };
+    },
+    [files]
+  );
+
+  const selectFile = useCallback(
+    (id: string) => {
+      pinnedActiveIdRef.current = id;
+      setActiveId(id);
+      mountFileBody(id);
+      window.setTimeout(() => {
+        document.getElementById(id)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+      }, 0);
+    },
+    [mountFileBody]
+  );
+
+  // Honor a `?file=` deep link: once the diff contains the requested path, pin
+  // and scroll to it. Runs after the files-changed effect above (which resets
+  // the active file to the first panel), so the deep-linked file wins.
+  useEffect(() => {
+    if (!focusFilePath || !files.length) {
+      return;
+    }
+    if (focusAppliedRef.current === focusFilePath) {
+      return;
+    }
+    const target = files.find((file) => file.path === focusFilePath);
+    if (!target) {
+      return;
+    }
+    focusAppliedRef.current = focusFilePath;
+    selectFile(target.id);
+  }, [files, focusFilePath, selectFile]);
 
   return (
     <>
