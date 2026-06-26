@@ -41,7 +41,11 @@ export function ChangesetDetailPage() {
   const params = useParams({ strict: false }) as { id?: string };
   const changesetId = params.id ?? "";
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { from?: string; to?: string };
+  const search = useSearch({ strict: false }) as {
+    from?: string;
+    to?: string;
+    file?: string;
+  };
   const [abandonReason, setAbandonReason] = useState("");
   const [actionError, setActionError] = useState("");
   const [conversationOpen, setConversationOpen] = useState(false);
@@ -306,6 +310,7 @@ export function ChangesetDetailPage() {
           <DiffViewer
             diffResponse={diffQuery.data}
             error={diffQuery.error}
+            focusFilePath={search.file}
             isError={diffQuery.isError}
             isLoading={diffQuery.isPending}
           />
