@@ -55,14 +55,20 @@ type fakeAgentRuntime struct {
 	gotWorkdir      string
 	gotResume       string
 	gotInstructions string
+	gotHistory      string
 	openCount       int
 }
 
-func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string) (agentSession, error) {
+func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string, freshThreadHistory func(context.Context) (string, error)) (agentSession, error) {
 	r.openCount++
 	r.gotWorkdir = workdir
 	r.gotResume = resumeThreadID
 	r.gotInstructions = instructions
+	if freshThreadHistory != nil {
+		if history, err := freshThreadHistory(ctx); err == nil {
+			r.gotHistory = history
+		}
+	}
 	if r.openErr != nil {
 		return nil, r.openErr
 	}
@@ -187,7 +193,7 @@ func TestEnsureSessionResumesThreadID(t *testing.T) {
 		codexThreadID: "thread-prev",
 	}
 
-	got, err := conv.ensureSession(context.Background(), runtime)
+	got, err := conv.ensureSession(context.Background(), runtime, nil)
 	if err != nil {
 		t.Fatalf("ensureSession returned error: %v", err)
 	}
@@ -210,12 +216,12 @@ func TestEnsureSessionCaches(t *testing.T) {
 	runtime := &fakeAgentRuntime{session: session}
 	conv := &agentConversation{workdir: "/tmp/work"}
 
-	first, err := conv.ensureSession(context.Background(), runtime)
+	first, err := conv.ensureSession(context.Background(), runtime, nil)
 	if err != nil {
 		t.Fatalf("first ensureSession returned error: %v", err)
 	}
 	runtime.session = &fakeAgentSession{threadID: "thread-2"}
-	second, err := conv.ensureSession(context.Background(), runtime)
+	second, err := conv.ensureSession(context.Background(), runtime, nil)
 	if err != nil {
 		t.Fatalf("second ensureSession returned error: %v", err)
 	}
@@ -232,7 +238,7 @@ func TestEnsureSessionReopensDeadSession(t *testing.T) {
 	runtime := &fakeAgentRuntime{session: first}
 	conv := &agentConversation{workdir: "/tmp/work"}
 
-	got, err := conv.ensureSession(context.Background(), runtime)
+	got, err := conv.ensureSession(context.Background(), runtime, nil)
 	if err != nil {
 		t.Fatalf("first ensureSession returned error: %v", err)
 	}
@@ -245,7 +251,7 @@ func TestEnsureSessionReopensDeadSession(t *testing.T) {
 	second := &fakeAgentSession{threadID: "thread-2"}
 	runtime.session = second
 
-	got, err = conv.ensureSession(context.Background(), runtime)
+	got, err = conv.ensureSession(context.Background(), runtime, nil)
 	if err != nil {
 		t.Fatalf("second ensureSession returned error: %v", err)
 	}
@@ -428,4 +434,93 @@ func TestRequireAgentWorkspaceDir(t *testing.T) {
 			t.Fatalf("expected already_in_workspace, got %v", err)
 		}
 	})
+}
+
+func TestRenderTranscriptKeepsMessagesAndToolCalls(t *testing.T) {
+	events := []*corev1.ConversationEvent{
+		{Role: "user", Type: "message", Text: "add a readme"},
+		{Role: "agent", Type: "reasoning", Text: "SECRETREASONING"},
+		{Role: "agent", Type: "message_delta", Text: "DELTACHUNK"},
+		{Role: "tool", Type: "tool_call", Text: "echo hi"},
+		{Role: "agent", Type: "message", Text: "done"},
+		{Role: "system", Type: "turn_complete"},
+	}
+	got := renderTranscript(events)
+	for _, want := range []string{"[User] add a readme", "[Tool call] echo hi", "[Assistant] done", "transcript start"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("transcript missing %q:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{"SECRETREASONING", "DELTACHUNK"} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("transcript should not contain %q:\n%s", notWant, got)
+		}
+	}
+	if got := renderTranscript(nil); got != "" {
+		t.Fatalf("renderTranscript(nil) = %q, want empty", got)
+	}
+}
+
+func TestEnsureSessionSeedsColdThreadHistory(t *testing.T) {
+	session := &fakeAgentSession{threadID: "thread-new"}
+	runtime := &fakeAgentRuntime{session: session}
+	conv := &agentConversation{workdir: t.TempDir()} // no codexThreadID => cold
+
+	if _, err := conv.ensureSession(context.Background(), runtime, func(context.Context) (string, error) {
+		return "PRIOR-TRANSCRIPT", nil
+	}); err != nil {
+		t.Fatalf("ensureSession returned error: %v", err)
+	}
+	if runtime.gotHistory != "PRIOR-TRANSCRIPT" {
+		t.Fatalf("runtime gotHistory = %q, want PRIOR-TRANSCRIPT", runtime.gotHistory)
+	}
+}
+
+func TestHandleReconcileWorkspacesReapsInactiveOnly(t *testing.T) {
+	root := t.TempDir()
+	d := &agentDaemon{workingDir: root, conversations: map[string]*agentConversation{}}
+
+	makeConv := func(id string, ready bool) *agentConversation {
+		subdir, workdir, err := agentConversationPaths(root, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(workdir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		conv := &agentConversation{id: id, workdir: workdir, workspaceSubdir: subdir, ready: make(chan struct{})}
+		if ready {
+			conv.setReady(nil)
+		}
+		d.conversations[id] = conv
+		return conv
+	}
+
+	keep := makeConv("conv_keep", true)        // active + ready -> kept
+	reap := makeConv("conv_reap", true)        // inactive + ready -> reaped
+	pending := makeConv("conv_pending", false) // not in set but mid-hydration -> left alone
+
+	d.handleReconcileWorkspaces(&corev1.ReconcileWorkspaces{ActiveConversationIds: []string{"conv_keep"}})
+
+	if !workspaceDirExists(keep.workdir) {
+		t.Fatalf("active workspace should be kept")
+	}
+	if workspaceDirExists(reap.workdir) {
+		t.Fatalf("inactive workspace should be removed")
+	}
+	if !workspaceDirExists(pending.workdir) {
+		t.Fatalf("mid-hydration workspace should be left alone")
+	}
+
+	d.mu.Lock()
+	_, keepMapped := d.conversations["conv_keep"]
+	_, reapMapped := d.conversations["conv_reap"]
+	_, pendingMapped := d.conversations["conv_pending"]
+	d.mu.Unlock()
+	if !keepMapped || pendingMapped == false {
+		t.Fatalf("kept/pending convs should remain mapped (keep=%v pending=%v)", keepMapped, pendingMapped)
+	}
+	if reapMapped {
+		t.Fatalf("reaped conversation should be dropped from the map")
+	}
 }

@@ -354,6 +354,8 @@ func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.Ca
 		d.handleCancelConversation(payload.Cancel)
 	case *corev1.ServerMessage_Close:
 		go d.handleCloseWorkspace(payload.Close)
+	case *corev1.ServerMessage_Reconcile:
+		go d.handleReconcileWorkspaces(payload.Reconcile)
 	case *corev1.ServerMessage_Ping:
 		if err := d.sendDaemonMessage(ctx, heartbeatDaemonMessage()); err != nil {
 			cancel()
@@ -543,7 +545,9 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 	// Reuse the conversation's warm runtime session, opening one on the first
 	// turn (or after a prior turn tore it down). The process lives on d.baseCtx
 	// so it survives per-turn cancellation and server reconnects.
-	session, err := conv.ensureSession(d.baseCtx, d.runtime)
+	session, err := conv.ensureSession(d.baseCtx, d.runtime, func(fetchCtx context.Context) (string, error) {
+		return d.fetchConversationTranscript(fetchCtx, conversationID)
+	})
 	if err != nil {
 		d.sendSystemError(ctx, conversationID, fmt.Errorf("agent runtime failed: %w", err))
 		return
@@ -716,6 +720,37 @@ func (d *agentDaemon) handleCloseWorkspace(closeMsg *corev1.CloseWorkspace) {
 	d.removeOrArchiveWorkspace(workdir, closeMsg.GetDeleteWorkspace())
 }
 
+// handleReconcileWorkspaces reaps the local workspace of any conversation the
+// daemon holds that the server reports as no longer active. This cleans up
+// conversations closed while the daemon was offline, whose live CloseWorkspace
+// push was missed. Only settled (ready) conversations are reaped: one that is
+// mid-hydration is either an active (re)start — and so present in the active
+// set — or in progress, and must be left alone.
+func (d *agentDaemon) handleReconcileWorkspaces(reconcile *corev1.ReconcileWorkspaces) {
+	active := make(map[string]struct{}, len(reconcile.GetActiveConversationIds()))
+	for _, id := range reconcile.GetActiveConversationIds() {
+		active[strings.TrimSpace(id)] = struct{}{}
+	}
+	d.mu.Lock()
+	stale := make([]*agentConversation, 0)
+	for id, conv := range d.conversations {
+		if _, ok := active[id]; ok {
+			continue
+		}
+		if !conv.isReady() {
+			continue
+		}
+		delete(d.conversations, id)
+		stale = append(stale, conv)
+	}
+	d.mu.Unlock()
+	for _, conv := range stale {
+		conv.cancelRun()
+		conv.closeSession()
+		d.removeOrArchiveWorkspace(conv.workdir, true)
+	}
+}
+
 // removeOrArchiveWorkspace deletes the workspace dir when deleteWorkspace is set,
 // otherwise moves it under conversations/.archived/. Failures are logged, not
 // fatal — the conversation is already closed server-side.
@@ -745,6 +780,75 @@ func workspaceDirExists(workdir string) bool {
 	}
 	info, err := os.Stat(workdir)
 	return err == nil && info.IsDir()
+}
+
+// agentTranscriptSeedLimit caps the rendered transcript handed to a cold runtime
+// thread, keeping the most recent context when a conversation is very long.
+const agentTranscriptSeedLimit = 24000
+
+// fetchConversationTranscript loads the conversation's persisted events from the
+// server and renders them as a compact transcript for seeding a cold runtime
+// thread. Returns "" when there is nothing to seed (a brand-new conversation).
+// Best-effort by contract: the runtime treats any error as "no seed" and starts
+// cold rather than failing the turn.
+func (d *agentDaemon) fetchConversationTranscript(ctx context.Context, conversationID string) (string, error) {
+	conn, err := dial(ctx, d.cfg.ServerAddr)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	res, err := corev1.NewAgentServiceClient(conn).GetConversationEvents(
+		authContext(ctx, d.cfg),
+		&corev1.GetConversationEventsRequest{ConversationId: conversationID},
+	)
+	if err != nil {
+		return "", err
+	}
+	return renderTranscript(res.GetEvents()), nil
+}
+
+// renderTranscript turns persisted conversation events into a developer-prompt
+// block that gives a freshly started runtime thread the prior context. It keeps
+// user/agent messages and tool calls, drops streamed deltas and control events,
+// and trims to the most recent agentTranscriptSeedLimit bytes.
+func renderTranscript(events []*corev1.ConversationEvent) string {
+	lines := make([]string, 0, len(events))
+	for _, ev := range events {
+		text := strings.TrimSpace(ev.GetText())
+		if text == "" {
+			continue
+		}
+		var label string
+		switch ev.GetType() {
+		case "message":
+			switch ev.GetRole() {
+			case "user":
+				label = "User"
+			case "agent":
+				label = "Assistant"
+			default:
+				label = "System"
+			}
+		case "tool_call":
+			label = "Tool call"
+		default:
+			// Skip streamed deltas, reasoning, tool output, status, error, and
+			// control events (turn_complete): they are noise or redundant here.
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("[%s] %s", label, text))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	body := strings.Join(lines, "\n\n")
+	if len(body) > agentTranscriptSeedLimit {
+		// Keep the most recent context; fix up any rune split by the cut.
+		body = strings.ToValidUTF8(body[len(body)-agentTranscriptSeedLimit:], "")
+	}
+	return "You are resuming an existing conversation. The transcript so far is " +
+		"below; use it as context and do not repeat work already completed.\n\n" +
+		"--- transcript start ---\n" + body + "\n--- transcript end ---"
 }
 
 func (d *agentDaemon) createConversation(conversationID string) (*agentConversation, error) {
@@ -1016,7 +1120,7 @@ func (c *agentConversation) setThreadID(id string) {
 	c.codexThreadID = id
 }
 
-func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRuntime) (agentSession, error) {
+func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRuntime, freshThreadHistory func(context.Context) (string, error)) (agentSession, error) {
 	c.stateMu.Lock()
 	if c.session != nil && c.session.Alive() {
 		session := c.session
@@ -1034,7 +1138,12 @@ func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRunt
 		stale.Close()
 	}
 
-	session, err := runtime.OpenSession(ctx, c.workdir, resume, agentWorkspaceInstructions(conversationIncludedPaths(c.workdir)))
+	// freshThreadHistory seeds a *cold* thread (no resume id, or resume failed)
+	// with the persisted transcript so the agent keeps its conversational context
+	// even after losing its workspace/.agent-meta (fresh-dir restart, new machine).
+	// The runtime invokes it only on the thread/start path, so a successful resume
+	// pays no fetch cost.
+	session, err := runtime.OpenSession(ctx, c.workdir, resume, agentWorkspaceInstructions(conversationIncludedPaths(c.workdir)), freshThreadHistory)
 	if err != nil {
 		return nil, err
 	}

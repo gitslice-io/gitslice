@@ -135,7 +135,18 @@ message ServerMessage {
     Ping ping = 5;
     EventAck ack = 6;
     CloseWorkspace close = 7;
+    ReconcileWorkspaces reconcile = 8;
   }
+}
+
+// ReconcileWorkspaces is sent right after a daemon registers, following the
+// StartConversation replay. It carries the full set of conversation ids that are
+// currently active for this daemon. The daemon removes the on-disk workspace of
+// any conversation it holds locally that is NOT in this set — reaping
+// conversations that were closed while the daemon was offline (the live
+// CloseWorkspace push was missed).
+message ReconcileWorkspaces {
+  repeated string active_conversation_ids = 1;
 }
 
 // CloseWorkspace tells the daemon to stop a conversation and remove its on-disk

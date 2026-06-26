@@ -35,10 +35,17 @@ type agentRuntime interface {
 	// OpenSession starts a long-lived runtime session for the given workspace,
 	// resuming resumeThreadID when non-empty. instructions is runtime-agnostic
 	// guidance the runtime injects however it sees fit (codex delivers it as
-	// developerInstructions; it is never written to the workspace). The session's
-	// underlying process is bound to ctx (the daemon's lifetime) and lives until
-	// Close is called; it is not tied to any single turn's context.
-	OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string) (agentSession, error)
+	// developerInstructions; it is never written to the workspace).
+	//
+	// freshThreadHistory, when non-nil, provides a rendered prior transcript used
+	// to seed a *cold* thread (no resume id, or resume failed) so the session
+	// retains conversational context the lost runtime thread would have had. The
+	// runtime calls it only on the cold path, so a successful resume pays no cost;
+	// a nil or error result means "start cold without a seed".
+	//
+	// The session's underlying process is bound to ctx (the daemon's lifetime) and
+	// lives until Close is called; it is not tied to any single turn's context.
+	OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string, freshThreadHistory func(context.Context) (string, error)) (agentSession, error)
 }
 
 // agentSession is a warm runtime session bound to one conversation workspace.
@@ -137,7 +144,7 @@ func (s *codexSession) RunTurn(ctx context.Context, prompt string, emit func(age
 	}
 }
 
-func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string) (agentSession, error) {
+func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string, freshThreadHistory func(context.Context) (string, error)) (agentSession, error) {
 	binary := r.Binary
 	if binary == "" {
 		binary = "codex"
@@ -186,7 +193,7 @@ func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, 
 		return nil, session.stderrErr(fmt.Errorf("codex initialized notify failed: %w", err))
 	}
 
-	threadID, err := client.openThread(ctx, workdir, resumeThreadID, instructions)
+	threadID, err := client.openThread(ctx, workdir, resumeThreadID, instructions, freshThreadHistory)
 	if err != nil {
 		session.Close()
 		return nil, session.stderrErr(err)
@@ -199,7 +206,7 @@ func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, 
 // openThread resumes an existing codex thread when resumeID is set, falling back
 // to starting a fresh thread if no id is given or the resume fails (e.g. the
 // session has aged out). It returns the live thread id either way.
-func (c *codexClient) openThread(ctx context.Context, workdir, resumeID, instructions string) (string, error) {
+func (c *codexClient) openThread(ctx context.Context, workdir, resumeID, instructions string, freshThreadHistory func(context.Context) (string, error)) (string, error) {
 	base := map[string]any{
 		"cwd":            workdir,
 		"sandbox":        "danger-full-access",
@@ -209,13 +216,14 @@ func (c *codexClient) openThread(ctx context.Context, workdir, resumeID, instruc
 	// system prompt for every turn in the thread, without writing anything to the
 	// workspace (so it never lands in a captured patchset). Honored by both
 	// thread/start and thread/resume.
-	if strings.TrimSpace(instructions) != "" {
-		base["developerInstructions"] = instructions
-	}
+	devInstructions := strings.TrimSpace(instructions)
 	if resumeID != "" {
 		params := map[string]any{"threadId": resumeID}
 		for k, v := range base {
 			params[k] = v
+		}
+		if devInstructions != "" {
+			params["developerInstructions"] = devInstructions
 		}
 		if raw, err := c.call(ctx, "thread/resume", params); err == nil {
 			if id := parseThreadID(raw); id != "" {
@@ -225,6 +233,23 @@ func (c *codexClient) openThread(ctx context.Context, workdir, resumeID, instruc
 			return "", ctx.Err()
 		}
 		// Resume failed for a non-cancellation reason: start fresh below.
+	}
+
+	// Cold path only: seed the fresh thread with the prior transcript so it keeps
+	// the conversational context the lost runtime thread would have had. Fetch
+	// errors are non-fatal — a cold start without a seed beats failing the turn.
+	if freshThreadHistory != nil {
+		if history, err := freshThreadHistory(ctx); err == nil {
+			if history = strings.TrimSpace(history); history != "" {
+				if devInstructions != "" {
+					devInstructions += "\n\n"
+				}
+				devInstructions += history
+			}
+		}
+	}
+	if devInstructions != "" {
+		base["developerInstructions"] = devInstructions
 	}
 
 	raw, err := c.call(ctx, "thread/start", base)

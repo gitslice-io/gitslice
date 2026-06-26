@@ -197,22 +197,22 @@ conversation to `inactive` on any fresh-dir restart or daemon-offline window.
 1. **Web `CloseConversation(conversation_id)`** (new unary RPC) → authz → `Agents.
    SetConversationStatus(id, "inactive")`. Persisted immediately, regardless of
    whether the daemon is reachable.
-2. **If the daemon is online**, the hub pushes a new server→daemon
-   `CloseConversation{conversation_id, delete_workspace}` `ServerMessage`. The
-   daemon handler `cancelRun()`s any in-flight turn, `closeSession()`s the codex
-   process, drops the conversation from its in-memory map, and removes the
-   workspace: `os.RemoveAll(conv.workdir)` when `delete_workspace` (default), or
-   moves it to `conversations/.archived/<id>/` when archiving.
-3. **If the daemon is offline**, the push is lost; the dir is reaped **lazily**.
-   On the daemon's next register, the server's replay only re-`StartConversation`s
-   `active` conversations, so the daemon GCs any local `conversations/<id>/` that
-   was not (re)started within a short post-register grace window. (Grace window
-   avoids racing the replay; `loadExistingConversations` must not mark such dirs
-   ready before the reap decision.)
-
-`SetConversationStatus` exists end-to-end today (proto, store interface, postgres
-+ memory impls) but is **currently inert — nothing calls it**. The close RPC and
-the `CloseConversation` server message are the missing writers/plumbing.
+2. **If the daemon is online**, the hub pushes a server→daemon
+   `CloseWorkspace{conversation_id, delete_workspace}` `ServerMessage`. The daemon
+   handler `cancelRun()`s any in-flight turn, `closeSession()`s the codex process,
+   drops the conversation from its in-memory map, and removes the workspace:
+   `os.RemoveAll(conv.workdir)` when `delete_workspace` (default), or moves it to
+   `conversations/.archived/<id>/` when archiving.
+3. **If the daemon is offline**, the push is lost; the dir is reaped **lazily and
+   deterministically** via reconciliation. Right after the `StartConversation`
+   replay on (re)register, the server sends one `ReconcileWorkspaces{active_
+   conversation_ids}` carrying the full active set for that daemon
+   (`replayDaemonConversations`). The daemon (`handleReconcileWorkspaces`) removes
+   the workspace of any conversation it holds locally that is **not** in the set.
+   It only reaps *ready* conversations, so a conversation mid-hydration — which is
+   either an active (re)start already in the set, or in progress — is left alone.
+   This needs no grace window: the active set is an explicit snapshot, not a
+   timing guess.
 
 ### Re-hydration when the workspace is missing
 
@@ -223,8 +223,9 @@ in-memory state** for it: `createConversation` yields a fresh, not-ready conv an
 already holds the conv as `ready` (e.g. the dir was deleted out from under a
 running daemon), the `isReady()` short-circuit **skips hydration** and codex is
 later launched with `cmd.Dir` pointing at a missing directory, which fails with
-no auto-repair. **Fix:** `isReady()` (or the start handler) must `os.Stat` the
-workdir and treat "ready but workdir missing" as not-ready so it re-hydrates.
+no auto-repair. **Fixed:** `handleStartConversation` now short-circuits only when
+the conv is ready in memory *and* `workspaceDirExists(conv.workdir)`; a ready conv
+whose dir vanished falls through to `hydrateWorkspace` and is rebuilt.
 
 ### Resume semantics — two histories, only one is preserved for the agent
 
@@ -244,12 +245,15 @@ is gone. The workspace *files* are rebuilt by re-hydration, but the agent's
 conversational memory is not, producing a silent divergence: the user sees the
 full transcript while the agent starts cold.
 
-**Fix:** on a cold `thread/start` fallback (id absent or resume failed), seed the
-new thread from the persisted transcript — replay the conversation's
-`agent_conversation_events` as prior context — so resume continuity rides on the
-durable Postgres log rather than on codex's machine-local thread store alone.
-This makes "active conversation survives a fresh agent / new machine" a
-guarantee, not an accident of whether `.agent-meta.json` happened to survive.
+**Fixed:** on a cold `thread/start` fallback (id absent or resume failed),
+`openThread` seeds the new thread from the persisted transcript. The daemon
+fetches the conversation's `agent_conversation_events` (`fetchConversationTranscript`
+→ `GetConversationEvents`), renders user/agent messages + tool calls into a
+bounded block (`renderTranscript`), and the runtime appends it to
+`developerInstructions` for the fresh thread only. The fetch happens lazily on the
+cold path — a successful `thread/resume` pays no cost — and any fetch error is
+non-fatal (start cold rather than fail the turn). Resume continuity now rides on
+the durable Postgres log, not on whether `.agent-meta.json` survived.
 
 ## Implementation notes
 
@@ -277,5 +281,3 @@ guarantee, not an accident of whether `.agent-meta.json` happened to survive.
 - Multiple runtimes (Claude Code, etc.) behind the `Runtime` interface.
 - Daemon-initiated changeset submit surfaced directly in the conversation.
 - Back-pressure on slow web subscribers.
-- Conversation close/delete + resume hardening — specified under "Conversation
-  lifecycle (close / resume)" above; not yet implemented.

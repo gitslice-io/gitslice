@@ -164,6 +164,7 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 	if err != nil {
 		return
 	}
+	activeIDs := make([]string, 0, len(convs))
 	for _, conv := range convs {
 		if conv == nil || (conv.Status != "" && conv.Status != "active") {
 			continue
@@ -182,7 +183,14 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 		}}}) {
 			return
 		}
+		activeIDs = append(activeIDs, conv.Id)
 	}
+	// After replaying the active set, tell the daemon exactly which conversations
+	// are still active so it can reap the on-disk workspaces of any it holds that
+	// were closed while it was offline (the live CloseWorkspace push was missed).
+	conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Reconcile{Reconcile: &corev1.ReconcileWorkspaces{
+		ActiveConversationIds: activeIDs,
+	}}})
 }
 
 func (s *AgentService) ListDaemons(ctx context.Context, _ *corev1.ListDaemonsRequest) (*corev1.ListDaemonsResponse, error) {
