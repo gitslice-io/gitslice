@@ -9,6 +9,7 @@ import type {
   CheckUsernameAvailableResponse,
   ChooseUsernameRequest,
   ChooseUsernameResponse,
+  CloseConversationRequest,
   Commit,
   CompleteCliLoginRequest,
   CompleteCliLoginResponse,
@@ -350,6 +351,12 @@ export function createApiClient({
       invoke<GetConversationRequest, Conversation>(
         "AgentService",
         "GetConversation",
+        request
+      ),
+    closeConversation: (request) =>
+      invoke<CloseConversationRequest, Conversation>(
+        "AgentService",
+        "CloseConversation",
         request
       ),
     sendAgentMessage: (request) =>

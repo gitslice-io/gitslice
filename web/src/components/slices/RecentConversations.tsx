@@ -125,26 +125,19 @@ function ConversationStatusPill({
 }: {
   conversation: Conversation;
 }) {
-  const value =
-    conversation.status ||
-    (conversation.daemonOnline === false ? "offline" : "active");
-  const normalized = value.toLowerCase();
-  const tone =
-    normalized === "active" || normalized === "online"
-      ? "bg-emerald-50 text-emerald-700"
-      : normalized === "error" || normalized === "failed"
-        ? "bg-rose-50 text-rose-700"
-        : "bg-slate-100 text-slate-600";
+  const value = conversation.status || "active";
+  const active = value === "active";
 
   return (
     <span
+      aria-label={value}
       className={cn(
-        "inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-normal",
-        tone
+        "inline-block h-2 w-2 shrink-0 rounded-full",
+        active ? "bg-emerald-500" : "bg-slate-300"
       )}
-    >
-      {value}
-    </span>
+      role="img"
+      title={value}
+    />
   );
 }
 
