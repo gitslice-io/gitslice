@@ -1,11 +1,4 @@
-import {
-  FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { AgentDaemon, Conversation, SliceRef } from "../../api/types";
@@ -21,7 +14,6 @@ interface AgentsTabProps {
   onBack?: () => void;
   onSelectConversation?: (id: string) => void;
   slice: SliceRef;
-  startCreateOpen?: boolean;
 }
 
 export function AgentsTab({
@@ -30,7 +22,6 @@ export function AgentsTab({
   onBack,
   onSelectConversation,
   slice,
-  startCreateOpen = false,
 }: AgentsTabProps) {
   const queryClient = useQueryClient();
   const sliceKey = `${slice.account ?? ""}:${slice.slice ?? ""}`;
@@ -64,7 +55,6 @@ export function AgentsTab({
   const [title, setTitle] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const hasAutoOpenedCreate = useRef(false);
   // Tracks the lg breakpoint so we only auto-open the newest conversation on
   // desktop. On mobile the list is a full-screen view of its own, so
   // auto-opening would trap the user in a transcript with no way back to the
@@ -205,14 +195,6 @@ export function AgentsTab({
   function closeCreate() {
     setIsCreateOpen(false);
   }
-
-  useEffect(() => {
-    if (!startCreateOpen || hasAutoOpenedCreate.current) {
-      return;
-    }
-    hasAutoOpenedCreate.current = true;
-    openCreate();
-  }, [startCreateOpen]);
 
   if (!sliceDefined) {
     return (

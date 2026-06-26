@@ -9,7 +9,7 @@ import { useSelection } from "../../state/selection";
 import {
   SliceLoadingBlock,
   SliceNotice,
-  VisibilityIcon,
+  VisibilityBadge,
   formatPathPreview,
   getErrorMessage,
   sliceDisplayName
@@ -100,33 +100,29 @@ export function SlicesList() {
 
                 return (
                   <li key={sliceId || name}>
-                    <div className="px-4 py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          {routeParams ? (
-                            <Link
-                              className="block truncate font-medium text-zinc-950 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
-                              params={routeParams}
-                              to="/slices/$account/$slice"
-                            >
-                              {name}
-                            </Link>
-                          ) : (
-                            <span className="truncate font-medium text-zinc-950">
-                              {name}
-                            </span>
-                          )}
-                          {routeParams ? (
-                            <div className="mt-2">
-                              <NewConversationLink routeParams={routeParams} />
-                            </div>
-                          ) : null}
-                        </div>
-                        <VisibilityIcon
+                    {routeParams ? (
+                      <Link
+                        className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50"
+                        params={routeParams}
+                        to="/slices/$account/$slice"
+                      >
+                        <span className="min-w-0 truncate font-medium text-zinc-950">
+                          {name}
+                        </span>
+                        <VisibilityBadge
+                          visibility={slice.definition?.visibility}
+                        />
+                      </Link>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3 px-4 py-3">
+                        <span className="min-w-0 truncate font-medium text-zinc-950">
+                          {name}
+                        </span>
+                        <VisibilityBadge
                           visibility={slice.definition?.visibility}
                         />
                       </div>
-                    </div>
+                    )}
                   </li>
                 );
               })}
@@ -139,6 +135,7 @@ export function SlicesList() {
                   <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
                     <tr>
                       <th className="px-4 py-3">Slice</th>
+                      <th className="px-4 py-3">Visibility</th>
                       <th className="px-4 py-3">Version</th>
                       <th className="px-4 py-3">Definition hash</th>
                       <th className="px-4 py-3">Included paths</th>
@@ -156,31 +153,22 @@ export function SlicesList() {
                           key={sliceId || sliceDisplayName(slice)}
                         >
                           <td className="px-4 py-3 font-medium text-zinc-950">
-                            <div className="flex items-start gap-2">
-                              <VisibilityIcon
-                                visibility={slice.definition?.visibility}
-                              />
-                              <div className="min-w-0">
-                                {routeParams ? (
-                                  <Link
-                                    className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
-                                    params={routeParams}
-                                    to="/slices/$account/$slice"
-                                  >
-                                    {sliceDisplayName(slice)}
-                                  </Link>
-                                ) : (
-                                  sliceDisplayName(slice)
-                                )}
-                                {routeParams ? (
-                                  <div className="mt-2">
-                                    <NewConversationLink
-                                      routeParams={routeParams}
-                                    />
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
+                            {routeParams ? (
+                              <Link
+                                className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
+                                params={routeParams}
+                                to="/slices/$account/$slice"
+                              >
+                                {sliceDisplayName(slice)}
+                              </Link>
+                            ) : (
+                              sliceDisplayName(slice)
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <VisibilityBadge
+                              visibility={slice.definition?.visibility}
+                            />
                           </td>
                           <td className="px-4 py-3 font-mono text-xs text-slate-700">
                             {slice.definition?.version ?? "unknown"}
@@ -211,22 +199,5 @@ export function SlicesList() {
         )}
       </div>
     </section>
-  );
-}
-
-function NewConversationLink({
-  routeParams
-}: {
-  routeParams: { account: string; slice: string };
-}) {
-  return (
-    <Link
-      className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
-      params={routeParams}
-      search={{ newConversation: "1" } as never}
-      to="/slices/$account/$slice/agents"
-    >
-      New conversation
-    </Link>
   );
 }

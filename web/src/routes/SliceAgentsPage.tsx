@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 
 import { useApi } from "../api/useApi";
@@ -22,20 +22,14 @@ interface SliceParams {
   conversationId?: string;
 }
 
-interface SliceAgentsSearch {
-  newConversation?: string;
-}
-
 export function SliceAgentsPage() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as SliceParams;
-  const search = useSearch({ strict: false }) as SliceAgentsSearch;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
   const conversationId = params.conversationId ?? "";
-  const startNewConversation = search.newConversation === "1";
   const routeSliceRef =
     routeAccount && routeSlice
       ? { account: routeAccount, slice: routeSlice }
@@ -122,7 +116,6 @@ export function SliceAgentsPage() {
           onBack={onBackToConversations}
           onSelectConversation={onSelectConversation}
           slice={sliceRef}
-          startCreateOpen={startNewConversation}
         />
       ) : showReadOnlyConversation ? (
         conversationQuery.isPending ? (

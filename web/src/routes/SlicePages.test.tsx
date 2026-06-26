@@ -90,15 +90,7 @@ describe("slice route pages (render smoke)", () => {
 
   it("renders the slices list", async () => {
     renderRoute(<HomePage />);
-    await waitFor(() => {
-      expect(apiMock.current.listSlices).toHaveBeenCalled();
-      expect(screen.queryAllByText("New conversation").length).toBeGreaterThan(
-        0
-      );
-      expect(
-        screen.queryAllByLabelText("public slice").length
-      ).toBeGreaterThan(0);
-    });
+    await waitFor(() => expect(apiMock.current.listSlices).toHaveBeenCalled());
     await flushAsync();
     expectHealthy();
   });
