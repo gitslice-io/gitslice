@@ -126,7 +126,7 @@ describe("AgentConversation", () => {
       type: "message",
       // Before the patchset exists the server resolves the gsfile: link to the
       // slice-file view; this is what streams in first.
-      text: "Edited [foo.ts](/slices/acme/backend?path=foo.ts)."
+      text: "Edited [foo.ts](/slices/acme/backend?path=%2Ffoo.ts)."
     };
     const captureEvent: ConversationEvent = {
       id: "evt_cap",
@@ -174,7 +174,7 @@ describe("AgentConversation", () => {
 
     // The message first renders pointing at the slice-file view.
     const link = await screen.findByRole("link", { name: "foo.ts" });
-    expect(link).toHaveAttribute("href", "/slices/acme/backend?path=foo.ts");
+    expect(link).toHaveAttribute("href", "/slices/acme/backend?path=%2Ffoo.ts");
 
     // The patchset lands: its status event streams in and the link upgrades in
     // place to the precise changeset+patchset URL.
@@ -199,7 +199,7 @@ describe("AgentConversation", () => {
       seq: "5",
       role: "agent",
       type: "message_delta",
-      text: "Edited [foo.ts](/slices/acme/backend?path=foo.ts).",
+      text: "Edited [foo.ts](/slices/acme/backend?path=%2Ffoo.ts).",
       itemId: "msg_1"
     };
     const captureEvent: ConversationEvent = {
@@ -246,7 +246,7 @@ describe("AgentConversation", () => {
 
     expect(await screen.findByRole("link", { name: "foo.ts" })).toHaveAttribute(
       "href",
-      "/slices/acme/backend?path=foo.ts"
+      "/slices/acme/backend?path=%2Ffoo.ts"
     );
 
     releaseCapture();
