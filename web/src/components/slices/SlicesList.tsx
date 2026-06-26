@@ -9,6 +9,7 @@ import { useSelection } from "../../state/selection";
 import {
   SliceLoadingBlock,
   SliceNotice,
+  VisibilityBadge,
   formatPathPreview,
   getErrorMessage,
   sliceDisplayName
@@ -88,74 +89,113 @@ export function SlicesList() {
             The server did not return any slices for this account.
           </SliceNotice>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
-                  <tr>
-                    <th className="px-3 py-3 sm:px-4">Slice</th>
-                    <th className="px-3 py-3 sm:px-4">Visibility</th>
-                    <th className="hidden px-4 py-3 md:table-cell">Version</th>
-                    <th className="hidden px-4 py-3 md:table-cell">
-                      Definition hash
-                    </th>
-                    <th className="hidden px-4 py-3 md:table-cell">
-                      Included paths
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {slices.map((slice) => {
-                    const paths = slice.definition?.includedPaths ?? [];
-                    const sliceId = slice.id ?? "";
-                    const routeParams = toSliceRouteParams(slice.ref);
+          <>
+            {/* Mobile: a compact stacked list — a 5-column table collapses to a
+                sparse two-column layout on narrow screens, so render rows. */}
+            <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:hidden">
+              {slices.map((slice) => {
+                const sliceId = slice.id ?? "";
+                const routeParams = toSliceRouteParams(slice.ref);
+                const name = sliceDisplayName(slice);
 
-                    return (
-                      <tr
-                        className="align-top transition hover:bg-slate-50"
-                        key={sliceId || sliceDisplayName(slice)}
+                return (
+                  <li key={sliceId || name}>
+                    {routeParams ? (
+                      <Link
+                        className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50"
+                        params={routeParams}
+                        to="/slices/$account/$slice"
                       >
-                        <td className="max-w-[12rem] px-3 py-3 font-medium text-zinc-950 sm:max-w-none sm:px-4">
-                          {routeParams ? (
-                            <Link
-                              className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
-                              params={routeParams}
-                              to="/slices/$account/$slice"
-                            >
-                              {sliceDisplayName(slice)}
-                            </Link>
-                          ) : (
-                            sliceDisplayName(slice)
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-slate-700 sm:px-4">
-                          {slice.definition?.visibility || "unspecified"}
-                        </td>
-                        <td className="hidden px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
-                          {slice.definition?.version ?? "unknown"}
-                        </td>
-                        <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 md:table-cell">
-                          {slice.definitionHash ? (
-                            <span title={slice.definitionHash}>
-                              {shortHash(slice.definitionHash)}
-                            </span>
-                          ) : (
-                            "none"
-                          )}
-                        </td>
-                        <td className="hidden px-4 py-3 text-slate-700 md:table-cell">
-                          <span className="font-medium text-zinc-950">
-                            {paths.length}
-                          </span>{" "}
-                          <span>{formatPathPreview(paths)}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        <span className="min-w-0 truncate font-medium text-zinc-950">
+                          {name}
+                        </span>
+                        <VisibilityBadge
+                          visibility={slice.definition?.visibility}
+                        />
+                      </Link>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3 px-4 py-3">
+                        <span className="min-w-0 truncate font-medium text-zinc-950">
+                          {name}
+                        </span>
+                        <VisibilityBadge
+                          visibility={slice.definition?.visibility}
+                        />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+
+            {/* Desktop: the full detail table. */}
+            <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:block">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Slice</th>
+                      <th className="px-4 py-3">Visibility</th>
+                      <th className="px-4 py-3">Version</th>
+                      <th className="px-4 py-3">Definition hash</th>
+                      <th className="px-4 py-3">Included paths</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {slices.map((slice) => {
+                      const paths = slice.definition?.includedPaths ?? [];
+                      const sliceId = slice.id ?? "";
+                      const routeParams = toSliceRouteParams(slice.ref);
+
+                      return (
+                        <tr
+                          className="align-top transition hover:bg-slate-50"
+                          key={sliceId || sliceDisplayName(slice)}
+                        >
+                          <td className="px-4 py-3 font-medium text-zinc-950">
+                            {routeParams ? (
+                              <Link
+                                className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
+                                params={routeParams}
+                                to="/slices/$account/$slice"
+                              >
+                                {sliceDisplayName(slice)}
+                              </Link>
+                            ) : (
+                              sliceDisplayName(slice)
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <VisibilityBadge
+                              visibility={slice.definition?.visibility}
+                            />
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                            {slice.definition?.version ?? "unknown"}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700">
+                            {slice.definitionHash ? (
+                              <span title={slice.definitionHash}>
+                                {shortHash(slice.definitionHash)}
+                              </span>
+                            ) : (
+                              "none"
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <span className="font-medium text-zinc-950">
+                              {paths.length}
+                            </span>{" "}
+                            <span>{formatPathPreview(paths)}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </section>

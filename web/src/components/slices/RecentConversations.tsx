@@ -88,15 +88,15 @@ function ConversationCard({ conversation }: { conversation: Conversation }) {
   const timeSource = conversation.updatedAt || conversation.createdAt;
   const timeLabel = formatRelativeTime(timeSource);
   const cardClass =
-    "rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm transition hover:border-slate-300";
+    "block rounded-lg border border-slate-200 bg-white px-3.5 py-3 shadow-sm shadow-slate-200/50 transition hover:border-slate-300 hover:bg-slate-50";
   const body = (
     <>
       <p className="truncate text-sm font-semibold text-zinc-950">{title}</p>
-      <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-slate-500">
-        <span className="min-w-0 truncate">{sliceLabel}</span>
+      <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-slate-500">
         <ConversationStatusPill conversation={conversation} />
+        <span className="min-w-0 truncate">{sliceLabel}</span>
         <span
-          className="ml-auto shrink-0 font-mono text-[0.7rem] text-slate-400"
+          className="ml-auto shrink-0 whitespace-nowrap font-mono text-[0.7rem] text-slate-400"
           title={timeSource}
         >
           {timeLabel}
@@ -132,8 +132,10 @@ function ConversationStatusPill({
     <span
       aria-label={value}
       className={cn(
-        "inline-block h-2 w-2 shrink-0 rounded-full",
-        active ? "bg-emerald-500" : "bg-slate-300"
+        "inline-block h-2 w-2 shrink-0 rounded-full ring-2",
+        active
+          ? "bg-emerald-500 ring-emerald-500/15"
+          : "bg-slate-300 ring-slate-300/20"
       )}
       role="img"
       title={value}
