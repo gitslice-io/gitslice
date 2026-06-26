@@ -1027,17 +1027,33 @@ function appendConversationEvent(
     return current;
   }
 
-  // Each persisted reasoning_delta carries the full cumulative snapshot, so
-  // keeping every one stacks the trace with growing-prefix duplicates. Coalesce
-  // by item: a new snapshot — or the finalized reasoning event — supersedes the
-  // earlier snapshots for the same item. (message_delta is coalesced live, so
-  // it never reaches this list.)
-  const base =
-    event.itemId && isReasoningEvent(event)
-      ? current.filter(
-          (item) => !(item.itemId === event.itemId && isReasoningDelta(item))
+  // Persisted *_delta events carry full cumulative snapshots, so keeping every
+  // one stacks the transcript with growing-prefix duplicates. Coalesce by item:
+  // a newer snapshot replaces the previous snapshot, and the finalized item
+  // removes its snapshots.
+  let base = current;
+  if (event.itemId) {
+    if (isMessageDelta(event)) {
+      if (
+        current.some(
+          (item) => item.itemId === event.itemId && isFinalMessageEvent(item)
         )
-      : current;
+      ) {
+        return current;
+      }
+      base = current.filter(
+        (item) => !(item.itemId === event.itemId && isMessageDelta(item))
+      );
+    } else if (isFinalMessageEvent(event)) {
+      base = current.filter(
+        (item) => !(item.itemId === event.itemId && isMessageDelta(item))
+      );
+    } else if (isReasoningEvent(event)) {
+      base = current.filter(
+        (item) => !(item.itemId === event.itemId && isReasoningDelta(item))
+      );
+    }
+  }
 
   const next = [...base, event];
   if (hasSequence(event)) {
@@ -1048,6 +1064,14 @@ function appendConversationEvent(
 
 function isReasoningDelta(event: ConversationEvent) {
   return (event.type ?? "").toLowerCase() === "reasoning_delta";
+}
+
+function isMessageDelta(event: ConversationEvent) {
+  return (event.type ?? "").toLowerCase() === "message_delta";
+}
+
+function isFinalMessageEvent(event: ConversationEvent) {
+  return (event.type ?? "").toLowerCase() === "message";
 }
 
 function isReasoningEvent(event: ConversationEvent) {

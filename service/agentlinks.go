@@ -2,23 +2,24 @@ package service
 
 import (
 	"net/url"
+	"path"
 	"strings"
 
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
 type linkRewriteContext struct {
-	account   string
-	slug      string
-	seq       int64
-	patchsets []*corev1.Patchset
+	account        string
+	slug           string
+	conversationID string
+	seq            int64
+	patchsets      []*corev1.Patchset
 }
 
-// rewriteAgentFileLinks replaces Markdown inline links whose URL uses the
-// gsfile: scheme with web app URLs. Other links and surrounding prose are left
-// untouched.
+// rewriteAgentFileLinks replaces Markdown inline links that point at workspace
+// files with web app URLs. Other links and surrounding prose are left untouched.
 func rewriteAgentFileLinks(text string, rc linkRewriteContext) string {
-	if !strings.Contains(text, "gsfile:") {
+	if !textMayContainAgentFileLink(text, rc) {
 		return text
 	}
 	var b strings.Builder
@@ -45,10 +46,6 @@ func rewriteAgentFileLinks(text string, rc linkRewriteContext) string {
 			continue
 		}
 		urlStart := labelEnd + 2
-		if !strings.HasPrefix(text[urlStart:], "gsfile:") {
-			pos = linkStart + 1
-			continue
-		}
 		urlEndRel := strings.IndexByte(text[urlStart:], ')')
 		if urlEndRel < 0 {
 			break
@@ -73,14 +70,17 @@ func rewriteAgentFileLinks(text string, rc linkRewriteContext) string {
 	return b.String()
 }
 
+func textMayContainAgentFileLink(text string, rc linkRewriteContext) bool {
+	return strings.Contains(text, "gsfile:") ||
+		(rc.conversationID != "" && strings.Contains(text, "/conversations/"+rc.conversationID+"/"))
+}
+
 func rewriteAgentFileURL(raw string, rc linkRewriteContext) (string, bool) {
-	if rc.account == "" || rc.slug == "" || !strings.HasPrefix(raw, "gsfile:") {
+	if rc.account == "" || rc.slug == "" {
 		return "", false
 	}
-	target := strings.TrimPrefix(raw, "gsfile:")
-	relpath, fragment, hasFragment := strings.Cut(target, "#")
-	relpath = strings.TrimPrefix(relpath, "./")
-	if relpath == "" || strings.HasPrefix(relpath, "/") {
+	relpath, fragment, hasFragment, ok := agentFileRelpath(raw, rc)
+	if !ok {
 		return "", false
 	}
 
@@ -96,6 +96,57 @@ func rewriteAgentFileURL(raw string, rc linkRewriteContext) (string, bool) {
 		u.Fragment = fragment
 	}
 	return u.String(), true
+}
+
+func agentFileRelpath(raw string, rc linkRewriteContext) (relpath string, fragment string, hasFragment bool, ok bool) {
+	target, fragment, hasFragment := strings.Cut(raw, "#")
+	switch {
+	case strings.HasPrefix(target, "gsfile:"):
+		relpath = strings.TrimPrefix(target, "gsfile:")
+	default:
+		var pathOK bool
+		relpath, pathOK = conversationWorkspaceRelpath(target, rc.conversationID)
+		if !pathOK {
+			return "", "", false, false
+		}
+	}
+	relpath, ok = cleanAgentFileRelpath(relpath)
+	return relpath, fragment, hasFragment, ok
+}
+
+func conversationWorkspaceRelpath(raw, conversationID string) (string, bool) {
+	if conversationID == "" {
+		return "", false
+	}
+	candidate := raw
+	if strings.HasPrefix(candidate, "file://") {
+		u, err := url.Parse(candidate)
+		if err != nil || u.Path == "" {
+			return "", false
+		}
+		candidate = u.Path
+	} else if unescaped, err := url.PathUnescape(candidate); err == nil {
+		candidate = unescaped
+	}
+	marker := "/conversations/" + conversationID + "/"
+	idx := strings.Index(candidate, marker)
+	if idx < 0 {
+		return "", false
+	}
+	relpath := candidate[idx+len(marker):]
+	if relpath == "" {
+		return "", false
+	}
+	return relpath, true
+}
+
+func cleanAgentFileRelpath(relpath string) (string, bool) {
+	relpath = strings.TrimPrefix(relpath, "./")
+	relpath = path.Clean(relpath)
+	if relpath == "." || relpath == "" || strings.HasPrefix(relpath, "/") || relpath == ".." || strings.HasPrefix(relpath, "../") {
+		return "", false
+	}
+	return relpath, true
 }
 
 func owningPatchset(patchsets []*corev1.Patchset, seq int64) *corev1.Patchset {

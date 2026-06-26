@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/authz"
@@ -444,12 +443,17 @@ func (s *AgentService) rewriteConversationLinks(ctx context.Context, conv *corev
 	if account == "" || slug == "" {
 		return events
 	}
+	rc := linkRewriteContext{
+		account:        account,
+		slug:           slug,
+		conversationID: conv.GetId(),
+	}
 	// Only touch the database when at least one event actually carries a link;
 	// most streamed events (token deltas, status) have none, and this method is
 	// called per live event, so an unconditional lookup would query on every one.
 	hasLink := false
 	for _, ev := range events {
-		if ev != nil && strings.Contains(ev.GetText(), "gsfile:") {
+		if ev != nil && textMayContainAgentFileLink(ev.GetText(), rc) {
 			hasLink = true
 			break
 		}
@@ -465,17 +469,15 @@ func (s *AgentService) rewriteConversationLinks(ctx context.Context, conv *corev
 	}
 	out := make([]*corev1.ConversationEvent, len(events))
 	for i, ev := range events {
-		if ev == nil || !strings.Contains(ev.GetText(), "gsfile:") {
+		if ev == nil || !textMayContainAgentFileLink(ev.GetText(), rc) {
 			out[i] = ev
 			continue
 		}
 		cloned := proto.Clone(ev).(*corev1.ConversationEvent)
-		cloned.Text = rewriteAgentFileLinks(cloned.GetText(), linkRewriteContext{
-			account:   account,
-			slug:      slug,
-			seq:       ev.GetSeq(),
-			patchsets: patchsets,
-		})
+		eventContext := rc
+		eventContext.seq = ev.GetSeq()
+		eventContext.patchsets = patchsets
+		cloned.Text = rewriteAgentFileLinks(cloned.GetText(), eventContext)
 		out[i] = cloned
 	}
 	return out
