@@ -1,5 +1,36 @@
 # Gitslice Execution Log
 
+## 2026-06-27: Deployment Agent Skill
+
+Request:
+
+- create a deployment skill and add it to the current project
+
+Decisions:
+
+- added a project-local skill at `skills/deployment/` instead of installing it
+  into the global Codex skills directory, matching the existing `skills/gs-cli`
+  convention
+- exposed the same skill through `.claude/skills/deployment/SKILL.md` as a
+  relative symlink to `skills/deployment/SKILL.md`; Claude discovers that
+  project path directly, and OpenCode discovers the same Claude-compatible skill
+  path, avoiding a duplicate `deployment` skill under `.opencode`
+- documented the current staging deployment topology: backend through PM2
+  process `gitslice-rewrite-staging`, web through Cloudflare Worker env
+  `staging`, and public verification hosts `agenttools.dev` /
+  `api.agenttools.dev`
+- kept secrets out of the skill; `.env.staging` is referenced only as
+  gitignored operator state, with guidance to inspect environment keys rather
+  than values
+
+Verification:
+
+```bash
+python3 /home/nic/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/nic/workspace/slices/skills/deployment
+python3 /home/nic/.codex/skills/.system/skill-creator/scripts/quick_validate.py /home/nic/workspace/slices/.claude/skills/deployment
+readlink .claude/skills/deployment/SKILL.md
+```
+
 ## 2026-06-27: Web API ConnectRPC Migration
 
 Request:
