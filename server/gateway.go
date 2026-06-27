@@ -1,52 +1,19 @@
 package server
 
 import (
-	"context"
 	"crypto/subtle"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
 
 	"github.com/gitslice-io/gitslice/internal/metrics"
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 var openMetricsWarningOnce sync.Once
 
-func NewHTTPGateway(ctx context.Context, grpcEndpoint string) (http.Handler, error) {
-	mux := runtime.NewServeMux(runtime.WithIncomingHeaderMatcher(gatewayHeaderMatcher))
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
-			grpc.MaxCallSendMsgSize(rpclimits.MaxUnaryMessageBytes),
-		),
-	}
-	registerHandlers := []func(context.Context, *runtime.ServeMux, string, []grpc.DialOption) error{
-		corev1.RegisterAuthServiceHandlerFromEndpoint,
-		corev1.RegisterRepositoryServiceHandlerFromEndpoint,
-		corev1.RegisterBlobServiceHandlerFromEndpoint,
-		corev1.RegisterSliceServiceHandlerFromEndpoint,
-		corev1.RegisterWorkspaceServiceHandlerFromEndpoint,
-		corev1.RegisterChangesetServiceHandlerFromEndpoint,
-		corev1.RegisterChangesetStackServiceHandlerFromEndpoint,
-		corev1.RegisterAgentServiceHandlerFromEndpoint,
-	}
-	for _, register := range registerHandlers {
-		if err := register(ctx, mux, grpcEndpoint, opts); err != nil {
-			return nil, err
-		}
-	}
-	return mux, nil
-}
-
-func NewHTTPHandler(gateway http.Handler, allowedOrigin string, cfgs ...Config) http.Handler {
+func NewHTTPHandler(api http.Handler, allowedOrigin string, cfgs ...Config) http.Handler {
 	var cfg Config
 	configured := false
 	if len(cfgs) > 0 {
@@ -63,9 +30,9 @@ func NewHTTPHandler(gateway http.Handler, allowedOrigin string, cfgs ...Config) 
 	}
 	mux.Handle("/metrics", metricsHandler)
 
-	gatewayHandler := withMaxBody(gateway, rpclimits.MaxUnaryMessageBytes)
-	gatewayHandler = newHTTPRateLimitMiddleware(cfg)(gatewayHandler)
-	mux.Handle("/", withCORS(gatewayHandler, allowedOrigin))
+	apiHandler := withMaxBody(api, rpclimits.MaxUnaryMessageBytes)
+	apiHandler = newHTTPRateLimitMiddleware(cfg)(apiHandler)
+	mux.Handle("/", withCORS(apiHandler, allowedOrigin))
 	return mux
 }
 
@@ -98,9 +65,8 @@ func warnOpenMetricsEndpoint() {
 	})
 }
 
-// withMaxBody caps the request body so the JSON gateway cannot be forced to
-// buffer an unbounded payload while translating to gRPC. The cap matches the
-// unary gRPC message limit the gateway forwards to.
+// withMaxBody caps the HTTP API request body so the server cannot be forced to
+// buffer an unbounded unary payload.
 func withMaxBody(handler http.Handler, max int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
@@ -108,24 +74,6 @@ func withMaxBody(handler http.Handler, max int64) http.Handler {
 		}
 		handler.ServeHTTP(w, r)
 	})
-}
-
-func gatewayGRPCEndpoint(addr net.Addr) string {
-	host, port, err := net.SplitHostPort(addr.String())
-	if err != nil {
-		return addr.String()
-	}
-	if host == "" || host == "::" || host == "0.0.0.0" {
-		host = "127.0.0.1"
-	}
-	return net.JoinHostPort(host, port)
-}
-
-func gatewayHeaderMatcher(key string) (string, bool) {
-	if strings.EqualFold(key, "Authorization") {
-		return "authorization", true
-	}
-	return runtime.DefaultHeaderMatcher(key)
 }
 
 func withCORS(handler http.Handler, allowedOrigin string) http.Handler {
@@ -136,8 +84,9 @@ func withCORS(handler http.Handler, allowedOrigin string) http.Handler {
 		if origin := corsOrigin(allowedOrigin, r.Header.Get("Origin")); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Add("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Connect-Protocol-Version, Connect-Timeout, Content-Type, X-User-Agent")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Expose-Headers", "Connect-Content-Encoding, Connect-Accept-Encoding, Grpc-Message, Grpc-Status, Grpc-Status-Details-Bin")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

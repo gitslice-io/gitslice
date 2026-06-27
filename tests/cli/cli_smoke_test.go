@@ -23,12 +23,14 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
 	"github.com/gitslice-io/gitslice/internal/cli"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"github.com/gitslice-io/gitslice/proto/core/v1/corev1connect"
 	"github.com/gitslice-io/gitslice/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -390,21 +392,23 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 	}
 }
 
-func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
+func TestConnectHTTPLoginAndListSlices(t *testing.T) {
 	ts := startTestServer(t)
-	statusCode, _, body := httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "", map[string]any{
-		"account": "acme",
-	})
-	if statusCode != http.StatusUnauthorized {
-		t.Fatalf("expected unauthenticated ListSlices to return 401, got %d:\n%s", statusCode, string(body))
+	slicesClient := corev1connect.NewSliceServiceClient(http.DefaultClient, connectBaseURL(ts.httpAddr))
+
+	_, err := slicesClient.ListSlices(context.Background(), connect.NewRequest(&corev1.ListSlicesRequest{
+		Account: "acme",
+	}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("expected unauthenticated ListSlices to return unauthenticated, got %v", err)
 	}
-	statusCode, _, body = httpGatewayPostRaw(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "not-a-token", map[string]any{
-		"account": "acme",
-	})
-	if statusCode != http.StatusUnauthorized {
-		t.Fatalf("expected invalid-token ListSlices to return 401, got %d:\n%s", statusCode, string(body))
+	_, err = slicesClient.ListSlices(context.Background(), connectRequest("not-a-token", &corev1.ListSlicesRequest{
+		Account: "acme",
+	}))
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("expected invalid-token ListSlices to return unauthenticated, got %v", err)
 	}
-	statusCode, headers := httpGatewayOptions(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", "http://web.test")
+	statusCode, headers := httpAPIOptions(t, ts.httpAddr, corev1connect.SliceServiceListSlicesProcedure, "http://web.test")
 	if statusCode != http.StatusNoContent {
 		t.Fatalf("expected CORS preflight to return 204, got %d", statusCode)
 	}
@@ -417,24 +421,18 @@ func TestHTTPGatewayLoginAndListSlices(t *testing.T) {
 		t.Fatal("expected service-token provisioning to return subject id")
 	}
 
-	response := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.SliceService/ListSlices", token, map[string]any{
-		"account": "acme",
-	})
-	slices, ok := response["slices"].([]any)
-	if !ok || len(slices) == 0 {
-		t.Fatalf("expected slices in response: %#v", response)
+	response, err := slicesClient.ListSlices(context.Background(), connectRequest(token, &corev1.ListSlicesRequest{
+		Account: "acme",
+	}))
+	if err != nil {
+		t.Fatalf("ListSlices: %v", err)
 	}
-	for _, raw := range slices {
-		slice, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		ref, _ := slice["ref"].(map[string]any)
-		if ref["account"] == "acme" && ref["slice"] == "payment" {
+	for _, slice := range response.Msg.Slices {
+		if slice.GetRef().GetAccount() == "acme" && slice.GetRef().GetSlice() == "payment" {
 			return
 		}
 	}
-	t.Fatalf("expected acme:payment slice in response: %#v", response)
+	t.Fatalf("expected acme:payment slice in response: %#v", response.Msg.Slices)
 }
 
 func TestCLISliceCRUD(t *testing.T) {
@@ -753,72 +751,91 @@ func TestCLIUploadLargeDirectory(t *testing.T) {
 	}
 }
 
-func TestHTTPGatewayWriteChangesetFlow(t *testing.T) {
+func TestConnectHTTPWriteChangesetFlow(t *testing.T) {
 	ts := startTestServer(t)
 	token, _ := ts.defaultAcmeCredentials(t)
 
+	blobClient := corev1connect.NewBlobServiceClient(http.DefaultClient, connectBaseURL(ts.httpAddr))
+	changesetClient := corev1connect.NewChangesetServiceClient(http.DefaultClient, connectBaseURL(ts.httpAddr))
+	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "payment"}
+
 	content := []byte("package payment\nconst GatewayWrite = true\n")
-	upload := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/UploadBlob", token, map[string]any{
-		"data":  base64.StdEncoding.EncodeToString(content),
-		"slice": map[string]string{"account": "acme", "slice": "payment"},
-	})
-	blobID, _ := upload["blobId"].(string)
-	contentHash, _ := upload["contentHash"].(string)
+	upload, err := blobClient.UploadBlob(context.Background(), connectRequest(token, &corev1.UploadBlobRequest{
+		Data:  content,
+		Slice: sliceRef,
+	}))
+	if err != nil {
+		t.Fatalf("UploadBlob: %v", err)
+	}
+	blobID := upload.Msg.GetBlobId()
+	contentHash := upload.Msg.GetContentHash()
 	if blobID == "" || contentHash == "" {
-		t.Fatalf("expected uploaded blob id and hash: %#v", upload)
+		t.Fatalf("expected uploaded blob id and hash: %#v", upload.Msg)
 	}
 
-	blobStatus := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.BlobService/GetBlobStatus", token, map[string]any{
-		"contentHashes": []string{contentHash, "sha256:missing"},
-		"slice":         map[string]string{"account": "acme", "slice": "payment"},
-	})
-	records, ok := blobStatus["blobs"].([]any)
-	if !ok || len(records) != 2 {
-		t.Fatalf("expected two blob status records: %#v", blobStatus)
+	blobStatus, err := blobClient.GetBlobStatus(context.Background(), connectRequest(token, &corev1.GetBlobStatusRequest{
+		ContentHashes: []string{contentHash, "sha256:missing"},
+		Slice:         sliceRef,
+	}))
+	if err != nil {
+		t.Fatalf("GetBlobStatus: %v", err)
 	}
-	if first, _ := records[0].(map[string]any); first["state"] != "available" {
-		t.Fatalf("expected uploaded blob to be available: %#v", blobStatus)
+	records := blobStatus.Msg.GetBlobs()
+	if len(records) != 2 {
+		t.Fatalf("expected two blob status records: %#v", blobStatus.Msg)
 	}
-	if second, _ := records[1].(map[string]any); second["state"] != "missing" {
-		t.Fatalf("expected unknown blob to be missing: %#v", blobStatus)
+	if records[0].GetState() != "available" {
+		t.Fatalf("expected uploaded blob to be available: %#v", blobStatus.Msg)
+	}
+	if records[1].GetState() != "missing" {
+		t.Fatalf("expected unknown blob to be missing: %#v", blobStatus.Msg)
 	}
 
-	cs := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.ChangesetService/CreateChangeset", token, map[string]any{
-		"authoringSlice": map[string]string{"account": "acme", "slice": "payment"},
-		"title":          "gateway write",
-		"description":    "created through HTTP gateway",
-	})
-	changesetID, _ := cs["id"].(string)
-	baseCommitID, _ := cs["baseCommitId"].(string)
+	cs, err := changesetClient.CreateChangeset(context.Background(), connectRequest(token, &corev1.CreateChangesetRequest{
+		AuthoringSlice: sliceRef,
+		Title:          "Connect write",
+		Description:    "created through Connect HTTP",
+	}))
+	if err != nil {
+		t.Fatalf("CreateChangeset: %v", err)
+	}
+	changesetID := cs.Msg.GetId()
+	baseCommitID := cs.Msg.GetBaseCommitId()
 	if changesetID == "" || baseCommitID == "" {
-		t.Fatalf("expected changeset id and base commit: %#v", cs)
+		t.Fatalf("expected changeset id and base commit: %#v", cs.Msg)
 	}
 
-	patchset := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.ChangesetService/UpdateChangeset", token, map[string]any{
-		"changesetId":  changesetID,
-		"baseCommitId": baseCommitID,
-		"fileEdits": []map[string]any{{
-			"op":          "add",
-			"path":        "/acme/payment/gateway_write.go",
-			"blobId":      blobID,
-			"contentHash": contentHash,
-			"mode":        420,
+	patchset, err := changesetClient.UpdateChangeset(context.Background(), connectRequest(token, &corev1.UpdateChangesetRequest{
+		ChangesetId:  changesetID,
+		BaseCommitId: baseCommitID,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "add",
+			Path:        "/acme/payment/connect_write.go",
+			BlobId:      blobID,
+			ContentHash: contentHash,
+			Mode:        0o644,
 		}},
-	})
-	patchsetID, _ := patchset["id"].(string)
+	}))
+	if err != nil {
+		t.Fatalf("UpdateChangeset: %v", err)
+	}
+	patchsetID := patchset.Msg.GetId()
 	if patchsetID == "" {
-		t.Fatalf("expected patchset id: %#v", patchset)
+		t.Fatalf("expected patchset id: %#v", patchset.Msg)
 	}
 
-	submit := httpGatewayPost(t, ts.httpAddr, "/gitslice.core.v1.ChangesetService/SubmitChangeset", token, map[string]any{
-		"changesetId":               changesetID,
-		"expectedCurrentPatchsetId": patchsetID,
-	})
-	if status, _ := submit["status"].(string); status != "pending_publish" && status != "submitted" {
-		t.Fatalf("unexpected submit response: %#v", submit)
+	submit, err := changesetClient.SubmitChangeset(context.Background(), connectRequest(token, &corev1.SubmitChangesetRequest{
+		ChangesetId:               changesetID,
+		ExpectedCurrentPatchsetId: patchsetID,
+	}))
+	if err != nil {
+		t.Fatalf("SubmitChangeset: %v", err)
 	}
-	published := waitForGatewayChangesetStatus(t, ts.httpAddr, token, changesetID, "submitted")
-	if commitID, _ := published["commitId"].(string); commitID == "" {
+	if status := submit.Msg.GetStatus(); status != "pending_publish" && status != "submitted" {
+		t.Fatalf("unexpected submit response: %#v", submit.Msg)
+	}
+	published := waitForConnectChangesetStatus(t, changesetClient, token, changesetID, "submitted")
+	if commitID := published.GetCommitId(); commitID == "" {
 		t.Fatalf("expected published commit id: %#v", published)
 	}
 }
@@ -2886,46 +2903,19 @@ func runGitResult(dir string, args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-func httpGatewayPost(t *testing.T, addr, path, token string, body any) map[string]any {
-	t.Helper()
-	statusCode, _, data := httpGatewayPostRaw(t, addr, path, token, body)
-	if statusCode >= 300 {
-		t.Fatalf("gateway %s returned %d:\n%s", path, statusCode, string(data))
-	}
-	var out map[string]any
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatalf("decode gateway response: %v\n%s", err, string(data))
-	}
-	return out
+func connectBaseURL(addr string) string {
+	return "http://" + addr
 }
 
-func httpGatewayPostRaw(t *testing.T, addr, path, token string, body any) (int, http.Header, []byte) {
-	t.Helper()
-	payload, err := json.Marshal(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req, err := http.NewRequest(http.MethodPost, "http://"+addr+path, bytes.NewReader(payload))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+func connectRequest[T any](token string, msg *T) *connect.Request[T] {
+	req := connect.NewRequest(msg)
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header().Set("Authorization", "Bearer "+token)
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return resp.StatusCode, resp.Header.Clone(), data
+	return req
 }
 
-func httpGatewayOptions(t *testing.T, addr, path, origin string) (int, http.Header) {
+func httpAPIOptions(t *testing.T, addr, path, origin string) (int, http.Header) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodOptions, "http://"+addr+path, nil)
 	if err != nil {
@@ -2933,6 +2923,7 @@ func httpGatewayOptions(t *testing.T, addr, path, origin string) (int, http.Head
 	}
 	req.Header.Set("Origin", origin)
 	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "Connect-Protocol-Version, Content-Type")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -2999,15 +2990,19 @@ func gitHTTPRaw(t *testing.T, addr, path, authorization string) (int, http.Heade
 	return resp.StatusCode, resp.Header.Clone(), data
 }
 
-func waitForGatewayChangesetStatus(t *testing.T, addr, token, changesetID, want string) map[string]any {
+func waitForConnectChangesetStatus(t *testing.T, client corev1connect.ChangesetServiceClient, token, changesetID, want string) *corev1.Changeset {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
-	var last map[string]any
+	var last *corev1.Changeset
 	for time.Now().Before(deadline) {
-		last = httpGatewayPost(t, addr, "/gitslice.core.v1.ChangesetService/GetChangeset", token, map[string]any{
-			"changesetId": changesetID,
-		})
-		if status, _ := last["status"].(string); status == want {
+		response, err := client.GetChangeset(context.Background(), connectRequest(token, &corev1.GetChangesetRequest{
+			ChangesetId: changesetID,
+		}))
+		if err != nil {
+			t.Fatalf("GetChangeset: %v", err)
+		}
+		last = response.Msg
+		if status := last.GetStatus(); status == want {
 			return last
 		}
 		time.Sleep(50 * time.Millisecond)

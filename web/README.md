@@ -19,5 +19,11 @@ VITE_CLERK_PUBLISHABLE_KEY
 VITE_API_BASE_URL
 ```
 
-The API client calls generated grpc-gateway unbound method paths such as
-`POST /gitslice.core.v1.SliceService/ListSlices`.
+The API client uses ConnectRPC over HTTP with TypeScript descriptors generated
+from `proto/core/v1/*.proto` into `src/gen/`. The browser does not use the
+grpc-gateway JSON routes. Regenerate the generated files from the repository
+root with:
+
+```bash
+make proto
+```

@@ -35,10 +35,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// HTTP server deadlines. The JSON gateway carries small, fast requests, so all
-// four deadlines are bounded. The Git smart-HTTP server can stream large, slow
-// clone/fetch/push bodies, so only the header-read and idle deadlines are set
-// (a body read/write deadline would abort legitimate large transfers).
+// HTTP server deadlines. The Connect HTTP API carries small, fast requests, so
+// all four deadlines are bounded. The Git smart-HTTP server can stream large,
+// slow clone/fetch/push bodies, so only the header-read and idle deadlines are
+// set (a body read/write deadline would abort legitimate large transfers).
 const (
 	gatewayReadHeaderTimeout = 10 * time.Second
 	gatewayReadTimeout       = 30 * time.Second
@@ -116,12 +116,9 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	handlers := service.New(stores, objectStore)
 	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg)
-	gatewayHandler, err := NewHTTPGateway(ctx, gatewayGRPCEndpoint(lis.Addr()))
-	if err != nil {
-		return err
-	}
+	apiHandler := NewConnectHandler(resolveSubject, handlers)
 	combinedServer := &http.Server{
-		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg)),
+		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(apiHandler, cfg.HTTPAllowedOrigin, cfg)),
 		ReadHeaderTimeout: gatewayReadHeaderTimeout,
 		IdleTimeout:       gatewayIdleTimeout,
 	}
@@ -133,7 +130,7 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		gatewayServer = &http.Server{
-			Handler:           NewHTTPHandler(gatewayHandler, cfg.HTTPAllowedOrigin, cfg),
+			Handler:           NewHTTPHandler(apiHandler, cfg.HTTPAllowedOrigin, cfg),
 			ReadHeaderTimeout: gatewayReadHeaderTimeout,
 			ReadTimeout:       gatewayReadTimeout,
 			WriteTimeout:      gatewayWriteTimeout,
@@ -406,8 +403,15 @@ func optionalBearerToken(ctx context.Context) (string, bool, error) {
 	if len(values) == 0 {
 		return "", false, nil
 	}
+	return optionalBearerTokenValue(values[0])
+}
+
+func optionalBearerTokenValue(value string) (string, bool, error) {
 	const prefix = "bearer "
-	value := strings.TrimSpace(values[0])
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false, nil
+	}
 	if !strings.HasPrefix(strings.ToLower(value), prefix) {
 		return "", false, status.Error(codes.Unauthenticated, "authorization must be a bearer token")
 	}

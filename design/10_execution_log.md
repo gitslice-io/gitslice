@@ -1,5 +1,60 @@
 # Gitslice Execution Log
 
+## 2026-06-27: Web API ConnectRPC Migration
+
+Request:
+
+- replace the web app's hand-written grpc-gateway fetch client with a direct
+  ConnectRPC transport generated from the protobuf contract.
+
+Implemented:
+
+- added Connect-Go handler generation under `proto/core/v1/corev1connect` and
+  Protobuf-ES TypeScript generation under `web/src/gen`.
+- mounted Connect handlers for the existing public service implementations on
+  the HTTP API path.
+- moved web API calls to `@connectrpc/connect-web` while preserving the existing
+  `ApiClient` shape used by the React app.
+- added boundary normalization for Protobuf-ES values (`bigint`, `Uint8Array`,
+  and numeric enums) so current UI code can continue consuming the existing
+  TypeScript API types.
+- updated CORS/auth handling for Connect headers and added middleware coverage
+  for bearer-token subject resolution.
+
+Important decisions and learnings:
+
+- Connect-Go was pinned to v1.18.1 because newer releases require a newer Go
+  toolchain than this module currently declares.
+- the first cut kept a grpc-gateway fallback, but it was removed in the PR
+  follow-up so browser/API verification exercises the Connect path directly.
+- The web package uses `protoc-gen-es` service descriptors directly with
+  `createClient`; a separate generated Connect-ES client layer was unnecessary
+  and introduced dependency-version conflicts.
+
+Verification:
+
+```bash
+make proto
+gofmt -w server/connect.go server/server.go server/gateway.go server/server_test.go proto/core/v1/corev1connect/*.go proto/core/v1/*.pb.go proto/core/v1/*_grpc.pb.go proto/core/v1/*.pb.gw.go
+go test ./server ./service
+go test ./server
+go test ./server -run 'TestConnect|TestAuthInterceptor' -count=1 -v
+go test ./tests/cli -run 'TestConnectHTTP(LoginAndListSlices|WriteChangesetFlow)' -count=1 -v
+npm --prefix web test -- src/api/useApi.test.tsx
+go test ./...
+go build ./cmd/...
+npm --prefix web test
+npm --prefix web run build
+```
+
+Results: regeneration, formatting, focused Go tests, focused Connect HTTP
+handler tests, focused web API tests, the full Go test suite, command builds,
+the full web test suite (9 files / 162 tests), and the web production build
+passed. The focused real-Postgres CLI Connect HTTP tests compile locally but
+skip without `GITSLICE_TEST_DATABASE_URL`. The web build still emits the
+existing Vite/Nitro warnings for mixed static/dynamic markdown imports, large
+chunks, Rollup `platform`, and ignored `use client` directives.
+
 ## 2026-06-26: Agent `gsfile:` Transcript Link Rewriting
 
 Request:

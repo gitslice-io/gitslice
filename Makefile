@@ -5,6 +5,7 @@ ENV_FILE ?= env.local
 
 GO ?= go
 PROTOC ?= protoc
+PROTOC_GEN_ES ?= $(CURDIR)/web/node_modules/.bin/protoc-gen-es
 
 BIN_DIR ?= $(CURDIR)/bin
 TMP_DIR ?= $(CURDIR)/.tmp
@@ -98,9 +99,12 @@ load: require-test-database-url ## Run opt-in load tests against local PostgreSQ
 	GITSLICE_LOAD_TWO_SLICE_EDITS="$(LOAD_TWO_SLICE_EDITS)" \
 	$(GO) test -count=1 -tags load ./tests/load -v
 
-proto: ## Regenerate protobuf, gRPC, and grpc-gateway Go files.
+proto: ## Regenerate protobuf, gRPC, grpc-gateway, Connect, and web TypeScript files.
 	$(PROTOC) --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative --go-grpc_opt=require_unimplemented_servers=false $(PROTO_FILES)
 	$(PROTOC) --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative --grpc-gateway_opt=generate_unbound_methods=true $(PROTO_FILES)
+	$(PROTOC) --connect-go_out=. --connect-go_opt=paths=source_relative $(PROTO_FILES)
+	mkdir -p web/src/gen
+	$(PROTOC) --plugin=protoc-gen-es=$(PROTOC_GEN_ES) --es_out=web/src/gen --es_opt=target=ts $(PROTO_FILES)
 
 clean: ## Remove local build and development scratch directories.
 	rm -rf $(BIN_DIR) $(TMP_DIR)

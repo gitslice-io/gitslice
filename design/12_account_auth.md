@@ -13,7 +13,7 @@ It is intentionally small:
 - one fake development login service
 - one fake browser-approved signup flow
 - PostgreSQL-backed accounts, subjects, memberships, and sessions
-- bearer-token authentication for native gRPC and grpc-gateway requests
+- bearer-token authentication for native gRPC and ConnectRPC requests
 - bearer-token or Basic-password authentication for Git smart HTTP reads
 - simple account-membership authorization where implemented
 
@@ -111,7 +111,7 @@ Implementation behavior:
 2. the CLI opens or prints a URL under the static web UI at `/signup`
 3. the web page asks the user to approve signup for the requested username
 4. the web page calls `FakeAccountService.ApproveSignup` through the generated
-   HTTP JSON grpc-gateway
+   HTTP API
 5. approval creates or reuses a user subject and personal account
 6. approval creates or reuses the personal account's default `home` slice
 7. approval creates a 24-hour bearer-token session
@@ -235,8 +235,8 @@ Service handlers call `requireSubject(ctx)` to read that authenticated subject.
 If metadata is missing, malformed, expired, revoked, or unknown, the request
 fails as unauthenticated.
 
-The grpc-gateway forwards the `Authorization` HTTP header into gRPC metadata, so
-JSON/HTTP callers use the same bearer token path.
+The ConnectRPC HTTP middleware accepts the `Authorization` HTTP header, so
+browser callers use the same bearer token path.
 
 ## 8. Git HTTP Authentication
 

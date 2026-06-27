@@ -1,90 +1,17 @@
-import type { ApiClient } from "./useApi";
-import type {
-  AbandonChangesetRequest,
-  ApproveChangesetRequest,
-  ApproveChangesetResponse,
-  Changeset,
-  ChangesetStack,
-  CheckUsernameAvailableRequest,
-  CheckUsernameAvailableResponse,
-  ChooseUsernameRequest,
-  ChooseUsernameResponse,
-  CloseConversationRequest,
-  Commit,
-  CompleteCliLoginRequest,
-  CompleteCliLoginResponse,
-  AddStackEntryRequest,
-  Conversation,
-  ConversationEvent,
-  CreateConversationRequest,
-  CreateChangesetRequest,
-  CreateStackRequest,
-  CreateSliceRequest,
-  DetachStackEntryRequest,
-  DetachStackEntryResponse,
-  DiffChangesetRequest,
-  DiffChangesetResponse,
-  Empty,
-  GetConversationRequest,
-  GetConversationEventsRequest,
-  GetConversationEventsResponse,
-  GetAuthStatusRequest,
-  GetAuthStatusResponse,
-  GetBlobStatusRequest,
-  GetBlobStatusResponse,
-  GetChangesetRequest,
-  GetCommitRequest,
-  GetRefRequest,
-  GetSliceRequest,
-  GetStackRequest,
-  ListDaemonsRequest,
-  ListDaemonsResponse,
-  ListCommitsRequest,
-  ListCommitsResponse,
-  ListChangesetsRequest,
-  ListChangesetsResponse,
-  ListConversationsRequest,
-  ListConversationsResponse,
-  ListDirectoryRequest,
-  ListDirectoryResponse,
-  ListSlicesRequest,
-  ListSlicesResponse,
-  ListStacksRequest,
-  ListStacksResponse,
-  MoveStackEntryRequest,
-  Patchset,
-  ReadFileRequest,
-  ReadFileResponse,
-  ReparentStackEntryRequest,
-  Ref,
-  RestackRequest,
-  RestackResponse,
-  ResolvePathRequest,
-  ResolvePathResponse,
-  ResolveSliceRequest,
-  SendAgentMessageRequest,
-  SendAgentMessageResponse,
-  Slice,
-  StreamConversationRequest,
-  SubmitStackRequest,
-  SubmitStackResponse,
-  SubmitChangesetRequest,
-  SubmitChangesetResponse,
-  UpdateChangesetRequest,
-  UpdateSliceDefinitionRequest,
-  UploadBlobRequest,
-  UploadBlobResponse,
-  SliceDefinition
-} from "./types";
+import { ConnectError, Code, createClient, type Interceptor } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-web";
 
-export type RpcService =
-  | "AuthService"
-  | "RepositoryService"
-  | "BlobService"
-  | "SliceService"
-  | "ChangesetService"
-  | "ChangesetStackService"
-  | "AgentService";
+import { AgentService } from "../gen/proto/core/v1/agent_pb";
+import { AuthService } from "../gen/proto/core/v1/auth_pb";
+import { BlobService } from "../gen/proto/core/v1/blob_pb";
+import {
+  ChangesetService,
+  ChangesetStackService
+} from "../gen/proto/core/v1/changeset_pb";
+import { RepositoryService } from "../gen/proto/core/v1/repository_pb";
+import { SliceService } from "../gen/proto/core/v1/slice_pb";
+import type { ApiClient } from "./useApi";
+import type * as Api from "./types";
 
 export interface RpcErrorBody {
   code?: string | number;
@@ -117,381 +44,354 @@ export function createApiClient({
   getToken,
   baseUrl = defaultApiBaseUrl
 }: CreateApiClientOptions): ApiClient {
-  const invoke = async <TRequest, TResponse>(
-    service: RpcService,
-    method: string,
-    request: TRequest
-  ) => {
-    const token = await getToken();
-    return callRpc<TRequest, TResponse>(
-      service,
-      method,
-      request,
-      token,
-      baseUrl
-    );
+  const transport = createConnectTransport({
+    baseUrl: baseUrl.replace(/\/+$/, ""),
+    interceptors: [authInterceptor(getToken)]
+  });
+
+  const auth = createClient(AuthService, transport);
+  const repository = createClient(RepositoryService, transport);
+  const blob = createClient(BlobService, transport);
+  const slice = createClient(SliceService, transport);
+  const changeset = createClient(ChangesetService, transport);
+  const stack = createClient(ChangesetStackService, transport);
+  const agent = createClient(AgentService, transport);
+
+  const unary = async <TResponse>(call: () => Promise<unknown>) => {
+    try {
+      return fromProto<TResponse>(await call());
+    } catch (error) {
+      throw rpcErrorFrom(error);
+    }
   };
 
   return {
     getAuthStatus: (request) =>
-      invoke<GetAuthStatusRequest, GetAuthStatusResponse>(
-        "AuthService",
-        "GetAuthStatus",
-        request
+      unary<Api.GetAuthStatusResponse>(() =>
+        auth.getAuthStatus(toProtoRequest(request))
       ),
     checkUsernameAvailable: (request) =>
-      invoke<CheckUsernameAvailableRequest, CheckUsernameAvailableResponse>(
-        "AuthService",
-        "CheckUsernameAvailable",
-        request
+      unary<Api.CheckUsernameAvailableResponse>(() =>
+        auth.checkUsernameAvailable(toProtoRequest(request))
       ),
     chooseUsername: (request) =>
-      invoke<ChooseUsernameRequest, ChooseUsernameResponse>(
-        "AuthService",
-        "ChooseUsername",
-        request
+      unary<Api.ChooseUsernameResponse>(() =>
+        auth.chooseUsername(toProtoRequest(request))
       ),
     completeCliLogin: (request) =>
-      invoke<CompleteCliLoginRequest, CompleteCliLoginResponse>(
-        "AuthService",
-        "CompleteCliLogin",
-        request
+      unary<Api.CompleteCliLoginResponse>(() =>
+        auth.completeCliLogin(toProtoRequest(request))
       ),
     resolvePath: (request) =>
-      invoke<ResolvePathRequest, ResolvePathResponse>(
-        "RepositoryService",
-        "ResolvePath",
-        request
+      unary<Api.ResolvePathResponse>(() =>
+        repository.resolvePath(toProtoRequest(request))
       ),
     listDirectory: (request) =>
-      invoke<ListDirectoryRequest, ListDirectoryResponse>(
-        "RepositoryService",
-        "ListDirectory",
-        request
+      unary<Api.ListDirectoryResponse>(() =>
+        repository.listDirectory(toProtoRequest(request))
       ),
     readFile: (request) =>
-      invoke<ReadFileRequest, ReadFileResponse>(
-        "RepositoryService",
-        "ReadFile",
-        request
-      ),
+      unary<Api.ReadFileResponse>(() => repository.readFile(toProtoRequest(request))),
     getCommit: (request) =>
-      invoke<GetCommitRequest, Commit>(
-        "RepositoryService",
-        "GetCommit",
-        request
-      ),
+      unary<Api.Commit>(() => repository.getCommit(toProtoRequest(request))),
     listCommits: (request) =>
-      invoke<ListCommitsRequest, ListCommitsResponse>(
-        "RepositoryService",
-        "ListCommits",
-        request
+      unary<Api.ListCommitsResponse>(() =>
+        repository.listCommits(toProtoRequest(request))
       ),
     getRef: (request) =>
-      invoke<GetRefRequest, Ref>("RepositoryService", "GetRef", request),
+      unary<Api.Ref>(() => repository.getRef(toProtoRequest(request))),
     getBlobStatus: (request) =>
-      invoke<GetBlobStatusRequest, GetBlobStatusResponse>(
-        "BlobService",
-        "GetBlobStatus",
-        request
+      unary<Api.GetBlobStatusResponse>(() =>
+        blob.getBlobStatus(toProtoRequest(request))
       ),
     uploadBlob: (request) =>
-      invoke<UploadBlobRequest, UploadBlobResponse>(
-        "BlobService",
-        "UploadBlob",
-        request
-      ),
+      unary<Api.UploadBlobResponse>(() => blob.uploadBlob(toProtoRequest(request))),
     resolveSlice: (request) =>
-      invoke<ResolveSliceRequest, Slice>(
-        "SliceService",
-        "ResolveSlice",
-        request
-      ),
+      unary<Api.Slice>(() => slice.resolveSlice(toProtoRequest(request))),
     getSlice: (request) =>
-      invoke<GetSliceRequest, Slice>("SliceService", "GetSlice", request),
+      unary<Api.Slice>(() => slice.getSlice(toProtoRequest(request))),
     listSlices: (request) =>
-      invoke<ListSlicesRequest, ListSlicesResponse>(
-        "SliceService",
-        "ListSlices",
-        request
-      ),
+      unary<Api.ListSlicesResponse>(() => slice.listSlices(toProtoRequest(request))),
     createSlice: (request) =>
-      invoke<CreateSliceRequest, Slice>(
-        "SliceService",
-        "CreateSlice",
-        request
-      ),
+      unary<Api.Slice>(() => slice.createSlice(toProtoRequest(request))),
     updateSliceDefinition: (request) =>
-      invoke<UpdateSliceDefinitionRequest, SliceDefinition>(
-        "SliceService",
-        "UpdateSliceDefinition",
-        request
+      unary<Api.SliceDefinition>(() =>
+        slice.updateSliceDefinition(toProtoRequest(request))
       ),
     createChangeset: (request) =>
-      invoke<CreateChangesetRequest, Changeset>(
-        "ChangesetService",
-        "CreateChangeset",
-        request
+      unary<Api.Changeset>(() =>
+        changeset.createChangeset(toProtoRequest(request))
       ),
     listChangesets: (request) =>
-      invoke<ListChangesetsRequest, ListChangesetsResponse>(
-        "ChangesetService",
-        "ListChangesets",
-        request
+      unary<Api.ListChangesetsResponse>(() =>
+        changeset.listChangesets(toProtoRequest(request))
       ),
     getChangeset: (request) =>
-      invoke<GetChangesetRequest, Changeset>(
-        "ChangesetService",
-        "GetChangeset",
-        request
-      ),
+      unary<Api.Changeset>(() => changeset.getChangeset(toProtoRequest(request))),
     diffChangeset: (request) =>
-      invoke<DiffChangesetRequest, DiffChangesetResponse>(
-        "ChangesetService",
-        "DiffChangeset",
-        request
+      unary<Api.DiffChangesetResponse>(() =>
+        changeset.diffChangeset(toProtoRequest(request))
       ),
     updateChangeset: (request) =>
-      invoke<UpdateChangesetRequest, Patchset>(
-        "ChangesetService",
-        "UpdateChangeset",
-        request
+      unary<Api.Patchset>(() =>
+        changeset.updateChangeset(toProtoRequest(request))
       ),
     approveChangeset: (request) =>
-      invoke<ApproveChangesetRequest, ApproveChangesetResponse>(
-        "ChangesetService",
-        "ApproveChangeset",
-        request
+      unary<Api.ApproveChangesetResponse>(() =>
+        changeset.approveChangeset(toProtoRequest(request))
       ),
     submitChangeset: (request) =>
-      invoke<SubmitChangesetRequest, SubmitChangesetResponse>(
-        "ChangesetService",
-        "SubmitChangeset",
-        request
+      unary<Api.SubmitChangesetResponse>(() =>
+        changeset.submitChangeset(toProtoRequest(request))
       ),
     abandonChangeset: (request) =>
-      invoke<AbandonChangesetRequest, Empty>(
-        "ChangesetService",
-        "AbandonChangeset",
-        request
-      ),
+      unary<Api.Empty>(() => changeset.abandonChangeset(toProtoRequest(request))),
     createStack: (request) =>
-      invoke<CreateStackRequest, ChangesetStack>(
-        "ChangesetStackService",
-        "CreateStack",
-        request
-      ),
+      unary<Api.ChangesetStack>(() => stack.createStack(toProtoRequest(request))),
     getStack: (request) =>
-      invoke<GetStackRequest, ChangesetStack>(
-        "ChangesetStackService",
-        "GetStack",
-        request
-      ),
+      unary<Api.ChangesetStack>(() => stack.getStack(toProtoRequest(request))),
     listStacks: (request) =>
-      invoke<ListStacksRequest, ListStacksResponse>(
-        "ChangesetStackService",
-        "ListStacks",
-        request
-      ),
+      unary<Api.ListStacksResponse>(() => stack.listStacks(toProtoRequest(request))),
     addStackEntry: (request) =>
-      invoke<AddStackEntryRequest, Changeset>(
-        "ChangesetStackService",
-        "AddStackEntry",
-        request
-      ),
+      unary<Api.Changeset>(() => stack.addStackEntry(toProtoRequest(request))),
     moveStackEntry: (request) =>
-      invoke<MoveStackEntryRequest, ChangesetStack>(
-        "ChangesetStackService",
-        "MoveStackEntry",
-        request
+      unary<Api.ChangesetStack>(() =>
+        stack.moveStackEntry(toProtoRequest(request))
       ),
     reparentStackEntry: (request) =>
-      invoke<ReparentStackEntryRequest, ChangesetStack>(
-        "ChangesetStackService",
-        "ReparentStackEntry",
-        request
+      unary<Api.ChangesetStack>(() =>
+        stack.reparentStackEntry(toProtoRequest(request))
       ),
     detachStackEntry: (request) =>
-      invoke<DetachStackEntryRequest, DetachStackEntryResponse>(
-        "ChangesetStackService",
-        "DetachStackEntry",
-        request
+      unary<Api.DetachStackEntryResponse>(() =>
+        stack.detachStackEntry(toProtoRequest(request))
       ),
     restack: (request) =>
-      invoke<RestackRequest, RestackResponse>(
-        "ChangesetStackService",
-        "Restack",
-        request
-      ),
+      unary<Api.RestackResponse>(() => stack.restack(toProtoRequest(request))),
     submitStack: (request) =>
-      invoke<SubmitStackRequest, SubmitStackResponse>(
-        "ChangesetStackService",
-        "SubmitStack",
-        request
-      ),
+      unary<Api.SubmitStackResponse>(() => stack.submitStack(toProtoRequest(request))),
     listDaemons: (request) =>
-      invoke<ListDaemonsRequest, ListDaemonsResponse>(
-        "AgentService",
-        "ListDaemons",
-        request
-      ),
+      unary<Api.ListDaemonsResponse>(() => agent.listDaemons(toProtoRequest(request))),
     createConversation: (request) =>
-      invoke<CreateConversationRequest, Conversation>(
-        "AgentService",
-        "CreateConversation",
-        request
+      unary<Api.Conversation>(() =>
+        agent.createConversation(toProtoRequest(request))
       ),
     listConversations: (request) =>
-      invoke<ListConversationsRequest, ListConversationsResponse>(
-        "AgentService",
-        "ListConversations",
-        request
+      unary<Api.ListConversationsResponse>(() =>
+        agent.listConversations(toProtoRequest(request))
       ),
     getConversation: (request) =>
-      invoke<GetConversationRequest, Conversation>(
-        "AgentService",
-        "GetConversation",
-        request
-      ),
+      unary<Api.Conversation>(() => agent.getConversation(toProtoRequest(request))),
     closeConversation: (request) =>
-      invoke<CloseConversationRequest, Conversation>(
-        "AgentService",
-        "CloseConversation",
-        request
+      unary<Api.Conversation>(() =>
+        agent.closeConversation(toProtoRequest(request))
       ),
     sendAgentMessage: (request) =>
-      invoke<SendAgentMessageRequest, SendAgentMessageResponse>(
-        "AgentService",
-        "SendAgentMessage",
-        request
+      unary<Api.SendAgentMessageResponse>(() =>
+        agent.sendAgentMessage(toProtoRequest(request))
       ),
     getConversationEvents: (request) =>
-      invoke<GetConversationEventsRequest, GetConversationEventsResponse>(
-        "AgentService",
-        "GetConversationEvents",
-        request
+      unary<Api.GetConversationEventsResponse>(() =>
+        agent.getConversationEvents(toProtoRequest(request))
       ),
     streamConversation: async function* (request, signal) {
-      const token = await getToken();
-      yield* streamConversation(request, token, signal, baseUrl);
+      try {
+        for await (const event of agent.streamConversation(
+          toProtoRequest(request),
+          { signal }
+        )) {
+          yield fromProto<Api.ConversationEvent>(event);
+        }
+      } catch (error) {
+        throw rpcErrorFrom(error);
+      }
     }
   };
 }
 
-export async function callRpc<TRequest, TResponse>(
-  service: RpcService,
-  method: string,
-  body: TRequest,
-  token: string | null | undefined,
-  baseUrl = defaultApiBaseUrl
-): Promise<TResponse> {
-  const trimmedBaseUrl = baseUrl.replace(/\/+$/, "");
-  const response = await fetch(
-    `${trimmedBaseUrl}/gitslice.core.v1.${service}/${method}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify(body ?? {})
+function authInterceptor(
+  getToken: () => Promise<string | null | undefined>
+): Interceptor {
+  return (next) => async (req) => {
+    const token = await getToken();
+    if (token) {
+      req.header.set("Authorization", `Bearer ${token}`);
     }
-  );
-
-  const text = await response.text();
-  const parsed = text ? JSON.parse(text) : {};
-
-  if (!response.ok) {
-    throw new RpcError(response.status, parsed as RpcErrorBody);
-  }
-
-  return parsed as TResponse;
+    return next(req);
+  };
 }
 
-export async function* streamConversation(
-  req: StreamConversationRequest,
-  token: string | null | undefined,
-  signal: AbortSignal,
-  baseUrl = defaultApiBaseUrl
-): AsyncGenerator<ConversationEvent> {
-  const trimmedBaseUrl = baseUrl.replace(/\/+$/, "");
-  const response = await fetch(
-    `${trimmedBaseUrl}/gitslice.core.v1.AgentService/StreamConversation`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify(req ?? {}),
-      signal
-    }
-  );
+const int64FieldNames = new Set([
+  "afterSeq",
+  "ackedClientSeq",
+  "authoringConversationSeq",
+  "beforeSeq",
+  "clientSeq",
+  "current",
+  "currentPatchsetNumber",
+  "depth",
+  "displayOrder",
+  "length",
+  "number",
+  "offset",
+  "seq",
+  "siblingOrder",
+  "size",
+  "stackDepth",
+  "stackOrder",
+  "total",
+  "version"
+]);
 
-  if (!response.ok) {
-    const text = await response.text();
-    const parsed = text ? JSON.parse(text) : {};
-    throw new RpcError(response.status, parsed as RpcErrorBody);
-  }
+const bytesFieldNames = new Set(["data"]);
 
-  if (!response.body) {
-    throw new Error("StreamConversation did not return a response body.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (!signal.aborted) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (signal.aborted) {
-          return;
-        }
-        const event = parseConversationStreamLine(line, response.status);
-        if (event) {
-          yield event;
-        }
-      }
-    }
-
-    if (signal.aborted) {
-      return;
-    }
-
-    buffer += decoder.decode();
-    const event = parseConversationStreamLine(buffer, response.status);
-    if (event && !signal.aborted) {
-      yield event;
-    }
-  } finally {
-    reader.releaseLock();
-  }
+function toProtoRequest(value: unknown): any {
+  return toProtoValue("", value);
 }
 
-function parseConversationStreamLine(line: string, status: number) {
-  const trimmed = line.trim();
-  if (!trimmed) {
+function toProtoValue(key: string, value: unknown): unknown {
+  if (value === undefined || value === null) {
     return undefined;
   }
-
-  const parsed = JSON.parse(trimmed) as {
-    result?: ConversationEvent;
-    error?: RpcErrorBody;
-  };
-
-  if (parsed.error) {
-    throw new RpcError(status, parsed.error);
+  if (int64FieldNames.has(key)) {
+    return toBigInt(value);
   }
+  if (bytesFieldNames.has(key)) {
+    return toBytes(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => toProtoValue("", item));
+  }
+  if (typeof value === "object") {
+    if (value instanceof Uint8Array) {
+      return value;
+    }
+    const out: Record<string, unknown> = {};
+    for (const [childKey, childValue] of Object.entries(
+      value as Record<string, unknown>
+    )) {
+      const converted = toProtoValue(childKey, childValue);
+      if (converted !== undefined) {
+        out[childKey] = converted;
+      }
+    }
+    return out;
+  }
+  return value;
+}
 
-  return parsed.result;
+function fromProto<T>(value: unknown): T {
+  return fromProtoValue("", value) as T;
+}
+
+function fromProtoValue(key: string, value: unknown): unknown {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+  if (value instanceof Uint8Array) {
+    return bytesToBase64(value);
+  }
+  if (key === "kind" && typeof value === "number") {
+    return entryKindName(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => fromProtoValue("", item));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [childKey, childValue] of Object.entries(
+      value as Record<string, unknown>
+    )) {
+      if (childKey === "$typeName" || childKey === "$unknown") {
+        continue;
+      }
+      out[childKey] = fromProtoValue(childKey, childValue);
+    }
+    return out;
+  }
+  return value;
+}
+
+function toBigInt(value: unknown): bigint | undefined {
+  if (typeof value === "bigint") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return BigInt(Math.trunc(value));
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? BigInt(trimmed) : undefined;
+  }
+  return undefined;
+}
+
+function toBytes(value: unknown): Uint8Array | undefined {
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const binary = globalThis.atob(value);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return globalThis.btoa(binary);
+}
+
+function entryKindName(value: number): Api.EntryKind {
+  switch (value) {
+    case 1:
+      return "ENTRY_KIND_FILE";
+    case 2:
+      return "ENTRY_KIND_DIRECTORY";
+    case 3:
+      return "ENTRY_KIND_SYMLINK";
+    default:
+      return "ENTRY_KIND_UNSPECIFIED";
+  }
+}
+
+function rpcErrorFrom(error: unknown): RpcError {
+  const connectError = ConnectError.from(error);
+  return new RpcError(httpStatusForCode(connectError.code), {
+    code: connectError.code,
+    message: connectError.rawMessage || connectError.message,
+    details: connectError.details
+  });
+}
+
+function httpStatusForCode(code: Code) {
+  switch (code) {
+    case Code.Canceled:
+      return 499;
+    case Code.InvalidArgument:
+    case Code.FailedPrecondition:
+    case Code.OutOfRange:
+      return 400;
+    case Code.Unauthenticated:
+      return 401;
+    case Code.PermissionDenied:
+      return 403;
+    case Code.NotFound:
+      return 404;
+    case Code.AlreadyExists:
+      return 409;
+    case Code.ResourceExhausted:
+      return 429;
+    case Code.Unimplemented:
+      return 501;
+    case Code.Unavailable:
+      return 503;
+    default:
+      return 500;
+  }
 }

@@ -80,5 +80,11 @@ function mockFetch(body: unknown) {
 
 function requestHeaders(fetchMock: ReturnType<typeof mockFetch>) {
   const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
-  return (init?.headers ?? {}) as Record<string, string>;
+  const headers = init?.headers ?? {};
+  if (headers instanceof Headers) {
+    return {
+      Authorization: headers.get("Authorization") ?? undefined
+    };
+  }
+  return headers as Record<string, string | undefined>;
 }
