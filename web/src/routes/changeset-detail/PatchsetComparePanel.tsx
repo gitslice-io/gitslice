@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Patchset } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { findPatchset, patchsetOptionLabel } from "./patchsetUtils";
@@ -23,40 +23,84 @@ export function PatchsetComparePanel({
   patchsets: Patchset[];
   toPatchset: string;
 }) {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  // The timeline lives behind the summary on every breakpoint: collapsed by
+  // default so it stops eating vertical space, opened on demand. On mobile it
+  // expands inline; on desktop it floats as a popover anchored under the bar.
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const fromLabel = fromPatchset
     ? patchsetOptionLabel(findPatchset(patchsets, fromPatchset))
     : "Recorded base";
   const toLabel = patchsetOptionLabel(findPatchset(patchsets, toPatchset));
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const onPointerDown = (event: globalThis.MouseEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        !triggerRef.current?.contains(target) &&
+        !panelRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    const onReflow = () => setOpen(false);
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onReflow);
+    window.addEventListener("scroll", onReflow, true);
+
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onReflow);
+      window.removeEventListener("scroll", onReflow, true);
+    };
+  }, [open]);
+
   return (
-    <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5 md:px-5 md:py-3">
-        <button
-          aria-controls="patchset-timeline"
-          aria-expanded={mobileOpen}
-          className="-mx-1 flex min-w-0 flex-1 items-center gap-2 rounded px-1 text-left lg:cursor-default lg:pointer-events-none"
-          onClick={() => setMobileOpen((value) => !value)}
-          type="button"
-        >
+    <div className="relative">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <h2 className="text-[11px] font-semibold uppercase tracking-normal text-slate-500 md:text-xs">
             Patchsets
           </h2>
-          <span
-            aria-hidden="true"
-            className={cn(
-              "inline-block shrink-0 text-[10px] text-slate-400 transition-transform lg:hidden",
-              mobileOpen && "rotate-90"
-            )}
+          <button
+            aria-controls="patchset-timeline"
+            aria-expanded={open}
+            aria-haspopup="true"
+            className="-mx-1 inline-flex min-w-0 items-center gap-1.5 rounded px-1 text-left transition hover:bg-slate-50"
+            onClick={() => setOpen((value) => !value)}
+            ref={triggerRef}
+            type="button"
           >
-            ▶
-          </span>
-          <p className="min-w-0 truncate text-[11px] font-medium text-zinc-950 md:text-xs">
-            <span className="text-slate-500">{fromLabel}</span>
-            <span className="mx-1 text-slate-400">→</span>
-            <span>{toLabel || "selected patchset"}</span>
-          </p>
-        </button>
+            <span className="min-w-0 truncate text-[11px] font-medium text-zinc-950 md:text-xs">
+              <span className="text-slate-500">{fromLabel}</span>
+              <span className="mx-1 text-slate-400">→</span>
+              <span>{toLabel || "selected patchset"}</span>
+            </span>
+            <span
+              aria-hidden="true"
+              className={cn(
+                "inline-block shrink-0 text-[10px] text-slate-400 transition-transform",
+                open && "rotate-180"
+              )}
+            >
+              ▾
+            </span>
+          </button>
+        </div>
         <button
           aria-expanded={conversationOpen}
           aria-label="Toggle conversation for the selected patchset"
@@ -75,10 +119,11 @@ export function PatchsetComparePanel({
       </div>
       <div
         className={cn(
-          "px-3 pb-2 md:px-5 md:pb-3",
-          mobileOpen ? "block" : "hidden lg:block"
+          "mt-2 lg:absolute lg:left-0 lg:right-0 lg:top-full lg:z-30 lg:mt-1 lg:rounded-md lg:border lg:border-slate-200 lg:bg-white lg:p-3 lg:shadow-lg lg:shadow-slate-900/10",
+          open ? "block" : "hidden"
         )}
         id="patchset-timeline"
+        ref={panelRef}
       >
         <PatchsetTimeline
           currentPatchsetId={currentPatchsetId}
@@ -89,6 +134,6 @@ export function PatchsetComparePanel({
           toPatchset={toPatchset}
         />
       </div>
-    </section>
+    </div>
   );
 }

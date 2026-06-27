@@ -291,18 +291,19 @@ export function ChangesetDetailPage() {
         onAbandon={submitAbandon}
         onAbandonReasonChange={setAbandonReason}
         onMerge={() => mergeMutation.mutate()}
+        patchsetCompare={
+          <PatchsetComparePanel
+            conversationOpen={conversationOpen}
+            currentPatchsetId={changeset.currentPatchsetId}
+            fromPatchset={fromPatchset}
+            onFromPatchsetChange={handleFromPatchsetChange}
+            onToPatchsetChange={handleToPatchsetChange}
+            onToggleConversation={() => setConversationOpen((open) => !open)}
+            patchsets={patchsets}
+            toPatchset={selectedToPatchset}
+          />
+        }
         terminal={terminal}
-      />
-
-      <PatchsetComparePanel
-        conversationOpen={conversationOpen}
-        currentPatchsetId={changeset.currentPatchsetId}
-        fromPatchset={fromPatchset}
-        onFromPatchsetChange={handleFromPatchsetChange}
-        onToPatchsetChange={handleToPatchsetChange}
-        onToggleConversation={() => setConversationOpen((open) => !open)}
-        patchsets={patchsets}
-        toPatchset={selectedToPatchset}
       />
 
       <div className={cn(isWide && conversationOpen && "flex items-start gap-3")}>

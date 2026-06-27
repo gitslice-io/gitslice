@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
 import type { Changeset } from "../../api/types";
@@ -25,6 +25,7 @@ export function HeaderCard({
   onAbandon,
   onAbandonReasonChange,
   onMerge,
+  patchsetCompare,
   terminal
 }: {
   abandonPending: boolean;
@@ -38,6 +39,7 @@ export function HeaderCard({
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
   onMerge(): void;
+  patchsetCompare?: ReactNode;
   terminal: boolean;
 }) {
   const [showDetails, setShowDetails] = useState(false);
@@ -172,6 +174,11 @@ export function HeaderCard({
           <ErrorBox className="mt-4 md:mt-5" message={actionError} />
         ) : null}
       </div>
+      {patchsetCompare ? (
+        <div className="border-t border-slate-100 px-3 py-2 md:px-5 md:py-2.5">
+          {patchsetCompare}
+        </div>
+      ) : null}
     </div>
   );
 }

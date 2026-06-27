@@ -1,5 +1,42 @@
 # Gitslice Execution Log
 
+## 2026-06-27: Compact Changeset Header / Patchset Selector on Desktop
+
+Request:
+
+- the changeset header and patchset selector consumed too much vertical space on
+  desktop; collapse them into a single card and hide the patchset timeline behind
+  a click until it is actually needed.
+
+Decisions:
+
+- merged `PatchsetComparePanel` into `HeaderCard` via a `patchsetCompare`
+  slot (`ReactNode`), rendered in a `border-t` footer band inside the same card,
+  so the two blocks now share one card border/padding/margin (~50px recovered).
+- `PATCHSETS` is now an `<h2>` sibling of an always-clickable summary button
+  (`fromLabel → toLabel` + chevron). The timeline panel is `hidden` by default,
+  expands inline on mobile, and floats as an absolute popover on desktop
+  (`lg:absolute lg:top-full lg:z-30` with its own border/shadow).
+- reused the outside-click / Escape / resize-close pattern from `MoreActionsMenu`
+  for the popover, but deliberately avoided a React portal: conditional portal
+  rendering would unmount the timeline and its `sr-only` `<select>` elements when
+  closed, breaking the e2e test that drives the diff via
+  `getByLabelText("Diff base")`. Keeping the timeline in the DOM (CSS-hidden)
+  preserves both accessibility and the test.
+
+Verification:
+
+```bash
+cd web && npx tsc -b
+cd web && npx vitest run --environment jsdom   # 9 files, 162/162 passing
+```
+
+Learnings:
+
+- `ChangesetDetailPage.test.tsx` is borderline at vitest's default 5s test
+  timeout under jsdom (passes on repeat; clean at `--testTimeout=20000`). This is
+  pre-existing suite slowness, not introduced by this layout change.
+
 ## 2026-06-27: Deployment Agent Skill
 
 Request:
