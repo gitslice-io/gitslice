@@ -80,14 +80,19 @@ const agentWorkspaceInstructionsPreamble = `You are working inside a Gitslice wo
 // in the changeset's patchset when that turn changed it, otherwise the slice's
 // current file view). The agent needs no knowledge of accounts, IDs, or URLs.
 const agentWorkspaceInstructionsFileLinks = `- When you mention a workspace file in your reply, link to it with a
-  slice-relative path under the ` + "`gsfile:`" + ` scheme, as a Markdown link:
+  repository path under the ` + "`gsfile:`" + ` scheme, as a Markdown link:
     ` + "`[internal/cli/agent.go](gsfile:internal/cli/agent.go)`" + `
   Optionally pin a line or range with a fragment:
     ` + "`[agent.go:42](gsfile:internal/cli/agent.go#L42)`" + ` or ` + "`#L42-L60`" + `.
-  The path is relative to the slice root (the same path ` + "`gs status`" + ` shows),
-  never an absolute or ` + "`file://`" + ` path and never prefixed with ` + "`./`" + `. The web UI
-  cannot open paths on this machine; the ` + "`gsfile:`" + ` link is resolved to the
-  right file in the UI for you. Use it only for files inside this workspace.`
+  Use the account-rooted repository path, without the leading slash. If the
+  editable scope is ` + "`/nic/File`" + ` and the file is
+  ` + "`nic/File/Lol.txt`" + ` in the workspace, link
+  ` + "`[Lol.txt](gsfile:nic/File/Lol.txt)`" + `, not
+  ` + "`gsfile:Lol.txt`" + `. This is the same path ` + "`gs status`" + ` shows, minus the
+  leading slash. Never use an absolute or ` + "`file://`" + ` path and never prefix the
+  path with ` + "`./`" + `. The web UI cannot open paths on this machine; the
+  ` + "`gsfile:`" + ` link is resolved to the right file in the UI for you. Use it only
+  for files inside this workspace.`
 
 const agentWorkspaceInstructionsCommands = `- Use the ` + "`gs`" + ` CLI for source-control operations. Useful commands:
     gs status            show the workspace status (pending edits)

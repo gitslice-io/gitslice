@@ -13,8 +13,8 @@ import (
 )
 
 func TestAgentWorkspaceInstructionsIncludesEditableScope(t *testing.T) {
-	got := agentWorkspaceInstructions([]string{"src/", "docs"})
-	for _, want := range []string{"src/", "docs/", "only edit files"} {
+	got := agentWorkspaceInstructions([]string{"/nic/File"})
+	for _, want := range []string{"/nic/File/", "only edit files", "gsfile:nic/File/Lol.txt", "not\n  `gsfile:Lol.txt`"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("instructions missing %q:\n%s", want, got)
 		}

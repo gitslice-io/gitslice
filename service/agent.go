@@ -467,6 +467,12 @@ func (s *AgentService) rewriteConversationLinks(ctx context.Context, conv *corev
 			patchsets = loaded
 		}
 	}
+	var includedPaths []string
+	if s.Slices != nil {
+		if loaded, err := s.Slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: slug}); err == nil && loaded.GetDefinition() != nil {
+			includedPaths = loaded.GetDefinition().GetIncludedPaths()
+		}
+	}
 	out := make([]*corev1.ConversationEvent, len(events))
 	for i, ev := range events {
 		if ev == nil || !textMayContainAgentFileLink(ev.GetText(), rc) {
@@ -476,6 +482,7 @@ func (s *AgentService) rewriteConversationLinks(ctx context.Context, conv *corev
 		cloned := proto.Clone(ev).(*corev1.ConversationEvent)
 		eventContext := rc
 		eventContext.seq = ev.GetSeq()
+		eventContext.includedPaths = includedPaths
 		eventContext.patchsets = patchsets
 		cloned.Text = rewriteAgentFileLinks(cloned.GetText(), eventContext)
 		out[i] = cloned
