@@ -32,10 +32,10 @@ stream, tagged by `conversation_id`.
   it. Each *conversation* binds to exactly one slice (preserving the
   one-workspace-one-slice rule). The same daemon can serve conversations for any
   slice the subject can write.
-- **Web receive transport: server-streaming RPC via the gRPC-gateway**
-  (`StreamConversation`), consumed in the browser with `fetch` + `ReadableStream`,
-  matching the existing `ReadBlobStream` / `ImportGitRepositoryStream` pattern.
-  Web send is a unary RPC.
+- **Web receive transport: server-streaming RPC via ConnectRPC**
+  (`StreamConversation`), consumed in the browser through the generated
+  Protobuf-ES service descriptor and Connect web transport. Web send is a unary
+  RPC.
 - **Daemon auth: the saved `gs` user token** (standard `authorization: Bearer`
   metadata), same as every other CLI command. A dedicated long-lived daemon
   token is future work (see below).
@@ -59,7 +59,7 @@ Daemon side (long-lived bidi):
   `ConversationStarted` (workspace ready). The server sends `StartConversation`,
   `DeliverUserMessage`, `CancelConversation`, and `Ping`.
 
-Web side (unary + one server-stream, all surfaced through the gateway):
+Web side (unary + one server-stream, surfaced through ConnectRPC):
 
 - `rpc ListDaemons(ListDaemonsRequest) returns (ListDaemonsResponse)`
 - `rpc CreateConversation(CreateConversationRequest) returns (Conversation)`

@@ -793,8 +793,8 @@ COMMIT_PREFIX_AMBIGUOUS
 
 ## 5. Gateway Notes
 
-HTTP and JSON APIs can be exposed through grpc-gateway for browser and SDK
-clients. The gRPC API remains the source contract.
+HTTP APIs for browsers are exposed through ConnectRPC using generated
+Protobuf-ES descriptors. The gRPC API remains the source contract.
 
 The Git gateway is separate. Its detailed behavior is defined in
 [05_git_compatibility.md](05_git_compatibility.md). At the API boundary it should:

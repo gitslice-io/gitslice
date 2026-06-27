@@ -37,7 +37,7 @@ type AgentServiceClient interface {
 	// Connect is the daemon's long-lived bidirectional channel. The first message
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (AgentService_ConnectClient, error)
-	// Web-facing RPCs (surfaced through the gRPC-gateway).
+	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
 	ListDaemons(ctx context.Context, in *ListDaemonsRequest, opts ...grpc.CallOption) (*ListDaemonsResponse, error)
 	CreateConversation(ctx context.Context, in *CreateConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
 	ListConversations(ctx context.Context, in *ListConversationsRequest, opts ...grpc.CallOption) (*ListConversationsResponse, error)
@@ -194,7 +194,7 @@ type AgentServiceServer interface {
 	// Connect is the daemon's long-lived bidirectional channel. The first message
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(AgentService_ConnectServer) error
-	// Web-facing RPCs (surfaced through the gRPC-gateway).
+	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
 	ListDaemons(context.Context, *ListDaemonsRequest) (*ListDaemonsResponse, error)
 	CreateConversation(context.Context, *CreateConversationRequest) (*Conversation, error)
 	ListConversations(context.Context, *ListConversationsRequest) (*ListConversationsResponse, error)

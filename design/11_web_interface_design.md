@@ -52,10 +52,11 @@ ChangesetService.SubmitChangeset
 ChangesetService.AbandonChangeset
 ```
 
-The server exposes these methods to browsers through the optional HTTP JSON
-gateway enabled by `GITSLICE_HTTP_ADDR` or `--http-addr`. Until explicit
-`google.api.http` annotations are added, the generated grpc-gateway routes use
-unbound method paths such as:
+The server exposes these methods to browsers through the HTTP API handler
+enabled on the combined server listener and, when configured, the optional HTTP
+listener from `GITSLICE_HTTP_ADDR` or `--http-addr`. The web app uses ConnectRPC
+with TypeScript service descriptors generated from `proto/core/v1/*.proto`,
+using Connect procedure paths such as:
 
 ```text
 POST /gitslice.core.v1.FakeAccountService/Login
@@ -64,9 +65,10 @@ POST /gitslice.core.v1.SliceService/ListSlices
 POST /gitslice.core.v1.ChangesetService/GetChangeset
 ```
 
-The gateway forwards into the existing gRPC server, so the same auth interceptor
-and service behavior apply to CLI and web callers. Browser clients served from a
-different origin can use `GITSLICE_HTTP_ALLOWED_ORIGIN` or
+The Connect HTTP path calls the same service implementations as the native gRPC
+server, so service behavior stays shared across CLI and web callers. Browser
+clients served from a different origin can use
+`GITSLICE_HTTP_ALLOWED_ORIGIN` or
 `--http-allowed-origin` to enable CORS for local development.
 
 The repository's current `web/` directory implements only the signup approval
@@ -530,7 +532,7 @@ Query parameters:
 | Routing | TanStack Router | Typed route and search-param handling |
 | Server state | TanStack Query | Caching, mutation state, and polling publish status |
 | Syntax highlighting | Shiki | Read-only source highlighting |
-| HTTP transport | grpc-gateway over current gRPC services | Keeps the browser API limited to supported service methods |
+| HTTP transport | ConnectRPC over current gRPC services | Keeps the browser API generated from the public proto contract |
 | CSS | Tailwind CSS | Fast, utilitarian styling for prototype UI |
 
 Do not add a diff-review package, Monaco editor, OAuth client, WebSocket client,
@@ -540,8 +542,8 @@ or comment editor until the corresponding backend capabilities exist.
 
 ```text
 Web UI (SPA)
-  -> HTTP JSON grpc-gateway
-    -> implemented gRPC Core Services
+  -> ConnectRPC over HTTP
+    -> implemented Core service handlers
       -> PostgreSQL metadata
       -> filesystem object store
 ```
@@ -555,14 +557,14 @@ service methods and should preserve the same authorization checks as the CLI.
 The first auth flow is development-only:
 
 1. User enters a dev user such as `alice`.
-2. The HTTP gateway calls `FakeAccountService.Login`.
+2. The ConnectRPC HTTP API calls `FakeAccountService.Login`.
 3. The app attaches the returned bearer token to subsequent requests.
 4. Logout clears the local token.
 
 The CLI signup approval page is also a development-only web surface. It is a
 static browser page under `web/` that reads `username`, `callback_url`, and
 `state` query parameters, calls
-`FakeAccountService.ApproveSignup` through the generated HTTP JSON gateway, and
+`FakeAccountService.ApproveSignup` through the generated Connect HTTP API, and
 then redirects the browser to the returned loopback callback URL. The Go server
 does not mount a bespoke signup HTTP handler.
 

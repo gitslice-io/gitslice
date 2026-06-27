@@ -16,7 +16,7 @@ service AgentService {
   // the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
   rpc Connect(stream DaemonMessage) returns (stream ServerMessage);
 
-  // Web-facing RPCs (surfaced through the gRPC-gateway).
+  // Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
   rpc ListDaemons(ListDaemonsRequest) returns (ListDaemonsResponse);
   rpc CreateConversation(CreateConversationRequest) returns (Conversation);
   rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
