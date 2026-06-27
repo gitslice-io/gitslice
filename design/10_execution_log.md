@@ -1,5 +1,32 @@
 # Gitslice Execution Log
 
+## 2026-06-27: Status Scanner Dotfile Handling
+
+Request:
+
+- fix `gs status` behavior where workspace scanning skipped every filesystem
+  entry whose name started with `.`, hiding imported dotfiles and `.github`
+  content from local status
+
+Decisions:
+
+- changed the workspace scanner to skip only top-level workspace metadata
+  directories/files: `.git`, `.gs`, and `.gitslice`
+- kept user dot paths visible to status, including `.env`, `.github/...`, and
+  nested dotfiles inside the materialized slice tree
+- added a focused unit test that verifies user dot paths are scanned while
+  workspace metadata remains excluded
+
+Verification:
+
+```bash
+go test ./internal/cli -run TestScanWorkspaceFilesIncludesUserDotPaths -count=1
+go test ./internal/cli
+git diff --check
+go test ./...
+go build ./cmd/...
+```
+
 ## 2026-06-27: Compact Changeset Header / Patchset Selector on Desktop
 
 Request:

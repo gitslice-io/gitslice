@@ -11918,7 +11918,7 @@ func shortID(id string) string {
 	return id[:12]
 }
 
-func shouldSkip(rel string, entry fs.DirEntry) bool {
+func shouldSkip(rel string, _ fs.DirEntry) bool {
 	first := rel
 	if idx := strings.Index(first, "/"); idx >= 0 {
 		first = first[:idx]
@@ -11927,7 +11927,7 @@ func shouldSkip(rel string, entry fs.DirEntry) bool {
 	case ".git", ".gs", ".gitslice":
 		return true
 	default:
-		return strings.HasPrefix(entry.Name(), ".")
+		return false
 	}
 }
 
