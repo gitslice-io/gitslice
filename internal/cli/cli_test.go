@@ -1486,6 +1486,56 @@ func TestInvalidFormatReturnsStructuredCommandError(t *testing.T) {
 	}
 }
 
+func TestScanWorkspaceFilesIncludesUserDotPaths(t *testing.T) {
+	workspace := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(workspace, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("acme/payment/.env", "APP_ENV=test\n")
+	write("acme/payment/.github/workflows/ci.yml", "name: ci\n")
+	write("acme/payment/src/.keep", "")
+	write(".gs/slice.json", "{}")
+	write(".gs/state.json", "{}")
+	write(".git/config", "[core]\n")
+	write(".gitslice/cache", "local\n")
+
+	r := Runner{Home: t.TempDir(), Dir: workspace}
+	files, err := r.scanWorkspaceFiles(WorkspaceConfig{
+		Account:       "acme",
+		Slice:         "payment",
+		IncludedPaths: []string{"/acme/payment"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		"/acme/payment/.env",
+		"/acme/payment/.github/workflows/ci.yml",
+		"/acme/payment/src/.keep",
+	} {
+		if _, ok := files[want]; !ok {
+			t.Fatalf("scan missing %s; got paths %#v", want, files)
+		}
+	}
+	for _, notWant := range []string{
+		"/acme/payment/.gs/state.json",
+		"/acme/payment/.git/config",
+		"/acme/payment/.gitslice/cache",
+	} {
+		if _, ok := files[notWant]; ok {
+			t.Fatalf("scan included workspace metadata path %s: %#v", notWant, files[notWant])
+		}
+	}
+}
+
 func TestResolveSliceRefInputAcceptsExplicitSliceOffline(t *testing.T) {
 	r := Runner{}
 	explicit, err := r.resolveSliceRefInput(context.Background(), UserConfig{SubjectID: "user_alice"}, nil, "acme/Payment_API")
