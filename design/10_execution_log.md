@@ -6680,3 +6680,54 @@ go build ./cmd/...
 
 Results: focused server rewrite tests, focused web transcript fixture tests, the
 full service package, the full Go test suite, and command builds passed.
+
+## 2026-06-27: Agent Links From Included-Path Shorthand
+
+Goal: explain and fix why public conversation
+`conv_23f07b29ceca855757df5e975eecf763` rewrote `[Lol.txt](gsfile:Lol.txt)` to
+`/slices/nic/file?path=%2FLol.txt`, a non-existent file for slice `nic:file`.
+
+Finding: staging DB showed `nic:file` includes only `/nic/File`. The stored
+event text used included-directory-relative links (`gsfile:Lol.txt` and
+`gsfile:hello/hello.cc`), while captured patchsets and the repository file view
+use account-rooted paths such as `/nic/File/hello/hello.cc`.
+
+Decision: keep server-side read-time transcript rewriting as the compatibility
+layer, but teach it the slice included paths. For a single included path, the
+rewriter now maps shorthand workspace paths through `paths.FromWorkspacePath`,
+so old transcripts like `gsfile:Lol.txt` resolve to `/nic/File/Lol.txt` and
+captured files like `gsfile:hello/hello.cc` can match `/nic/File/hello/hello.cc`
+patchset paths. Multi-root slices are left unguessed. The daemon instructions
+now explicitly ask agents to emit account-rooted repository paths without the
+leading slash.
+
+Verification:
+
+```bash
+go test ./service -run 'TestRewriteAgentFileLinks|TestRewriteConversationLinksUsesSliceIncludedPathForShorthandLinks|TestRewriteConversationLinksClones'
+go test ./internal/cli -run 'TestAgentWorkspaceInstructionsIncludesEditableScope|TestNormalizeAgentWorkspaceEventLinks'
+go test ./...
+go build ./cmd/...
+```
+
+Results: focused link-rewrite and agent-instruction tests passed. The full Go
+test suite and command builds passed.
+
+Deployment:
+
+```bash
+go build -o bin/gitslice-server ./cmd/gitslice-server
+go build -o bin/gs ./cmd/gs
+go build -o /home/nic/.local/bin/gs-staging-agent ./cmd/gs
+npx --yes pm2 restart gitslice-rewrite-staging --update-env
+npm --prefix web run deploy:staging
+curl -sS -i --max-time 20 -X POST https://api.agenttools.dev/gitslice.core.v1.AuthService/GetAuthStatus -H 'Content-Type: application/json' --data '{}'
+curl -sS -i --max-time 20 https://agenttools.dev/slices/nic/file/agents/conv_23f07b29ceca855757df5e975eecf763
+curl -sS --max-time 20 -H 'Accept-Encoding: identity' https://agenttools.dev/ | rg -o '/assets/index-[^" ]+\.js'
+npx --yes pm2 show gitslice-rewrite-staging
+```
+
+Results: staging server `gitslice-rewrite-staging` restarted and was online,
+the API responded through `api.agenttools.dev`, the staging web worker deployed
+as version `1c26b953-a276-4a17-b177-56043d721af5`, and
+`agenttools.dev` served the new `/assets/index-KhXOA8jY.js` bundle.

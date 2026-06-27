@@ -34,6 +34,17 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 			want: "Open [agent file](/slices/acme/payments?path=%2Finternal%2Fcli%2Fagent.go).",
 		},
 		{
+			name: "slice fallback prefixes single included path shorthand",
+			text: "Open [Lol.txt](gsfile:Lol.txt).",
+			rc: linkRewriteContext{
+				account:       "nic",
+				slug:          "file",
+				seq:           45,
+				includedPaths: []string{"/nic/File"},
+			},
+			want: "Open [Lol.txt](/slices/nic/file?path=%2Fnic%2FFile%2FLol.txt).",
+		},
+		{
 			name: "changeset hit in owning patchset",
 			text: "Open [agent file](gsfile:internal/cli/agent.go).",
 			rc: linkRewriteContext{
@@ -68,6 +79,25 @@ func TestRewriteAgentFileLinks(t *testing.T) {
 				},
 			},
 			want: "Open [agent file](/cs/cs1?to=ps1&file=internal%2Fcli%2Fagent.go).",
+		},
+		{
+			name: "changeset hit prefixes single included path shorthand",
+			text: "Created [hello.cc](gsfile:hello/hello.cc).",
+			rc: linkRewriteContext{
+				account:       "nic",
+				slug:          "file",
+				seq:           119,
+				includedPaths: []string{"/nic/File"},
+				patchsets: []*corev1.Patchset{
+					{
+						Id:                       "ps1",
+						ChangesetId:              "cs1",
+						ChangedPaths:             []string{"/nic/File/hello/hello.cc"},
+						AuthoringConversationSeq: 119,
+					},
+				},
+			},
+			want: "Created [hello.cc](/cs/cs1?to=ps1&file=nic%2FFile%2Fhello%2Fhello.cc).",
 		},
 		{
 			name: "owning patchset selected by smallest cutoff at or after event seq",
@@ -275,6 +305,27 @@ func TestRewriteConversationLinksClonesAbsoluteWorkspaceLinks(t *testing.T) {
 		t.Fatalf("input linked event was mutated: %q", linked.Text)
 	}
 	if got[0].Text != "Open [README.md](/slices/acme/payments?path=%2Facme%2Fpayments%2FREADME.md)." {
+		t.Fatalf("rewritten linked text = %q", got[0].Text)
+	}
+}
+
+func TestRewriteConversationLinksUsesSliceIncludedPathForShorthandLinks(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	mem.PutSlice(&corev1.SliceRef{Account: "nic", Slice: "file"}, []string{"/nic/File"}, "private")
+	conv := &corev1.Conversation{
+		Id:    "conv1",
+		Slice: &corev1.SliceRef{Account: "nic", Slice: "file"},
+	}
+	linked := &corev1.ConversationEvent{
+		Seq:  45,
+		Text: "Open [Lol.txt](gsfile:Lol.txt).",
+	}
+
+	got := handlers.Agent.rewriteConversationLinks(context.Background(), conv, []*corev1.ConversationEvent{linked})
+	if len(got) != 1 {
+		t.Fatalf("rewriteConversationLinks returned %d events, want 1", len(got))
+	}
+	if got[0].Text != "Open [Lol.txt](/slices/nic/file?path=%2Fnic%2FFile%2FLol.txt)." {
 		t.Fatalf("rewritten linked text = %q", got[0].Text)
 	}
 }

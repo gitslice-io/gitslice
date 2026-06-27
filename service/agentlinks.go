@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	gspaths "github.com/gitslice-io/gitslice/internal/paths"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
@@ -13,6 +14,7 @@ type linkRewriteContext struct {
 	slug           string
 	conversationID string
 	seq            int64
+	includedPaths  []string
 	patchsets      []*corev1.Patchset
 }
 
@@ -115,6 +117,9 @@ func agentFileRelpath(raw string, rc linkRewriteContext) (relpath string, fragme
 	}
 	relpath = stripAgentLineSuffix(relpath)
 	relpath, ok = cleanAgentFileRelpath(relpath)
+	if ok {
+		relpath = resolveAgentFileRelpath(relpath, rc.includedPaths)
+	}
 	return relpath, fragment, hasFragment, ok
 }
 
@@ -152,6 +157,17 @@ func cleanAgentFileRelpath(relpath string) (string, bool) {
 		return "", false
 	}
 	return relpath, true
+}
+
+func resolveAgentFileRelpath(relpath string, includedPaths []string) string {
+	if len(includedPaths) != 1 {
+		return relpath
+	}
+	canonical, err := gspaths.FromWorkspacePath(includedPaths[0], relpath)
+	if err != nil {
+		return relpath
+	}
+	return strings.TrimPrefix(canonical, "/")
 }
 
 func canonicalAgentSlicePath(relpath string) string {

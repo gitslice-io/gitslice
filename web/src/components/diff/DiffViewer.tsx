@@ -594,8 +594,8 @@ function UnifiedDiff({
   );
 
   return (
-    <pre className="overflow-x-auto bg-white text-xs leading-5 md:text-sm">
-      <code className="block min-w-max py-2">
+    <pre className="overflow-x-auto bg-white text-xs leading-4 md:text-[13px]">
+      <code className="block min-w-max py-1.5">
         {segments.map((segment) =>
           segment.type === "gap" ? (
             <ExpandSeparator
@@ -611,7 +611,7 @@ function UnifiedDiff({
                 return (
                   <span
                     className={cn(
-                      "grid min-h-5 grid-cols-[1.75rem_minmax(0,1fr)] whitespace-pre px-1.5 py-0.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
+                      "grid min-h-4 grid-cols-[1.75rem_minmax(0,1fr)] whitespace-pre px-1.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
                       diffLineClass(line.kind)
                     )}
                     key={`${index}-${line.text}`}
@@ -669,8 +669,8 @@ function SplitDiff({
   }
 
   return (
-    <div className="overflow-x-auto bg-white text-xs leading-5 md:text-sm">
-      <div className="min-w-[48rem] py-2">
+    <div className="overflow-x-auto bg-white text-xs leading-4 md:text-[13px]">
+      <div className="min-w-[48rem] py-1.5">
         {segments.map((segment) =>
           segment.type === "gap" ? (
             <ExpandSeparator
@@ -697,7 +697,7 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
     return (
       <div
         className={cn(
-          "border-t border-slate-100 px-4 py-1 font-mono first:border-t-0",
+          "border-t border-slate-100 px-4 py-0.5 font-mono first:border-t-0",
           row.hunkText?.startsWith("@@")
             ? "bg-sky-50 text-sky-700"
             : "bg-slate-50 text-slate-500"
@@ -776,13 +776,13 @@ function SplitCell({
   tone: "add" | "context" | "del";
 }) {
   if (!line) {
-    return <div className="min-h-6 bg-slate-50/80" />;
+    return <div className="min-h-4 bg-slate-50/80" />;
   }
 
   return (
     <div
       className={cn(
-        "grid min-h-6 grid-cols-[1.75rem_minmax(0,1fr)] overflow-x-auto whitespace-pre px-2 py-0.5 font-mono sm:grid-cols-[3.5rem_minmax(0,1fr)] sm:px-4",
+        "grid min-h-4 grid-cols-[1.75rem_minmax(0,1fr)] overflow-x-auto whitespace-pre px-2 font-mono sm:grid-cols-[3.5rem_minmax(0,1fr)] sm:px-4",
         tone === "add" && "bg-emerald-50 text-emerald-900",
         tone === "del" && "bg-rose-50 text-rose-900",
         tone === "context" && "text-slate-700"
@@ -876,7 +876,7 @@ function splitRowKey(row: DiffRow, index: number) {
 
 function estimatedDiffBodyHeight(file: DiffFile, viewMode: ViewMode) {
   const estimatedHeight =
-    viewMode === "unified" ? file.lines.length * 20 : file.rows.length * 24;
+    viewMode === "unified" ? file.lines.length * 16 : file.rows.length * 16;
 
   return Math.max(minDiffBodyPlaceholderHeight, estimatedHeight);
 }
