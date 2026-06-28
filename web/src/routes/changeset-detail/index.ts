@@ -8,7 +8,6 @@ export { ReviewActions } from "./ReviewActions";
 export { MoreActionsMenu } from "./MoreActionsMenu";
 export { PatchsetComparePanel } from "./PatchsetComparePanel";
 export { PatchsetTimeline } from "./PatchsetTimeline";
-export { TimelineHandleButton } from "./TimelineHandleButton";
 export { StatusBadge } from "./StatusBadge";
 export { ChangesetMetaLine } from "./ChangesetMetaLine";
 export {
