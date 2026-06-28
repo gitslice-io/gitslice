@@ -6,6 +6,7 @@ import { useSelection } from "../state/selection";
 
 const navItems = [
   { label: "Home", to: "/", section: "slices" },
+  { label: "Conversations", to: "/conversations", section: "conversations" },
   { label: "doc", to: "/doc", section: "doc" }
 ] as const;
 
@@ -22,6 +23,7 @@ export function TopBar() {
     pathname.startsWith("/changesets") ||
     pathname.startsWith("/cs");
   const isDocActive = pathname.startsWith("/doc");
+  const isConversationsActive = pathname.startsWith("/conversations");
 
   return (
     <header className="border-b border-slate-200 bg-white/95 px-3 backdrop-blur sm:px-4 md:px-6">
@@ -40,14 +42,17 @@ export function TopBar() {
               <Link
                 aria-current={
                   (item.section === "slices" && isSlicesActive) ||
-                  (item.section === "doc" && isDocActive)
+                  (item.section === "doc" && isDocActive) ||
+                  (item.section === "conversations" && isConversationsActive)
                     ? "page"
                     : undefined
                 }
                 className={cn(
                   "rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 sm:px-3",
                   ((item.section === "slices" && isSlicesActive) ||
-                    (item.section === "doc" && isDocActive)) &&
+                    (item.section === "doc" && isDocActive) ||
+                    (item.section === "conversations" &&
+                      isConversationsActive)) &&
                     "bg-zinc-950 text-white hover:bg-zinc-950 hover:text-white"
                 )}
                 key={item.label}
