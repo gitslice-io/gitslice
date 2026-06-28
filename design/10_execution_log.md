@@ -6826,3 +6826,28 @@ Results: staging server `gitslice-rewrite-staging` restarted and was online,
 the API responded through `api.agenttools.dev`, the staging web worker deployed
 as version `1c26b953-a276-4a17-b177-56043d721af5`, and
 `agenttools.dev` served the new `/assets/index-KhXOA8jY.js` bundle.
+
+## 2026-06-27: Changeset Conversation Drawer URL State
+
+Goal: make the changeset detail conversation drawer preserve its open state in
+the URL, matching the slice history drawer behavior so browser and mobile back
+gestures close the drawer before leaving the page.
+
+Decision: use a `conversation=1` search param as the source of truth for the
+drawer's open state. Opening the drawer pushes a new `/cs/$id` history entry
+while preserving existing changeset detail search params such as `from`, `to`,
+and `file`; closing the drawer calls `router.history.back()` to pop that entry.
+The existing `from`/`to` compare URL replacement path already preserves unknown
+search params, so it keeps the drawer state intact while changing patchsets.
+
+Verification:
+
+```bash
+npm --prefix web test -- src/routes/ChangesetDetailPage.test.tsx
+npm --prefix web run build
+npm --prefix web test
+```
+
+Results: the focused changeset detail tests passed, the production web build
+passed with the existing Vite/Nitro dependency and chunk-size warnings, and the
+full web test suite passed with 9 files and 164 tests.
