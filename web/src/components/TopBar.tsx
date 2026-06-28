@@ -7,7 +7,7 @@ import { useSelection } from "../state/selection";
 const navItems = [
   { label: "Home", to: "/", section: "slices" },
   { label: "Conversations", to: "/conversations", section: "conversations" },
-  { label: "doc", to: "/doc", section: "doc" }
+  { label: "Doc", to: "/doc", section: "doc" }
 ] as const;
 
 export function TopBar() {
@@ -37,7 +37,10 @@ export function TopBar() {
           </Link>
         </div>
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <nav aria-label="Primary" className="flex items-center gap-1">
+          <nav
+            aria-label="Primary"
+            className="grid grid-flow-col auto-cols-fr gap-1"
+          >
             {navItems.map((item) => (
               <Link
                 aria-current={
@@ -48,7 +51,7 @@ export function TopBar() {
                     : undefined
                 }
                 className={cn(
-                  "rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 sm:px-3",
+                  "rounded-md px-2.5 py-2 text-center text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 sm:px-3",
                   ((item.section === "slices" && isSlicesActive) ||
                     (item.section === "doc" && isDocActive) ||
                     (item.section === "conversations" &&
