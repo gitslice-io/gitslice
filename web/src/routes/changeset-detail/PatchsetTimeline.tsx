@@ -1,26 +1,15 @@
-import {
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent
-} from "react";
+import { useMemo, type KeyboardEvent } from "react";
 
 import type { Patchset } from "../../api/types";
 import { cn } from "../../lib/cn";
 import {
-  TimelineHandle,
   TimelineStep,
   clamp,
-  findPatchset,
-  handleTransform,
   patchsetDotLabel,
   patchsetKey,
   patchsetOptionLabel,
-  timelineIndexForValue,
-  timelinePosition
+  timelineIndexForValue
 } from "./patchsetUtils";
-import { TimelineHandleButton } from "./TimelineHandleButton";
 
 export function PatchsetTimeline({
   currentPatchsetId,
@@ -38,8 +27,6 @@ export function PatchsetTimeline({
   toPatchset: string;
 }) {
   const selectablePatchsets = patchsets.filter((patchset) => patchset.id);
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const [dragging, setDragging] = useState<TimelineHandle | null>(null);
   const steps = useMemo<TimelineStep[]>(
     () => [
       { id: "", label: "Base", patchset: undefined },
@@ -56,84 +43,47 @@ export function PatchsetTimeline({
   const maxIndex = Math.max(0, steps.length - 1);
   // Keep adjacent snapshots a fixed distance apart instead of stretching the
   // track to 100% width — most changesets only have two snapshots, and an
-  // edge-to-edge slider for two dots looks broken. The track only grows to fill
-  // the container once there are enough patchsets to need the room.
+  // edge-to-edge selector for two dots looks broken. The track only grows to
+  // fill the container once there are enough patchsets to need the room.
   const STEP_GAP_PX = 104;
   const trackWidth = maxIndex > 0 ? `${maxIndex * STEP_GAP_PX}px` : undefined;
+  const pct = (index: number) => (maxIndex <= 0 ? 0 : (index / maxIndex) * 100);
 
-  const applyIndex = (handle: TimelineHandle, index: number) => {
+  // No drag handles: clicking a dot moves whichever endpoint is nearer, which
+  // keeps from <= to and lets the colorized range communicate the selection
+  // without the two stacked slider rows eating vertical space.
+  const selectIndex = (index: number) => {
     if (!steps.length) {
       return;
     }
 
-    const nextIndex =
-      handle === "from"
-        ? clamp(index, 0, maxIndex)
-        : clamp(index, Math.min(1, maxIndex), maxIndex);
-    const step = steps[nextIndex];
+    const distFrom = Math.abs(index - fromIndex);
+    const distTo = Math.abs(index - toIndex);
+    const moveTo =
+      index >= toIndex || (index > fromIndex && distTo <= distFrom);
 
-    if (handle === "from") {
-      onFromPatchsetChange(step?.id || "");
+    if (moveTo) {
+      const step = steps[clamp(index, Math.min(1, maxIndex), maxIndex)];
+      if (step?.id) {
+        onToPatchsetChange(step.id);
+      }
       return;
     }
 
-    if (step?.id) {
-      onToPatchsetChange(step.id);
-    }
-  };
-
-  const indexForPointer = (clientX: number) => {
-    const track = trackRef.current;
-    if (!track || maxIndex === 0) {
-      return 0;
-    }
-
-    const rect = track.getBoundingClientRect();
-    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
-    return Math.round(ratio * maxIndex);
-  };
-
-  const handlePointerDown = (
-    handle: TimelineHandle,
-    event: PointerEvent<HTMLButtonElement>
-  ) => {
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setDragging(handle);
-    applyIndex(handle, indexForPointer(event.clientX));
-  };
-
-  const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
-    if (!dragging) {
-      return;
-    }
-    applyIndex(dragging, indexForPointer(event.clientX));
-  };
-
-  const stopDragging = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    setDragging(null);
+    const step = steps[clamp(index, 0, maxIndex)];
+    onFromPatchsetChange(step?.id || "");
   };
 
   const handleKeyDown = (
-    handle: TimelineHandle,
-    currentIndex: number,
+    index: number,
     event: KeyboardEvent<HTMLButtonElement>
   ) => {
     if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
       event.preventDefault();
-      applyIndex(handle, currentIndex - 1);
+      selectIndex(clamp(index - 1, 0, maxIndex));
     } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
       event.preventDefault();
-      applyIndex(handle, currentIndex + 1);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      applyIndex(handle, handle === "from" ? 0 : 1);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      applyIndex(handle, maxIndex);
+      selectIndex(clamp(index + 1, 0, maxIndex));
     }
   };
 
@@ -179,51 +129,63 @@ export function PatchsetTimeline({
         </label>
       </div>
 
-      <div className="relative h-20 px-4 md:px-5">
+      <div className="relative h-10 px-4 md:px-5">
         <div
           className="relative mx-auto h-full"
-          ref={trackRef}
           style={{ maxWidth: "100%", width: trackWidth }}
         >
-          <div className="absolute inset-x-0 top-9 h-px bg-slate-300" />
-          <div className="absolute inset-x-0 top-6 flex items-center justify-between">
+          <div className="absolute inset-x-0 top-[7px] h-0.5 -translate-y-1/2 rounded-full bg-slate-200" />
+          <div
+            aria-hidden="true"
+            className="absolute top-[7px] h-0.5 -translate-y-1/2 rounded-full bg-zinc-900"
+            style={{
+              left: `${pct(fromIndex)}%`,
+              width: `${pct(toIndex) - pct(fromIndex)}%`
+            }}
+          />
+          <div className="absolute inset-x-0 top-0 flex items-start justify-between">
             {steps.map((step, index) => {
+              const isFrom = index === fromIndex;
+              const isTo = index === toIndex;
+              const isEndpoint = isFrom || isTo;
+              const inRange = index > fromIndex && index < toIndex;
               const isCurrent =
-                currentPatchsetId && step.id === currentPatchsetId;
+                Boolean(currentPatchsetId) && step.id === currentPatchsetId;
               return (
                 <button
-                  aria-current={index === toIndex ? "true" : undefined}
+                  aria-current={isTo ? "true" : undefined}
                   aria-label={
                     index === 0
                       ? "Use recorded base as diff base"
-                      : `Compare to ${patchsetOptionLabel(step.patchset)}`
+                      : `Compare ${patchsetOptionLabel(step.patchset)}`
                   }
-                  className="group flex min-w-7 -translate-y-0.5 flex-col items-center gap-1 text-[10px] font-medium text-slate-500 md:min-w-8"
+                  className="group flex min-w-7 flex-col items-center gap-1 text-[10px] font-medium md:min-w-8"
                   key={step.id || "base"}
-                  onClick={() =>
-                    index === 0
-                      ? onFromPatchsetChange("")
-                      : onToPatchsetChange(step.id)
-                  }
+                  onClick={() => selectIndex(index)}
+                  onKeyDown={(event) => handleKeyDown(index, event)}
                   type="button"
                 >
                   <span
                     className={cn(
-                      "rounded-full border-2 bg-white transition group-hover:border-zinc-950",
-                      index === fromIndex || index === toIndex
-                        ? "h-3.5 w-3.5 border-zinc-950"
-                        : "h-3 w-3 border-slate-300",
+                      "rounded-full border-2 transition group-hover:border-zinc-950",
+                      isEndpoint
+                        ? "h-3.5 w-3.5 border-zinc-950 bg-zinc-950"
+                        : inRange
+                          ? "h-3 w-3 border-zinc-900 bg-zinc-900"
+                          : "h-2.5 w-2.5 border-slate-300 bg-white",
                       isCurrent &&
-                        !(index === fromIndex || index === toIndex) &&
+                        !isEndpoint &&
+                        !inRange &&
                         "border-emerald-500 ring-2 ring-emerald-100"
                     )}
                     title={isCurrent ? "Current patchset" : undefined}
                   />
                   <span
                     className={cn(
-                      isCurrent &&
-                        !(index === fromIndex || index === toIndex) &&
-                        "text-emerald-700"
+                      isEndpoint || inRange
+                        ? "text-zinc-950"
+                        : "text-slate-500",
+                      isCurrent && !isEndpoint && !inRange && "text-emerald-700"
                     )}
                   >
                     {step.label}
@@ -232,31 +194,6 @@ export function PatchsetTimeline({
               );
             })}
           </div>
-
-          <TimelineHandleButton
-            handle="from"
-            index={fromIndex}
-            label={
-              fromIndex === 0 ? "From Base" : `From ${steps[fromIndex]?.label}`
-            }
-            maxIndex={maxIndex}
-            onKeyDown={handleKeyDown}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={stopDragging}
-            topClassName="top-0"
-          />
-          <TimelineHandleButton
-            handle="to"
-            index={toIndex}
-            label={`To ${steps[toIndex]?.label || ""}`}
-            maxIndex={maxIndex}
-            onKeyDown={handleKeyDown}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={stopDragging}
-            topClassName="top-12"
-          />
         </div>
       </div>
     </div>
