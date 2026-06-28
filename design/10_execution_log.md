@@ -6916,3 +6916,39 @@ version `639eebb7-c36b-4311-8d37-6ac3a2e0484c`; `agenttools.dev` returned HTTP
 200 and the freshly-uploaded bundle `/assets/index-Bchspi83.js` served 200.
 Web-only change, so the backend PM2 process was not restarted; Go/e2e/load gates
 were not run (no backend impact).
+
+## 2026-06-28 — Patchset compare: drop from/to slider handles, colorize range (web staging)
+
+Request: the from/to draggable handles took too much vertical space; colorize
+the selected range instead. Then merge and deploy.
+
+Actions:
+- PatchsetTimeline.tsx: removed the two stacked draggable handle rows (which
+  forced an h-20 track) in favor of a single h-10 dot row. The track segment
+  between the from/to dots is filled dark; endpoint dots solid, in-range dots
+  filled, out-of-range dots light; current patchset keeps its emerald ring when
+  outside the range. Clicking a dot moves whichever endpoint is nearer (ties
+  favor "to"), preserving from<=to and full range control; arrow keys nudge the
+  nearest endpoint; hidden selects remain for a11y.
+- Deleted dead TimelineHandleButton component + its index.ts export
+  (handleTransform util kept; still unit-tested).
+- Branch web/patchset-colorized-range, PR #259, squash-merged to main as
+  ae0ffe3, deployed web-only to staging Cloudflare Worker.
+
+Verification:
+
+```bash
+npx tsc --noEmit                       # clean
+npm test                               # 164/164 pass
+npm run build                          # EXIT=0 (client + SSR + nitro)
+npm --prefix web run deploy:staging
+curl -sS -o /dev/null -w '%{http_code}\n' https://agenttools.dev/
+curl -sS -o /dev/null -w '%{http_code}\n' https://agenttools.dev/assets/index-CNShiMvg.js
+curl -sS https://agenttools.dev/assets/index-CNShiMvg.js | grep -c 'Drag .* patchset handle'
+```
+
+Results: tsc/tests/build all green. Staging Worker deployed version
+`ad56d5f1-3e4e-4855-8850-6dfc057bc32d`; `agenttools.dev` returned 200, the new
+bundle `/assets/index-CNShiMvg.js` served 200, and the removed slider-handle
+string ("Drag ... patchset handle") count was 0, confirming the old control is
+gone. Web-only change; backend PM2 not restarted.
