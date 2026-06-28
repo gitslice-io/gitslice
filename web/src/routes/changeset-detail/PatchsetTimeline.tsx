@@ -54,6 +54,12 @@ export function PatchsetTimeline({
   const fromIndex = timelineIndexForValue(steps, fromPatchset, 0);
   const toIndex = Math.max(1, timelineIndexForValue(steps, toPatchset, steps.length - 1));
   const maxIndex = Math.max(0, steps.length - 1);
+  // Keep adjacent snapshots a fixed distance apart instead of stretching the
+  // track to 100% width — most changesets only have two snapshots, and an
+  // edge-to-edge slider for two dots looks broken. The track only grows to fill
+  // the container once there are enough patchsets to need the room.
+  const STEP_GAP_PX = 104;
+  const trackWidth = maxIndex > 0 ? `${maxIndex * STEP_GAP_PX}px` : undefined;
 
   const applyIndex = (handle: TimelineHandle, index: number) => {
     if (!steps.length) {
@@ -174,7 +180,11 @@ export function PatchsetTimeline({
       </div>
 
       <div className="relative h-20 px-4 md:px-5">
-        <div className="relative h-full" ref={trackRef}>
+        <div
+          className="relative mx-auto h-full"
+          ref={trackRef}
+          style={{ maxWidth: "100%", width: trackWidth }}
+        >
           <div className="absolute inset-x-0 top-9 h-px bg-slate-300" />
           <div className="absolute inset-x-0 top-6 flex items-center justify-between">
             {steps.map((step, index) => {

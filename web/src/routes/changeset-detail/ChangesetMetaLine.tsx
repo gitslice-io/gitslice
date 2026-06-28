@@ -8,7 +8,7 @@ export function ChangesetMetaLine({ changeset }: { changeset: Changeset }) {
   }
 
   return (
-    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500 md:mt-1.5 md:text-xs">
+    <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-slate-500 md:text-xs">
       <span className="shrink-0">by</span>
       <Link
         className="min-w-0 truncate font-medium text-slate-700 underline-offset-2 transition hover:text-zinc-950 hover:underline"
@@ -18,6 +18,6 @@ export function ChangesetMetaLine({ changeset }: { changeset: Changeset }) {
       >
         {author}
       </Link>
-    </div>
+    </span>
   );
 }
