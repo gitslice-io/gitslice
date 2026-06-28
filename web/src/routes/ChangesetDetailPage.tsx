@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import {
+  useNavigate,
+  useParams,
+  useRouter,
+  useSearch
+} from "@tanstack/react-router";
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
   useCallback,
@@ -41,14 +46,18 @@ export function ChangesetDetailPage() {
   const params = useParams({ strict: false }) as { id?: string };
   const changesetId = params.id ?? "";
   const navigate = useNavigate();
+  const router = useRouter();
   const search = useSearch({ strict: false }) as {
     from?: string;
     to?: string;
     file?: string;
+    conversation?: unknown;
   };
   const [abandonReason, setAbandonReason] = useState("");
   const [actionError, setActionError] = useState("");
-  const [conversationOpen, setConversationOpen] = useState(false);
+  // The conversation drawer's open state lives in the URL so browser/mobile
+  // back closes it instead of leaving the changeset detail page.
+  const conversationOpen = Boolean(search.conversation);
   const [isWide, setIsWide] = useState(() =>
     typeof window === "undefined" || typeof window.matchMedia !== "function"
       ? false
@@ -184,7 +193,28 @@ export function ChangesetDetailPage() {
       queryKey: ["changeset", changesetId]
     });
   };
-  const closeConversation = useCallback(() => setConversationOpen(false), []);
+  const openConversation = useCallback(() => {
+    void navigate({
+      params: { id: changesetId } as never,
+      search: ((prev: Record<string, unknown>) => ({
+        ...prev,
+        conversation: "1"
+      })) as never,
+      to: "/cs/$id"
+    });
+  }, [changesetId, navigate]);
+  const closeConversation = useCallback(() => {
+    if (conversationOpen) {
+      router.history.back();
+    }
+  }, [conversationOpen, router.history]);
+  const toggleConversation = useCallback(() => {
+    if (conversationOpen) {
+      closeConversation();
+      return;
+    }
+    openConversation();
+  }, [closeConversation, conversationOpen, openConversation]);
 
   const mergeMutation = useMutation({
     mutationFn: async () => {
@@ -298,7 +328,7 @@ export function ChangesetDetailPage() {
             fromPatchset={fromPatchset}
             onFromPatchsetChange={handleFromPatchsetChange}
             onToPatchsetChange={handleToPatchsetChange}
-            onToggleConversation={() => setConversationOpen((open) => !open)}
+            onToggleConversation={toggleConversation}
             patchsets={patchsets}
             toPatchset={selectedToPatchset}
           />

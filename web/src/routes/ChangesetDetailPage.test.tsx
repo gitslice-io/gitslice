@@ -22,6 +22,7 @@ const routerMock = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   let search: Record<string, unknown> = {};
   return {
+    back: vi.fn() as ReturnType<typeof vi.fn>,
     navigate: vi.fn() as ReturnType<typeof vi.fn>,
     params: {} as Record<string, string>,
     get search() {
@@ -62,7 +63,7 @@ vi.mock("@tanstack/react-router", async () => {
     Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
     useNavigate: () => routerMock.navigate,
     useParams: () => routerMock.params,
-    useRouter: () => ({ history: { push: vi.fn() } }),
+    useRouter: () => ({ history: { back: routerMock.back, push: vi.fn() } }),
     useSearch: () =>
       React.useSyncExternalStore(
         routerMock.subscribe,
@@ -95,6 +96,7 @@ describe("changeset detail page", () => {
         routerMock.setSearch(nextSearch);
       }
     });
+    routerMock.back = vi.fn();
     routerMock.params = { id: "stk_parser" };
     routerMock.search = {};
     apiMock.current = makeApi();
@@ -205,6 +207,105 @@ describe("changeset detail page", () => {
     );
   });
 
+  it("opens the conversation drawer from the URL", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = { conversation: "1" };
+    const api = makeApi();
+    const detail = changeset("cs_child", "use parser in payment API", {
+      conversationId: "conv_child",
+      conversationSeq: "7",
+      patchsetId: "ps_child_1",
+      patchsetNumber: "1"
+    });
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    api.getConversationEvents = vi.fn().mockResolvedValue({
+      events: [
+        {
+          conversationId: "conv_child",
+          id: "event_1",
+          role: "assistant",
+          seq: "7",
+          text: "Updated the parser.",
+          type: "message"
+        }
+      ]
+    });
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Agent conversation" })
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.getConversationEvents).toHaveBeenCalledWith({
+        conversationId: "conv_child",
+        afterSeq: 0,
+        beforeSeq: 7
+      })
+    );
+    expect(await screen.findByText("Updated the parser.")).toBeInTheDocument();
+  });
+
+  it("preserves existing changeset search params when opening the conversation drawer", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = {
+      file: "/acme/payment/parser.go",
+      from: "ps_child_1",
+      to: "ps_child_2"
+    };
+    const api = makeApi();
+    const detail = changeset("cs_child", "use parser in payment API", {
+      conversationId: "conv_child",
+      conversationSeq: "9",
+      patchsetId: "ps_child_2",
+      patchsetNumber: "2"
+    });
+    detail.patchsets = [
+      {
+        ...(detail.patchsets?.[0] ?? {}),
+        authoringConversationId: "conv_child",
+        authoringConversationSeq: "3",
+        createdAt: "2026-06-18T00:00:00Z",
+        id: "ps_child_1",
+        number: "1"
+      },
+      {
+        ...(detail.patchsets?.[0] ?? {}),
+        authoringConversationId: "conv_child",
+        authoringConversationSeq: "9",
+        createdAt: "2026-06-18T00:01:00Z",
+        id: "ps_child_2",
+        number: "2"
+      }
+    ];
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    await screen.findByText("use parser in payment API");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Toggle conversation for the selected patchset"
+      })
+    );
+
+    expect(routerMock.search).toEqual({
+      conversation: "1",
+      file: "/acme/payment/parser.go",
+      from: "ps_child_1",
+      to: "ps_child_2"
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Toggle conversation for the selected patchset"
+      })
+    );
+    expect(routerMock.back).toHaveBeenCalledTimes(1);
+  });
+
   it("shows dependent (child) changesets on changeset detail", async () => {
     routerMock.params = { id: "cs_child" };
     routerMock.search = {};
@@ -272,6 +373,7 @@ function makeApi() {
         stackId: "stk_parser"
       })
     ),
+    getConversationEvents: vi.fn().mockResolvedValue({ events: [] }),
     getStack: vi.fn().mockResolvedValue(stackFixture()),
     listChangesets: vi.fn().mockResolvedValue({ changesets: [] }),
     listDirectory: vi.fn().mockResolvedValue({
@@ -378,6 +480,8 @@ function changeset(
   id: string,
   title: string,
   options: {
+    conversationId?: string;
+    conversationSeq?: string;
     conflicts?: PatchsetConflict[];
     parentChangesetId?: string;
     parentPatchsetId?: string;
@@ -411,6 +515,8 @@ function changeset(
         changedPaths: [`/acme/payment/${id}.go`],
         changesetId: id,
         conflicts: options.conflicts,
+        authoringConversationId: options.conversationId,
+        authoringConversationSeq: options.conversationSeq,
         fileEdits: [],
         id: patchsetId,
         number: patchsetNumber,
