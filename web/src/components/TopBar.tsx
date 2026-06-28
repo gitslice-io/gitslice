@@ -10,6 +10,48 @@ const navItems = [
   { label: "Doc", to: "/doc", section: "doc" }
 ] as const;
 
+type NavSection = (typeof navItems)[number]["section"];
+
+function NavIcon({ section }: { section: NavSection }) {
+  const common = {
+    "aria-hidden": true,
+    className: "size-4 shrink-0",
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    strokeWidth: 1.8,
+    viewBox: "0 0 24 24"
+  };
+
+  if (section === "conversations") {
+    return (
+      <svg {...common}>
+        <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
+      </svg>
+    );
+  }
+
+  if (section === "doc") {
+    return (
+      <svg {...common}>
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+        <path d="M14 3v5h5" />
+        <path d="M9 13h6" />
+        <path d="M9 17h6" />
+      </svg>
+    );
+  }
+
+  // Home
+  return (
+    <svg {...common}>
+      <path d="M3 10.5 12 3l9 7.5" />
+      <path d="M5 9.5V20a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9.5" />
+    </svg>
+  );
+}
+
 export function TopBar() {
   const { account } = useSelection();
   const { isLoaded, isSignedIn } = useAuth();
@@ -37,10 +79,7 @@ export function TopBar() {
           </Link>
         </div>
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <nav
-            aria-label="Primary"
-            className="grid grid-flow-col auto-cols-fr gap-1"
-          >
+          <nav aria-label="Primary" className="flex items-center gap-1">
             {navItems.map((item) => (
               <Link
                 aria-current={
@@ -51,7 +90,7 @@ export function TopBar() {
                     : undefined
                 }
                 className={cn(
-                  "rounded-md px-2.5 py-2 text-center text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 sm:px-3",
+                  "inline-flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 sm:px-3",
                   ((item.section === "slices" && isSlicesActive) ||
                     (item.section === "doc" && isDocActive) ||
                     (item.section === "conversations" &&
@@ -61,7 +100,8 @@ export function TopBar() {
                 key={item.label}
                 to={item.to}
               >
-                {item.label}
+                <NavIcon section={item.section} />
+                <span className="sr-only sm:not-sr-only">{item.label}</span>
               </Link>
             ))}
           </nav>
