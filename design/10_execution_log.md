@@ -6883,3 +6883,36 @@ tests were skipped by workflow policy. The staging Worker deployed version
 HTTP 200, the API returned the expected unauthenticated status for an anonymous
 auth-status call, and the live bundle contained the new conversation URL-state
 code.
+
+## 2026-06-28 — Compact changeset detail header + fixed-width patchset slider (web staging)
+
+Request: optimize the changeset detail page — the header used too much vertical
+space and the patchset compare slider stretched to 100% width even though most
+changesets only have two snapshots (a giant gap between two dots). Then: merge
+and deploy.
+
+Actions:
+- HeaderCard.tsx / ChangesetMetaLine.tsx: inline the author into the badge/chip
+  row (removed a stacked line), title md:text-2xl -> md:text-xl, card padding
+  md:py-4 -> md:py-3.
+- PatchsetTimeline.tsx: fixed per-step spacing (104px) on the track, capped at
+  maxWidth 100% and centered with mx-auto; track only fills the container once
+  there are enough patchsets. Draggable-handle/pointer math unchanged (relative
+  to the track's own width).
+- Branched web/compact-changeset-header-patchset, PR #258, squash-merged to main
+  as 84ffcfb, deployed web-only to the staging Cloudflare Worker.
+
+Verification:
+
+```bash
+npm --prefix web run build            # client + SSR + nitro, EXIT=0
+npm --prefix web run deploy:staging
+curl -sS -o /dev/null -w '%{http_code}\n' https://agenttools.dev/
+curl -sS -o /dev/null -w '%{http_code}\n' https://agenttools.dev/assets/index-Bchspi83.js
+```
+
+Results: build passed (tsc + vite, all environments). Staging Worker deployed
+version `639eebb7-c36b-4311-8d37-6ac3a2e0484c`; `agenttools.dev` returned HTTP
+200 and the freshly-uploaded bundle `/assets/index-Bchspi83.js` served 200.
+Web-only change, so the backend PM2 process was not restarted; Go/e2e/load gates
+were not run (no backend impact).
