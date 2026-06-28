@@ -6952,3 +6952,39 @@ Results: tsc/tests/build all green. Staging Worker deployed version
 bundle `/assets/index-CNShiMvg.js` served 200, and the removed slider-handle
 string ("Drag ... patchset handle") count was 0, confirming the old control is
 gone. Web-only change; backend PM2 not restarted.
+
+## 2026-06-28 — Conversations hub + global new-conversation modal (web)
+
+Request: add a top-level view listing all conversations and an easy way to
+create a conversation from the home page (daily workflow needs frequent
+access + creation). Design decisions (asked): dedicated /conversations route
++ nav item; quick-modal slice→daemon→title create flow.
+
+Actions:
+- Delegated implementation to codex in worktree codex/conversations-hub.
+- New /conversations route + TopBar nav item; lists all conversations across
+  slices (listConversations({}) is already global) with title/slice text
+  filter + active/other status filter.
+- New reusable NewConversationDialog (slice picker + daemon + title); wired
+  into home header and the new page, navigates into the conversation on
+  create. Shared ConversationCard extracted from RecentConversations; added
+  a "View all" link to the home preview. AgentsTab + backend untouched.
+- PR #260, squash-merged to main as 507da9f, deployed web-only.
+
+Verification:
+
+```bash
+npm --prefix web run build             # EXIT=0 (client + SSR + nitro)
+npm --prefix web run test              # 164/164 pass
+# CI on PR #260: Go, web, e2e all SUCCESS
+npm --prefix web run deploy:staging
+curl -sS -o /dev/null -w '%{http_code}\n' https://agenttools.dev/conversations
+curl -sS https://agenttools.dev/assets/index-3UVYpPGF.js | grep -o '/conversations'
+curl -sS https://agenttools.dev/assets/index-3UVYpPGF.js | grep -o 'New conversation'
+```
+
+Results: build/tests/CI all green. Staging Worker deployed version
+`422da84a-0478-46e1-b835-8790161c234b`; `/conversations` returned 200 and the
+live bundle `/assets/index-3UVYpPGF.js` contains both "/conversations" and
+"New conversation", confirming the new route and create flow shipped.
+Web-only change; backend PM2 not restarted.
