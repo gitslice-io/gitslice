@@ -6851,3 +6851,35 @@ npm --prefix web test
 Results: the focused changeset detail tests passed, the production web build
 passed with the existing Vite/Nitro dependency and chunk-size warnings, and the
 full web test suite passed with 9 files and 164 tests.
+
+## 2026-06-28: Changeset Conversation Drawer Staging Deploy
+
+Goal: merge the changeset conversation drawer URL-state change and deploy it to
+staging.
+
+Decision: because there was no existing open PR, publish the local web change as
+PR #257, wait for CI, squash-merge it into `main`, then deploy the merged web
+bundle through the staging Cloudflare Worker workflow. This was a web-only
+change, so the backend PM2 process was not restarted.
+
+Verification:
+
+```bash
+git diff --check
+gh pr checks 257 --watch --interval 10
+gh pr merge 257 --squash --delete-branch --subject "Preserve changeset conversation drawer in URL" --body ""
+npm --prefix web run deploy:staging
+curl -sS -i --max-time 20 https://agenttools.dev/
+curl -sS -i --max-time 20 https://agenttools.dev/cs/example?conversation=1
+curl -sS -i --max-time 20 -X POST https://api.agenttools.dev/gitslice.core.v1.AuthService/GetAuthStatus -H 'Content-Type: application/json' --data '{}'
+curl -sS --max-time 20 -H 'Accept-Encoding: identity' https://agenttools.dev/assets/index-Bb3svu1S.js | rg -a -o 'conversation:"1"|conversationOpen|Toggle conversation for the selected patchset' | sort -u
+```
+
+Results: PR #257 merged as `f81eae85c805f22832b776927b42a063f604197f`.
+GitHub Actions passed Go tests/build, PostgreSQL e2e, and web build/tests; load
+tests were skipped by workflow policy. The staging Worker deployed version
+`0d43086e-7aed-4214-b110-e01190bb6198`, `agenttools.dev` served
+`/assets/index-Bb3svu1S.js`, the `/cs/example?conversation=1` route returned
+HTTP 200, the API returned the expected unauthenticated status for an anonymous
+auth-status call, and the live bundle contained the new conversation URL-state
+code.
