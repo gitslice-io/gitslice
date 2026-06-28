@@ -26,6 +26,7 @@ import { ChangesetDetailPage, sortedPatchsets } from "./ChangesetDetailPage";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
 import { CliLoginPage } from "./CliLoginPage";
+import { ConversationsPage } from "./ConversationsPage";
 import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
 import { LoginPage } from "./LoginPage";
@@ -158,6 +159,12 @@ const homeRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/",
   component: HomePage
+});
+
+const conversationsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "conversations",
+  component: ConversationsPage
 });
 
 const docRoute = createRoute({
@@ -385,6 +392,7 @@ const routeTree = rootRoute.addChildren([
   cliLoginRoute,
   appRoute.addChildren([
     homeRoute,
+    conversationsRoute,
     docRoute,
     docSectionRoute,
     slicesRoute,
