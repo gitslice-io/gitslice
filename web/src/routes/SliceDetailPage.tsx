@@ -34,13 +34,12 @@ import {
   type PendingEdit,
 } from "../components/source/SliceEditing";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
-import { shortChangesetId, shortHash } from "../lib/objectId";
+import { shortHash } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
 import { pathSearchValue, buildGitCloneHint } from "./slice-detail/sourceTree";
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
-import { PendingChangesBanner } from "./slice-detail/PendingChangesBanner";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
@@ -319,17 +318,6 @@ export function SliceDetailPage() {
           </>
         }
       />
-
-      {pendingEdits.length ? (
-        <PendingChangesBanner
-          changesetRef={
-            draftChangeset.changesetLabel ||
-            shortChangesetId(draftChangeset.changesetId)
-          }
-          count={pendingEdits.length}
-          saveStatus={draftChangeset.saveStatus}
-        />
-      ) : null}
 
       <>
         <div
