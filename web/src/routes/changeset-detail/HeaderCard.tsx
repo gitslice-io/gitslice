@@ -50,7 +50,7 @@ export function HeaderCard({
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-      <div className="px-3 py-2.5 md:px-5 md:py-4">
+      <div className="px-3 py-2.5 md:px-5 md:py-3">
         {publishing ? (
           <div className="mb-2.5 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 md:mb-3 md:px-3 md:py-2 md:text-sm">
             <span
@@ -64,7 +64,7 @@ export function HeaderCard({
           <div className="min-w-0">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
               <h1
-                className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg md:text-2xl"
+                className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg md:text-xl"
                 title={changeset.title || "Untitled changeset"}
               >
                 {changeset.title || "Untitled changeset"}
@@ -126,8 +126,8 @@ export function HeaderCard({
                 </Link>
               ))}
               <CopyLinkButton changesetId={changeset.id || ""} />
+              <ChangesetMetaLine changeset={changeset} />
             </div>
-            <ChangesetMetaLine changeset={changeset} />
             <div className={cn("lg:block", showDetails ? "block" : "hidden")}>
               {changeset.description ? (
                 <p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700 md:mt-4">
