@@ -355,6 +355,7 @@ type sliceOutput struct {
 	Slice             string   `json:"slice"`
 	Version           int64    `json:"version"`
 	Visibility        string   `json:"visibility"`
+	CIDaemonID        string   `json:"ci_daemon_id,omitempty"`
 	IncludedPaths     []string `json:"included_paths"`
 	RequiredApprovals int32    `json:"required_approvals"`
 	RequiredChecks    []string `json:"required_checks"`
@@ -1869,7 +1870,15 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
-	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceDeleteCmd)
+	sliceSetCIDaemonCmd := &cobra.Command{
+		Use:   "set-ci-daemon <slice|account:slice> <daemon-id>",
+		Short: "Set the slice CI daemon",
+		Args:  exactArgs(2, "gs slice set-ci-daemon <slice|account:slice> <daemon-id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSliceSetCIDaemon(cmd.Context(), *opts, args[0], args[1])
+		},
+	}
+	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceDeleteCmd)
 
 	agentCmd := r.agentCommand(opts)
 	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd, agentCmd)
@@ -3200,6 +3209,33 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 	return writeSliceText(r.Stdout, updated)
 }
 
+func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sliceRef string, daemonID string) error {
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
+	updated, err := corev1.NewSliceServiceClient(conn).SetSliceCIDaemon(callCtx, &corev1.SetSliceCIDaemonRequest{
+		Slice:    ref,
+		DaemonId: daemonID,
+	})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, sliceToOutput(updated))
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
+	return writeSliceText(r.Stdout, updated)
+}
+
 func (r Runner) runSliceDelete(ctx context.Context, opts commandOptions, sliceRef string, yes bool) error {
 	if !yes {
 		return userError("confirmation_required", "slice deletion requires --yes", "Run gs slice delete "+sliceRef+" --yes to confirm.")
@@ -3302,6 +3338,11 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 	fmt.Fprintf(w, "id: %s\n", out.ID)
 	fmt.Fprintf(w, "version: %d\n", out.Version)
 	fmt.Fprintf(w, "visibility: %s\n", out.Visibility)
+	if out.CIDaemonID != "" {
+		fmt.Fprintf(w, "ci_daemon_id: %s\n", out.CIDaemonID)
+	} else {
+		fmt.Fprintln(w, "ci_daemon_id: none")
+	}
 	fmt.Fprintf(w, "required_approvals: %d\n", out.RequiredApprovals)
 	if len(out.RequiredChecks) > 0 {
 		fmt.Fprintf(w, "required_checks: %s\n", strings.Join(out.RequiredChecks, ", "))
@@ -3323,6 +3364,7 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 	out := sliceOutput{
 		ID:             slice.Id,
 		DefinitionHash: slice.DefinitionHash,
+		CIDaemonID:     slice.CiDaemonId,
 		WebURL:         webSliceResourceURL(slice.Ref),
 	}
 	if slice.Ref != nil {

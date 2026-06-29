@@ -89,6 +89,7 @@ message DaemonMessage {
     Heartbeat heartbeat = 2;
     AgentEvent event = 3;
     ConversationStarted started = 4;
+    CheckRunUpdate check_update = 5;
   }
 }
 
@@ -96,6 +97,8 @@ message RegisterDaemon {
   string name = 1;
   string runtime = 2;
   string version = 3;
+  repeated string container_runtimes = 4;
+  bool allow_host_exec = 5;
 }
 
 message Heartbeat {}
@@ -136,6 +139,9 @@ message ServerMessage {
     EventAck ack = 6;
     CloseWorkspace close = 7;
     ReconcileWorkspaces reconcile = 8;
+    RunChecks run_checks = 9;
+    CancelCheckRun cancel_check = 10;
+    CheckRunAck check_ack = 11;
   }
 }
 
@@ -188,6 +194,48 @@ message Ping {}
 message EventAck {
   string conversation_id = 1;
   int64 acked_client_seq = 2;
+}
+
+message RunChecks {
+  string changeset_id = 1;
+  string patchset_id = 2;
+  string result_tree_id = 3;
+  SliceRef slice = 4;
+  string slice_id = 5;
+  string server_addr = 6;
+  repeated CheckRunSpec checks = 7;
+}
+
+message CheckRunSpec {
+  string run_id = 1;
+  string name = 2;
+  string command = 3;
+  string image = 4;
+  string working_dir = 5;
+  repeated string materialize_paths = 6;
+  map<string,string> env = 7;
+  bool network = 8;
+  int64 timeout_ms = 9;
+}
+
+message CancelCheckRun {
+  string run_id = 1;
+}
+
+message CheckRunAck {
+  string run_id = 1;
+  int64 acked_client_seq = 2;
+}
+
+message CheckRunUpdate {
+  string run_id = 1;
+  string status = 2;
+  int32 exit_code = 3;
+  string log_chunk = 4;
+  string stream = 5;
+  int64 client_seq = 6;
+  bool final = 7;
+  string summary = 8;
 }
 
 // ---- Web-facing request/response ----

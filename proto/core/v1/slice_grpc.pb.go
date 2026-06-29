@@ -25,6 +25,7 @@ const (
 	SliceService_ListSlices_FullMethodName                  = "/gitslice.core.v1.SliceService/ListSlices"
 	SliceService_ListSliceDefinitionVersions_FullMethodName = "/gitslice.core.v1.SliceService/ListSliceDefinitionVersions"
 	SliceService_UpdateSliceDefinition_FullMethodName       = "/gitslice.core.v1.SliceService/UpdateSliceDefinition"
+	SliceService_SetSliceCIDaemon_FullMethodName            = "/gitslice.core.v1.SliceService/SetSliceCIDaemon"
 	SliceService_DeleteSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/DeleteSlice"
 )
 
@@ -38,6 +39,7 @@ type SliceServiceClient interface {
 	ListSlices(ctx context.Context, in *ListSlicesRequest, opts ...grpc.CallOption) (*ListSlicesResponse, error)
 	ListSliceDefinitionVersions(ctx context.Context, in *ListSliceDefinitionVersionsRequest, opts ...grpc.CallOption) (*ListSliceDefinitionVersionsResponse, error)
 	UpdateSliceDefinition(ctx context.Context, in *UpdateSliceDefinitionRequest, opts ...grpc.CallOption) (*SliceDefinition, error)
+	SetSliceCIDaemon(ctx context.Context, in *SetSliceCIDaemonRequest, opts ...grpc.CallOption) (*Slice, error)
 	DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error)
 }
 
@@ -103,6 +105,15 @@ func (c *sliceServiceClient) UpdateSliceDefinition(ctx context.Context, in *Upda
 	return out, nil
 }
 
+func (c *sliceServiceClient) SetSliceCIDaemon(ctx context.Context, in *SetSliceCIDaemonRequest, opts ...grpc.CallOption) (*Slice, error) {
+	out := new(Slice)
+	err := c.cc.Invoke(ctx, SliceService_SetSliceCIDaemon_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sliceServiceClient) DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error) {
 	out := new(DeleteSliceResponse)
 	err := c.cc.Invoke(ctx, SliceService_DeleteSlice_FullMethodName, in, out, opts...)
@@ -122,6 +133,7 @@ type SliceServiceServer interface {
 	ListSlices(context.Context, *ListSlicesRequest) (*ListSlicesResponse, error)
 	ListSliceDefinitionVersions(context.Context, *ListSliceDefinitionVersionsRequest) (*ListSliceDefinitionVersionsResponse, error)
 	UpdateSliceDefinition(context.Context, *UpdateSliceDefinitionRequest) (*SliceDefinition, error)
+	SetSliceCIDaemon(context.Context, *SetSliceCIDaemonRequest) (*Slice, error)
 	DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error)
 }
 
@@ -146,6 +158,9 @@ func (UnimplementedSliceServiceServer) ListSliceDefinitionVersions(context.Conte
 }
 func (UnimplementedSliceServiceServer) UpdateSliceDefinition(context.Context, *UpdateSliceDefinitionRequest) (*SliceDefinition, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateSliceDefinition not implemented")
+}
+func (UnimplementedSliceServiceServer) SetSliceCIDaemon(context.Context, *SetSliceCIDaemonRequest) (*Slice, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetSliceCIDaemon not implemented")
 }
 func (UnimplementedSliceServiceServer) DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteSlice not implemented")
@@ -270,6 +285,24 @@ func _SliceService_UpdateSliceDefinition_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_SetSliceCIDaemon_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSliceCIDaemonRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).SetSliceCIDaemon(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_SetSliceCIDaemon_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).SetSliceCIDaemon(ctx, req.(*SetSliceCIDaemonRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SliceService_DeleteSlice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteSliceRequest)
 	if err := dec(in); err != nil {
@@ -318,6 +351,10 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateSliceDefinition",
 			Handler:    _SliceService_UpdateSliceDefinition_Handler,
+		},
+		{
+			MethodName: "SetSliceCIDaemon",
+			Handler:    _SliceService_SetSliceCIDaemon_Handler,
 		},
 		{
 			MethodName: "DeleteSlice",

@@ -31,6 +31,7 @@ type ChangesetService struct {
 	Checks      storage.CheckStore
 	ObjectStore ObjectStore
 	validator   diffValidator
+	hub         *agentHub
 }
 
 type diffValidator struct {
@@ -215,6 +216,7 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	}
 	if priorPatchsetID == "" || patchset.Id != priorPatchsetID {
 		s.recordBundledCheckRuns(ctx, cs.Id, patchset.Id, req.BundledCheckRuns)
+		s.dispatchOutOfSliceChecks(ctx, cs, slice, patchset)
 	}
 	if patchset.Author != "" {
 		usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{patchset.Author})
@@ -665,6 +667,17 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	cs, err := s.getChangesetForWriteOrAuthor(ctx, subjectID, req.ChangesetId)
 	if err != nil {
 		return nil, err
+	}
+	extraCheckStatuses, err := s.skippedRequiredCheckStatuses(ctx, cs)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if submitter, ok := s.Changesets.(changesetSubmitWithCheckStatuses); ok {
+		res, err := submitter.SubmitWithCheckStatuses(ctx, cs.Id, req.ExpectedCurrentPatchsetId, extraCheckStatuses)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		return res, nil
 	}
 	res, err := s.Changesets.Submit(ctx, cs.Id, req.ExpectedCurrentPatchsetId)
 	if err != nil {

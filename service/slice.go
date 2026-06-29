@@ -143,6 +143,29 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	return definition, nil
 }
 
+func (s *SliceService) SetSliceCIDaemon(ctx context.Context, req *corev1.SetSliceCIDaemonRequest) (*corev1.Slice, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := normalizeServiceSliceRef(req.Slice)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.Slices.Resolve(ctx, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionAdmin); err != nil {
+		return nil, err
+	}
+	updated, err := s.Slices.SetCIDaemon(ctx, current.Id, req.DaemonId)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return updated, nil
+}
+
 func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceRequest) (*corev1.DeleteSliceResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {

@@ -41,6 +41,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 		Repository: stores.Repository,
 		Slices:     stores.Slices,
 	}
+	hub := newAgentHub()
 	return &Handlers{
 		Auth: &AuthService{Auth: stores.Auth},
 		Repository: &RepositoryService{
@@ -75,6 +76,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			Checks:      stores.Checks,
 			ObjectStore: objectStore,
 			validator:   validator,
+			hub:         hub,
 		},
 		Stack: &ChangesetStackService{
 			Auth:        stores.Auth,
@@ -86,11 +88,14 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			validator:   validator,
 		},
 		Agent: &AgentService{
-			Auth:       stores.Auth,
-			Slices:     stores.Slices,
-			Agents:     stores.Agents,
-			Changesets: stores.Changesets,
-			hub:        newAgentHub(),
+			Auth:        stores.Auth,
+			Slices:      stores.Slices,
+			Agents:      stores.Agents,
+			Changesets:  stores.Changesets,
+			Repository:  stores.Repository,
+			Checks:      stores.Checks,
+			ObjectStore: objectStore,
+			hub:         hub,
 		},
 		Check: &CheckService{
 			Auth:       stores.Auth,

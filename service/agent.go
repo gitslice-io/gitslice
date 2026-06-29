@@ -28,10 +28,13 @@ const agentDaemonPingInterval = 20 * time.Second
 // daemons (Connect) and the web UI (unary + StreamConversation). See
 // design/16_bring_your_own_agent.md.
 type AgentService struct {
-	Auth       storage.AuthStore
-	Slices     storage.SliceStore
-	Agents     storage.AgentStore
-	Changesets storage.ChangesetStore
+	Auth        storage.AuthStore
+	Slices      storage.SliceStore
+	Agents      storage.AgentStore
+	Changesets  storage.ChangesetStore
+	Repository  storage.RepositoryStore
+	Checks      storage.CheckStore
+	ObjectStore ObjectStore
 
 	hub        *agentHub
 	serverAddr string
@@ -112,7 +115,10 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 			}
 		}
 	}()
-	go s.replayDaemonConversations(ctx, daemon.Id, conn)
+	go func() {
+		s.replayDaemonConversations(ctx, daemon.Id, conn)
+		s.replayDaemonCheckRuns(ctx, daemon.Id, conn)
+	}()
 
 	for {
 		msg, err := stream.Recv()
@@ -157,6 +163,8 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 					AckedClientSeq: ev.ClientSeq,
 				}}})
 			}
+		case *corev1.DaemonMessage_CheckUpdate:
+			s.handleCheckRunUpdate(ctx, daemon.Id, conn, p.CheckUpdate)
 		}
 	}
 }

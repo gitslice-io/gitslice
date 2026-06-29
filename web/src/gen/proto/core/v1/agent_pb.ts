@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/agent.proto.
  */
 export const file_proto_core_v1_agent: GenFile = /*@__PURE__*/
-  fileDesc("Chlwcm90by9jb3JlL3YxL2FnZW50LnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIpQBCgtBZ2VudERhZW1vbhIKCgJpZBgBIAEoCRIPCgdhY2NvdW50GAIgASgJEgwKBG5hbWUYAyABKAkSDwoHcnVudGltZRgEIAEoCRIPCgd2ZXJzaW9uGAUgASgJEg4KBnN0YXR1cxgGIAEoCRIUCgxsYXN0X3NlZW5fYXQYByABKAkSEgoKY3JlYXRlZF9hdBgIIAEoCSLiAQoMQ29udmVyc2F0aW9uEgoKAmlkGAEgASgJEhEKCWRhZW1vbl9pZBgCIAEoCRIQCghzbGljZV9pZBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSDQoFdGl0bGUYBSABKAkSDgoGc3RhdHVzGAYgASgJEhgKEHdvcmtzcGFjZV9zdWJkaXIYByABKAkSEgoKY3JlYXRlZF9hdBgIIAEoCRISCgp1cGRhdGVkX2F0GAkgASgJEhUKDWRhZW1vbl9vbmxpbmUYCiABKAgiuwEKEUNvbnZlcnNhdGlvbkV2ZW50EgoKAmlkGAEgASgJEhcKD2NvbnZlcnNhdGlvbl9pZBgCIAEoCRILCgNzZXEYAyABKAMSDAoEcm9sZRgEIAEoCRIMCgR0eXBlGAUgASgJEgwKBHRleHQYBiABKAkSEQoJZGF0YV9qc29uGAcgASgJEhIKCmNyZWF0ZWRfYXQYCCABKAkSDwoHaXRlbV9pZBgJIAEoCRISCgpjbGllbnRfc2VxGAogASgDIusBCg1EYWVtb25NZXNzYWdlEjQKCHJlZ2lzdGVyGAEgASgLMiAuZ2l0c2xpY2UuY29yZS52MS5SZWdpc3RlckRhZW1vbkgAEjAKCWhlYXJ0YmVhdBgCIAEoCzIbLmdpdHNsaWNlLmNvcmUudjEuSGVhcnRiZWF0SAASLQoFZXZlbnQYAyABKAsyHC5naXRzbGljZS5jb3JlLnYxLkFnZW50RXZlbnRIABI4CgdzdGFydGVkGAQgASgLMiUuZ2l0c2xpY2UuY29yZS52MS5Db252ZXJzYXRpb25TdGFydGVkSABCCQoHcGF5bG9hZCJACg5SZWdpc3RlckRhZW1vbhIMCgRuYW1lGAEgASgJEg8KB3J1bnRpbWUYAiABKAkSDwoHdmVyc2lvbhgDIAEoCSILCglIZWFydGJlYXQiqQEKCkFnZW50RXZlbnQSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEgwKBHJvbGUYAiABKAkSDAoEdHlwZRgDIAEoCRIMCgR0ZXh0GAQgASgJEhEKCWRhdGFfanNvbhgFIAEoCRINCgVmaW5hbBgGIAEoCBIPCgdpdGVtX2lkGAcgASgJEhEKCWVwaGVtZXJhbBgIIAEoCBISCgpjbGllbnRfc2VxGAkgASgDIkgKE0NvbnZlcnNhdGlvblN0YXJ0ZWQSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEhgKEHdvcmtzcGFjZV9zdWJkaXIYAiABKAkiwgMKDVNlcnZlck1lc3NhZ2USOAoKcmVnaXN0ZXJlZBgBIAEoCzIiLmdpdHNsaWNlLmNvcmUudjEuRGFlbW9uUmVnaXN0ZXJlZEgAEjQKBXN0YXJ0GAIgASgLMiMuZ2l0c2xpY2UuY29yZS52MS5TdGFydENvbnZlcnNhdGlvbkgAEjwKDHVzZXJfbWVzc2FnZRgDIAEoCzIkLmdpdHNsaWNlLmNvcmUudjEuRGVsaXZlclVzZXJNZXNzYWdlSAASNgoGY2FuY2VsGAQgASgLMiQuZ2l0c2xpY2UuY29yZS52MS5DYW5jZWxDb252ZXJzYXRpb25IABImCgRwaW5nGAUgASgLMhYuZ2l0c2xpY2UuY29yZS52MS5QaW5nSAASKQoDYWNrGAYgASgLMhouZ2l0c2xpY2UuY29yZS52MS5FdmVudEFja0gAEjEKBWNsb3NlGAcgASgLMiAuZ2l0c2xpY2UuY29yZS52MS5DbG9zZVdvcmtzcGFjZUgAEjoKCXJlY29uY2lsZRgIIAEoCzIlLmdpdHNsaWNlLmNvcmUudjEuUmVjb25jaWxlV29ya3NwYWNlc0gAQgkKB3BheWxvYWQiNgoTUmVjb25jaWxlV29ya3NwYWNlcxIfChdhY3RpdmVfY29udmVyc2F0aW9uX2lkcxgBIAMoCSJDCg5DbG9zZVdvcmtzcGFjZRIXCg9jb252ZXJzYXRpb25faWQYASABKAkSGAoQZGVsZXRlX3dvcmtzcGFjZRgCIAEoCCIlChBEYWVtb25SZWdpc3RlcmVkEhEKCWRhZW1vbl9pZBgBIAEoCSKNAQoRU3RhcnRDb252ZXJzYXRpb24SFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEikKBXNsaWNlGAIgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIQCghzbGljZV9pZBgDIAEoCRITCgtzZXJ2ZXJfYWRkchgEIAEoCRINCgV0aXRsZRgFIAEoCSI7ChJEZWxpdmVyVXNlck1lc3NhZ2USFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEgwKBHRleHQYAiABKAkiLQoSQ2FuY2VsQ29udmVyc2F0aW9uEhcKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCSIGCgRQaW5nIj0KCEV2ZW50QWNrEhcKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCRIYChBhY2tlZF9jbGllbnRfc2VxGAIgASgDIhQKEkxpc3REYWVtb25zUmVxdWVzdCJFChNMaXN0RGFlbW9uc1Jlc3BvbnNlEi4KB2RhZW1vbnMYASADKAsyHS5naXRzbGljZS5jb3JlLnYxLkFnZW50RGFlbW9uImgKGUNyZWF0ZUNvbnZlcnNhdGlvblJlcXVlc3QSEQoJZGFlbW9uX2lkGAEgASgJEikKBXNsaWNlGAIgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhINCgV0aXRsZRgDIAEoCSJYChhMaXN0Q29udmVyc2F0aW9uc1JlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhEKCWRhZW1vbl9pZBgCIAEoCSJSChlMaXN0Q29udmVyc2F0aW9uc1Jlc3BvbnNlEjUKDWNvbnZlcnNhdGlvbnMYASADKAsyHi5naXRzbGljZS5jb3JlLnYxLkNvbnZlcnNhdGlvbiIxChZHZXRDb252ZXJzYXRpb25SZXF1ZXN0EhcKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCSJAChdTZW5kQWdlbnRNZXNzYWdlUmVxdWVzdBIXCg9jb252ZXJzYXRpb25faWQYASABKAkSDAoEdGV4dBgCIAEoCSJOChhTZW5kQWdlbnRNZXNzYWdlUmVzcG9uc2USMgoFZXZlbnQYASABKAsyIy5naXRzbGljZS5jb3JlLnYxLkNvbnZlcnNhdGlvbkV2ZW50IkcKGVN0cmVhbUNvbnZlcnNhdGlvblJlcXVlc3QSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAyJeChxHZXRDb252ZXJzYXRpb25FdmVudHNSZXF1ZXN0EhcKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCRIRCglhZnRlcl9zZXEYAiABKAMSEgoKYmVmb3JlX3NlcRgDIAEoAyKKAQodR2V0Q29udmVyc2F0aW9uRXZlbnRzUmVzcG9uc2USNAoMY29udmVyc2F0aW9uGAEgASgLMh4uZ2l0c2xpY2UuY29yZS52MS5Db252ZXJzYXRpb24SMwoGZXZlbnRzGAIgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5Db252ZXJzYXRpb25FdmVudCIzChhDbG9zZUNvbnZlcnNhdGlvblJlcXVlc3QSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJMpkHCgxBZ2VudFNlcnZpY2USTwoHQ29ubmVjdBIfLmdpdHNsaWNlLmNvcmUudjEuRGFlbW9uTWVzc2FnZRofLmdpdHNsaWNlLmNvcmUudjEuU2VydmVyTWVzc2FnZSgBMAESWgoLTGlzdERhZW1vbnMSJC5naXRzbGljZS5jb3JlLnYxLkxpc3REYWVtb25zUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuTGlzdERhZW1vbnNSZXNwb25zZRJhChJDcmVhdGVDb252ZXJzYXRpb24SKy5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZUNvbnZlcnNhdGlvblJlcXVlc3QaHi5naXRzbGljZS5jb3JlLnYxLkNvbnZlcnNhdGlvbhJsChFMaXN0Q29udmVyc2F0aW9ucxIqLmdpdHNsaWNlLmNvcmUudjEuTGlzdENvbnZlcnNhdGlvbnNSZXF1ZXN0GisuZ2l0c2xpY2UuY29yZS52MS5MaXN0Q29udmVyc2F0aW9uc1Jlc3BvbnNlElsKD0dldENvbnZlcnNhdGlvbhIoLmdpdHNsaWNlLmNvcmUudjEuR2V0Q29udmVyc2F0aW9uUmVxdWVzdBoeLmdpdHNsaWNlLmNvcmUudjEuQ29udmVyc2F0aW9uEmkKEFNlbmRBZ2VudE1lc3NhZ2USKS5naXRzbGljZS5jb3JlLnYxLlNlbmRBZ2VudE1lc3NhZ2VSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5TZW5kQWdlbnRNZXNzYWdlUmVzcG9uc2USaAoSU3RyZWFtQ29udmVyc2F0aW9uEisuZ2l0c2xpY2UuY29yZS52MS5TdHJlYW1Db252ZXJzYXRpb25SZXF1ZXN0GiMuZ2l0c2xpY2UuY29yZS52MS5Db252ZXJzYXRpb25FdmVudDABEngKFUdldENvbnZlcnNhdGlvbkV2ZW50cxIuLmdpdHNsaWNlLmNvcmUudjEuR2V0Q29udmVyc2F0aW9uRXZlbnRzUmVxdWVzdBovLmdpdHNsaWNlLmNvcmUudjEuR2V0Q29udmVyc2F0aW9uRXZlbnRzUmVzcG9uc2USXwoRQ2xvc2VDb252ZXJzYXRpb24SKi5naXRzbGljZS5jb3JlLnYxLkNsb3NlQ29udmVyc2F0aW9uUmVxdWVzdBoeLmdpdHNsaWNlLmNvcmUudjEuQ29udmVyc2F0aW9uQjZaNGdpdGh1Yi5jb20vZ2l0c2xpY2UtaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
+  fileDesc("Chlwcm90by9jb3JlL3YxL2FnZW50LnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIpQBCgtBZ2VudERhZW1vbhIKCgJpZBgBIAEoCRIPCgdhY2NvdW50GAIgASgJEgwKBG5hbWUYAyABKAkSDwoHcnVudGltZRgEIAEoCRIPCgd2ZXJzaW9uGAUgASgJEg4KBnN0YXR1cxgGIAEoCRIUCgxsYXN0X3NlZW5fYXQYByABKAkSEgoKY3JlYXRlZF9hdBgIIAEoCSLiAQoMQ29udmVyc2F0aW9uEgoKAmlkGAEgASgJEhEKCWRhZW1vbl9pZBgCIAEoCRIQCghzbGljZV9pZBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSDQoFdGl0bGUYBSABKAkSDgoGc3RhdHVzGAYgASgJEhgKEHdvcmtzcGFjZV9zdWJkaXIYByABKAkSEgoKY3JlYXRlZF9hdBgIIAEoCRISCgp1cGRhdGVkX2F0GAkgASgJEhUKDWRhZW1vbl9vbmxpbmUYCiABKAgiuwEKEUNvbnZlcnNhdGlvbkV2ZW50EgoKAmlkGAEgASgJEhcKD2NvbnZlcnNhdGlvbl9pZBgCIAEoCRILCgNzZXEYAyABKAMSDAoEcm9sZRgEIAEoCRIMCgR0eXBlGAUgASgJEgwKBHRleHQYBiABKAkSEQoJZGF0YV9qc29uGAcgASgJEhIKCmNyZWF0ZWRfYXQYCCABKAkSDwoHaXRlbV9pZBgJIAEoCRISCgpjbGllbnRfc2VxGAogASgDIqUCCg1EYWVtb25NZXNzYWdlEjQKCHJlZ2lzdGVyGAEgASgLMiAuZ2l0c2xpY2UuY29yZS52MS5SZWdpc3RlckRhZW1vbkgAEjAKCWhlYXJ0YmVhdBgCIAEoCzIbLmdpdHNsaWNlLmNvcmUudjEuSGVhcnRiZWF0SAASLQoFZXZlbnQYAyABKAsyHC5naXRzbGljZS5jb3JlLnYxLkFnZW50RXZlbnRIABI4CgdzdGFydGVkGAQgASgLMiUuZ2l0c2xpY2UuY29yZS52MS5Db252ZXJzYXRpb25TdGFydGVkSAASOAoMY2hlY2tfdXBkYXRlGAUgASgLMiAuZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1blVwZGF0ZUgAQgkKB3BheWxvYWQidQoOUmVnaXN0ZXJEYWVtb24SDAoEbmFtZRgBIAEoCRIPCgdydW50aW1lGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSGgoSY29udGFpbmVyX3J1bnRpbWVzGAQgAygJEhcKD2FsbG93X2hvc3RfZXhlYxgFIAEoCCILCglIZWFydGJlYXQiqQEKCkFnZW50RXZlbnQSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEgwKBHJvbGUYAiABKAkSDAoEdHlwZRgDIAEoCRIMCgR0ZXh0GAQgASgJEhEKCWRhdGFfanNvbhgFIAEoCRINCgVmaW5hbBgGIAEoCBIPCgdpdGVtX2lkGAcgASgJEhEKCWVwaGVtZXJhbBgIIAEoCBISCgpjbGllbnRfc2VxGAkgASgDIkgKE0NvbnZlcnNhdGlvblN0YXJ0ZWQSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEhgKEHdvcmtzcGFjZV9zdWJkaXIYAiABKAki4wQKDVNlcnZlck1lc3NhZ2USOAoKcmVnaXN0ZXJlZBgBIAEoCzIiLmdpdHNsaWNlLmNvcmUudjEuRGFlbW9uUmVnaXN0ZXJlZEgAEjQKBXN0YXJ0GAIgASgLMiMuZ2l0c2xpY2UuY29yZS52MS5TdGFydENvbnZlcnNhdGlvbkgAEjwKDHVzZXJfbWVzc2FnZRgDIAEoCzIkLmdpdHNsaWNlLmNvcmUudjEuRGVsaXZlclVzZXJNZXNzYWdlSAASNgoGY2FuY2VsGAQgASgLMiQuZ2l0c2xpY2UuY29yZS52MS5DYW5jZWxDb252ZXJzYXRpb25IABImCgRwaW5nGAUgASgLMhYuZ2l0c2xpY2UuY29yZS52MS5QaW5nSAASKQoDYWNrGAYgASgLMhouZ2l0c2xpY2UuY29yZS52MS5FdmVudEFja0gAEjEKBWNsb3NlGAcgASgLMiAuZ2l0c2xpY2UuY29yZS52MS5DbG9zZVdvcmtzcGFjZUgAEjoKCXJlY29uY2lsZRgIIAEoCzIlLmdpdHNsaWNlLmNvcmUudjEuUmVjb25jaWxlV29ya3NwYWNlc0gAEjEKCnJ1bl9jaGVja3MYCSABKAsyGy5naXRzbGljZS5jb3JlLnYxLlJ1bkNoZWNrc0gAEjgKDGNhbmNlbF9jaGVjaxgKIAEoCzIgLmdpdHNsaWNlLmNvcmUudjEuQ2FuY2VsQ2hlY2tSdW5IABIyCgljaGVja19hY2sYCyABKAsyHS5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuQWNrSABCCQoHcGF5bG9hZCI2ChNSZWNvbmNpbGVXb3Jrc3BhY2VzEh8KF2FjdGl2ZV9jb252ZXJzYXRpb25faWRzGAEgAygJIkMKDkNsb3NlV29ya3NwYWNlEhcKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCRIYChBkZWxldGVfd29ya3NwYWNlGAIgASgIIiUKEERhZW1vblJlZ2lzdGVyZWQSEQoJZGFlbW9uX2lkGAEgASgJIo0BChFTdGFydENvbnZlcnNhdGlvbhIXCg9jb252ZXJzYXRpb25faWQYASABKAkSKQoFc2xpY2UYAiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhAKCHNsaWNlX2lkGAMgASgJEhMKC3NlcnZlcl9hZGRyGAQgASgJEg0KBXRpdGxlGAUgASgJIjsKEkRlbGl2ZXJVc2VyTWVzc2FnZRIXCg9jb252ZXJzYXRpb25faWQYASABKAkSDAoEdGV4dBgCIAEoCSItChJDYW5jZWxDb252ZXJzYXRpb24SFwoPY29udmVyc2F0aW9uX2lkGAEgASgJIgYKBFBpbmciPQoIRXZlbnRBY2sSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEhgKEGFja2VkX2NsaWVudF9zZXEYAiABKAMi0AEKCVJ1bkNoZWNrcxIUCgxjaGFuZ2VzZXRfaWQYASABKAkSEwoLcGF0Y2hzZXRfaWQYAiABKAkSFgoOcmVzdWx0X3RyZWVfaWQYAyABKAkSKQoFc2xpY2UYBCABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhAKCHNsaWNlX2lkGAUgASgJEhMKC3NlcnZlcl9hZGRyGAYgASgJEi4KBmNoZWNrcxgHIAMoCzIeLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW5TcGVjIoMCCgxDaGVja1J1blNwZWMSDgoGcnVuX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHY29tbWFuZBgDIAEoCRINCgVpbWFnZRgEIAEoCRITCgt3b3JraW5nX2RpchgFIAEoCRIZChFtYXRlcmlhbGl6ZV9wYXRocxgGIAMoCRI0CgNlbnYYByADKAsyJy5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuU3BlYy5FbnZFbnRyeRIPCgduZXR3b3JrGAggASgIEhIKCnRpbWVvdXRfbXMYCSABKAMaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASIgCg5DYW5jZWxDaGVja1J1bhIOCgZydW5faWQYASABKAkiNwoLQ2hlY2tSdW5BY2sSDgoGcnVuX2lkGAEgASgJEhgKEGFja2VkX2NsaWVudF9zZXEYAiABKAMimgEKDkNoZWNrUnVuVXBkYXRlEg4KBnJ1bl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkSEQoJZXhpdF9jb2RlGAMgASgFEhEKCWxvZ19jaHVuaxgEIAEoCRIOCgZzdHJlYW0YBSABKAkSEgoKY2xpZW50X3NlcRgGIAEoAxINCgVmaW5hbBgHIAEoCBIPCgdzdW1tYXJ5GAggASgJIhQKEkxpc3REYWVtb25zUmVxdWVzdCJFChNMaXN0RGFlbW9uc1Jlc3BvbnNlEi4KB2RhZW1vbnMYASADKAsyHS5naXRzbGljZS5jb3JlLnYxLkFnZW50RGFlbW9uImgKGUNyZWF0ZUNvbnZlcnNhdGlvblJlcXVlc3QSEQoJZGFlbW9uX2lkGAEgASgJEikKBXNsaWNlGAIgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhINCgV0aXRsZRgDIAEoCSJYChhMaXN0Q29udmVyc2F0aW9uc1JlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhEKCWRhZW1vbl9pZBgCIAEoCSJSChlMaXN0Q29udmVyc2F0aW9uc1Jlc3BvbnNlEjUKDWNvbnZlcnNhdGlvbnMYASADKAsyHi5naXRzbGljZS5jb3JlLnYxLkNvbnZlcnNhdGlvbiIxChZHZXRDb252ZXJzYXRpb25SZXF1ZXN0EhcKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCSJAChdTZW5kQWdlbnRNZXNzYWdlUmVxdWVzdBIXCg9jb252ZXJzYXRpb25faWQYASABKAkSDAoEdGV4dBgCIAEoCSJOChhTZW5kQWdlbnRNZXNzYWdlUmVzcG9uc2USMgoFZXZlbnQYASABKAsyIy5naXRzbGljZS5jb3JlLnYxLkNvbnZlcnNhdGlvbkV2ZW50IkcKGVN0cmVhbUNvbnZlcnNhdGlvblJlcXVlc3QSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAyJeChxHZXRDb252ZXJzYXRpb25FdmVudHNSZXF1ZXN0EhcKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCRIRCglhZnRlcl9zZXEYAiABKAMSEgoKYmVmb3JlX3NlcRgDIAEoAyKKAQodR2V0Q29udmVyc2F0aW9uRXZlbnRzUmVzcG9uc2USNAoMY29udmVyc2F0aW9uGAEgASgLMh4uZ2l0c2xpY2UuY29yZS52MS5Db252ZXJzYXRpb24SMwoGZXZlbnRzGAIgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5Db252ZXJzYXRpb25FdmVudCIzChhDbG9zZUNvbnZlcnNhdGlvblJlcXVlc3QSFwoPY29udmVyc2F0aW9uX2lkGAEgASgJMpkHCgxBZ2VudFNlcnZpY2USTwoHQ29ubmVjdBIfLmdpdHNsaWNlLmNvcmUudjEuRGFlbW9uTWVzc2FnZRofLmdpdHNsaWNlLmNvcmUudjEuU2VydmVyTWVzc2FnZSgBMAESWgoLTGlzdERhZW1vbnMSJC5naXRzbGljZS5jb3JlLnYxLkxpc3REYWVtb25zUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuTGlzdERhZW1vbnNSZXNwb25zZRJhChJDcmVhdGVDb252ZXJzYXRpb24SKy5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZUNvbnZlcnNhdGlvblJlcXVlc3QaHi5naXRzbGljZS5jb3JlLnYxLkNvbnZlcnNhdGlvbhJsChFMaXN0Q29udmVyc2F0aW9ucxIqLmdpdHNsaWNlLmNvcmUudjEuTGlzdENvbnZlcnNhdGlvbnNSZXF1ZXN0GisuZ2l0c2xpY2UuY29yZS52MS5MaXN0Q29udmVyc2F0aW9uc1Jlc3BvbnNlElsKD0dldENvbnZlcnNhdGlvbhIoLmdpdHNsaWNlLmNvcmUudjEuR2V0Q29udmVyc2F0aW9uUmVxdWVzdBoeLmdpdHNsaWNlLmNvcmUudjEuQ29udmVyc2F0aW9uEmkKEFNlbmRBZ2VudE1lc3NhZ2USKS5naXRzbGljZS5jb3JlLnYxLlNlbmRBZ2VudE1lc3NhZ2VSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5TZW5kQWdlbnRNZXNzYWdlUmVzcG9uc2USaAoSU3RyZWFtQ29udmVyc2F0aW9uEisuZ2l0c2xpY2UuY29yZS52MS5TdHJlYW1Db252ZXJzYXRpb25SZXF1ZXN0GiMuZ2l0c2xpY2UuY29yZS52MS5Db252ZXJzYXRpb25FdmVudDABEngKFUdldENvbnZlcnNhdGlvbkV2ZW50cxIuLmdpdHNsaWNlLmNvcmUudjEuR2V0Q29udmVyc2F0aW9uRXZlbnRzUmVxdWVzdBovLmdpdHNsaWNlLmNvcmUudjEuR2V0Q29udmVyc2F0aW9uRXZlbnRzUmVzcG9uc2USXwoRQ2xvc2VDb252ZXJzYXRpb24SKi5naXRzbGljZS5jb3JlLnYxLkNsb3NlQ29udmVyc2F0aW9uUmVxdWVzdBoeLmdpdHNsaWNlLmNvcmUudjEuQ29udmVyc2F0aW9uQjZaNGdpdGh1Yi5jb20vZ2l0c2xpY2UtaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
 
 /**
  * @generated from message gitslice.core.v1.AgentDaemon
@@ -249,6 +249,12 @@ export type DaemonMessage = Message<"gitslice.core.v1.DaemonMessage"> & {
      */
     value: ConversationStarted;
     case: "started";
+  } | {
+    /**
+     * @generated from field: gitslice.core.v1.CheckRunUpdate check_update = 5;
+     */
+    value: CheckRunUpdate;
+    case: "checkUpdate";
   } | { case: undefined; value?: undefined };
 };
 
@@ -277,6 +283,16 @@ export type RegisterDaemon = Message<"gitslice.core.v1.RegisterDaemon"> & {
    * @generated from field: string version = 3;
    */
   version: string;
+
+  /**
+   * @generated from field: repeated string container_runtimes = 4;
+   */
+  containerRuntimes: string[];
+
+  /**
+   * @generated from field: bool allow_host_exec = 5;
+   */
+  allowHostExec: boolean;
 };
 
 /**
@@ -450,6 +466,24 @@ export type ServerMessage = Message<"gitslice.core.v1.ServerMessage"> & {
      */
     value: ReconcileWorkspaces;
     case: "reconcile";
+  } | {
+    /**
+     * @generated from field: gitslice.core.v1.RunChecks run_checks = 9;
+     */
+    value: RunChecks;
+    case: "runChecks";
+  } | {
+    /**
+     * @generated from field: gitslice.core.v1.CancelCheckRun cancel_check = 10;
+     */
+    value: CancelCheckRun;
+    case: "cancelCheck";
+  } | {
+    /**
+     * @generated from field: gitslice.core.v1.CheckRunAck check_ack = 11;
+     */
+    value: CheckRunAck;
+    case: "checkAck";
   } | { case: undefined; value?: undefined };
 };
 
@@ -648,6 +682,201 @@ export const EventAckSchema: GenMessage<EventAck> = /*@__PURE__*/
   messageDesc(file_proto_core_v1_agent, 16);
 
 /**
+ * @generated from message gitslice.core.v1.RunChecks
+ */
+export type RunChecks = Message<"gitslice.core.v1.RunChecks"> & {
+  /**
+   * @generated from field: string changeset_id = 1;
+   */
+  changesetId: string;
+
+  /**
+   * @generated from field: string patchset_id = 2;
+   */
+  patchsetId: string;
+
+  /**
+   * @generated from field: string result_tree_id = 3;
+   */
+  resultTreeId: string;
+
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 4;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * @generated from field: string slice_id = 5;
+   */
+  sliceId: string;
+
+  /**
+   * @generated from field: string server_addr = 6;
+   */
+  serverAddr: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.CheckRunSpec checks = 7;
+   */
+  checks: CheckRunSpec[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.RunChecks.
+ * Use `create(RunChecksSchema)` to create a new message.
+ */
+export const RunChecksSchema: GenMessage<RunChecks> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_agent, 17);
+
+/**
+ * @generated from message gitslice.core.v1.CheckRunSpec
+ */
+export type CheckRunSpec = Message<"gitslice.core.v1.CheckRunSpec"> & {
+  /**
+   * @generated from field: string run_id = 1;
+   */
+  runId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string command = 3;
+   */
+  command: string;
+
+  /**
+   * @generated from field: string image = 4;
+   */
+  image: string;
+
+  /**
+   * @generated from field: string working_dir = 5;
+   */
+  workingDir: string;
+
+  /**
+   * @generated from field: repeated string materialize_paths = 6;
+   */
+  materializePaths: string[];
+
+  /**
+   * @generated from field: map<string, string> env = 7;
+   */
+  env: { [key: string]: string };
+
+  /**
+   * @generated from field: bool network = 8;
+   */
+  network: boolean;
+
+  /**
+   * @generated from field: int64 timeout_ms = 9;
+   */
+  timeoutMs: bigint;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CheckRunSpec.
+ * Use `create(CheckRunSpecSchema)` to create a new message.
+ */
+export const CheckRunSpecSchema: GenMessage<CheckRunSpec> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_agent, 18);
+
+/**
+ * @generated from message gitslice.core.v1.CancelCheckRun
+ */
+export type CancelCheckRun = Message<"gitslice.core.v1.CancelCheckRun"> & {
+  /**
+   * @generated from field: string run_id = 1;
+   */
+  runId: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CancelCheckRun.
+ * Use `create(CancelCheckRunSchema)` to create a new message.
+ */
+export const CancelCheckRunSchema: GenMessage<CancelCheckRun> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_agent, 19);
+
+/**
+ * @generated from message gitslice.core.v1.CheckRunAck
+ */
+export type CheckRunAck = Message<"gitslice.core.v1.CheckRunAck"> & {
+  /**
+   * @generated from field: string run_id = 1;
+   */
+  runId: string;
+
+  /**
+   * @generated from field: int64 acked_client_seq = 2;
+   */
+  ackedClientSeq: bigint;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CheckRunAck.
+ * Use `create(CheckRunAckSchema)` to create a new message.
+ */
+export const CheckRunAckSchema: GenMessage<CheckRunAck> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_agent, 20);
+
+/**
+ * @generated from message gitslice.core.v1.CheckRunUpdate
+ */
+export type CheckRunUpdate = Message<"gitslice.core.v1.CheckRunUpdate"> & {
+  /**
+   * @generated from field: string run_id = 1;
+   */
+  runId: string;
+
+  /**
+   * @generated from field: string status = 2;
+   */
+  status: string;
+
+  /**
+   * @generated from field: int32 exit_code = 3;
+   */
+  exitCode: number;
+
+  /**
+   * @generated from field: string log_chunk = 4;
+   */
+  logChunk: string;
+
+  /**
+   * @generated from field: string stream = 5;
+   */
+  stream: string;
+
+  /**
+   * @generated from field: int64 client_seq = 6;
+   */
+  clientSeq: bigint;
+
+  /**
+   * @generated from field: bool final = 7;
+   */
+  final: boolean;
+
+  /**
+   * @generated from field: string summary = 8;
+   */
+  summary: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CheckRunUpdate.
+ * Use `create(CheckRunUpdateSchema)` to create a new message.
+ */
+export const CheckRunUpdateSchema: GenMessage<CheckRunUpdate> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_agent, 21);
+
+/**
  * @generated from message gitslice.core.v1.ListDaemonsRequest
  */
 export type ListDaemonsRequest = Message<"gitslice.core.v1.ListDaemonsRequest"> & {
@@ -658,7 +887,7 @@ export type ListDaemonsRequest = Message<"gitslice.core.v1.ListDaemonsRequest"> 
  * Use `create(ListDaemonsRequestSchema)` to create a new message.
  */
 export const ListDaemonsRequestSchema: GenMessage<ListDaemonsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 17);
+  messageDesc(file_proto_core_v1_agent, 22);
 
 /**
  * @generated from message gitslice.core.v1.ListDaemonsResponse
@@ -675,7 +904,7 @@ export type ListDaemonsResponse = Message<"gitslice.core.v1.ListDaemonsResponse"
  * Use `create(ListDaemonsResponseSchema)` to create a new message.
  */
 export const ListDaemonsResponseSchema: GenMessage<ListDaemonsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 18);
+  messageDesc(file_proto_core_v1_agent, 23);
 
 /**
  * @generated from message gitslice.core.v1.CreateConversationRequest
@@ -702,7 +931,7 @@ export type CreateConversationRequest = Message<"gitslice.core.v1.CreateConversa
  * Use `create(CreateConversationRequestSchema)` to create a new message.
  */
 export const CreateConversationRequestSchema: GenMessage<CreateConversationRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 19);
+  messageDesc(file_proto_core_v1_agent, 24);
 
 /**
  * @generated from message gitslice.core.v1.ListConversationsRequest
@@ -724,7 +953,7 @@ export type ListConversationsRequest = Message<"gitslice.core.v1.ListConversatio
  * Use `create(ListConversationsRequestSchema)` to create a new message.
  */
 export const ListConversationsRequestSchema: GenMessage<ListConversationsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 20);
+  messageDesc(file_proto_core_v1_agent, 25);
 
 /**
  * @generated from message gitslice.core.v1.ListConversationsResponse
@@ -741,7 +970,7 @@ export type ListConversationsResponse = Message<"gitslice.core.v1.ListConversati
  * Use `create(ListConversationsResponseSchema)` to create a new message.
  */
 export const ListConversationsResponseSchema: GenMessage<ListConversationsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 21);
+  messageDesc(file_proto_core_v1_agent, 26);
 
 /**
  * @generated from message gitslice.core.v1.GetConversationRequest
@@ -758,7 +987,7 @@ export type GetConversationRequest = Message<"gitslice.core.v1.GetConversationRe
  * Use `create(GetConversationRequestSchema)` to create a new message.
  */
 export const GetConversationRequestSchema: GenMessage<GetConversationRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 22);
+  messageDesc(file_proto_core_v1_agent, 27);
 
 /**
  * @generated from message gitslice.core.v1.SendAgentMessageRequest
@@ -780,7 +1009,7 @@ export type SendAgentMessageRequest = Message<"gitslice.core.v1.SendAgentMessage
  * Use `create(SendAgentMessageRequestSchema)` to create a new message.
  */
 export const SendAgentMessageRequestSchema: GenMessage<SendAgentMessageRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 23);
+  messageDesc(file_proto_core_v1_agent, 28);
 
 /**
  * @generated from message gitslice.core.v1.SendAgentMessageResponse
@@ -797,7 +1026,7 @@ export type SendAgentMessageResponse = Message<"gitslice.core.v1.SendAgentMessag
  * Use `create(SendAgentMessageResponseSchema)` to create a new message.
  */
 export const SendAgentMessageResponseSchema: GenMessage<SendAgentMessageResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 24);
+  messageDesc(file_proto_core_v1_agent, 29);
 
 /**
  * @generated from message gitslice.core.v1.StreamConversationRequest
@@ -819,7 +1048,7 @@ export type StreamConversationRequest = Message<"gitslice.core.v1.StreamConversa
  * Use `create(StreamConversationRequestSchema)` to create a new message.
  */
 export const StreamConversationRequestSchema: GenMessage<StreamConversationRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 25);
+  messageDesc(file_proto_core_v1_agent, 30);
 
 /**
  * @generated from message gitslice.core.v1.GetConversationEventsRequest
@@ -849,7 +1078,7 @@ export type GetConversationEventsRequest = Message<"gitslice.core.v1.GetConversa
  * Use `create(GetConversationEventsRequestSchema)` to create a new message.
  */
 export const GetConversationEventsRequestSchema: GenMessage<GetConversationEventsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 26);
+  messageDesc(file_proto_core_v1_agent, 31);
 
 /**
  * @generated from message gitslice.core.v1.GetConversationEventsResponse
@@ -871,7 +1100,7 @@ export type GetConversationEventsResponse = Message<"gitslice.core.v1.GetConvers
  * Use `create(GetConversationEventsResponseSchema)` to create a new message.
  */
 export const GetConversationEventsResponseSchema: GenMessage<GetConversationEventsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 27);
+  messageDesc(file_proto_core_v1_agent, 32);
 
 /**
  * @generated from message gitslice.core.v1.CloseConversationRequest
@@ -888,7 +1117,7 @@ export type CloseConversationRequest = Message<"gitslice.core.v1.CloseConversati
  * Use `create(CloseConversationRequestSchema)` to create a new message.
  */
 export const CloseConversationRequestSchema: GenMessage<CloseConversationRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_agent, 28);
+  messageDesc(file_proto_core_v1_agent, 33);
 
 /**
  * AgentService powers the "bring your own agent" feature. A user runs a long

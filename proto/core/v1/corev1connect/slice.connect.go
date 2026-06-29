@@ -49,6 +49,9 @@ const (
 	// SliceServiceUpdateSliceDefinitionProcedure is the fully-qualified name of the SliceService's
 	// UpdateSliceDefinition RPC.
 	SliceServiceUpdateSliceDefinitionProcedure = "/gitslice.core.v1.SliceService/UpdateSliceDefinition"
+	// SliceServiceSetSliceCIDaemonProcedure is the fully-qualified name of the SliceService's
+	// SetSliceCIDaemon RPC.
+	SliceServiceSetSliceCIDaemonProcedure = "/gitslice.core.v1.SliceService/SetSliceCIDaemon"
 	// SliceServiceDeleteSliceProcedure is the fully-qualified name of the SliceService's DeleteSlice
 	// RPC.
 	SliceServiceDeleteSliceProcedure = "/gitslice.core.v1.SliceService/DeleteSlice"
@@ -62,6 +65,7 @@ type SliceServiceClient interface {
 	ListSlices(context.Context, *connect.Request[v1.ListSlicesRequest]) (*connect.Response[v1.ListSlicesResponse], error)
 	ListSliceDefinitionVersions(context.Context, *connect.Request[v1.ListSliceDefinitionVersionsRequest]) (*connect.Response[v1.ListSliceDefinitionVersionsResponse], error)
 	UpdateSliceDefinition(context.Context, *connect.Request[v1.UpdateSliceDefinitionRequest]) (*connect.Response[v1.SliceDefinition], error)
+	SetSliceCIDaemon(context.Context, *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error)
 	DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error)
 }
 
@@ -112,6 +116,12 @@ func NewSliceServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(sliceServiceMethods.ByName("UpdateSliceDefinition")),
 			connect.WithClientOptions(opts...),
 		),
+		setSliceCIDaemon: connect.NewClient[v1.SetSliceCIDaemonRequest, v1.Slice](
+			httpClient,
+			baseURL+SliceServiceSetSliceCIDaemonProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("SetSliceCIDaemon")),
+			connect.WithClientOptions(opts...),
+		),
 		deleteSlice: connect.NewClient[v1.DeleteSliceRequest, v1.DeleteSliceResponse](
 			httpClient,
 			baseURL+SliceServiceDeleteSliceProcedure,
@@ -129,6 +139,7 @@ type sliceServiceClient struct {
 	listSlices                  *connect.Client[v1.ListSlicesRequest, v1.ListSlicesResponse]
 	listSliceDefinitionVersions *connect.Client[v1.ListSliceDefinitionVersionsRequest, v1.ListSliceDefinitionVersionsResponse]
 	updateSliceDefinition       *connect.Client[v1.UpdateSliceDefinitionRequest, v1.SliceDefinition]
+	setSliceCIDaemon            *connect.Client[v1.SetSliceCIDaemonRequest, v1.Slice]
 	deleteSlice                 *connect.Client[v1.DeleteSliceRequest, v1.DeleteSliceResponse]
 }
 
@@ -162,6 +173,11 @@ func (c *sliceServiceClient) UpdateSliceDefinition(ctx context.Context, req *con
 	return c.updateSliceDefinition.CallUnary(ctx, req)
 }
 
+// SetSliceCIDaemon calls gitslice.core.v1.SliceService.SetSliceCIDaemon.
+func (c *sliceServiceClient) SetSliceCIDaemon(ctx context.Context, req *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error) {
+	return c.setSliceCIDaemon.CallUnary(ctx, req)
+}
+
 // DeleteSlice calls gitslice.core.v1.SliceService.DeleteSlice.
 func (c *sliceServiceClient) DeleteSlice(ctx context.Context, req *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error) {
 	return c.deleteSlice.CallUnary(ctx, req)
@@ -175,6 +191,7 @@ type SliceServiceHandler interface {
 	ListSlices(context.Context, *connect.Request[v1.ListSlicesRequest]) (*connect.Response[v1.ListSlicesResponse], error)
 	ListSliceDefinitionVersions(context.Context, *connect.Request[v1.ListSliceDefinitionVersionsRequest]) (*connect.Response[v1.ListSliceDefinitionVersionsResponse], error)
 	UpdateSliceDefinition(context.Context, *connect.Request[v1.UpdateSliceDefinitionRequest]) (*connect.Response[v1.SliceDefinition], error)
+	SetSliceCIDaemon(context.Context, *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error)
 	DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error)
 }
 
@@ -221,6 +238,12 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(sliceServiceMethods.ByName("UpdateSliceDefinition")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sliceServiceSetSliceCIDaemonHandler := connect.NewUnaryHandler(
+		SliceServiceSetSliceCIDaemonProcedure,
+		svc.SetSliceCIDaemon,
+		connect.WithSchema(sliceServiceMethods.ByName("SetSliceCIDaemon")),
+		connect.WithHandlerOptions(opts...),
+	)
 	sliceServiceDeleteSliceHandler := connect.NewUnaryHandler(
 		SliceServiceDeleteSliceProcedure,
 		svc.DeleteSlice,
@@ -241,6 +264,8 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 			sliceServiceListSliceDefinitionVersionsHandler.ServeHTTP(w, r)
 		case SliceServiceUpdateSliceDefinitionProcedure:
 			sliceServiceUpdateSliceDefinitionHandler.ServeHTTP(w, r)
+		case SliceServiceSetSliceCIDaemonProcedure:
+			sliceServiceSetSliceCIDaemonHandler.ServeHTTP(w, r)
 		case SliceServiceDeleteSliceProcedure:
 			sliceServiceDeleteSliceHandler.ServeHTTP(w, r)
 		default:
@@ -274,6 +299,10 @@ func (UnimplementedSliceServiceHandler) ListSliceDefinitionVersions(context.Cont
 
 func (UnimplementedSliceServiceHandler) UpdateSliceDefinition(context.Context, *connect.Request[v1.UpdateSliceDefinitionRequest]) (*connect.Response[v1.SliceDefinition], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.UpdateSliceDefinition is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) SetSliceCIDaemon(context.Context, *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceCIDaemon is not implemented"))
 }
 
 func (UnimplementedSliceServiceHandler) DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error) {
