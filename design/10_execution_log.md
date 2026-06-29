@@ -7146,3 +7146,45 @@ check materialization, fixed to mirror how slice checkout works:
 
 Verified on staging: the /nic ancestor check (341 files) now shows `running` at
 t+4s and `passed` at **t+5s**, down from ~155s originally (~30x). Config reverted.
+
+## 2026-06-29 — Cloud Run production deploy: event-driven publisher + migrate-only
+
+Prep for running the core server on GCP Cloud Run with Neon (serverless Postgres)
+as the metadata store. Two code changes plus deployment artifacts.
+
+Goal/request: deploy the server to Cloud Run for production; avoid the idle 25ms
+publish/index polling that pins Neon's compute on (no autosuspend), and make the
+async workers actually run on Cloud Run.
+
+Decisions:
+- **Event-driven publisher wake (option 2).** The async publisher polled every 25ms
+  even when idle (~160 q/s doing nothing). Added an in-process nudge mirroring the
+  existing index-worker pattern: `ChangesetStore.SetPendingPublishListener(func())`
+  fires a *contextless* signal at the single submit chokepoint
+  (`SubmitWithCheckStatuses`, which all submit producers funnel through) whenever a
+  submit returns `status=pending_publish`. `runPublisher` now wakes on nudge-or-timer
+  (drain extracted to `drainPublish`), so prod runs a long fallback interval
+  (`GITSLICE_PUBLISH_INTERVAL_MS`/`INDEX_INTERVAL_MS`=30000) and Neon can autosuspend
+  while real activity still drains immediately. The nudge MUST stay contextless —
+  the drain runs on the server-lifetime ctx so background work survives after the
+  triggering request returns (critical on Cloud Run). Durability unchanged: work is
+  committed to `pending_publish` in the submit txn; the fallback poll + advisory lock
+  reclaim anything orphaned by a scaled-down instance.
+- **`-migrate-only` mode.** New `server.Migrate(ctx, cfg)` (mirrors Run's
+  DB+objectstore+treestore setup, runs `db.Migrate`, no listeners/workers) and a
+  `-migrate-only` flag that runs migrations and exits 0. Lets prod migrate Neon BEFORE
+  deploy; serving instances run with `GITSLICE_RUN_MIGRATIONS=0` so cold-start
+  instances never re-run DDL (no concurrent-startup race).
+
+Cloud Run specifics baked into deploy/cloudrun.sh: single-port h2c (`--use-http2`),
+background goroutines need `--no-cpu-throttling` + `--min-instances=1` (else CPU is
+throttled between requests and drains stall), `--timeout=3600` for long-lived
+AgentService.Connect streams, `GITSLICE_OBJECT_STORE_ROOT=/tmp/...` (RO filesystem),
+secrets via Secret Manager, migrations via a one-shot Cloud Run Job. Neon: direct
+endpoint for now (zero pgx change); cap `--max-instances` so 32*N stays under the
+connection limit (switch to the pooled endpoint + simple/exec query mode to scale
+wider). Dockerfile is CGO-free static → distroless (28.9MB).
+
+Verification: gofmt/build/vet; `go test ./server/... ./service/... ./internal/postgres/...`;
+e2e `tests/cli` (385s) + `tests/rpc` (277s) green against gitslice_test on :55432;
+docker image builds and `-migrate-only` reaches config validation.

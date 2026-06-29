@@ -19,10 +19,11 @@ import (
 )
 
 type ChangesetStore struct {
-	db         *sql.DB
-	trees      *treestore.Store
-	repository *RepositoryStore
-	slices     *SliceStore
+	db               *sql.DB
+	trees            *treestore.Store
+	repository       *RepositoryStore
+	slices           *SliceStore
+	onPendingPublish func()
 }
 
 type pathEntity struct {
@@ -1670,23 +1671,32 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	return s.SubmitWithCheckStatuses(ctx, changesetID, expectedCurrentPatchsetID, nil)
 }
 
+func (s *ChangesetStore) SetPendingPublishListener(fn func()) {
+	s.onPendingPublish = fn
+}
+
 func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (res *corev1.SubmitChangesetResponse, err error) {
 	defer func() {
 		storage.RecordSubmitResult(err)
 	}()
+retry:
 	for attempt := 0; attempt < submitRetryAttempts; attempt++ {
 		res, err = s.submitOnce(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses)
 		if err == nil || !isRetryableSerializationError(err) || attempt == submitRetryAttempts-1 {
-			return res, err
+			break
 		}
 		wait := time.Duration(attempt+1) * submitRetryBaseWait
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, ctx.Err()
+			res, err = nil, ctx.Err()
+			break retry
 		case <-timer.C:
 		}
+	}
+	if err == nil && res != nil && res.Status == "pending_publish" && s.onPendingPublish != nil {
+		s.onPendingPublish()
 	}
 	return res, err
 }
