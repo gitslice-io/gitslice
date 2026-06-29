@@ -1324,6 +1324,36 @@ func (s *CheckStore) ListCheckRuns(ctx context.Context, changesetID, patchsetID 
 	return out, nil
 }
 
+func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, status string) ([]*corev1.CheckRun, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	daemonID = strings.TrimSpace(daemonID)
+	status, err := normalizeMemoryCheckRunStatus(status)
+	if err != nil {
+		return nil, err
+	}
+	if daemonID == "" {
+		return nil, storage.ErrInvalid
+	}
+	var out []*corev1.CheckRun
+	for _, run := range s.b.checkRuns {
+		if s.b.checkRunSupersededBy[run.Id] != "" {
+			continue
+		}
+		if run.DaemonId != daemonID || run.Status != status {
+			continue
+		}
+		out = append(out, cloneCheckRun(run))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt < out[j].CreatedAt
+		}
+		return out[i].Id < out[j].Id
+	})
+	return out, nil
+}
+
 func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
@@ -1402,7 +1432,11 @@ func (s *CheckStore) ListCheckRunLogs(ctx context.Context, runID string, afterSe
 	return out, nil
 }
 
-func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (res *corev1.SubmitChangesetResponse, err error) {
+func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+	return s.SubmitWithCheckStatuses(ctx, changesetID, expectedCurrentPatchsetID, nil)
+}
+
+func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (res *corev1.SubmitChangesetResponse, err error) {
 	defer func() {
 		storage.RecordSubmitResult(err)
 	}()
@@ -1447,7 +1481,19 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	for subjectID := range s.b.approvals[key] {
 		approvalSubjects = append(approvalSubjects, subjectID)
 	}
-	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, s.b.checkResults[key]); reason != "" {
+	checkStatuses := map[string]string{}
+	for checkName, status := range s.b.checkResults[key] {
+		checkStatuses[checkName] = status
+	}
+	for checkName, status := range extraCheckStatuses {
+		checkName = strings.TrimSpace(checkName)
+		normalized, ok := storage.NormalizeCheckStatus(status)
+		if checkName == "" || !ok {
+			continue
+		}
+		checkStatuses[checkName] = normalized
+	}
+	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" {
 		return nil, s.b.blockSubmitLocked(cs, reason)
 	}
 	cs.Status = "pending_publish"
@@ -2019,6 +2065,17 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 	current.DefinitionHash = memoryDefinitionHash(sliceID, current.Definition.Version, included, visibility, requiredApprovals, requiredChecks)
 	s.b.appendSliceDefinitionVersionLocked(current, subjectID)
 	return cloneSlice(current).Definition, nil
+}
+
+func (s *SliceStore) SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	current := s.b.slices[strings.TrimSpace(sliceID)]
+	if current == nil {
+		return nil, storage.ErrNotFound
+	}
+	current.CiDaemonId = strings.TrimSpace(daemonID)
+	return cloneSlice(current), nil
 }
 
 func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {

@@ -96,7 +96,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 	}
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
+		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1 and slices.slug = $2
@@ -107,7 +107,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
+		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where slices.id = $1
@@ -125,7 +125,7 @@ func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*co
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
+		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1
@@ -250,6 +250,31 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 		return nil, err
 	}
 	return slice.Definition, nil
+}
+
+func (s *SliceStore) SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error) {
+	sliceID = strings.TrimSpace(sliceID)
+	daemonID = strings.TrimSpace(daemonID)
+	if sliceID == "" {
+		return nil, fmt.Errorf("%w: slice_id is required", ErrInvalid)
+	}
+	res, err := s.db.ExecContext(ctx, `
+		update slices
+		set ci_daemon_id = nullif($2, ''),
+		    updated_at = now()
+		where id = $1
+	`, sliceID, daemonID)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, ErrNotFound
+	}
+	return s.Get(ctx, sliceID)
 }
 
 func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
@@ -537,12 +562,12 @@ func scanSliceDefinitionVersion(row scanner) (*corev1.SliceDefinitionVersion, er
 
 func scanSlice(row scanner) (*corev1.Slice, error) {
 	var (
-		id, account, slug, definitionHash, visibility string
-		version                                       int64
-		requiredApprovals                             int32
-		includedJSON, requiredChecksJSON              []byte
+		id, account, slug, definitionHash, ciDaemonID, visibility string
+		version                                                   int64
+		requiredApprovals                                         int32
+		includedJSON, requiredChecksJSON                          []byte
 	)
-	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON)
+	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -561,6 +586,7 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 		Id:             id,
 		Ref:            &corev1.SliceRef{Account: account, Slice: slug},
 		DefinitionHash: definitionHash,
+		CiDaemonId:     ciDaemonID,
 		Definition: &corev1.SliceDefinition{
 			SliceId:           id,
 			Version:           version,

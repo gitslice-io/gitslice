@@ -1667,11 +1667,15 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 }
 
 func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (res *corev1.SubmitChangesetResponse, err error) {
+	return s.SubmitWithCheckStatuses(ctx, changesetID, expectedCurrentPatchsetID, nil)
+}
+
+func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (res *corev1.SubmitChangesetResponse, err error) {
 	defer func() {
 		storage.RecordSubmitResult(err)
 	}()
 	for attempt := 0; attempt < submitRetryAttempts; attempt++ {
-		res, err = s.submitOnce(ctx, changesetID, expectedCurrentPatchsetID)
+		res, err = s.submitOnce(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses)
 		if err == nil || !isRetryableSerializationError(err) || attempt == submitRetryAttempts-1 {
 			return res, err
 		}
@@ -1687,7 +1691,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 	return res, err
 }
 
-func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (*corev1.SubmitChangesetResponse, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -1793,6 +1797,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 	if err != nil {
 		return nil, err
 	}
+	mergeCheckStatuses(checkStatuses, extraCheckStatuses)
 	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" {
 		return nil, blockSubmitTx(ctx, tx, cs.ID, reason)
 	}
@@ -2828,6 +2833,20 @@ func checkStatusesTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID st
 		statuses[checkName] = status
 	}
 	return statuses, rows.Err()
+}
+
+func mergeCheckStatuses(statuses map[string]string, extra map[string]string) {
+	if len(extra) == 0 {
+		return
+	}
+	for checkName, status := range extra {
+		checkName = strings.TrimSpace(checkName)
+		normalized, ok := storage.NormalizeCheckStatus(status)
+		if checkName == "" || !ok {
+			continue
+		}
+		statuses[checkName] = normalized
+	}
 }
 
 func blockSubmitTx(ctx context.Context, tx *sql.Tx, changesetID, reason string) error {

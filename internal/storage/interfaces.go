@@ -124,6 +124,7 @@ type SliceStore interface {
 	List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error)
 	ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error)
 	UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
+	SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error)
 	Delete(ctx context.Context, sliceID string) error
 	CoveringIDsByPath(ctx context.Context, paths []string) (map[string][]string, error)
 }
@@ -171,6 +172,7 @@ type CheckStore interface {
 	CreateCheckRun(ctx context.Context, in CheckRunInput) (*corev1.CheckRun, error)
 	GetCheckRun(ctx context.Context, runID string) (*corev1.CheckRun, error)
 	ListCheckRuns(ctx context.Context, changesetID, patchsetID string) ([]*corev1.CheckRun, error)
+	ListRunsByDaemonStatus(ctx context.Context, daemonID, status string) ([]*corev1.CheckRun, error)
 	UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error)
 	AppendCheckRunLog(ctx context.Context, runID string, seq int64, stream, chunk string) (inserted bool, err error)
 	ListCheckRunLogs(ctx context.Context, runID string, afterSeq int64) ([]*corev1.CheckRunLog, error)

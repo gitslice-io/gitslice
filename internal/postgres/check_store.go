@@ -152,6 +152,39 @@ func (s *CheckStore) ListCheckRuns(ctx context.Context, changesetID, patchsetID 
 	return out, rows.Err()
 }
 
+func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, status string) ([]*corev1.CheckRun, error) {
+	daemonID = strings.TrimSpace(daemonID)
+	normalizedStatus, err := normalizeCheckRunStatus(status)
+	if err != nil {
+		return nil, err
+	}
+	if daemonID == "" {
+		return nil, fmt.Errorf("%w: daemon_id is required", storage.ErrInvalid)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), provenance,
+		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
+		from check_runs
+		where superseded_by_run_id is null
+		  and daemon_id = $1
+		  and status = $2
+		order by created_at asc, id asc
+	`, daemonID, normalizedStatus)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.CheckRun
+	for rows.Next() {
+		run, err := scanCheckRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, run)
+	}
+	return out, rows.Err()
+}
+
 func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
 	status, err := normalizeCheckRunStatus(status)
 	if err != nil {

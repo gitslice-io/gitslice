@@ -208,6 +208,10 @@ func (a connectSliceAdapter) UpdateSliceDefinition(ctx context.Context, req *con
 	return connectResponse(a.svc.UpdateSliceDefinition(ctx, req.Msg))
 }
 
+func (a connectSliceAdapter) SetSliceCIDaemon(ctx context.Context, req *connect.Request[corev1.SetSliceCIDaemonRequest]) (*connect.Response[corev1.Slice], error) {
+	return connectResponse(a.svc.SetSliceCIDaemon(ctx, req.Msg))
+}
+
 func (a connectSliceAdapter) DeleteSlice(ctx context.Context, req *connect.Request[corev1.DeleteSliceRequest]) (*connect.Response[corev1.DeleteSliceResponse], error) {
 	return connectResponse(a.svc.DeleteSlice(ctx, req.Msg))
 }
