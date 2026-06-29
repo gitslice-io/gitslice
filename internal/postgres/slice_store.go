@@ -277,6 +277,101 @@ func (s *SliceStore) SetCIDaemon(ctx context.Context, sliceID, daemonID string) 
 	return s.Get(ctx, sliceID)
 }
 
+func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value string) error {
+	sliceID = strings.TrimSpace(sliceID)
+	if sliceID == "" {
+		return fmt.Errorf("%w: slice_id is required", ErrInvalid)
+	}
+	if !storage.ValidSliceSecretName(name) {
+		return fmt.Errorf("%w: secret name must match ^[A-Z_][A-Z0-9_]*$", ErrInvalid)
+	}
+	if err := s.requireSliceExists(ctx, sliceID); err != nil {
+		return err
+	}
+	// Secret values are stored as plaintext in Postgres for this prototype.
+	// Encryption-at-rest is a deployment follow-up and intentionally out of scope here.
+	_, err := s.db.ExecContext(ctx, `
+		insert into slice_secrets(slice_id, name, value, created_at, updated_at)
+		values ($1, $2, $3, now(), now())
+		on conflict (slice_id, name) do update
+		set value = excluded.value,
+		    updated_at = now()
+	`, sliceID, name, value)
+	return err
+}
+
+func (s *SliceStore) DeleteSliceSecret(ctx context.Context, sliceID, name string) error {
+	sliceID = strings.TrimSpace(sliceID)
+	if sliceID == "" {
+		return fmt.Errorf("%w: slice_id is required", ErrInvalid)
+	}
+	if !storage.ValidSliceSecretName(name) {
+		return fmt.Errorf("%w: secret name must match ^[A-Z_][A-Z0-9_]*$", ErrInvalid)
+	}
+	if err := s.requireSliceExists(ctx, sliceID); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `delete from slice_secrets where slice_id = $1 and name = $2`, sliceID, name)
+	return err
+}
+
+func (s *SliceStore) ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error) {
+	sliceID = strings.TrimSpace(sliceID)
+	if sliceID == "" {
+		return nil, fmt.Errorf("%w: slice_id is required", ErrInvalid)
+	}
+	if err := s.requireSliceExists(ctx, sliceID); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select name
+		from slice_secrets
+		where slice_id = $1
+		order by name
+	`, sliceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
+func (s *SliceStore) GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error) {
+	sliceID = strings.TrimSpace(sliceID)
+	if sliceID == "" {
+		return nil, fmt.Errorf("%w: slice_id is required", ErrInvalid)
+	}
+	if err := s.requireSliceExists(ctx, sliceID); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select name, value
+		from slice_secrets
+		where slice_id = $1
+	`, sliceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var name, value string
+		if err := rows.Scan(&name, &value); err != nil {
+			return nil, err
+		}
+		out[name] = value
+	}
+	return out, rows.Err()
+}
+
 func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	sliceID = strings.TrimSpace(sliceID)
 	if sliceID == "" {
@@ -307,6 +402,9 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 		return fmt.Errorf("%w: slice has changesets", ErrConflict)
 	}
 	if _, err := tx.ExecContext(ctx, `delete from slice_included_paths where slice_id = $1`, sliceID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `delete from slice_secrets where slice_id = $1`, sliceID); err != nil {
 		return err
 	}
 	res, err := tx.ExecContext(ctx, `delete from slices where id = $1`, sliceID)
@@ -351,6 +449,17 @@ func (s *SliceStore) CoveringIDsByPath(ctx context.Context, changedPaths []strin
 		return nil, err
 	}
 	return storage.AssembleCoverageByPath(changedPaths, byPrefix), nil
+}
+
+func (s *SliceStore) requireSliceExists(ctx context.Context, sliceID string) error {
+	var exists bool
+	if err := s.db.QueryRowContext(ctx, `select exists(select 1 from slices where id = $1)`, sliceID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func appendSliceDefinitionVersionTx(ctx context.Context, tx *sql.Tx, sliceID string, version int64, definitionHash, visibility string, includedPaths []string, requiredApprovals int32, requiredChecks []string, createdBy string) error {

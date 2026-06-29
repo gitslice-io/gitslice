@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/gitslice-io/gitslice/internal/storage"
@@ -26,5 +27,69 @@ func TestChangesetStoreDoesNotResolveDeprecatedHandle(t *testing.T) {
 	}
 	if _, err := stores.Changesets.Get(ctx, cs.Id); err != nil {
 		t.Fatalf("Get(full id) error = %v", err)
+	}
+}
+
+func TestSliceSecretsCRUDAndNameValidation(t *testing.T) {
+	ctx := context.Background()
+	stores := New()
+	slice, err := stores.Slices.Create(ctx, "user_acme", &corev1.SliceRef{Account: "acme", Slice: "payment"}, []string{"/acme/payment"}, "private", 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invalidNames := []string{"", "token", "1TOKEN", "TOKEN-NAME", "TOKEN NAME", "TOKEN.name", "TOKEN/value"}
+	for _, name := range invalidNames {
+		if err := stores.Slices.SetSliceSecret(ctx, slice.Id, name, "value"); !errors.Is(err, storage.ErrInvalid) {
+			t.Fatalf("SetSliceSecret(%q) error = %v, want ErrInvalid", name, err)
+		}
+		if err := stores.Slices.DeleteSliceSecret(ctx, slice.Id, name); !errors.Is(err, storage.ErrInvalid) {
+			t.Fatalf("DeleteSliceSecret(%q) error = %v, want ErrInvalid", name, err)
+		}
+	}
+
+	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "CI_TOKEN", "v1"); err != nil {
+		t.Fatalf("SetSliceSecret CI_TOKEN: %v", err)
+	}
+	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "_LEADING_UNDERSCORE", "underscore"); err != nil {
+		t.Fatalf("SetSliceSecret _LEADING_UNDERSCORE: %v", err)
+	}
+	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "CI_TOKEN", "v2"); err != nil {
+		t.Fatalf("SetSliceSecret CI_TOKEN upsert: %v", err)
+	}
+
+	names, err := stores.Slices.ListSliceSecretNames(ctx, slice.Id)
+	if err != nil {
+		t.Fatalf("ListSliceSecretNames: %v", err)
+	}
+	if want := []string{"CI_TOKEN", "_LEADING_UNDERSCORE"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("ListSliceSecretNames = %#v, want %#v", names, want)
+	}
+
+	secrets, err := stores.Slices.GetSliceSecrets(ctx, slice.Id)
+	if err != nil {
+		t.Fatalf("GetSliceSecrets: %v", err)
+	}
+	if got := secrets["CI_TOKEN"]; got != "v2" {
+		t.Fatalf("CI_TOKEN = %q, want v2", got)
+	}
+	secrets["CI_TOKEN"] = "mutated"
+	secrets, err = stores.Slices.GetSliceSecrets(ctx, slice.Id)
+	if err != nil {
+		t.Fatalf("GetSliceSecrets after mutation: %v", err)
+	}
+	if got := secrets["CI_TOKEN"]; got != "v2" {
+		t.Fatalf("CI_TOKEN after returned map mutation = %q, want v2", got)
+	}
+
+	if err := stores.Slices.DeleteSliceSecret(ctx, slice.Id, "CI_TOKEN"); err != nil {
+		t.Fatalf("DeleteSliceSecret CI_TOKEN: %v", err)
+	}
+	names, err = stores.Slices.ListSliceSecretNames(ctx, slice.Id)
+	if err != nil {
+		t.Fatalf("ListSliceSecretNames after delete: %v", err)
+	}
+	if want := []string{"_LEADING_UNDERSCORE"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("ListSliceSecretNames after delete = %#v, want %#v", names, want)
 	}
 }

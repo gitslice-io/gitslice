@@ -1887,7 +1887,37 @@ home slice root, for example /nic/notes.`,
 			return r.runSliceSetCIDaemon(cmd.Context(), *opts, args[0], args[1])
 		},
 	}
-	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceDeleteCmd)
+	sliceSecretCmd := &cobra.Command{
+		Use:   "secret",
+		Short: "Manage slice CI secrets",
+	}
+	sliceSecretSetCmd := &cobra.Command{
+		Use:   "set <slice|account:slice> <NAME> <value>",
+		Short: "Set a slice CI secret",
+		Args:  exactArgs(3, "gs slice secret set <slice|account:slice> <NAME> <value>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSliceSecretSet(cmd.Context(), *opts, args[0], args[1], args[2])
+		},
+	}
+	sliceSecretRemoveCmd := &cobra.Command{
+		Use:     "rm <slice|account:slice> <NAME>",
+		Aliases: []string{"delete", "remove"},
+		Short:   "Remove a slice CI secret",
+		Args:    exactArgs(2, "gs slice secret rm <slice|account:slice> <NAME>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSliceSecretRemove(cmd.Context(), *opts, args[0], args[1])
+		},
+	}
+	sliceSecretListCmd := &cobra.Command{
+		Use:   "ls <slice|account:slice>",
+		Short: "List slice CI secret names",
+		Args:  exactArgs(1, "gs slice secret ls <slice|account:slice>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSliceSecretList(cmd.Context(), *opts, args[0])
+		},
+	}
+	sliceSecretCmd.AddCommand(sliceSecretSetCmd, sliceSecretRemoveCmd, sliceSecretListCmd)
+	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceSecretCmd, sliceDeleteCmd)
 
 	agentCmd := r.agentCommand(opts)
 	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd, agentCmd)
@@ -3243,6 +3273,103 @@ func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sl
 	}
 	fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
 	return writeSliceText(r.Stdout, updated)
+}
+
+func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, sliceRef, name, value string) error {
+	if !storage.ValidSliceSecretName(name) {
+		return userError("invalid_secret_name", "secret name must match ^[A-Z_][A-Z0-9_]*$", "Use an environment-variable style name such as CI_TOKEN.")
+	}
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
+	_, err = corev1.NewSliceServiceClient(conn).SetSliceSecret(callCtx, &corev1.SetSliceSecretRequest{
+		Slice: ref,
+		Name:  name,
+		Value: value,
+	})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"slice": sliceRefLabel(ref),
+			"name":  name,
+			"set":   true,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "set secret %s for slice %s\n", name, sliceRefLabel(ref))
+	return nil
+}
+
+func (r Runner) runSliceSecretRemove(ctx context.Context, opts commandOptions, sliceRef, name string) error {
+	if !storage.ValidSliceSecretName(name) {
+		return userError("invalid_secret_name", "secret name must match ^[A-Z_][A-Z0-9_]*$", "Use an environment-variable style name such as CI_TOKEN.")
+	}
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
+	_, err = corev1.NewSliceServiceClient(conn).DeleteSliceSecret(callCtx, &corev1.DeleteSliceSecretRequest{
+		Slice: ref,
+		Name:  name,
+	})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"slice":   sliceRefLabel(ref),
+			"name":    name,
+			"deleted": true,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "removed secret %s from slice %s\n", name, sliceRefLabel(ref))
+	return nil
+}
+
+func (r Runner) runSliceSecretList(ctx context.Context, opts commandOptions, sliceRef string) error {
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
+	if err != nil {
+		return err
+	}
+	res, err := corev1.NewSliceServiceClient(conn).ListSliceSecrets(callCtx, &corev1.ListSliceSecretsRequest{
+		Slice: ref,
+	})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"names": res.Names})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	for _, name := range res.Names {
+		fmt.Fprintln(r.Stdout, name)
+	}
+	return nil
 }
 
 func (r Runner) runSliceDelete(ctx context.Context, opts commandOptions, sliceRef string, yes bool) error {

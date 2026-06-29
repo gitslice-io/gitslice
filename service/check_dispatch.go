@@ -111,6 +111,11 @@ func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *core
 	if len(runnable) == 0 {
 		return
 	}
+	secrets, err := d.sliceSecretsForDispatch(ctx, slice.Id)
+	if err != nil {
+		slog.Warn("failed to load slice CI secrets for dispatch", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "slice_id", slice.GetId(), "error", err)
+		return
+	}
 
 	daemonID := strings.TrimSpace(slice.CiDaemonId)
 	runSpecs := make([]*corev1.CheckRunSpec, 0, len(runnable))
@@ -127,7 +132,7 @@ func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *core
 			slog.Warn("failed to create ci check run", "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)
 			continue
 		}
-		runSpecs = append(runSpecs, checkRunSpecFromPlan(run.Id, spec))
+		runSpecs = append(runSpecs, checkRunSpecFromPlan(run.Id, spec, secrets))
 	}
 	if len(runSpecs) == 0 || daemonID == "" {
 		return
@@ -182,6 +187,10 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		}
 		return nil, status.Errorf(codes.FailedPrecondition, "check %q has no runnable CI definition in this revision", checkName)
 	}
+	secrets, err := d.sliceSecretsForDispatch(ctx, slice.Id)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "slice CI secrets could not be loaded: %v", err)
+	}
 
 	run, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
 		ChangesetID: cs.Id,
@@ -202,7 +211,7 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		Slice:        slice.Ref,
 		SliceId:      slice.Id,
 		ServerAddr:   d.serverAddr,
-		Checks:       []*corev1.CheckRunSpec{checkRunSpecFromPlan(run.Id, spec)},
+		Checks:       []*corev1.CheckRunSpec{checkRunSpecFromPlan(run.Id, spec, secrets)},
 	}}}
 	if !conn.trySend(msg) {
 		return nil, status.Error(codes.FailedPrecondition, "slice CI daemon is not online")
@@ -311,6 +320,10 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 	if err != nil {
 		return nil, err
 	}
+	secrets, err := d.sliceSecretsForDispatch(ctx, slice.Id)
+	if err != nil {
+		return nil, err
+	}
 	byName := map[string]checks.CheckSpec{}
 	for _, spec := range plan.Runnable {
 		if spec.OutOfSlice {
@@ -323,7 +336,7 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 		if !ok {
 			continue
 		}
-		specs = append(specs, checkRunSpecFromPlan(run.Id, spec))
+		specs = append(specs, checkRunSpecFromPlan(run.Id, spec, secrets))
 	}
 	if len(specs) == 0 {
 		return nil, nil
@@ -403,7 +416,14 @@ func (s *AgentService) persistedCheckRunLog(ctx context.Context, runID string, s
 	return nil
 }
 
-func checkRunSpecFromPlan(runID string, spec checks.CheckSpec) *corev1.CheckRunSpec {
+func (d *checkDispatcher) sliceSecretsForDispatch(ctx context.Context, sliceID string) (map[string]string, error) {
+	if d == nil || d.Slices == nil {
+		return nil, fmt.Errorf("slice store is not configured")
+	}
+	return d.Slices.GetSliceSecrets(ctx, sliceID)
+}
+
+func checkRunSpecFromPlan(runID string, spec checks.CheckSpec, secrets map[string]string) *corev1.CheckRunSpec {
 	return &corev1.CheckRunSpec{
 		RunId:            runID,
 		Name:             spec.Name,
@@ -413,12 +433,26 @@ func checkRunSpecFromPlan(runID string, spec checks.CheckSpec) *corev1.CheckRunS
 		Cache:            append([]string(nil), spec.Cache...),
 		WorkingDir:       spec.WorkingDir,
 		MaterializePaths: append([]string(nil), spec.MaterializePaths...),
-		Env:              copyStringMap(spec.Env),
+		Env:              mergeCheckEnv(spec.Env, secrets),
 		Network:          spec.Network,
 		Memory:           spec.Memory,
 		Cpus:             spec.CPUs,
 		TimeoutMs:        spec.Timeout.Milliseconds(),
 	}
+}
+
+func mergeCheckEnv(checkEnv, secrets map[string]string) map[string]string {
+	out := copyStringMap(checkEnv)
+	if len(secrets) == 0 {
+		return out
+	}
+	if out == nil {
+		out = map[string]string{}
+	}
+	for key, value := range secrets {
+		out[key] = value
+	}
+	return out
 }
 
 func logicalPathsForAccount(account string, in []string) []string {

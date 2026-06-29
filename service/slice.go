@@ -166,6 +166,73 @@ func (s *SliceService) SetSliceCIDaemon(ctx context.Context, req *corev1.SetSlic
 	return updated, nil
 }
 
+func (s *SliceService) SetSliceSecret(ctx context.Context, req *corev1.SetSliceSecretRequest) (*corev1.Empty, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := normalizeServiceSliceRef(req.Slice)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.Slices.Resolve(ctx, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionAdmin); err != nil {
+		return nil, err
+	}
+	if err := s.Slices.SetSliceSecret(ctx, current.Id, req.Name, req.Value); err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.Empty{}, nil
+}
+
+func (s *SliceService) DeleteSliceSecret(ctx context.Context, req *corev1.DeleteSliceSecretRequest) (*corev1.Empty, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := normalizeServiceSliceRef(req.Slice)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.Slices.Resolve(ctx, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionAdmin); err != nil {
+		return nil, err
+	}
+	if err := s.Slices.DeleteSliceSecret(ctx, current.Id, req.Name); err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.Empty{}, nil
+}
+
+func (s *SliceService) ListSliceSecrets(ctx context.Context, req *corev1.ListSliceSecretsRequest) (*corev1.ListSliceSecretsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := normalizeServiceSliceRef(req.Slice)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.Slices.Resolve(ctx, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionWrite); err != nil {
+		return nil, err
+	}
+	names, err := s.Slices.ListSliceSecretNames(ctx, current.Id)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.ListSliceSecretsResponse{Names: names}, nil
+}
+
 func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceRequest) (*corev1.DeleteSliceResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
