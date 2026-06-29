@@ -23,6 +23,7 @@ import { cn } from "../lib/cn";
 
 import {
   ChangesetSkeleton,
+  ChecksPanel,
   ConversationDrawer,
   CopyLinkButton,
   ErrorBox,
@@ -334,6 +335,11 @@ export function ChangesetDetailPage() {
           />
         }
         terminal={terminal}
+      />
+
+      <ChecksPanel
+        changesetId={canonicalChangesetId}
+        patchsetId={selectedToPatchset}
       />
 
       <div className={cn(isWide && conversationOpen && "flex items-start gap-3")}>

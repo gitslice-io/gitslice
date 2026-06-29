@@ -175,6 +175,7 @@ export interface Slice {
   ref?: SliceRef;
   definition?: SliceDefinition;
   definitionHash?: string;
+  ciDaemonId?: string;
 }
 
 export interface SliceDefinition {
@@ -217,6 +218,11 @@ export interface UpdateSliceDefinitionRequest {
   sliceId?: string;
   expectedDefinitionHash?: string;
   definition?: SliceDefinition;
+}
+
+export interface SetSliceCIDaemonRequest {
+  slice?: SliceRef;
+  daemonId?: string;
 }
 
 export interface SubmitRequirements {
@@ -522,6 +528,49 @@ export interface SubmitChangesetResponse {
 export interface AbandonChangesetRequest {
   changesetId?: string;
   reason?: string;
+}
+
+export interface CheckRun {
+  id?: string;
+  changesetId?: string;
+  patchsetId?: string;
+  checkName?: string;
+  daemonId?: string;
+  provenance?: string;
+  attempt?: number;
+  status?: string;
+  exitCode?: number;
+  summary?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: Int64String;
+  createdAt?: string;
+}
+
+export interface CheckRunLog {
+  runId?: string;
+  seq?: Int64String;
+  stream?: string;
+  chunk?: string;
+  createdAt?: string;
+}
+
+export interface ListCheckRunsRequest {
+  changesetId?: string;
+  patchsetId?: string;
+}
+
+export interface ListCheckRunsResponse {
+  runs?: CheckRun[];
+}
+
+export interface GetCheckRunRequest {
+  runId?: string;
+}
+
+export interface StreamCheckRunRequest {
+  runId?: string;
+  afterSeq?: Int64String | number;
 }
 
 export interface AgentDaemon {

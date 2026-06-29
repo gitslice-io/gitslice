@@ -1,4 +1,5 @@
 export { ChangesetSkeleton } from "./ChangesetSkeleton";
+export { ChecksPanel } from "./ChecksPanel";
 export { CopyLinkButton } from "./CopyLinkButton";
 export { ErrorBox } from "./ErrorBox";
 export { PageMessage } from "./PageMessage";
