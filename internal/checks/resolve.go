@@ -30,10 +30,13 @@ type CheckSpec struct {
 	Run              string
 	Image            string
 	Setup            []string
+	Cache            []string
 	WorkingDir       string // logical path
 	MaterializePaths []string
 	Env              map[string]string
 	Network          bool
+	Memory           string
+	CPUs             string
 	Timeout          time.Duration
 	OutOfSlice       bool
 }
@@ -169,10 +172,13 @@ func buildCheckSpec(definingDir, localName string, check Check, includedPaths []
 		Run:              check.Run,
 		Image:            check.Image,
 		Setup:            copyStringSlice(check.Setup),
+		Cache:            copyStringSlice(check.Cache),
 		WorkingDir:       workingDir,
 		MaterializePaths: materializePaths,
 		Env:              copyEnv(check.Env),
 		Network:          check.Network,
+		Memory:           check.Memory,
+		CPUs:             check.CPUs,
 		Timeout:          check.Timeout,
 		OutOfSlice:       materializeOutOfSlice(materializePaths, includedPaths),
 	}, nil

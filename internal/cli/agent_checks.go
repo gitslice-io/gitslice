@@ -482,10 +482,13 @@ func checkSpecFromProto(spec *corev1.CheckRunSpec) checks.CheckSpec {
 		Run:              spec.GetCommand(),
 		Image:            spec.GetImage(),
 		Setup:            append([]string(nil), spec.GetSetup()...),
+		Cache:            append([]string(nil), spec.GetCache()...),
 		WorkingDir:       spec.GetWorkingDir(),
 		MaterializePaths: append([]string(nil), spec.GetMaterializePaths()...),
 		Env:              copyCheckEnv(spec.GetEnv()),
 		Network:          spec.GetNetwork(),
+		Memory:           spec.GetMemory(),
+		CPUs:             spec.GetCpus(),
 		Timeout:          timeout,
 	}
 }

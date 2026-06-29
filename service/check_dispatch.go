@@ -410,10 +410,13 @@ func checkRunSpecFromPlan(runID string, spec checks.CheckSpec) *corev1.CheckRunS
 		Command:          spec.Run,
 		Image:            spec.Image,
 		Setup:            append([]string(nil), spec.Setup...),
+		Cache:            append([]string(nil), spec.Cache...),
 		WorkingDir:       spec.WorkingDir,
 		MaterializePaths: append([]string(nil), spec.MaterializePaths...),
 		Env:              copyStringMap(spec.Env),
 		Network:          spec.Network,
+		Memory:           spec.Memory,
+		Cpus:             spec.CPUs,
 		TimeoutMs:        spec.Timeout.Milliseconds(),
 	}
 }

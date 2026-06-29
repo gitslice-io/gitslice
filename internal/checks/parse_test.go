@@ -13,11 +13,16 @@ defaults:
   image: "golang:1.22"
   setup:
     - "go env -w GOPROXY=off"
+  cache:
+    - "/go/pkg/mod"
+    - "/root/.cache/go-build"
   timeout: "10m"
   env:
     CGO_ENABLED: "0"
     SHARED: "default"
   network: true
+  memory: "6g"
+  cpus: "3"
 checks:
   test:
     description: "unit tests"
@@ -26,6 +31,8 @@ checks:
     setup:
       - "apt-get update"
       - "apt-get install -y make"
+    cache:
+      - "/tmp/check-cache"
     timeout: "30s"
     paths: ["**/*.go"]
     include: ["/go.mod", "/go.sum"]
@@ -34,11 +41,16 @@ checks:
       SHARED: "check"
       EXTRA: "1"
     network: false
+    memory: "8g"
+    cpus: "4"
   lint:
     run: "go vet ./..."
   empty_setup:
     run: "go test ./..."
     setup: []
+  empty_cache:
+    run: "go test ./..."
+    cache: []
 `))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -62,11 +74,21 @@ checks:
 	if got := test.Setup; !stringSlicesEqual(got, wantTestSetup) {
 		t.Fatalf("test.Setup = %#v, want %#v", got, wantTestSetup)
 	}
+	wantTestCache := []string{"/tmp/check-cache"}
+	if got := test.Cache; !stringSlicesEqual(got, wantTestCache) {
+		t.Fatalf("test.Cache = %#v, want %#v", got, wantTestCache)
+	}
 	if test.Timeout != 30*time.Second {
 		t.Fatalf("test.Timeout = %v, want 30s", test.Timeout)
 	}
 	if test.Network {
 		t.Fatalf("test.Network = true, want false override")
+	}
+	if test.Memory != "8g" {
+		t.Fatalf("test.Memory = %q, want 8g", test.Memory)
+	}
+	if test.CPUs != "4" {
+		t.Fatalf("test.CPUs = %q, want 4", test.CPUs)
 	}
 	if test.WorkingDir != "cmd/service" {
 		t.Fatalf("test.WorkingDir = %q", test.WorkingDir)
@@ -89,11 +111,21 @@ checks:
 	if got := lint.Setup; !stringSlicesEqual(got, wantDefaultSetup) {
 		t.Fatalf("lint.Setup = %#v, want %#v", got, wantDefaultSetup)
 	}
+	wantDefaultCache := []string{"/go/pkg/mod", "/root/.cache/go-build"}
+	if got := lint.Cache; !stringSlicesEqual(got, wantDefaultCache) {
+		t.Fatalf("lint.Cache = %#v, want %#v", got, wantDefaultCache)
+	}
 	if lint.Timeout != 10*time.Minute {
 		t.Fatalf("lint.Timeout = %v, want default 10m", lint.Timeout)
 	}
 	if !lint.Network {
 		t.Fatalf("lint.Network = false, want default true")
+	}
+	if lint.Memory != "6g" {
+		t.Fatalf("lint.Memory = %q, want default 6g", lint.Memory)
+	}
+	if lint.CPUs != "3" {
+		t.Fatalf("lint.CPUs = %q, want default 3", lint.CPUs)
 	}
 	if lint.WorkingDir != "." {
 		t.Fatalf("lint.WorkingDir = %q, want .", lint.WorkingDir)
@@ -102,6 +134,11 @@ checks:
 	emptySetup := file.Checks["empty_setup"]
 	if len(emptySetup.Setup) != 0 {
 		t.Fatalf("empty_setup.Setup = %#v, want empty override", emptySetup.Setup)
+	}
+
+	emptyCache := file.Checks["empty_cache"]
+	if len(emptyCache.Cache) != 0 {
+		t.Fatalf("empty_cache.Cache = %#v, want empty override", emptyCache.Cache)
 	}
 }
 
@@ -172,6 +209,51 @@ checks:
     timeout: nope
 `,
 			wantErr: `check "test" timeout`,
+		},
+		{
+			name: "default cache relative path",
+			yaml: `
+version: 1
+defaults:
+  cache: ["relative/cache"]
+checks:
+  test:
+    run: go test ./...
+`,
+			wantErr: "defaults cache",
+		},
+		{
+			name: "check cache relative path",
+			yaml: `
+version: 1
+checks:
+  test:
+    run: go test ./...
+    cache: ["relative/cache"]
+`,
+			wantErr: `check "test" cache`,
+		},
+		{
+			name: "check cache ascent",
+			yaml: `
+version: 1
+checks:
+  test:
+    run: go test ./...
+    cache: ["/root/../cache"]
+`,
+			wantErr: "contains .. segment",
+		},
+		{
+			name: "check cache root",
+			yaml: `
+version: 1
+checks:
+  test:
+    run: go test ./...
+    cache: ["/"]
+`,
+			wantErr: "must not be the container root",
 		},
 		{
 			name: "paths ascent",

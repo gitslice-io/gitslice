@@ -3,6 +3,7 @@ package checks
 import (
 	"bytes"
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -22,9 +23,12 @@ type File struct {
 type Defaults struct {
 	Image   string
 	Setup   []string
+	Cache   []string      // absolute container paths; check-level cache replaces defaults
 	Timeout time.Duration // parsed from a Go duration string, optional
 	Env     map[string]string
 	Network bool
+	Memory  string
+	CPUs    string
 }
 
 type Check struct {
@@ -32,11 +36,14 @@ type Check struct {
 	Run         string            // required
 	Image       string            // optional; overrides Defaults.Image
 	Setup       []string          // optional image preparation commands
+	Cache       []string          // optional absolute container paths; replaces Defaults.Cache
 	Paths       []string          // optional trigger globs
 	Include     []string          // optional extra materialize prefixes
 	WorkingDir  string            // optional, default "."
 	Env         map[string]string // merged over Defaults.Env
 	Network     bool
+	Memory      string
+	CPUs        string
 	Timeout     time.Duration // optional, overrides Defaults.Timeout
 }
 
@@ -49,9 +56,12 @@ type rawFile struct {
 type rawDefaults struct {
 	Image   string            `yaml:"image"`
 	Setup   []string          `yaml:"setup"`
+	Cache   []string          `yaml:"cache"`
 	Timeout string            `yaml:"timeout"`
 	Env     map[string]string `yaml:"env"`
 	Network bool              `yaml:"network"`
+	Memory  string            `yaml:"memory"`
+	CPUs    string            `yaml:"cpus"`
 }
 
 type rawCheck struct {
@@ -59,11 +69,14 @@ type rawCheck struct {
 	Run         string            `yaml:"run"`
 	Image       string            `yaml:"image"`
 	Setup       []string          `yaml:"setup"`
+	Cache       []string          `yaml:"cache"`
 	Paths       []string          `yaml:"paths"`
 	Include     []string          `yaml:"include"`
 	WorkingDir  string            `yaml:"working_dir"`
 	Env         map[string]string `yaml:"env"`
 	Network     *bool             `yaml:"network"`
+	Memory      string            `yaml:"memory"`
+	CPUs        string            `yaml:"cpus"`
 	Timeout     string            `yaml:"timeout"`
 }
 
@@ -132,12 +145,18 @@ func parseDefaults(raw rawDefaults) (Defaults, error) {
 	if err != nil {
 		return Defaults{}, err
 	}
+	if err := validateCacheList("defaults", raw.Cache); err != nil {
+		return Defaults{}, err
+	}
 	return Defaults{
 		Image:   raw.Image,
 		Setup:   copyStringSlice(raw.Setup),
+		Cache:   normalizeCacheValues(raw.Cache),
 		Timeout: timeout,
 		Env:     copyEnv(raw.Env),
 		Network: raw.Network,
+		Memory:  raw.Memory,
+		CPUs:    raw.CPUs,
 	}, nil
 }
 
@@ -149,6 +168,9 @@ func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
 		return Check{}, err
 	}
 	if err := validatePathList(name, "include", raw.Include, false); err != nil {
+		return Check{}, err
+	}
+	if err := validateCacheList(fmt.Sprintf("check %q", name), raw.Cache); err != nil {
 		return Check{}, err
 	}
 
@@ -179,9 +201,24 @@ func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
 		setup = raw.Setup
 	}
 
+	cache := defaults.Cache
+	if raw.Cache != nil {
+		cache = raw.Cache
+	}
+
 	network := defaults.Network
 	if raw.Network != nil {
 		network = *raw.Network
+	}
+
+	memory := defaults.Memory
+	if raw.Memory != "" {
+		memory = raw.Memory
+	}
+
+	cpus := defaults.CPUs
+	if raw.CPUs != "" {
+		cpus = raw.CPUs
 	}
 
 	env := copyEnv(defaults.Env)
@@ -197,11 +234,14 @@ func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
 		Run:         raw.Run,
 		Image:       image,
 		Setup:       copyStringSlice(setup),
+		Cache:       normalizeCacheValues(cache),
 		Paths:       normalizePathValues(raw.Paths),
 		Include:     normalizePathValues(raw.Include),
 		WorkingDir:  normalizePathValue(workingDir),
 		Env:         env,
 		Network:     network,
+		Memory:      memory,
+		CPUs:        cpus,
 		Timeout:     timeout,
 	}, nil
 }
@@ -221,6 +261,27 @@ func validatePathList(checkName, field string, values []string, glob bool) error
 	for _, value := range values {
 		if err := validatePathValue(checkName, field, value, glob); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateCacheList(owner string, values []string) error {
+	for _, value := range values {
+		if value == "" {
+			return fmt.Errorf("%s cache contains empty path", owner)
+		}
+		normalized := normalizePathValue(value)
+		if !strings.HasPrefix(normalized, "/") {
+			return fmt.Errorf("%s cache %q must be an absolute container path", owner, value)
+		}
+		for _, segment := range strings.Split(normalized, "/") {
+			if segment == ".." {
+				return fmt.Errorf("%s cache %q contains .. segment", owner, value)
+			}
+		}
+		if path.Clean(normalized) == "/" {
+			return fmt.Errorf("%s cache %q must not be the container root", owner, value)
 		}
 	}
 	return nil
@@ -249,6 +310,17 @@ func normalizePathValues(values []string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
 		out = append(out, normalizePathValue(value))
+	}
+	return out
+}
+
+func normalizeCacheValues(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, path.Clean(normalizePathValue(value)))
 	}
 	return out
 }

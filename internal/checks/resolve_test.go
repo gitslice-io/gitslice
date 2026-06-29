@@ -109,23 +109,31 @@ defaults:
   image: golang:1.22
   setup:
     - go env -w GOPROXY=off
+  cache:
+    - /go/pkg/mod
   timeout: 10m
   env:
     CGO_ENABLED: "0"
     SHARED: default
   network: true
+  memory: 6g
+  cpus: "3"
 checks:
   test:
     run: go test ./...
     image: golang:1.23
     setup:
       - apt-get update
+    cache:
+      - /tmp/check-cache
     timeout: 30s
     working_dir: cmd/service
     env:
       SHARED: check
       EXTRA: "1"
     network: false
+    memory: 8g
+    cpus: "4"
 `),
 			},
 			changedPaths:  []string{"backend/app.go"},
@@ -139,11 +147,20 @@ checks:
 				if got, want := spec.Setup, []string{"apt-get update"}; !reflect.DeepEqual(got, want) {
 					t.Fatalf("Setup = %#v, want %#v", got, want)
 				}
+				if got, want := spec.Cache, []string{"/tmp/check-cache"}; !reflect.DeepEqual(got, want) {
+					t.Fatalf("Cache = %#v, want %#v", got, want)
+				}
 				if spec.Timeout != 30*time.Second {
 					t.Fatalf("Timeout = %v, want 30s", spec.Timeout)
 				}
 				if spec.Network {
 					t.Fatalf("Network = true, want false override")
+				}
+				if spec.Memory != "8g" {
+					t.Fatalf("Memory = %q, want 8g", spec.Memory)
+				}
+				if spec.CPUs != "4" {
+					t.Fatalf("CPUs = %q, want 4", spec.CPUs)
 				}
 				if spec.WorkingDir != "backend/cmd/service" {
 					t.Fatalf("WorkingDir = %q", spec.WorkingDir)
