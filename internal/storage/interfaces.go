@@ -125,8 +125,33 @@ type SliceStore interface {
 	ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error)
 	UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error)
+	SetSliceSecret(ctx context.Context, sliceID, name, value string) error
+	DeleteSliceSecret(ctx context.Context, sliceID, name string) error
+	ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error)
+	GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error)
 	Delete(ctx context.Context, sliceID string) error
 	CoveringIDsByPath(ctx context.Context, paths []string) (map[string][]string, error)
+}
+
+// ValidSliceSecretName reports whether name matches ^[A-Z_][A-Z0-9_]*$.
+func ValidSliceSecretName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if i == 0 {
+			if c == '_' || (c >= 'A' && c <= 'Z') {
+				continue
+			}
+			return false
+		}
+		if c == '_' || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // AgentDaemonInput is the registration payload for an agent daemon.

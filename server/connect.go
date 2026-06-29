@@ -212,6 +212,18 @@ func (a connectSliceAdapter) SetSliceCIDaemon(ctx context.Context, req *connect.
 	return connectResponse(a.svc.SetSliceCIDaemon(ctx, req.Msg))
 }
 
+func (a connectSliceAdapter) SetSliceSecret(ctx context.Context, req *connect.Request[corev1.SetSliceSecretRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.SetSliceSecret(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) DeleteSliceSecret(ctx context.Context, req *connect.Request[corev1.DeleteSliceSecretRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.DeleteSliceSecret(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) ListSliceSecrets(ctx context.Context, req *connect.Request[corev1.ListSliceSecretsRequest]) (*connect.Response[corev1.ListSliceSecretsResponse], error) {
+	return connectResponse(a.svc.ListSliceSecrets(ctx, req.Msg))
+}
+
 func (a connectSliceAdapter) DeleteSlice(ctx context.Context, req *connect.Request[corev1.DeleteSliceRequest]) (*connect.Response[corev1.DeleteSliceResponse], error) {
 	return connectResponse(a.svc.DeleteSlice(ctx, req.Msg))
 }

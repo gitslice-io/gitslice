@@ -26,6 +26,9 @@ const (
 	SliceService_ListSliceDefinitionVersions_FullMethodName = "/gitslice.core.v1.SliceService/ListSliceDefinitionVersions"
 	SliceService_UpdateSliceDefinition_FullMethodName       = "/gitslice.core.v1.SliceService/UpdateSliceDefinition"
 	SliceService_SetSliceCIDaemon_FullMethodName            = "/gitslice.core.v1.SliceService/SetSliceCIDaemon"
+	SliceService_SetSliceSecret_FullMethodName              = "/gitslice.core.v1.SliceService/SetSliceSecret"
+	SliceService_DeleteSliceSecret_FullMethodName           = "/gitslice.core.v1.SliceService/DeleteSliceSecret"
+	SliceService_ListSliceSecrets_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceSecrets"
 	SliceService_DeleteSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/DeleteSlice"
 )
 
@@ -40,6 +43,9 @@ type SliceServiceClient interface {
 	ListSliceDefinitionVersions(ctx context.Context, in *ListSliceDefinitionVersionsRequest, opts ...grpc.CallOption) (*ListSliceDefinitionVersionsResponse, error)
 	UpdateSliceDefinition(ctx context.Context, in *UpdateSliceDefinitionRequest, opts ...grpc.CallOption) (*SliceDefinition, error)
 	SetSliceCIDaemon(ctx context.Context, in *SetSliceCIDaemonRequest, opts ...grpc.CallOption) (*Slice, error)
+	SetSliceSecret(ctx context.Context, in *SetSliceSecretRequest, opts ...grpc.CallOption) (*Empty, error)
+	DeleteSliceSecret(ctx context.Context, in *DeleteSliceSecretRequest, opts ...grpc.CallOption) (*Empty, error)
+	ListSliceSecrets(ctx context.Context, in *ListSliceSecretsRequest, opts ...grpc.CallOption) (*ListSliceSecretsResponse, error)
 	DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error)
 }
 
@@ -114,6 +120,33 @@ func (c *sliceServiceClient) SetSliceCIDaemon(ctx context.Context, in *SetSliceC
 	return out, nil
 }
 
+func (c *sliceServiceClient) SetSliceSecret(ctx context.Context, in *SetSliceSecretRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, SliceService_SetSliceSecret_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) DeleteSliceSecret(ctx context.Context, in *DeleteSliceSecretRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, SliceService_DeleteSliceSecret_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) ListSliceSecrets(ctx context.Context, in *ListSliceSecretsRequest, opts ...grpc.CallOption) (*ListSliceSecretsResponse, error) {
+	out := new(ListSliceSecretsResponse)
+	err := c.cc.Invoke(ctx, SliceService_ListSliceSecrets_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sliceServiceClient) DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error) {
 	out := new(DeleteSliceResponse)
 	err := c.cc.Invoke(ctx, SliceService_DeleteSlice_FullMethodName, in, out, opts...)
@@ -134,6 +167,9 @@ type SliceServiceServer interface {
 	ListSliceDefinitionVersions(context.Context, *ListSliceDefinitionVersionsRequest) (*ListSliceDefinitionVersionsResponse, error)
 	UpdateSliceDefinition(context.Context, *UpdateSliceDefinitionRequest) (*SliceDefinition, error)
 	SetSliceCIDaemon(context.Context, *SetSliceCIDaemonRequest) (*Slice, error)
+	SetSliceSecret(context.Context, *SetSliceSecretRequest) (*Empty, error)
+	DeleteSliceSecret(context.Context, *DeleteSliceSecretRequest) (*Empty, error)
+	ListSliceSecrets(context.Context, *ListSliceSecretsRequest) (*ListSliceSecretsResponse, error)
 	DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error)
 }
 
@@ -161,6 +197,15 @@ func (UnimplementedSliceServiceServer) UpdateSliceDefinition(context.Context, *U
 }
 func (UnimplementedSliceServiceServer) SetSliceCIDaemon(context.Context, *SetSliceCIDaemonRequest) (*Slice, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetSliceCIDaemon not implemented")
+}
+func (UnimplementedSliceServiceServer) SetSliceSecret(context.Context, *SetSliceSecretRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetSliceSecret not implemented")
+}
+func (UnimplementedSliceServiceServer) DeleteSliceSecret(context.Context, *DeleteSliceSecretRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteSliceSecret not implemented")
+}
+func (UnimplementedSliceServiceServer) ListSliceSecrets(context.Context, *ListSliceSecretsRequest) (*ListSliceSecretsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSliceSecrets not implemented")
 }
 func (UnimplementedSliceServiceServer) DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteSlice not implemented")
@@ -303,6 +348,60 @@ func _SliceService_SetSliceCIDaemon_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_SetSliceSecret_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSliceSecretRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).SetSliceSecret(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_SetSliceSecret_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).SetSliceSecret(ctx, req.(*SetSliceSecretRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_DeleteSliceSecret_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSliceSecretRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).DeleteSliceSecret(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_DeleteSliceSecret_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).DeleteSliceSecret(ctx, req.(*DeleteSliceSecretRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_ListSliceSecrets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSliceSecretsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).ListSliceSecrets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_ListSliceSecrets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).ListSliceSecrets(ctx, req.(*ListSliceSecretsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SliceService_DeleteSlice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeleteSliceRequest)
 	if err := dec(in); err != nil {
@@ -355,6 +454,18 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetSliceCIDaemon",
 			Handler:    _SliceService_SetSliceCIDaemon_Handler,
+		},
+		{
+			MethodName: "SetSliceSecret",
+			Handler:    _SliceService_SetSliceSecret_Handler,
+		},
+		{
+			MethodName: "DeleteSliceSecret",
+			Handler:    _SliceService_DeleteSliceSecret_Handler,
+		},
+		{
+			MethodName: "ListSliceSecrets",
+			Handler:    _SliceService_ListSliceSecrets_Handler,
 		},
 		{
 			MethodName: "DeleteSlice",

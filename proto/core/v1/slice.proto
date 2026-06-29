@@ -14,6 +14,9 @@ service SliceService {
   rpc ListSliceDefinitionVersions(ListSliceDefinitionVersionsRequest) returns (ListSliceDefinitionVersionsResponse);
   rpc UpdateSliceDefinition(UpdateSliceDefinitionRequest) returns (SliceDefinition);
   rpc SetSliceCIDaemon(SetSliceCIDaemonRequest) returns (Slice);
+  rpc SetSliceSecret(SetSliceSecretRequest) returns (Empty);
+  rpc DeleteSliceSecret(DeleteSliceSecretRequest) returns (Empty);
+  rpc ListSliceSecrets(ListSliceSecretsRequest) returns (ListSliceSecretsResponse);
   rpc DeleteSlice(DeleteSliceRequest) returns (DeleteSliceResponse);
 }
 
@@ -91,6 +94,25 @@ message UpdateSliceDefinitionRequest {
 message SetSliceCIDaemonRequest {
   SliceRef slice = 1;
   string daemon_id = 2;
+}
+
+message SetSliceSecretRequest {
+  SliceRef slice = 1;
+  string name = 2;
+  string value = 3;
+}
+
+message DeleteSliceSecretRequest {
+  SliceRef slice = 1;
+  string name = 2;
+}
+
+message ListSliceSecretsRequest {
+  SliceRef slice = 1;
+}
+
+message ListSliceSecretsResponse {
+  repeated string names = 1;
 }
 
 message DeleteSliceRequest {

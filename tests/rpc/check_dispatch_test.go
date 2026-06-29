@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,6 +96,102 @@ checks:
 		t.Fatalf("SubmitChangeset after ci pass: %v", err)
 	}
 	waitForSubmittedChangeset(t, ctx, clients.changeset, changesetID)
+}
+
+func TestRPCSliceSecretsInjectIntoFullTreeRunnerDispatch(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+	agent := corev1.NewAgentServiceClient(conn)
+
+	sliceRef := createSubmitRequirementSlice(t, ctx, clients, slices, "ci-secret-dispatch", 0, []string{"secret-required"})
+	submitAcmeRootChecksFile(t, ctx, clients, `
+version: 1
+checks:
+  secret-required:
+    run: "echo secret"
+    env:
+      CI_TOKEN: declared
+      PLAIN_ENV: plain
+`)
+
+	daemonCtx, cancelDaemon := context.WithTimeout(ctx, 20*time.Second)
+	defer cancelDaemon()
+	stream, err := agent.Connect(daemonCtx)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Register{Register: &corev1.RegisterDaemon{
+		Name:              "ci-secret-dispatch-daemon",
+		Runtime:           "test",
+		Version:           "0.0.1",
+		ContainerRuntimes: []string{"none"},
+		AllowHostExec:     true,
+	}}}); err != nil {
+		t.Fatalf("send register: %v", err)
+	}
+	reg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv registered: %v", err)
+	}
+	daemonID := reg.GetRegistered().GetDaemonId()
+	if daemonID == "" {
+		t.Fatalf("registered message missing daemon id: %#v", reg)
+	}
+	if _, err := slices.SetSliceCIDaemon(ctx, &corev1.SetSliceCIDaemonRequest{
+		Slice:    sliceRef,
+		DaemonId: daemonID,
+	}); err != nil {
+		t.Fatalf("SetSliceCIDaemon: %v", err)
+	}
+	if _, err := slices.SetSliceSecret(ctx, &corev1.SetSliceSecretRequest{
+		Slice: sliceRef,
+		Name:  "CI_TOKEN",
+		Value: "super-secret",
+	}); err != nil {
+		t.Fatalf("SetSliceSecret: %v", err)
+	}
+	list, err := slices.ListSliceSecrets(ctx, &corev1.ListSliceSecretsRequest{Slice: sliceRef})
+	if err != nil {
+		t.Fatalf("ListSliceSecrets: %v", err)
+	}
+	if len(list.Names) != 1 || list.Names[0] != "CI_TOKEN" {
+		t.Fatalf("ListSliceSecrets names = %#v, want CI_TOKEN only", list.Names)
+	}
+	if strings.Contains(list.String(), "super-secret") {
+		t.Fatal("ListSliceSecrets returned a secret value")
+	}
+
+	changesetID, patchsetID := createDirectPatchsetForSlice(t, ctx, clients, sliceRef, "/acme/payment/ci-secret-dispatch/change.go", "package cisecretdispatch\nconst V = 1\n", "ci secret dispatch")
+	runChecks := recvRunChecks(t, stream, changesetID, patchsetID)
+	if len(runChecks.Checks) != 1 {
+		t.Fatalf("RunChecks checks = %d, want 1", len(runChecks.Checks))
+	}
+	check := runChecks.Checks[0]
+	if check.Env["CI_TOKEN"] != "super-secret" {
+		t.Fatal("RunChecks env did not contain the slice secret")
+	}
+	if check.Env["PLAIN_ENV"] != "plain" {
+		t.Fatalf("PLAIN_ENV = %q, want plain", check.Env["PLAIN_ENV"])
+	}
+
+	if _, err := slices.DeleteSliceSecret(ctx, &corev1.DeleteSliceSecretRequest{
+		Slice: sliceRef,
+		Name:  "CI_TOKEN",
+	}); err != nil {
+		t.Fatalf("DeleteSliceSecret: %v", err)
+	}
+	list, err = slices.ListSliceSecrets(ctx, &corev1.ListSliceSecretsRequest{Slice: sliceRef})
+	if err != nil {
+		t.Fatalf("ListSliceSecrets after delete: %v", err)
+	}
+	if len(list.Names) != 0 {
+		t.Fatalf("ListSliceSecrets after delete names = %#v, want none", list.Names)
+	}
 }
 
 func TestRPCSkippedRequiredCheckDoesNotBlockSubmit(t *testing.T) {
