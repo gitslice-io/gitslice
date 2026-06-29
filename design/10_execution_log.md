@@ -7131,3 +7131,18 @@ records non-terminal statuses). Verified on staging: same /nic ancestor check no
 shows `running` at t+3s and `passed` at **t+31s** (was ~155s), and the daemon log
 shows a single prompt RunChecks receipt. Lesson: add observability and confirm the
 mechanism before shipping a fix.
+
+## 2026-06-29 — CI materialization perf: cache + parallel walk (final)
+
+Continued from the latency investigation. The ~31s after the first fix (#283
+concurrent content fetch) was traced to two remaining serial costs in the daemon's
+check materialization, fixed to mirror how slice checkout works:
+- #285: fetch file CONTENT by content hash through the shared clientcache.ObjectCache
+  (the cache `gs workspace init` uses) instead of per-path ReadFile — only cold
+  blobs are fetched (2nd materialization of a tree = 0 ReadFile).
+- #286: parallelize the directory DISCOVERY walk (was one serial ListDirectory RPC
+  per dir; /nic contains a large gitslice import) via a bounded errgroup (limit 32,
+  TryGo + inline fallback; clean under -race).
+
+Verified on staging: the /nic ancestor check (341 files) now shows `running` at
+t+4s and `passed` at **t+5s**, down from ~155s originally (~30x). Config reverted.
