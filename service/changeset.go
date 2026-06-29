@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ type ChangesetService struct {
 	Repository  storage.RepositoryStore
 	Slices      storage.SliceStore
 	Agents      storage.AgentStore
+	Checks      storage.CheckStore
 	ObjectStore ObjectStore
 	validator   diffValidator
 }
@@ -206,9 +208,13 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if err := s.applyAuthoringConversation(ctx, patchset, slice.Id, req.ConversationId); err != nil {
 		return nil, err
 	}
+	priorPatchsetID := cs.CurrentPatchsetId
 	patchset, err = s.Changesets.AddPatchset(ctx, cs.Id, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if priorPatchsetID == "" || patchset.Id != priorPatchsetID {
+		s.recordBundledCheckRuns(ctx, cs.Id, patchset.Id, req.BundledCheckRuns)
 	}
 	if patchset.Author != "" {
 		usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{patchset.Author})
@@ -220,6 +226,36 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		}
 	}
 	return patchset, nil
+}
+
+func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, changesetID, patchsetID string, bundled []*corev1.BundledCheckRun) {
+	if len(bundled) == 0 || s.Checks == nil {
+		return
+	}
+	for _, bundledRun := range bundled {
+		if bundledRun == nil {
+			continue
+		}
+		run, err := s.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
+			ChangesetID: changesetID,
+			PatchsetID:  patchsetID,
+			CheckName:   bundledRun.Name,
+			Provenance:  "self",
+			Status:      "running",
+		})
+		if err != nil {
+			slog.Warn("failed to create bundled check run", "changeset_id", changesetID, "patchset_id", patchsetID, "check", bundledRun.Name, "error", err)
+			continue
+		}
+		if _, err := s.Checks.UpdateCheckRunStatus(ctx, run.Id, bundledRun.Status, bundledRun.ExitCode, bundledRun.Summary); err != nil {
+			slog.Warn("failed to record bundled check status", "run_id", run.Id, "check", bundledRun.Name, "status", bundledRun.Status, "error", err)
+		}
+		if bundledRun.Log != "" {
+			if _, err := s.Checks.AppendCheckRunLog(ctx, run.Id, 1, "stdout", bundledRun.Log); err != nil {
+				slog.Warn("failed to record bundled check log", "run_id", run.Id, "check", bundledRun.Name, "error", err)
+			}
+		}
+	}
 }
 
 // applyAuthoringConversation stamps the agent conversation that produced a

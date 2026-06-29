@@ -72,6 +72,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			Repository:  stores.Repository,
 			Slices:      stores.Slices,
 			Agents:      stores.Agents,
+			Checks:      stores.Checks,
 			ObjectStore: objectStore,
 			validator:   validator,
 		},

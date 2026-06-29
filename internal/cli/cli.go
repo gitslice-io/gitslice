@@ -1212,16 +1212,18 @@ func (r Runner) rootCommand() *cobra.Command {
 	}
 	csCreateCmd.Flags().StringVar(&createTitle, "title", createTitle, "changeset title")
 	captureTitle := "agent changeset"
+	captureNoChecks := false
 	csCaptureCmd := &cobra.Command{
 		Use:    "capture",
 		Short:  "Capture current workspace edits as a patchset (create or update)",
 		Hidden: true,
 		Args:   noArgs("gs cs capture [--title title]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runChangesetCapture(cmd.Context(), *opts, captureTitle)
+			return r.runChangesetCapture(cmd.Context(), *opts, captureTitle, captureNoChecks)
 		},
 	}
 	csCaptureCmd.Flags().StringVar(&captureTitle, "title", captureTitle, "changeset title used when creating")
+	csCaptureCmd.Flags().BoolVar(&captureNoChecks, "no-checks", captureNoChecks, "skip capture-time checks")
 	csUpdateCmd := &cobra.Command{
 		Use:   "update",
 		Short: "Create a new patchset for the current changeset",
@@ -5171,7 +5173,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 // It is a no-op when the workspace has no pending edits, so an agent daemon can
 // call it after every turn without producing empty patchsets. The conversation
 // link comes from the workspace config (WorkspaceConfig.ConversationID).
-func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, title string) error {
+func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, title string, noChecks bool) error {
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -5233,12 +5235,21 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 		priorPatchsetID = ""
 	}
 
+	var bundledCheckRuns []*corev1.BundledCheckRun
+	if !noChecks {
+		bundledCheckRuns, err = r.captureBundledCheckRuns(ctx, opts, ws, changedPathsFromEdits(edits))
+		if err != nil {
+			return err
+		}
+	}
+
 	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
 		ChangesetId:               changesetID,
 		ExpectedCurrentPatchsetId: expectedPatchsetID,
 		BaseCommitId:              state.BaseCommitID,
 		FileEdits:                 edits,
 		ConversationId:            ws.ConversationID,
+		BundledCheckRuns:          bundledCheckRuns,
 	})
 	if err != nil {
 		return err
