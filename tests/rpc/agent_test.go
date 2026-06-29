@@ -196,12 +196,22 @@ func TestAgentConversationPersistsRuntimeDeltas(t *testing.T) {
 		t.Fatalf("send reasoning delta: %v", err)
 	}
 
-	events, err := agent.GetConversationEvents(ctx, &corev1.GetConversationEventsRequest{ConversationId: conv.Id})
-	if err != nil {
-		t.Fatalf("GetConversationEvents: %v", err)
-	}
-	if len(events.Events) != 1 {
-		t.Fatalf("events = %d, want 1 (%#v)", len(events.Events), events.Events)
+	// The daemon->server stream persists events asynchronously, so poll until the
+	// delta lands rather than reading once immediately (avoids a flaky race).
+	var events *corev1.GetConversationEventsResponse
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		events, err = agent.GetConversationEvents(ctx, &corev1.GetConversationEventsRequest{ConversationId: conv.Id})
+		if err != nil {
+			t.Fatalf("GetConversationEvents: %v", err)
+		}
+		if len(events.Events) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("events = %d, want 1 after wait (%#v)", len(events.Events), events.Events)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 	ev := events.Events[0]
 	if ev.Seq != 1 || ev.Type != "reasoning_delta" || ev.Text != "checking" || ev.ItemId != "reason_1" {
