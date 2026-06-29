@@ -117,8 +117,8 @@ const agentWorkspaceInstructionsCommands = `- Use the ` + "`gs`" + ` CLI for sou
 
 // agentWorkspaceInstructionsChecks tells the agent about CI checks: they run
 // automatically when the turn is captured, the agent may maintain the
-// committed checks files, and it should run the check commands itself to verify
-// before ending a turn (but must never run capture — that is automatic).
+// committed checks files, and it should run `gs ci` to verify before ending a
+// turn (but must never run capture — that is automatic).
 const agentWorkspaceInstructionsChecks = `- CI checks: a slice can define checks in ` + "`.gitslice/checks.yaml`" + ` files
   (one per folder; they cascade from each changed path up to the repository root).
   Each check has a shell ` + "`run`" + ` command (e.g. build, test, or lint) and may
@@ -128,7 +128,7 @@ const agentWorkspaceInstructionsChecks = `- CI checks: a slice can define checks
   checks must pass before the changeset can submit.
 - You MAY create or edit ` + "`.gitslice/checks.yaml`" + ` like any other workspace file
   to add or adjust checks for the code you change — it is committed with the slice.
-- Before ending a turn, run the relevant check commands yourself (e.g. the build
-  or test command from the nearest ` + "`.gitslice/checks.yaml`" + `) to confirm your
-  edits pass, and fix failures rather than leaving a failing patchset. Run those
-  commands directly; do NOT run ` + "`gs cs capture`" + ` — capture is automatic.`
+- Before ending a turn, run ` + "`gs ci`" + ` to run all applicable checks for your
+  changes and confirm they pass; fix failures rather than leaving a failing
+  patchset. ` + "`gs ci`" + ` runs the checks locally and does NOT capture or submit, so
+  it is safe to run — but do NOT run ` + "`gs cs capture`" + ` (capture is automatic).`
