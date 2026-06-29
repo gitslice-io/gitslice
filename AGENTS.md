@@ -39,6 +39,7 @@ The design source of truth is under `design/`, especially:
 - `design/10_execution_log.md`
 - `design/11_web_interface_design.md`
 - `design/16_bring_your_own_agent.md`
+- `design/17_continuous_integration.md`
 
 ## Architecture Rules
 
