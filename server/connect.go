@@ -368,6 +368,10 @@ func (a connectCheckAdapter) GetCheckRun(ctx context.Context, req *connect.Reque
 	return connectResponse(a.svc.GetCheckRun(ctx, req.Msg))
 }
 
+func (a connectCheckAdapter) RerunCheck(ctx context.Context, req *connect.Request[corev1.RerunCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
+	return connectResponse(a.svc.RerunCheck(ctx, req.Msg))
+}
+
 func (a connectCheckAdapter) StreamCheckRun(ctx context.Context, req *connect.Request[corev1.StreamCheckRunRequest], stream *connect.ServerStream[corev1.CheckRunLog]) error {
 	return connectError(a.svc.StreamCheckRun(req.Msg, connectCheckRunLogStream{ctx: ctx, stream: stream}))
 }

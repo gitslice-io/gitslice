@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/check.proto.
  */
 export const file_proto_core_v1_check: GenFile = /*@__PURE__*/
-  fileDesc("Chlwcm90by9jb3JlL3YxL2NoZWNrLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIpMCCghDaGVja1J1bhIKCgJpZBgBIAEoCRIUCgxjaGFuZ2VzZXRfaWQYAiABKAkSEwoLcGF0Y2hzZXRfaWQYAyABKAkSEgoKY2hlY2tfbmFtZRgEIAEoCRIRCglkYWVtb25faWQYBSABKAkSEgoKcHJvdmVuYW5jZRgGIAEoCRIPCgdhdHRlbXB0GAcgASgFEg4KBnN0YXR1cxgIIAEoCRIRCglleGl0X2NvZGUYCSABKAUSDwoHc3VtbWFyeRgKIAEoCRISCgpzdGFydGVkX2F0GAsgASgJEhMKC2ZpbmlzaGVkX2F0GAwgASgJEhMKC2R1cmF0aW9uX21zGA0gASgDEhIKCmNyZWF0ZWRfYXQYDiABKAkiXQoLQ2hlY2tSdW5Mb2cSDgoGcnVuX2lkGAEgASgJEgsKA3NlcRgCIAEoAxIOCgZzdHJlYW0YAyABKAkSDQoFY2h1bmsYBCABKAkSEgoKY3JlYXRlZF9hdBgFIAEoCSJBChRMaXN0Q2hlY2tSdW5zUmVxdWVzdBIUCgxjaGFuZ2VzZXRfaWQYASABKAkSEwoLcGF0Y2hzZXRfaWQYAiABKAkiQQoVTGlzdENoZWNrUnVuc1Jlc3BvbnNlEigKBHJ1bnMYASADKAsyGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuIiQKEkdldENoZWNrUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiOgoVU3RyZWFtQ2hlY2tSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRIRCglhZnRlcl9zZXEYAiABKAMynQIKDENoZWNrU2VydmljZRJgCg1MaXN0Q2hlY2tSdW5zEiYuZ2l0c2xpY2UuY29yZS52MS5MaXN0Q2hlY2tSdW5zUmVxdWVzdBonLmdpdHNsaWNlLmNvcmUudjEuTGlzdENoZWNrUnVuc1Jlc3BvbnNlEk8KC0dldENoZWNrUnVuEiQuZ2l0c2xpY2UuY29yZS52MS5HZXRDaGVja1J1blJlcXVlc3QaGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuEloKDlN0cmVhbUNoZWNrUnVuEicuZ2l0c2xpY2UuY29yZS52MS5TdHJlYW1DaGVja1J1blJlcXVlc3QaHS5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuTG9nMAFCNlo0Z2l0aHViLmNvbS9naXRzbGljZS1pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z");
+  fileDesc("Chlwcm90by9jb3JlL3YxL2NoZWNrLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIpMCCghDaGVja1J1bhIKCgJpZBgBIAEoCRIUCgxjaGFuZ2VzZXRfaWQYAiABKAkSEwoLcGF0Y2hzZXRfaWQYAyABKAkSEgoKY2hlY2tfbmFtZRgEIAEoCRIRCglkYWVtb25faWQYBSABKAkSEgoKcHJvdmVuYW5jZRgGIAEoCRIPCgdhdHRlbXB0GAcgASgFEg4KBnN0YXR1cxgIIAEoCRIRCglleGl0X2NvZGUYCSABKAUSDwoHc3VtbWFyeRgKIAEoCRISCgpzdGFydGVkX2F0GAsgASgJEhMKC2ZpbmlzaGVkX2F0GAwgASgJEhMKC2R1cmF0aW9uX21zGA0gASgDEhIKCmNyZWF0ZWRfYXQYDiABKAkiXQoLQ2hlY2tSdW5Mb2cSDgoGcnVuX2lkGAEgASgJEgsKA3NlcRgCIAEoAxIOCgZzdHJlYW0YAyABKAkSDQoFY2h1bmsYBCABKAkSEgoKY3JlYXRlZF9hdBgFIAEoCSJBChRMaXN0Q2hlY2tSdW5zUmVxdWVzdBIUCgxjaGFuZ2VzZXRfaWQYASABKAkSEwoLcGF0Y2hzZXRfaWQYAiABKAkiQQoVTGlzdENoZWNrUnVuc1Jlc3BvbnNlEigKBHJ1bnMYASADKAsyGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuIiQKEkdldENoZWNrUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiIwoRUmVydW5DaGVja1JlcXVlc3QSDgoGcnVuX2lkGAEgASgJIjoKFVN0cmVhbUNoZWNrUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkSEQoJYWZ0ZXJfc2VxGAIgASgDMuwCCgxDaGVja1NlcnZpY2USYAoNTGlzdENoZWNrUnVucxImLmdpdHNsaWNlLmNvcmUudjEuTGlzdENoZWNrUnVuc1JlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkxpc3RDaGVja1J1bnNSZXNwb25zZRJPCgtHZXRDaGVja1J1bhIkLmdpdHNsaWNlLmNvcmUudjEuR2V0Q2hlY2tSdW5SZXF1ZXN0GhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1bhJNCgpSZXJ1bkNoZWNrEiMuZ2l0c2xpY2UuY29yZS52MS5SZXJ1bkNoZWNrUmVxdWVzdBoaLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW4SWgoOU3RyZWFtQ2hlY2tSdW4SJy5naXRzbGljZS5jb3JlLnYxLlN0cmVhbUNoZWNrUnVuUmVxdWVzdBodLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW5Mb2cwAUI2WjRnaXRodWIuY29tL2dpdHNsaWNlLWlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM");
 
 /**
  * @generated from message gitslice.core.v1.CheckRun
@@ -188,6 +188,23 @@ export const GetCheckRunRequestSchema: GenMessage<GetCheckRunRequest> = /*@__PUR
   messageDesc(file_proto_core_v1_check, 4);
 
 /**
+ * @generated from message gitslice.core.v1.RerunCheckRequest
+ */
+export type RerunCheckRequest = Message<"gitslice.core.v1.RerunCheckRequest"> & {
+  /**
+   * @generated from field: string run_id = 1;
+   */
+  runId: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.RerunCheckRequest.
+ * Use `create(RerunCheckRequestSchema)` to create a new message.
+ */
+export const RerunCheckRequestSchema: GenMessage<RerunCheckRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_check, 5);
+
+/**
  * @generated from message gitslice.core.v1.StreamCheckRunRequest
  */
 export type StreamCheckRunRequest = Message<"gitslice.core.v1.StreamCheckRunRequest"> & {
@@ -207,7 +224,7 @@ export type StreamCheckRunRequest = Message<"gitslice.core.v1.StreamCheckRunRequ
  * Use `create(StreamCheckRunRequestSchema)` to create a new message.
  */
 export const StreamCheckRunRequestSchema: GenMessage<StreamCheckRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_check, 5);
+  messageDesc(file_proto_core_v1_check, 6);
 
 /**
  * @generated from service gitslice.core.v1.CheckService
@@ -227,6 +244,14 @@ export const CheckService: GenService<{
   getCheckRun: {
     methodKind: "unary";
     input: typeof GetCheckRunRequestSchema;
+    output: typeof CheckRunSchema;
+  },
+  /**
+   * @generated from rpc gitslice.core.v1.CheckService.RerunCheck
+   */
+  rerunCheck: {
+    methodKind: "unary";
+    input: typeof RerunCheckRequestSchema;
     output: typeof CheckRunSchema;
   },
   /**

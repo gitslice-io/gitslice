@@ -31,7 +31,7 @@ type ChangesetService struct {
 	Checks      storage.CheckStore
 	ObjectStore ObjectStore
 	validator   diffValidator
-	hub         *agentHub
+	dispatcher  *checkDispatcher
 }
 
 type diffValidator struct {

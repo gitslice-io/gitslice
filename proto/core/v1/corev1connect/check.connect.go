@@ -39,6 +39,8 @@ const (
 	// CheckServiceGetCheckRunProcedure is the fully-qualified name of the CheckService's GetCheckRun
 	// RPC.
 	CheckServiceGetCheckRunProcedure = "/gitslice.core.v1.CheckService/GetCheckRun"
+	// CheckServiceRerunCheckProcedure is the fully-qualified name of the CheckService's RerunCheck RPC.
+	CheckServiceRerunCheckProcedure = "/gitslice.core.v1.CheckService/RerunCheck"
 	// CheckServiceStreamCheckRunProcedure is the fully-qualified name of the CheckService's
 	// StreamCheckRun RPC.
 	CheckServiceStreamCheckRunProcedure = "/gitslice.core.v1.CheckService/StreamCheckRun"
@@ -48,6 +50,7 @@ const (
 type CheckServiceClient interface {
 	ListCheckRuns(context.Context, *connect.Request[v1.ListCheckRunsRequest]) (*connect.Response[v1.ListCheckRunsResponse], error)
 	GetCheckRun(context.Context, *connect.Request[v1.GetCheckRunRequest]) (*connect.Response[v1.CheckRun], error)
+	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	StreamCheckRun(context.Context, *connect.Request[v1.StreamCheckRunRequest]) (*connect.ServerStreamForClient[v1.CheckRunLog], error)
 }
 
@@ -74,6 +77,12 @@ func NewCheckServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(checkServiceMethods.ByName("GetCheckRun")),
 			connect.WithClientOptions(opts...),
 		),
+		rerunCheck: connect.NewClient[v1.RerunCheckRequest, v1.CheckRun](
+			httpClient,
+			baseURL+CheckServiceRerunCheckProcedure,
+			connect.WithSchema(checkServiceMethods.ByName("RerunCheck")),
+			connect.WithClientOptions(opts...),
+		),
 		streamCheckRun: connect.NewClient[v1.StreamCheckRunRequest, v1.CheckRunLog](
 			httpClient,
 			baseURL+CheckServiceStreamCheckRunProcedure,
@@ -87,6 +96,7 @@ func NewCheckServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 type checkServiceClient struct {
 	listCheckRuns  *connect.Client[v1.ListCheckRunsRequest, v1.ListCheckRunsResponse]
 	getCheckRun    *connect.Client[v1.GetCheckRunRequest, v1.CheckRun]
+	rerunCheck     *connect.Client[v1.RerunCheckRequest, v1.CheckRun]
 	streamCheckRun *connect.Client[v1.StreamCheckRunRequest, v1.CheckRunLog]
 }
 
@@ -100,6 +110,11 @@ func (c *checkServiceClient) GetCheckRun(ctx context.Context, req *connect.Reque
 	return c.getCheckRun.CallUnary(ctx, req)
 }
 
+// RerunCheck calls gitslice.core.v1.CheckService.RerunCheck.
+func (c *checkServiceClient) RerunCheck(ctx context.Context, req *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.CheckRun], error) {
+	return c.rerunCheck.CallUnary(ctx, req)
+}
+
 // StreamCheckRun calls gitslice.core.v1.CheckService.StreamCheckRun.
 func (c *checkServiceClient) StreamCheckRun(ctx context.Context, req *connect.Request[v1.StreamCheckRunRequest]) (*connect.ServerStreamForClient[v1.CheckRunLog], error) {
 	return c.streamCheckRun.CallServerStream(ctx, req)
@@ -109,6 +124,7 @@ func (c *checkServiceClient) StreamCheckRun(ctx context.Context, req *connect.Re
 type CheckServiceHandler interface {
 	ListCheckRuns(context.Context, *connect.Request[v1.ListCheckRunsRequest]) (*connect.Response[v1.ListCheckRunsResponse], error)
 	GetCheckRun(context.Context, *connect.Request[v1.GetCheckRunRequest]) (*connect.Response[v1.CheckRun], error)
+	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	StreamCheckRun(context.Context, *connect.Request[v1.StreamCheckRunRequest], *connect.ServerStream[v1.CheckRunLog]) error
 }
 
@@ -131,6 +147,12 @@ func NewCheckServiceHandler(svc CheckServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(checkServiceMethods.ByName("GetCheckRun")),
 		connect.WithHandlerOptions(opts...),
 	)
+	checkServiceRerunCheckHandler := connect.NewUnaryHandler(
+		CheckServiceRerunCheckProcedure,
+		svc.RerunCheck,
+		connect.WithSchema(checkServiceMethods.ByName("RerunCheck")),
+		connect.WithHandlerOptions(opts...),
+	)
 	checkServiceStreamCheckRunHandler := connect.NewServerStreamHandler(
 		CheckServiceStreamCheckRunProcedure,
 		svc.StreamCheckRun,
@@ -143,6 +165,8 @@ func NewCheckServiceHandler(svc CheckServiceHandler, opts ...connect.HandlerOpti
 			checkServiceListCheckRunsHandler.ServeHTTP(w, r)
 		case CheckServiceGetCheckRunProcedure:
 			checkServiceGetCheckRunHandler.ServeHTTP(w, r)
+		case CheckServiceRerunCheckProcedure:
+			checkServiceRerunCheckHandler.ServeHTTP(w, r)
 		case CheckServiceStreamCheckRunProcedure:
 			checkServiceStreamCheckRunHandler.ServeHTTP(w, r)
 		default:
@@ -160,6 +184,10 @@ func (UnimplementedCheckServiceHandler) ListCheckRuns(context.Context, *connect.
 
 func (UnimplementedCheckServiceHandler) GetCheckRun(context.Context, *connect.Request[v1.GetCheckRunRequest]) (*connect.Response[v1.CheckRun], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.CheckService.GetCheckRun is not implemented"))
+}
+
+func (UnimplementedCheckServiceHandler) RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.CheckRun], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.CheckService.RerunCheck is not implemented"))
 }
 
 func (UnimplementedCheckServiceHandler) StreamCheckRun(context.Context, *connect.Request[v1.StreamCheckRunRequest], *connect.ServerStream[v1.CheckRunLog]) error {

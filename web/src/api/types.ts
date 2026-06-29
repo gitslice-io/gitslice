@@ -568,6 +568,10 @@ export interface GetCheckRunRequest {
   runId?: string;
 }
 
+export interface RerunCheckRequest {
+  runId?: string;
+}
+
 export interface StreamCheckRunRequest {
   runId?: string;
   afterSeq?: Int64String | number;

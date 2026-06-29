@@ -89,6 +89,33 @@ func local_request_CheckService_GetCheckRun_0(ctx context.Context, marshaler run
 	return msg, metadata, err
 }
 
+func request_CheckService_RerunCheck_0(ctx context.Context, marshaler runtime.Marshaler, client CheckServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq RerunCheckRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.RerunCheck(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_CheckService_RerunCheck_0(ctx context.Context, marshaler runtime.Marshaler, server CheckServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq RerunCheckRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.RerunCheck(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 func request_CheckService_StreamCheckRun_0(ctx context.Context, marshaler runtime.Marshaler, client CheckServiceClient, req *http.Request, pathParams map[string]string) (CheckService_StreamCheckRunClient, runtime.ServerMetadata, error) {
 	var (
 		protoReq StreamCheckRunRequest
@@ -157,6 +184,26 @@ func RegisterCheckServiceHandlerServer(ctx context.Context, mux *runtime.ServeMu
 			return
 		}
 		forward_CheckService_GetCheckRun_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_CheckService_RerunCheck_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/gitslice.core.v1.CheckService/RerunCheck", runtime.WithHTTPPathPattern("/gitslice.core.v1.CheckService/RerunCheck"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_CheckService_RerunCheck_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_CheckService_RerunCheck_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	mux.Handle(http.MethodPost, pattern_CheckService_StreamCheckRun_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
@@ -239,6 +286,23 @@ func RegisterCheckServiceHandlerClient(ctx context.Context, mux *runtime.ServeMu
 		}
 		forward_CheckService_GetCheckRun_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_CheckService_RerunCheck_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/gitslice.core.v1.CheckService/RerunCheck", runtime.WithHTTPPathPattern("/gitslice.core.v1.CheckService/RerunCheck"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_CheckService_RerunCheck_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_CheckService_RerunCheck_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_CheckService_StreamCheckRun_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -262,11 +326,13 @@ func RegisterCheckServiceHandlerClient(ctx context.Context, mux *runtime.ServeMu
 var (
 	pattern_CheckService_ListCheckRuns_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.CheckService", "ListCheckRuns"}, ""))
 	pattern_CheckService_GetCheckRun_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.CheckService", "GetCheckRun"}, ""))
+	pattern_CheckService_RerunCheck_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.CheckService", "RerunCheck"}, ""))
 	pattern_CheckService_StreamCheckRun_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.CheckService", "StreamCheckRun"}, ""))
 )
 
 var (
 	forward_CheckService_ListCheckRuns_0  = runtime.ForwardResponseMessage
 	forward_CheckService_GetCheckRun_0    = runtime.ForwardResponseMessage
+	forward_CheckService_RerunCheck_0     = runtime.ForwardResponseMessage
 	forward_CheckService_StreamCheckRun_0 = runtime.ForwardResponseStream
 )

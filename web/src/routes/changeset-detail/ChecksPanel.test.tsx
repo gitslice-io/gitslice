@@ -1,7 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -42,6 +49,7 @@ describe("ChecksPanel", () => {
           }
         ]
       }),
+      rerunCheck: vi.fn().mockResolvedValue({ id: "run_rerun" }),
       streamCheckRun: vi.fn(async function* () {})
     };
   });
@@ -72,6 +80,40 @@ describe("ChecksPanel", () => {
         changesetId: "cs_1",
         patchsetId: "ps_2"
       })
+    );
+  });
+
+  it("reruns a terminal check and refreshes the run list", async () => {
+    apiMock.current = {
+      listCheckRuns: vi.fn().mockResolvedValue({
+        runs: [
+          {
+            checkName: "lint",
+            changesetId: "cs_1",
+            exitCode: 1,
+            id: "run_failed",
+            patchsetId: "ps_2",
+            provenance: "ci",
+            status: "failed",
+            summary: "golangci-lint failed."
+          }
+        ]
+      }),
+      rerunCheck: vi.fn().mockResolvedValue({ id: "run_new" }),
+      streamCheckRun: vi.fn(async function* () {})
+    };
+
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rerun" }));
+
+    await waitFor(() =>
+      expect(apiMock.current.rerunCheck).toHaveBeenCalledWith({
+        runId: "run_failed"
+      })
+    );
+    await waitFor(() =>
+      expect(apiMock.current.listCheckRuns).toHaveBeenCalledTimes(2)
     );
   });
 });

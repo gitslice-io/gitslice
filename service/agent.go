@@ -37,6 +37,8 @@ type AgentService struct {
 	ObjectStore ObjectStore
 
 	hub        *agentHub
+	checkLogs  *checkLogHub
+	dispatcher *checkDispatcher
 	serverAddr string
 }
 

@@ -70,6 +70,7 @@ import type {
   ResolvePathRequest,
   ResolvePathResponse,
   ResolveSliceRequest,
+  RerunCheckRequest,
   SendAgentMessageRequest,
   SendAgentMessageResponse,
   SetSliceCIDaemonRequest,
@@ -138,6 +139,7 @@ export interface ApiClient {
   abandonChangeset(request: AbandonChangesetRequest): Promise<Empty>;
   listCheckRuns(request: ListCheckRunsRequest): Promise<ListCheckRunsResponse>;
   getCheckRun(request: GetCheckRunRequest): Promise<CheckRun>;
+  rerunCheck(request: RerunCheckRequest): Promise<CheckRun>;
   streamCheckRun(
     request: StreamCheckRunRequest,
     signal: AbortSignal
