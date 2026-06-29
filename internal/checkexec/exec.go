@@ -24,6 +24,10 @@ const (
 	MaxLogBytes    = 256 * 1024
 
 	containerWorkspacePath = "/workspace"
+
+	defaultContainerPIDsLimit = "2048"
+	DefaultContainerMemory    = "4g"
+	DefaultContainerCPUs      = "2"
 )
 
 type Result struct {
@@ -49,6 +53,8 @@ func Run(ctx context.Context, workspaceRoot string, spec checks.CheckSpec) (Resu
 }
 
 func runHost(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, timeout time.Duration) (Result, error) {
+	// Host execution intentionally ignores container-only cache and resource
+	// settings; there is no isolation boundary to mount persistent volumes into.
 	dir, err := workspaceDir(workspaceRoot, spec.WorkingDir)
 	if err != nil {
 		return Result{}, err
@@ -95,19 +101,10 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 		return Result{}, fmt.Errorf("resolve workspace root: %w", err)
 	}
 
-	args := []string{
-		"run",
-		"--rm",
-		"-v", root + ":" + containerWorkspacePath,
-		"-w", containerWorkingDir(spec.WorkingDir),
+	args, err := containerRunArgs(root, image, spec)
+	if err != nil {
+		return Result{}, err
 	}
-	if !spec.Network {
-		args = append(args, "--network=none")
-	}
-	for _, key := range sortedEnvKeys(spec.Env) {
-		args = append(args, "-e", key+"="+spec.Env[key])
-	}
-	args = append(args, image, "sh", "-c", spec.Run)
 
 	cmd := exec.CommandContext(ctx, runtime, args...)
 	result, err := runCommand(ctx, cmd, timeout)
@@ -252,6 +249,81 @@ func setupDockerfile(image string, setup []string) string {
 		fmt.Fprintf(&b, "RUN %s\n", command)
 	}
 	return b.String()
+}
+
+func containerRunArgs(root, image string, spec checks.CheckSpec) ([]string, error) {
+	cachePaths, err := normalizedContainerCachePaths(spec.Cache)
+	if err != nil {
+		return nil, err
+	}
+
+	args := []string{
+		"run",
+		"--rm",
+		"--security-opt=no-new-privileges",
+		"--cap-drop=ALL",
+		"--pids-limit=" + defaultContainerPIDsLimit,
+		"--memory=" + containerLimitValue(spec.Memory, DefaultContainerMemory),
+		"--cpus=" + containerLimitValue(spec.CPUs, DefaultContainerCPUs),
+		"-v", root + ":" + containerWorkspacePath,
+	}
+	for _, cachePath := range cachePaths {
+		args = append(args, "-v", checkCacheVolumeName(spec.Name, cachePath)+":"+cachePath)
+	}
+	args = append(args, "-w", containerWorkingDir(spec.WorkingDir))
+	if !spec.Network {
+		args = append(args, "--network=none")
+	}
+	for _, key := range sortedEnvKeys(spec.Env) {
+		args = append(args, "-e", key+"="+spec.Env[key])
+	}
+	args = append(args, image, "sh", "-c", spec.Run)
+	return args, nil
+}
+
+func containerLimitValue(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func normalizedContainerCachePaths(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		normalized := strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+		if normalized == "" {
+			return nil, fmt.Errorf("cache path is empty")
+		}
+		if !strings.HasPrefix(normalized, "/") {
+			return nil, fmt.Errorf("cache path %q must be absolute inside the container", value)
+		}
+		for _, segment := range strings.Split(normalized, "/") {
+			if segment == ".." {
+				return nil, fmt.Errorf("cache path %q contains .. segment", value)
+			}
+		}
+		normalized = path.Clean(normalized)
+		if normalized == "/" {
+			return nil, fmt.Errorf("cache path %q must not be the container root", value)
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+func checkCacheVolumeName(checkName, cachePath string) string {
+	sum := sha256.Sum256([]byte(checkName + "\x00" + cachePath))
+	return "gitslice-cache-" + hex.EncodeToString(sum[:])[:24]
 }
 
 func workspaceDir(workspaceRoot, logicalDir string) (string, error) {

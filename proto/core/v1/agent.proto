@@ -217,6 +217,9 @@ message CheckRunSpec {
   bool network = 8;
   int64 timeout_ms = 9;
   repeated string setup = 10;
+  repeated string cache = 11;
+  string memory = 12;
+  string cpus = 13;
 }
 
 message CancelCheckRun {

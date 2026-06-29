@@ -95,9 +95,23 @@ func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
 }
 
 func TestCheckRunSpecMapsSetup(t *testing.T) {
-	spec := checkSpecFromProto(&corev1.CheckRunSpec{Setup: []string{"true"}})
+	spec := checkSpecFromProto(&corev1.CheckRunSpec{
+		Setup:  []string{"true"},
+		Cache:  []string{"/go/pkg/mod"},
+		Memory: "8g",
+		Cpus:   "4",
+	})
 	if got := spec.Setup; len(got) != 1 || got[0] != "true" {
 		t.Fatalf("Setup = %#v, want [true]", got)
+	}
+	if got := spec.Cache; len(got) != 1 || got[0] != "/go/pkg/mod" {
+		t.Fatalf("Cache = %#v, want [/go/pkg/mod]", got)
+	}
+	if spec.Memory != "8g" {
+		t.Fatalf("Memory = %q, want 8g", spec.Memory)
+	}
+	if spec.CPUs != "4" {
+		t.Fatalf("CPUs = %q, want 4", spec.CPUs)
 	}
 }
 
