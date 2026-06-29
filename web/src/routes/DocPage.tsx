@@ -162,6 +162,7 @@ const commandGroups = [
       ["gs shell", "Open the server-backed file shell."],
       ["gs status", "Show pending workspace edits."],
       ["gs diff", "Inspect pending content changes."],
+      ["gs ci", "Run the slice's checks against your pending edits, locally."],
       ["gs log", "Read recent accepted history."],
       ["gs show <commit>", "Inspect an accepted native commit."]
     ]
@@ -602,6 +603,8 @@ function ChecksDoc() {
 defaults:
   image: "golang:1.22"     # run in this container; omit to run on the host
   timeout: "10m"
+  setup:                   # baked once into a cached image, reused across runs
+    - "apt-get update && apt-get install -y protobuf-compiler"
 
 checks:
   test:
@@ -664,7 +667,33 @@ checks:
             </code>
             ).
           </li>
+          <li>
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              setup
+            </code>{" "}
+            — commands run once to prepare the container image (install
+            toolchains/system packages). The result is baked into a cached image
+            and reused on later runs, so setup does not repeat. Keep it
+            change-independent (no workspace files); use a dependency cache for
+            per-change caches like{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              go mod
+            </code>{" "}
+            or{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              npm
+            </code>
+            .
+          </li>
         </ul>
+        <p className="mt-4 text-sm leading-6 text-slate-600">
+          Run the applicable checks for your current workspace at any time with{" "}
+          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            gs ci
+          </code>{" "}
+          — it runs the same set locally (with setup/run timing) and reports
+          pass/fail without capturing or submitting.
+        </p>
       </section>
 
       <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
