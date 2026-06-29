@@ -7074,3 +7074,36 @@ out-of-slice dispatch over a live daemon — the staging BYOA daemon had 6 activ
 conversations and updating its binary would disrupt them; the path is covered by
 the phase-4a rpc dispatch test (in-test daemon) and phase-4b materialize/exec
 unit tests. The staging daemon still runs the pre-4b binary.
+
+## 2026-06-29 — CI extensions + full-tree e2e on staging
+
+Follow-on work after the CI system (design 17) shipped. Merged: #275 (commit a
+pending log entry), #276 (fix flaky TestAgentConversationPersistsRuntimeDeltas —
+poll for async event persistence), #277 (RerunCheck RPC + Rerun button + live
+StreamCheckRun via an in-memory check-log hub, replacing the 500ms poll; shared
+check dispatcher), #278 (checks.yaml `cache:` persistent named volumes + container
+hardening: no-new-privileges, cap-drop=ALL, pids/memory/cpu limits — verified
+cache persistence e2e with docker), #279 (scoped per-slice secrets injected into
+RunChecks env on the CI-daemon path; migration 0020; never returned by a read
+RPC; plaintext-at-rest, encryption is a deploy follow-up).
+
+Deploy: rebuilt + restarted gitslice-rewrite-staging (migration 0020 applied,
+RerunCheck live); redeployed web (rerun UI); restarted the BYOA daemon on the new
+binary (preserved its 6 conversations via same-workspace relaunch).
+
+Full-tree-runner e2e (the previously unverified path), on staging:
+- Committed an ancestor check at /nic/.gitslice/checks.yaml (`repo-check`) via
+  nic:home; set nic:realtime required_checks + ci_daemon_id.
+- A nic:realtime patchset: the in-slice `smoke` check ran self/bundled; the
+  ancestor `repo-check` was resolved out-of-slice, dispatched to the CI daemon,
+  which materialized /nic from result_tree_id, ran it, and reported ci=passed.
+- Submit gate: blocked on a wrong required name, satisfied once required_checks
+  matched the actual qualified id (`repo-check`) and the ci result was present.
+  Reverted the test slice config afterward.
+
+KNOWN ISSUE (follow-up): the initial dispatch at capture time did not promptly
+reach the already-connected daemon; the queued ci run executed only after the
+daemon's next reconnect triggered replayDaemonCheckRuns (~minutes later). Checks
+eventually run and gate correctly, but initial-dispatch latency to a live daemon
+should be investigated (hub.daemon lookup / dispatch timing in
+service/check_dispatch.go dispatchOutOfSliceChecks).
