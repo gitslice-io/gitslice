@@ -128,6 +128,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		baseCtx:       agentCtx,
 		workingDir:    root,
 		conversations: map[string]*agentConversation{},
+		checkRuns:     map[string]context.CancelFunc{},
 	}
 	daemon.loadExistingConversations()
 	defer func() {
@@ -298,6 +299,7 @@ type agentDaemon struct {
 
 	mu            sync.Mutex
 	conversations map[string]*agentConversation
+	checkRuns     map[string]context.CancelFunc
 }
 
 type agentConversation struct {
@@ -362,6 +364,12 @@ func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.Ca
 		}
 	case *corev1.ServerMessage_Ack:
 		d.handleEventAck(payload.Ack)
+	case *corev1.ServerMessage_RunChecks:
+		go d.handleRunChecks(payload.RunChecks)
+	case *corev1.ServerMessage_CancelCheck:
+		d.handleCancelCheckRun(payload.CancelCheck)
+	case *corev1.ServerMessage_CheckAck:
+		d.handleCheckRunAck(payload.CheckAck)
 	}
 }
 
@@ -1285,9 +1293,11 @@ func registerDaemonMessage(name, runtimeName string) *corev1.DaemonMessage {
 	}
 	return &corev1.DaemonMessage{
 		Payload: &corev1.DaemonMessage_Register{Register: &corev1.RegisterDaemon{
-			Name:    name,
-			Runtime: runtimeName,
-			Version: version,
+			Name:              name,
+			Runtime:           runtimeName,
+			Version:           version,
+			ContainerRuntimes: detectContainerRuntimes(),
+			AllowHostExec:     true,
 		}},
 	}
 }
