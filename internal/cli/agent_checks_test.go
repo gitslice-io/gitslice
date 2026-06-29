@@ -7,7 +7,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gitslice-io/gitslice/internal/checkexec"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
@@ -55,6 +57,68 @@ func TestMaterializeCheckTreeFetchesNestedPrefix(t *testing.T) {
 	if got := info.Mode().Perm(); got != 0o755 {
 		t.Fatalf("materialized mode = %#o, want 0755", got)
 	}
+}
+
+func TestMaterializeCheckTreeFetchesNestedFilesConcurrently(t *testing.T) {
+	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{
+		"/": {
+			checkDirEntry("/app"),
+			checkFileEntry("/README.md", 0o100644),
+		},
+		"/app": {
+			checkDirEntry("/app/lib"),
+			checkFileEntry("/app/main.sh", 0o100755),
+		},
+		"/app/lib": {
+			checkFileEntry("/app/lib/a.txt", 0o100644),
+			checkFileEntry("/app/lib/b.txt", 0o100644),
+		},
+	}, map[string][]byte{
+		"/README.md":     []byte("readme\n"),
+		"/app/main.sh":   []byte("#!/bin/sh\n"),
+		"/app/lib/a.txt": []byte("alpha\n"),
+		"/app/lib/b.txt": []byte("bravo\n"),
+	})
+	repo.readStarted = make(chan struct{}, 4)
+	repo.readRelease = make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(repo.readRelease)
+		}
+	}()
+
+	dest := t.TempDir()
+	d := &agentDaemon{}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.materializeCheckTree(context.Background(), repo, "tree-1", []string{"app", "README.md"}, dest)
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-repo.readStarted:
+		case err := <-errCh:
+			t.Fatalf("materializeCheckTree() returned before concurrent reads: %v", err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for concurrent ReadFile calls")
+		}
+	}
+	close(repo.readRelease)
+	released = true
+	if err := <-errCh; err != nil {
+		t.Fatalf("materializeCheckTree() error = %v", err)
+	}
+	if got := repo.maxConcurrentReads(); got < 2 {
+		t.Fatalf("max concurrent ReadFile calls = %d, want at least 2", got)
+	}
+
+	assertFileContent(t, filepath.Join(dest, "README.md"), "readme\n")
+	assertFileContent(t, filepath.Join(dest, "app", "main.sh"), "#!/bin/sh\n")
+	assertFileContent(t, filepath.Join(dest, "app", "lib", "a.txt"), "alpha\n")
+	assertFileContent(t, filepath.Join(dest, "app", "lib", "b.txt"), "bravo\n")
+	assertFileMode(t, filepath.Join(dest, "app", "main.sh"), 0o755)
+	assertFileMode(t, filepath.Join(dest, "app", "lib", "a.txt"), 0o644)
 }
 
 func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
@@ -162,9 +226,108 @@ func TestHandleRunChecksDedupsRecentlyCompletedRunID(t *testing.T) {
 	}
 }
 
+func TestHandleRunChecksEmitsRunningBeforeTerminal(t *testing.T) {
+	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{"/": nil}, nil)
+	addr, stop := startFakeCheckRepoServer(t, repo)
+	defer stop()
+
+	sendQueue := &agentSendQueue{
+		ch:   make(chan *corev1.DaemonMessage, 16),
+		done: make(chan struct{}),
+	}
+	d := &agentDaemon{
+		cfg:       UserConfig{ServerAddr: addr},
+		baseCtx:   context.Background(),
+		sendQueue: sendQueue,
+		checkRuns: map[string]context.CancelFunc{},
+	}
+	req := &corev1.RunChecks{
+		ResultTreeId: "tree-1",
+		ServerAddr:   addr,
+		Checks: []*corev1.CheckRunSpec{{
+			RunId:            "run-running",
+			Name:             "unit",
+			Command:          "printf done",
+			MaterializePaths: []string{"/"},
+		}},
+	}
+
+	d.handleRunChecks(req)
+
+	updates := collectCheckRunUpdates(sendQueue.ch, "run-running")
+	if len(updates) < 2 {
+		t.Fatalf("check updates = %d, want running and terminal", len(updates))
+	}
+	running := updates[0]
+	if running.GetStatus() != "running" {
+		t.Fatalf("first update status = %q, want running", running.GetStatus())
+	}
+	if running.GetFinal() {
+		t.Fatal("running update Final = true, want false")
+	}
+	if running.GetClientSeq() != 1 {
+		t.Fatalf("running update client_seq = %d, want 1", running.GetClientSeq())
+	}
+	var terminal *corev1.CheckRunUpdate
+	for _, update := range updates {
+		if update.GetFinal() {
+			terminal = update
+		}
+	}
+	if terminal == nil {
+		t.Fatalf("updates missing terminal update: %#v", updates)
+	}
+	if terminal.GetClientSeq() <= running.GetClientSeq() {
+		t.Fatalf("terminal client_seq = %d, want after running seq %d", terminal.GetClientSeq(), running.GetClientSeq())
+	}
+}
+
+func collectCheckRunUpdates(ch <-chan *corev1.DaemonMessage, runID string) []*corev1.CheckRunUpdate {
+	var updates []*corev1.CheckRunUpdate
+	for {
+		select {
+		case msg := <-ch:
+			update := msg.GetCheckUpdate()
+			if update != nil && update.GetRunId() == runID {
+				updates = append(updates, update)
+			}
+		default:
+			return updates
+		}
+	}
+}
+
+func assertFileContent(t *testing.T, target, want string) {
+	t.Helper()
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want {
+		t.Fatalf("%s content = %q, want %q", target, data, want)
+	}
+}
+
+func assertFileMode(t *testing.T, target string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode = %#o, want %#o", target, got, want)
+	}
+}
+
 type fakeCheckRepo struct {
 	dirs  map[string][]*corev1.TreeEntry
 	files map[string][]byte
+
+	mu             sync.Mutex
+	activeReads    int
+	maxActiveReads int
+	readStarted    chan struct{}
+	readRelease    chan struct{}
 }
 
 func newFakeCheckRepo(dirs map[string][]*corev1.TreeEntry, files map[string][]byte) *fakeCheckRepo {
@@ -192,11 +355,55 @@ func (f *fakeCheckRepo) ReadFile(ctx context.Context, req *corev1.ReadFileReques
 	if req.GetRootTreeId() != "tree-1" {
 		return nil, status.Errorf(codes.InvalidArgument, "root tree id = %q", req.GetRootTreeId())
 	}
+	if err := f.beginRead(ctx); err != nil {
+		return nil, err
+	}
+	defer f.endRead()
 	data, ok := f.files[req.GetPath()]
 	if !ok {
 		return nil, status.Error(codes.NotFound, "file not found")
 	}
 	return &corev1.ReadFileResponse{Data: data}, nil
+}
+
+func (f *fakeCheckRepo) beginRead(ctx context.Context) error {
+	f.mu.Lock()
+	f.activeReads++
+	if f.activeReads > f.maxActiveReads {
+		f.maxActiveReads = f.activeReads
+	}
+	started := f.readStarted
+	release := f.readRelease
+	f.mu.Unlock()
+
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if release == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		f.endRead()
+		return ctx.Err()
+	case <-release:
+		return nil
+	}
+}
+
+func (f *fakeCheckRepo) endRead() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.activeReads--
+}
+
+func (f *fakeCheckRepo) maxConcurrentReads() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.maxActiveReads
 }
 
 func checkDirEntry(p string) *corev1.TreeEntry {

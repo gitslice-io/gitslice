@@ -16,10 +16,14 @@ import (
 	"github.com/gitslice-io/gitslice/internal/checkexec"
 	"github.com/gitslice-io/gitslice/internal/checks"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
-const checkMaterializePageSize = 1000
+const (
+	checkMaterializePageSize        = 1000
+	checkMaterializeReadConcurrency = 32
+)
 
 type RepoClient interface {
 	ListDirectory(ctx context.Context, req *corev1.ListDirectoryRequest, opts ...grpc.CallOption) (*corev1.ListDirectoryResponse, error)
@@ -45,9 +49,10 @@ func (d *agentDaemon) materializeCheckTree(ctx context.Context, repo RepoClient,
 	if len(prefixes) == 0 {
 		prefixes = []string{"/"}
 	}
+	plan := newCheckMaterializePlan()
 	for _, prefix := range prefixes {
 		if prefix == "/" {
-			if err := d.materializeCheckDirectory(ctx, repo, rootTreeID, "/", destRoot); err != nil {
+			if err := d.materializeCheckDirectory(ctx, repo, rootTreeID, "/", plan); err != nil {
 				return err
 			}
 			continue
@@ -62,30 +67,49 @@ func (d *agentDaemon) materializeCheckTree(ctx context.Context, repo RepoClient,
 			if err != nil {
 				return err
 			}
-			if err := d.materializeCheckDirectory(ctx, repo, rootTreeID, entryPath, destRoot); err != nil {
+			if err := d.materializeCheckDirectory(ctx, repo, rootTreeID, entryPath, plan); err != nil {
 				return err
 			}
 		case corev1.EntryKind_ENTRY_KIND_FILE:
-			if err := materializeCheckFile(ctx, repo, rootTreeID, entry, destRoot); err != nil {
+			if err := plan.addFile(entry); err != nil {
 				return err
 			}
 		default:
 			return fmt.Errorf("unsupported check tree entry kind for %s: %s", prefix, entryKindName(entry.GetKind()))
 		}
 	}
-	return nil
+	for _, dir := range plan.sortedDirs() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		target, err := checkTreeLocalPath(destRoot, dir)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return err
+		}
+	}
+	g, groupCtx := errgroup.WithContext(ctx)
+	g.SetLimit(checkMaterializeReadConcurrency)
+	for _, entry := range plan.sortedFiles() {
+		entry := entry
+		g.Go(func() error {
+			return materializeCheckFile(groupCtx, repo, rootTreeID, entry, destRoot)
+		})
+	}
+	return g.Wait()
 }
 
-func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoClient, rootTreeID, dir, destRoot string) error {
+func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoClient, rootTreeID, dir string, plan *checkMaterializePlan) error {
+	if plan == nil {
+		return fmt.Errorf("check materialize plan is required")
+	}
 	dir, err := normalizeCheckMaterializePath(dir)
 	if err != nil {
 		return err
 	}
-	target, err := checkTreeLocalPath(destRoot, dir)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(target, 0o755); err != nil {
+	if err := plan.addDir(dir); err != nil {
 		return err
 	}
 	entries, err := listCheckDirectoryAll(ctx, repo, &corev1.ListDirectoryRequest{
@@ -106,11 +130,11 @@ func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoCl
 			if err != nil {
 				return err
 			}
-			if err := d.materializeCheckDirectory(ctx, repo, rootTreeID, entryPath, destRoot); err != nil {
+			if err := d.materializeCheckDirectory(ctx, repo, rootTreeID, entryPath, plan); err != nil {
 				return err
 			}
 		case corev1.EntryKind_ENTRY_KIND_FILE:
-			if err := materializeCheckFile(ctx, repo, rootTreeID, entry, destRoot); err != nil {
+			if err := plan.addFile(entry); err != nil {
 				return err
 			}
 		default:
@@ -118,6 +142,72 @@ func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoCl
 		}
 	}
 	return nil
+}
+
+type checkMaterializePlan struct {
+	dirs  map[string]struct{}
+	files map[string]*corev1.TreeEntry
+}
+
+func newCheckMaterializePlan() *checkMaterializePlan {
+	return &checkMaterializePlan{
+		dirs:  map[string]struct{}{},
+		files: map[string]*corev1.TreeEntry{},
+	}
+}
+
+func (p *checkMaterializePlan) addDir(dir string) error {
+	dir, err := normalizeCheckMaterializePath(dir)
+	if err != nil {
+		return err
+	}
+	p.dirs[dir] = struct{}{}
+	return nil
+}
+
+func (p *checkMaterializePlan) addFile(entry *corev1.TreeEntry) error {
+	entryPath, err := entryLogicalPath(entry)
+	if err != nil {
+		return err
+	}
+	p.files[entryPath] = entry
+	return p.addDir(checkMaterializeParentDir(entryPath))
+}
+
+func (p *checkMaterializePlan) sortedDirs() []string {
+	out := make([]string, 0, len(p.dirs))
+	for dir := range p.dirs {
+		out = append(out, dir)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		leftDepth := checkPathDepth(out[i])
+		rightDepth := checkPathDepth(out[j])
+		if leftDepth != rightDepth {
+			return leftDepth < rightDepth
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func (p *checkMaterializePlan) sortedFiles() []*corev1.TreeEntry {
+	paths := make([]string, 0, len(p.files))
+	for filePath := range p.files {
+		paths = append(paths, filePath)
+	}
+	sort.Strings(paths)
+	out := make([]*corev1.TreeEntry, 0, len(paths))
+	for _, filePath := range paths {
+		out = append(out, p.files[filePath])
+	}
+	return out
+}
+
+func checkMaterializeParentDir(filePath string) string {
+	if filePath == "/" || !strings.Contains(filePath, "/") {
+		return "/"
+	}
+	return filePath[:strings.LastIndex(filePath, "/")]
 }
 
 func materializeCheckFile(ctx context.Context, repo RepoClient, rootTreeID string, entry *corev1.TreeEntry, destRoot string) error {
@@ -376,9 +466,13 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 	defer d.clearCheckRun(spec.GetRunId(), cancel)
 	defer cancel()
 
+	seq := int64(0)
+	d.emitCheckRunRunning(spec.GetRunId(), &seq)
+
 	tempDir, err := os.MkdirTemp("", "gitslice-check-*")
 	if err != nil {
-		d.emitCheckRunError(spec.GetRunId(), 0, err)
+		d.emitCheckRunLog(spec.GetRunId(), &seq, err.Error())
+		d.emitCheckRunTerminal(spec.GetRunId(), &seq, "errored", -1, oneLineSummary(err.Error()))
 		return
 	}
 	defer func() {
@@ -387,7 +481,6 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 		}
 	}()
 
-	seq := int64(0)
 	if err := d.materializeCheckTree(authContext(runCtx, d.cfg), repo, req.GetResultTreeId(), spec.GetMaterializePaths(), tempDir); err != nil {
 		if errors.Is(err, context.Canceled) && baseCtx.Err() == nil {
 			d.emitCheckRunTerminal(spec.GetRunId(), &seq, "canceled", -1, "canceled")
@@ -437,6 +530,18 @@ func (d *agentDaemon) emitCheckRunError(runID string, seq int64, err error) {
 	}
 	d.emitCheckRunLog(runID, &seq, err.Error())
 	d.emitCheckRunTerminal(runID, &seq, "errored", -1, oneLineSummary(err.Error()))
+}
+
+func (d *agentDaemon) emitCheckRunRunning(runID string, seq *int64) {
+	if strings.TrimSpace(runID) == "" {
+		return
+	}
+	*seq++
+	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{
+		RunId:     runID,
+		Status:    "running",
+		ClientSeq: *seq,
+	})
 }
 
 func (d *agentDaemon) emitCheckRunLog(runID string, seq *int64, log string) {
