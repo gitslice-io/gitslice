@@ -1671,3 +1671,4 @@ export const ChangesetStackService: GenService<{
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_changeset, 1);
+

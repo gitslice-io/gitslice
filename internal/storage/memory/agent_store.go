@@ -8,6 +8,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // AgentStore is the in-memory implementation of storage.AgentStore used by tests
@@ -230,20 +231,22 @@ func (s *AgentStore) LatestEventSeq(ctx context.Context, conversationID string) 
 }
 
 func cloneDaemon(d *corev1.AgentDaemon) *corev1.AgentDaemon {
-	c := *d
-	return &c
+	if d == nil {
+		return nil
+	}
+	return proto.Clone(d).(*corev1.AgentDaemon)
 }
 
 func cloneConversation(c *corev1.Conversation) *corev1.Conversation {
-	out := *c
-	if c.Slice != nil {
-		sr := *c.Slice
-		out.Slice = &sr
+	if c == nil {
+		return nil
 	}
-	return &out
+	return proto.Clone(c).(*corev1.Conversation)
 }
 
 func cloneEvent(e *corev1.ConversationEvent) *corev1.ConversationEvent {
-	c := *e
-	return &c
+	if e == nil {
+		return nil
+	}
+	return proto.Clone(e).(*corev1.ConversationEvent)
 }

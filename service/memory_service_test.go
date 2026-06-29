@@ -1666,6 +1666,7 @@ func newMemoryHandlers() (*memory.Stores, *Handlers) {
 		Repository: mem.Repository,
 		Slices:     mem.Slices,
 		Agents:     mem.Agents,
+		Checks:     mem.Checks,
 	}, mem.Objects)
 	return mem, handlers
 }

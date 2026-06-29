@@ -113,6 +113,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Repository: db.Repository(),
 		Slices:     db.Slices(),
 		Agents:     db.Agents(),
+		Checks:     db.Checks(),
 	}
 	handlers := service.New(stores, objectStore)
 	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg)
@@ -318,6 +319,7 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 	corev1.RegisterChangesetServiceServer(grpcServer, handlers.Changeset)
 	corev1.RegisterChangesetStackServiceServer(grpcServer, handlers.Stack)
 	corev1.RegisterAgentServiceServer(grpcServer, handlers.Agent)
+	corev1.RegisterCheckServiceServer(grpcServer, handlers.Check)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)

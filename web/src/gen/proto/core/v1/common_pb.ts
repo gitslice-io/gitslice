@@ -134,3 +134,4 @@ export enum EntryKind {
  */
 export const EntryKindSchema: GenEnum<EntryKind> = /*@__PURE__*/
   enumDesc(file_proto_core_v1_common, 0);
+

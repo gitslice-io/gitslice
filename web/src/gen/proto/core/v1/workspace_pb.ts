@@ -391,3 +391,4 @@ export const WorkspaceService: GenService<{
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_workspace, 0);
+

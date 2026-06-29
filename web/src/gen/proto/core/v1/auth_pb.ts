@@ -320,3 +320,4 @@ export const AuthService: GenService<{
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_auth, 0);
+

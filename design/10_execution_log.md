@@ -6988,3 +6988,40 @@ Results: build/tests/CI all green. Staging Worker deployed version
 live bundle `/assets/index-3UVYpPGF.js` contains both "/conversations" and
 "New conversation", confirming the new route and create flow shipped.
 Web-only change; backend PM2 not restarted.
+
+## 2026-06-29 — CI check-run persistence and read RPCs (Phase 2)
+
+Request: implement Phase 2 of the CI system: durable check_runs/check_run_logs,
+storage implementations, generated CheckService read RPCs, service/server
+wiring, and RPC coverage proving terminal check runs feed the existing submit
+gate.
+
+Decisions:
+- Added `check_runs` and `check_run_logs` in migration 0018 without altering
+  `check_results` or submit evaluation. Attempts are row-per-run; creating a
+  new current run supersedes existing current runs for `(patchset_id,
+  check_name)`.
+- `UpdateCheckRunStatus` maps terminal `passed` to check result `pass` and
+  `failed`/`errored` to `fail`; `skipped`/`canceled` intentionally write no
+  `check_results` row so missing required checks still block.
+- Because `check_results.reported_by` is a subject FK while `daemon_id` is not,
+  the Postgres upsert reports by the daemon owner subject when resolvable, then
+  falls back to the changeset author. This preserves the existing schema and
+  avoids inventing a `ci-run` subject.
+- The read service uses authenticated read authorization against the owning
+  changeset's authoring slice. `StreamCheckRun` is replay-then-poll at 500 ms
+  until terminal, matching the Phase 2 no-live-hub allowance.
+- `go vet` exposed existing protobuf struct-copy helper warnings; clone helpers
+  touched by the targeted gate now use `proto.Clone` or explicit field
+  assignment so the requested vet command passes.
+
+Verification:
+
+```bash
+make proto                                      # passed after npm ci restored web/node_modules
+gofmt -l . | grep -v '\.pb\.\|/gen/'           # no output
+go build ./...                                 # passed
+go vet ./internal/checks/... ./internal/storage/... ./service/...  # passed
+go test ./internal/storage/memory/... ./internal/checks/...        # passed
+go test -run XXX_none ./tests/rpc/... ./internal/postgres/...      # passed, compile-only
+```

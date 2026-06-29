@@ -749,7 +749,12 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 				return nil, err
 			}
 		}
-		*edit = *normalized
+		edit.Op = normalized.Op
+		edit.Path = normalized.Path
+		edit.OldPath = normalized.OldPath
+		edit.BlobId = normalized.BlobId
+		edit.ContentHash = normalized.ContentHash
+		edit.Mode = normalized.Mode
 		for _, p := range editPaths(edit) {
 			if !paths.InAnyPrefix(slice.Definition.IncludedPaths, p) {
 				return nil, status.Errorf(codes.FailedPrecondition, "path %s is outside slice %s/%s", p, slice.Ref.Account, slice.Ref.Slice)
@@ -860,7 +865,14 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 	if edit == nil {
 		return nil, fmt.Errorf("file edit is nil")
 	}
-	out := *edit
+	out := &corev1.FileEdit{
+		Op:          edit.Op,
+		Path:        edit.Path,
+		OldPath:     edit.OldPath,
+		BlobId:      edit.BlobId,
+		ContentHash: edit.ContentHash,
+		Mode:        edit.Mode,
+	}
 	if out.Op == "" {
 		out.Op = "upsert"
 	}
@@ -906,7 +918,7 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 	if out.Mode == 0 && out.Op != "delete" && out.Op != "mkdir" {
 		out.Mode = 0o100644
 	}
-	return &out, nil
+	return out, nil
 }
 
 func editPaths(edit *corev1.FileEdit) []string {

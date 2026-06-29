@@ -22,6 +22,7 @@ type Handlers struct {
 	Changeset  *ChangesetService
 	Stack      *ChangesetStackService
 	Agent      *AgentService
+	Check      *CheckService
 }
 
 type Stores struct {
@@ -31,6 +32,7 @@ type Stores struct {
 	Repository storage.RepositoryStore
 	Slices     storage.SliceStore
 	Agents     storage.AgentStore
+	Checks     storage.CheckStore
 }
 
 func New(stores Stores, objectStore ObjectStore) *Handlers {
@@ -88,6 +90,12 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			Agents:     stores.Agents,
 			Changesets: stores.Changesets,
 			hub:        newAgentHub(),
+		},
+		Check: &CheckService{
+			Auth:       stores.Auth,
+			Changesets: stores.Changesets,
+			Slices:     stores.Slices,
+			Checks:     stores.Checks,
 		},
 	}
 }
