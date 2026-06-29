@@ -73,6 +73,16 @@ func (h *agentHub) daemon(daemonID string) (*daemonConn, bool) {
 	return conn, ok
 }
 
+func (h *agentHub) onlineDaemonIDs() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ids := make([]string, 0, len(h.daemons))
+	for id := range h.daemons {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (h *agentHub) subscribe(conversationID string) (int64, chan *corev1.ConversationEvent) {
 	ch := make(chan *corev1.ConversationEvent, 256)
 	h.mu.Lock()

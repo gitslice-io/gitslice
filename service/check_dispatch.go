@@ -7,7 +7,9 @@ import (
 	"io"
 	"log/slog"
 	"path"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/gitslice-io/gitslice/internal/checks"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
@@ -15,6 +17,11 @@ import (
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	checkDispatchSweepInterval = 10 * time.Second
+	checkDispatchSweepMinAge   = 15 * time.Second
 )
 
 type checkTreeReader struct {
@@ -272,6 +279,76 @@ func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID strin
 	if err != nil {
 		return
 	}
+	s.dispatchDaemonCheckRuns(ctx, daemonID, conn, runs, false)
+}
+
+func (s *AgentService) RunCheckDispatchSweep(ctx context.Context) {
+	if s == nil || s.hub == nil || s.Checks == nil || s.dispatcher == nil {
+		return
+	}
+	ticker := time.NewTicker(checkDispatchSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			s.runCheckDispatchSweepOnce(ctx, now)
+		}
+	}
+}
+
+func (s *AgentService) runCheckDispatchSweepOnce(ctx context.Context, now time.Time) {
+	if s == nil || s.hub == nil || s.Checks == nil || s.dispatcher == nil {
+		return
+	}
+	for _, daemonID := range s.hub.onlineDaemonIDs() {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		runs, err := s.Checks.ListRunsByDaemonStatus(ctx, daemonID, "queued")
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			slog.Warn("check dispatch sweep failed to list queued runs", "daemon_id", daemonID, "error", err)
+			continue
+		}
+		staleRuns := staleCheckRunsForDispatch(runs, now)
+		if len(staleRuns) == 0 {
+			continue
+		}
+		conn, ok := s.hub.daemon(daemonID)
+		if !ok {
+			continue
+		}
+		s.dispatchDaemonCheckRuns(ctx, daemonID, conn, staleRuns, true)
+	}
+}
+
+func staleCheckRunsForDispatch(runs []*corev1.CheckRun, now time.Time) []*corev1.CheckRun {
+	stale := make([]*corev1.CheckRun, 0, len(runs))
+	for _, run := range runs {
+		if run == nil || run.Provenance != "ci" || run.Status != "queued" {
+			continue
+		}
+		createdAt, err := time.Parse(time.RFC3339Nano, run.GetCreatedAt())
+		if err != nil {
+			slog.Warn("check dispatch sweep skipped run with invalid created_at", "run_id", run.GetId(), "created_at", run.GetCreatedAt(), "error", err)
+			continue
+		}
+		if now.Sub(createdAt) < checkDispatchSweepMinAge {
+			continue
+		}
+		stale = append(stale, run)
+	}
+	return stale
+}
+
+func (s *AgentService) dispatchDaemonCheckRuns(ctx context.Context, daemonID string, conn *daemonConn, runs []*corev1.CheckRun, logErrors bool) bool {
+	if s == nil || s.dispatcher == nil || conn == nil {
+		return false
+	}
 	grouped := map[string][]*corev1.CheckRun{}
 	for _, run := range runs {
 		if run == nil || run.Provenance != "ci" {
@@ -280,10 +357,16 @@ func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID strin
 		key := run.ChangesetId + "\x00" + run.PatchsetId
 		grouped[key] = append(grouped[key], run)
 	}
-	for _, group := range grouped {
+	keys := make([]string, 0, len(grouped))
+	for key := range grouped {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		group := grouped[key]
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		default:
 		}
 		if len(group) == 0 {
@@ -291,12 +374,22 @@ func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID strin
 		}
 		msg, err := s.dispatcher.rebuildRunChecksMessage(ctx, group)
 		if err != nil || msg == nil {
+			if err != nil && logErrors {
+				slog.Warn("failed to rebuild queued check dispatch", "daemon_id", daemonID, "changeset_id", group[0].GetChangesetId(), "patchset_id", group[0].GetPatchsetId(), "error", err)
+			}
 			continue
 		}
 		if !conn.trySend(msg) {
-			return
+			if logErrors {
+				slog.Debug("queued check dispatch skipped closed daemon connection", "daemon_id", daemonID)
+			}
+			return false
+		}
+		if logErrors {
+			slog.Debug("re-pushed queued check runs", "daemon_id", daemonID, "changeset_id", group[0].GetChangesetId(), "patchset_id", group[0].GetPatchsetId(), "run_count", len(group))
 		}
 	}
+	return true
 }
 
 func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*corev1.CheckRun) (*corev1.ServerMessage, error) {
