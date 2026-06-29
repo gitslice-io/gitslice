@@ -216,6 +216,14 @@ message DiffChangesetResponse {
   string to_patchset_handle = 8;
 }
 
+message BundledCheckRun {
+  string name = 1;
+  string status = 2;
+  int32 exit_code = 3;
+  string summary = 4;
+  string log = 5;
+}
+
 message UpdateChangesetRequest {
   string changeset_id = 1;
   string expected_current_patchset_id = 2;
@@ -229,6 +237,7 @@ message UpdateChangesetRequest {
   // Optional agent conversation that produced these edits. When set, the server
   // records it (with the conversation's current event seq) on the new patchset.
   string conversation_id = 10;
+  repeated BundledCheckRun bundled_check_runs = 11;
 }
 
 message SubmitChangesetRequest {
