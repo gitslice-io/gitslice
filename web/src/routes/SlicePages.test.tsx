@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -112,6 +112,69 @@ describe("slice route pages (render smoke)", () => {
     expectHealthy();
   });
 
+  it("updates the slice CI daemon from settings", async () => {
+    const api = makeApi();
+    const slice = {
+      id: "slice_nic_home",
+      ref: { account: "nic", slice: "home" },
+      definition: {
+        sliceId: "slice_nic_home",
+        version: "2",
+        includedPaths: ["/nic"],
+        visibility: "public",
+        requiredApprovals: 0,
+        requiredChecks: []
+      },
+      definitionHash: "sha256:abc",
+      ciDaemonId: "daemon_1"
+    };
+    api.resolveSlice = vi.fn().mockResolvedValue(slice);
+    api.listDaemons = vi.fn().mockResolvedValue({
+      daemons: [
+        {
+          id: "daemon_1",
+          name: "runner-one",
+          runtime: "codex",
+          status: "online",
+          version: "1.0.0"
+        },
+        {
+          id: "daemon_2",
+          name: "runner-two",
+          runtime: "codex",
+          status: "online",
+          version: "1.0.1"
+        },
+        {
+          id: "daemon_3",
+          name: "offline-runner",
+          runtime: "codex",
+          status: "offline",
+          version: "1.0.0"
+        }
+      ]
+    });
+    api.setSliceCIDaemon = vi.fn().mockResolvedValue({
+      ...slice,
+      ciDaemonId: "daemon_2"
+    });
+    apiMock.current = api;
+
+    renderRoute(<SliceSettingsPage />);
+
+    expect(await screen.findByText("daemon_1")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("CI daemon"), {
+      target: { value: "daemon_2" }
+    });
+
+    await waitFor(() =>
+      expect(api.setSliceCIDaemon).toHaveBeenCalledWith({
+        daemonId: "daemon_2",
+        slice: { account: "nic", slice: "home" }
+      })
+    );
+  });
+
   it("renders the new slice page", async () => {
     renderRoute(<SliceCreatePage />);
     await flushAsync();
@@ -149,7 +212,8 @@ function makeApi() {
       requiredApprovals: 0,
       requiredChecks: []
     },
-    definitionHash: "sha256:abc"
+    definitionHash: "sha256:abc",
+    ciDaemonId: ""
   };
   return {
     resolveSlice: vi.fn().mockResolvedValue(slice),
@@ -169,6 +233,7 @@ function makeApi() {
     listDaemons: vi.fn().mockResolvedValue({ daemons: [] }),
     listCommits: vi.fn().mockResolvedValue({ commits: [] }),
     listChangesets: vi.fn().mockResolvedValue({ changesets: [] }),
+    setSliceCIDaemon: vi.fn().mockResolvedValue(slice),
     updateSliceDefinition: vi.fn().mockResolvedValue(slice.definition),
     createSlice: vi.fn().mockResolvedValue(slice),
     uploadBlob: vi.fn(),

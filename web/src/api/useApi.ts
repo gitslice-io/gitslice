@@ -10,6 +10,8 @@ import type {
   ChangesetStack,
   CheckUsernameAvailableRequest,
   CheckUsernameAvailableResponse,
+  CheckRun,
+  CheckRunLog,
   ChooseUsernameRequest,
   ChooseUsernameResponse,
   CloseConversationRequest,
@@ -35,6 +37,7 @@ import type {
   GetAuthStatusResponse,
   GetBlobStatusRequest,
   GetBlobStatusResponse,
+  GetCheckRunRequest,
   GetChangesetRequest,
   GetCommitRequest,
   GetRefRequest,
@@ -46,6 +49,8 @@ import type {
   ListCommitsResponse,
   ListChangesetsRequest,
   ListChangesetsResponse,
+  ListCheckRunsRequest,
+  ListCheckRunsResponse,
   ListConversationsRequest,
   ListConversationsResponse,
   ListDirectoryRequest,
@@ -67,8 +72,10 @@ import type {
   ResolveSliceRequest,
   SendAgentMessageRequest,
   SendAgentMessageResponse,
+  SetSliceCIDaemonRequest,
   Slice,
   StreamConversationRequest,
+  StreamCheckRunRequest,
   SubmitStackRequest,
   SubmitStackResponse,
   SubmitChangesetRequest,
@@ -112,6 +119,7 @@ export interface ApiClient {
   updateSliceDefinition(
     request: UpdateSliceDefinitionRequest
   ): Promise<SliceDefinition>;
+  setSliceCIDaemon(request: SetSliceCIDaemonRequest): Promise<Slice>;
   createChangeset(request: CreateChangesetRequest): Promise<Changeset>;
   listChangesets(
     request: ListChangesetsRequest
@@ -128,6 +136,12 @@ export interface ApiClient {
     request: SubmitChangesetRequest
   ): Promise<SubmitChangesetResponse>;
   abandonChangeset(request: AbandonChangesetRequest): Promise<Empty>;
+  listCheckRuns(request: ListCheckRunsRequest): Promise<ListCheckRunsResponse>;
+  getCheckRun(request: GetCheckRunRequest): Promise<CheckRun>;
+  streamCheckRun(
+    request: StreamCheckRunRequest,
+    signal: AbortSignal
+  ): AsyncGenerator<CheckRunLog>;
   createStack(request: CreateStackRequest): Promise<ChangesetStack>;
   getStack(request: GetStackRequest): Promise<ChangesetStack>;
   listStacks(request: ListStacksRequest): Promise<ListStacksResponse>;

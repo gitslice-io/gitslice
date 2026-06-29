@@ -4,6 +4,7 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 import { AgentService } from "../gen/proto/core/v1/agent_pb";
 import { AuthService } from "../gen/proto/core/v1/auth_pb";
 import { BlobService } from "../gen/proto/core/v1/blob_pb";
+import { CheckService } from "../gen/proto/core/v1/check_pb";
 import {
   ChangesetService,
   ChangesetStackService
@@ -56,6 +57,7 @@ export function createApiClient({
   const changeset = createClient(ChangesetService, transport);
   const stack = createClient(ChangesetStackService, transport);
   const agent = createClient(AgentService, transport);
+  const check = createClient(CheckService, transport);
 
   const unary = async <TResponse>(call: () => Promise<unknown>) => {
     try {
@@ -118,6 +120,8 @@ export function createApiClient({
       unary<Api.SliceDefinition>(() =>
         slice.updateSliceDefinition(toProtoRequest(request))
       ),
+    setSliceCIDaemon: (request) =>
+      unary<Api.Slice>(() => slice.setSliceCIDaemon(toProtoRequest(request))),
     createChangeset: (request) =>
       unary<Api.Changeset>(() =>
         changeset.createChangeset(toProtoRequest(request))
@@ -146,6 +150,23 @@ export function createApiClient({
       ),
     abandonChangeset: (request) =>
       unary<Api.Empty>(() => changeset.abandonChangeset(toProtoRequest(request))),
+    listCheckRuns: (request) =>
+      unary<Api.ListCheckRunsResponse>(() =>
+        check.listCheckRuns(toProtoRequest(request))
+      ),
+    getCheckRun: (request) =>
+      unary<Api.CheckRun>(() => check.getCheckRun(toProtoRequest(request))),
+    streamCheckRun: async function* (request, signal) {
+      try {
+        for await (const log of check.streamCheckRun(toProtoRequest(request), {
+          signal
+        })) {
+          yield fromProto<Api.CheckRunLog>(log);
+        }
+      } catch (error) {
+        throw rpcErrorFrom(error);
+      }
+    },
     createStack: (request) =>
       unary<Api.ChangesetStack>(() => stack.createStack(toProtoRequest(request))),
     getStack: (request) =>

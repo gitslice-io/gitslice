@@ -2,7 +2,7 @@ import { useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 
-import type { SliceDefinition } from "../api/types";
+import type { AgentDaemon, Slice, SliceDefinition } from "../api/types";
 import { useApi } from "../api/useApi";
 import { shortHash } from "../lib/objectId";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -43,6 +43,7 @@ export function SliceSettingsPage() {
   const [includedPaths, setIncludedPaths] = useState<string[]>([]);
   const [clientErrors, setClientErrors] = useState<string[]>([]);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [ciSaveMessage, setCiSaveMessage] = useState<string | null>(null);
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
 
   const sliceQuery = useQuery({
@@ -57,6 +58,12 @@ export function SliceSettingsPage() {
   const sliceRouteKey = sliceRouteParams
     ? `${sliceRouteParams.account}:${sliceRouteParams.slice}`
     : `${routeAccount}:${routeSlice}`;
+
+  const daemonsQuery = useQuery({
+    enabled: Boolean(slice),
+    queryKey: ["agentDaemons"],
+    queryFn: async () => (await api.listDaemons({})).daemons ?? []
+  });
 
   useEffect(() => {
     if (!slice) {
@@ -105,6 +112,37 @@ export function SliceSettingsPage() {
     onSuccess: async () => {
       setConflictMessage(null);
       setSaveMessage("Definition saved.");
+      await queryClient.invalidateQueries({
+        queryKey: ["sliceRef", routeAccount, routeSlice]
+      });
+      await queryClient.invalidateQueries({ queryKey: ["slices"] });
+    }
+  });
+
+  const ciDaemonMutation = useMutation({
+    mutationFn: async (daemonId: string) => {
+      const targetSlice = slice?.ref ?? routeSliceRef;
+      if (!targetSlice?.account || !targetSlice.slice) {
+        throw new Error("Slice reference is not available.");
+      }
+
+      return api.setSliceCIDaemon({
+        daemonId,
+        slice: targetSlice
+      });
+    },
+    onError: () => {
+      setCiSaveMessage(null);
+    },
+    onMutate: () => {
+      setCiSaveMessage(null);
+    },
+    onSuccess: async (updatedSlice) => {
+      setCiSaveMessage("CI daemon updated.");
+      queryClient.setQueryData(
+        ["sliceRef", routeAccount, routeSlice],
+        updatedSlice
+      );
       await queryClient.invalidateQueries({
         queryKey: ["sliceRef", routeAccount, routeSlice]
       });
@@ -221,6 +259,23 @@ export function SliceSettingsPage() {
           />
         </SlicePanel>
 
+        <SliceCIDaemonPanel
+          currentDaemonId={slice.ciDaemonId ?? ""}
+          daemons={daemonsQuery.data ?? []}
+          error={
+            daemonsQuery.error
+              ? getErrorMessage(daemonsQuery.error)
+              : ciDaemonMutation.error
+                ? getErrorMessage(ciDaemonMutation.error)
+                : ""
+          }
+          isLoading={daemonsQuery.isPending}
+          message={ciSaveMessage}
+          onChange={(daemonId) => ciDaemonMutation.mutate(daemonId)}
+          pending={ciDaemonMutation.isPending}
+          slice={slice}
+        />
+
         <SliceDefinitionForm
           account={slice?.ref?.account}
           disabled={updateMutation.isPending}
@@ -281,6 +336,103 @@ export function SliceSettingsPage() {
       </form>
     </section>
   );
+}
+
+function SliceCIDaemonPanel({
+  currentDaemonId,
+  daemons,
+  error,
+  isLoading,
+  message,
+  onChange,
+  pending,
+  slice
+}: {
+  currentDaemonId: string;
+  daemons: AgentDaemon[];
+  error: string;
+  isLoading: boolean;
+  message: string | null;
+  onChange(daemonId: string): void;
+  pending: boolean;
+  slice: Slice;
+}) {
+  const onlineDaemons = daemons.filter((daemon) => daemon.status === "online");
+  const currentDaemon = daemons.find((daemon) => daemon.id === currentDaemonId);
+  const currentIsOnline = onlineDaemons.some(
+    (daemon) => daemon.id === currentDaemonId
+  );
+  const canUpdate = Boolean(slice.ref?.account && slice.ref.slice);
+
+  return (
+    <SlicePanel>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,24rem)] lg:items-start">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-zinc-950">CI daemon</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Full-tree checks for this slice run on the selected online agent daemon.
+          </p>
+          <p className="mt-3 text-xs font-semibold uppercase tracking-normal text-slate-500">
+            Current
+          </p>
+          <code className="mt-1 block break-all font-mono text-xs text-zinc-950">
+            {currentDaemonId || "none"}
+          </code>
+        </div>
+
+        <div className="grid gap-2">
+          <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
+            CI daemon
+            <select
+              aria-label="CI daemon"
+              className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+              disabled={isLoading || pending || !canUpdate}
+              onChange={(event) => onChange(event.target.value)}
+              value={currentDaemonId}
+            >
+              <option value="">None</option>
+              {currentDaemonId && !currentIsOnline ? (
+                <option value={currentDaemonId}>
+                  {daemonLabel(currentDaemon, currentDaemonId)} (current)
+                </option>
+              ) : null}
+              {onlineDaemons.map((daemon) => (
+                <option key={daemon.id ?? daemon.name} value={daemon.id ?? ""}>
+                  {daemonLabel(daemon, daemon.id ?? "")}
+                </option>
+              ))}
+            </select>
+          </label>
+          {isLoading ? (
+            <p className="text-xs text-slate-500">Loading daemons...</p>
+          ) : onlineDaemons.length === 0 ? (
+            <p className="text-xs leading-5 text-slate-500">
+              No online daemons are available. You can still clear the current
+              runner by choosing None.
+            </p>
+          ) : null}
+          {error ? (
+            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+              {error}
+            </p>
+          ) : message ? (
+            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              {message}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </SlicePanel>
+  );
+}
+
+function daemonLabel(daemon: AgentDaemon | undefined, fallback: string) {
+  if (!daemon) {
+    return fallback;
+  }
+  const name = daemon.name || daemon.id || fallback;
+  const runtime = [daemon.runtime, daemon.version].filter(Boolean).join(" ");
+  return runtime ? `${name} - ${runtime}` : name;
 }
 
 function isHashConflict(error: unknown) {

@@ -375,6 +375,7 @@ function makeApi() {
     ),
     getConversationEvents: vi.fn().mockResolvedValue({ events: [] }),
     getStack: vi.fn().mockResolvedValue(stackFixture()),
+    listCheckRuns: vi.fn().mockResolvedValue({ runs: [] }),
     listChangesets: vi.fn().mockResolvedValue({ changesets: [] }),
     listDirectory: vi.fn().mockResolvedValue({
       entries: [
@@ -392,6 +393,7 @@ function makeApi() {
     }),
     resolveSlice: vi.fn().mockResolvedValue({ id: "slice_payment" }),
     restack: vi.fn(),
+    streamCheckRun: vi.fn(async function* () {}),
     submitStack: vi.fn(),
     updateChangeset: vi.fn(),
     uploadBlob: vi.fn()
