@@ -6989,6 +6989,21 @@ live bundle `/assets/index-3UVYpPGF.js` contains both "/conversations" and
 "New conversation", confirming the new route and create flow shipped.
 Web-only change; backend PM2 not restarted.
 
+## 2026-06-28 — Remove pending-changeset banner from slice detail page (web)
+
+Request: remove the inline "N pending change / Review changeset →" banner from
+the slice detail page; then merge the PR and deploy.
+
+Actions: removed the `PendingChangesBanner` block and its now-unused imports
+(`PendingChangesBanner`, `shortChangesetId`) from `SliceDetailPage.tsx`, deleted
+the orphaned `slice-detail/PendingChangesBanner.tsx`. Branched, opened and
+squash-merged PR #263 to main. Web-only deploy to Cloudflare staging.
+
+Verification: `npm --prefix web run build` and `npm --prefix web test` green.
+Deployed `gitslice-web-staging` version `a05c2097-f7bb-41e4-8fdd-6cd0b783c47c`;
+https://agenttools.dev/ returns 200 and serves the freshly uploaded bundle
+`/assets/index-DgJqC-7s.js`. Web-only change; backend PM2 not restarted.
+
 ## 2026-06-29 — CI check-run persistence and read RPCs (Phase 2)
 
 Request: implement Phase 2 of the CI system: durable check_runs/check_run_logs,
