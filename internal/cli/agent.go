@@ -21,11 +21,16 @@ import (
 )
 
 const (
-	defaultAgentRuntime      = "codex"
-	agentSendBuffer          = 128
-	agentHeartbeat           = 15 * time.Second
-	agentMetaFilename        = ".agent-meta.json"
-	agentRecentCheckRunLimit = 256
+	defaultAgentRuntime = "codex"
+	agentSendBuffer     = 128
+	agentHeartbeat      = 15 * time.Second
+	// The server sends Ping messages every 20s. A 50s inbound gap is safely above
+	// normal jitter but short enough to catch half-open server->daemon streams
+	// before queued pushes wait on the transport's much longer receive timeout.
+	agentInboundStaleTimeout       = 50 * time.Second
+	agentInboundStaleCheckInterval = 10 * time.Second
+	agentMetaFilename              = ".agent-meta.json"
+	agentRecentCheckRunLimit       = 256
 	// agentMaxPendingEvents bounds a conversation's unacked outbound buffer. Acks
 	// are per-event and keep this near-empty in practice; the cap only guards the
 	// degenerate case where the server stops acking.
@@ -200,6 +205,7 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 	if ack == nil || strings.TrimSpace(ack.GetDaemonId()) == "" {
 		return userError("agent_protocol_error", "server did not acknowledge agent daemon registration", "Try restarting the daemon.")
 	}
+	lastInbound := newAgentInboundState(time.Now())
 	if reportOnline && opts.jsonOutput() {
 		if err := d.runner.writeJSONOutput(opts, map[string]string{
 			"daemon_id": ack.GetDaemonId(),
@@ -216,6 +222,7 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 	// persisted events is idempotent.
 	go d.resendPendingAll()
 	go d.runHeartbeat(connCtx, cancel)
+	go d.runInboundWatchdog(connCtx, cancel, lastInbound)
 
 	for {
 		msg, err := stream.Recv()
@@ -229,6 +236,7 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 			}
 			return err
 		}
+		lastInbound.mark(time.Now())
 		d.handleServerMessage(connCtx, cancel, msg)
 	}
 }
@@ -306,6 +314,27 @@ type agentDaemon struct {
 	recentCheckRunOrder []string
 }
 
+type agentInboundState struct {
+	mu   sync.Mutex
+	last time.Time
+}
+
+func newAgentInboundState(now time.Time) *agentInboundState {
+	return &agentInboundState{last: now}
+}
+
+func (s *agentInboundState) mark(now time.Time) {
+	s.mu.Lock()
+	s.last = now
+	s.mu.Unlock()
+}
+
+func (s *agentInboundState) lastSeen() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last
+}
+
 type agentConversation struct {
 	id              string
 	workdir         string
@@ -369,12 +398,27 @@ func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.Ca
 	case *corev1.ServerMessage_Ack:
 		d.handleEventAck(payload.Ack)
 	case *corev1.ServerMessage_RunChecks:
+		fmt.Fprintf(d.runner.stderr(), "agent received RunChecks: checks=%d run_ids=%v\n", len(payload.RunChecks.GetChecks()), runCheckIDs(payload.RunChecks))
 		go d.handleRunChecks(payload.RunChecks)
 	case *corev1.ServerMessage_CancelCheck:
 		d.handleCancelCheckRun(payload.CancelCheck)
 	case *corev1.ServerMessage_CheckAck:
 		d.handleCheckRunAck(payload.CheckAck)
 	}
+}
+
+func runCheckIDs(req *corev1.RunChecks) []string {
+	if req == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(req.GetChecks()))
+	for _, spec := range req.GetChecks() {
+		id := strings.TrimSpace(spec.GetRunId())
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // emitConversationEvent assigns the next per-conversation client_seq, buffers
@@ -483,6 +527,38 @@ func (d *agentDaemon) runHeartbeat(ctx context.Context, cancel context.CancelFun
 			}
 		}
 	}
+}
+
+func (d *agentDaemon) runInboundWatchdog(ctx context.Context, cancel context.CancelFunc, inbound *agentInboundState) {
+	if inbound == nil {
+		return
+	}
+	ticker := time.NewTicker(agentInboundStaleCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if ctx.Err() != nil {
+				return
+			}
+			last := inbound.lastSeen()
+			now := time.Now()
+			if inboundStale(last, now, agentInboundStaleTimeout) {
+				fmt.Fprintf(d.runner.stderr(), "no server message in %s; assuming half-open stream, reconnecting\n", now.Sub(last).Round(time.Second))
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+func inboundStale(last time.Time, now time.Time, timeout time.Duration) bool {
+	if last.IsZero() || timeout <= 0 || now.Before(last) {
+		return false
+	}
+	return now.Sub(last) > timeout
 }
 
 func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1.StartConversation) {
