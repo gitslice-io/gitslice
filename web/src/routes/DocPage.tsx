@@ -1,6 +1,12 @@
 import { Link, useParams } from "@tanstack/react-router";
 
-type DocSection = "start" | "concepts" | "agents" | "git-users" | "cli";
+type DocSection =
+  | "start"
+  | "concepts"
+  | "agents"
+  | "checks"
+  | "git-users"
+  | "cli";
 
 interface DocParams {
   section?: string;
@@ -25,6 +31,11 @@ const docSections: Array<{
     id: "agents",
     title: "Agents",
     description: "Run your own coding agent and drive it from a slice."
+  },
+  {
+    id: "checks",
+    title: "CI Checks",
+    description: "Define build/test checks that run on every patchset and gate submit."
   },
   {
     id: "git-users",
@@ -179,7 +190,8 @@ const commandGroups = [
     commands: [
       ["gs slice list", "List account slices."],
       ["gs slice create", "Create a slice definition."],
-      ["gs slice update", "Change included paths or policy."],
+      ["gs slice update", "Change included paths or policy (e.g. --required-check)."],
+      ["gs slice set-ci-daemon", "Designate the daemon that runs out-of-slice checks."],
       ["gs slice history", "Inspect slice definition versions."]
     ]
   },
@@ -208,6 +220,7 @@ function normalizeSection(value: string | undefined): DocSection {
   if (
     value === "concepts" ||
     value === "agents" ||
+    value === "checks" ||
     value === "git-users" ||
     value === "cli"
   ) {
@@ -276,6 +289,7 @@ export function DocPage() {
         {section === "start" ? <StartHereDoc /> : null}
         {section === "concepts" ? <ConceptsDoc /> : null}
         {section === "agents" ? <AgentsDoc /> : null}
+        {section === "checks" ? <ChecksDoc /> : null}
         {section === "git-users" ? <GitUsersDoc /> : null}
         {section === "cli" ? <CliReferenceDoc /> : null}
       </div>
@@ -496,6 +510,219 @@ function AgentsDoc() {
           description="Understand slices, workspaces, and changesets first."
           section="concepts"
           title="Core concepts"
+        />
+      </section>
+    </div>
+  );
+}
+
+function ChecksDoc() {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Gitslice docs"
+        title="CI Checks"
+        description="Checks are build/test/lint commands defined in your source. They run automatically on every new patchset and can gate submit. No separate CI service to configure — checks run on a machine you control and report back."
+      />
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
+        <h2 className="text-base font-semibold text-zinc-950">How it works</h2>
+        <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+          <li>
+            <span className="font-semibold text-zinc-950">Defined in source:</span>{" "}
+            checks live in{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              .gitslice/checks.yaml
+            </code>{" "}
+            files committed alongside your code — one per folder. They are
+            versioned with the revision they apply to.
+          </li>
+          <li>
+            <span className="font-semibold text-zinc-950">Folder-scoped &amp; cascading:</span>{" "}
+            for each path a patchset changes, every{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              checks.yaml
+            </code>{" "}
+            from that folder up to the repository root applies. A check defined in{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              backend/
+            </code>{" "}
+            only runs when something under{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              backend/
+            </code>{" "}
+            changes; an optional{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              paths
+            </code>{" "}
+            filter narrows it further.
+          </li>
+          <li>
+            <span className="font-semibold text-zinc-950">Runs on each patchset:</span>{" "}
+            when you capture a patchset (including each agent turn), the applicable
+            checks run and their pass/fail is recorded against that patchset. A new
+            patchset re-runs them.
+          </li>
+          <li>
+            <span className="font-semibold text-zinc-950">Gates submit:</span> a
+            slice can mark checks as <em>required</em>. The changeset cannot submit
+            until every required check passes for the current patchset.
+          </li>
+          <li>
+            <span className="font-semibold text-zinc-950">Where they run:</span> in
+            the common case checks run on the same machine that authored the change
+            (your agent or CLI), in a container when an{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              image
+            </code>{" "}
+            is set, otherwise directly. Checks that need files beyond the slice run
+            on the slice&apos;s designated CI daemon.
+          </li>
+        </ul>
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
+        <h2 className="text-base font-semibold text-zinc-950">
+          The checks.yaml format
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Place this at{" "}
+          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            &lt;folder&gt;/.gitslice/checks.yaml
+          </code>
+          . A check&apos;s id is its folder path plus its name, e.g.{" "}
+          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            backend/test
+          </code>
+          .
+        </p>
+        <CommandBlock>{`version: 1
+
+# optional defaults applied to every check in this file
+defaults:
+  image: "golang:1.22"     # run in this container; omit to run on the host
+  timeout: "10m"
+
+checks:
+  test:
+    run: "go test ./..."   # required: the shell command
+    paths: ["**/*.go"]     # optional: only run when these change
+  lint:
+    run: "golangci-lint run"
+  smoke:
+    run: "./scripts/smoke.sh"
+    include: ["/go.mod", "/go.sum"]  # extra paths to make available
+    network: true                    # allow network (default: denied)`}</CommandBlock>
+        <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-600">
+          <li>
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              run
+            </code>{" "}
+            (required) — the command, run via{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              sh -c
+            </code>{" "}
+            from the check&apos;s folder. Exit 0 passes.
+          </li>
+          <li>
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              paths
+            </code>{" "}
+            — globs (folder-relative, or{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              /
+            </code>
+            -absolute); the check is skipped if none match the change.
+          </li>
+          <li>
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              image
+            </code>
+            ,{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              env
+            </code>
+            ,{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              network
+            </code>
+            ,{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              timeout
+            </code>
+            ,{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              working_dir
+            </code>
+            ,{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              include
+            </code>{" "}
+            — all optional per check (or under{" "}
+            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+              defaults
+            </code>
+            ).
+          </li>
+        </ul>
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
+        <h2 className="text-base font-semibold text-zinc-950">Add checks</h2>
+        <ol className="mt-4 space-y-5">
+          {[
+            {
+              title: "Commit a checks.yaml",
+              description:
+                "Add .gitslice/checks.yaml at the folder you want to guard, with one or more checks. It is a normal source file in your slice.",
+              command: undefined
+            },
+            {
+              title: "Mark the ones that must pass",
+              description:
+                "Make a check required so it gates submit. Reference it by its qualified id (folder path + name).",
+              command:
+                "gs slice update <account>:<slice> --required-check backend/test"
+            },
+            {
+              title: "Capture and watch",
+              description:
+                "Capture a patchset (or let your agent do it). Applicable checks run and show on the changeset's Checks panel; required failures block submit until fixed.",
+              command: "gs submit   # blocked until required checks pass"
+            },
+            {
+              title: "Optional: a designated CI runner",
+              description:
+                "Checks that need files outside the slice (e.g. a repo-root check) run on a daemon you designate for the slice, in Settings or via the CLI.",
+              command: "gs slice set-ci-daemon <account>:<slice> <daemon-id>"
+            }
+          ].map((step, index) => (
+            <li className="flex gap-3 text-sm leading-6" key={step.title}>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+                {index + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold text-zinc-950">{step.title}</h3>
+                <p className="mt-1 text-slate-600">{step.description}</p>
+                {step.command ? (
+                  <CommandBlock>{step.command}</CommandBlock>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="mt-8 grid gap-4 md:grid-cols-2">
+        <NextDocCard
+          description="See how changesets, patchsets, and submit validation fit together."
+          section="concepts"
+          title="Understand the model"
+        />
+        <NextDocCard
+          description="Let an agent author changes — checks run on each of its turns."
+          section="agents"
+          title="Run an agent"
         />
       </section>
     </div>
