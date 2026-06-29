@@ -5,7 +5,7 @@ import {
   useRef,
   useState
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { CheckRun, CheckRunLog } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
@@ -28,17 +28,28 @@ interface ChecksPanelProps {
 
 export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
   const api = useApi();
+  const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState("");
+  const checkRunsQueryKey = useMemo(
+    () => ["checkRuns", changesetId, patchsetId],
+    [changesetId, patchsetId]
+  );
 
   const runsQuery = useQuery({
     enabled: Boolean(changesetId && patchsetId),
-    queryKey: ["checkRuns", changesetId, patchsetId],
+    queryKey: checkRunsQueryKey,
     queryFn: async () =>
       (await api.listCheckRuns({ changesetId, patchsetId })).runs ?? [],
     refetchInterval: (query) =>
       query.state.data?.some((run) => !isTerminalCheckStatus(run.status))
         ? CHECK_POLL_INTERVAL_MS
         : false
+  });
+  const rerunMutation = useMutation({
+    mutationFn: (runId: string) => api.rerunCheck({ runId }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: checkRunsQueryKey });
+    }
   });
 
   const runs = useMemo(
@@ -113,41 +124,60 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
         {runs.map((run) => {
           const runId = run.id ?? "";
           const selected = selectedRunId === runId;
+          const canRerun = Boolean(runId && isTerminalCheckStatus(run.status));
+          const rerunning =
+            rerunMutation.isPending && rerunMutation.variables === runId;
           return (
-            <button
-              aria-expanded={selected}
+            <div
               className={cn(
-                "grid w-full gap-2 px-3 py-3 text-left transition hover:bg-slate-50 active:scale-[0.995] md:grid-cols-[minmax(0,1fr)_auto] md:px-5",
+                "grid gap-2 px-3 py-3 transition md:grid-cols-[minmax(0,1fr)_auto] md:px-5",
                 selected && "bg-slate-50"
               )}
-              disabled={!runId}
               key={runId || run.checkName || run.status}
-              onClick={() => setSelectedRunId(runId)}
-              type="button"
             >
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="truncate text-sm font-semibold text-zinc-950">
-                    {run.checkName || "Unnamed check"}
-                  </span>
-                  <CheckStatusBadge status={run.status} />
-                  <ProvenanceTag provenance={run.provenance} />
-                  {shouldShowExitCode(run) ? (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
-                      exit {run.exitCode}
+              <button
+                aria-expanded={selected}
+                className="min-w-0 text-left transition hover:text-zinc-950 active:scale-[0.995]"
+                disabled={!runId}
+                onClick={() => setSelectedRunId(runId)}
+                type="button"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-zinc-950">
+                      {run.checkName || "Unnamed check"}
                     </span>
+                    <CheckStatusBadge status={run.status} />
+                    <ProvenanceTag provenance={run.provenance} />
+                    {shouldShowExitCode(run) ? (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+                        exit {run.exitCode}
+                      </span>
+                    ) : null}
+                  </div>
+                  {run.summary ? (
+                    <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-600">
+                      {run.summary}
+                    </p>
                   ) : null}
                 </div>
-                {run.summary ? (
-                  <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-600">
-                    {run.summary}
-                  </p>
+              </button>
+              <div className="flex items-center justify-start gap-2 md:justify-end">
+                <span className="text-xs font-medium text-slate-500">
+                  {selected ? "Logs open" : "View logs"}
+                </span>
+                {canRerun ? (
+                  <button
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={rerunning}
+                    onClick={() => rerunMutation.mutate(runId)}
+                    type="button"
+                  >
+                    {rerunning ? "Rerunning" : "Rerun"}
+                  </button>
                 ) : null}
               </div>
-              <span className="self-center text-xs font-medium text-slate-500">
-                {selected ? "Logs open" : "View logs"}
-              </span>
-            </button>
+            </div>
           );
         })}
       </div>

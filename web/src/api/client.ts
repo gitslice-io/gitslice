@@ -156,6 +156,8 @@ export function createApiClient({
       ),
     getCheckRun: (request) =>
       unary<Api.CheckRun>(() => check.getCheckRun(toProtoRequest(request))),
+    rerunCheck: (request) =>
+      unary<Api.CheckRun>(() => check.rerunCheck(toProtoRequest(request))),
     streamCheckRun: async function* (request, signal) {
       try {
         for await (const log of check.streamCheckRun(toProtoRequest(request), {

@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion7
 const (
 	CheckService_ListCheckRuns_FullMethodName  = "/gitslice.core.v1.CheckService/ListCheckRuns"
 	CheckService_GetCheckRun_FullMethodName    = "/gitslice.core.v1.CheckService/GetCheckRun"
+	CheckService_RerunCheck_FullMethodName     = "/gitslice.core.v1.CheckService/RerunCheck"
 	CheckService_StreamCheckRun_FullMethodName = "/gitslice.core.v1.CheckService/StreamCheckRun"
 )
 
@@ -30,6 +31,7 @@ const (
 type CheckServiceClient interface {
 	ListCheckRuns(ctx context.Context, in *ListCheckRunsRequest, opts ...grpc.CallOption) (*ListCheckRunsResponse, error)
 	GetCheckRun(ctx context.Context, in *GetCheckRunRequest, opts ...grpc.CallOption) (*CheckRun, error)
+	RerunCheck(ctx context.Context, in *RerunCheckRequest, opts ...grpc.CallOption) (*CheckRun, error)
 	StreamCheckRun(ctx context.Context, in *StreamCheckRunRequest, opts ...grpc.CallOption) (CheckService_StreamCheckRunClient, error)
 }
 
@@ -53,6 +55,15 @@ func (c *checkServiceClient) ListCheckRuns(ctx context.Context, in *ListCheckRun
 func (c *checkServiceClient) GetCheckRun(ctx context.Context, in *GetCheckRunRequest, opts ...grpc.CallOption) (*CheckRun, error) {
 	out := new(CheckRun)
 	err := c.cc.Invoke(ctx, CheckService_GetCheckRun_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *checkServiceClient) RerunCheck(ctx context.Context, in *RerunCheckRequest, opts ...grpc.CallOption) (*CheckRun, error) {
+	out := new(CheckRun)
+	err := c.cc.Invoke(ctx, CheckService_RerunCheck_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +108,7 @@ func (x *checkServiceStreamCheckRunClient) Recv() (*CheckRunLog, error) {
 type CheckServiceServer interface {
 	ListCheckRuns(context.Context, *ListCheckRunsRequest) (*ListCheckRunsResponse, error)
 	GetCheckRun(context.Context, *GetCheckRunRequest) (*CheckRun, error)
+	RerunCheck(context.Context, *RerunCheckRequest) (*CheckRun, error)
 	StreamCheckRun(*StreamCheckRunRequest, CheckService_StreamCheckRunServer) error
 }
 
@@ -109,6 +121,9 @@ func (UnimplementedCheckServiceServer) ListCheckRuns(context.Context, *ListCheck
 }
 func (UnimplementedCheckServiceServer) GetCheckRun(context.Context, *GetCheckRunRequest) (*CheckRun, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCheckRun not implemented")
+}
+func (UnimplementedCheckServiceServer) RerunCheck(context.Context, *RerunCheckRequest) (*CheckRun, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RerunCheck not implemented")
 }
 func (UnimplementedCheckServiceServer) StreamCheckRun(*StreamCheckRunRequest, CheckService_StreamCheckRunServer) error {
 	return status.Errorf(codes.Unimplemented, "method StreamCheckRun not implemented")
@@ -161,6 +176,24 @@ func _CheckService_GetCheckRun_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CheckService_RerunCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RerunCheckRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CheckServiceServer).RerunCheck(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CheckService_RerunCheck_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CheckServiceServer).RerunCheck(ctx, req.(*RerunCheckRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _CheckService_StreamCheckRun_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamCheckRunRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -196,6 +229,10 @@ var CheckService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCheckRun",
 			Handler:    _CheckService_GetCheckRun_Handler,
+		},
+		{
+			MethodName: "RerunCheck",
+			Handler:    _CheckService_RerunCheck_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

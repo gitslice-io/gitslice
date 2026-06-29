@@ -7,6 +7,7 @@ option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
 service CheckService {
   rpc ListCheckRuns(ListCheckRunsRequest) returns (ListCheckRunsResponse);
   rpc GetCheckRun(GetCheckRunRequest) returns (CheckRun);
+  rpc RerunCheck(RerunCheckRequest) returns (CheckRun);
   rpc StreamCheckRun(StreamCheckRunRequest) returns (stream CheckRunLog);
 }
 
@@ -45,6 +46,10 @@ message ListCheckRunsResponse {
 }
 
 message GetCheckRunRequest {
+  string run_id = 1;
+}
+
+message RerunCheckRequest {
   string run_id = 1;
 }
 
