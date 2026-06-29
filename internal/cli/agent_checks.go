@@ -15,6 +15,7 @@ import (
 
 	"github.com/gitslice-io/gitslice/internal/checkexec"
 	"github.com/gitslice-io/gitslice/internal/checks"
+	"github.com/gitslice-io/gitslice/internal/clientcache"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -90,12 +91,16 @@ func (d *agentDaemon) materializeCheckTree(ctx context.Context, repo RepoClient,
 			return err
 		}
 	}
+	cache, err := d.runner.objectCache()
+	if err != nil {
+		return err
+	}
 	g, groupCtx := errgroup.WithContext(ctx)
 	g.SetLimit(checkMaterializeReadConcurrency)
 	for _, entry := range plan.sortedFiles() {
 		entry := entry
 		g.Go(func() error {
-			return materializeCheckFile(groupCtx, repo, rootTreeID, entry, destRoot)
+			return materializeCheckFile(groupCtx, repo, cache, rootTreeID, entry, destRoot)
 		})
 	}
 	return g.Wait()
@@ -210,7 +215,7 @@ func checkMaterializeParentDir(filePath string) string {
 	return filePath[:strings.LastIndex(filePath, "/")]
 }
 
-func materializeCheckFile(ctx context.Context, repo RepoClient, rootTreeID string, entry *corev1.TreeEntry, destRoot string) error {
+func materializeCheckFile(ctx context.Context, repo RepoClient, cache *clientcache.ObjectCache, rootTreeID string, entry *corev1.TreeEntry, destRoot string) error {
 	entryPath, err := entryLogicalPath(entry)
 	if err != nil {
 		return err
@@ -222,10 +227,7 @@ func materializeCheckFile(ctx context.Context, repo RepoClient, rootTreeID strin
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
-	read, err := repo.ReadFile(ctx, &corev1.ReadFileRequest{
-		RootTreeId: rootTreeID,
-		Path:       logicalAbsPath(entryPath),
-	})
+	data, err := materializeCheckFileBytes(ctx, repo, cache, rootTreeID, entryPath, entry.GetContentHash())
 	if err != nil {
 		return err
 	}
@@ -233,8 +235,39 @@ func materializeCheckFile(ctx context.Context, repo RepoClient, rootTreeID strin
 	if mode == 0 {
 		mode = 0o100644
 	}
-	_, err = writeWorkspaceFile(target, mode, bytes.NewReader(read.GetData()))
+	_, err = writeWorkspaceFile(target, mode, bytes.NewReader(data))
 	return err
+}
+
+func materializeCheckFileBytes(ctx context.Context, repo RepoClient, cache *clientcache.ObjectCache, rootTreeID, entryPath, contentHash string) ([]byte, error) {
+	if contentHash != "" && cache != nil {
+		if cache.Exists(contentHash) {
+			return cache.Read(contentHash)
+		}
+		read, err := repo.ReadFile(ctx, &corev1.ReadFileRequest{
+			RootTreeId: rootTreeID,
+			Path:       logicalAbsPath(entryPath),
+		})
+		if err != nil {
+			return nil, err
+		}
+		cached, err := cache.PutBytes(read.GetData())
+		if err != nil {
+			return nil, err
+		}
+		if cached.ContentHash != contentHash {
+			return nil, fmt.Errorf("check materialize content hash mismatch for %s: got %s, want %s", entryPath, cached.ContentHash, contentHash)
+		}
+		return read.GetData(), nil
+	}
+	read, err := repo.ReadFile(ctx, &corev1.ReadFileRequest{
+		RootTreeId: rootTreeID,
+		Path:       logicalAbsPath(entryPath),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return read.GetData(), nil
 }
 
 func lookupCheckTreeEntry(ctx context.Context, repo RepoClient, rootTreeID, prefix string) (*corev1.TreeEntry, error) {
