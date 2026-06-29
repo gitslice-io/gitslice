@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -115,6 +116,52 @@ func TestCheckRunSpecMapsSetup(t *testing.T) {
 	}
 }
 
+func TestHandleRunChecksDedupsRecentlyCompletedRunID(t *testing.T) {
+	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{"/": nil}, nil)
+	addr, stop := startFakeCheckRepoServer(t, repo)
+	defer stop()
+
+	sendQueue := &agentSendQueue{
+		ch:   make(chan *corev1.DaemonMessage, 16),
+		done: make(chan struct{}),
+	}
+	d := &agentDaemon{
+		cfg:       UserConfig{ServerAddr: addr},
+		baseCtx:   context.Background(),
+		sendQueue: sendQueue,
+		checkRuns: map[string]context.CancelFunc{},
+	}
+	req := &corev1.RunChecks{
+		ResultTreeId: "tree-1",
+		ServerAddr:   addr,
+		Checks: []*corev1.CheckRunSpec{{
+			RunId:            "run-dup",
+			Name:             "unit",
+			Command:          "printf ran",
+			MaterializePaths: []string{"/"},
+		}},
+	}
+
+	d.handleRunChecks(req)
+	d.handleRunChecks(req)
+
+	terminal := 0
+	for {
+		select {
+		case msg := <-sendQueue.ch:
+			update := msg.GetCheckUpdate()
+			if update != nil && update.GetRunId() == "run-dup" && update.GetFinal() {
+				terminal++
+			}
+		default:
+			if terminal != 1 {
+				t.Fatalf("terminal updates for duplicate run_id = %d, want 1", terminal)
+			}
+			return
+		}
+	}
+}
+
 type fakeCheckRepo struct {
 	dirs  map[string][]*corev1.TreeEntry
 	files map[string][]byte
@@ -167,4 +214,37 @@ func checkFileEntry(p string, mode uint32) *corev1.TreeEntry {
 		Kind: corev1.EntryKind_ENTRY_KIND_FILE,
 		Mode: mode,
 	}
+}
+
+type fakeCheckRepoServer struct {
+	corev1.UnimplementedRepositoryServiceServer
+	repo *fakeCheckRepo
+}
+
+func startFakeCheckRepoServer(t *testing.T, repo *fakeCheckRepo) (string, func()) {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := grpc.NewServer()
+	corev1.RegisterRepositoryServiceServer(srv, &fakeCheckRepoServer{repo: repo})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Serve(lis)
+	}()
+	stop := func() {
+		srv.Stop()
+		_ = lis.Close()
+		<-errCh
+	}
+	return lis.Addr().String(), stop
+}
+
+func (s *fakeCheckRepoServer) ListDirectory(ctx context.Context, req *corev1.ListDirectoryRequest) (*corev1.ListDirectoryResponse, error) {
+	return s.repo.ListDirectory(ctx, req)
+}
+
+func (s *fakeCheckRepoServer) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
+	return s.repo.ReadFile(ctx, req)
 }

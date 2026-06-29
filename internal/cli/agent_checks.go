@@ -423,7 +423,11 @@ func (d *agentDaemon) emitSetupFailureForRunChecks(req *corev1.RunChecks, err er
 		if spec == nil || strings.TrimSpace(spec.GetRunId()) == "" {
 			continue
 		}
+		if !d.startCheckRun(spec.GetRunId(), func() {}) {
+			continue
+		}
 		d.emitCheckRunError(spec.GetRunId(), 0, err)
+		d.clearCheckRun(spec.GetRunId(), nil)
 	}
 }
 
@@ -517,6 +521,9 @@ func (d *agentDaemon) startCheckRun(runID string, cancel context.CancelFunc) boo
 	if d.checkRuns[runID] != nil {
 		return false
 	}
+	if _, ok := d.recentCheckRuns[runID]; ok {
+		return false
+	}
 	d.checkRuns[runID] = cancel
 	return true
 }
@@ -529,6 +536,30 @@ func (d *agentDaemon) clearCheckRun(runID string, cancel context.CancelFunc) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.checkRuns, runID)
+	d.rememberRecentCheckRunLocked(runID)
+}
+
+func (d *agentDaemon) rememberRecentCheckRunLocked(runID string) {
+	if d.recentCheckRuns == nil {
+		d.recentCheckRuns = map[string]struct{}{}
+	}
+	if _, ok := d.recentCheckRuns[runID]; ok {
+		for i, existing := range d.recentCheckRunOrder {
+			if existing == runID {
+				copy(d.recentCheckRunOrder[i:], d.recentCheckRunOrder[i+1:])
+				d.recentCheckRunOrder = d.recentCheckRunOrder[:len(d.recentCheckRunOrder)-1]
+				break
+			}
+		}
+	}
+	d.recentCheckRuns[runID] = struct{}{}
+	d.recentCheckRunOrder = append(d.recentCheckRunOrder, runID)
+	for len(d.recentCheckRunOrder) > agentRecentCheckRunLimit {
+		oldest := d.recentCheckRunOrder[0]
+		copy(d.recentCheckRunOrder, d.recentCheckRunOrder[1:])
+		d.recentCheckRunOrder = d.recentCheckRunOrder[:len(d.recentCheckRunOrder)-1]
+		delete(d.recentCheckRuns, oldest)
+	}
 }
 
 func (d *agentDaemon) handleCancelCheckRun(cancel *corev1.CancelCheckRun) {

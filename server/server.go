@@ -116,6 +116,9 @@ func Run(ctx context.Context, cfg Config) error {
 		Checks:     db.Checks(),
 	}
 	handlers := service.New(stores, objectStore)
+	if handlers.Agent != nil {
+		go handlers.Agent.RunCheckDispatchSweep(ctx)
+	}
 	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg)
 	apiHandler := NewConnectHandler(resolveSubject, handlers)
 	combinedServer := &http.Server{

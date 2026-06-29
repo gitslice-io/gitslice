@@ -21,10 +21,11 @@ import (
 )
 
 const (
-	defaultAgentRuntime = "codex"
-	agentSendBuffer     = 128
-	agentHeartbeat      = 15 * time.Second
-	agentMetaFilename   = ".agent-meta.json"
+	defaultAgentRuntime      = "codex"
+	agentSendBuffer          = 128
+	agentHeartbeat           = 15 * time.Second
+	agentMetaFilename        = ".agent-meta.json"
+	agentRecentCheckRunLimit = 256
 	// agentMaxPendingEvents bounds a conversation's unacked outbound buffer. Acks
 	// are per-event and keep this near-empty in practice; the cap only guards the
 	// degenerate case where the server stops acking.
@@ -122,13 +123,14 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 	defer cancel()
 
 	daemon := &agentDaemon{
-		runner:        r,
-		cfg:           cfg,
-		runtime:       runtime,
-		baseCtx:       agentCtx,
-		workingDir:    root,
-		conversations: map[string]*agentConversation{},
-		checkRuns:     map[string]context.CancelFunc{},
+		runner:          r,
+		cfg:             cfg,
+		runtime:         runtime,
+		baseCtx:         agentCtx,
+		workingDir:      root,
+		conversations:   map[string]*agentConversation{},
+		checkRuns:       map[string]context.CancelFunc{},
+		recentCheckRuns: map[string]struct{}{},
 	}
 	daemon.loadExistingConversations()
 	defer func() {
@@ -297,9 +299,11 @@ type agentDaemon struct {
 	workingDir string
 	sendQueue  *agentSendQueue
 
-	mu            sync.Mutex
-	conversations map[string]*agentConversation
-	checkRuns     map[string]context.CancelFunc
+	mu                  sync.Mutex
+	conversations       map[string]*agentConversation
+	checkRuns           map[string]context.CancelFunc
+	recentCheckRuns     map[string]struct{}
+	recentCheckRunOrder []string
 }
 
 type agentConversation struct {
