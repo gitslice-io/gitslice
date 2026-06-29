@@ -21,6 +21,7 @@ type File struct {
 
 type Defaults struct {
 	Image   string
+	Setup   []string
 	Timeout time.Duration // parsed from a Go duration string, optional
 	Env     map[string]string
 	Network bool
@@ -30,6 +31,7 @@ type Check struct {
 	Description string
 	Run         string            // required
 	Image       string            // optional; overrides Defaults.Image
+	Setup       []string          // optional image preparation commands
 	Paths       []string          // optional trigger globs
 	Include     []string          // optional extra materialize prefixes
 	WorkingDir  string            // optional, default "."
@@ -46,6 +48,7 @@ type rawFile struct {
 
 type rawDefaults struct {
 	Image   string            `yaml:"image"`
+	Setup   []string          `yaml:"setup"`
 	Timeout string            `yaml:"timeout"`
 	Env     map[string]string `yaml:"env"`
 	Network bool              `yaml:"network"`
@@ -55,6 +58,7 @@ type rawCheck struct {
 	Description string            `yaml:"description"`
 	Run         string            `yaml:"run"`
 	Image       string            `yaml:"image"`
+	Setup       []string          `yaml:"setup"`
 	Paths       []string          `yaml:"paths"`
 	Include     []string          `yaml:"include"`
 	WorkingDir  string            `yaml:"working_dir"`
@@ -130,6 +134,7 @@ func parseDefaults(raw rawDefaults) (Defaults, error) {
 	}
 	return Defaults{
 		Image:   raw.Image,
+		Setup:   copyStringSlice(raw.Setup),
 		Timeout: timeout,
 		Env:     copyEnv(raw.Env),
 		Network: raw.Network,
@@ -169,6 +174,11 @@ func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
 		image = raw.Image
 	}
 
+	setup := defaults.Setup
+	if raw.Setup != nil {
+		setup = raw.Setup
+	}
+
 	network := defaults.Network
 	if raw.Network != nil {
 		network = *raw.Network
@@ -186,6 +196,7 @@ func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
 		Description: raw.Description,
 		Run:         raw.Run,
 		Image:       image,
+		Setup:       copyStringSlice(setup),
 		Paths:       normalizePathValues(raw.Paths),
 		Include:     normalizePathValues(raw.Include),
 		WorkingDir:  normalizePathValue(workingDir),
@@ -255,6 +266,13 @@ func copyEnv(in map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func copyStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	return append([]string(nil), in...)
 }
 
 func sortedRawCheckNames(checks map[string]rawCheck) []string {

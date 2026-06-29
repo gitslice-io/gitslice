@@ -216,6 +216,7 @@ message CheckRunSpec {
   map<string,string> env = 7;
   bool network = 8;
   int64 timeout_ms = 9;
+  repeated string setup = 10;
 }
 
 message CancelCheckRun {

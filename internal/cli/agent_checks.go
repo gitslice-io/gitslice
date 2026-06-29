@@ -481,6 +481,7 @@ func checkSpecFromProto(spec *corev1.CheckRunSpec) checks.CheckSpec {
 		Name:             spec.GetName(),
 		Run:              spec.GetCommand(),
 		Image:            spec.GetImage(),
+		Setup:            append([]string(nil), spec.GetSetup()...),
 		WorkingDir:       spec.GetWorkingDir(),
 		MaterializePaths: append([]string(nil), spec.GetMaterializePaths()...),
 		Env:              copyCheckEnv(spec.GetEnv()),

@@ -94,6 +94,13 @@ func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
 	}
 }
 
+func TestCheckRunSpecMapsSetup(t *testing.T) {
+	spec := checkSpecFromProto(&corev1.CheckRunSpec{Setup: []string{"true"}})
+	if got := spec.Setup; len(got) != 1 || got[0] != "true" {
+		t.Fatalf("Setup = %#v, want [true]", got)
+	}
+}
+
 type fakeCheckRepo struct {
 	dirs  map[string][]*corev1.TreeEntry
 	files map[string][]byte

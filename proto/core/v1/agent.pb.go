@@ -1519,6 +1519,7 @@ type CheckRunSpec struct {
 	Env              map[string]string      `protobuf:"bytes,7,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Network          bool                   `protobuf:"varint,8,opt,name=network,proto3" json:"network,omitempty"`
 	TimeoutMs        int64                  `protobuf:"varint,9,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	Setup            []string               `protobuf:"bytes,10,rep,name=setup,proto3" json:"setup,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1614,6 +1615,13 @@ func (x *CheckRunSpec) GetTimeoutMs() int64 {
 		return x.TimeoutMs
 	}
 	return 0
+}
+
+func (x *CheckRunSpec) GetSetup() []string {
+	if x != nil {
+		return x.Setup
+	}
+	return nil
 }
 
 type CancelCheckRun struct {
@@ -2520,7 +2528,7 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\bslice_id\x18\x05 \x01(\tR\asliceId\x12\x1f\n" +
 	"\vserver_addr\x18\x06 \x01(\tR\n" +
 	"serverAddr\x126\n" +
-	"\x06checks\x18\a \x03(\v2\x1e.gitslice.core.v1.CheckRunSpecR\x06checks\"\xe3\x02\n" +
+	"\x06checks\x18\a \x03(\v2\x1e.gitslice.core.v1.CheckRunSpecR\x06checks\"\xf9\x02\n" +
 	"\fCheckRunSpec\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -2532,7 +2540,9 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x03env\x18\a \x03(\v2'.gitslice.core.v1.CheckRunSpec.EnvEntryR\x03env\x12\x18\n" +
 	"\anetwork\x18\b \x01(\bR\anetwork\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\t \x01(\x03R\ttimeoutMs\x1a6\n" +
+	"timeout_ms\x18\t \x01(\x03R\ttimeoutMs\x12\x14\n" +
+	"\x05setup\x18\n" +
+	" \x03(\tR\x05setup\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"'\n" +
