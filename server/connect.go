@@ -29,6 +29,7 @@ func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http
 	mount(corev1connect.NewChangesetServiceHandler(connectChangesetAdapter{svc: handlers.Changeset}))
 	mount(corev1connect.NewChangesetStackServiceHandler(connectStackAdapter{svc: handlers.Stack}))
 	mount(corev1connect.NewAgentServiceHandler(connectAgentAdapter{svc: handlers.Agent}))
+	mount(corev1connect.NewCheckServiceHandler(connectCheckAdapter{svc: handlers.Check}))
 	return mux
 }
 
@@ -351,6 +352,22 @@ func (a connectAgentAdapter) CloseConversation(ctx context.Context, req *connect
 	return connectResponse(a.svc.CloseConversation(ctx, req.Msg))
 }
 
+type connectCheckAdapter struct {
+	svc *service.CheckService
+}
+
+func (a connectCheckAdapter) ListCheckRuns(ctx context.Context, req *connect.Request[corev1.ListCheckRunsRequest]) (*connect.Response[corev1.ListCheckRunsResponse], error) {
+	return connectResponse(a.svc.ListCheckRuns(ctx, req.Msg))
+}
+
+func (a connectCheckAdapter) GetCheckRun(ctx context.Context, req *connect.Request[corev1.GetCheckRunRequest]) (*connect.Response[corev1.CheckRun], error) {
+	return connectResponse(a.svc.GetCheckRun(ctx, req.Msg))
+}
+
+func (a connectCheckAdapter) StreamCheckRun(ctx context.Context, req *connect.Request[corev1.StreamCheckRunRequest], stream *connect.ServerStream[corev1.CheckRunLog]) error {
+	return connectError(a.svc.StreamCheckRun(req.Msg, connectCheckRunLogStream{ctx: ctx, stream: stream}))
+}
+
 type connectGRPCServerStream struct {
 	ctx context.Context
 }
@@ -464,5 +481,19 @@ func (s connectAgentConversationStream) Context() context.Context {
 }
 
 func (s connectAgentConversationStream) Send(msg *corev1.ConversationEvent) error {
+	return s.stream.Send(msg)
+}
+
+type connectCheckRunLogStream struct {
+	connectGRPCServerStream
+	ctx    context.Context
+	stream *connect.ServerStream[corev1.CheckRunLog]
+}
+
+func (s connectCheckRunLogStream) Context() context.Context {
+	return s.ctx
+}
+
+func (s connectCheckRunLogStream) Send(msg *corev1.CheckRunLog) error {
 	return s.stream.Send(msg)
 }

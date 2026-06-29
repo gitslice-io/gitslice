@@ -297,3 +297,4 @@ export const BlobService: GenService<{
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_blob, 0);
+

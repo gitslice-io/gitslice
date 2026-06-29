@@ -8,4 +8,6 @@ var (
 	_ storage.ChangesetStore  = (*ChangesetStore)(nil)
 	_ storage.RepositoryStore = (*RepositoryStore)(nil)
 	_ storage.SliceStore      = (*SliceStore)(nil)
+	_ storage.CheckStore      = (*CheckStore)(nil)
+	_ storage.AgentStore      = (*AgentStore)(nil)
 )

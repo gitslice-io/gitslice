@@ -154,6 +154,28 @@ type ConversationFilter struct {
 	SubjectID string
 }
 
+// CheckRunInput is the creation payload for a persisted CI/self-check run.
+type CheckRunInput struct {
+	ChangesetID string
+	PatchsetID  string
+	CheckName   string
+	DaemonID    string
+	Provenance  string
+	Status      string
+}
+
+// CheckStore persists check runs and replayable check logs. Terminal passed,
+// failed, and errored runs update check_results so the existing submit gate stays
+// the single source of truth for required-check satisfaction.
+type CheckStore interface {
+	CreateCheckRun(ctx context.Context, in CheckRunInput) (*corev1.CheckRun, error)
+	GetCheckRun(ctx context.Context, runID string) (*corev1.CheckRun, error)
+	ListCheckRuns(ctx context.Context, changesetID, patchsetID string) ([]*corev1.CheckRun, error)
+	UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error)
+	AppendCheckRunLog(ctx context.Context, runID string, seq int64, stream, chunk string) (inserted bool, err error)
+	ListCheckRunLogs(ctx context.Context, runID string, afterSeq int64) ([]*corev1.CheckRunLog, error)
+}
+
 // AgentStore persists agent daemons, conversations, and conversation events for
 // the bring-your-own-agent feature. See design/16_bring_your_own_agent.md.
 type AgentStore interface {

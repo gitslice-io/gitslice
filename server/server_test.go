@@ -131,6 +131,7 @@ func TestConnectHTTPHandlerServesAPI(t *testing.T) {
 		Repository: mem.Repository,
 		Slices:     mem.Slices,
 		Agents:     mem.Agents,
+		Checks:     mem.Checks,
 	}, mem.Objects)
 	resolve := func(ctx context.Context, token string) (string, error) {
 		if token == "token_123" {

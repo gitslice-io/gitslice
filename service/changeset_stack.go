@@ -10,6 +10,7 @@ import (
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type ChangesetStackService struct {
@@ -280,7 +281,7 @@ func (s *ChangesetStackService) restackUpdateOrConflict(ctx context.Context, cha
 		if !restackReplayMayBecomeConflict(err) {
 			return nil, false, err
 		}
-		conflictReq := *req
+		conflictReq := proto.Clone(req).(*corev1.UpdateChangesetRequest)
 		conflictReq.FileEdits = nil
 		conflictReq.Conflicts = restackConflictsFromEdits(cs, attemptedEdits, req.BaseCommitId)
 		conflictReq.PatchsetKind = "conflict"
@@ -292,7 +293,7 @@ func (s *ChangesetStackService) restackUpdateOrConflict(ctx context.Context, cha
 				NewBaseCommitId: req.BaseCommitId,
 			}}
 		}
-		if _, conflictErr := changesetService.UpdateChangeset(ctx, &conflictReq); conflictErr != nil {
+		if _, conflictErr := changesetService.UpdateChangeset(ctx, conflictReq); conflictErr != nil {
 			return nil, false, err
 		}
 		refreshed, getErr := s.Changesets.Get(ctx, cs.Id)
@@ -548,8 +549,7 @@ func cloneFileEdits(in []*corev1.FileEdit) []*corev1.FileEdit {
 		if edit == nil {
 			continue
 		}
-		next := *edit
-		out = append(out, &next)
+		out = append(out, proto.Clone(edit).(*corev1.FileEdit))
 	}
 	return out
 }

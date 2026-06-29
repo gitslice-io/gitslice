@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+
+service CheckService {
+  rpc ListCheckRuns(ListCheckRunsRequest) returns (ListCheckRunsResponse);
+  rpc GetCheckRun(GetCheckRunRequest) returns (CheckRun);
+  rpc StreamCheckRun(StreamCheckRunRequest) returns (stream CheckRunLog);
+}
+
+message CheckRun {
+  string id = 1;
+  string changeset_id = 2;
+  string patchset_id = 3;
+  string check_name = 4;
+  string daemon_id = 5;
+  string provenance = 6;
+  int32 attempt = 7;
+  string status = 8;
+  int32 exit_code = 9;
+  string summary = 10;
+  string started_at = 11;
+  string finished_at = 12;
+  int64 duration_ms = 13;
+  string created_at = 14;
+}
+
+message CheckRunLog {
+  string run_id = 1;
+  int64 seq = 2;
+  string stream = 3;
+  string chunk = 4;
+  string created_at = 5;
+}
+
+message ListCheckRunsRequest {
+  string changeset_id = 1;
+  string patchset_id = 2;
+}
+
+message ListCheckRunsResponse {
+  repeated CheckRun runs = 1;
+}
+
+message GetCheckRunRequest {
+  string run_id = 1;
+}
+
+message StreamCheckRunRequest {
+  string run_id = 1;
+  int64 after_seq = 2;
+}

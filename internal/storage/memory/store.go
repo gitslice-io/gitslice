@@ -18,6 +18,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 type Stores struct {
@@ -28,6 +29,7 @@ type Stores struct {
 	Slices     *SliceStore
 	Objects    *ObjectStore
 	Agents     *AgentStore
+	Checks     *CheckStore
 
 	backend *backend
 }
@@ -75,6 +77,10 @@ type backend struct {
 	agentConvs       map[string]*corev1.Conversation
 	agentEvents      map[string][]*corev1.ConversationEvent
 	agentConvNextSeq map[string]int64
+
+	checkRuns            map[string]*corev1.CheckRun
+	checkRunSupersededBy map[string]string
+	checkRunLogs         map[string][]*corev1.CheckRunLog
 }
 
 type cliLoginSession struct {
@@ -90,6 +96,7 @@ type ChangesetStore struct{ b *backend }
 type RepositoryStore struct{ b *backend }
 type SliceStore struct{ b *backend }
 type ObjectStore struct{ b *backend }
+type CheckStore struct{ b *backend }
 
 func New() *Stores {
 	b := &backend{
@@ -124,6 +131,9 @@ func New() *Stores {
 		agentConvs:              map[string]*corev1.Conversation{},
 		agentEvents:             map[string][]*corev1.ConversationEvent{},
 		agentConvNextSeq:        map[string]int64{},
+		checkRuns:               map[string]*corev1.CheckRun{},
+		checkRunSupersededBy:    map[string]string{},
+		checkRunLogs:            map[string][]*corev1.CheckRunLog{},
 	}
 	root := &corev1.Commit{
 		Id:         "mem_root",
@@ -143,6 +153,7 @@ func New() *Stores {
 		Slices:     &SliceStore{b: b},
 		Objects:    &ObjectStore{b: b},
 		Agents:     &AgentStore{b: b},
+		Checks:     &CheckStore{b: b},
 		backend:    b,
 	}
 }
@@ -1199,6 +1210,196 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 	}
 	s.b.checkResults[key][checkName] = resultStatus
 	return &corev1.ReportCheckResultResponse{ChangesetId: changesetID, PatchsetId: patchset.Id, CheckName: checkName, Status: resultStatus}, nil
+}
+
+func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInput) (*corev1.CheckRun, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	changesetID := strings.TrimSpace(in.ChangesetID)
+	patchsetID := strings.TrimSpace(in.PatchsetID)
+	checkName := strings.TrimSpace(in.CheckName)
+	status, err := normalizeMemoryCheckRunStatus(in.Status)
+	if err != nil {
+		return nil, err
+	}
+	if changesetID == "" || patchsetID == "" || checkName == "" {
+		return nil, storage.ErrInvalid
+	}
+	cs := s.b.changesets[changesetID]
+	if cs == nil || !changesetHasPatchsetID(cs, patchsetID) {
+		return nil, storage.ErrNotFound
+	}
+	attempt := int32(1)
+	for _, existing := range s.b.checkRuns {
+		if existing.PatchsetId != patchsetID || existing.CheckName != checkName {
+			continue
+		}
+		if s.b.checkRunSupersededBy[existing.Id] != "" {
+			continue
+		}
+		if existing.Attempt >= attempt {
+			attempt = existing.Attempt + 1
+		}
+	}
+	id, err := objectid.RandomID("run")
+	if err != nil {
+		return nil, err
+	}
+	provenance := strings.ToLower(strings.TrimSpace(in.Provenance))
+	if provenance != "ci" {
+		provenance = "self"
+	}
+	now := nowRFC()
+	run := &corev1.CheckRun{
+		Id:          id,
+		ChangesetId: changesetID,
+		PatchsetId:  patchsetID,
+		CheckName:   checkName,
+		DaemonId:    strings.TrimSpace(in.DaemonID),
+		Provenance:  provenance,
+		Attempt:     attempt,
+		Status:      status,
+		Summary:     "",
+		CreatedAt:   now,
+	}
+	if status == "running" || isTerminalMemoryCheckRunStatus(status) {
+		run.StartedAt = now
+	}
+	if isTerminalMemoryCheckRunStatus(status) {
+		run.FinishedAt = now
+		run.DurationMs = 0
+	}
+	s.b.checkRuns[id] = run
+	for _, existing := range s.b.checkRuns {
+		if existing.Id == id || existing.PatchsetId != patchsetID || existing.CheckName != checkName {
+			continue
+		}
+		if s.b.checkRunSupersededBy[existing.Id] == "" {
+			s.b.checkRunSupersededBy[existing.Id] = id
+		}
+	}
+	return cloneCheckRun(run), nil
+}
+
+func (s *CheckStore) GetCheckRun(ctx context.Context, runID string) (*corev1.CheckRun, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	run := s.b.checkRuns[strings.TrimSpace(runID)]
+	if run == nil {
+		return nil, storage.ErrNotFound
+	}
+	return cloneCheckRun(run), nil
+}
+
+func (s *CheckStore) ListCheckRuns(ctx context.Context, changesetID, patchsetID string) ([]*corev1.CheckRun, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	changesetID = strings.TrimSpace(changesetID)
+	patchsetID = strings.TrimSpace(patchsetID)
+	if changesetID == "" && patchsetID == "" {
+		return nil, storage.ErrInvalid
+	}
+	var out []*corev1.CheckRun
+	for _, run := range s.b.checkRuns {
+		if s.b.checkRunSupersededBy[run.Id] != "" {
+			continue
+		}
+		if changesetID != "" && run.ChangesetId != changesetID {
+			continue
+		}
+		if patchsetID != "" && run.PatchsetId != patchsetID {
+			continue
+		}
+		out = append(out, cloneCheckRun(run))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PatchsetId != out[j].PatchsetId {
+			return out[i].PatchsetId < out[j].PatchsetId
+		}
+		if out[i].CheckName != out[j].CheckName {
+			return out[i].CheckName < out[j].CheckName
+		}
+		return out[i].Attempt < out[j].Attempt
+	})
+	return out, nil
+}
+
+func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	status, err := normalizeMemoryCheckRunStatus(status)
+	if err != nil {
+		return nil, err
+	}
+	run := s.b.checkRuns[strings.TrimSpace(runID)]
+	if run == nil {
+		return nil, storage.ErrNotFound
+	}
+	now := nowRFC()
+	run.Status = status
+	if status == "running" && run.StartedAt == "" {
+		run.StartedAt = now
+	}
+	if isTerminalMemoryCheckRunStatus(status) {
+		if run.StartedAt == "" {
+			run.StartedAt = now
+		}
+		run.FinishedAt = now
+		run.DurationMs = memoryCheckRunDurationMS(run.StartedAt, now)
+		run.ExitCode = exitCode
+		run.Summary = strings.TrimSpace(summary)
+	}
+	if resultStatus, ok := terminalMemoryCheckResultStatus(status); ok {
+		key := patchsetRequirementKey(run.ChangesetId, run.PatchsetId)
+		if s.b.checkResults[key] == nil {
+			s.b.checkResults[key] = map[string]string{}
+		}
+		s.b.checkResults[key][run.CheckName] = resultStatus
+	}
+	return cloneCheckRun(run), nil
+}
+
+func (s *CheckStore) AppendCheckRunLog(ctx context.Context, runID string, seq int64, stream, chunk string) (bool, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	runID = strings.TrimSpace(runID)
+	stream = strings.ToLower(strings.TrimSpace(stream))
+	if runID == "" || seq <= 0 {
+		return false, storage.ErrInvalid
+	}
+	if stream != "stdout" && stream != "stderr" {
+		return false, storage.ErrInvalid
+	}
+	if s.b.checkRuns[runID] == nil {
+		return false, storage.ErrNotFound
+	}
+	for _, existing := range s.b.checkRunLogs[runID] {
+		if existing.Seq == seq {
+			return false, nil
+		}
+	}
+	log := &corev1.CheckRunLog{
+		RunId:     runID,
+		Seq:       seq,
+		Stream:    stream,
+		Chunk:     chunk,
+		CreatedAt: nowRFC(),
+	}
+	s.b.checkRunLogs[runID] = append(s.b.checkRunLogs[runID], log)
+	return true, nil
+}
+
+func (s *CheckStore) ListCheckRunLogs(ctx context.Context, runID string, afterSeq int64) ([]*corev1.CheckRunLog, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []*corev1.CheckRunLog
+	for _, log := range s.b.checkRunLogs[strings.TrimSpace(runID)] {
+		if log.Seq > afterSeq {
+			out = append(out, cloneCheckRunLog(log))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	return out, nil
 }
 
 func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (res *corev1.SubmitChangesetResponse, err error) {
@@ -2681,6 +2882,63 @@ func currentPatchset(cs *corev1.Changeset) *corev1.Patchset {
 	return cs.Patchsets[len(cs.Patchsets)-1]
 }
 
+func changesetHasPatchsetID(cs *corev1.Changeset, patchsetID string) bool {
+	if cs == nil {
+		return false
+	}
+	for _, patchset := range cs.Patchsets {
+		if patchset != nil && patchset.Id == patchsetID {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeMemoryCheckRunStatus(status string) (string, error) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status == "" {
+		status = "queued"
+	}
+	switch status {
+	case "queued", "running", "passed", "failed", "errored", "skipped", "canceled":
+		return status, nil
+	default:
+		return "", storage.ErrInvalid
+	}
+}
+
+func isTerminalMemoryCheckRunStatus(status string) bool {
+	switch status {
+	case "passed", "failed", "errored", "skipped", "canceled":
+		return true
+	default:
+		return false
+	}
+}
+
+func terminalMemoryCheckResultStatus(status string) (string, bool) {
+	switch status {
+	case "passed":
+		return storage.NormalizeCheckStatus(storage.CheckStatusPass)
+	case "failed", "errored":
+		return storage.NormalizeCheckStatus(storage.CheckStatusFail)
+	default:
+		return "", false
+	}
+}
+
+func memoryCheckRunDurationMS(startedAt, finishedAt string) int64 {
+	start, err := time.Parse(time.RFC3339Nano, startedAt)
+	if err != nil {
+		return 0
+	}
+	finish, err := time.Parse(time.RFC3339Nano, finishedAt)
+	if err != nil || finish.Before(start) {
+		return 0
+	}
+	return finish.Sub(start).Milliseconds()
+}
+
 func cloneFileMap(in map[string]storage.FileEntry) map[string]storage.FileEntry {
 	out := map[string]storage.FileEntry{}
 	for k, v := range in {
@@ -2706,121 +2964,84 @@ func cloneBlob(in *corev1.BlobRecord) *corev1.BlobRecord {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	return &out
+	return proto.Clone(in).(*corev1.BlobRecord)
 }
 
 func cloneRef(in *corev1.Ref) *corev1.Ref {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	return &out
+	return proto.Clone(in).(*corev1.Ref)
 }
 
 func cloneCommit(in *corev1.Commit) *corev1.Commit {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	out.ParentIds = append([]string(nil), in.ParentIds...)
-	out.ChangedPaths = append([]string(nil), in.ChangedPaths...)
-	return &out
+	return proto.Clone(in).(*corev1.Commit)
 }
 
 func cloneSliceRef(in *corev1.SliceRef) *corev1.SliceRef {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	return &out
+	return proto.Clone(in).(*corev1.SliceRef)
 }
 
 func cloneSlice(in *corev1.Slice) *corev1.Slice {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	out.Ref = cloneSliceRef(in.Ref)
-	if in.Definition != nil {
-		def := *in.Definition
-		def.IncludedPaths = append([]string(nil), in.Definition.IncludedPaths...)
-		def.RequiredChecks = append([]string(nil), in.Definition.RequiredChecks...)
-		out.Definition = &def
-	}
-	return &out
+	return proto.Clone(in).(*corev1.Slice)
 }
 
 func cloneSliceDefinitionVersion(in *corev1.SliceDefinitionVersion) *corev1.SliceDefinitionVersion {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	out.IncludedPaths = append([]string(nil), in.IncludedPaths...)
-	out.RequiredChecks = append([]string(nil), in.RequiredChecks...)
-	return &out
+	return proto.Clone(in).(*corev1.SliceDefinitionVersion)
 }
 
 func clonePatchset(in *corev1.Patchset) *corev1.Patchset {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	out.ChangedPaths = append([]string(nil), in.ChangedPaths...)
-	out.FileEdits = append([]*corev1.FileEdit(nil), in.FileEdits...)
-	out.Coverage = append([]*corev1.PathCoverage(nil), in.Coverage...)
-	out.PathBases = append([]*corev1.PathBase(nil), in.PathBases...)
-	out.ReadSet = append([]*corev1.PathSetEntry(nil), in.ReadSet...)
-	out.WriteSet = append([]*corev1.PathSetEntry(nil), in.WriteSet...)
-	out.Conflicts = append([]*corev1.PatchsetConflict(nil), in.Conflicts...)
-	if in.SubmitRequirements != nil {
-		req := *in.SubmitRequirements
-		req.RequiredChecks = append([]string(nil), in.SubmitRequirements.RequiredChecks...)
-		req.PathLockIds = append([]string(nil), in.SubmitRequirements.PathLockIds...)
-		out.SubmitRequirements = &req
-	}
-	return &out
+	return proto.Clone(in).(*corev1.Patchset)
 }
 
 func cloneStackEntry(in *corev1.ChangesetStackEntry) *corev1.ChangesetStackEntry {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	out.Changeset = cloneChangeset(in.Changeset)
-	return &out
+	return proto.Clone(in).(*corev1.ChangesetStackEntry)
 }
 
 func cloneStack(in *corev1.ChangesetStack) *corev1.ChangesetStack {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	out.AuthoringSlice = cloneSliceRef(in.AuthoringSlice)
-	out.Entries = make([]*corev1.ChangesetStackEntry, 0, len(in.Entries))
-	for _, entry := range in.Entries {
-		out.Entries = append(out.Entries, cloneStackEntry(entry))
-	}
-	return &out
+	return proto.Clone(in).(*corev1.ChangesetStack)
 }
 
 func cloneChangeset(in *corev1.Changeset) *corev1.Changeset {
 	if in == nil {
 		return nil
 	}
-	out := *in
-	out.AuthoringSlice = cloneSliceRef(in.AuthoringSlice)
-	out.Patchsets = make([]*corev1.Patchset, 0, len(in.Patchsets))
-	for _, patchset := range in.Patchsets {
-		out.Patchsets = append(out.Patchsets, clonePatchset(patchset))
+	return proto.Clone(in).(*corev1.Changeset)
+}
+
+func cloneCheckRun(in *corev1.CheckRun) *corev1.CheckRun {
+	if in == nil {
+		return nil
 	}
-	if in.SubmitRequirements != nil {
-		req := *in.SubmitRequirements
-		req.RequiredChecks = append([]string(nil), in.SubmitRequirements.RequiredChecks...)
-		req.PathLockIds = append([]string(nil), in.SubmitRequirements.PathLockIds...)
-		out.SubmitRequirements = &req
+	return proto.Clone(in).(*corev1.CheckRun)
+}
+
+func cloneCheckRunLog(in *corev1.CheckRunLog) *corev1.CheckRunLog {
+	if in == nil {
+		return nil
 	}
-	return &out
+	return proto.Clone(in).(*corev1.CheckRunLog)
 }
 
 func cloneGitImport(in *storage.GitImportRecord) *storage.GitImportRecord {

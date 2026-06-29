@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type RepositoryService struct {
@@ -469,16 +470,14 @@ func cloneResolvePathRequest(req *corev1.ResolvePathRequest) *corev1.ResolvePath
 	if req == nil {
 		return &corev1.ResolvePathRequest{}
 	}
-	out := *req
-	return &out
+	return proto.Clone(req).(*corev1.ResolvePathRequest)
 }
 
 func cloneReadFileRequest(req *corev1.ReadFileRequest) *corev1.ReadFileRequest {
 	if req == nil {
 		return &corev1.ReadFileRequest{}
 	}
-	out := *req
-	return &out
+	return proto.Clone(req).(*corev1.ReadFileRequest)
 }
 
 func readFile(ctx context.Context, repository storage.RepositoryStore, objectStore ObjectStore, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
