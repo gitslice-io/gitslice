@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/checkexec"
@@ -23,6 +24,7 @@ import (
 
 const (
 	checkMaterializePageSize        = 1000
+	checkMaterializeDirConcurrency  = 32
 	checkMaterializeReadConcurrency = 32
 )
 
@@ -114,6 +116,18 @@ func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoCl
 	if err != nil {
 		return err
 	}
+	g, groupCtx := errgroup.WithContext(ctx)
+	g.SetLimit(checkMaterializeDirConcurrency)
+	g.Go(func() error {
+		return d.materializeCheckDirectoryWalk(groupCtx, g, repo, rootTreeID, dir, plan)
+	})
+	return g.Wait()
+}
+
+func (d *agentDaemon) materializeCheckDirectoryWalk(ctx context.Context, g *errgroup.Group, repo RepoClient, rootTreeID, dir string, plan *checkMaterializePlan) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := plan.addDir(dir); err != nil {
 		return err
 	}
@@ -125,6 +139,7 @@ func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoCl
 	if err != nil {
 		return err
 	}
+	var subdirs []string
 	for _, entry := range entries {
 		if entry == nil {
 			continue
@@ -135,9 +150,7 @@ func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoCl
 			if err != nil {
 				return err
 			}
-			if err := d.materializeCheckDirectory(ctx, repo, rootTreeID, entryPath, plan); err != nil {
-				return err
-			}
+			subdirs = append(subdirs, entryPath)
 		case corev1.EntryKind_ENTRY_KIND_FILE:
 			if err := plan.addFile(entry); err != nil {
 				return err
@@ -146,10 +159,22 @@ func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoCl
 			return fmt.Errorf("unsupported check tree entry kind for %s: %s", entry.GetPath(), entryKindName(entry.GetKind()))
 		}
 	}
+	for _, subdir := range subdirs {
+		subdir := subdir
+		if g.TryGo(func() error {
+			return d.materializeCheckDirectoryWalk(ctx, g, repo, rootTreeID, subdir, plan)
+		}) {
+			continue
+		}
+		if err := d.materializeCheckDirectoryWalk(ctx, g, repo, rootTreeID, subdir, plan); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 type checkMaterializePlan struct {
+	mu    sync.Mutex
 	dirs  map[string]struct{}
 	files map[string]*corev1.TreeEntry
 }
@@ -166,6 +191,8 @@ func (p *checkMaterializePlan) addDir(dir string) error {
 	if err != nil {
 		return err
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.dirs[dir] = struct{}{}
 	return nil
 }
@@ -175,11 +202,16 @@ func (p *checkMaterializePlan) addFile(entry *corev1.TreeEntry) error {
 	if err != nil {
 		return err
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.files[entryPath] = entry
-	return p.addDir(checkMaterializeParentDir(entryPath))
+	p.dirs[checkMaterializeParentDir(entryPath)] = struct{}{}
+	return nil
 }
 
 func (p *checkMaterializePlan) sortedDirs() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	out := make([]string, 0, len(p.dirs))
 	for dir := range p.dirs {
 		out = append(out, dir)
@@ -196,6 +228,8 @@ func (p *checkMaterializePlan) sortedDirs() []string {
 }
 
 func (p *checkMaterializePlan) sortedFiles() []*corev1.TreeEntry {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	paths := make([]string, 0, len(p.files))
 	for filePath := range p.files {
 		paths = append(paths, filePath)
