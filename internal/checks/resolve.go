@@ -29,6 +29,7 @@ type CheckSpec struct {
 	Name             string // qualified id, "<dir>/<name>"; root dir => "<name>"
 	Run              string
 	Image            string
+	Setup            []string
 	WorkingDir       string // logical path
 	MaterializePaths []string
 	Env              map[string]string
@@ -167,6 +168,7 @@ func buildCheckSpec(definingDir, localName string, check Check, includedPaths []
 		Name:             qualifiedID(definingDir, localName),
 		Run:              check.Run,
 		Image:            check.Image,
+		Setup:            copyStringSlice(check.Setup),
 		WorkingDir:       workingDir,
 		MaterializePaths: materializePaths,
 		Env:              copyEnv(check.Env),

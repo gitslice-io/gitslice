@@ -22,6 +22,9 @@ func TestRunHostPass(t *testing.T) {
 	if result.Log != "ok" {
 		t.Fatalf("log = %q, want ok", result.Log)
 	}
+	if result.SetupMs != 0 || result.Cached {
+		t.Fatalf("host result setup fields = setup_ms %d cached %v, want zero/false", result.SetupMs, result.Cached)
+	}
 }
 
 func TestRunHostFail(t *testing.T) {
@@ -95,6 +98,55 @@ func TestRunContainerPass(t *testing.T) {
 	}
 }
 
+func TestRunContainerSetupBuildsAndReusesPreparedImage(t *testing.T) {
+	runtime, ok := testContainerRuntime()
+	if !ok {
+		t.Skip("docker/podman not on PATH")
+	}
+	image := "busybox"
+	tag := preparedImageTag(image, []string{"true"})
+	removeTestImage(t, runtime, tag)
+	t.Cleanup(func() {
+		removeTestImage(t, runtime, tag)
+	})
+
+	spec := checks.CheckSpec{
+		Image: image,
+		Setup: []string{"true"},
+		Run:   "true",
+	}
+	first, err := Run(context.Background(), t.TempDir(), spec)
+	if err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if first.Status != "passed" || first.ExitCode != 0 {
+		t.Fatalf("first result = %#v, want passed exit 0", first)
+	}
+	if first.Cached {
+		t.Fatalf("first Cached = true, want false after forced image removal")
+	}
+	if first.SetupMs <= 0 {
+		t.Fatalf("first SetupMs = %d, want > 0", first.SetupMs)
+	}
+	if err := exec.Command(runtime, "image", "inspect", tag).Run(); err != nil {
+		t.Fatalf("prepared image %s was not built: %v", tag, err)
+	}
+
+	second, err := Run(context.Background(), t.TempDir(), spec)
+	if err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	if second.Status != "passed" || second.ExitCode != 0 {
+		t.Fatalf("second result = %#v, want passed exit 0", second)
+	}
+	if !second.Cached {
+		t.Fatalf("second Cached = false, want true")
+	}
+	if second.SetupMs != 0 {
+		t.Fatalf("second SetupMs = %d, want 0 for cached image", second.SetupMs)
+	}
+}
+
 func testContainerRuntime() (string, bool) {
 	if path, err := exec.LookPath("docker"); err == nil {
 		return path, true
@@ -103,4 +155,9 @@ func testContainerRuntime() (string, bool) {
 		return path, true
 	}
 	return "", false
+}
+
+func removeTestImage(t *testing.T, runtime, tag string) {
+	t.Helper()
+	_ = exec.Command(runtime, "rmi", "-f", tag).Run()
 }

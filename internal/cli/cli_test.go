@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,7 +68,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs create", "gs modify", "gs submit [changeset]", "gs deps [dependency-tree]", "gs update-dependents [changeset]", "gs switch <changeset>", "gs up [changeset]", "gs down [steps]", "gs top", "gs bottom", "gs move <changeset> --onto <base|root>", "gs insert --base <changeset> --message <title>", "gs detach <changeset>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs ci", "gs create", "gs modify", "gs submit [changeset]", "gs deps [dependency-tree]", "gs update-dependents [changeset]", "gs switch <changeset>", "gs up [changeset]", "gs down [steps]", "gs top", "gs bottom", "gs move <changeset> --onto <base|root>", "gs insert --base <changeset> --message <title>", "gs detach <changeset>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -110,6 +111,60 @@ func TestLegacyRepoCommandIsRemoved(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `unknown command "repo"`) && !strings.Contains(stderr.String(), `unknown command "repo"`) {
 		t.Fatalf("legacy repo command error = %v\nstderr:\n%s", err, stderr.String())
+	}
+}
+
+func TestRunCIPassingHostCheck(t *testing.T) {
+	workspace := t.TempDir()
+	writeCIWorkspaceForTest(t, workspace, "true")
+
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Dir: workspace, Stdout: &stdout, Stderr: &stderr}
+	if err := r.Run(context.Background(), []string{"ci"}); err != nil {
+		t.Fatalf("gs ci failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if got := stdout.String(); !strings.Contains(got, "acme/payment/check: passed") || !strings.Contains(got, "run ") {
+		t.Fatalf("gs ci stdout missing passing check/timing:\n%s", got)
+	}
+}
+
+func TestRunCIFailingHostCheckExitsNonZero(t *testing.T) {
+	workspace := t.TempDir()
+	writeCIWorkspaceForTest(t, workspace, "false")
+
+	var stdout, stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Dir: workspace, Stdout: &stdout, Stderr: &stderr}
+	err := r.Run(context.Background(), []string{"ci"})
+	if err == nil {
+		t.Fatalf("gs ci unexpectedly succeeded\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if got := stdout.String(); !strings.Contains(got, "acme/payment/check: failed") || !strings.Contains(got, "exit 1") {
+		t.Fatalf("gs ci stdout missing failing check summary:\n%s", got)
+	}
+}
+
+func writeCIWorkspaceForTest(t *testing.T, workspace, checkRun string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(workspace, ".gs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONFile(filepath.Join(workspace, ".gs", "slice.json"), WorkspaceConfig{
+		Account:       "acme",
+		Slice:         "payment",
+		IncludedPaths: []string{"/acme/payment"},
+	}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checksDir := filepath.Join(workspace, "acme", "payment", ".gitslice")
+	if err := os.MkdirAll(checksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	checksYAML := "version: 1\nchecks:\n  check:\n    run: " + strconv.Quote(checkRun) + "\n"
+	if err := os.WriteFile(filepath.Join(checksDir, "checks.yaml"), []byte(checksYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "acme", "payment", "app.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

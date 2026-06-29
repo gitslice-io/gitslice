@@ -3,6 +3,8 @@ package checkexec
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -29,6 +31,9 @@ type Result struct {
 	ExitCode int32
 	Summary  string
 	Log      string
+	SetupMs  int64
+	Cached   bool
+	RunMs    int64
 }
 
 // Run executes one resolved check against workspaceRoot.
@@ -37,7 +42,7 @@ func Run(ctx context.Context, workspaceRoot string, spec checks.CheckSpec) (Resu
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
-	if strings.TrimSpace(spec.Image) != "" {
+	if strings.TrimSpace(spec.Image) != "" || len(spec.Setup) > 0 {
 		return runContainer(ctx, workspaceRoot, spec, timeout)
 	}
 	return runHost(ctx, workspaceRoot, spec, timeout)
@@ -63,6 +68,28 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 			Summary:  "container runtime not found (install docker or podman)",
 		}, nil
 	}
+	image := strings.TrimSpace(spec.Image)
+	if image == "" {
+		return Result{
+			Status:   "errored",
+			ExitCode: -1,
+			Summary:  "container image is required when setup is configured",
+		}, nil
+	}
+	var setupMs int64
+	cached := false
+	if len(spec.Setup) > 0 {
+		preparedImage, preparedSetupMs, preparedCached, result, err := prepareContainerImage(ctx, runtime, image, spec.Setup, timeout)
+		if err != nil {
+			return Result{}, err
+		}
+		if result != nil {
+			return *result, nil
+		}
+		image = preparedImage
+		setupMs = preparedSetupMs
+		cached = preparedCached
+	}
 	root, err := filepath.Abs(workspaceRoot)
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve workspace root: %w", err)
@@ -80,10 +107,13 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 	for _, key := range sortedEnvKeys(spec.Env) {
 		args = append(args, "-e", key+"="+spec.Env[key])
 	}
-	args = append(args, spec.Image, "sh", "-c", spec.Run)
+	args = append(args, image, "sh", "-c", spec.Run)
 
 	cmd := exec.CommandContext(ctx, runtime, args...)
-	return runCommand(ctx, cmd, timeout)
+	result, err := runCommand(ctx, cmd, timeout)
+	result.SetupMs = setupMs
+	result.Cached = cached
+	return result, err
 }
 
 func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Result, error) {
@@ -98,7 +128,9 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Resu
 	cmdCtx.Stdout = &output
 	cmdCtx.Stderr = &output
 
+	start := time.Now()
 	err := cmdCtx.Run()
+	runMs := time.Since(start).Milliseconds()
 	log := output.String()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		_ = killProcessGroup(cmdCtx)
@@ -107,6 +139,7 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Resu
 			ExitCode: -1,
 			Summary:  fmt.Sprintf("timed out after %s", timeout),
 			Log:      log,
+			RunMs:    runMs,
 		}, nil
 	}
 	if err != nil {
@@ -118,6 +151,7 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Resu
 				ExitCode: code,
 				Summary:  fmt.Sprintf("exit %d", code),
 				Log:      log,
+				RunMs:    runMs,
 			}, nil
 		}
 		if runCtx.Err() != nil {
@@ -126,6 +160,7 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Resu
 				ExitCode: -1,
 				Summary:  runCtx.Err().Error(),
 				Log:      log,
+				RunMs:    runMs,
 			}, nil
 		}
 		return Result{
@@ -133,6 +168,7 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Resu
 			ExitCode: -1,
 			Summary:  fmt.Sprintf("failed to start check: %v", err),
 			Log:      log,
+			RunMs:    runMs,
 		}, nil
 	}
 	return Result{
@@ -140,7 +176,82 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Resu
 		ExitCode: 0,
 		Summary:  "exit 0",
 		Log:      log,
+		RunMs:    runMs,
 	}, nil
+}
+
+func prepareContainerImage(ctx context.Context, runtime, image string, setup []string, timeout time.Duration) (string, int64, bool, *Result, error) {
+	tag := preparedImageTag(image, setup)
+	inspect := exec.CommandContext(ctx, runtime, "image", "inspect", tag)
+	if err := inspect.Run(); err == nil {
+		return tag, 0, true, nil, nil
+	}
+
+	// Setup is image-level, changeset-independent preparation. Build with an
+	// empty context and without mounting the workspace so the derived image can
+	// be reused across patchsets that declare the same image/setup pair.
+	contextDir, err := os.MkdirTemp("", "gitslice-ci-context-*")
+	if err != nil {
+		return "", 0, false, nil, fmt.Errorf("create setup build context: %w", err)
+	}
+	defer os.RemoveAll(contextDir)
+
+	buildCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(buildCtx, runtime, "build", "-t", tag, "-f", "-", contextDir)
+	cmd.Stdin = strings.NewReader(setupDockerfile(image, setup))
+	configureProcessGroup(cmd)
+	var output cappedBuffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+
+	start := time.Now()
+	err = cmd.Run()
+	setupMs := time.Since(start).Milliseconds()
+	log := output.String()
+	if errors.Is(buildCtx.Err(), context.DeadlineExceeded) {
+		_ = killProcessGroup(cmd)
+		return tag, setupMs, false, &Result{
+			Status:   "errored",
+			ExitCode: -1,
+			Summary:  fmt.Sprintf("setup timed out after %s", timeout),
+			Log:      log,
+			SetupMs:  setupMs,
+		}, nil
+	}
+	if err != nil {
+		summary := "setup failed"
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			summary = fmt.Sprintf("setup failed: exit %d", exitErr.ExitCode())
+		} else if buildCtx.Err() != nil {
+			summary = "setup failed: " + buildCtx.Err().Error()
+		} else {
+			summary = fmt.Sprintf("setup failed: %v", err)
+		}
+		return tag, setupMs, false, &Result{
+			Status:   "errored",
+			ExitCode: -1,
+			Summary:  summary,
+			Log:      log,
+			SetupMs:  setupMs,
+		}, nil
+	}
+	return tag, setupMs, false, nil, nil
+}
+
+func preparedImageTag(image string, setup []string) string {
+	sum := sha256.Sum256([]byte(image + "\n" + strings.Join(setup, "\n")))
+	return "gitslice-ci/" + hex.EncodeToString(sum[:])[:24]
+}
+
+func setupDockerfile(image string, setup []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "FROM %s\n", image)
+	for _, command := range setup {
+		fmt.Fprintf(&b, "RUN %s\n", command)
+	}
+	return b.String()
 }
 
 func workspaceDir(workspaceRoot, logicalDir string) (string, error) {

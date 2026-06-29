@@ -7,12 +7,73 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gitslice-io/gitslice/internal/checkexec"
 	"github.com/gitslice-io/gitslice/internal/checks"
 	gspaths "github.com/gitslice-io/gitslice/internal/paths"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 )
+
+type WorkspaceCheckResult struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	ExitCode   int32  `json:"exit_code"`
+	Summary    string `json:"summary,omitempty"`
+	Log        string `json:"log,omitempty"`
+	SetupMs    int64  `json:"setup_ms,omitempty"`
+	RunMs      int64  `json:"run_ms,omitempty"`
+	Cached     bool   `json:"cached,omitempty"`
+	OutOfSlice bool   `json:"out_of_slice,omitempty"`
+}
+
+type ciOutput struct {
+	Workspace        string                 `json:"workspace"`
+	ChangedPathCount int                    `json:"changed_path_count"`
+	ChangedPaths     []string               `json:"changed_paths"`
+	Results          []WorkspaceCheckResult `json:"results"`
+}
+
+func (r Runner) runCI(ctx context.Context, opts commandOptions) error {
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return err
+	}
+	ws, err := r.readWorkspaceConfig()
+	if err != nil {
+		return err
+	}
+	edits, _, err := r.snapshotEdits(ctx, nil, UserConfig{}, ws, false)
+	if err != nil {
+		return err
+	}
+	changedPaths := changedPathsFromEdits(edits)
+	results, err := runWorkspaceChecks(ctx, root, ws.IncludedPaths, changedPaths)
+	if err != nil {
+		return err
+	}
+
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, ciOutput{
+			Workspace:        ws.Account + ":" + ws.Slice,
+			ChangedPathCount: len(changedPaths),
+			ChangedPaths:     changedPaths,
+			Results:          results,
+		})
+	}
+	if !opts.Quiet {
+		if len(changedPaths) == 0 {
+			fmt.Fprintln(r.Stdout, "no changes to check")
+		}
+		for _, result := range results {
+			r.printCICheckSummary(result)
+		}
+	}
+	if workspaceChecksFailed(results) {
+		return userError("ci_failed", "one or more checks failed", "Fix failing checks and rerun gs ci.")
+	}
+	return nil
+}
 
 func (r Runner) captureBundledCheckRuns(ctx context.Context, opts commandOptions, ws WorkspaceConfig, changedPaths []string) ([]*corev1.BundledCheckRun, error) {
 	if len(changedPaths) == 0 {
@@ -26,60 +87,148 @@ func (r Runner) captureBundledCheckRuns(ctx context.Context, opts commandOptions
 	if len(includedPaths) == 0 {
 		includedPaths = []string{"/"}
 	}
+	results, err := runWorkspaceChecks(ctx, root, includedPaths, changedPaths)
+	if err != nil {
+		return nil, err
+	}
+
+	bundled := make([]*corev1.BundledCheckRun, 0, len(results))
+	for _, result := range results {
+		run := bundledCheckRunFromWorkspaceResult(result)
+		bundled = append(bundled, run)
+		r.printCaptureCheckSummary(opts, run)
+	}
+	return bundled, nil
+}
+
+func (r Runner) printCICheckSummary(result WorkspaceCheckResult) {
+	status := result.Status
+	if result.OutOfSlice {
+		fmt.Fprintf(r.Stdout, "%s: skipped-locally (requires files outside workspace slice; runs on the slice's CI daemon)\n", result.Name)
+		return
+	}
+	details := ciCheckDetails(result)
+	if details == "" {
+		fmt.Fprintf(r.Stdout, "%s: %s\n", result.Name, status)
+		return
+	}
+	fmt.Fprintf(r.Stdout, "%s: %s (%s)\n", result.Name, status, details)
+}
+
+func ciCheckDetails(result WorkspaceCheckResult) string {
+	if result.Status == "skipped" {
+		return result.Summary
+	}
+	parts := []string{}
+	if result.Cached {
+		parts = append(parts, "setup cached")
+	} else if result.SetupMs > 0 {
+		parts = append(parts, "setup "+formatCheckDuration(result.SetupMs))
+	}
+	if result.RunMs > 0 || len(parts) > 0 {
+		parts = append(parts, "run "+formatCheckDuration(result.RunMs))
+	}
+	if summary := strings.TrimSpace(result.Summary); summary != "" && summary != "exit 0" {
+		parts = append(parts, summary)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatCheckDuration(ms int64) string {
+	if ms <= 0 {
+		return "0s"
+	}
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	return fmt.Sprintf("%.1fs", float64(ms)/1000)
+}
+
+func workspaceChecksFailed(results []WorkspaceCheckResult) bool {
+	for _, result := range results {
+		switch result.Status {
+		case "failed", "errored":
+			return true
+		}
+	}
+	return false
+}
+
+func runWorkspaceChecks(ctx context.Context, root string, includedPaths, changedPaths []string) ([]WorkspaceCheckResult, error) {
+	if len(changedPaths) == 0 {
+		return nil, nil
+	}
+	includedPaths = append([]string{}, includedPaths...)
+	if len(includedPaths) == 0 {
+		includedPaths = []string{"/"}
+	}
 	plan, err := checks.ResolvePlan(ctx, workspaceDiskTreeReader{root: root, includedPaths: includedPaths}, "", changedPaths, includedPaths, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var bundled []*corev1.BundledCheckRun
+	var results []WorkspaceCheckResult
 	for _, skipped := range plan.Skipped {
-		run := &corev1.BundledCheckRun{
+		results = append(results, WorkspaceCheckResult{
 			Name:    skipped.Name,
 			Status:  "skipped",
 			Summary: oneLineSummary(skipped.Reason),
-		}
-		bundled = append(bundled, run)
-		r.printCaptureCheckSummary(opts, run)
+		})
 	}
 	for _, errored := range plan.Errored {
-		run := &corev1.BundledCheckRun{
+		results = append(results, WorkspaceCheckResult{
 			Name:     errored.Name,
 			Status:   "errored",
 			ExitCode: -1,
 			Summary:  oneLineSummary(errored.Reason),
 			Log:      errored.Reason,
-		}
-		bundled = append(bundled, run)
-		r.printCaptureCheckSummary(opts, run)
+		})
 	}
 	for _, spec := range plan.Runnable {
 		if spec.OutOfSlice {
-			run := &corev1.BundledCheckRun{
-				Name:    spec.Name,
-				Status:  "skipped",
-				Summary: "requires files outside workspace slice",
-			}
-			bundled = append(bundled, run)
-			r.printCaptureCheckSummary(opts, run)
+			results = append(results, WorkspaceCheckResult{
+				Name:       spec.Name,
+				Status:     "skipped",
+				Summary:    "requires files outside workspace slice",
+				OutOfSlice: true,
+			})
 			continue
 		}
+		start := time.Now()
 		result, err := checkexec.Run(ctx, root, spec)
-		run := &corev1.BundledCheckRun{Name: spec.Name}
+		elapsedMs := time.Since(start).Milliseconds()
+		workspaceResult := WorkspaceCheckResult{Name: spec.Name}
 		if err != nil {
-			run.Status = "errored"
-			run.ExitCode = -1
-			run.Summary = oneLineSummary(err.Error())
-			run.Log = err.Error()
+			workspaceResult.Status = "errored"
+			workspaceResult.ExitCode = -1
+			workspaceResult.Summary = oneLineSummary(err.Error())
+			workspaceResult.Log = err.Error()
+			workspaceResult.RunMs = elapsedMs
 		} else {
-			run.Status = result.Status
-			run.ExitCode = result.ExitCode
-			run.Summary = oneLineSummary(result.Summary)
-			run.Log = result.Log
+			workspaceResult.Status = result.Status
+			workspaceResult.ExitCode = result.ExitCode
+			workspaceResult.Summary = oneLineSummary(result.Summary)
+			workspaceResult.Log = result.Log
+			workspaceResult.SetupMs = result.SetupMs
+			workspaceResult.Cached = result.Cached
+			workspaceResult.RunMs = result.RunMs
+			if workspaceResult.RunMs == 0 && elapsedMs > workspaceResult.SetupMs {
+				workspaceResult.RunMs = elapsedMs - workspaceResult.SetupMs
+			}
 		}
-		bundled = append(bundled, run)
-		r.printCaptureCheckSummary(opts, run)
+		results = append(results, workspaceResult)
 	}
-	return bundled, nil
+	return results, nil
+}
+
+func bundledCheckRunFromWorkspaceResult(result WorkspaceCheckResult) *corev1.BundledCheckRun {
+	return &corev1.BundledCheckRun{
+		Name:     result.Name,
+		Status:   result.Status,
+		ExitCode: result.ExitCode,
+		Summary:  oneLineSummary(result.Summary),
+		Log:      result.Log,
+	}
 }
 
 func (r Runner) printCaptureCheckSummary(opts commandOptions, run *corev1.BundledCheckRun) {

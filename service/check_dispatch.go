@@ -317,6 +317,7 @@ func checkRunSpecFromPlan(runID string, spec checks.CheckSpec) *corev1.CheckRunS
 		Name:             spec.Name,
 		Command:          spec.Run,
 		Image:            spec.Image,
+		Setup:            append([]string(nil), spec.Setup...),
 		WorkingDir:       spec.WorkingDir,
 		MaterializePaths: append([]string(nil), spec.MaterializePaths...),
 		Env:              copyStringMap(spec.Env),

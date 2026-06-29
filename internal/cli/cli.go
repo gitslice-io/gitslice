@@ -1195,6 +1195,15 @@ func (r Runner) rootCommand() *cobra.Command {
 	diffCmd.Flags().BoolVar(&diffNameOnly, "name-only", diffNameOnly, "show only changed path names")
 	diffCmd.Flags().BoolVar(&diffStat, "stat", diffStat, "show a compact changed-path summary")
 
+	ciCmd := &cobra.Command{
+		Use:   "ci",
+		Short: "Run workspace checks locally",
+		Args:  noArgs("gs ci"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCI(cmd.Context(), *opts)
+		},
+	}
+
 	csCmd := &cobra.Command{
 		Use:     "cs",
 		Aliases: []string{"changeset"},
@@ -1881,7 +1890,7 @@ home slice root, for example /nic/notes.`,
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceDeleteCmd)
 
 	agentCmd := r.agentCommand(opts)
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd, agentCmd)
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd, agentCmd)
 	return root
 }
 
@@ -2783,7 +2792,7 @@ func validateAliasName(name string) error {
 
 func reservedAliasNames() map[string]bool {
 	names := []string{
-		"alias", "auth", "browse", "completion", "config", "cfg", "context", "ctx", "init",
+		"alias", "auth", "browse", "ci", "completion", "config", "cfg", "context", "ctx", "init",
 		"cs", "changeset", "diff", "file", "fs", "help", "log", "repo", "repository", "rpc", "schema", "show",
 		"shell", "slice", "slices", "st", "status", "version", "workspace", "ws",
 	}
@@ -11138,6 +11147,12 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"flags":          []string{"--from", "--to", "--name-only", "--stat"},
 				"writes_stdout":  true,
 				"machine_output": []string{"workspace", "base_commit_id", "from_commit_id", "to_commit_id", "changed_path_count", "changed_paths", "diff"},
+			},
+			{
+				"use":            "gs ci",
+				"summary":        "run applicable workspace checks locally without uploading results",
+				"writes_stdout":  true,
+				"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "results"},
 			},
 			{
 				"use":            "gs create",

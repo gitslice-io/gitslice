@@ -11,6 +11,8 @@ func TestParseMergesDefaultsAndOverrides(t *testing.T) {
 version: 1
 defaults:
   image: "golang:1.22"
+  setup:
+    - "go env -w GOPROXY=off"
   timeout: "10m"
   env:
     CGO_ENABLED: "0"
@@ -21,6 +23,9 @@ checks:
     description: "unit tests"
     run: "go test ./..."
     image: "golang:1.23"
+    setup:
+      - "apt-get update"
+      - "apt-get install -y make"
     timeout: "30s"
     paths: ["**/*.go"]
     include: ["/go.mod", "/go.sum"]
@@ -31,6 +36,9 @@ checks:
     network: false
   lint:
     run: "go vet ./..."
+  empty_setup:
+    run: "go test ./..."
+    setup: []
 `))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -49,6 +57,10 @@ checks:
 	}
 	if test.Image != "golang:1.23" {
 		t.Fatalf("test.Image = %q", test.Image)
+	}
+	wantTestSetup := []string{"apt-get update", "apt-get install -y make"}
+	if got := test.Setup; !stringSlicesEqual(got, wantTestSetup) {
+		t.Fatalf("test.Setup = %#v, want %#v", got, wantTestSetup)
 	}
 	if test.Timeout != 30*time.Second {
 		t.Fatalf("test.Timeout = %v, want 30s", test.Timeout)
@@ -73,6 +85,10 @@ checks:
 	if lint.Image != "golang:1.22" {
 		t.Fatalf("lint.Image = %q", lint.Image)
 	}
+	wantDefaultSetup := []string{"go env -w GOPROXY=off"}
+	if got := lint.Setup; !stringSlicesEqual(got, wantDefaultSetup) {
+		t.Fatalf("lint.Setup = %#v, want %#v", got, wantDefaultSetup)
+	}
 	if lint.Timeout != 10*time.Minute {
 		t.Fatalf("lint.Timeout = %v, want default 10m", lint.Timeout)
 	}
@@ -81,6 +97,11 @@ checks:
 	}
 	if lint.WorkingDir != "." {
 		t.Fatalf("lint.WorkingDir = %q, want .", lint.WorkingDir)
+	}
+
+	emptySetup := file.Checks["empty_setup"]
+	if len(emptySetup.Setup) != 0 {
+		t.Fatalf("empty_setup.Setup = %#v, want empty override", emptySetup.Setup)
 	}
 }
 
@@ -198,4 +219,16 @@ checks:
 			}
 		})
 	}
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

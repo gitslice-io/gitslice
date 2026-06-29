@@ -107,6 +107,8 @@ checks:
 version: 1
 defaults:
   image: golang:1.22
+  setup:
+    - go env -w GOPROXY=off
   timeout: 10m
   env:
     CGO_ENABLED: "0"
@@ -116,6 +118,8 @@ checks:
   test:
     run: go test ./...
     image: golang:1.23
+    setup:
+      - apt-get update
     timeout: 30s
     working_dir: cmd/service
     env:
@@ -131,6 +135,9 @@ checks:
 				spec := plan.Runnable[0]
 				if spec.Image != "golang:1.23" {
 					t.Fatalf("Image = %q", spec.Image)
+				}
+				if got, want := spec.Setup, []string{"apt-get update"}; !reflect.DeepEqual(got, want) {
+					t.Fatalf("Setup = %#v, want %#v", got, want)
 				}
 				if spec.Timeout != 30*time.Second {
 					t.Fatalf("Timeout = %v, want 30s", spec.Timeout)
