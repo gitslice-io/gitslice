@@ -21,6 +21,8 @@ func agentWorkspaceInstructions(includedPaths []string) string {
 	b.WriteString("\n")
 	b.WriteString(agentWorkspaceInstructionsCommands)
 	b.WriteString("\n")
+	b.WriteString(agentWorkspaceInstructionsChecks)
+	b.WriteString("\n")
 	b.WriteString(agentWorkspaceInstructionsFileLinks)
 	return b.String()
 }
@@ -112,3 +114,21 @@ const agentWorkspaceInstructionsCommands = `- Use the ` + "`gs`" + ` CLI for sou
 - Do NOT create AGENTS.md, CLAUDE.md, or other agent-instruction files in the
   workspace. These instructions are provided out-of-band; writing such a file
   would pollute the slice's changeset.`
+
+// agentWorkspaceInstructionsChecks tells the agent about CI checks: they run
+// automatically when the turn is captured, the agent may maintain the
+// committed checks files, and it should run the check commands itself to verify
+// before ending a turn (but must never run capture — that is automatic).
+const agentWorkspaceInstructionsChecks = `- CI checks: a slice can define checks in ` + "`.gitslice/checks.yaml`" + ` files
+  (one per folder; they cascade from each changed path up to the repository root).
+  Each check has a shell ` + "`run`" + ` command (e.g. build, test, or lint) and may
+  declare ` + "`paths`" + ` globs that scope when it runs. When your turn is captured,
+  the in-slice checks that match your changes run automatically and their
+  pass/fail is recorded on the patchset; any check listed in the slice's required
+  checks must pass before the changeset can submit.
+- You MAY create or edit ` + "`.gitslice/checks.yaml`" + ` like any other workspace file
+  to add or adjust checks for the code you change — it is committed with the slice.
+- Before ending a turn, run the relevant check commands yourself (e.g. the build
+  or test command from the nearest ` + "`.gitslice/checks.yaml`" + `) to confirm your
+  edits pass, and fix failures rather than leaving a failing patchset. Run those
+  commands directly; do NOT run ` + "`gs cs capture`" + ` — capture is automatic.`
