@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/checkexec"
+	"github.com/gitslice-io/gitslice/internal/objectid"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -37,7 +38,7 @@ func TestMaterializeCheckTreeFetchesNestedPrefix(t *testing.T) {
 	}
 
 	dest := t.TempDir()
-	d := &agentDaemon{}
+	d := newTestCheckDaemon(t)
 	if err := d.materializeCheckTree(context.Background(), repo, "tree-1", []string{"backend", "backend/shared"}, dest); err != nil {
 		t.Fatalf("materializeCheckTree() error = %v", err)
 	}
@@ -89,7 +90,7 @@ func TestMaterializeCheckTreeFetchesNestedFilesConcurrently(t *testing.T) {
 	}()
 
 	dest := t.TempDir()
-	d := &agentDaemon{}
+	d := newTestCheckDaemon(t)
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- d.materializeCheckTree(context.Background(), repo, "tree-1", []string{"app", "README.md"}, dest)
@@ -121,6 +122,49 @@ func TestMaterializeCheckTreeFetchesNestedFilesConcurrently(t *testing.T) {
 	assertFileMode(t, filepath.Join(dest, "app", "lib", "a.txt"), 0o644)
 }
 
+func TestMaterializeCheckTreeReusesObjectCacheAcrossRuns(t *testing.T) {
+	readme := []byte("readme\n")
+	main := []byte("#!/bin/sh\necho app\n")
+	readmeEntry := checkFileEntry("/README.md", 0o100644)
+	readmeEntry.ContentHash = objectid.RawContentHash(readme)
+	mainEntry := checkFileEntry("/app/main.sh", 0o100755)
+	mainEntry.ContentHash = objectid.RawContentHash(main)
+	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{
+		"/": {
+			checkDirEntry("/app"),
+			readmeEntry,
+		},
+		"/app": {
+			mainEntry,
+		},
+	}, map[string][]byte{
+		"/README.md":   readme,
+		"/app/main.sh": main,
+	})
+	d := newTestCheckDaemon(t)
+
+	firstDest := t.TempDir()
+	if err := d.materializeCheckTree(context.Background(), repo, "tree-1", []string{"/"}, firstDest); err != nil {
+		t.Fatalf("first materializeCheckTree() error = %v", err)
+	}
+	firstReads := repo.readCallCount()
+	if firstReads != 2 {
+		t.Fatalf("first ReadFile calls = %d, want 2", firstReads)
+	}
+
+	secondDest := t.TempDir()
+	if err := d.materializeCheckTree(context.Background(), repo, "tree-1", []string{"/"}, secondDest); err != nil {
+		t.Fatalf("second materializeCheckTree() error = %v", err)
+	}
+	secondReads := repo.readCallCount() - firstReads
+	if secondReads != 0 {
+		t.Fatalf("second ReadFile calls = %d, want 0 cache hits", secondReads)
+	}
+	assertFileContent(t, filepath.Join(secondDest, "README.md"), string(readme))
+	assertFileContent(t, filepath.Join(secondDest, "app", "main.sh"), string(main))
+	assertFileMode(t, filepath.Join(secondDest, "app", "main.sh"), 0o755)
+}
+
 func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
 	repo := checkTreeRepoClient{
 		account: "acme",
@@ -143,7 +187,7 @@ func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
 	}
 
 	dest := t.TempDir()
-	d := &agentDaemon{}
+	d := newTestCheckDaemon(t)
 	if err := d.materializeCheckTree(context.Background(), repo, "tree-1", spec.GetMaterializePaths(), dest); err != nil {
 		t.Fatalf("materializeCheckTree() error = %v", err)
 	}
@@ -189,12 +233,11 @@ func TestHandleRunChecksDedupsRecentlyCompletedRunID(t *testing.T) {
 		ch:   make(chan *corev1.DaemonMessage, 16),
 		done: make(chan struct{}),
 	}
-	d := &agentDaemon{
-		cfg:       UserConfig{ServerAddr: addr},
-		baseCtx:   context.Background(),
-		sendQueue: sendQueue,
-		checkRuns: map[string]context.CancelFunc{},
-	}
+	d := newTestCheckDaemon(t)
+	d.cfg = UserConfig{ServerAddr: addr}
+	d.baseCtx = context.Background()
+	d.sendQueue = sendQueue
+	d.checkRuns = map[string]context.CancelFunc{}
 	req := &corev1.RunChecks{
 		ResultTreeId: "tree-1",
 		ServerAddr:   addr,
@@ -235,12 +278,11 @@ func TestHandleRunChecksEmitsRunningBeforeTerminal(t *testing.T) {
 		ch:   make(chan *corev1.DaemonMessage, 16),
 		done: make(chan struct{}),
 	}
-	d := &agentDaemon{
-		cfg:       UserConfig{ServerAddr: addr},
-		baseCtx:   context.Background(),
-		sendQueue: sendQueue,
-		checkRuns: map[string]context.CancelFunc{},
-	}
+	d := newTestCheckDaemon(t)
+	d.cfg = UserConfig{ServerAddr: addr}
+	d.baseCtx = context.Background()
+	d.sendQueue = sendQueue
+	d.checkRuns = map[string]context.CancelFunc{}
 	req := &corev1.RunChecks{
 		ResultTreeId: "tree-1",
 		ServerAddr:   addr,
@@ -297,6 +339,13 @@ func collectCheckRunUpdates(ch <-chan *corev1.DaemonMessage, runID string) []*co
 	}
 }
 
+func newTestCheckDaemon(t *testing.T) *agentDaemon {
+	t.Helper()
+	t.Setenv("GS_CLIENT_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+	t.Setenv("GITSLICE_CLIENT_CACHE_DIR", "")
+	return &agentDaemon{runner: Runner{Home: t.TempDir()}}
+}
+
 func assertFileContent(t *testing.T, target, want string) {
 	t.Helper()
 	data, err := os.ReadFile(target)
@@ -326,6 +375,7 @@ type fakeCheckRepo struct {
 	mu             sync.Mutex
 	activeReads    int
 	maxActiveReads int
+	readCalls      int
 	readStarted    chan struct{}
 	readRelease    chan struct{}
 }
@@ -355,6 +405,9 @@ func (f *fakeCheckRepo) ReadFile(ctx context.Context, req *corev1.ReadFileReques
 	if req.GetRootTreeId() != "tree-1" {
 		return nil, status.Errorf(codes.InvalidArgument, "root tree id = %q", req.GetRootTreeId())
 	}
+	f.mu.Lock()
+	f.readCalls++
+	f.mu.Unlock()
 	if err := f.beginRead(ctx); err != nil {
 		return nil, err
 	}
@@ -404,6 +457,12 @@ func (f *fakeCheckRepo) maxConcurrentReads() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.maxActiveReads
+}
+
+func (f *fakeCheckRepo) readCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.readCalls
 }
 
 func checkDirEntry(p string) *corev1.TreeEntry {
