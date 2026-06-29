@@ -7107,3 +7107,27 @@ daemon's next reconnect triggered replayDaemonCheckRuns (~minutes later). Checks
 eventually run and gate correctly, but initial-dispatch latency to a live daemon
 should be investigated (hub.daemon lookup / dispatch timing in
 service/check_dispatch.go dispatchOutOfSliceChecks).
+
+## 2026-06-29 — CI-daemon check latency: investigation + real fix
+
+Investigated "out-of-slice checks take ~150s after capture." Two initial fixes
+were based on a wrong diagnosis (kept as sound robustness improvements, but not
+the cause):
+- #281 reconciling re-dispatch sweep (re-push queued ci runs to the online daemon
+  every 10s) — futile here because the daemon already received the dispatch.
+- #282 daemon inbound-staleness watchdog (reconnect if no server msg in 50s) +
+  RunChecks receipt logging — the logging is what revealed the truth.
+
+Real root cause (from the daemon log): the daemon receives RunChecks IMMEDIATELY
+(once, not via reconnect). The ~150s was the daemon materializing the check's
+subtree by fetching every file SEQUENTIALLY (one ReadFile RPC each); an ancestor
+`/nic` check = 341 files ~= 140s. No progress status was emitted, so it showed
+`queued` the whole time. The earlier "155s ~= Cloudflare reset cycle" was a
+coincidence.
+
+Fix #283 (daemon-side): walk dirs, then fetch file contents CONCURRENTLY
+(errgroup, limit 32); emit `running` before materialization (server already
+records non-terminal statuses). Verified on staging: same /nic ancestor check now
+shows `running` at t+3s and `passed` at **t+31s** (was ~155s), and the daemon log
+shows a single prompt RunChecks receipt. Lesson: add observability and confirm the
+mechanism before shipping a fix.
