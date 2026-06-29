@@ -7025,3 +7025,37 @@ go vet ./internal/checks/... ./internal/storage/... ./service/...  # passed
 go test ./internal/storage/memory/... ./internal/checks/...        # passed
 go test -run XXX_none ./tests/rpc/... ./internal/postgres/...      # passed, compile-only
 ```
+
+## 2026-06-29 — CI system (design 17) phases 3–5 + staging deploy & e2e
+
+Request: complete the whole CI design implementation and verify e2e on staging.
+
+Built across PRs #264 (design), #265 (phase 1 parser/resolver), #266 (phase 2
+check_runs data model + CheckService), #267 (phase 3 agent-bundled capture
+execution), #268 (phase 4a full-tree-runner control plane + skipped-required
+gate), #269 (phase 4b daemon-side RunChecks execution), #270 (phase 5 web Checks
+panel + CI-daemon control). Each delegated to codex in a worktree; integrated,
+re-verified (build/vet/gofmt + DB-backed tests against a dedicated
+gitslice_test DB on 127.0.0.1:55432), and squash-merged.
+
+Deploy: rebuilt bin/gitslice-server + bin/gs; `pm2 restart gitslice-rewrite-staging`.
+Migrations 0018_check_runs and 0019_slice_ci_daemon auto-applied (the runner
+re-runs all idempotent migrations every boot; both use `if not exists`). Server
+came up clean (grpc 50052 + http 8081 listening). Web deployed via
+`npm --prefix web run deploy:staging` (gitslice-web-staging version
+6e31ad7d-...; agenttools.dev 200; bundle index-DKn969uq.js contains ChecksPanel).
+
+E2E verified on deployed staging (slice nic:realtime, CLI bin/gs):
+- `gs cs capture` ran in-slice checks from .gitslice/checks.yaml and bundled
+  results; check_runs persisted server-side (provenance=self, passed).
+- CheckService.ListCheckRuns through api.agenttools.dev returned the runs (the
+  web read path).
+- Submit gate: with required_checks=[nic/realtime/smoke], a failing patchset was
+  blocked ("required check ... is failing for current patchset"); a passing
+  patchset submitted (committed to refs/global/main). required_checks reverted.
+
+Not e2e-verified on staging (covered by tests instead): the full-tree-runner
+out-of-slice dispatch over a live daemon — the staging BYOA daemon had 6 active
+conversations and updating its binary would disrupt them; the path is covered by
+the phase-4a rpc dispatch test (in-test daemon) and phase-4b materialize/exec
+unit tests. The staging daemon still runs the pre-4b binary.
