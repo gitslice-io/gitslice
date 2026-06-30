@@ -7190,8 +7190,25 @@ e2e `tests/cli` (385s) + `tests/rpc` (277s) green against gitslice_test on :5543
 docker image builds and `-migrate-only` reaches config validation.
 
 Deploy pipeline: committed `cloudbuild.yaml` (build via Dockerfile -> push ->
-migrate Job -> `gcloud run deploy`) is the canonical, trigger-able pipeline.
-`deploy/cloudrun.sh` stays a local-only helper (the repo gitignores `/deploy/`).
+migrate Job -> `gcloud run deploy`) is the **single source of truth** for the
+env/secret/flag wiring. The local-only `deploy/cloudrun.sh` (repo gitignores
+`/deploy/`) was reduced to a thin wrapper that just runs
+`gcloud builds submit --config cloudbuild.yaml --substitutions=...` so the flags
+never get duplicated/drift. Added a committed `.gcloudignore` so the Cloud Build
+upload skips node_modules/web (distinct from `.dockerignore`, which trims the
+docker-step context and must NOT exclude the Dockerfile from the upload).
+
 cloudbuild.yaml gotchas handled: shell vars are `$$`-escaped so Cloud Build does
 not treat them as substitutions, and image refs are block-style (YAML reads the
 `{` in `${...}` inside a flow sequence as a mapping otherwise).
+
+Secret audit (vs every os.Getenv the server reads): the only Clerk var the Go
+server uses is `CLERK_PUBLISHABLE_KEY` (non-secret; JWKS verification derives the
+endpoint from it). `CLERK_SECRET_KEY` is read into config but functionally unused
+(no Backend API client) and `CLERK_WEBHOOK_SECRET` is not read at all — both
+dropped from the secret wiring. Added `GITSLICE_METRICS_TOKEN`
+(`gitslice-metrics-token`): without it `server/gateway.go` serves `/metrics`
+unauthenticated, which is exposed on an `--allow-unauthenticated` service. Net
+prod secrets: database-url, r2-access-key-id, r2-secret-access-key, metrics-token
+(4). The service-token JWT vars (`GITSLICE_SERVICE_JWT_*`) are an auth bypass and
+are intentionally NOT set in prod.
