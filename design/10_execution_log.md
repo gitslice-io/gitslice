@@ -7188,3 +7188,10 @@ wider). Dockerfile is CGO-free static → distroless (28.9MB).
 Verification: gofmt/build/vet; `go test ./server/... ./service/... ./internal/postgres/...`;
 e2e `tests/cli` (385s) + `tests/rpc` (277s) green against gitslice_test on :55432;
 docker image builds and `-migrate-only` reaches config validation.
+
+Deploy pipeline: committed `cloudbuild.yaml` (build via Dockerfile -> push ->
+migrate Job -> `gcloud run deploy`) is the canonical, trigger-able pipeline.
+`deploy/cloudrun.sh` stays a local-only helper (the repo gitignores `/deploy/`).
+cloudbuild.yaml gotchas handled: shell vars are `$$`-escaped so Cloud Build does
+not treat them as substitutions, and image refs are block-style (YAML reads the
+`{` in `${...}` inside a flow sequence as a mapping otherwise).
