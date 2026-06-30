@@ -13,6 +13,7 @@ import (
 
 func main() {
 	cfg := server.ConfigFromEnv()
+	var migrateOnly bool
 	flag.StringVar(&cfg.GRPCAddr, "grpc-addr", cfg.GRPCAddr, "gRPC listen address")
 	flag.StringVar(&cfg.HTTPAddr, "http-addr", cfg.HTTPAddr, "HTTP JSON gateway listen address; disabled when empty")
 	flag.StringVar(&cfg.HTTPAllowedOrigin, "http-allowed-origin", cfg.HTTPAllowedOrigin, "optional CORS Access-Control-Allow-Origin value for the HTTP JSON gateway")
@@ -25,10 +26,18 @@ func main() {
 	flag.DurationVar(&cfg.PublishInterval, "publish-interval", cfg.PublishInterval, "pending publish poll interval")
 	flag.IntVar(&cfg.IndexBatchSize, "index-batch-size", cfg.IndexBatchSize, "derived-index outbox batch size")
 	flag.DurationVar(&cfg.IndexInterval, "index-interval", cfg.IndexInterval, "derived-index outbox poll interval")
+	flag.BoolVar(&migrateOnly, "migrate-only", false, "run database migrations and exit")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if migrateOnly {
+		if err := server.Migrate(ctx, cfg); err != nil {
+			slog.Error("migrate failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := server.Run(ctx, cfg); err != nil && ctx.Err() == nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
