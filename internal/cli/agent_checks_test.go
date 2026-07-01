@@ -442,6 +442,87 @@ func TestHandleRunChecksEmitsRunningBeforeTerminal(t *testing.T) {
 	}
 }
 
+func TestCheckRunUpdatesResentAfterQueueSwap(t *testing.T) {
+	d := newTestCheckDaemon(t)
+	firstQueue := newTestAgentSendQueue(8)
+	d.sendQueue = firstQueue
+
+	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-resend", Status: "running", ClientSeq: 1})
+	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-resend", LogChunk: "hello\n", Stream: "stdout", ClientSeq: 2})
+
+	if got := collectCheckRunSeqs(firstQueue.ch, "run-resend"); !sameInt64s(got, []int64{1, 2}) {
+		t.Fatalf("first queue seqs = %v, want [1 2]", got)
+	}
+
+	secondQueue := newTestAgentSendQueue(8)
+	d.sendQueue = secondQueue
+	d.resendPendingAll()
+
+	if got := collectCheckRunSeqs(secondQueue.ch, "run-resend"); !sameInt64s(got, []int64{1, 2}) {
+		t.Fatalf("second queue resent seqs = %v, want [1 2]", got)
+	}
+}
+
+func TestCheckRunAckPrunesPendingBuffer(t *testing.T) {
+	d := newTestCheckDaemon(t)
+	for seq := int64(1); seq <= 3; seq++ {
+		d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-ack", LogChunk: fmt.Sprintf("line %d\n", seq), Stream: "stdout", ClientSeq: seq})
+	}
+
+	d.handleCheckRunAck(&corev1.CheckRunAck{RunId: "run-ack", AckedClientSeq: 2})
+
+	pending := pendingCheckRunSeqs(t, d, "run-ack")
+	if !sameInt64s(pending, []int64{3}) {
+		t.Fatalf("pending seqs after ack = %v, want [3]", pending)
+	}
+}
+
+func TestCheckRunTerminalAckRemovesOutbox(t *testing.T) {
+	d := newTestCheckDaemon(t)
+	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-terminal", Status: "running", ClientSeq: 1})
+	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-terminal", Status: "passed", ClientSeq: 2, Final: true})
+
+	d.handleCheckRunAck(&corev1.CheckRunAck{RunId: "run-terminal", AckedClientSeq: 1})
+	if !checkRunOutboxExists(d, "run-terminal") {
+		t.Fatal("outbox removed before terminal update was acked")
+	}
+
+	d.handleCheckRunAck(&corev1.CheckRunAck{RunId: "run-terminal", AckedClientSeq: 2})
+	if checkRunOutboxExists(d, "run-terminal") {
+		t.Fatal("outbox still exists after terminal update was acked")
+	}
+}
+
+func TestCheckRunPendingCapDropsLogOnlyUpdatesFirst(t *testing.T) {
+	d := newTestCheckDaemon(t)
+	runID := "run-cap"
+	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: runID, Status: "running", ClientSeq: 1})
+	for seq := int64(2); seq <= int64(agentMaxPendingCheckRunUpdates+5); seq++ {
+		d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: runID, LogChunk: fmt.Sprintf("line %d\n", seq), Stream: "stdout", ClientSeq: seq})
+	}
+	terminalSeq := int64(agentMaxPendingCheckRunUpdates + 6)
+	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: runID, Status: "passed", ClientSeq: terminalSeq, Final: true})
+
+	outbox := checkRunOutboxForTest(t, d, runID)
+	outbox.outMu.Lock()
+	defer outbox.outMu.Unlock()
+	if got := len(outbox.pending); got != agentMaxPendingCheckRunUpdates {
+		t.Fatalf("pending len = %d, want %d", got, agentMaxPendingCheckRunUpdates)
+	}
+	if first := outbox.pending[0]; first.GetClientSeq() != 1 || first.GetStatus() != "running" {
+		t.Fatalf("first pending update = seq %d status %q, want running seq 1", first.GetClientSeq(), first.GetStatus())
+	}
+	last := outbox.pending[len(outbox.pending)-1]
+	if last.GetClientSeq() != terminalSeq || !last.GetFinal() {
+		t.Fatalf("last pending update = seq %d final %v, want terminal seq %d", last.GetClientSeq(), last.GetFinal(), terminalSeq)
+	}
+	for _, update := range outbox.pending {
+		if update.GetClientSeq() == 2 {
+			t.Fatal("oldest log-only update seq 2 survived cap trimming")
+		}
+	}
+}
+
 func collectCheckRunUpdates(ch <-chan *corev1.DaemonMessage, runID string) []*corev1.CheckRunUpdate {
 	var updates []*corev1.CheckRunUpdate
 	for {
@@ -455,6 +536,63 @@ func collectCheckRunUpdates(ch <-chan *corev1.DaemonMessage, runID string) []*co
 			return updates
 		}
 	}
+}
+
+func collectCheckRunSeqs(ch <-chan *corev1.DaemonMessage, runID string) []int64 {
+	updates := collectCheckRunUpdates(ch, runID)
+	seqs := make([]int64, 0, len(updates))
+	for _, update := range updates {
+		seqs = append(seqs, update.GetClientSeq())
+	}
+	return seqs
+}
+
+func pendingCheckRunSeqs(t *testing.T, d *agentDaemon, runID string) []int64 {
+	t.Helper()
+	outbox := checkRunOutboxForTest(t, d, runID)
+	outbox.outMu.Lock()
+	defer outbox.outMu.Unlock()
+	seqs := make([]int64, 0, len(outbox.pending))
+	for _, update := range outbox.pending {
+		seqs = append(seqs, update.GetClientSeq())
+	}
+	return seqs
+}
+
+func checkRunOutboxForTest(t *testing.T, d *agentDaemon, runID string) *checkRunOutbox {
+	t.Helper()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	outbox := d.checkRunOutboxes[runID]
+	if outbox == nil {
+		t.Fatalf("missing check run outbox for %s", runID)
+	}
+	return outbox
+}
+
+func checkRunOutboxExists(d *agentDaemon, runID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.checkRunOutboxes[runID] != nil
+}
+
+func newTestAgentSendQueue(buffer int) *agentSendQueue {
+	return &agentSendQueue{
+		ch:   make(chan *corev1.DaemonMessage, buffer),
+		done: make(chan struct{}),
+	}
+}
+
+func sameInt64s(left, right []int64) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func newTestCheckDaemon(t *testing.T) *agentDaemon {
