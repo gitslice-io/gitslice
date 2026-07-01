@@ -31,6 +31,19 @@
         "PUBLIC_API_BASE_URL": "https://api.agenttools.dev",
         "PUBLIC_GITSLICE_GIT_HTTP_BASE_URL": "https://api.agenttools.dev"
       }
+    },
+    "production": {
+      "name": "gitslice-web-production",
+      "routes": [
+        {
+          "pattern": "gitslice.io",
+          "custom_domain": true
+        }
+      ],
+      "vars": {
+        "PUBLIC_API_BASE_URL": "https://api.gitslice.io",
+        "PUBLIC_GITSLICE_GIT_HTTP_BASE_URL": "https://api.gitslice.io"
+      }
     }
   }
 }

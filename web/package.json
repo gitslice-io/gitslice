@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run --environment jsdom",
     "preview": "vite preview",
-    "deploy:staging": "bash scripts/deploy-staging.sh"
+    "deploy:staging": "bash scripts/deploy.sh staging",
+    "deploy:production": "bash scripts/deploy.sh production"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.1",

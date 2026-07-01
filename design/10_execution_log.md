@@ -7195,3 +7195,45 @@ migrate Job -> `gcloud run deploy`) is the canonical, trigger-able pipeline.
 cloudbuild.yaml gotchas handled: shell vars are `$$`-escaped so Cloud Build does
 not treat them as substitutions, and image refs are block-style (YAML reads the
 `{` in `${...}` inside a flow sequence as a mapping otherwise).
+
+## 2026-07-01 — Production bring-up: Cloud Run API + gitslice.io web + deploy consolidation
+
+Stood up the production environment on GCP (project unified-surfer-486904-i6).
+
+Backend (Cloud Run, service `gitslice-prod`, region us-west1):
+- Deploys via the `cloudbuild.yaml` pipeline (build → push → migrate Job `-migrate-only`
+  → deploy), auto-triggered on merge to `main`. The trigger uses the Cloud Run wizard's
+  substitution names (`_DEPLOY_REGION`, `_SERVICE_NAME`, `_AR_HOSTNAME`, `_AR_REPOSITORY`,
+  plus `_R2_*`, `_CLERK_PUBLISHABLE_KEY`, `_ALLOWED_ORIGIN`, `_TAG=$SHORT_SHA`).
+- DB is Neon (serverless Postgres, `?sslmode=require`); object store is R2 (currently the
+  staging bucket `gitslice-staging`, prefix `prod`). Auth is Clerk (test instance
+  publishable key; the server uses only the publishable key — no Clerk secret key).
+- Secrets in Secret Manager: gitslice-database-url, gitslice-r2-access-key-id,
+  gitslice-r2-secret-access-key, gitslice-metrics-token (runtime SA granted secretAccessor).
+- CORS `GITSLICE_HTTP_ALLOWED_ORIGIN=https://gitslice.io`.
+- Two failure modes hit and fixed: (1) a `gcloud run deploy --source` / wizard inline build
+  bypassed cloudbuild.yaml and exited on `GITSLICE_DATABASE_URL is required` (fix: point the
+  trigger at `filename: cloudbuild.yaml`); (2) a trigger substitution paste error put chat
+  text into `_CLERK_PUBLISHABLE_KEY`. Verified live: `StartCliLogin` returns 200.
+
+Domain (`api.gitslice.io`):
+- Google Site Verification for `gitslice.io` (siteverification API via ADC, quota project
+  header, after enabling siteverification.googleapis.com). TXT + the `api` CNAME →
+  `ghs.googlehosted.com` (DNS-only) added on Cloudflare. Cloud Run domain mapping; managed
+  cert took ~20-30 min to go Ready.
+- Cloudflare `.env.prod` token has Workers + Zone:Read but NOT DNS edit, so DNS records were
+  added by hand; the Worker custom-domain API still worked with it.
+
+Web (`gitslice.io`, Cloudflare Worker env `production` = `gitslice-web-production`):
+- Added a `production` env to `web/wrangler.jsonc` (custom domain gitslice.io,
+  PUBLIC_API_BASE_URL=https://api.gitslice.io). Deployed via `npm run deploy:production`.
+- Consolidated `deploy-staging.sh` + `deploy-production.sh` into one
+  `web/scripts/deploy.sh <staging|production>` (single source of truth; required-arg guard);
+  npm `deploy:staging`/`deploy:production` are thin wrappers.
+- `.env.prod` was NOT gitignored (only `.env.production` was) — added `.env.prod` to
+  `.gitignore` so the Cloudflare token file can't be committed.
+
+KNOWN ISSUE (open): `https://gitslice.io/` returns 500 `{"message":"HTTPError"}` even after
+`api.gitslice.io` is up (200). The SSR does a server-side fetch to the API during render and
+does not tolerate the response for an unauthenticated request; needs a web SSR fix (handle
+non-2xx / logged-out gracefully). Tracked as follow-up.
