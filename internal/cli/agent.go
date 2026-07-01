@@ -310,6 +310,8 @@ type agentDaemon struct {
 	mu                  sync.Mutex
 	conversations       map[string]*agentConversation
 	checkRuns           map[string]context.CancelFunc
+	checkRunOutboxes    map[string]*checkRunOutbox
+	checkRunOutboxOrder []string
 	recentCheckRuns     map[string]struct{}
 	recentCheckRunOrder []string
 }
@@ -505,11 +507,20 @@ func (d *agentDaemon) resendPendingAll() {
 	for _, conv := range d.conversations {
 		convs = append(convs, conv)
 	}
+	checkOutboxes := make([]*checkRunOutbox, 0, len(d.checkRunOutboxes))
+	for _, outbox := range d.checkRunOutboxes {
+		checkOutboxes = append(checkOutboxes, outbox)
+	}
 	d.mu.Unlock()
 	for _, conv := range convs {
 		conv.outMu.Lock()
 		d.flushPendingLocked(conv)
 		conv.outMu.Unlock()
+	}
+	for _, outbox := range checkOutboxes {
+		outbox.outMu.Lock()
+		d.flushCheckRunPendingLocked(outbox)
+		outbox.outMu.Unlock()
 	}
 }
 
