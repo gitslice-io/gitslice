@@ -18,8 +18,10 @@ import type { Changeset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
+import { SliceTabs } from "../components/SliceTabs";
 import { DiffViewer } from "../components/diff/DiffViewer";
 import { cn } from "../lib/cn";
+import { toSliceRouteParams } from "../lib/sliceRoutes";
 
 import {
   ChangesetSkeleton,
@@ -96,6 +98,10 @@ export function ChangesetDetailPage() {
 
   const changeset = changesetQuery.data;
   const authoringSlice = changeset?.authoringSlice;
+  const authoringSliceRouteParams = toSliceRouteParams(authoringSlice);
+  const authoringSliceLabel = authoringSliceRouteParams
+    ? `${authoringSliceRouteParams.account}:${authoringSliceRouteParams.slice}`
+    : "";
 
   const sliceChangesetsQuery = useQuery({
     enabled: Boolean(
@@ -307,6 +313,15 @@ export function ChangesetDetailPage() {
               sliceSearch
             })}
           />
+        }
+        tabs={
+          authoringSliceRouteParams ? (
+            <SliceTabs
+              active="changesets"
+              params={authoringSliceRouteParams}
+              sliceLabel={authoringSliceLabel}
+            />
+          ) : undefined
         }
       />
 

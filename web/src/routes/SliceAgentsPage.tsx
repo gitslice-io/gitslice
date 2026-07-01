@@ -6,6 +6,7 @@ import { useCallback } from "react";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
+import { SliceTabs } from "../components/SliceTabs";
 import { AgentConversation } from "../components/slices/AgentConversation";
 import { AgentsTab } from "../components/slices/AgentsTab";
 import {
@@ -107,7 +108,18 @@ export function SliceAgentsPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <PageHeader breadcrumb={breadcrumb} />
+      <PageHeader
+        breadcrumb={breadcrumb}
+        tabs={
+          sliceRouteParams ? (
+            <SliceTabs
+              active="conversations"
+              params={sliceRouteParams}
+              sliceLabel={sliceLabel}
+            />
+          ) : undefined
+        }
+      />
 
       {showSignedInConversation ? (
         <AgentsTab

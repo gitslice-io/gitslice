@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
+import { cn } from "../lib/cn";
 import { ActionMenu, type ActionMenuItem } from "./source/ActionMenu";
 
 interface PageHeaderProps {
@@ -13,6 +14,8 @@ interface PageHeaderProps {
   actions?: ActionMenuItem[];
   /** Accessible label for the dropdown trigger. */
   menuLabel?: string;
+  /** Optional full-width row rendered below the title/actions row. */
+  tabs?: ReactNode;
 }
 
 export function PageHeader({
@@ -20,7 +23,8 @@ export function PageHeader({
   title,
   primaryAction,
   actions,
-  menuLabel = "Actions"
+  menuLabel = "Actions",
+  tabs
 }: PageHeaderProps) {
   const headerRef = useRef<HTMLElement>(null);
 
@@ -54,19 +58,25 @@ export function PageHeader({
 
   return (
     <header
-      className="sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 bg-slate-50/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+      className={cn(
+        "sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 bg-slate-50/95 backdrop-blur",
+        tabs ? "pt-3" : "py-3"
+      )}
       ref={headerRef}
     >
-      <div className="min-w-0 sm:flex-1">
-        {breadcrumb}
-        {title ? <div className="mt-1 min-w-0">{title}</div> : null}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="min-w-0 sm:flex-1">
+          {breadcrumb}
+          {title ? <div className="mt-1 min-w-0">{title}</div> : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:shrink-0">
+          {primaryAction}
+          {actions && actions.length > 0 ? (
+            <ActionMenu items={actions} label={menuLabel} />
+          ) : null}
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:shrink-0">
-        {primaryAction}
-        {actions && actions.length > 0 ? (
-          <ActionMenu items={actions} label={menuLabel} />
-        ) : null}
-      </div>
+      {tabs ? <div className="-mb-px w-full">{tabs}</div> : null}
     </header>
   );
 }

@@ -61,7 +61,6 @@ export function TopBar() {
   const isSlicesActive =
     pathname === "/" ||
     pathname.startsWith("/slices") ||
-    pathname.startsWith("/source") ||
     pathname.startsWith("/changesets") ||
     pathname.startsWith("/cs");
   const isDocActive = pathname.startsWith("/doc");

@@ -1,18 +1,13 @@
 import { useState, useMemo } from "react";
 import { useAuth } from "@clerk/tanstack-react-start";
-import {
-  Link,
-  useNavigate,
-  useParams,
-  useRouter,
-  useSearch,
-} from "@tanstack/react-router";
+import { useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
 import type { SliceRef, TreeEntry } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
+import { SliceTabs } from "../components/SliceTabs";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -279,6 +274,9 @@ export function SliceDetailPage() {
       : "block lg:hidden";
   const workspaceVisibility = selectedPath ? "block" : "hidden lg:block";
 
+  // 8rem = TopBar (4rem) + main's vertical padding (2×2rem). The sticky
+  // PageHeader (including its tabs row) sits inside this section, so the
+  // flex-1 content grid absorbs its height — don't subtract it here too.
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
       <PageHeader
@@ -288,34 +286,16 @@ export function SliceDetailPage() {
           />
         }
         primaryAction={
-          <>
-            <Link
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-              search={{ slice: sliceLabel } as never}
-              to="/changesets"
-            >
-              Changesets
-            </Link>
-            {isSignedIn && sliceRouteParams ? (
-              <Link
-                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                params={sliceRouteParams as never}
-                to="/slices/$account/$slice/agents"
-              >
-                Conversations
-              </Link>
-            ) : null}
-            {canEdit && sliceRouteParams ? (
-              <Link
-                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
-                params={sliceRouteParams as never}
-                to="/slices/$account/$slice/settings"
-              >
-                Settings
-              </Link>
-            ) : null}
-            <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
-          </>
+          <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
+        }
+        tabs={
+          sliceRouteParams ? (
+            <SliceTabs
+              active="files"
+              params={sliceRouteParams}
+              sliceLabel={sliceLabel}
+            />
+          ) : undefined
         }
       />
 

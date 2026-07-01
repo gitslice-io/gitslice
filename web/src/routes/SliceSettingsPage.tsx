@@ -7,6 +7,7 @@ import { useApi } from "../api/useApi";
 import { shortHash } from "../lib/objectId";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
+import { SliceTabs } from "../components/SliceTabs";
 import {
   SliceDefinitionForm,
   toVisibilityOption,
@@ -221,8 +222,17 @@ export function SliceSettingsPage() {
         }
         title={
           <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
-            {`Slice Settings: ${sliceLabel}`}
+            Settings
           </h1>
+        }
+        tabs={
+          sliceRouteParams ? (
+            <SliceTabs
+              active="settings"
+              params={sliceRouteParams}
+              sliceLabel={sliceLabel}
+            />
+          ) : undefined
         }
       />
       <p className="mb-4 text-sm leading-6 text-slate-600">

@@ -117,9 +117,9 @@ export function ConversationsPage() {
             }
             value={statusFilter}
           >
-            <option value="all">All</option>
-            <option value="active">active</option>
-            <option value="other">other</option>
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="other">Inactive</option>
           </select>
         </div>
 

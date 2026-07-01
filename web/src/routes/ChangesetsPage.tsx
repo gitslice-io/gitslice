@@ -7,10 +7,11 @@ import {
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, type FormEvent } from "react";
 
-import type { Changeset, SliceRef } from "../api/types";
+import type { Changeset } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
+import { SliceTabs } from "../components/SliceTabs";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -19,7 +20,7 @@ import {
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
-import { displaySubmitBlockedReason } from "./stackPageUtils";
+import { displaySubmitBlockedReason, parseSliceSearch } from "./stackPageUtils";
 
 interface ChangesetsSearch {
   slice?: unknown;
@@ -59,23 +60,22 @@ export function ChangesetsPage() {
   );
 
   const breadcrumbItems: Crumb[] = [{ label: "Home", to: "/" }];
+  const sliceRouteParams = sliceRef ? toSliceRouteParams(sliceRef) : null;
   if (sliceRef) {
-    const routeParams = toSliceRouteParams(sliceRef);
     breadcrumbItems.push(
-      routeParams
+      sliceRouteParams
         ? {
             label: `${account}:${slice}`,
             to: "/slices/$account/$slice",
-            params: routeParams
+            params: sliceRouteParams
           }
         : { label: `${account}:${slice}` }
     );
   }
   breadcrumbItems.push({ label: "Changesets" });
-  const pageTitle = sliceRef ? `${account}:${slice} · Changesets` : "Changesets";
   const description = sliceRef
     ? "Review and merge changesets authored against this slice."
-    : "Open a slice and use its Changesets tab to see the slice-scoped review queue.";
+    : "Open a slice to see its slice-scoped review queue.";
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
@@ -83,8 +83,17 @@ export function ChangesetsPage() {
         breadcrumb={<Breadcrumb items={breadcrumbItems} />}
         title={
           <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
-            {pageTitle}
+            Changesets
           </h1>
+        }
+        tabs={
+          sliceRef && sliceRouteParams ? (
+            <SliceTabs
+              active="changesets"
+              params={sliceRouteParams}
+              sliceLabel={`${account}:${slice}`}
+            />
+          ) : undefined
         }
       />
       <p className="mb-4 text-sm leading-6 text-slate-600">{description}</p>
@@ -299,7 +308,7 @@ function MissingSliceState({
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <SliceNotice title="Open a slice first">
-        Use a slice page&apos;s Changesets tab to open the slice-scoped list.
+        Open a slice, then use the Changesets tab to see its review queue.
       </SliceNotice>
       <OpenChangesetForm onOpen={navigateToChangeset} />
     </div>
@@ -357,30 +366,6 @@ function navigateToChangeset(navigate: ReturnType<typeof useNavigate>) {
       to: "/cs/$id"
     });
   };
-}
-
-function parseSliceSearch(value: unknown): Required<SliceRef> | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  // Canonical handle is account:slice; also accept the legacy account/slice.
-  const sep = trimmed.includes(":") ? ":" : "/";
-  const index = trimmed.indexOf(sep);
-
-  if (index <= 0) {
-    return null;
-  }
-
-  const account = trimmed.slice(0, index).trim();
-  const slice = trimmed.slice(index + 1).trim();
-
-  if (!account || !slice) {
-    return null;
-  }
-
-  return { account, slice };
 }
 
 function sortChangesets(changesets: Changeset[]) {
