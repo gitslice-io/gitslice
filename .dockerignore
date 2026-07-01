@@ -1,0 +1,23 @@
+# Keep the build context small and deterministic. The build only needs Go
+# sources, modules, and generated proto stubs.
+.git
+.github
+.agents
+.codex
+.claude
+.tmp
+bin
+node_modules
+web
+design
+ops
+tests/load
+*.log
+*.md
+.env
+.env.*
+env.local
+env.example
+Dockerfile
+.dockerignore
+deploy

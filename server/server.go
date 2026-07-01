@@ -90,6 +90,8 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 	}
+	pubNudge := newPublishNudger()
+	db.Changesets().SetPendingPublishListener(pubNudge.Nudge)
 	var indexWorker *indexworker.Worker
 	if !cfg.DisableIndexWorker {
 		indexWorker = indexworker.New(db.Changesets(), cfg.IndexBatchSize, cfg.IndexInterval)
@@ -100,7 +102,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if indexWorker != nil {
 			nudge = indexWorker.Nudge
 		}
-		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval, nudge)
+		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval, nudge, pubNudge.ch)
 	}
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -225,6 +227,28 @@ func Run(ctx context.Context, cfg Config) error {
 		shutdown()
 		return err
 	}
+}
+
+func Migrate(ctx context.Context, cfg Config) (err error) {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	db, err := postgres.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := db.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	objectStore, err := newObjectStore(cfg)
+	if err != nil {
+		return err
+	}
+	objectStore = cache.New(objectStore, cfg.ObjectCacheBytes, 4<<20)
+	db.SetTreeStore(treestore.New(objectStore))
+	return db.Migrate(ctx)
 }
 
 func NewCombinedGRPCGatewayHandler(grpcServer *grpc.Server, gateway http.Handler) http.Handler {
