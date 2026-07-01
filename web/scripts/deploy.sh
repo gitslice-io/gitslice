@@ -1,9 +1,25 @@
 #!/usr/bin/env bash
+# Build and deploy the Cloudflare Worker web app for a target environment.
+#
+# Usage: deploy.sh <staging|production>
+#   staging    -> sources ../.env.staging, wrangler --env staging  (agenttools.dev)
+#   production -> sources ../.env.prod,    wrangler --env production (gitslice.io)
+#
+# Single source of truth for the web deploy: the only per-env differences are the
+# env file and the wrangler env name, resolved below. Invoked via the
+# `deploy:staging` / `deploy:production` npm scripts.
 set -euo pipefail
+
+ENV="${1:-}"
+case "$ENV" in
+  staging)    ENV_FILE_NAME=".env.staging" ;;
+  production) ENV_FILE_NAME=".env.prod" ;;   # note: prod file is .env.prod
+  *) echo "usage: $0 <staging|production>" >&2; exit 2 ;;
+esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WEB_ROOT="$ROOT/web"
-ENV_FILE="$ROOT/.env.staging"
+ENV_FILE="$ROOT/$ENV_FILE_NAME"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "missing $ENV_FILE" >&2
@@ -34,9 +50,9 @@ fi
 cd "$WEB_ROOT"
 npm run build
 if [[ -n "${CLERK_SECRET_KEY:-}" ]]; then
-  printf '%s' "$CLERK_SECRET_KEY" | npx wrangler secret put CLERK_SECRET_KEY --env staging
+  printf '%s' "$CLERK_SECRET_KEY" | npx wrangler secret put CLERK_SECRET_KEY --env "$ENV"
 fi
 # Use npx so the locally-installed wrangler resolves regardless of how this
 # script is invoked (bare `wrangler` only works when node_modules/.bin is on
 # PATH, e.g. under `npm run`).
-npx wrangler deploy --env staging
+npx wrangler deploy --env "$ENV"
