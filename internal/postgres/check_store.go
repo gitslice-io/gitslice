@@ -44,6 +44,14 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 	}
 	defer tx.Rollback()
 
+	var advisoryLock int
+	if err := tx.QueryRowContext(ctx, `
+		select 1
+		from (select pg_advisory_xact_lock(hashtextextended($1 || '/' || $2, 0))) locked
+	`, patchsetID, checkName).Scan(&advisoryLock); err != nil {
+		return nil, err
+	}
+
 	if err := requirePatchsetForChangeset(ctx, tx, changesetID, patchsetID); err != nil {
 		return nil, err
 	}
@@ -185,6 +193,62 @@ func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, statu
 	return out, rows.Err()
 }
 
+func (s *CheckStore) CancelOpenCheckRunsBeforePatchset(ctx context.Context, changesetID, currentPatchsetID string) ([]*corev1.CheckRun, error) {
+	changesetID = strings.TrimSpace(changesetID)
+	currentPatchsetID = strings.TrimSpace(currentPatchsetID)
+	if changesetID == "" {
+		return nil, fmt.Errorf("%w: changeset_id is required", storage.ErrInvalid)
+	}
+	if currentPatchsetID == "" {
+		return nil, fmt.Errorf("%w: current_patchset_id is required", storage.ErrInvalid)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if err := requirePatchsetForChangeset(ctx, tx, changesetID, currentPatchsetID); err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		update check_runs
+		set status = 'canceled',
+		    exit_code = -1,
+		    summary = 'superseded by newer patchset',
+		    started_at = coalesce(started_at, now()),
+		    finished_at = now(),
+		    duration_ms = greatest(0, floor(extract(epoch from (now() - coalesce(started_at, now()))) * 1000)::bigint),
+		    updated_at = now()
+		where changeset_id = $1
+		  and patchset_id <> $2
+		  and superseded_by_run_id is null
+		  and status in ('queued', 'running')
+		returning id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), provenance,
+		          attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
+	`, changesetID, currentPatchsetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.CheckRun
+	for rows.Next() {
+		run, err := scanCheckRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
 	status, err := normalizeCheckRunStatus(status)
 	if err != nil {
@@ -218,9 +282,18 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 		    end,
 		    updated_at = now()
 		where id = $1
+		  and status not in ('passed', 'failed', 'errored', 'skipped', 'canceled')
+		  and (superseded_by_run_id is null or $2 = 'canceled')
 		returning changeset_id, patchset_id, check_name
 	`, runID, status, isTerminalCheckRunStatus(status), exitCode, strings.TrimSpace(summary)).Scan(&run.ChangesetID, &run.PatchsetID, &run.CheckName)
 	if errors.Is(err, sql.ErrNoRows) {
+		var exists bool
+		if existsErr := tx.QueryRowContext(ctx, `select exists(select 1 from check_runs where id = $1)`, runID).Scan(&exists); existsErr != nil {
+			return nil, existsErr
+		}
+		if exists {
+			return nil, storage.ErrConflict
+		}
 		return nil, storage.ErrNotFound
 	}
 	if err != nil {

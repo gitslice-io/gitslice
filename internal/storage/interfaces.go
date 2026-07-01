@@ -198,6 +198,10 @@ type CheckStore interface {
 	GetCheckRun(ctx context.Context, runID string) (*corev1.CheckRun, error)
 	ListCheckRuns(ctx context.Context, changesetID, patchsetID string) ([]*corev1.CheckRun, error)
 	ListRunsByDaemonStatus(ctx context.Context, daemonID, status string) ([]*corev1.CheckRun, error)
+	// CancelOpenCheckRunsBeforePatchset marks every non-superseded queued/running
+	// run of the changeset whose patchset is not currentPatchsetID as canceled
+	// and returns the runs it canceled.
+	CancelOpenCheckRunsBeforePatchset(ctx context.Context, changesetID, currentPatchsetID string) ([]*corev1.CheckRun, error)
 	UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error)
 	AppendCheckRunLog(ctx context.Context, runID string, seq int64, stream, chunk string) (inserted bool, err error)
 	ListCheckRunLogs(ctx context.Context, runID string, afterSeq int64) ([]*corev1.CheckRunLog, error)

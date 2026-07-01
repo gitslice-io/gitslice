@@ -3,6 +3,7 @@ package checkexec
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -28,6 +29,9 @@ const (
 	defaultContainerPIDsLimit = "2048"
 	DefaultContainerMemory    = "4g"
 	DefaultContainerCPUs      = "2"
+
+	containerNamePrefix     = "gitslice-run-"
+	containerCleanupTimeout = 15 * time.Second
 )
 
 type Result struct {
@@ -62,7 +66,7 @@ func runHost(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, t
 	cmd := exec.CommandContext(ctx, "sh", "-c", spec.Run)
 	cmd.Dir = dir
 	cmd.Env = hostEnv(spec.Env)
-	return runCommand(ctx, cmd, timeout)
+	return runCommand(ctx, cmd, timeout, nil)
 }
 
 func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, timeout time.Duration) (Result, error) {
@@ -101,19 +105,27 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 		return Result{}, fmt.Errorf("resolve workspace root: %w", err)
 	}
 
-	args, err := containerRunArgs(root, image, spec)
+	containerName, err := newContainerName()
+	if err != nil {
+		return Result{}, err
+	}
+	args, err := containerRunArgs(root, image, containerName, spec)
 	if err != nil {
 		return Result{}, err
 	}
 
 	cmd := exec.CommandContext(ctx, runtime, args...)
-	result, err := runCommand(ctx, cmd, timeout)
+	cmd.Env = containerClientEnv(spec.Env)
+	cleanup := func() {
+		removeContainer(runtime, containerName)
+	}
+	result, err := runCommand(ctx, cmd, timeout, cleanup)
 	result.SetupMs = setupMs
 	result.Cached = cached
 	return result, err
 }
 
-func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Result, error) {
+func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration, cleanup func()) (Result, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmdCtx := exec.CommandContext(runCtx, cmd.Path, cmd.Args[1:]...)
@@ -125,12 +137,22 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Resu
 	cmdCtx.Stdout = &output
 	cmdCtx.Stderr = &output
 
+	cleanupRan := false
+	runCleanup := func() {
+		if cleanup == nil || cleanupRan {
+			return
+		}
+		cleanupRan = true
+		cleanup()
+	}
+
 	start := time.Now()
 	err := cmdCtx.Run()
 	runMs := time.Since(start).Milliseconds()
 	log := output.String()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		_ = killProcessGroup(cmdCtx)
+		runCleanup()
 		return Result{
 			Status:   "errored",
 			ExitCode: -1,
@@ -139,7 +161,11 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (Resu
 			RunMs:    runMs,
 		}, nil
 	}
+	if runCtx.Err() != nil {
+		runCleanup()
+	}
 	if err != nil {
+		runCleanup()
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			code := int32(exitErr.ExitCode())
@@ -242,6 +268,16 @@ func preparedImageTag(image string, setup []string) string {
 	return "gitslice-ci/" + hex.EncodeToString(sum[:])[:24]
 }
 
+var newContainerName = randomContainerName
+
+func randomContainerName() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate container name: %w", err)
+	}
+	return containerNamePrefix + hex.EncodeToString(b[:]), nil
+}
+
 func setupDockerfile(image string, setup []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "FROM %s\n", image)
@@ -251,7 +287,7 @@ func setupDockerfile(image string, setup []string) string {
 	return b.String()
 }
 
-func containerRunArgs(root, image string, spec checks.CheckSpec) ([]string, error) {
+func containerRunArgs(root, image, containerName string, spec checks.CheckSpec) ([]string, error) {
 	cachePaths, err := normalizedContainerCachePaths(spec.Cache)
 	if err != nil {
 		return nil, err
@@ -260,6 +296,7 @@ func containerRunArgs(root, image string, spec checks.CheckSpec) ([]string, erro
 	args := []string{
 		"run",
 		"--rm",
+		"--name", containerName,
 		"--security-opt=no-new-privileges",
 		"--cap-drop=ALL",
 		"--pids-limit=" + defaultContainerPIDsLimit,
@@ -275,10 +312,16 @@ func containerRunArgs(root, image string, spec checks.CheckSpec) ([]string, erro
 		args = append(args, "--network=none")
 	}
 	for _, key := range sortedEnvKeys(spec.Env) {
-		args = append(args, "-e", key+"="+spec.Env[key])
+		args = append(args, "-e", key)
 	}
 	args = append(args, image, "sh", "-c", spec.Run)
 	return args, nil
+}
+
+func removeContainer(runtime, name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
+	defer cancel()
+	_ = exec.CommandContext(ctx, runtime, "rm", "-f", name).Run()
 }
 
 func containerLimitValue(value, fallback string) string {
@@ -373,10 +416,20 @@ func ensureInside(root, target string) error {
 
 func hostEnv(overrides map[string]string) []string {
 	env := os.Environ()
+	return append(env, envPairs(overrides)...)
+}
+
+func containerClientEnv(overrides map[string]string) []string {
+	env := os.Environ()
+	return append(env, envPairs(overrides)...)
+}
+
+func envPairs(overrides map[string]string) []string {
+	pairs := make([]string, 0, len(overrides))
 	for _, key := range sortedEnvKeys(overrides) {
-		env = append(env, key+"="+overrides[key])
+		pairs = append(pairs, key+"="+overrides[key])
 	}
-	return env
+	return pairs
 }
 
 func sortedEnvKeys(env map[string]string) []string {

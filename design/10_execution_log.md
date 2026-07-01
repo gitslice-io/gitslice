@@ -7247,3 +7247,39 @@ additionally requires `CLERK_SECRET_KEY`.
 Also added a Cloud Build trigger `includedFiles` filter (`cmd/**`, `server/**`, `service/**`,
 `internal/**`, `proto/**`, `go.mod`, `go.sum`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`,
 `.gcloudignore`) so web/docs-only pushes no longer redeploy the backend.
+
+## 2026-07-01 — CI check-run gate integrity hardening
+
+Request: harden the server-side CI check-run path without changing the gate contract:
+terminal `check_runs` upsert `check_results`, and submit evaluation reads
+`check_results`.
+
+Decisions and changes:
+- Guarded `UpdateCheckRunStatus` in Postgres and memory storage so terminal runs are
+  immutable, and superseded queued/running runs can only become `canceled`. Guard
+  rejections return `storage.ErrConflict`; missing rows still return `storage.ErrNotFound`.
+  `check_results` is only upserted after the guarded update applies.
+- Serialized `CreateCheckRun` attempts per `(patchset_id, check_name)` with a
+  transaction-scoped advisory lock before the existing attempt/supersede logic.
+- Added `CancelOpenCheckRunsBeforePatchset` to `CheckStore`; new patchsets cancel older
+  queued/running runs and best-effort push `CancelCheckRun` to online daemons. Reruns now
+  cancel their prior queued/running attempt after the replacement run is created.
+- A missing full-tree runner now creates the out-of-slice CI run rows and immediately marks
+  them `errored`, producing a failing `check_results` row instead of leaving queued runs
+  with no result.
+- `handleCheckRunUpdate` now acks applied updates and durable rejects (not found, wrong
+  daemon, guarded conflict, duplicate/idempotent log seq, invalid daemon input), but withholds
+  ack on transient store failures so daemon resend can retry.
+- Daemon reconnect replay now includes this daemon's non-superseded `running` CI runs in
+  addition to `queued`; the 10s sweep remains queued-only.
+- Bundled check runs only accept terminal `passed|failed|errored|skipped`; non-terminal or
+  unsupported statuses are recorded as `errored` with an explicit invalid-status summary.
+
+Verification:
+- `gofmt -l .`
+- `go build ./...`
+- `go vet ./...`
+- `go test ./...`
+- Focused coverage added for the memory status guard, ack conflict vs transient errors,
+  missing runner → errored run/gate fail, cancel-on-new-patchset with `CancelCheckRun`, and
+  invalid bundled status → errored.

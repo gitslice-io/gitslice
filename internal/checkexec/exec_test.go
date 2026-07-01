@@ -4,12 +4,15 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/checks"
 )
+
+const testContainerName = containerNamePrefix + "unit-test"
 
 func TestRunHostPass(t *testing.T) {
 	result, err := Run(context.Background(), t.TempDir(), checks.CheckSpec{Run: "printf ok"})
@@ -99,7 +102,7 @@ func TestRunContainerPass(t *testing.T) {
 }
 
 func TestContainerRunArgsHardeningAndCacheVolume(t *testing.T) {
-	args, err := containerRunArgs("/tmp/workspace", "example:latest", checks.CheckSpec{
+	args, err := containerRunArgs("/tmp/workspace", "example:latest", testContainerName, checks.CheckSpec{
 		Name:       "backend/test",
 		Run:        "go test ./...",
 		WorkingDir: "backend",
@@ -122,6 +125,9 @@ func TestContainerRunArgsHardeningAndCacheVolume(t *testing.T) {
 			t.Fatalf("containerRunArgs() = %#v, want arg %q", args, want)
 		}
 	}
+	if !containsArgPair(args, "--name", testContainerName) {
+		t.Fatalf("containerRunArgs() = %#v, want generated container name", args)
+	}
 	wantCacheMounts := []string{
 		checkCacheVolumeName("backend/test", "/go/pkg/mod") + ":/go/pkg/mod",
 		checkCacheVolumeName("backend/test", "/root/.cache/go-build") + ":/root/.cache/go-build",
@@ -136,8 +142,34 @@ func TestContainerRunArgsHardeningAndCacheVolume(t *testing.T) {
 	}
 }
 
+func TestContainerRunArgsEnvByNameOnly(t *testing.T) {
+	args, err := containerRunArgs("/tmp/workspace", "example:latest", testContainerName, checks.CheckSpec{
+		Run: "true",
+		Env: map[string]string{
+			"Z_SECRET": "top-secret-token",
+			"A_TOKEN":  "alpha=secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("containerRunArgs() error = %v", err)
+	}
+
+	wantEnvArgs := []string{"A_TOKEN", "Z_SECRET"}
+	if got := envFlagValues(args); !slices.Equal(got, wantEnvArgs) {
+		t.Fatalf("env args = %#v, want %#v", got, wantEnvArgs)
+	}
+	for _, arg := range args {
+		if strings.Contains(arg, "top-secret-token") || strings.Contains(arg, "alpha=secret") {
+			t.Fatalf("containerRunArgs() leaked env value in arg %q", arg)
+		}
+		if strings.Contains(arg, "A_TOKEN=") || strings.Contains(arg, "Z_SECRET=") {
+			t.Fatalf("containerRunArgs() used KEY=VALUE env arg %q", arg)
+		}
+	}
+}
+
 func TestContainerRunArgsResourceOverrides(t *testing.T) {
-	args, err := containerRunArgs("/tmp/workspace", "example:latest", checks.CheckSpec{
+	args, err := containerRunArgs("/tmp/workspace", "example:latest", testContainerName, checks.CheckSpec{
 		Run:     "true",
 		Network: true,
 		Memory:  "8g",
@@ -154,6 +186,62 @@ func TestContainerRunArgsResourceOverrides(t *testing.T) {
 	}
 	if containsArg(args, "--network=none") {
 		t.Fatalf("containerRunArgs() = %#v, want network enabled", args)
+	}
+}
+
+func TestRunContainerTimeoutRemovesContainer(t *testing.T) {
+	docker, ok := testDockerRuntime()
+	if !ok {
+		t.Skip("docker not on PATH")
+	}
+	image := os.Getenv("CHECKEXEC_TEST_IMAGE")
+	if image == "" {
+		image = "alpine:3.20"
+	}
+	if err := exec.Command(docker, "image", "inspect", image).Run(); err != nil {
+		if image != "alpine:3.20" {
+			t.Skipf("container image %s unavailable locally: %v", image, err)
+		}
+		image = "busybox"
+		if err := exec.Command(docker, "image", "inspect", image).Run(); err != nil {
+			t.Skipf("container images alpine:3.20 and busybox unavailable locally: %v", err)
+		}
+	}
+
+	name := containerNamePrefix + "timeout-test"
+	removeTestContainer(t, docker, name)
+	t.Cleanup(func() {
+		removeTestContainer(t, docker, name)
+	})
+	originalNameGenerator := newContainerName
+	newContainerName = func() (string, error) {
+		return name, nil
+	}
+	t.Cleanup(func() {
+		newContainerName = originalNameGenerator
+	})
+
+	result, err := Run(context.Background(), t.TempDir(), checks.CheckSpec{
+		Image:   image,
+		Run:     "sleep 30",
+		Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Status != "errored" {
+		t.Fatalf("status = %q, want errored", result.Status)
+	}
+	if !strings.Contains(result.Summary, "timed out") {
+		t.Fatalf("summary = %q, want timeout", result.Summary)
+	}
+
+	running, err := runningDockerContainerNamesByPrefix(docker, containerNamePrefix)
+	if err != nil {
+		t.Fatalf("docker ps failed: %v", err)
+	}
+	if slices.Contains(running, name) {
+		t.Fatalf("container %s still running after timeout; docker ps names = %#v", name, running)
 	}
 }
 
@@ -261,14 +349,32 @@ func testContainerRuntime() (string, bool) {
 	return "", false
 }
 
+func testDockerRuntime() (string, bool) {
+	path, err := exec.LookPath("docker")
+	return path, err == nil
+}
+
 func removeTestImage(t *testing.T, runtime, tag string) {
 	t.Helper()
 	_ = exec.Command(runtime, "rmi", "-f", tag).Run()
 }
 
+func removeTestContainer(t *testing.T, runtime, name string) {
+	t.Helper()
+	_ = exec.Command(runtime, "rm", "-f", name).Run()
+}
+
 func removeTestVolume(t *testing.T, runtime, name string) {
 	t.Helper()
 	_ = exec.Command(runtime, "volume", "rm", "-f", name).Run()
+}
+
+func runningDockerContainerNamesByPrefix(docker, prefix string) ([]string, error) {
+	out, err := exec.Command(docker, "ps", "--filter", "name="+prefix, "--format", "{{.Names}}").Output()
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
 }
 
 func containsArg(args []string, want string) bool {
@@ -287,4 +393,14 @@ func containsArgPair(args []string, flag, value string) bool {
 		}
 	}
 	return false
+}
+
+func envFlagValues(args []string) []string {
+	var values []string
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-e" {
+			values = append(values, args[i+1])
+		}
+	}
+	return values
 }
