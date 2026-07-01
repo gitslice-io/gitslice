@@ -7233,7 +7233,17 @@ Web (`gitslice.io`, Cloudflare Worker env `production` = `gitslice-web-productio
 - `.env.prod` was NOT gitignored (only `.env.production` was) — added `.env.prod` to
   `.gitignore` so the Cloudflare token file can't be committed.
 
-KNOWN ISSUE (open): `https://gitslice.io/` returns 500 `{"message":"HTTPError"}` even after
-`api.gitslice.io` is up (200). The SSR does a server-side fetch to the API during render and
-does not tolerate the response for an unauthenticated request; needs a web SSR fix (handle
-non-2xx / logged-out gracefully). Tracked as follow-up.
+RESOLVED (web SSR 500): `https://gitslice.io/` returned 500 `{"message":"HTTPError"}` even
+with `api.gitslice.io` up. Root cause was NOT a code bug and NOT the API — `web/src/start.ts`
+runs Clerk's `clerkMiddleware` as an SSR request middleware on every render, which needs
+`CLERK_SECRET_KEY` on the Worker. Staging sets it (`.env.staging` has it, and the deploy does
+`wrangler secret put CLERK_SECRET_KEY`); the production deploy skipped it because `.env.prod`
+lacked the key, so Clerk's server-side call failed → SSR 500. Fix: set `CLERK_SECRET_KEY` on
+the `gitslice-web-production` Worker (same test Clerk instance → same `sk_test_` key as
+staging) and add it to `.env.prod` so future `deploy:production` runs set it. Verified 200.
+Note the split: the Go BACKEND uses only the Clerk publishable key; the WEB Worker SSR
+additionally requires `CLERK_SECRET_KEY`.
+
+Also added a Cloud Build trigger `includedFiles` filter (`cmd/**`, `server/**`, `service/**`,
+`internal/**`, `proto/**`, `go.mod`, `go.sum`, `Dockerfile`, `.dockerignore`, `cloudbuild.yaml`,
+`.gcloudignore`) so web/docs-only pushes no longer redeploy the backend.
