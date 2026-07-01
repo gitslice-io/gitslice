@@ -1,0 +1,19 @@
+# Controls what `gcloud builds submit` UPLOADS as the build context (distinct
+# from .dockerignore, which trims the context inside the docker build step).
+# Keep Dockerfile + cloudbuild.yaml + all Go sources; drop the heavy/irrelevant
+# trees the server build never needs.
+.git/
+node_modules/
+web/
+.tmp/
+bin/
+ops/
+design/
+*.log
+.agents/
+.codex/
+.claude/
+.env
+.env.*
+env.local
+session-ses_*.md
