@@ -7,12 +7,15 @@
 # Dockerfile is still used to build the image (swap the `build` step for a
 # buildpacks/ko step if you ever want to drop the Dockerfile).
 #
+# Substitution names intentionally match the ones the Cloud Run "continuous
+# deployment" trigger wizard already sets (_DEPLOY_REGION, _SERVICE_NAME,
+# _AR_HOSTNAME, _AR_REPOSITORY), so an existing wizard trigger only needs the
+# app-specific vars added: _R2_ENDPOINT, _R2_BUCKET, _CLERK_PUBLISHABLE_KEY, and
+# _TAG=$SHORT_SHA. Set the trigger's Config to this file (filename: cloudbuild.yaml).
+#
 # Run manually:
 #   gcloud builds submit --config cloudbuild.yaml \
-#     --substitutions=_REGION=us-central1,_R2_ENDPOINT=https://<acct>.r2.cloudflarestorage.com,_R2_BUCKET=gitslice-prod,_CLERK_PUBLISHABLE_KEY=pk_live_...,_TAG=$(git rev-parse --short HEAD) .
-#
-# Or attach a Cloud Build trigger on push to main (the trigger supplies $SHORT_SHA;
-# pass _TAG=$SHORT_SHA in the trigger substitutions).
+#     --substitutions=_DEPLOY_REGION=us-west1,_AR_HOSTNAME=us-west1-docker.pkg.dev,_AR_REPOSITORY=gitslice,_SERVICE_NAME=gitslice-prod,_R2_ENDPOINT=https://<acct>.r2.cloudflarestorage.com,_R2_BUCKET=gitslice-staging,_CLERK_PUBLISHABLE_KEY=pk_...,_TAG=$(git rev-parse --short HEAD) .
 #
 # IAM: the Cloud Build service account needs roles/run.admin (deploy service +
 # job) and roles/iam.serviceAccountUser on the Cloud Run runtime service account.
@@ -20,20 +23,21 @@
 # secrets referenced below.
 
 substitutions:
-  _REGION: us-central1
-  _REPO: gitslice                 # Artifact Registry repo
-  _SERVICE: gitslice-server
+  _DEPLOY_REGION: us-central1       # Cloud Run region (wizard var)
+  _SERVICE_NAME: gitslice-server    # Cloud Run service (wizard var)
+  _AR_HOSTNAME: us-central1-docker.pkg.dev  # Artifact Registry host (wizard var)
+  _AR_REPOSITORY: gitslice          # Artifact Registry repo (wizard var)
   _JOB: gitslice-migrate
-  _TAG: latest                    # image tag; pass $SHORT_SHA from a trigger
+  _TAG: latest                      # image tag; pass $SHORT_SHA from a trigger
   _ALLOWED_ORIGIN: https://agenttools.dev
-  _R2_ENDPOINT: ""                # required: https://<acct>.r2.cloudflarestorage.com
-  _R2_BUCKET: ""                  # required
+  _R2_ENDPOINT: ""                  # required: https://<acct>.r2.cloudflarestorage.com
+  _R2_BUCKET: ""                    # required
   _R2_PREFIX: prod
   _R2_REGION: auto
-  _CLERK_PUBLISHABLE_KEY: ""      # required (publishable, non-secret)
-  _MIN_INSTANCES: "1"             # background workers need a warm instance
-  _MAX_INSTANCES: "3"             # 32*N DB conns must stay under Neon's limit
-  _PUBLISH_INTERVAL_MS: "30000"   # long fallback; nudges drain real activity now
+  _CLERK_PUBLISHABLE_KEY: ""        # required (publishable, non-secret)
+  _MIN_INSTANCES: "1"               # background workers need a warm instance
+  _MAX_INSTANCES: "3"               # 32*N DB conns must stay under Neon's limit
+  _PUBLISH_INTERVAL_MS: "30000"     # long fallback; nudges drain real activity now
   _INDEX_INTERVAL_MS: "30000"
 
 steps:
@@ -46,7 +50,7 @@ steps:
       - -c
       - |
         cat > /workspace/deployenv.sh <<'EOF'
-        export IMG="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}"
+        export IMG="${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:${_TAG}"
         export ENVS="GITSLICE_GRPC_ADDR=0.0.0.0:8080,OBJECT_STORE_TYPE=r2,R2_ENDPOINT=${_R2_ENDPOINT},R2_REGION=${_R2_REGION},R2_BUCKET=${_R2_BUCKET},R2_PREFIX=${_R2_PREFIX},R2_USE_PATH_STYLE=false,AUTH_PROVIDER=clerk,CLERK_PUBLISHABLE_KEY=${_CLERK_PUBLISHABLE_KEY},GITSLICE_HTTP_ALLOWED_ORIGIN=${_ALLOWED_ORIGIN},GITSLICE_OBJECT_STORE_ROOT=/tmp/gitslice-objects,GITSLICE_PUBLISH_INTERVAL_MS=${_PUBLISH_INTERVAL_MS},GITSLICE_INDEX_INTERVAL_MS=${_INDEX_INTERVAL_MS}"
         export SECRETS="GITSLICE_DATABASE_URL=gitslice-database-url:latest,R2_ACCESS_KEY_ID=gitslice-r2-access-key-id:latest,R2_SECRET_ACCESS_KEY=gitslice-r2-secret-access-key:latest,GITSLICE_METRICS_TOKEN=gitslice-metrics-token:latest"
         EOF
@@ -56,9 +60,9 @@ steps:
     args:
       - build
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}
+      - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:${_TAG}
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+      - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:latest
       - .
 
   # Push explicitly here: the top-level `images:` field only pushes AFTER all
@@ -68,7 +72,7 @@ steps:
     args:
       - push
       - --all-tags
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}
+      - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}
 
   # Run migrations once and wait. Uses -migrate-only (DDL + EnsureEmptyRoot +
   # bootstrap seed, then exit 0). The serving step sets GITSLICE_RUN_MIGRATIONS=0.
@@ -82,11 +86,11 @@ steps:
         source /workspace/deployenv.sh
         # $$ escapes shell vars so Cloud Build does not treat them as build
         # substitutions; ${_FOO} are Cloud Build substitutions (single $).
-        gcloud run jobs deploy ${_JOB} --region ${_REGION} --image "$$IMG" \
+        gcloud run jobs deploy ${_JOB} --region ${_DEPLOY_REGION} --image "$$IMG" \
           --args="-migrate-only" \
           --set-env-vars "$$ENVS" --set-secrets "$$SECRETS" \
           --max-retries=1 --task-timeout=600
-        gcloud run jobs execute ${_JOB} --region ${_REGION} --wait
+        gcloud run jobs execute ${_JOB} --region ${_DEPLOY_REGION} --wait
 
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -96,7 +100,7 @@ steps:
       - |
         set -euo pipefail
         source /workspace/deployenv.sh
-        gcloud run deploy ${_SERVICE} --region ${_REGION} --image "$$IMG" \
+        gcloud run deploy ${_SERVICE_NAME} --region ${_DEPLOY_REGION} --image "$$IMG" \
           --port=8080 \
           --use-http2 \
           --no-cpu-throttling \
@@ -107,8 +111,8 @@ steps:
           --set-secrets "$$SECRETS"
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+  - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:${_TAG}
+  - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:latest
 
 timeout: 1800s
 options:
