@@ -43,7 +43,7 @@ npm --prefix web run deploy:staging      # -> deploy.sh staging   (agenttools.de
 npm --prefix web run deploy:production   # -> deploy.sh production (gitslice.io)
 ```
 
-That script picks the env file per target (`.env.staging` / `.env.prod`), maps `PUBLIC_API_BASE_URL` into `VITE_API_BASE_URL`, maps `PUBLIC_GITSLICE_GIT_HTTP_BASE_URL` into `VITE_GITSLICE_GIT_HTTP_BASE_URL`, builds the bundle (TanStack Start SSR → `.output/`), optionally updates the `CLERK_SECRET_KEY` Worker secret, then runs `wrangler deploy --env <target>`. Worker envs and their custom-domain routes are defined under `env` in `web/wrangler.jsonc`.
+That script picks the env file per target (`.env.staging` / `.env.prod`), maps `PUBLIC_API_BASE_URL` into `VITE_API_BASE_URL`, maps `PUBLIC_GITSLICE_GIT_HTTP_BASE_URL` into `VITE_GITSLICE_GIT_HTTP_BASE_URL`, builds the bundle (TanStack Start SSR → `.output/`), updates the `CLERK_SECRET_KEY` Worker secret when present (required for SSR — see the Web section), then runs `wrangler deploy --env <target>`. Worker envs and their custom-domain routes are defined under `env` in `web/wrangler.jsonc`.
 
 ## Preflight
 
@@ -125,6 +125,7 @@ The deploy script (`web/scripts/deploy.sh <env>`) requires, in the matching env 
 - `VITE_CLERK_PUBLISHABLE_KEY`
 - `VITE_API_BASE_URL` or `PUBLIC_API_BASE_URL`
 - `VITE_GITSLICE_GIT_HTTP_BASE_URL` or `PUBLIC_GITSLICE_GIT_HTTP_BASE_URL`
+- `CLERK_SECRET_KEY` — **required for SSR, not optional.** `web/src/start.ts` runs Clerk's `clerkMiddleware` on every server render; without this Worker secret the SSR throws and the site returns 500 `{"message":"HTTPError"}`. The deploy script `wrangler secret put`s it when present in the env file. (Distinct from the Go backend, which uses only the publishable key — the *web Worker* additionally needs the secret key from the same Clerk instance.)
 
 `CLOUDFLARE_API_TOKEN` must be in the env file (or operator env) with Workers Scripts:Edit and, for custom-domain routes, Workers Routes:Edit. If the deployed web bundle points at localhost or an old API host, rebuild and redeploy through `web/scripts/deploy.sh`; Wrangler runtime vars are not visible to `import.meta.env` during the build.
 
@@ -180,6 +181,8 @@ npx --yes pm2 show gitslice-rewrite-staging
 ```
 
 ## Troubleshooting
+
+If the web app itself returns 500 `{"message":"HTTPError"}` (even when the API is up), the Worker is missing the `CLERK_SECRET_KEY` secret — the SSR `clerkMiddleware` needs it. Fix with `printf '%s' "$CLERK_SECRET_KEY" | npx wrangler secret put CLERK_SECRET_KEY --env <staging|production>` (run from `web/`), and add the key to the env file so future deploys set it.
 
 If browser calls fail with CORS errors, check `GITSLICE_HTTP_ALLOWED_ORIGIN` (staging: `https://agenttools.dev` via nginx/PM2 env; production: `https://gitslice.io` via the `_ALLOWED_ORIGIN` Cloud Build substitution — a mismatch here breaks the web app's calls), and the OPTIONS verification command above.
 
