@@ -1356,6 +1356,49 @@ func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, statu
 	return out, nil
 }
 
+func (s *CheckStore) CancelOpenCheckRunsBeforePatchset(ctx context.Context, changesetID, currentPatchsetID string) ([]*corev1.CheckRun, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	changesetID = strings.TrimSpace(changesetID)
+	currentPatchsetID = strings.TrimSpace(currentPatchsetID)
+	if changesetID == "" || currentPatchsetID == "" {
+		return nil, storage.ErrInvalid
+	}
+	cs := s.b.changesets[changesetID]
+	if cs == nil || !changesetHasPatchsetID(cs, currentPatchsetID) {
+		return nil, storage.ErrNotFound
+	}
+	now := nowRFC()
+	var out []*corev1.CheckRun
+	for _, run := range s.b.checkRuns {
+		if run.ChangesetId != changesetID || run.PatchsetId == currentPatchsetID {
+			continue
+		}
+		if s.b.checkRunSupersededBy[run.Id] != "" {
+			continue
+		}
+		if run.Status != "queued" && run.Status != "running" {
+			continue
+		}
+		run.Status = "canceled"
+		if run.StartedAt == "" {
+			run.StartedAt = now
+		}
+		run.FinishedAt = now
+		run.DurationMs = memoryCheckRunDurationMS(run.StartedAt, now)
+		run.ExitCode = -1
+		run.Summary = "superseded by newer patchset"
+		out = append(out, cloneCheckRun(run))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt < out[j].CreatedAt
+		}
+		return out[i].Id < out[j].Id
+	})
+	return out, nil
+}
+
 func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
@@ -1366,6 +1409,12 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 	run := s.b.checkRuns[strings.TrimSpace(runID)]
 	if run == nil {
 		return nil, storage.ErrNotFound
+	}
+	if isTerminalMemoryCheckRunStatus(run.Status) {
+		return nil, storage.ErrConflict
+	}
+	if s.b.checkRunSupersededBy[run.Id] != "" && status != "canceled" {
+		return nil, storage.ErrConflict
 	}
 	now := nowRFC()
 	run.Status = status

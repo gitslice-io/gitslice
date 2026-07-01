@@ -97,7 +97,7 @@ func (s *CheckService) RerunCheck(ctx context.Context, req *corev1.RerunCheckReq
 	if patchset == nil {
 		return nil, grpcError(storage.ErrNotFound)
 	}
-	return s.dispatcher.rerunCheck(ctx, cs, slice, patchset, run.GetCheckName())
+	return s.dispatcher.rerunCheck(ctx, cs, slice, patchset, run)
 }
 
 func (s *CheckService) StreamCheckRun(req *corev1.StreamCheckRunRequest, stream corev1.CheckService_StreamCheckRunServer) error {

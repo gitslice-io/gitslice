@@ -216,6 +216,9 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	}
 	if priorPatchsetID == "" || patchset.Id != priorPatchsetID {
 		s.recordBundledCheckRuns(ctx, cs.Id, patchset.Id, req.BundledCheckRuns)
+		if s.dispatcher != nil {
+			s.dispatcher.cancelOpenCheckRunsBeforePatchset(ctx, cs.Id, patchset.Id)
+		}
 		s.dispatchOutOfSliceChecks(ctx, cs, slice, patchset)
 	}
 	if patchset.Author != "" {
@@ -249,8 +252,14 @@ func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, changeset
 			slog.Warn("failed to create bundled check run", "changeset_id", changesetID, "patchset_id", patchsetID, "check", bundledRun.Name, "error", err)
 			continue
 		}
-		if _, err := s.Checks.UpdateCheckRunStatus(ctx, run.Id, bundledRun.Status, bundledRun.ExitCode, bundledRun.Summary); err != nil {
-			slog.Warn("failed to record bundled check status", "run_id", run.Id, "check", bundledRun.Name, "status", bundledRun.Status, "error", err)
+		status := strings.ToLower(strings.TrimSpace(bundledRun.Status))
+		summary := bundledRun.Summary
+		if status != "passed" && status != "failed" && status != "errored" && status != "skipped" {
+			status = "errored"
+			summary = fmt.Sprintf("invalid bundled check status %q", strings.TrimSpace(bundledRun.Status))
+		}
+		if _, err := s.Checks.UpdateCheckRunStatus(ctx, run.Id, status, bundledRun.ExitCode, summary); err != nil {
+			slog.Warn("failed to record bundled check status", "run_id", run.Id, "check", bundledRun.Name, "status", status, "error", err)
 		}
 		if bundledRun.Log != "" {
 			if _, err := s.Checks.AppendCheckRunLog(ctx, run.Id, 1, "stdout", bundledRun.Log); err != nil {

@@ -117,6 +117,69 @@ func TestServicesRunAgainstInMemoryStorage(t *testing.T) {
 	}
 }
 
+func TestBundledCheckRunNonTerminalStatusRecordsErrored(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "bundled-invalid"}
+	mem.PutSliceWithSubmitSettings(sliceRef, []string{"/acme/payment/bundled-invalid"}, "private", 0, []string{"unit"})
+
+	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{
+		Data:  []byte("package bundledinvalid\nconst V = 1\n"),
+		Slice: sliceRef,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: sliceRef,
+		TargetRef:      storage.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          "bundled invalid",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchset, err := handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "add",
+			Path:        "/acme/payment/bundled-invalid/change.go",
+			BlobId:      upload.BlobId,
+			ContentHash: upload.ContentHash,
+			Mode:        0o100644,
+		}},
+		BundledCheckRuns: []*corev1.BundledCheckRun{{
+			Name:   "unit",
+			Status: "running",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := handlers.Check.ListCheckRuns(ctx, &corev1.ListCheckRunsRequest{ChangesetId: cs.Id, PatchsetId: patchset.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs.Runs) != 1 {
+		t.Fatalf("ListCheckRuns returned %d runs, want 1: %#v", len(runs.Runs), runs.Runs)
+	}
+	if got := runs.Runs[0]; got.Status != "errored" || got.Summary != `invalid bundled check status "running"` {
+		t.Fatalf("bundled run = %#v, want errored invalid-status summary", got)
+	}
+	if _, err := handlers.Changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: patchset.Id,
+	}); err == nil || !strings.Contains(err.Error(), `required check "unit" is failing`) {
+		t.Fatalf("SubmitChangeset error = %v, want failing unit check", err)
+	}
+}
+
 func TestSubmitRejectsPatchsetConflicts(t *testing.T) {
 	_, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")

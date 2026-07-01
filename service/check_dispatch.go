@@ -101,7 +101,7 @@ func (d *checkDispatcher) resolveCheckPlan(ctx context.Context, slice *corev1.Sl
 }
 
 func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset) {
-	if d == nil || d.Checks == nil || d.hub == nil || cs == nil || slice == nil || patchset == nil {
+	if d == nil || d.Checks == nil || cs == nil || slice == nil || patchset == nil {
 		return
 	}
 	plan, err := d.resolveCheckPlan(ctx, slice, patchset)
@@ -118,13 +118,16 @@ func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *core
 	if len(runnable) == 0 {
 		return
 	}
-	secrets, err := d.sliceSecretsForDispatch(ctx, slice.Id)
-	if err != nil {
-		slog.Warn("failed to load slice CI secrets for dispatch", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "slice_id", slice.GetId(), "error", err)
-		return
-	}
-
 	daemonID := strings.TrimSpace(slice.CiDaemonId)
+	var secrets map[string]string
+	if daemonID != "" {
+		var err error
+		secrets, err = d.sliceSecretsForDispatch(ctx, slice.Id)
+		if err != nil {
+			slog.Warn("failed to load slice CI secrets for dispatch", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "slice_id", slice.GetId(), "error", err)
+			return
+		}
+	}
 	runSpecs := make([]*corev1.CheckRunSpec, 0, len(runnable))
 	for _, spec := range runnable {
 		run, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
@@ -139,9 +142,18 @@ func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *core
 			slog.Warn("failed to create ci check run", "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)
 			continue
 		}
+		if daemonID == "" {
+			if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.Id, "errored", -1, "slice has no full-tree CI runner configured; set the slice CI daemon to run out-of-slice checks"); err != nil {
+				slog.Warn("failed to mark ci check run errored without runner", "run_id", run.Id, "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)
+			}
+			continue
+		}
 		runSpecs = append(runSpecs, checkRunSpecFromPlan(run.Id, spec, secrets))
 	}
 	if len(runSpecs) == 0 || daemonID == "" {
+		return
+	}
+	if d.hub == nil {
 		return
 	}
 	conn, ok := d.hub.daemon(daemonID)
@@ -160,17 +172,50 @@ func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *core
 }
 
 func (s *ChangesetService) dispatchOutOfSliceChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset) {
+	if s == nil || s.dispatcher == nil {
+		return
+	}
 	s.dispatcher.dispatchOutOfSliceChecks(ctx, cs, slice, patchset)
 }
 
-func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, checkName string) (*corev1.CheckRun, error) {
+func (d *checkDispatcher) cancelOpenCheckRunsBeforePatchset(ctx context.Context, changesetID, currentPatchsetID string) {
+	if d == nil || d.Checks == nil {
+		return
+	}
+	runs, err := d.Checks.CancelOpenCheckRunsBeforePatchset(ctx, changesetID, currentPatchsetID)
+	if err != nil {
+		slog.Warn("failed to cancel superseded check runs", "changeset_id", changesetID, "current_patchset_id", currentPatchsetID, "error", err)
+		return
+	}
+	for _, run := range runs {
+		d.cancelCheckRun(run)
+	}
+}
+
+func (d *checkDispatcher) cancelCheckRun(run *corev1.CheckRun) {
+	if d == nil || d.hub == nil || run == nil || strings.TrimSpace(run.GetDaemonId()) == "" || strings.TrimSpace(run.GetId()) == "" {
+		return
+	}
+	conn, ok := d.hub.daemon(strings.TrimSpace(run.GetDaemonId()))
+	if !ok {
+		return
+	}
+	conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CancelCheck{CancelCheck: &corev1.CancelCheckRun{
+		RunId: run.GetId(),
+	}}})
+}
+
+func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, prior *corev1.CheckRun) (*corev1.CheckRun, error) {
 	if d == nil || d.Checks == nil || d.hub == nil {
 		return nil, status.Error(codes.FailedPrecondition, "check dispatcher is not configured")
 	}
 	if cs == nil || slice == nil || patchset == nil {
 		return nil, status.Error(codes.FailedPrecondition, "check run context is incomplete")
 	}
-	checkName = strings.TrimSpace(checkName)
+	if prior == nil {
+		return nil, status.Error(codes.FailedPrecondition, "check run context is incomplete")
+	}
+	checkName := strings.TrimSpace(prior.GetCheckName())
 	if checkName == "" {
 		return nil, status.Error(codes.FailedPrecondition, "check run has no check name")
 	}
@@ -209,6 +254,13 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 	})
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if prior.GetStatus() == "queued" || prior.GetStatus() == "running" {
+		if _, err := d.Checks.UpdateCheckRunStatus(ctx, prior.GetId(), "canceled", -1, "superseded by rerun"); err != nil {
+			slog.Warn("failed to cancel prior check run after rerun", "run_id", prior.GetId(), "replacement_run_id", run.GetId(), "error", err)
+		} else {
+			d.cancelCheckRun(prior)
+		}
 	}
 
 	msg := &corev1.ServerMessage{Payload: &corev1.ServerMessage_RunChecks{RunChecks: &corev1.RunChecks{
@@ -275,10 +327,15 @@ func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID strin
 	if s.Checks == nil || s.dispatcher == nil || conn == nil {
 		return
 	}
-	runs, err := s.Checks.ListRunsByDaemonStatus(ctx, daemonID, "queued")
+	queued, err := s.Checks.ListRunsByDaemonStatus(ctx, daemonID, "queued")
 	if err != nil {
 		return
 	}
+	running, err := s.Checks.ListRunsByDaemonStatus(ctx, daemonID, "running")
+	if err != nil {
+		return
+	}
+	runs := append(queued, running...)
 	s.dispatchDaemonCheckRuns(ctx, daemonID, conn, runs, false)
 }
 
@@ -449,17 +506,30 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 	if s.Checks == nil || conn == nil || update == nil {
 		return
 	}
+	ack := func() {
+		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CheckAck{CheckAck: &corev1.CheckRunAck{
+			RunId:          update.RunId,
+			AckedClientSeq: update.ClientSeq,
+		}}})
+	}
 	run, err := s.Checks.GetCheckRun(ctx, update.RunId)
 	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			ack()
+		}
 		return
 	}
 	if run.DaemonId != daemonID {
+		ack()
 		return
 	}
 	if update.LogChunk != "" && update.ClientSeq > 0 {
 		streamName := defaultCheckStream(update.Stream)
 		inserted, err := s.Checks.AppendCheckRunLog(ctx, update.RunId, update.ClientSeq, streamName, update.LogChunk)
 		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrInvalid) || errors.Is(err, storage.ErrConflict) {
+				ack()
+			}
 			return
 		}
 		if inserted && s.checkLogs != nil {
@@ -477,6 +547,9 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 	}
 	if update.Status != "" {
 		if _, err := s.Checks.UpdateCheckRunStatus(ctx, update.RunId, update.Status, update.ExitCode, update.Summary); err != nil {
+			if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrInvalid) || errors.Is(err, storage.ErrConflict) {
+				ack()
+			}
 			return
 		}
 		if s.checkLogs != nil {
@@ -484,16 +557,16 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 		}
 	} else if update.Final {
 		if _, err := s.Checks.UpdateCheckRunStatus(ctx, update.RunId, "errored", update.ExitCode, update.Summary); err != nil {
+			if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrInvalid) || errors.Is(err, storage.ErrConflict) {
+				ack()
+			}
 			return
 		}
 		if s.checkLogs != nil {
 			s.checkLogs.publish(update.RunId, nil)
 		}
 	}
-	conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CheckAck{CheckAck: &corev1.CheckRunAck{
-		RunId:          update.RunId,
-		AckedClientSeq: update.ClientSeq,
-	}}})
+	ack()
 }
 
 func (s *AgentService) persistedCheckRunLog(ctx context.Context, runID string, seq int64) *corev1.CheckRunLog {
