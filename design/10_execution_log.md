@@ -7283,3 +7283,37 @@ Verification:
 - Focused coverage added for the memory status guard, ack conflict vs transient errors,
   missing runner → errored run/gate fail, cancel-on-new-patchset with `CancelCheckRun`, and
   invalid bundled status → errored.
+
+## 2026-07-02 — Staging deploy: transcript tail-loading (PR #295)
+
+Request: merge PR #295 and deploy staging (backend + web).
+
+Change shipped: agent conversation transcript tail-loading + reverse pagination.
+`GetConversationEventsRequest` gains `int64 limit` (newest-N within the
+`(after_seq, before_seq]` window, ascending); the web transcript opens on the
+last 200 events and pages older ones in from the top, with bottom-anchored
+content (mt-auto) and a ResizeObserver re-pin to kill remaining scroll shift.
+No new DB migration. `limit <= 0` preserves prior behavior, so CLI/daemon
+callers are unaffected.
+
+Actions:
+- Merged #295 (squash) into `main` at 57accea after CI green (Go, web, Postgres
+  e2e SUCCESS; load tests skipped). Synced local `main`.
+- Backend: `go build -o bin/gitslice-server ./cmd/gitslice-server` and
+  `-o bin/gs ./cmd/gs`; `pm2 restart gitslice-rewrite-staging --update-env`.
+  Agent daemon code unchanged, so no `gs-staging-agent` rebuild needed.
+- Web: `npm --prefix web run deploy:staging` → gitslice-web-staging
+  (agenttools.dev), new bundle `index-B8GBJ8QI.js` / `index-CISI9RXo.css`,
+  Version ID 879a4f69-f31e-4754-92d0-18723915c06a.
+
+Verification:
+- PM2 `gitslice-rewrite-staging` online, 2m uptime, 0 unstable restarts.
+- `POST .../AuthService/GetAuthStatus` (unauth) → 401 (server serving).
+- `OPTIONS` CORS preflight from `https://agenttools.dev` → 204.
+- `GET https://agenttools.dev/` → 200, SSR HTML modulepreloads the new
+  `/assets/index-B8GBJ8QI.js` and links `index-CISI9RXo.css`; Clerk SSR
+  healthy (`x-clerk-auth-status: signed-out`, no 500).
+
+Gates: full `go test ./...` (real test DB) and web suite (169 passing) were run
+green on this exact code during the PR; not re-run at deploy time. `make
+functional`/`make load` not run — no migration or contention-path change.
