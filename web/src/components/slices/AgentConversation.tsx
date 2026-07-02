@@ -72,6 +72,17 @@ export function AgentConversation({
   // Tracked as a ref so scroll position changes don't trigger re-renders; the
   // scroll-on-new-event effect reads the latest value at effect time.
   const stickToBottomRef = useRef(true);
+  // The transcript scroll region, measured on a conversation switch so we can
+  // hold its height while the next conversation's history loads (see below).
+  const messagesRef = useRef<HTMLDivElement>(null);
+  // While switching conversations, pin the transcript region to the outgoing
+  // conversation's height so the page (the window is the scroll container)
+  // doesn't collapse and yank the scroll upward, only to snap back to the
+  // bottom when history arrives. Null means "no reservation"; it is set on
+  // switch and cleared in the same commit that the new history lands.
+  const [reservedMinHeight, setReservedMinHeight] = useState<number | null>(
+    null
+  );
 
   const title = useMemo(
     () => conversation?.title || conversationId,
@@ -97,6 +108,11 @@ export function AgentConversation({
   // (which bumps retryKey) re-attaches the stream without wiping the user's
   // in-progress draft or the partial transcript already on screen.
   useEffect(() => {
+    // Capture the outgoing transcript's height before we clear it, so the page
+    // holds its scroll position while the next conversation's history loads
+    // instead of collapsing (scroll up) then snapping to the bottom (scroll
+    // down). Cleared when the new history lands (see backfillHistory / run).
+    setReservedMinHeight(messagesRef.current?.offsetHeight ?? null);
     setEvents([]);
     setLiveDeltas(new Map());
     latestPersistedSeqRef.current = 0;
@@ -158,6 +174,11 @@ export function AgentConversation({
           }
           setEvents(coalesceConversationEvents(historyEvents));
         }
+        // Land the transcript and release the height reservation together, in
+        // one commit: the scroll effect then pins the new history to the bottom
+        // in a single pre-paint pass instead of a visible up-then-down jump.
+        setHistoryLoaded(true);
+        setReservedMinHeight(null);
       } catch {
         // Fall through to streaming from seq 0, which still backfills the
         // transcript (just event-by-event) — better than rendering nothing.
@@ -252,7 +273,11 @@ export function AgentConversation({
       if (controller.signal.aborted) {
         return;
       }
+      // Safety net for the reconnect / empty-history / fetch-error paths that
+      // backfillHistory returns from without flipping these. When backfill did
+      // set them, these are no-ops and React bails out (no extra commit).
       setHistoryLoaded(true);
+      setReservedMinHeight(null);
       await readStream();
     }
 
@@ -478,15 +503,18 @@ export function AgentConversation({
           ) : null}
         </div>
 
-        <div className="px-3 py-4 sm:px-5">
+        <div
+          className="flex min-h-64 flex-col px-3 py-4 sm:px-5"
+          ref={messagesRef}
+          style={
+            reservedMinHeight != null
+              ? { minHeight: reservedMinHeight }
+              : undefined
+          }
+        >
           {events.length === 0 && liveDeltas.size === 0 ? (
             !historyLoaded ? (
-              <div
-                aria-hidden
-                className="flex min-h-64 items-center justify-center"
-              >
-                <span className="h-2 w-24 animate-pulse rounded bg-slate-200" />
-              </div>
+              <TranscriptSkeleton />
             ) : (
               <div className="flex min-h-64 items-center justify-center text-center">
                 <div className="max-w-sm">
@@ -837,6 +865,27 @@ function AgentWorkingIndicator({ label }: { label: string }) {
         <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
       </span>
       <span>{label}</span>
+    </div>
+  );
+}
+
+// TranscriptSkeleton fills the transcript region with placeholder bubbles while
+// a conversation's history loads. It grows to fill the reserved height held
+// during a conversation switch (flex-1) and anchors its bubbles to the bottom
+// (justify-end), matching where the loaded transcript pins the scroll — so the
+// swap from skeleton to real messages happens in place, without a visible jump.
+function TranscriptSkeleton() {
+  return (
+    <div
+      aria-hidden
+      className="flex flex-1 flex-col justify-end gap-3"
+      role="presentation"
+    >
+      <span className="mr-auto h-16 w-full max-w-[32rem] animate-pulse rounded-md bg-slate-200/70" />
+      <span className="ml-auto h-10 w-full max-w-[20rem] animate-pulse rounded-md bg-slate-200/70" />
+      <span className="mr-auto h-24 w-full max-w-[36rem] animate-pulse rounded-md bg-slate-200/70" />
+      <span className="ml-auto h-11 w-full max-w-[16rem] animate-pulse rounded-md bg-slate-200/70" />
+      <span className="mr-auto h-20 w-full max-w-[34rem] animate-pulse rounded-md bg-slate-200/70" />
     </div>
   );
 }
