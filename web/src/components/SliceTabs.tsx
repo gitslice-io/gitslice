@@ -97,7 +97,7 @@ export function SliceTabs({
 
 function tabClass(active: boolean) {
   return cn(
-    "shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition",
+    "shrink-0 border-b-2 px-2.5 py-2 text-sm font-semibold transition sm:px-3",
     active
       ? "border-zinc-950 text-zinc-950"
       : "border-transparent text-slate-600 hover:border-slate-300 hover:text-zinc-950"

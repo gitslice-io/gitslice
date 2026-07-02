@@ -72,7 +72,9 @@ export function ChangesetsPage() {
         : { label: `${account}:${slice}` }
     );
   }
-  breadcrumbItems.push({ label: "Changesets" });
+  if (!sliceRef) {
+    breadcrumbItems.push({ label: "Changesets" });
+  }
   const description = sliceRef
     ? "Review and merge changesets authored against this slice."
     : "Open a slice to see its slice-scoped review queue.";
@@ -82,9 +84,11 @@ export function ChangesetsPage() {
       <PageHeader
         breadcrumb={<Breadcrumb items={breadcrumbItems} />}
         title={
-          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
-            Changesets
-          </h1>
+          sliceRef ? undefined : (
+            <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+              Changesets
+            </h1>
+          )
         }
         tabs={
           sliceRef && sliceRouteParams ? (
@@ -284,16 +288,18 @@ function ChangesetRow({
       </td>
       {canManage ? (
         <td className="px-3 py-4 sm:px-4">
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={busy || !changesetId || !mergeable}
-              onClick={() => mergeMutation.mutate()}
-              type="button"
-            >
-              {mergeMutation.isPending ? "Merging..." : "Merge"}
-            </button>
-          </div>
+          {mergeable ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={busy || !changesetId}
+                onClick={() => mergeMutation.mutate()}
+                type="button"
+              >
+                {mergeMutation.isPending ? "Merging..." : "Merge"}
+              </button>
+            </div>
+          ) : null}
         </td>
       ) : null}
     </tr>

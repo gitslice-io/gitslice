@@ -14,8 +14,7 @@ export function ConversationCard({
   const sliceLabel = routeParams
     ? `${routeParams.account}:${routeParams.slice}`
     : "Unknown slice";
-  const title =
-    conversation.title || conversation.id || "Untitled conversation";
+  const title = conversation.title || "Untitled conversation";
   const timeSource = conversation.updatedAt || conversation.createdAt;
   const timeLabel = formatRelativeTime(timeSource);
   const cardClass =

@@ -215,15 +215,9 @@ export function SliceSettingsPage() {
                     params: sliceRouteParams,
                     to: "/slices/$account/$slice"
                   }
-                : { label: sliceLabel },
-              { label: "Settings" }
+                : { label: sliceLabel }
             ]}
           />
-        }
-        title={
-          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
-            Settings
-          </h1>
         }
         tabs={
           sliceRouteParams ? (
@@ -391,28 +385,25 @@ function SliceCIDaemonPanel({
         </div>
 
         <div className="grid gap-2">
-          <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
-            CI daemon
-            <select
-              aria-label="CI daemon"
-              className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-              disabled={isLoading || pending || !canUpdate}
-              onChange={(event) => onChange(event.target.value)}
-              value={currentDaemonId}
-            >
-              <option value="">None</option>
-              {currentDaemonId && !currentIsOnline ? (
-                <option value={currentDaemonId}>
-                  {daemonLabel(currentDaemon, currentDaemonId)} (current)
-                </option>
-              ) : null}
-              {onlineDaemons.map((daemon) => (
-                <option key={daemon.id ?? daemon.name} value={daemon.id ?? ""}>
-                  {daemonLabel(daemon, daemon.id ?? "")}
-                </option>
-              ))}
-            </select>
-          </label>
+          <select
+            aria-label="CI daemon"
+            className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+            disabled={isLoading || pending || !canUpdate}
+            onChange={(event) => onChange(event.target.value)}
+            value={currentDaemonId}
+          >
+            <option value="">None</option>
+            {currentDaemonId && !currentIsOnline ? (
+              <option value={currentDaemonId}>
+                {daemonLabel(currentDaemon, currentDaemonId)} (current)
+              </option>
+            ) : null}
+            {onlineDaemons.map((daemon) => (
+              <option key={daemon.id ?? daemon.name} value={daemon.id ?? ""}>
+                {daemonLabel(daemon, daemon.id ?? "")}
+              </option>
+            ))}
+          </select>
           {isLoading ? (
             <p className="text-xs text-slate-500">Loading daemons...</p>
           ) : onlineDaemons.length === 0 ? (

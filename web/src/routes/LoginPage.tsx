@@ -43,7 +43,13 @@ export function LoginPage() {
 
   return (
     <AuthFrame title="Sign in">
-      <SignIn path="/login" routing="path" />
+      <SignIn
+        appearance={{
+          elements: { cardBox: "w-full max-w-full", rootBox: "w-full" }
+        }}
+        path="/login"
+        routing="path"
+      />
     </AuthFrame>
   );
 }

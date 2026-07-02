@@ -61,7 +61,6 @@ export function SliceAgentsPage() {
           params: sliceRouteParams,
         }
       : { label: sliceLabel },
-    { label: "Conversations" },
   ];
   if (conversationId) {
     const conversationTitle = conversationQuery.data?.title?.trim();

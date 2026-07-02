@@ -92,7 +92,7 @@ export function changesetBreadcrumbItems({
         : { label: sliceSearch }
     );
     items.push({
-      label: `${sliceSearch} changesets`,
+      label: "Changesets",
       search: { slice: sliceSearch },
       to: "/changesets"
     });

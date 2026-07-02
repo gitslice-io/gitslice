@@ -125,6 +125,7 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
           const runId = run.id ?? "";
           const selected = selectedRunId === runId;
           const canRerun = Boolean(runId && isTerminalCheckStatus(run.status));
+          const showSummary = shouldShowSummary(run);
           const rerunning =
             rerunMutation.isPending && rerunMutation.variables === runId;
           return (
@@ -155,7 +156,7 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
                       </span>
                     ) : null}
                   </div>
-                  {run.summary ? (
+                  {showSummary ? (
                     <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-600">
                       {run.summary}
                     </p>
@@ -359,6 +360,13 @@ function shouldShowExitCode(run: CheckRun) {
     typeof run.exitCode === "number" &&
     (status === "passed" || status === "failed" || status === "errored")
   );
+}
+
+function shouldShowSummary(run: CheckRun) {
+  if (!run.summary) {
+    return false;
+  }
+  return run.summary.trim() !== `exit ${run.exitCode}`;
 }
 
 function isTerminalCheckStatus(status?: string) {

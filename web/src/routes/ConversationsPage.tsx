@@ -50,8 +50,7 @@ export function ConversationsPage() {
         return true;
       }
 
-      const title =
-        conversation.title || conversation.id || "Untitled conversation";
+      const title = conversation.title || "Untitled conversation";
       return [title, conversationSliceLabel(conversation)]
         .join(" ")
         .toLowerCase()

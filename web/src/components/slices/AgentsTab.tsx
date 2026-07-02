@@ -370,9 +370,7 @@ export function AgentsTab({
                         type="button"
                       >
                         <span className="block truncate font-semibold">
-                          {conversation.title ||
-                            conversation.id ||
-                            "Untitled conversation"}
+                          {conversation.title || "Untitled conversation"}
                         </span>
                         <span className="mt-1 flex items-center gap-2">
                           <ConversationStatusPill
