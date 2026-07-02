@@ -274,9 +274,9 @@ export function SliceDetailPage() {
       : "block lg:hidden";
   const workspaceVisibility = selectedPath ? "block" : "hidden lg:block";
 
-  // 8rem = TopBar (4rem) + main's vertical padding (2×2rem). The sticky
-  // PageHeader (including its tabs row) sits inside this section, so the
-  // flex-1 content grid absorbs its height — don't subtract it here too.
+  // 8rem = TopBar (4rem) + main's vertical padding (2×2rem). The PageHeader
+  // (including its tabs row) sits inside this section, so the flex-1 content
+  // grid absorbs its height — don't subtract it here too.
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
       <PageHeader

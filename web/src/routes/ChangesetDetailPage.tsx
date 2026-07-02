@@ -305,7 +305,10 @@ export function ChangesetDetailPage() {
   const actionBusy = mergeMutation.isPending || abandonMutation.isPending;
   return (
     <section className="mx-auto w-full max-w-[100rem]">
+      {/* Sticky: reviewers act (approve/merge) after reading a long diff, and
+          the file switcher pins itself below this header. */}
       <PageHeader
+        sticky
         breadcrumb={
           <Breadcrumb
             items={changesetBreadcrumbItems({

@@ -14,8 +14,13 @@ interface PageHeaderProps {
   actions?: ActionMenuItem[];
   /** Accessible label for the dropdown trigger. */
   menuLabel?: string;
-  /** Optional full-width row rendered below the title/actions row. */
+  /** Optional full-width tab row rendered below the header. Never sticky: tabs
+   * are arrival-time wayfinding, so they scroll away with the content. */
   tabs?: ReactNode;
+  /** Pin the breadcrumb/actions row to the viewport top. Opt in only where the
+   * header carries actions the user needs after scrolling (changeset review);
+   * elsewhere the header scrolls away to give the content the viewport back. */
+  sticky?: boolean;
 }
 
 export function PageHeader({
@@ -24,17 +29,19 @@ export function PageHeader({
   primaryAction,
   actions,
   menuLabel = "Actions",
-  tabs
+  tabs,
+  sticky = false
 }: PageHeaderProps) {
   const headerRef = useRef<HTMLElement>(null);
 
-  // Publish the sticky header's height so other sticky elements (e.g. the diff
+  // Publish the pinned header's height so other sticky elements (e.g. the diff
   // file switcher) can pin themselves directly below it instead of being hidden
   // underneath. The breadcrumb can wrap to two lines on mobile, so measure it
-  // rather than hardcoding an offset.
+  // rather than hardcoding an offset. Only a sticky header occludes anything,
+  // so non-sticky headers don't publish.
   useEffect(() => {
     const element = headerRef.current;
-    if (!element || typeof ResizeObserver === "undefined") {
+    if (!sticky || !element || typeof ResizeObserver === "undefined") {
       return;
     }
 
@@ -54,17 +61,20 @@ export function PageHeader({
       observer.disconnect();
       root.style.removeProperty("--page-header-height");
     };
-  }, []);
+  }, [sticky]);
 
   return (
-    <header
-      className={cn(
-        "sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 bg-slate-50/95 backdrop-blur",
-        tabs ? "pt-3" : "py-3"
-      )}
-      ref={headerRef}
-    >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+    <>
+      <header
+        className={cn(
+          "flex flex-col gap-2 border-b border-slate-200 bg-slate-50/95 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3",
+          sticky && "sticky top-0 z-30 backdrop-blur",
+          // With tabs below, the tab row's underline is the divider — except on
+          // a sticky header, which needs its own edge once the tabs scroll away.
+          tabs ? cn("pb-1", !sticky && "border-b-0") : "mb-4"
+        )}
+        ref={headerRef}
+      >
         <div className="min-w-0 sm:flex-1">
           {breadcrumb}
           {title ? <div className="mt-1 min-w-0">{title}</div> : null}
@@ -75,8 +85,8 @@ export function PageHeader({
             <ActionMenu items={actions} label={menuLabel} />
           ) : null}
         </div>
-      </div>
-      {tabs ? <div className="-mb-px w-full">{tabs}</div> : null}
-    </header>
+      </header>
+      {tabs ? <div className="mb-4">{tabs}</div> : null}
+    </>
   );
 }

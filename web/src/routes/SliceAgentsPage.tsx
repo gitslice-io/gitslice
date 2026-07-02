@@ -94,8 +94,8 @@ export function SliceAgentsPage() {
   const breadcrumb = <Breadcrumb items={breadcrumbItems} />;
 
   // The page scrolls as one document — the same model as the changesets list:
-  // the app header scrolls away, the contextual PageHeader stays pinned at the
-  // top (sticky), and the conversation composer pins to the viewport bottom.
+  // the app header and the contextual PageHeader scroll away, and the
+  // conversation composer pins to the viewport bottom.
   const isSliceLoading = sliceQuery.isPending && Boolean(routeSliceRef);
   const showSignedInConversation =
     isLoaded &&
