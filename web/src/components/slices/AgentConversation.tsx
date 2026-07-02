@@ -386,6 +386,31 @@ export function AgentConversation({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Keep the latest message in view while content above the viewport settles
+  // *after* the scroll was pinned — images decoding to their real height, web
+  // fonts swapping in — which grows the page without a React re-render, so the
+  // useLayoutEffect pin above never fires for it. A ResizeObserver on the
+  // transcript re-pins to the bottom whenever it grows and the reader is still
+  // parked there. When they've scrolled up to read it stays put (guarded by
+  // stickToBottomRef), so streamed tokens or a settling image don't yank them.
+  // (Loading earlier pages is likewise unaffected: that only happens while
+  // scrolled up, and its own layout effect holds the reader's position.)
+  useEffect(() => {
+    const node = messagesRef.current;
+    if (!node || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (!stickToBottomRef.current) {
+        return;
+      }
+      const scroller = document.scrollingElement ?? document.documentElement;
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   // Auto-load the previous page when the top sentinel scrolls into view, so the
   // transcript fills upward as the reader scrolls without a click. The observer
   // calls the latest loadEarlierMessages via a ref, so it doesn't re-subscribe
@@ -566,7 +591,7 @@ export function AgentConversation({
 
   return (
     <div className="flex min-h-[calc(100dvh-12rem)] flex-col">
-      <div className="flex-1 bg-slate-50/60">
+      <div className="flex flex-1 flex-col bg-slate-50/60">
         {/* The header lives at the top of the scroll region rather than pinned
             above it, so it collapses out of view as you scroll the transcript —
             like the changeset detail page, whose header is normal page flow.
@@ -645,8 +670,13 @@ export function AgentConversation({
           ) : null}
         </div>
 
+        {/* flex-1 so the transcript fills the space below the header, and the
+            content below is bottom-anchored (mt-auto). A short conversation then
+            sits at the bottom — where the loading skeleton also anchors — so the
+            skeleton->messages swap on a conversation switch happens in place
+            instead of jumping the content up from the bottom to the top. */}
         <div
-          className="flex min-h-64 flex-col px-3 py-4 sm:px-5"
+          className="flex min-h-64 flex-1 flex-col px-3 py-4 sm:px-5"
           ref={messagesRef}
           style={
             reservedMinHeight != null
@@ -670,7 +700,12 @@ export function AgentConversation({
               </div>
             )
           ) : (
-            <div className="grid grid-cols-1 gap-3">
+            // mt-auto bottom-anchors the transcript: it pushes short content to
+            // the bottom of the flex column, and collapses to a no-op once the
+            // content is tall enough to fill/overflow (long conversations flow
+            // from the top and scroll normally, with the top still reachable —
+            // unlike justify-end, which would strand the overflowing top).
+            <div className="mt-auto grid grid-cols-1 gap-3">
               {hasMoreHistory || isLoadingEarlier || earlierError ? (
                 <div
                   className="flex flex-col items-center gap-1 pb-1"

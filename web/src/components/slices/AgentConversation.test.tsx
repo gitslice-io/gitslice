@@ -394,6 +394,73 @@ describe("AgentConversation", () => {
     );
   });
 
+  it("re-pins to the bottom when the transcript grows while parked there", async () => {
+    // jsdom has no layout and no ResizeObserver, so fake a scrollable document
+    // and capture the observer callback to drive the settle behaviour directly.
+    const captured: { current: (() => void) | null } = { current: null };
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(cb: () => void) {
+        captured.current = cb;
+      }
+      observe = observe;
+      unobserve = vi.fn();
+      disconnect = disconnect;
+    } as unknown as typeof ResizeObserver;
+
+    const root = document.documentElement;
+    let scrollTopValue = 0;
+    const scrollTopSpy = vi
+      .spyOn(root, "scrollTop", "set")
+      .mockImplementation((value) => {
+        scrollTopValue = value;
+      });
+    vi.spyOn(root, "scrollTop", "get").mockImplementation(() => scrollTopValue);
+    vi.spyOn(root, "scrollHeight", "get").mockReturnValue(1000);
+    vi.spyOn(root, "clientHeight", "get").mockReturnValue(300);
+
+    try {
+      const api = makeApi([
+        {
+          id: "evt_1",
+          conversationId: "conv_1",
+          seq: "1",
+          role: "agent",
+          type: "message",
+          text: "settling message"
+        }
+      ]);
+      render(
+        <AgentConversation
+          api={api}
+          conversation={{ id: "conv_1", title: "Agent work" }}
+          conversationId="conv_1"
+        />
+      );
+      expect(await screen.findByText("settling message")).toBeInTheDocument();
+      expect(observe).toHaveBeenCalled();
+
+      // Parked at the bottom (the default after load): a resize from settling
+      // content re-pins to the new scrollHeight.
+      scrollTopValue = 0;
+      captured.current?.();
+      expect(scrollTopValue).toBe(1000);
+
+      // After scrolling up to read (700px from the bottom, past the 96px slop) a
+      // resize leaves the reader where they are.
+      scrollTopValue = 100;
+      fireEvent.scroll(window);
+      captured.current?.();
+      expect(scrollTopValue).toBe(100);
+    } finally {
+      scrollTopSpy.mockRestore();
+      vi.restoreAllMocks();
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
+  });
+
   it("renders agent messages as markdown", async () => {
     const api = makeApi([
       {
