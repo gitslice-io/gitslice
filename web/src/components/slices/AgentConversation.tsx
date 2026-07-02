@@ -20,6 +20,14 @@ import { useInternalLinkClickHandler } from "../../lib/internalLinkNavigation";
 import { getErrorMessage } from "./SlicePageParts";
 
 const STREAM_RECONNECT_DELAY_MS = 1500;
+// How many persisted events to tail-load on open, and to page in per "load
+// earlier" step. A conversation's transcript can be thousands of events (each
+// reasoning/tool trace is its own event); rendering them all in one commit
+// stalls the main thread and makes opening a conversation lurch. We instead open
+// on the newest EVENT_PAGE_SIZE events and page older ones in as the user
+// scrolls up. This counts events, not visible messages — trace events are
+// plentiful, so a page is typically a few dozen bubbles.
+const EVENT_PAGE_SIZE = 200;
 // Control event the daemon emits when an agent turn ends. It is not part of the
 // visible transcript; it only closes the "agent is working" indicator. A turn
 // can emit several finalized messages before it finishes, so this marker — not a
@@ -83,6 +91,27 @@ export function AgentConversation({
   const [reservedMinHeight, setReservedMinHeight] = useState<number | null>(
     null
   );
+  // Reverse-pagination state for the tail-loaded transcript. The initial load
+  // (backfillHistory) fetches only the newest EVENT_PAGE_SIZE events; older ones
+  // page in from the top as the user scrolls up. `hasMoreHistory` gates the
+  // "load earlier" affordance, `isLoadingEarlier` guards against overlapping
+  // page fetches, and the seq of the oldest loaded event is the cursor for the
+  // next page. The seq is mirrored in a ref so the stream effect's closures and
+  // the IntersectionObserver read the latest value without re-subscribing.
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
+  const [earlierError, setEarlierError] = useState("");
+  const oldestLoadedSeqRef = useRef(0);
+  // Set just before an older page is prepended, holding the pre-prepend distance
+  // from the bottom of the scroll container. The layout effect below restores it
+  // so the reader stays parked on the same message instead of being shoved down
+  // by the newly inserted history (the window is the scroll container, and
+  // Safari has no native scroll anchoring to lean on).
+  const prependAnchorRef = useRef<number | null>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
+  // Holds the latest loadEarlierMessages closure so the IntersectionObserver
+  // effect can call it without re-subscribing on every render.
+  const loadEarlierRef = useRef<() => void>(() => {});
 
   const title = useMemo(
     () => conversation?.title || conversationId,
@@ -122,6 +151,12 @@ export function AgentConversation({
     setSendError("");
     setDraft("");
     setHistoryLoaded(false);
+    // Reset reverse-pagination: the next conversation tail-loads from scratch.
+    setHasMoreHistory(false);
+    setIsLoadingEarlier(false);
+    setEarlierError("");
+    oldestLoadedSeqRef.current = 0;
+    prependAnchorRef.current = null;
     // When switching conversations, treat the new view as "stick to bottom".
     stickToBottomRef.current = true;
   }, [conversationId]);
@@ -162,7 +197,8 @@ export function AgentConversation({
       try {
         const history = await api.getConversationEvents({
           conversationId,
-          afterSeq: 0
+          afterSeq: 0,
+          limit: EVENT_PAGE_SIZE
         });
         if (controller.signal.aborted) {
           return;
@@ -173,7 +209,12 @@ export function AgentConversation({
             rememberPersistedEventSeq(event, latestPersistedSeqRef);
           }
           setEvents(coalesceConversationEvents(historyEvents));
+          oldestLoadedSeqRef.current = oldestSeqOf(historyEvents);
         }
+        // A full page means there may be older events to page in from the top.
+        // Compare the raw returned count (not the coalesced length) against the
+        // page size so delta/final merges don't falsely report "no more".
+        setHasMoreHistory(historyEvents.length >= EVENT_PAGE_SIZE);
         // Land the transcript and release the height reservation together, in
         // one commit: the scroll effect then pins the new history to the bottom
         // in a single pre-paint pass instead of a visible up-then-down jump.
@@ -193,9 +234,13 @@ export function AgentConversation({
     async function rehydrateResolvedTranscript() {
       let refreshed;
       try {
+        // Re-resolve only the currently loaded window (from the oldest loaded
+        // event onward), not the whole transcript — otherwise this would
+        // re-expand a tail-loaded conversation to its full history. Older events
+        // get resolved by the server when they page in.
         refreshed = await api.getConversationEvents({
           conversationId,
-          afterSeq: 0
+          afterSeq: Math.max(oldestLoadedSeqRef.current - 1, 0)
         });
       } catch {
         return;
@@ -311,6 +356,23 @@ export function AgentConversation({
     // the view pinned to the bottom as a message streams in.
   }, [events.length, liveDeltas]);
 
+  // Hold the reader's scroll position when an older page is prepended. Runs as a
+  // layout effect (before paint) so the corrected scrollTop lands in the same
+  // frame the history renders — no visible jump. The stick-to-bottom effect
+  // above early-returns for this commit because loading earlier only happens
+  // while scrolled up (not stuck), so the two never fight over scrollTop.
+  useLayoutEffect(() => {
+    if (prependAnchorRef.current == null) {
+      return;
+    }
+    const scroller = document.scrollingElement ?? document.documentElement;
+    // Restore the pre-prepend distance from the bottom: the inserted history
+    // pushed existing content down by exactly the scrollHeight delta, so this
+    // keeps the same message under the viewport.
+    scroller.scrollTop = scroller.scrollHeight - prependAnchorRef.current;
+    prependAnchorRef.current = null;
+  }, [events.length]);
+
   // Track whether the user is parked at the bottom of the page so the effect
   // above only follows the stream when they haven't scrolled up to read.
   useEffect(() => {
@@ -323,6 +385,61 @@ export function AgentConversation({
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Keep the latest message in view while content above the viewport settles
+  // *after* the scroll was pinned — images decoding to their real height, web
+  // fonts swapping in — which grows the page without a React re-render, so the
+  // useLayoutEffect pin above never fires for it. A ResizeObserver on the
+  // transcript re-pins to the bottom whenever it grows and the reader is still
+  // parked there. When they've scrolled up to read it stays put (guarded by
+  // stickToBottomRef), so streamed tokens or a settling image don't yank them.
+  // (Loading earlier pages is likewise unaffected: that only happens while
+  // scrolled up, and its own layout effect holds the reader's position.)
+  useEffect(() => {
+    const node = messagesRef.current;
+    if (!node || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (!stickToBottomRef.current) {
+        return;
+      }
+      const scroller = document.scrollingElement ?? document.documentElement;
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  // Auto-load the previous page when the top sentinel scrolls into view, so the
+  // transcript fills upward as the reader scrolls without a click. The observer
+  // calls the latest loadEarlierMessages via a ref, so it doesn't re-subscribe
+  // on every render; it re-subscribes only when there is (or stops being) more
+  // history, or on a conversation switch. The rootMargin pre-loads a little
+  // before the sentinel reaches the viewport so history is usually already there
+  // by the time the user gets to the top.
+  useEffect(() => {
+    const sentinel = topSentinelRef.current;
+    if (
+      !sentinel ||
+      !hasMoreHistory ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      // No observer (SSR / jsdom / unsupported): the visible "Load earlier
+      // messages" button is the fallback way to page history in.
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadEarlierRef.current();
+        }
+      },
+      { rootMargin: "400px 0px 0px 0px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreHistory, conversationId]);
 
   useEffect(
     () => () => {
@@ -422,9 +539,59 @@ export function AgentConversation({
     }
   }
 
+  // Page in the events immediately preceding the oldest one currently loaded.
+  // Guarded so overlapping fetches (observer + button, or rapid scrolls) don't
+  // stack, and so it no-ops once the transcript's start is reached.
+  async function loadEarlierMessages() {
+    const oldest = oldestLoadedSeqRef.current;
+    if (isLoadingEarlier || !hasMoreHistory || oldest <= 1) {
+      return;
+    }
+    setIsLoadingEarlier(true);
+    setEarlierError("");
+    try {
+      const page = await api.getConversationEvents({
+        conversationId,
+        beforeSeq: oldest - 1,
+        limit: EVENT_PAGE_SIZE
+      });
+      const older = page.events ?? [];
+      if (!older.length) {
+        setHasMoreHistory(false);
+        return;
+      }
+      // Capture the scroll geometry before the prepend so the layout effect can
+      // hold the reader's position once the older events render.
+      const scroller = document.scrollingElement ?? document.documentElement;
+      prependAnchorRef.current = scroller.scrollHeight - scroller.scrollTop;
+      for (const event of older) {
+        rememberPersistedEventSeq(event, latestPersistedSeqRef);
+      }
+      setEvents((current) =>
+        coalesceConversationEvents([...older, ...current])
+      );
+      const newOldest = oldestSeqOf(older);
+      if (newOldest > 0) {
+        oldestLoadedSeqRef.current = newOldest;
+      }
+      // A short page means we've reached the start of the transcript.
+      setHasMoreHistory(older.length >= EVENT_PAGE_SIZE);
+    } catch (error) {
+      // Drop the anchor so a failed fetch doesn't wrongly shift a later commit.
+      prependAnchorRef.current = null;
+      setEarlierError(getErrorMessage(error));
+    } finally {
+      setIsLoadingEarlier(false);
+    }
+  }
+
+  // Keep the ref pointed at the latest closure so the IntersectionObserver reads
+  // current state (oldest seq, loading flag) without re-subscribing per render.
+  loadEarlierRef.current = loadEarlierMessages;
+
   return (
     <div className="flex min-h-[calc(100dvh-12rem)] flex-col">
-      <div className="flex-1 bg-slate-50/60">
+      <div className="flex flex-1 flex-col bg-slate-50/60">
         {/* The header lives at the top of the scroll region rather than pinned
             above it, so it collapses out of view as you scroll the transcript —
             like the changeset detail page, whose header is normal page flow.
@@ -503,8 +670,13 @@ export function AgentConversation({
           ) : null}
         </div>
 
+        {/* flex-1 so the transcript fills the space below the header, and the
+            content below is bottom-anchored (mt-auto). A short conversation then
+            sits at the bottom — where the loading skeleton also anchors — so the
+            skeleton->messages swap on a conversation switch happens in place
+            instead of jumping the content up from the bottom to the top. */}
         <div
-          className="flex min-h-64 flex-col px-3 py-4 sm:px-5"
+          className="flex min-h-64 flex-1 flex-col px-3 py-4 sm:px-5"
           ref={messagesRef}
           style={
             reservedMinHeight != null
@@ -528,7 +700,34 @@ export function AgentConversation({
               </div>
             )
           ) : (
-            <div className="grid grid-cols-1 gap-3">
+            // mt-auto bottom-anchors the transcript: it pushes short content to
+            // the bottom of the flex column, and collapses to a no-op once the
+            // content is tall enough to fill/overflow (long conversations flow
+            // from the top and scroll normally, with the top still reachable —
+            // unlike justify-end, which would strand the overflowing top).
+            <div className="mt-auto grid grid-cols-1 gap-3">
+              {hasMoreHistory || isLoadingEarlier || earlierError ? (
+                <div
+                  className="flex flex-col items-center gap-1 pb-1"
+                  ref={topSentinelRef}
+                >
+                  <button
+                    className="rounded-md border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isLoadingEarlier}
+                    onClick={() => {
+                      void loadEarlierMessages();
+                    }}
+                    type="button"
+                  >
+                    {isLoadingEarlier
+                      ? "Loading earlier messages…"
+                      : "Load earlier messages"}
+                  </button>
+                  {earlierError ? (
+                    <p className="text-xs text-rose-700">{earlierError}</p>
+                  ) : null}
+                </div>
+              ) : null}
               {conversationItems.map((item, index) =>
                 item.kind === "trace" ? (
                   <ConversationTraceGroup
@@ -1143,6 +1342,20 @@ function rememberPersistedEventSeq(
 function eventSequenceNumber(event: ConversationEvent) {
   const seq = Number(event.seq);
   return Number.isFinite(seq) && seq > 0 ? seq : undefined;
+}
+
+// oldestSeqOf returns the smallest positive seq among the given events, or 0
+// when none carry a seq. Used to advance the reverse-pagination cursor to the
+// oldest event currently held.
+function oldestSeqOf(events: ConversationEvent[]) {
+  let oldest = 0;
+  for (const event of events) {
+    const seq = eventSequenceNumber(event);
+    if (seq !== undefined && (oldest === 0 || seq < oldest)) {
+      oldest = seq;
+    }
+  }
+  return oldest;
 }
 
 function eventIdentity(event: ConversationEvent) {

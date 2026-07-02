@@ -249,13 +249,20 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 	return out, rows.Err()
 }
 
-func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq int64) ([]*corev1.ConversationEvent, error) {
+func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq, limit int64) ([]*corev1.ConversationEvent, error) {
+	// With a limit we want the newest `limit` events in the window, so fetch seq
+	// desc and reverse below; without one, fetch the whole window ascending.
+	order := "asc"
+	if limit > 0 {
+		order = "desc"
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		select id, conversation_id, seq, role, type, text, data_json, created_at, item_id, client_seq
 		from agent_conversation_events
 		where conversation_id = $1 and seq > $2 and ($3 <= 0 or seq <= $3)
-		order by seq asc
-	`, conversationID, afterSeq, beforeSeq)
+		order by seq `+order+`
+		limit case when $4 > 0 then $4 else null end
+	`, conversationID, afterSeq, beforeSeq, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +275,16 @@ func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string,
 		}
 		out = append(out, ev)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if limit > 0 {
+		// Fetched newest-first; reverse so the caller gets ascending seq order.
+		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+			out[i], out[j] = out[j], out[i]
+		}
+	}
+	return out, nil
 }
 
 func (s *AgentStore) LatestEventSeq(ctx context.Context, conversationID string) (int64, error) {

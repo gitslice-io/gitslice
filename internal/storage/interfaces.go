@@ -229,9 +229,11 @@ type AgentStore interface {
 	// (with the previously stored event). clientSeq <= 0 is always inserted.
 	AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string, clientSeq int64) (ev *corev1.ConversationEvent, inserted bool, err error)
 	ListEvents(ctx context.Context, conversationID string, afterSeq int64) ([]*corev1.ConversationEvent, error)
-	// ListEventsRange returns events with afterSeq < seq <= beforeSeq. A
-	// beforeSeq <= 0 means no upper bound.
-	ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq int64) ([]*corev1.ConversationEvent, error)
+	// ListEventsRange returns events with afterSeq < seq <= beforeSeq, ordered
+	// ascending by seq. A beforeSeq <= 0 means no upper bound. When limit > 0,
+	// only the newest `limit` events in that window are returned (still ordered
+	// ascending); limit <= 0 means no limit.
+	ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq, limit int64) ([]*corev1.ConversationEvent, error)
 	// LatestEventSeq returns the highest event seq for a conversation, or 0 when
 	// it has no events.
 	LatestEventSeq(ctx context.Context, conversationID string) (int64, error)

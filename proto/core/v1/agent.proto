@@ -289,6 +289,11 @@ message GetConversationEventsRequest {
   // upper bound.
   int64 after_seq = 2;
   int64 before_seq = 3;
+  // When > 0, return only the newest `limit` events within the (after_seq,
+  // before_seq] window, still ordered ascending by seq. <= 0 means no limit
+  // (the whole window). Used to tail-load a long transcript: the client opens
+  // with the last N events and pages older ones in by lowering before_seq.
+  int64 limit = 4;
 }
 
 message GetConversationEventsResponse {

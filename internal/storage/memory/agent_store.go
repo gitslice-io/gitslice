@@ -201,7 +201,7 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 	return out, nil
 }
 
-func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq int64) ([]*corev1.ConversationEvent, error) {
+func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq, limit int64) ([]*corev1.ConversationEvent, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	var out []*corev1.ConversationEvent
@@ -215,6 +215,11 @@ func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string,
 		out = append(out, cloneEvent(ev))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	// With a limit, keep only the newest `limit` events in the window (still in
+	// ascending order), mirroring the postgres store's tail behaviour.
+	if limit > 0 && int64(len(out)) > limit {
+		out = out[int64(len(out))-limit:]
+	}
 	return out, nil
 }
 

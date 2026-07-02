@@ -300,9 +300,11 @@ describe("AgentConversation", () => {
 
     expect(await screen.findByText("first answer")).toBeInTheDocument();
     expect(screen.getByText("first question")).toBeInTheDocument();
+    // Backfill tail-loads only the newest page of events, not the whole history.
     expect(api.getConversationEvents).toHaveBeenCalledWith({
       conversationId: "conv_1",
-      afterSeq: 0
+      afterSeq: 0,
+      limit: 200
     });
     // Tailing from the last persisted seq, not replaying from 0.
     await waitFor(() =>
@@ -311,6 +313,152 @@ describe("AgentConversation", () => {
         expect.any(AbortSignal)
       )
     );
+  });
+
+  it("pages older messages in from the top when the first load is a full page", async () => {
+    // A full initial page (EVENT_PAGE_SIZE events) signals there may be older
+    // history, so the "load earlier" affordance appears. The events are the
+    // newest page: seqs 201..400.
+    const firstPage: ConversationEvent[] = Array.from(
+      { length: 200 },
+      (_unused, index) => {
+        const seq = index + 201;
+        return {
+          id: `evt_${seq}`,
+          conversationId: "conv_1",
+          seq: String(seq),
+          role: "agent",
+          type: "message",
+          text: `message ${seq}`
+        } satisfies ConversationEvent;
+      }
+    );
+    // The previous page: a short page, so after it loads there is no more.
+    const olderPage: ConversationEvent[] = [
+      {
+        id: "evt_200",
+        conversationId: "conv_1",
+        seq: "200",
+        role: "user",
+        type: "message",
+        text: "the oldest question"
+      }
+    ];
+
+    const getConversationEvents = vi
+      .fn()
+      .mockResolvedValueOnce({ events: firstPage })
+      .mockResolvedValueOnce({ events: olderPage });
+    const api = {
+      sendAgentMessage: vi.fn(),
+      getConversationEvents,
+      streamConversation: vi.fn(async function* () {})
+    } as unknown as ApiClient;
+
+    render(
+      <AgentConversation
+        api={api}
+        conversation={{ id: "conv_1", title: "Agent work" }}
+        conversationId="conv_1"
+      />
+    );
+
+    // Newest page rendered; older event not yet present.
+    expect(await screen.findByText("message 400")).toBeInTheDocument();
+    expect(screen.queryByText("the oldest question")).not.toBeInTheDocument();
+
+    // The backfill tail-loaded the newest page.
+    expect(getConversationEvents).toHaveBeenNthCalledWith(1, {
+      conversationId: "conv_1",
+      afterSeq: 0,
+      limit: 200
+    });
+
+    // Clicking "load earlier" pages the events before the oldest loaded seq
+    // (201), i.e. beforeSeq 200.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load earlier messages" })
+    );
+
+    expect(await screen.findByText("the oldest question")).toBeInTheDocument();
+    expect(getConversationEvents).toHaveBeenNthCalledWith(2, {
+      conversationId: "conv_1",
+      beforeSeq: 200,
+      limit: 200
+    });
+    // The short older page means we've reached the start: the affordance is gone.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Load earlier messages" })
+      ).not.toBeInTheDocument()
+    );
+  });
+
+  it("re-pins to the bottom when the transcript grows while parked there", async () => {
+    // jsdom has no layout and no ResizeObserver, so fake a scrollable document
+    // and capture the observer callback to drive the settle behaviour directly.
+    const captured: { current: (() => void) | null } = { current: null };
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(cb: () => void) {
+        captured.current = cb;
+      }
+      observe = observe;
+      unobserve = vi.fn();
+      disconnect = disconnect;
+    } as unknown as typeof ResizeObserver;
+
+    const root = document.documentElement;
+    let scrollTopValue = 0;
+    const scrollTopSpy = vi
+      .spyOn(root, "scrollTop", "set")
+      .mockImplementation((value) => {
+        scrollTopValue = value;
+      });
+    vi.spyOn(root, "scrollTop", "get").mockImplementation(() => scrollTopValue);
+    vi.spyOn(root, "scrollHeight", "get").mockReturnValue(1000);
+    vi.spyOn(root, "clientHeight", "get").mockReturnValue(300);
+
+    try {
+      const api = makeApi([
+        {
+          id: "evt_1",
+          conversationId: "conv_1",
+          seq: "1",
+          role: "agent",
+          type: "message",
+          text: "settling message"
+        }
+      ]);
+      render(
+        <AgentConversation
+          api={api}
+          conversation={{ id: "conv_1", title: "Agent work" }}
+          conversationId="conv_1"
+        />
+      );
+      expect(await screen.findByText("settling message")).toBeInTheDocument();
+      expect(observe).toHaveBeenCalled();
+
+      // Parked at the bottom (the default after load): a resize from settling
+      // content re-pins to the new scrollHeight.
+      scrollTopValue = 0;
+      captured.current?.();
+      expect(scrollTopValue).toBe(1000);
+
+      // After scrolling up to read (700px from the bottom, past the 96px slop) a
+      // resize leaves the reader where they are.
+      scrollTopValue = 100;
+      fireEvent.scroll(window);
+      captured.current?.();
+      expect(scrollTopValue).toBe(100);
+    } finally {
+      scrollTopSpy.mockRestore();
+      vi.restoreAllMocks();
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
   });
 
   it("renders agent messages as markdown", async () => {

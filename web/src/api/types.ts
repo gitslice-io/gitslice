@@ -665,6 +665,7 @@ export interface GetConversationEventsRequest {
   conversationId?: string;
   afterSeq?: Int64String | number;
   beforeSeq?: Int64String | number;
+  limit?: Int64String | number;
 }
 
 export interface GetConversationEventsResponse {

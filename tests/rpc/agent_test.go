@@ -3,7 +3,9 @@ package rpc_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"reflect"
 	"testing"
 	"time"
 
@@ -231,6 +233,111 @@ func TestAgentConversationPersistsRuntimeDeltas(t *testing.T) {
 	if replayed.Seq != 1 || replayed.Type != "reasoning_delta" || replayed.ItemId != "reason_1" {
 		t.Fatalf("replayed delta = %#v, want persisted reasoning_delta with item id", replayed)
 	}
+}
+
+// TestGetConversationEventsLimitTailsAndPagesHistory covers the tail-loading
+// contract the web transcript relies on: a positive limit returns the newest N
+// events in the window (ascending by seq), and lowering before_seq pages the
+// preceding N — so the client can open on the last messages and walk older ones
+// in as the user scrolls up.
+func TestGetConversationEventsLimitTailsAndPagesHistory(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	agent := corev1.NewAgentServiceClient(conn)
+
+	daemonCtx, cancelDaemon := context.WithCancel(ctx)
+	defer cancelDaemon()
+	stream, err := agent.Connect(daemonCtx)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Register{Register: &corev1.RegisterDaemon{
+		Name:    "tail-daemon",
+		Runtime: "test",
+	}}}); err != nil {
+		t.Fatalf("send register: %v", err)
+	}
+	reg, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv registered: %v", err)
+	}
+	daemonID := reg.GetRegistered().GetDaemonId()
+
+	conv, err := agent.CreateConversation(ctx, &corev1.CreateConversationRequest{
+		DaemonId: daemonID,
+		Slice:    &corev1.SliceRef{Account: "acme", Slice: "backend"},
+		Title:    "tail paging",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	const total = 5
+	for i := 1; i <= total; i++ {
+		if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Event{Event: &corev1.AgentEvent{
+			ConversationId: conv.Id,
+			Role:           "agent",
+			Type:           "message",
+			Text:           fmt.Sprintf("msg-%d", i),
+			ItemId:         fmt.Sprintf("item_%d", i),
+		}}}); err != nil {
+			t.Fatalf("send event %d: %v", i, err)
+		}
+	}
+
+	// The daemon->server stream persists asynchronously, so poll until all events
+	// land before asserting on the tail window.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		all, err := agent.GetConversationEvents(ctx, &corev1.GetConversationEventsRequest{ConversationId: conv.Id})
+		if err != nil {
+			t.Fatalf("GetConversationEvents (all): %v", err)
+		}
+		if len(all.Events) == total {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("persisted %d events, want %d", len(all.Events), total)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	// A positive limit returns the newest two events, still ascending by seq.
+	tail, err := agent.GetConversationEvents(ctx, &corev1.GetConversationEventsRequest{ConversationId: conv.Id, Limit: 2})
+	if err != nil {
+		t.Fatalf("GetConversationEvents (tail): %v", err)
+	}
+	if got := eventTexts(tail.Events); !reflect.DeepEqual(got, []string{"msg-4", "msg-5"}) {
+		t.Fatalf("tail texts = %v, want [msg-4 msg-5]", got)
+	}
+	if tail.Events[0].Seq >= tail.Events[1].Seq {
+		t.Fatalf("tail not ascending by seq: %d, %d", tail.Events[0].Seq, tail.Events[1].Seq)
+	}
+
+	// Paging older: fetch the two events preceding the tail window by lowering
+	// before_seq below the oldest event we already hold.
+	older, err := agent.GetConversationEvents(ctx, &corev1.GetConversationEventsRequest{
+		ConversationId: conv.Id,
+		BeforeSeq:      tail.Events[0].Seq - 1,
+		Limit:          2,
+	})
+	if err != nil {
+		t.Fatalf("GetConversationEvents (older): %v", err)
+	}
+	if got := eventTexts(older.Events); !reflect.DeepEqual(got, []string{"msg-2", "msg-3"}) {
+		t.Fatalf("older page texts = %v, want [msg-2 msg-3]", got)
+	}
+}
+
+func eventTexts(events []*corev1.ConversationEvent) []string {
+	out := make([]string, 0, len(events))
+	for _, ev := range events {
+		out = append(out, ev.Text)
+	}
+	return out
 }
 
 // TestPatchsetConversationLink verifies that a patchset created with a
