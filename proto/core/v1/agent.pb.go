@@ -2277,8 +2277,13 @@ type GetConversationEventsRequest struct {
 	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	// Returns events with after_seq < seq <= before_seq. before_seq <= 0 means no
 	// upper bound.
-	AfterSeq      int64 `protobuf:"varint,2,opt,name=after_seq,json=afterSeq,proto3" json:"after_seq,omitempty"`
-	BeforeSeq     int64 `protobuf:"varint,3,opt,name=before_seq,json=beforeSeq,proto3" json:"before_seq,omitempty"`
+	AfterSeq  int64 `protobuf:"varint,2,opt,name=after_seq,json=afterSeq,proto3" json:"after_seq,omitempty"`
+	BeforeSeq int64 `protobuf:"varint,3,opt,name=before_seq,json=beforeSeq,proto3" json:"before_seq,omitempty"`
+	// When > 0, return only the newest `limit` events within the (after_seq,
+	// before_seq] window, still ordered ascending by seq. <= 0 means no limit
+	// (the whole window). Used to tail-load a long transcript: the client opens
+	// with the last N events and pages older ones in by lowering before_seq.
+	Limit         int64 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2330,6 +2335,13 @@ func (x *GetConversationEventsRequest) GetAfterSeq() int64 {
 func (x *GetConversationEventsRequest) GetBeforeSeq() int64 {
 	if x != nil {
 		return x.BeforeSeq
+	}
+	return 0
+}
+
+func (x *GetConversationEventsRequest) GetLimit() int64 {
+	if x != nil {
+		return x.Limit
 	}
 	return 0
 }
@@ -2609,12 +2621,13 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x05event\x18\x01 \x01(\v2#.gitslice.core.v1.ConversationEventR\x05event\"a\n" +
 	"\x19StreamConversationRequest\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x1b\n" +
-	"\tafter_seq\x18\x02 \x01(\x03R\bafterSeq\"\x83\x01\n" +
+	"\tafter_seq\x18\x02 \x01(\x03R\bafterSeq\"\x99\x01\n" +
 	"\x1cGetConversationEventsRequest\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x1b\n" +
 	"\tafter_seq\x18\x02 \x01(\x03R\bafterSeq\x12\x1d\n" +
 	"\n" +
-	"before_seq\x18\x03 \x01(\x03R\tbeforeSeq\"\xa0\x01\n" +
+	"before_seq\x18\x03 \x01(\x03R\tbeforeSeq\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x03R\x05limit\"\xa0\x01\n" +
 	"\x1dGetConversationEventsResponse\x12B\n" +
 	"\fconversation\x18\x01 \x01(\v2\x1e.gitslice.core.v1.ConversationR\fconversation\x12;\n" +
 	"\x06events\x18\x02 \x03(\v2#.gitslice.core.v1.ConversationEventR\x06events\"C\n" +

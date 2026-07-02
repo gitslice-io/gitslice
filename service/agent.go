@@ -391,7 +391,7 @@ func (s *AgentService) GetConversationEvents(ctx context.Context, req *corev1.Ge
 	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionRead); err != nil {
 		return nil, err
 	}
-	events, err := s.Agents.ListEventsRange(ctx, req.ConversationId, req.AfterSeq, req.BeforeSeq)
+	events, err := s.Agents.ListEventsRange(ctx, req.ConversationId, req.AfterSeq, req.BeforeSeq, req.Limit)
 	if err != nil {
 		return nil, grpcError(err)
 	}

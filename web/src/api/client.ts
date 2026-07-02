@@ -255,6 +255,7 @@ const int64FieldNames = new Set([
   "depth",
   "displayOrder",
   "length",
+  "limit",
   "number",
   "offset",
   "seq",
