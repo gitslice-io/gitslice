@@ -7385,3 +7385,18 @@ Verification:
 - `npm run build` (from `web/`)
 - `npm test` (from `web/`; 10 files, 169 tests passed)
 - `git diff --check`
+
+Production rollout:
+- Deployed Cloudflare Worker version
+  `bbcabe4a-a0ca-49ee-b54f-275bb4eeac2b`; the built SSR middleware contains
+  `authorizedParties = ["https://gitslice.io"]` and the live publishable key.
+- Persisted `_CLERK_ISSUER=https://clerk.gitslice.io` in the production Cloud
+  Build trigger, then ran PR branch build
+  `efd2fcdf-d9ff-459a-98d2-75feabeba1bb` (`SUCCESS`).
+- Cloud Run revision `gitslice-prod-00014-b9h` receives 100% traffic with
+  `AUTH_PROVIDER=clerk`, the live publishable key,
+  `CLERK_ISSUER=https://clerk.gitslice.io`, and
+  `CLERK_AUTHORIZED_PARTIES=https://gitslice.io`.
+- Production smoke checks: `StartCliLogin` HTTP 200, unauthenticated
+  `GetAuthStatus` HTTP 401, CORS preflight from `https://gitslice.io` HTTP 204,
+  `/login` HTTP 200, and the built CLI prints `https://gitslice.io/` by default.
