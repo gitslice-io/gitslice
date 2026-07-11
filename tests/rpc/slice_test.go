@@ -728,6 +728,9 @@ func startRPCServer(t *testing.T) *testRPCServer {
 	if databaseURL == "" {
 		t.Skip("set GITSLICE_TEST_DATABASE_URL to run real Postgres RPC e2e tests")
 	}
+	// Import e2e tests clone from local temp repos, which the production import
+	// allowlist rejects; opt in for the in-process test server only.
+	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
 	schema := uniqueSchema("gitslice_rpc_", t)
 	createSchema(t, databaseURL, schema)
 	servicePriv, servicePub, err := servicetoken.GenerateKeyPair()

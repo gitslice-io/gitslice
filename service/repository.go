@@ -880,9 +880,9 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	if targetRef == "" {
 		targetRef = storage.DefaultTargetRef
 	}
-	source := normalizeGitHubSource(req.Source)
-	if source == "" {
-		return nil, status.Error(codes.InvalidArgument, "git source is required")
+	source, localSource, err := validateImportSource(req.Source)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
 		Phase:   "cloning",
@@ -890,7 +890,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	}); err != nil {
 		return nil, err
 	}
-	repoDir, cleanup, err := cloneForImport(ctx, source, mode, int(req.MaxCommits))
+	repoDir, cleanup, err := cloneForImport(ctx, source, mode, int(req.MaxCommits), localSource)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "clone git repository: %v", err)
 	}
@@ -1473,24 +1473,7 @@ type importFile struct {
 
 type importSnapshot map[string]importFile
 
-func normalizeGitHubSource(source string) string {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return ""
-	}
-	if strings.Contains(source, "://") ||
-		strings.HasPrefix(source, "git@") ||
-		strings.HasPrefix(source, "/") ||
-		strings.HasPrefix(source, ".") {
-		return source
-	}
-	if strings.Count(source, "/") == 1 {
-		return "https://github.com/" + strings.TrimSuffix(source, ".git") + ".git"
-	}
-	return source
-}
-
-func cloneForImport(ctx context.Context, source, mode string, maxCommits int) (string, func(), error) {
+func cloneForImport(ctx context.Context, source, mode string, maxCommits int, local bool) (string, func(), error) {
 	parent, err := os.MkdirTemp("", "gitslice-import-*")
 	if err != nil {
 		return "", nil, err
@@ -1498,13 +1481,23 @@ func cloneForImport(ctx context.Context, source, mode string, maxCommits int) (s
 	cleanup := func() { _ = os.RemoveAll(parent) }
 	repoDir := path.Join(parent, "repo")
 	args := []string{"clone", "--quiet"}
+	// Remote clones are pinned to the git transport (no local optimization) and
+	// the https protocol so a source that slipped past validation still cannot
+	// reach file/ext/ssh. A local clone is an explicit operator opt-in, so it
+	// keeps git's local-path handling and allows only the file protocol.
+	allowProtocol := "https"
+	if local {
+		allowProtocol = "file"
+	} else {
+		args = append(args, "--no-local")
+	}
 	if mode == "shallow" {
 		args = append(args, "--depth", "1")
 	} else if maxCommits > 0 {
 		args = append(args, "--depth", strconv.Itoa(maxCommits))
 	}
 	args = append(args, source, repoDir)
-	if err := runGitImport(ctx, "", args...); err != nil {
+	if err := runGitImport(ctx, "", allowProtocol, args...); err != nil {
 		cleanup()
 		return "", nil, err
 	}
@@ -2121,7 +2114,20 @@ func gitOutputBytesImport(ctx context.Context, dir string, args ...string) ([]by
 	return out, nil
 }
 
-func runGitImport(ctx context.Context, dir string, args ...string) error {
-	_, err := gitOutputBytesImport(ctx, dir, args...)
-	return err
+func runGitImport(ctx context.Context, dir, allowProtocol string, args ...string) error {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "GIT_ALLOW_PROTOCOL="+allowProtocol)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
+	}
+	return nil
 }
