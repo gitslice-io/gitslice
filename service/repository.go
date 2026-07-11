@@ -880,9 +880,9 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	if targetRef == "" {
 		targetRef = storage.DefaultTargetRef
 	}
-	source := normalizeGitHubSource(req.Source)
-	if source == "" {
-		return nil, status.Error(codes.InvalidArgument, "git source is required")
+	source, err := validateImportSource(req.Source)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
 		Phase:   "cloning",
@@ -1473,23 +1473,6 @@ type importFile struct {
 
 type importSnapshot map[string]importFile
 
-func normalizeGitHubSource(source string) string {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return ""
-	}
-	if strings.Contains(source, "://") ||
-		strings.HasPrefix(source, "git@") ||
-		strings.HasPrefix(source, "/") ||
-		strings.HasPrefix(source, ".") {
-		return source
-	}
-	if strings.Count(source, "/") == 1 {
-		return "https://github.com/" + strings.TrimSuffix(source, ".git") + ".git"
-	}
-	return source
-}
-
 func cloneForImport(ctx context.Context, source, mode string, maxCommits int) (string, func(), error) {
 	parent, err := os.MkdirTemp("", "gitslice-import-*")
 	if err != nil {
@@ -1497,7 +1480,7 @@ func cloneForImport(ctx context.Context, source, mode string, maxCommits int) (s
 	}
 	cleanup := func() { _ = os.RemoveAll(parent) }
 	repoDir := path.Join(parent, "repo")
-	args := []string{"clone", "--quiet"}
+	args := []string{"clone", "--quiet", "--no-local"}
 	if mode == "shallow" {
 		args = append(args, "--depth", "1")
 	} else if maxCommits > 0 {
@@ -2115,6 +2098,19 @@ func gitOutputBytesImport(ctx context.Context, dir string, args ...string) ([]by
 }
 
 func runGitImport(ctx context.Context, dir string, args ...string) error {
-	_, err := gitOutputBytesImport(ctx, dir, args...)
-	return err
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "GIT_ALLOW_PROTOCOL=https")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
+	}
+	return nil
 }
