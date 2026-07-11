@@ -21,6 +21,7 @@ type Config struct {
 	DatabaseURL              string
 	ObjectStoreType          string
 	ObjectStoreRoot          string
+	RequireR2                bool
 	ObjectCacheBytes         int64
 	R2                       r2.Config
 	AuthProvider             string
@@ -51,6 +52,7 @@ func ConfigFromEnv() Config {
 		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),
 		ObjectStoreType:       os.Getenv("OBJECT_STORE_TYPE"),
 		ObjectStoreRoot:       os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),
+		RequireR2:             os.Getenv("GITSLICE_REQUIRE_R2") == "1",
 		ObjectCacheBytes:      int64ValueOrDefault(os.Getenv("GITSLICE_OBJECT_CACHE_BYTES"), 256<<20),
 		R2:                    r2.ConfigFromEnv(),
 		AuthProvider:          os.Getenv("AUTH_PROVIDER"),
@@ -87,6 +89,14 @@ func (c Config) Validate() error {
 	}
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("GITSLICE_DATABASE_URL is required")
+	}
+	// In production the object store must be durable R2. GITSLICE_REQUIRE_R2=1
+	// makes a non-R2 store a hard startup failure so a config slip can't silently
+	// route writes to the ephemeral filesystem store: those Puts "succeed" and
+	// then vanish on the next cold start, leaving Postgres refs pointing at tree
+	// objects that no longer exist (an "object not found" on read).
+	if c.RequireR2 && !c.usesR2() {
+		return fmt.Errorf("GITSLICE_REQUIRE_R2 is set but OBJECT_STORE_TYPE is %q, not \"r2\": refusing to start with a non-durable object store", c.ObjectStoreType)
 	}
 	// The filesystem object store needs a root; R2 supplies its own location.
 	if !c.usesR2() && c.ObjectStoreRoot == "" {
