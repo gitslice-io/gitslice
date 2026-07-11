@@ -30,8 +30,10 @@ type Config struct {
 	RunMigrations            bool
 	PublishBatchSize         int
 	PublishInterval          time.Duration
+	PublishBackoffMax        time.Duration
 	IndexBatchSize           int
 	IndexInterval            time.Duration
+	IndexBackoffMax          time.Duration
 	DisableAsyncPublisher    bool
 	DisableIndexWorker       bool
 	RateLimitDisabled        bool
@@ -61,8 +63,10 @@ func ConfigFromEnv() Config {
 		RunMigrations:         os.Getenv("GITSLICE_RUN_MIGRATIONS") != "0",
 		PublishBatchSize:      intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BATCH_SIZE"), 128),
 		PublishInterval:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_INTERVAL_MS"), 25)) * time.Millisecond,
+		PublishBackoffMax:     time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BACKOFF_MAX_MS"), 60000)) * time.Millisecond,
 		IndexBatchSize:        intValueOrDefault(os.Getenv("GITSLICE_INDEX_BATCH_SIZE"), 128),
 		IndexInterval:         time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_INTERVAL_MS"), 25)) * time.Millisecond,
+		IndexBackoffMax:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_BACKOFF_MAX_MS"), 60000)) * time.Millisecond,
 		DisableAsyncPublisher: os.Getenv("GITSLICE_DISABLE_ASYNC_PUBLISHER") == "1",
 		DisableIndexWorker:    os.Getenv("GITSLICE_DISABLE_INDEX_WORKER") == "1",
 		RateLimitDisabled:     os.Getenv("GITSLICE_RATELIMIT_DISABLED") == "1",

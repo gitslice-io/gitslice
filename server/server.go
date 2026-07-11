@@ -64,11 +64,17 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.PublishInterval <= 0 {
 		cfg.PublishInterval = defaultPublishInterval
 	}
+	if cfg.PublishBackoffMax <= 0 {
+		cfg.PublishBackoffMax = defaultPublishMaxInterval
+	}
 	if cfg.IndexBatchSize <= 0 {
 		cfg.IndexBatchSize = 128
 	}
 	if cfg.IndexInterval <= 0 {
 		cfg.IndexInterval = defaultPublishInterval
+	}
+	if cfg.IndexBackoffMax <= 0 {
+		cfg.IndexBackoffMax = 60 * time.Second
 	}
 	db, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -94,7 +100,7 @@ func Run(ctx context.Context, cfg Config) error {
 	db.Changesets().SetPendingPublishListener(pubNudge.Nudge)
 	var indexWorker *indexworker.Worker
 	if !cfg.DisableIndexWorker {
-		indexWorker = indexworker.New(db.Changesets(), cfg.IndexBatchSize, cfg.IndexInterval)
+		indexWorker = indexworker.New(db.Changesets(), cfg.IndexBatchSize, cfg.IndexInterval, cfg.IndexBackoffMax)
 		go indexWorker.Run(ctx)
 	}
 	if !cfg.DisableAsyncPublisher {
@@ -102,7 +108,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if indexWorker != nil {
 			nudge = indexWorker.Nudge
 		}
-		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval, nudge, pubNudge.ch)
+		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval, nudge, pubNudge.ch, cfg.PublishBackoffMax)
 	}
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
