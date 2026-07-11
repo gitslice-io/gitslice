@@ -177,6 +177,9 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	if err := requireEditBlobsAccessible(ctx, s.Blobs, slice, req.FileEdits); err != nil {
+		return nil, err
+	}
 	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {
 		baseCommitID = cs.BaseCommitId
@@ -231,6 +234,81 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		}
 	}
 	return patchset, nil
+}
+
+// requireEditBlobsAccessible rejects edits that reference content hashes the
+// authoring slice cannot already access, closing the claim-by-hash hole at
+// ingestion. BlobId references are resolved to their content hash first.
+func requireEditBlobsAccessible(ctx context.Context, blobs storage.BlobStore, slice *corev1.Slice, edits []*corev1.FileEdit) error {
+	type blobReference struct {
+		contentHash string
+		path        string
+	}
+
+	references := make([]blobReference, 0, len(edits))
+	hashes := make([]string, 0, len(edits))
+	seenHashes := make(map[string]struct{}, len(edits))
+	resolvedBlobIDs := make(map[string]string)
+	unavailable := func(path string) error {
+		return status.Errorf(codes.FailedPrecondition, "content for %s is not available to this slice; upload the blob first", path)
+	}
+
+	for _, edit := range edits {
+		if edit == nil {
+			continue
+		}
+		normalized, err := normalizeEdit(edit, false)
+		if err != nil {
+			// The normal validator reports malformed edits as InvalidArgument.
+			// They cannot be ingested, so leave their error precedence unchanged.
+			continue
+		}
+		edit = normalized
+		path := edit.Path
+		if path == "" {
+			path = edit.OldPath
+		}
+
+		contentHash := edit.ContentHash
+		if edit.BlobId != "" {
+			var ok bool
+			contentHash, ok = resolvedBlobIDs[edit.BlobId]
+			if !ok {
+				blob, err := blobs.GetByID(ctx, edit.BlobId)
+				if errors.Is(err, storage.ErrNotFound) {
+					return unavailable(path)
+				}
+				if err != nil {
+					return grpcError(err)
+				}
+				contentHash = blob.ContentHash
+				resolvedBlobIDs[edit.BlobId] = contentHash
+			}
+		}
+		if contentHash == "" {
+			continue
+		}
+		if _, ok := seenHashes[contentHash]; ok {
+			continue
+		}
+		seenHashes[contentHash] = struct{}{}
+		hashes = append(hashes, contentHash)
+		references = append(references, blobReference{contentHash: contentHash, path: path})
+	}
+	if len(hashes) == 0 {
+		return nil
+	}
+
+	accessible, err := accessibleBlobHashes(ctx, blobs, slice, hashes)
+	if err != nil {
+		return grpcError(err)
+	}
+	for _, reference := range references {
+		if !accessible[reference.contentHash] {
+			return unavailable(reference.path)
+		}
+	}
+	return nil
 }
 
 func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, changesetID, patchsetID string, bundled []*corev1.BundledCheckRun) {
