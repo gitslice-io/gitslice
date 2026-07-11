@@ -7419,3 +7419,35 @@ Verification:
 - `npm test` (from `web/`; 11 files, 172 tests passed)
 - `npm run build` (from `web/`)
 - `git diff --check`
+
+## 2026-07-11 — Production deploys moved to a daily gated schedule
+
+Request: stop building on every merge to `main`; build daily, and only when
+something changed.
+
+Decision:
+- added a `gate` step to `cloudbuild.yaml` (PR #302): compares the commit being
+  built (`_TAG`/`$SHORT_SHA`) with the deployed Cloud Run image tag and writes
+  `/workspace/skip` when equal; build/push/migrate/deploy exit early on that
+  marker, so an unchanged day costs a ~30s no-op build
+- dropped the top-level `images:` field (pushes after all steps and would fail
+  a skipped run; the explicit `push` step already pushes mid-build)
+- converted the Cloud Build trigger `b062cbb8` from a GitHub push trigger
+  (`^main$`) to a **manual** trigger (`sourceToBuild` → `refs/heads/main`);
+  merges no longer fire builds. Conversion dropped the GitHub-only
+  `includedFiles`/`includeBuildLogs` fields
+- enabled the Cloud Scheduler API and created job `gitslice-prod-daily-build`
+  (us-west1, `0 9 * * *` America/Los_Angeles) that POSTs
+  `{"branchName":"main"}` to the trigger's `:run` endpoint, authenticating as
+  the default compute SA (already `roles/editor`; no new IAM)
+- to ship merged code immediately:
+  `gcloud builds triggers run b062cbb8-55bc-4c52-a801-d41e598cce6c --branch=main`
+
+Verification:
+- merge of PR #302 fired the last push-triggered build
+  `35a9bcaf-13b3-4a4e-b63e-1a07829def5b` → SUCCESS with the gate present
+  (non-skip path); revision `gitslice-prod-00020-b84` serves image tag
+  `b3c678d` == HEAD of `main`
+- skip path + scheduler wiring not yet exercised (auto-mode blocked a manual
+  job run); first scheduled run 2026-07-12 09:00 PT should log
+  "Tag … already deployed … skipping build" in the `gate` step
