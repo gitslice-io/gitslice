@@ -96,14 +96,17 @@ func isHealthCheckMethod(method string) bool {
 	return strings.HasPrefix(method, "/grpc.health.v1.Health/")
 }
 
-// httpClientIP uses X-Forwarded-For's first hop as a best-effort client key
-// because staging is deployed behind a proxy. Treat this as trustworthy only
-// when the edge proxy controls or strips incoming X-Forwarded-For values.
+// httpClientIP uses X-Forwarded-For's rightmost non-empty hop as the client key.
+// That hop is appended by our own edge (Google's front end in production and
+// nginx on staging), so it is the only entry a client cannot forge. Anything to
+// its left is attacker-controlled.
 func httpClientIP(r *http.Request) string {
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		first, _, _ := strings.Cut(forwarded, ",")
-		if first = strings.TrimSpace(first); first != "" {
-			return first
+		hops := strings.Split(forwarded, ",")
+		for i := len(hops) - 1; i >= 0; i-- {
+			if hop := strings.TrimSpace(hops[i]); hop != "" {
+				return hop
+			}
 		}
 	}
 	if host := hostFromAddr(r.RemoteAddr); host != "" {
