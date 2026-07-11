@@ -255,7 +255,9 @@ func TestRPCCommitHistoryDeleteRecreateSamePathStartsNewEntity(t *testing.T) {
 
 func submitRPCFileWithTitle(t *testing.T, ctx context.Context, clients testCoreClients, sliceName, path, content, title string) string {
 	t.Helper()
-	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: testPaymentSliceRef()})
+	// Upload through the authoring slice: UpdateChangeset only accepts content
+	// hashes already accessible to the slice the changeset is authored with.
+	upload, err := clients.blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: &corev1.SliceRef{Account: "acme", Slice: sliceName}})
 	if err != nil {
 		t.Fatal(err)
 	}
