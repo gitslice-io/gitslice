@@ -3,6 +3,7 @@ import { useAuth, UserButton } from "@clerk/tanstack-react-start";
 
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
+import { BrandMark } from "./BrandMark";
 
 const navItems = [
   { label: "Home", to: "/", section: "slices" },
@@ -72,9 +73,10 @@ export function TopBar() {
       <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2 sm:min-h-16 sm:flex-nowrap sm:py-0">
         <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <Link
-            className="shrink-0 text-sm font-semibold tracking-normal text-zinc-950"
+            className="flex shrink-0 items-center gap-2 text-sm font-semibold tracking-normal text-zinc-950"
             to="/"
           >
+            <BrandMark className="size-6" />
             Gitslice
           </Link>
         </div>
