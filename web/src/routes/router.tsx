@@ -125,6 +125,25 @@ const cliLoginRoute = createRoute({
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app",
+  loader: async ({ context }) => {
+    if (import.meta.env.SSR) {
+      try {
+        const { auth } = await import("@clerk/tanstack-react-start/server");
+        const authState = await auth();
+        // Signed-out visitors are redirected to /login by RequireAuth; skip
+        // the RPC that would be guaranteed to fail without a session token.
+        if (!authState.isAuthenticated) return;
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        await context.queryClient.ensureQueryData({
+          queryKey: ["authStatus"],
+          queryFn: () => api.getAuthStatus({})
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
   component: () => (
     <RequireAuth>
       <SelectionProvider>
