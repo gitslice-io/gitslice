@@ -109,7 +109,10 @@ Server startup runs PostgreSQL migrations by default. `GITSLICE_RUN_MIGRATIONS=0
 
 For R2-backed staging, required object-store settings come from `OBJECT_STORE_TYPE=r2` and `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, with optional `R2_REGION`, `R2_PREFIX`, and `R2_USE_PATH_STYLE`.
 
-For Clerk-backed auth, `AUTH_PROVIDER=clerk`, `CLERK_SECRET_KEY`, and `CLERK_PUBLISHABLE_KEY` are expected. Service-token verification is optional and depends on `GITSLICE_SERVICE_JWT_*` settings.
+For Clerk-backed auth, `AUTH_PROVIDER=clerk`, `CLERK_SECRET_KEY`,
+`CLERK_PUBLISHABLE_KEY`, `CLERK_ISSUER`, and
+`CLERK_AUTHORIZED_PARTIES` are expected. Service-token verification is optional
+and depends on `GITSLICE_SERVICE_JWT_*` settings.
 
 ## Web (Staging & Production)
 
@@ -123,6 +126,7 @@ npm --prefix web run deploy:production   # gitslice.io
 The deploy script (`web/scripts/deploy.sh <env>`) requires, in the matching env file:
 
 - `VITE_CLERK_PUBLISHABLE_KEY`
+- `VITE_CLERK_AUTHORIZED_PARTIES`
 - `VITE_API_BASE_URL` or `PUBLIC_API_BASE_URL`
 - `VITE_GITSLICE_GIT_HTTP_BASE_URL` or `PUBLIC_GITSLICE_GIT_HTTP_BASE_URL`
 - `CLERK_SECRET_KEY` — **required for SSR, not optional.** `web/src/start.ts` runs Clerk's `clerkMiddleware` on every server render; without this Worker secret the SSR throws and the site returns 500 `{"message":"HTTPError"}`. The deploy script `wrangler secret put`s it when present in the env file. (Distinct from the Go backend, which uses only the publishable key — the *web Worker* additionally needs the secret key from the same Clerk instance.)
@@ -133,7 +137,7 @@ The deploy script (`web/scripts/deploy.sh <env>`) requires, in the matching env 
 
 Deploy production only when explicitly asked. The API backend is a container on Cloud Run (service `gitslice-prod`, region `us-west1`), not the PM2 process; the DB is Neon and object storage is R2.
 
-The pipeline is `cloudbuild.yaml` at the repo root: `config → build (Dockerfile) → push → migrate (one-shot Cloud Run Job, `-migrate-only`) → deploy`. It is normally **auto-triggered on merge to `main`** by a Cloud Build trigger (`filename: cloudbuild.yaml`; substitutions `_DEPLOY_REGION`, `_SERVICE_NAME`, `_AR_HOSTNAME`, `_AR_REPOSITORY`, `_R2_ENDPOINT`, `_R2_BUCKET`, `_CLERK_PUBLISHABLE_KEY`, `_ALLOWED_ORIGIN`, `_TAG=$SHORT_SHA`). To run it manually from the operator machine, use the local wrapper `deploy/cloudrun.sh` (gitignored) or `gcloud builds submit --config cloudbuild.yaml --substitutions=...`.
+The pipeline is `cloudbuild.yaml` at the repo root: `config → build (Dockerfile) → push → migrate (one-shot Cloud Run Job, `-migrate-only`) → deploy`. It is normally **auto-triggered on merge to `main`** by a Cloud Build trigger (`filename: cloudbuild.yaml`; substitutions `_DEPLOY_REGION`, `_SERVICE_NAME`, `_AR_HOSTNAME`, `_AR_REPOSITORY`, `_R2_ENDPOINT`, `_R2_BUCKET`, `_CLERK_PUBLISHABLE_KEY`, `_CLERK_ISSUER`, `_ALLOWED_ORIGIN`, `_TAG=$SHORT_SHA`). To run it manually from the operator machine, use the local wrapper `deploy/cloudrun.sh` (gitignored) or `gcloud builds submit --config cloudbuild.yaml --substitutions=...`.
 
 Key production facts:
 - Serving instances run with `GITSLICE_RUN_MIGRATIONS=0`; migrations run in the pipeline's migrate Job, so schema changes ship on the next deploy.

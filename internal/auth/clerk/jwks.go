@@ -132,12 +132,12 @@ type jwk struct {
 	E   string `json:"e"`
 }
 
-func newVerifierWithJWKS(jwksJSON []byte) (*Verifier, error) {
+func newVerifierWithJWKS(jwksJSON []byte, issuer string, authorizedParties []string) (*Verifier, error) {
 	keys, err := parseJWKSBytes(jwksJSON)
 	if err != nil {
 		return nil, err
 	}
-	return newVerifier(staticKeySource(keys)), nil
+	return newVerifier(staticKeySource(keys), issuer, authorizedParties), nil
 }
 
 func parseJWKS(reader io.Reader) (map[string]*rsa.PublicKey, error) {

@@ -38,6 +38,10 @@ if [[ -z "${VITE_CLERK_PUBLISHABLE_KEY:-}" ]]; then
   echo "VITE_CLERK_PUBLISHABLE_KEY is required in $ENV_FILE" >&2
   exit 1
 fi
+if [[ -z "${VITE_CLERK_AUTHORIZED_PARTIES:-}" ]]; then
+  echo "VITE_CLERK_AUTHORIZED_PARTIES is required in $ENV_FILE" >&2
+  exit 1
+fi
 if [[ -z "${VITE_API_BASE_URL:-}" ]]; then
   echo "VITE_API_BASE_URL or PUBLIC_API_BASE_URL is required in $ENV_FILE" >&2
   exit 1

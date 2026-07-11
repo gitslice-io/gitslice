@@ -7317,3 +7317,86 @@ Verification:
 Gates: full `go test ./...` (real test DB) and web suite (169 passing) were run
 green on this exact code during the PR; not re-run at deploy time. `make
 functional`/`make load` not run — no migration or contention-path change.
+
+## 2026-07-11 — Production Clerk live-key rollout
+
+Request: switch the production web and API deployments from the Clerk
+development instance to the configured Clerk production instance.
+
+Actions and findings:
+- Confirmed `.env.prod` contains `pk_live_` / `sk_live_` credentials without
+  printing their values. Confirmed all five Clerk CNAMEs resolve exactly,
+  `clerk.gitslice.io/.well-known/jwks.json` serves an RSA key, and the Clerk
+  Backend API reports a production instance for `gitslice.io`.
+- Ran `npm run deploy:production` from `web/`. The deploy rebuilt the client and
+  Worker, replaced the Worker `CLERK_SECRET_KEY`, and deployed Cloudflare Worker
+  version `72bb33d3-bdb2-4910-8ee5-b9d180089d89` to `gitslice.io`.
+- Updated Cloud Build trigger
+  `b062cbb8-55bc-4c52-a801-d41e598cce6c` so
+  `_CLERK_PUBLISHABLE_KEY` is the live key. The gcloud GitHub-trigger update
+  command rejected this legacy global trigger with `INVALID_ARGUMENT`; a
+  field-masked `projects.triggers.patch` request containing the complete mutable
+  trigger body succeeded while preserving all other substitutions.
+- Ran the updated trigger for `main`. Build
+  `8353ec84-2b93-4a0b-afd1-4b420bd09c9e` completed `SUCCESS`, including the
+  migration job and Cloud Run deployment. Revision `gitslice-prod-00013-2xn`
+  now receives 100% of traffic.
+
+Verification:
+- `npm run deploy:production`
+- `gcloud builds triggers describe b062cbb8-55bc-4c52-a801-d41e598cce6c --region=global --format=json`
+- `gcloud builds describe 8353ec84-2b93-4a0b-afd1-4b420bd09c9e --format='value(status)'`
+- `gcloud run services describe gitslice-prod --region us-west1 --format=json`
+- Public bundle scan: `https://gitslice.io/login` contains only a `pk_live_`
+  Clerk publishable key and returns HTTP 200.
+- Runtime inspection: Cloud Run has `AUTH_PROVIDER=clerk`, a `pk_live_`
+  publishable key, latest revision at 100% traffic, and the production Clerk
+  JWKS endpoint returns HTTP 200.
+
+## 2026-07-11 — Clerk claim hardening and production CLI defaults
+
+Request: enforce Clerk issuer/authorized-party validation in production and
+change the CLI's hosted defaults from staging to production, with the work
+published as a pull request.
+
+Decisions and changes:
+- Clerk-backed server startup now fails closed without an authorized-party
+  allowlist. The expected issuer is explicit via `CLERK_ISSUER`, with a safe
+  fallback derived from the publishable key for compatible local setups.
+- Session verification requires the exact `iss` claim and rejects a present
+  `azp` unless it is one of `CLERK_AUTHORIZED_PARTIES`. A missing `azp` remains
+  accepted because Clerk documents that the claim may be omitted when the
+  originating request has no Origin header.
+- The TanStack Clerk middleware receives its own environment-driven
+  `authorizedParties` allowlist. Web deploys now require
+  `VITE_CLERK_AUTHORIZED_PARTIES` so production cannot silently omit the check.
+- Production uses issuer `https://clerk.gitslice.io` and authorized party
+  `https://gitslice.io`. The API hostname and CLI localhost callback are not
+  authorized parties because the browser at `gitslice.io` mints the Clerk
+  session token.
+- `gs` now defaults to `api.gitslice.io:443` and `https://gitslice.io` while
+  retaining all `GS_*` / `GITSLICE_*` overrides for staging and local use.
+- Cloud Build carries `CLERK_ISSUER`, derives the backend authorized party from
+  the production CORS origin, and defaults that origin to `https://gitslice.io`.
+
+Verification:
+- `go test ./...`
+- `go build ./cmd/...`
+- `npm run build` (from `web/`)
+- `npm test` (from `web/`; 10 files, 169 tests passed)
+- `git diff --check`
+
+Production rollout:
+- Deployed Cloudflare Worker version
+  `bbcabe4a-a0ca-49ee-b54f-275bb4eeac2b`; the built SSR middleware contains
+  `authorizedParties = ["https://gitslice.io"]` and the live publishable key.
+- Persisted `_CLERK_ISSUER=https://clerk.gitslice.io` in the production Cloud
+  Build trigger, then ran PR branch build
+  `efd2fcdf-d9ff-459a-98d2-75feabeba1bb` (`SUCCESS`).
+- Cloud Run revision `gitslice-prod-00014-b9h` receives 100% traffic with
+  `AUTH_PROVIDER=clerk`, the live publishable key,
+  `CLERK_ISSUER=https://clerk.gitslice.io`, and
+  `CLERK_AUTHORIZED_PARTIES=https://gitslice.io`.
+- Production smoke checks: `StartCliLogin` HTTP 200, unauthenticated
+  `GetAuthStatus` HTTP 401, CORS preflight from `https://gitslice.io` HTTP 204,
+  `/login` HTTP 200, and the built CLI prints `https://gitslice.io/` by default.

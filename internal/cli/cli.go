@@ -511,7 +511,7 @@ var cliHelpTopics = []helpTopic{
 
 GS_SERVER_ADDR
   Default gRPC server address for commands that accept --server.
-  When unset, gs defaults to the staging endpoint api.agenttools.dev:443
+  When unset, gs defaults to the production endpoint api.gitslice.io:443
   (TLS). Use 127.0.0.1:50051 for a local server.
 
 GITSLICE_GRPC_ADDR, GITSLICE_SERVER_ADDR
@@ -11800,7 +11800,7 @@ func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 // resolveDialTarget strips any scheme from a server address and decides whether
 // to use TLS. TLS is used when the address has an https/grpcs scheme, targets
 // port 443, or GS_TLS is set. This lets the CLI reach TLS endpoints such as
-// api.agenttools.dev:443 while defaulting to plaintext for local servers.
+// api.gitslice.io:443 while defaulting to plaintext for local servers.
 func resolveDialTarget(addr string) (string, bool) {
 	addr = strings.TrimSpace(addr)
 	useTLS := false
@@ -11836,11 +11836,10 @@ func defaultServerAddr() string {
 	if value := os.Getenv("GITSLICE_SERVER_ADDR"); value != "" {
 		return value
 	}
-	// Default to the staging endpoint. It is served over TLS via the
-	// agenttools.dev nginx host (which routes gitslice.core.v1.* to the staging
-	// gRPC server); resolveDialTarget enables TLS automatically for :443. Point
-	// at a local server with --server 127.0.0.1:50051 or GS_SERVER_ADDR.
-	return "api.agenttools.dev:443"
+	// Default to the production endpoint. resolveDialTarget enables TLS
+	// automatically for :443. Point at staging or a local server with --server
+	// or GS_SERVER_ADDR.
+	return "api.gitslice.io:443"
 }
 
 func defaultWebURL() string {
@@ -11853,7 +11852,7 @@ func defaultWebURL() string {
 	// Hosted web app, used by the --clerk browser login flow (its /cli-login
 	// page returns the token to the CLI). Override with GS_WEB_URL for a local
 	// web dev server, e.g. http://127.0.0.1:5173.
-	return "https://agenttools.dev"
+	return "https://gitslice.io"
 }
 
 func defaultGatewayURL() string {

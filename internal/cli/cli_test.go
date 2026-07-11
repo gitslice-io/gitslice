@@ -1469,6 +1469,25 @@ func TestEnvironmentAliases(t *testing.T) {
 	}
 }
 
+func TestHostedDefaults(t *testing.T) {
+	for _, name := range []string{
+		"GS_SERVER_ADDR",
+		"GITSLICE_GRPC_ADDR",
+		"GITSLICE_SERVER_ADDR",
+		"GS_WEB_URL",
+		"GITSLICE_WEB_URL",
+	} {
+		t.Setenv(name, "")
+	}
+
+	if got := defaultServerAddr(); got != "api.gitslice.io:443" {
+		t.Fatalf("defaultServerAddr = %q, want production API", got)
+	}
+	if got := defaultWebURL(); got != "https://gitslice.io" {
+		t.Fatalf("defaultWebURL = %q, want production web", got)
+	}
+}
+
 func TestBrowsePrintsWebURL(t *testing.T) {
 	for _, tc := range []struct {
 		name string

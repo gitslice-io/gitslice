@@ -13,6 +13,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	testClerkIssuer          = "https://amusing-ram-19.clerk.accounts.dev"
+	testClerkAuthorizedParty = "https://app.example.com"
+)
+
 func TestVerifyAcceptsValidTokenFromInjectedJWKS(t *testing.T) {
 	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
 	privateKey := generateRSAKey(t)
@@ -24,7 +29,8 @@ func TestVerifyAcceptsValidTokenFromInjectedJWKS(t *testing.T) {
 	token := signToken(t, privateKey, kid, jwt.MapClaims{
 		"sub":   "user_123",
 		"email": "ada@example.com",
-		"iss":   "https://amusing-ram-19.clerk.accounts.dev",
+		"iss":   testClerkIssuer,
+		"azp":   testClerkAuthorizedParty,
 		"exp":   now.Add(time.Hour).Unix(),
 		"nbf":   now.Add(-time.Minute).Unix(),
 	})
@@ -39,7 +45,7 @@ func TestVerifyAcceptsValidTokenFromInjectedJWKS(t *testing.T) {
 	if claims.Email != "ada@example.com" {
 		t.Fatalf("Email = %q, want ada@example.com", claims.Email)
 	}
-	if claims.Issuer != "https://amusing-ram-19.clerk.accounts.dev" {
+	if claims.Issuer != testClerkIssuer {
 		t.Fatalf("Issuer = %q", claims.Issuer)
 	}
 	if !claims.Expiry.Equal(now.Add(time.Hour)) {
@@ -48,6 +54,69 @@ func TestVerifyAcceptsValidTokenFromInjectedJWKS(t *testing.T) {
 	if claims.Raw["sub"] != "user_123" {
 		t.Fatalf("Raw sub = %v, want user_123", claims.Raw["sub"])
 	}
+}
+
+func TestVerifyRejectsWrongOrMissingIssuer(t *testing.T) {
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	privateKey := generateRSAKey(t)
+	kid := "test-key"
+	verifier := verifierWithKey(t, kid, &privateKey.PublicKey)
+	verifier.now = func() time.Time { return now }
+
+	for _, tc := range []struct {
+		name   string
+		issuer any
+	}{
+		{name: "wrong", issuer: "https://attacker.example.com"},
+		{name: "missing", issuer: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			claims := jwt.MapClaims{
+				"sub": "user_123",
+				"azp": testClerkAuthorizedParty,
+				"exp": now.Add(time.Hour).Unix(),
+				"nbf": now.Add(-time.Minute).Unix(),
+			}
+			if tc.issuer != nil {
+				claims["iss"] = tc.issuer
+			}
+			token := signToken(t, privateKey, kid, claims)
+			if _, err := verifier.Verify(context.Background(), token); err == nil {
+				t.Fatal("Verify() error = nil, want issuer validation error")
+			}
+		})
+	}
+}
+
+func TestVerifyValidatesAuthorizedPartyWhenPresent(t *testing.T) {
+	now := time.Date(2026, 6, 13, 12, 0, 0, 0, time.UTC)
+	privateKey := generateRSAKey(t)
+	kid := "test-key"
+	verifier := verifierWithKey(t, kid, &privateKey.PublicKey)
+	verifier.now = func() time.Time { return now }
+
+	baseClaims := jwt.MapClaims{
+		"sub": "user_123",
+		"iss": testClerkIssuer,
+		"exp": now.Add(time.Hour).Unix(),
+		"nbf": now.Add(-time.Minute).Unix(),
+	}
+
+	t.Run("unexpected", func(t *testing.T) {
+		claims := cloneMapClaims(baseClaims)
+		claims["azp"] = "https://attacker.example.com"
+		token := signToken(t, privateKey, kid, claims)
+		if _, err := verifier.Verify(context.Background(), token); err == nil {
+			t.Fatal("Verify() error = nil, want authorized-party validation error")
+		}
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		token := signToken(t, privateKey, kid, cloneMapClaims(baseClaims))
+		if _, err := verifier.Verify(context.Background(), token); err != nil {
+			t.Fatalf("Verify() error = %v, want missing azp to be accepted", err)
+		}
+	})
 }
 
 func TestVerifyRejectsExpiredToken(t *testing.T) {
@@ -101,14 +170,55 @@ func TestJWKSURLFromPublishableKey(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvReadsSessionValidationSettings(t *testing.T) {
+	t.Setenv("CLERK_ISSUER", testClerkIssuer)
+	t.Setenv("CLERK_AUTHORIZED_PARTIES", " https://app.example.com, http://127.0.0.1:5173 ,, ")
+
+	cfg := ConfigFromEnv()
+	if cfg.Issuer != testClerkIssuer {
+		t.Fatalf("Issuer = %q, want %q", cfg.Issuer, testClerkIssuer)
+	}
+	want := []string{"https://app.example.com", "http://127.0.0.1:5173"}
+	if len(cfg.AuthorizedParties) != len(want) {
+		t.Fatalf("AuthorizedParties = %#v, want %#v", cfg.AuthorizedParties, want)
+	}
+	for i := range want {
+		if cfg.AuthorizedParties[i] != want[i] {
+			t.Fatalf("AuthorizedParties = %#v, want %#v", cfg.AuthorizedParties, want)
+		}
+	}
+}
+
+func TestNewVerifierRequiresAuthorizedParties(t *testing.T) {
+	_, err := NewVerifier(Config{
+		JWKSURL: "https://clerk.example.com/.well-known/jwks.json",
+		Issuer:  "https://clerk.example.com",
+	})
+	if err == nil {
+		t.Fatal("NewVerifier() error = nil, want missing authorized parties error")
+	}
+}
+
 func verifierWithKey(t *testing.T, kid string, publicKey *rsa.PublicKey) *Verifier {
 	t.Helper()
 
-	verifier, err := newVerifierWithJWKS(jwksForKey(t, kid, publicKey))
+	verifier, err := newVerifierWithJWKS(
+		jwksForKey(t, kid, publicKey),
+		testClerkIssuer,
+		[]string{testClerkAuthorizedParty},
+	)
 	if err != nil {
 		t.Fatalf("newVerifierWithJWKS() error = %v", err)
 	}
 	return verifier
+}
+
+func cloneMapClaims(claims jwt.MapClaims) jwt.MapClaims {
+	out := make(jwt.MapClaims, len(claims))
+	for key, value := range claims {
+		out[key] = value
+	}
+	return out
 }
 
 func generateRSAKey(t *testing.T) *rsa.PrivateKey {
