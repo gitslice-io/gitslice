@@ -7400,3 +7400,22 @@ Production rollout:
 - Production smoke checks: `StartCliLogin` HTTP 200, unauthenticated
   `GetAuthStatus` HTTP 401, CORS preflight from `https://gitslice.io` HTTP 204,
   `/login` HTTP 200, and the built CLI prints `https://gitslice.io/` by default.
+
+## 2026-07-11 — Clerk OAuth callback routing
+
+Request: fix the production GitHub sign-in flow returning a 404 after Clerk
+redirected the browser to `/login/sso-callback`.
+
+Decision:
+- added the `/login/$` splat route recommended for Clerk path-based sign-in
+  pages alongside the existing exact `/login` route; both mount `LoginPage`, so
+  OAuth callbacks and Clerk's other nested verification steps no longer 404
+  while internal links keep their precise `/login` target
+- added focused route matching coverage for `/login`, `/login/sso-callback`,
+  and `/login/verify-email-address`
+
+Verification:
+- `npm test -- --run src/routes/router.test.ts` (from `web/`)
+- `npm test` (from `web/`; 11 files, 172 tests passed)
+- `npm run build` (from `web/`)
+- `git diff --check`
