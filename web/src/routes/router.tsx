@@ -96,6 +96,16 @@ const loginRoute = createRoute({
   component: LoginPage
 });
 
+const loginFlowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  // Clerk's path-based sign-in flow uses nested paths for OAuth callbacks and
+  // other verification steps (for example, /login/sso-callback). Keep the
+  // whole flow mounted on the same component instead of treating those paths
+  // as application 404s.
+  path: "/login/$",
+  component: LoginPage
+});
+
 const cliLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/cli-login",
@@ -389,6 +399,7 @@ const changesetShortRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  loginFlowRoute,
   cliLoginRoute,
   appRoute.addChildren([
     homeRoute,
