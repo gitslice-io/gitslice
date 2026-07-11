@@ -4,6 +4,7 @@ import "testing"
 
 func TestValidateImportSource(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOWED_HOSTS", "")
+	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
 
 	tests := []struct {
 		name    string
@@ -40,7 +41,7 @@ func TestValidateImportSource(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := validateImportSource(tt.source)
+			got, local, err := validateImportSource(tt.source)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("validateImportSource(%q) returned %q, want error", tt.source, got)
@@ -53,19 +54,66 @@ func TestValidateImportSource(t *testing.T) {
 			if got != tt.want {
 				t.Fatalf("validateImportSource(%q) = %q, want %q", tt.source, got, tt.want)
 			}
+			if local {
+				t.Fatalf("validateImportSource(%q) reported local for a remote source", tt.source)
+			}
 		})
 	}
 }
 
 func TestValidateImportSourceAllowsConfiguredHost(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOWED_HOSTS", " Git.Example.COM ")
+	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
 
 	const source = "https://git.example.com/owner/repo.git"
-	got, err := validateImportSource(source)
+	got, local, err := validateImportSource(source)
 	if err != nil {
 		t.Fatalf("validateImportSource(%q) returned error: %v", source, err)
 	}
 	if got != source {
 		t.Fatalf("validateImportSource(%q) = %q, want %q", source, got, source)
+	}
+	if local {
+		t.Fatalf("validateImportSource(%q) reported local for a remote source", source)
+	}
+}
+
+func TestValidateImportSourceLocalPathsGatedByFlag(t *testing.T) {
+	// Disabled by default: local paths are rejected.
+	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
+	for _, source := range []string{"/srv/repo", "file:///srv/repo"} {
+		if _, _, err := validateImportSource(source); err == nil {
+			t.Fatalf("validateImportSource(%q) succeeded, want error while local import disabled", source)
+		}
+	}
+
+	// Enabled: local paths are accepted, normalized, and flagged local.
+	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
+	cases := []struct {
+		source string
+		want   string
+	}{
+		{source: "/srv/repo", want: "/srv/repo"},
+		{source: "/srv/../srv/repo", want: "/srv/repo"},
+		{source: "file:///srv/repo", want: "/srv/repo"},
+	}
+	for _, tc := range cases {
+		got, local, err := validateImportSource(tc.source)
+		if err != nil {
+			t.Fatalf("validateImportSource(%q) returned error: %v", tc.source, err)
+		}
+		if got != tc.want {
+			t.Fatalf("validateImportSource(%q) = %q, want %q", tc.source, got, tc.want)
+		}
+		if !local {
+			t.Fatalf("validateImportSource(%q) did not report local", tc.source)
+		}
+	}
+
+	// Even with local enabled, ssh/ext sources stay rejected.
+	for _, source := range []string{"git@github.com:o/r.git", "ext::sh -c id"} {
+		if _, _, err := validateImportSource(source); err == nil {
+			t.Fatalf("validateImportSource(%q) succeeded, want error", source)
+		}
 	}
 }
