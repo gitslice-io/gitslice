@@ -6,6 +6,7 @@ import {
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useApi } from "../api/useApi";
+import { BrandMark } from "../components/BrandMark";
 
 export function ChooseUsernamePage() {
   const api = useApi();
@@ -76,7 +77,8 @@ export function ChooseUsernamePage() {
   return (
     <main className="grid min-h-[100dvh] place-items-center bg-slate-50 p-4 text-zinc-900 sm:p-6">
       <section className="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50 sm:p-6">
-        <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
+          <BrandMark className="size-5" />
           Gitslice
         </p>
         <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">

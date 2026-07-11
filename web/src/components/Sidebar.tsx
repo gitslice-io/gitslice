@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import { cn } from "../lib/cn";
+import { BrandMark } from "./BrandMark";
 
 const navItems = [
   { label: "Home", to: "/" },
@@ -10,7 +11,8 @@ const navItems = [
 export function Sidebar() {
   return (
     <aside className="flex border-b border-slate-200 bg-zinc-950 text-white md:min-h-[100dvh] md:w-60 md:flex-col md:border-b-0 md:border-r md:border-zinc-800">
-      <div className="flex h-16 items-center px-4 text-sm font-semibold md:px-6">
+      <div className="flex h-16 items-center gap-2 px-4 text-sm font-semibold md:px-6">
+        <BrandMark className="size-6 invert" />
         Gitslice
       </div>
       <nav

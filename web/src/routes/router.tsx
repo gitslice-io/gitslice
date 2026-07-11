@@ -58,9 +58,19 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1.0" },
+      { name: "theme-color", content: "#18181b" },
       { title: "Gitslice" }
     ],
-    links: [{ rel: "stylesheet", href: appCss }]
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", type: "image/png", sizes: "64x64", href: "/favicon.png" },
+      {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: "/apple-touch-icon.png"
+      },
+      { rel: "manifest", href: "/site.webmanifest" }
+    ]
   }),
   shellComponent: RootDocument,
   component: () => <Outlet />

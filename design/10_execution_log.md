@@ -7451,3 +7451,31 @@ Verification:
 - skip path + scheduler wiring not yet exercised (auto-mode blocked a manual
   job run); first scheduled run 2026-07-12 09:00 PT should log
   "Tag … already deployed … skipping build" in the `gate` step
+
+## 2026-07-11 — Website logo and icon asset integration
+
+Request: download the supplied Gitslice brand sheet and prepare the website
+logo, favicon, and app-icon assets from it.
+
+Decisions and changes:
+- preserved the downloaded 1536x1024 source sheet under
+  `web/public/brand/gitslice-brand-sheet.png` and derived a transparent
+  standalone mark plus 64, 180, 192, and 512 pixel icon variants
+- kept the supplied monochrome treatment: the site mark is black on transparent
+  and the favicon/app icons use the white mark on a black rounded square with
+  transparent outer corners
+- added a reusable `BrandMark` component and used it in the active top bar and
+  auth/username surfaces; the unused sidebar also uses the same component so a
+  future layout switch does not reintroduce a text-only brand
+- registered favicon, Apple touch icon, theme color, and web manifest metadata
+  in the TanStack root route
+
+Verification:
+- `npm test` (from `web/`; 11 files, 172 tests passed)
+- `npm run build` (from `web/`)
+- focused rerun after a resource-contention timeout during the first parallel
+  gate: `npm test -- --run src/components/slices/AgentConversation.test.tsx`
+  (24 tests passed)
+- local preview asset checks: `HEAD /favicon.png` and
+  `GET /site.webmanifest` returned HTTP 200; page rendering could not be checked
+  locally because the checkout has no Clerk secret key
