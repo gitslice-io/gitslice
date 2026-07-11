@@ -359,7 +359,9 @@ web route is already implemented; it is only a stable way for the CLI to hand
 the user to the web surface.
 
 The default base URL comes from `GS_WEB_URL`, then `GITSLICE_WEB_URL`, then the
-local development default.
+hosted production web app at `https://gitslice.io`. The default server follows
+the same policy and falls back to `api.gitslice.io:443`; staging and local
+development use explicit environment overrides.
 
 ## 3.7 Version Command
 

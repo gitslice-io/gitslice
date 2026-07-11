@@ -17,9 +17,9 @@ func TestResolveDialTarget(t *testing.T) {
 	}{
 		{"127.0.0.1:50051", "127.0.0.1:50051", false},
 		{"localhost:50052", "localhost:50052", false},
-		{"api.agenttools.dev:443", "api.agenttools.dev:443", true},
-		{"https://api.agenttools.dev:443", "api.agenttools.dev:443", true},
-		{"grpcs://api.agenttools.dev:50051", "api.agenttools.dev:50051", true},
+		{"api.gitslice.io:443", "api.gitslice.io:443", true},
+		{"https://api.gitslice.io:443", "api.gitslice.io:443", true},
+		{"grpcs://api.gitslice.io:50051", "api.gitslice.io:50051", true},
 		{"grpc://127.0.0.1:50051", "127.0.0.1:50051", false},
 		{"http://127.0.0.1:50051/", "127.0.0.1:50051", false},
 	}
@@ -39,7 +39,7 @@ func TestResolveDialTargetGSTLSOverride(t *testing.T) {
 }
 
 func TestClerkLoginURL(t *testing.T) {
-	got, err := clerkLoginURL("https://agenttools.dev", "http://127.0.0.1:5051/callback", "state123")
+	got, err := clerkLoginURL("https://gitslice.io", "http://127.0.0.1:5051/callback", "state123")
 	if err != nil {
 		t.Fatalf("clerkLoginURL error: %v", err)
 	}

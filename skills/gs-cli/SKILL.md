@@ -55,7 +55,9 @@ gs context --json
 
 Useful environment defaults:
 
-- `GS_SERVER_ADDR`: gRPC endpoint. Local development commonly uses `127.0.0.1:50051`; the built-in default may target staging.
+- `GS_SERVER_ADDR`: gRPC endpoint. The built-in default is the production API
+  at `api.gitslice.io:443`; staging and local development should override it
+  explicitly (local commonly uses `127.0.0.1:50051`).
 - `GS_WEB_URL`: web UI base for `gs browse`.
 - `GS_GATEWAY_URL`: HTTP JSON gateway base.
 - `GS_CLIENT_CACHE_DIR`: shared content-addressed object cache root.
