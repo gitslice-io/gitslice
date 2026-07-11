@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/paths"
+	"github.com/gitslice-io/gitslice/internal/secretbox"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 )
 
 type SliceStore struct {
-	db *sql.DB
+	db      *sql.DB
+	Secrets *secretbox.Box
 }
 
 func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
@@ -288,8 +290,15 @@ func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value st
 	if err := s.requireSliceExists(ctx, sliceID); err != nil {
 		return err
 	}
-	// Secret values are stored as plaintext in Postgres for this prototype.
-	// Encryption-at-rest is a deployment follow-up and intentionally out of scope here.
+	// Configured servers write enc:v1 envelope-encrypted values. Reads retain a
+	// legacy-plaintext path so existing rows can be migrated on their next write.
+	if s.Secrets != nil {
+		sealed, err := s.Secrets.Seal(value)
+		if err != nil {
+			return fmt.Errorf("seal slice secret: %w", err)
+		}
+		value = sealed
+	}
 	_, err := s.db.ExecContext(ctx, `
 		insert into slice_secrets(slice_id, name, value, created_at, updated_at)
 		values ($1, $2, $3, now(), now())
@@ -366,6 +375,16 @@ func (s *SliceStore) GetSliceSecrets(ctx context.Context, sliceID string) (map[s
 		var name, value string
 		if err := rows.Scan(&name, &value); err != nil {
 			return nil, err
+		}
+		if s.Secrets == nil {
+			if secretbox.IsSealed(value) {
+				return nil, fmt.Errorf("slice secret %q is encrypted but no secrets key is configured", name)
+			}
+		} else {
+			value, err = s.Secrets.Open(value)
+			if err != nil {
+				return nil, fmt.Errorf("open slice secret %q: %w", name, err)
+			}
 		}
 		out[name] = value
 	}
