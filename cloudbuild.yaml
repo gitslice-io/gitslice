@@ -1,7 +1,12 @@
 # Cloud Build pipeline for the gitslice core server.
 #
-# Steps: build the image (via Dockerfile) -> push -> run DB migrations as a
-# one-shot Cloud Run Job (-migrate-only) -> deploy/update the Cloud Run service.
+# Steps: gate (skip if HEAD is already deployed) -> build the image (via
+# Dockerfile) -> push -> run DB migrations as a one-shot Cloud Run Job
+# (-migrate-only) -> deploy/update the Cloud Run service.
+#
+# The trigger is run daily by Cloud Scheduler (job gitslice-prod-daily-build,
+# us-west1) rather than on every merge; the gate step makes the run a no-op
+# when main hasn't moved since the last deploy.
 #
 # This is the declarative replacement for deploy/cloudrun.sh's gcloud glue; the
 # Dockerfile is still used to build the image (swap the `build` step for a
@@ -43,6 +48,25 @@ substitutions:
   _INDEX_INTERVAL_MS: "30000"
 
 steps:
+  # Skip the whole pipeline when the commit being built is already the deployed
+  # image tag: the scheduler fires daily whether or not main moved. Later steps
+  # exit early when /workspace/skip exists.
+  - id: gate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        deployed="$$(gcloud run services describe ${_SERVICE_NAME} --region ${_DEPLOY_REGION} \
+          --format='value(spec.template.spec.containers[0].image)' 2>/dev/null || true)"
+        if [ -n "$$deployed" ] && [ "$${deployed##*:}" = "${_TAG}" ]; then
+          echo "Tag ${_TAG} is already deployed ($$deployed); skipping build."
+          touch /workspace/skip
+        else
+          echo "Deployed image: $${deployed:-<none>}; building ${_TAG}."
+        fi
+
   # Shared env/secret strings written to the /workspace volume so the migrate and
   # deploy steps don't duplicate them. Substitutions are expanded by Cloud Build
   # before the shell runs.
@@ -59,22 +83,29 @@ steps:
 
   - id: build
     name: gcr.io/cloud-builders/docker
+    entrypoint: bash
     args:
-      - build
-      - -t
-      - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:${_TAG}
-      - -t
-      - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:latest
-      - .
+      - -c
+      - |
+        set -euo pipefail
+        if [ -f /workspace/skip ]; then exit 0; fi
+        docker build \
+          -t ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:${_TAG} \
+          -t ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:latest \
+          .
 
-  # Push explicitly here: the top-level `images:` field only pushes AFTER all
-  # steps, but the migrate/deploy steps below need to pull the image mid-build.
+  # Push explicitly here (no top-level `images:` field): images listed there are
+  # pushed AFTER all steps and would fail a gated/skipped run, and the
+  # migrate/deploy steps below need to pull the image mid-build anyway.
   - id: push
     name: gcr.io/cloud-builders/docker
+    entrypoint: bash
     args:
-      - push
-      - --all-tags
-      - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}
+      - -c
+      - |
+        set -euo pipefail
+        if [ -f /workspace/skip ]; then exit 0; fi
+        docker push --all-tags ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}
 
   # Run migrations once and wait. Uses -migrate-only (DDL + EnsureEmptyRoot +
   # bootstrap seed, then exit 0). The serving step sets GITSLICE_RUN_MIGRATIONS=0.
@@ -85,6 +116,7 @@ steps:
       - -c
       - |
         set -euo pipefail
+        if [ -f /workspace/skip ]; then exit 0; fi
         source /workspace/deployenv.sh
         # $$ escapes shell vars so Cloud Build does not treat them as build
         # substitutions; ${_FOO} are Cloud Build substitutions (single $).
@@ -101,6 +133,7 @@ steps:
       - -c
       - |
         set -euo pipefail
+        if [ -f /workspace/skip ]; then exit 0; fi
         source /workspace/deployenv.sh
         gcloud run deploy ${_SERVICE_NAME} --region ${_DEPLOY_REGION} --image "$$IMG" \
           --port=8080 \
@@ -111,10 +144,6 @@ steps:
           --allow-unauthenticated \
           --set-env-vars "$$ENVS,GITSLICE_RUN_MIGRATIONS=0" \
           --set-secrets "$$SECRETS"
-
-images:
-  - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:${_TAG}
-  - ${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:latest
 
 timeout: 1800s
 options:
