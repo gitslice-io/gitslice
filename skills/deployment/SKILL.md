@@ -18,9 +18,9 @@ If the target is ambiguous, ask for the target. Two environments exist:
 **Production** (only when the user explicitly names production):
 - web: `https://gitslice.io` — Cloudflare Worker env `production` (`gitslice-web-production`)
 - API: `https://api.gitslice.io` — Cloud Run service `gitslice-prod` (region `us-west1`), Neon Postgres, R2 object store
-- deploy path: Cloud Build pipeline `cloudbuild.yaml`, normally auto-triggered on merge to `main`
+- deploy path: Cloud Build pipeline `cloudbuild.yaml`, run **daily** by Cloud Scheduler (not on merge)
 
-Do not deploy production unless the user explicitly names production. Note the production **API** ships automatically: merging to `main` triggers the Cloud Build pipeline, so "deploying" merged backend code means monitoring that build, not running a deploy — see "Production (Cloud Run + gitslice.io)" and "Production Deploy Monitoring & Rollback" below. Only the web Worker is deployed manually.
+Do not deploy production unless the user explicitly names production. Note the production **API** ships on a **daily schedule**: Cloud Scheduler runs the Cloud Build trigger once a day, and the pipeline no-ops when `main` hasn't moved since the last deploy. Merging to `main` does **not** deploy immediately — merged backend code ships with the next scheduled build unless the user asks to ship it now (then run the trigger manually) — see "Production (Cloud Run + gitslice.io)" and "Production Deploy Monitoring & Rollback" below. Only the web Worker is deployed manually.
 
 Never print secret values. `.env.staging`, `.env.prod`, `.env.local`, and `deploy/` are gitignored local operator state. To inspect environment shape, list keys only:
 
@@ -137,9 +137,9 @@ The deploy script (`web/scripts/deploy.sh <env>`) requires, in the matching env 
 
 The API backend is a container on Cloud Run (service `gitslice-prod`, region `us-west1`), not the PM2 process; the DB is Neon and object storage is R2.
 
-**The production API deploys itself: every merge to `main` auto-triggers the Cloud Build pipeline. Do not manually deploy Cloud Run to ship merged code.** The agent's job after a merge is to *monitor* the triggered build to completion, verify the new revision is healthy, and investigate or roll back on failure — see "Production Deploy Monitoring & Rollback" below. Avoid manual `gcloud run deploy` / `gcloud run services update` for routine releases: the next auto-deploy resets flags to `cloudbuild.yaml`'s values, so ad-hoc flag changes silently revert — change `cloudbuild.yaml` (or the trigger substitutions) instead.
+**The production API deploys on a daily schedule: Cloud Scheduler job `gitslice-prod-daily-build` (us-west1) runs the Cloud Build trigger against `main` once a day, and the pipeline's `gate` step skips the whole build when the deployed image tag already matches HEAD. Do not manually deploy Cloud Run to ship merged code.** Merges to `main` no longer trigger builds (the trigger's GitHub push event is disabled); merged code waits for the next scheduled run. To ship merged code immediately when the user asks, run the trigger by hand — `gcloud builds triggers run <TRIGGER_ID> --branch=main` — then monitor it (see "Production Deploy Monitoring & Rollback"). Avoid manual `gcloud run deploy` / `gcloud run services update` for routine releases: the next pipeline run resets flags to `cloudbuild.yaml`'s values, so ad-hoc flag changes silently revert — change `cloudbuild.yaml` (or the trigger substitutions) instead.
 
-The pipeline is `cloudbuild.yaml` at the repo root: `config → build (Dockerfile) → push → migrate (one-shot Cloud Run Job, `-migrate-only`) → deploy`. The Cloud Build trigger (`filename: cloudbuild.yaml`) supplies substitutions `_DEPLOY_REGION`, `_SERVICE_NAME`, `_AR_HOSTNAME`, `_AR_REPOSITORY`, `_R2_ENDPOINT`, `_R2_BUCKET`, `_CLERK_PUBLISHABLE_KEY`, `_CLERK_ISSUER`, `_ALLOWED_ORIGIN`, `_TAG=$SHORT_SHA`; unset substitutions (e.g. `_MIN_INSTANCES`, `_PUBLISH_INTERVAL_MS`) fall back to the defaults in `cloudbuild.yaml`. Manual pipeline runs are only for exceptional cases (e.g. re-deploying an unchanged tree after an infra fix): `gcloud builds submit --config cloudbuild.yaml --substitutions=...` or the gitignored local wrapper `deploy/cloudrun.sh`.
+The pipeline is `cloudbuild.yaml` at the repo root: `gate (skip when HEAD is already deployed) → config → build (Dockerfile) → push → migrate (one-shot Cloud Run Job, `-migrate-only`) → deploy`. The Cloud Build trigger (`filename: cloudbuild.yaml`) supplies substitutions `_DEPLOY_REGION`, `_SERVICE_NAME`, `_AR_HOSTNAME`, `_AR_REPOSITORY`, `_R2_ENDPOINT`, `_R2_BUCKET`, `_CLERK_PUBLISHABLE_KEY`, `_CLERK_ISSUER`, `_ALLOWED_ORIGIN`, `_TAG=$SHORT_SHA`; unset substitutions (e.g. `_MIN_INSTANCES`, `_PUBLISH_INTERVAL_MS`) fall back to the defaults in `cloudbuild.yaml`. Manual pipeline runs are only for exceptional cases (e.g. re-deploying an unchanged tree after an infra fix): `gcloud builds submit --config cloudbuild.yaml --substitutions=...` or the gitignored local wrapper `deploy/cloudrun.sh`.
 
 Key production facts:
 - Serving instances run with `GITSLICE_RUN_MIGRATIONS=0`; migrations run in the pipeline's migrate Job, so schema changes ship on the next deploy.
@@ -152,7 +152,7 @@ The web app then deploys with `npm --prefix web run deploy:production` (custom d
 
 ## Production Deploy Monitoring & Rollback
 
-After a merge to `main`, the pipeline runs on its own. Monitor it:
+The pipeline runs on the daily schedule (or when run manually via `gcloud builds triggers run`). Monitor a run with:
 
 ```bash
 gcloud builds list --limit=3 --format="table(id,createTime,status,substitutions.SHORT_SHA)"
@@ -170,8 +170,8 @@ gcloud run services describe gitslice-prod --region=us-west1 --format="value(sta
 Then run the production API curl checks in "Verification" below. For changes with visible behavior, verify that behavior specifically (e.g. hit the affected RPC), not just liveness.
 
 If the build FAILs:
-- `gcloud builds log <BUILD_ID>` and identify the failing step (`config`/`build`/`push`/`migrate`/`deploy`).
-- A `migrate` failure aborts before `deploy` — the previous revision keeps serving; fix the migration and merge the fix (which auto-deploys).
+- `gcloud builds log <BUILD_ID>` and identify the failing step (`gate`/`config`/`build`/`push`/`migrate`/`deploy`).
+- A `migrate` failure aborts before `deploy` — the previous revision keeps serving; fix the migration, merge the fix, and run the trigger manually (or wait for the next scheduled run).
 - A `deploy` failure or an unhealthy new revision: check `gcloud run revisions list` conditions and service logs (`gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="gitslice-prod" AND severity>=ERROR' --freshness=30m --limit=50`).
 
 If a bad revision is serving, roll back by pinning traffic to the last good revision:
