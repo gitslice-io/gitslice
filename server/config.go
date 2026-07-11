@@ -10,6 +10,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/auth/clerk"
 	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
 	"github.com/gitslice-io/gitslice/internal/objectstore/r2"
+	"github.com/gitslice-io/gitslice/internal/secretbox"
 )
 
 type Config struct {
@@ -22,6 +23,8 @@ type Config struct {
 	ObjectStoreType          string
 	ObjectStoreRoot          string
 	RequireR2                bool
+	SecretsKey               string
+	RequireSecretsKey        bool
 	ObjectCacheBytes         int64
 	R2                       r2.Config
 	AuthProvider             string
@@ -55,6 +58,8 @@ func ConfigFromEnv() Config {
 		ObjectStoreType:       os.Getenv("OBJECT_STORE_TYPE"),
 		ObjectStoreRoot:       os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),
 		RequireR2:             os.Getenv("GITSLICE_REQUIRE_R2") == "1",
+		SecretsKey:            os.Getenv("GITSLICE_SECRETS_KEY"),
+		RequireSecretsKey:     os.Getenv("GITSLICE_REQUIRE_SECRETS_KEY") == "1",
 		ObjectCacheBytes:      int64ValueOrDefault(os.Getenv("GITSLICE_OBJECT_CACHE_BYTES"), 256<<20),
 		R2:                    r2.ConfigFromEnv(),
 		AuthProvider:          os.Getenv("AUTH_PROVIDER"),
@@ -102,11 +107,28 @@ func (c Config) Validate() error {
 	if c.RequireR2 && !c.usesR2() {
 		return fmt.Errorf("GITSLICE_REQUIRE_R2 is set but OBJECT_STORE_TYPE is %q, not \"r2\": refusing to start with a non-durable object store", c.ObjectStoreType)
 	}
+	if _, err := c.secretsBox(); err != nil {
+		return err
+	}
 	// The filesystem object store needs a root; R2 supplies its own location.
 	if !c.usesR2() && c.ObjectStoreRoot == "" {
 		return fmt.Errorf("GITSLICE_OBJECT_STORE_ROOT is required")
 	}
 	return nil
+}
+
+func (c Config) secretsBox() (*secretbox.Box, error) {
+	if c.SecretsKey == "" {
+		if c.RequireSecretsKey {
+			return nil, fmt.Errorf("GITSLICE_REQUIRE_SECRETS_KEY is set but GITSLICE_SECRETS_KEY is empty")
+		}
+		return nil, nil
+	}
+	box, err := secretbox.New(c.SecretsKey)
+	if err != nil {
+		return nil, fmt.Errorf("GITSLICE_SECRETS_KEY is invalid: %w", err)
+	}
+	return box, nil
 }
 
 func valueOrDefault(value, fallback string) string {

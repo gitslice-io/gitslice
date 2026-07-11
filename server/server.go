@@ -58,6 +58,10 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	secrets, err := cfg.secretsBox()
+	if err != nil {
+		return err
+	}
 	if cfg.PublishBatchSize <= 0 {
 		cfg.PublishBatchSize = 128
 	}
@@ -81,6 +85,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer db.Close()
+	db.Slices().Secrets = secrets
 	objectStore, err := newObjectStore(cfg)
 	if err != nil {
 		return err
@@ -239,6 +244,10 @@ func Migrate(ctx context.Context, cfg Config) (err error) {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	secrets, err := cfg.secretsBox()
+	if err != nil {
+		return err
+	}
 	db, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -248,6 +257,7 @@ func Migrate(ctx context.Context, cfg Config) (err error) {
 			err = closeErr
 		}
 	}()
+	db.Slices().Secrets = secrets
 	objectStore, err := newObjectStore(cfg)
 	if err != nil {
 		return err
