@@ -66,6 +66,74 @@ func (s *BlobStore) GetByContentHash(ctx context.Context, hashes []string) ([]*c
 	return out, rows.Err()
 }
 
+// AssociateSlices records that the content hashes are referenced by the
+// slice. It is idempotent, and empty input is a no-op.
+func (s *BlobStore) AssociateSlices(ctx context.Context, sliceID string, contentHashes []string) error {
+	if len(contentHashes) == 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `
+		insert into blob_slices(content_hash, slice_id)
+		select distinct content_hash, $1
+		from unnest($2::text[]) as content_hash
+		on conflict (content_hash, slice_id) do nothing
+	`, sliceID, contentHashes)
+	return err
+}
+
+// SliceAssociations reports which content hashes are associated with the
+// slice in blob_slices.
+func (s *BlobStore) SliceAssociations(ctx context.Context, sliceID string, contentHashes []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(contentHashes) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select content_hash
+		from blob_slices
+		where slice_id = $1 and content_hash = any($2)
+	`, sliceID, contentHashes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var contentHash string
+		if err := rows.Scan(&contentHash); err != nil {
+			return nil, err
+		}
+		out[contentHash] = true
+	}
+	return out, rows.Err()
+}
+
+// PathsByContentHash returns the path_heads paths currently recording each
+// content hash, keyed by hash.
+func (s *BlobStore) PathsByContentHash(ctx context.Context, contentHashes []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(contentHashes) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select content_hash, path
+		from path_heads
+		where content_hash = any($1)
+		order by content_hash, path
+	`, contentHashes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var contentHash, path string
+		if err := rows.Scan(&contentHash, &path); err != nil {
+			return nil, err
+		}
+		out[contentHash] = append(out[contentHash], path)
+	}
+	return out, rows.Err()
+}
+
 func getBlobTx(ctx context.Context, tx *sql.Tx, blobID string) (*corev1.BlobRecord, error) {
 	var blob corev1.BlobRecord
 	err := tx.QueryRowContext(ctx, `

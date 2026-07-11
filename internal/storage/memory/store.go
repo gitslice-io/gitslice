@@ -44,8 +44,9 @@ type backend struct {
 	sessions         map[string]string
 	cliLoginSessions map[string]cliLoginSession
 
-	blobs   map[string]*corev1.BlobRecord
-	objects map[string][]byte
+	blobs      map[string]*corev1.BlobRecord
+	blobSlices map[string]map[string]struct{}
+	objects    map[string][]byte
 
 	refs        map[string]*corev1.Ref
 	commits     map[string]*corev1.Commit
@@ -107,6 +108,7 @@ func New() *Stores {
 		sessions:                map[string]string{},
 		cliLoginSessions:        map[string]cliLoginSession{},
 		blobs:                   map[string]*corev1.BlobRecord{},
+		blobSlices:              map[string]map[string]struct{}{},
 		objects:                 map[string][]byte{},
 		refs:                    map[string]*corev1.Ref{},
 		commits:                 map[string]*corev1.Commit{},
@@ -714,6 +716,57 @@ func (s *BlobStore) GetByContentHash(ctx context.Context, hashes []string) ([]*c
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ContentHash < out[j].ContentHash })
+	return out, nil
+}
+
+func (s *BlobStore) AssociateSlices(ctx context.Context, sliceID string, contentHashes []string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if len(contentHashes) == 0 {
+		return nil
+	}
+	if s.b.blobSlices[sliceID] == nil {
+		s.b.blobSlices[sliceID] = map[string]struct{}{}
+	}
+	for _, contentHash := range contentHashes {
+		s.b.blobSlices[sliceID][contentHash] = struct{}{}
+	}
+	return nil
+}
+
+func (s *BlobStore) SliceAssociations(ctx context.Context, sliceID string, contentHashes []string) (map[string]bool, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := map[string]bool{}
+	associated := s.b.blobSlices[sliceID]
+	for _, contentHash := range contentHashes {
+		if _, ok := associated[contentHash]; ok {
+			out[contentHash] = true
+		}
+	}
+	return out, nil
+}
+
+func (s *BlobStore) PathsByContentHash(ctx context.Context, contentHashes []string) (map[string][]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := map[string][]string{}
+	wanted := map[string]struct{}{}
+	for _, contentHash := range contentHashes {
+		wanted[contentHash] = struct{}{}
+	}
+	ref := s.b.refs[storage.DefaultTargetRef]
+	if ref == nil {
+		return out, nil
+	}
+	for path, file := range s.b.commitFiles[ref.CommitId] {
+		if _, ok := wanted[file.ContentHash]; ok {
+			out[file.ContentHash] = append(out[file.ContentHash], path)
+		}
+	}
+	for contentHash := range out {
+		sort.Strings(out[contentHash])
+	}
 	return out, nil
 }
 

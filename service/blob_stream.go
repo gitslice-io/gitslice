@@ -39,7 +39,8 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 	if init.Size != nil && *init.Size < 0 {
 		return status.Error(codes.InvalidArgument, "size must be non-negative")
 	}
-	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, init.Slice, authz.ActionWrite); err != nil {
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, init.Slice, authz.ActionWrite)
+	if err != nil {
 		return err
 	}
 
@@ -106,6 +107,9 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 	if err := s.Blobs.Upsert(ctx, blobID, contentHash, size, finalKey); err != nil {
 		return grpcError(err)
 	}
+	if err := s.Blobs.AssociateSlices(ctx, slice.Id, []string{contentHash}); err != nil {
+		return grpcError(err)
+	}
 	recordBlobUpload(size)
 	return stream.SendAndClose(&corev1.UploadBlobResponse{BlobId: blobID, ContentHash: contentHash, Size: size})
 }
@@ -119,7 +123,8 @@ func (s *BlobService) ReadBlobStream(req *corev1.ReadBlobStreamRequest, stream c
 	if req.Slice == nil {
 		return status.Error(codes.InvalidArgument, "slice is required")
 	}
-	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead); err != nil {
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
+	if err != nil {
 		return err
 	}
 	contentHash := strings.TrimSpace(req.ContentHash)
@@ -131,6 +136,13 @@ func (s *BlobService) ReadBlobStream(req *corev1.ReadBlobStreamRequest, stream c
 	}
 	if req.Length < 0 {
 		return status.Error(codes.InvalidArgument, "length must be non-negative")
+	}
+	accessible, err := accessibleBlobHashes(ctx, s.Blobs, slice, []string{contentHash})
+	if err != nil {
+		return grpcError(err)
+	}
+	if !accessible[contentHash] {
+		return status.Error(codes.NotFound, "blob not found")
 	}
 	records, err := s.Blobs.GetByContentHash(ctx, []string{contentHash})
 	if err != nil {

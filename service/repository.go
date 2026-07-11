@@ -1001,7 +1001,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 		}); err != nil {
 			return nil, err
 		}
-		if err := s.uploadImportBlobs(ctx, edits, snapshot); err != nil {
+		if err := s.uploadImportBlobs(ctx, slice.Id, edits, snapshot); err != nil {
 			return nil, grpcError(err)
 		}
 		ref, err := s.Repository.GetRef(ctx, targetRef)
@@ -1917,7 +1917,7 @@ const (
 	importBlobUploadAttempts    = 3
 )
 
-func (s *RepositoryService) uploadImportBlobs(ctx context.Context, edits []*corev1.FileEdit, snapshot importSnapshot) error {
+func (s *RepositoryService) uploadImportBlobs(ctx context.Context, sliceID string, edits []*corev1.FileEdit, snapshot importSnapshot) error {
 	type importBlob struct {
 		key         string
 		blobID      string
@@ -1964,7 +1964,14 @@ func (s *RepositoryService) uploadImportBlobs(ctx context.Context, edits []*core
 			return s.Blobs.Upsert(groupCtx, blob.blobID, blob.contentHash, blob.size, blob.key)
 		})
 	}
-	return group.Wait()
+	if err := group.Wait(); err != nil {
+		return err
+	}
+	contentHashes := make([]string, 0, len(blobs))
+	for _, blob := range blobs {
+		contentHashes = append(contentHashes, blob.contentHash)
+	}
+	return s.Blobs.AssociateSlices(ctx, sliceID, contentHashes)
 }
 
 // putImportBlob uploads a single import blob, bounding each attempt with its own

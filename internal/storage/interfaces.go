@@ -37,6 +37,9 @@ type BlobStore interface {
 	Upsert(ctx context.Context, blobID, contentHash string, size int64, storageLocation string) error
 	GetByID(ctx context.Context, blobID string) (*corev1.BlobRecord, error)
 	GetByContentHash(ctx context.Context, hashes []string) ([]*corev1.BlobRecord, error)
+	AssociateSlices(ctx context.Context, sliceID string, contentHashes []string) error
+	SliceAssociations(ctx context.Context, sliceID string, contentHashes []string) (map[string]bool, error)
+	PathsByContentHash(ctx context.Context, contentHashes []string) (map[string][]string, error)
 }
 
 type ChangesetStore interface {

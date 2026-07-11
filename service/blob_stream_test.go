@@ -94,6 +94,40 @@ func TestUploadBlobStreamHashMismatchCleansStaging(t *testing.T) {
 	}
 }
 
+func TestUploadBlobStreamAssociatesAuthorizedSlice(t *testing.T) {
+	mem := memory.New()
+	mem.AddAccount("user_alice", "acme")
+	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "payment"}
+	slice := mem.PutSlice(sliceRef, []string{"/acme/payment"}, "private")
+	objects := newRecordingObjectStore()
+	blob := &BlobService{Auth: mem.Auth, Blobs: mem.Blobs, Slices: mem.Slices, ObjectStore: objects}
+	data := []byte("streamed association\n")
+	stream := &uploadBlobStreamServerForTest{
+		ctx: authctx.WithSubjectID(context.Background(), "user_alice"),
+		chunks: []*corev1.UploadBlobChunk{
+			{Payload: &corev1.UploadBlobChunk_Init{Init: &corev1.UploadBlobInit{
+				Slice:       sliceRef,
+				ContentHash: objectid.RawContentHash(data),
+				Size:        int64Ptr(int64(len(data))),
+			}}},
+			{Payload: &corev1.UploadBlobChunk_Data{Data: data}},
+		},
+	}
+	if err := blob.UploadBlobStream(stream); err != nil {
+		t.Fatal(err)
+	}
+	if stream.response == nil {
+		t.Fatal("UploadBlobStream returned no response")
+	}
+	associations, err := mem.Blobs.SliceAssociations(context.Background(), slice.Id, []string{stream.response.ContentHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !associations[stream.response.ContentHash] {
+		t.Fatalf("slice associations = %#v, want %s", associations, stream.response.ContentHash)
+	}
+}
+
 type nopWriteCloser struct {
 	io.Writer
 }
