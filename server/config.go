@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gitslice-io/gitslice/internal/auth/clerk"
@@ -17,6 +18,7 @@ type Config struct {
 	GRPCAddr                 string
 	HTTPAddr                 string
 	HTTPAllowedOrigin        string
+	RequireStrictCORS        bool
 	GitHTTPAddr              string
 	GitCacheRoot             string
 	DatabaseURL              string
@@ -45,6 +47,7 @@ type Config struct {
 	RateLimitHTTPPerIPRPS    float64
 	RateLimitHTTPPerIPBurst  int
 	MetricsToken             string
+	RequireMetricsToken      bool
 }
 
 func ConfigFromEnv() Config {
@@ -52,6 +55,7 @@ func ConfigFromEnv() Config {
 		GRPCAddr:              valueOrDefault(os.Getenv("GITSLICE_GRPC_ADDR"), "127.0.0.1:50051"),
 		HTTPAddr:              os.Getenv("GITSLICE_HTTP_ADDR"),
 		HTTPAllowedOrigin:     os.Getenv("GITSLICE_HTTP_ALLOWED_ORIGIN"),
+		RequireStrictCORS:     os.Getenv("GITSLICE_REQUIRE_STRICT_CORS") == "1",
 		GitHTTPAddr:           os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
 		GitCacheRoot:          os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
 		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),
@@ -85,6 +89,7 @@ func ConfigFromEnv() Config {
 		RateLimitHTTPPerIPRPS:    floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_RPS"), 30),
 		RateLimitHTTPPerIPBurst:  intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_BURST"), 60),
 		MetricsToken:             os.Getenv("GITSLICE_METRICS_TOKEN"),
+		RequireMetricsToken:      os.Getenv("GITSLICE_REQUIRE_METRICS_TOKEN") == "1",
 	}
 }
 
@@ -106,6 +111,16 @@ func (c Config) Validate() error {
 	// objects that no longer exist (an "object not found" on read).
 	if c.RequireR2 && !c.usesR2() {
 		return fmt.Errorf("GITSLICE_REQUIRE_R2 is set but OBJECT_STORE_TYPE is %q, not \"r2\": refusing to start with a non-durable object store", c.ObjectStoreType)
+	}
+	if c.RequireMetricsToken && strings.TrimSpace(c.MetricsToken) == "" {
+		return fmt.Errorf("GITSLICE_REQUIRE_METRICS_TOKEN is set but GITSLICE_METRICS_TOKEN is empty")
+	}
+	if c.RequireStrictCORS {
+		for _, origin := range strings.Split(c.HTTPAllowedOrigin, ",") {
+			if strings.TrimSpace(origin) == "*" {
+				return fmt.Errorf("GITSLICE_REQUIRE_STRICT_CORS is set but GITSLICE_HTTP_ALLOWED_ORIGIN contains a wildcard origin: refusing to start with a wildcard origin in strict mode")
+			}
+		}
 	}
 	if _, err := c.secretsBox(); err != nil {
 		return err
