@@ -575,7 +575,7 @@ func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T)
 func TestRPCSliceVisibilityRolesAndBlobScopeAuthorization(t *testing.T) {
 	ts := startRPCServer(t)
 	aliceToken := ts.loginViaGRPC(t, "alice")
-	bobToken := ts.loginViaGRPC(t, "bob")
+	bobToken := ts.loginViaGRPC(t, "bobby")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 
@@ -838,8 +838,8 @@ func (ts *testRPCServer) loginViaGRPC(t *testing.T, user string) string {
 	case "alice", "acme":
 		token, _ := ts.defaultAcmeCredentials(t)
 		return token
-	case "bob":
-		return ts.acmeMemberToken(t, "bob", "writer")
+	case "bobby":
+		return ts.acmeMemberToken(t, "bobby", "writer")
 	default:
 		token, _, _ := ts.provisionAccount(t, user, user)
 		return token

@@ -2350,8 +2350,8 @@ func (ts *testServer) loginViaGRPC(t *testing.T, user string) string {
 	case "alice", "acme":
 		token, _ := ts.defaultAcmeCredentials(t)
 		return token
-	case "bob":
-		return ts.acmeMemberToken(t, "bob", "writer")
+	case "bobby":
+		return ts.acmeMemberToken(t, "bobby", "writer")
 	default:
 		token, _, _ := ts.provisionAccount(t, user, user)
 		return token

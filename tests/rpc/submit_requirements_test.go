@@ -14,7 +14,7 @@ import (
 func TestRPCSubmitApprovalRequiredSliceBlocksUntilNonAuthorApproval(t *testing.T) {
 	ts := startRPCServer(t)
 	aliceToken := ts.loginViaGRPC(t, "alice")
-	bobToken := ts.loginViaGRPC(t, "bob")
+	bobToken := ts.loginViaGRPC(t, "bobby")
 	conn := dialTestGRPC(t, ts.addr)
 	defer conn.Close()
 	aliceCtx := grpcAuthContext(aliceToken)
