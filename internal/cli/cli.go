@@ -12113,6 +12113,9 @@ func shortID(id string) string {
 }
 
 func shouldSkip(rel string, _ fs.DirEntry) bool {
+	if !strings.Contains(rel, "/") && (rel == ".agent-meta.json" || strings.HasPrefix(rel, ".agent-meta-") && strings.HasSuffix(rel, ".tmp")) {
+		return true
+	}
 	first := rel
 	if idx := strings.Index(first, "/"); idx >= 0 {
 		first = first[:idx]
