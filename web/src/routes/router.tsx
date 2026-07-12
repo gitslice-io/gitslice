@@ -14,6 +14,7 @@ import {
   dehydrate,
   type DehydratedState
 } from "@tanstack/react-query";
+import { useAuth } from "@clerk/tanstack-react-start";
 import type { ReactNode } from "react";
 
 import appCss from "../index.css?url";
@@ -29,6 +30,7 @@ import { CliLoginPage } from "./CliLoginPage";
 import { ConversationsPage } from "./ConversationsPage";
 import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
+import { LandingPage } from "./LandingPage";
 import { LoginPage } from "./LoginPage";
 import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceAgentsPage } from "./SliceAgentsPage";
@@ -122,6 +124,51 @@ const cliLoginRoute = createRoute({
   component: CliLoginPage
 });
 
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  loader: async ({ context }) => {
+    if (import.meta.env.SSR) {
+      try {
+        const { auth } = await import("@clerk/tanstack-react-start/server");
+        const authState = await auth();
+        // Signed-out visitors render the public landing page; skip the RPC
+        // that would be guaranteed to fail without a session token.
+        if (!authState.isAuthenticated) return;
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        await context.queryClient.ensureQueryData({
+          queryKey: ["authStatus"],
+          queryFn: () => api.getAuthStatus({})
+        });
+      } catch {
+        // The component keeps the existing client-side load/error behavior.
+      }
+    }
+  },
+  component: IndexPage
+});
+
+function IndexPage() {
+  const { isLoaded, isSignedIn } = useAuth();
+
+  if (isLoaded && isSignedIn) {
+    return (
+      <RequireAuth>
+        <SelectionProvider>
+          <UsernameGate>
+            <AppShell>
+              <HomePage />
+            </AppShell>
+          </UsernameGate>
+        </SelectionProvider>
+      </RequireAuth>
+    );
+  }
+
+  return <LandingPage />;
+}
+
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app",
@@ -193,12 +240,6 @@ function UsernameGate({ children }: { children: ReactNode }) {
 
   return <>{children}</>;
 }
-
-const homeRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/",
-  component: HomePage
-});
 
 const conversationsRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -427,11 +468,11 @@ const changesetShortRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
+  indexRoute,
   loginRoute,
   loginFlowRoute,
   cliLoginRoute,
   appRoute.addChildren([
-    homeRoute,
     conversationsRoute,
     docRoute,
     docSectionRoute,
