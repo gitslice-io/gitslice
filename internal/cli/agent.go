@@ -363,13 +363,14 @@ type agentConversation struct {
 	flushedSeq int64
 	flushQueue *agentSendQueue
 
-	title         string
-	sliceAccount  string
-	sliceName     string
-	sliceID       string
-	cancel        context.CancelFunc
-	codexThreadID string // runtime session to resume across turns; guarded by stateMu
-	session       agentSession
+	title             string
+	sliceAccount      string
+	sliceName         string
+	sliceID           string
+	processedUserSeqs map[int64]struct{} // user-message seqs already run; guarded by stateMu
+	cancel            context.CancelFunc
+	codexThreadID     string // runtime session to resume across turns; guarded by stateMu
+	session           agentSession
 }
 
 type conversationMeta struct {
@@ -639,6 +640,9 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 	defer conv.runMu.Unlock()
 	if err := d.baseCtx.Err(); err != nil {
 		return
+	}
+	if !conv.markUserSeq(msg.GetSeq()) {
+		return // already ran (or is running) this user message; redelivered duplicate
 	}
 
 	// Reuse the conversation's warm runtime session, opening one on the first
@@ -1063,13 +1067,18 @@ func (d *agentDaemon) sendSystemError(ctx context.Context, conversationID string
 	if strings.TrimSpace(conversationID) == "" {
 		return
 	}
-	_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
+	event := &corev1.AgentEvent{
 		ConversationId: conversationID,
 		Role:           "system",
 		Type:           "error",
 		Text:           err.Error(),
 		Final:          true,
-	})
+	}
+	if conv := d.getConversation(conversationID); conv != nil {
+		d.emitConversationEvent(conv, event)
+		return
+	}
+	_ = d.sendAgentEvent(ctx, event)
 }
 
 func (d *agentDaemon) cancelAll() {
@@ -1222,6 +1231,29 @@ func (c *agentConversation) setThreadID(id string) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.codexThreadID = id
+}
+
+// markUserSeq records that the user message with this persisted seq is being
+// run and reports whether the caller should proceed. A repeat seq is a
+// redelivered duplicate (the server resends unanswered user messages after
+// ConversationStarted) and returns false. Dedup is a seen-set rather than a
+// high-water mark so that two in-flight messages whose goroutines acquire
+// runMu out of seq order both still run — a lower seq must never be silently
+// dropped. seq 0 (legacy server) always runs.
+func (c *agentConversation) markUserSeq(seq int64) bool {
+	if seq <= 0 {
+		return true
+	}
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if _, ok := c.processedUserSeqs[seq]; ok {
+		return false
+	}
+	if c.processedUserSeqs == nil {
+		c.processedUserSeqs = map[int64]struct{}{}
+	}
+	c.processedUserSeqs[seq] = struct{}{}
+	return true
 }
 
 func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRuntime, freshThreadHistory func(context.Context) (string, error)) (agentSession, error) {

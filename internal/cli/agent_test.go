@@ -136,6 +136,7 @@ type fakeAgentRuntime struct {
 	gotInstructions string
 	gotHistory      string
 	openCount       int
+	skipHistory     bool
 }
 
 func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string, freshThreadHistory func(context.Context) (string, error)) (agentSession, error) {
@@ -143,7 +144,7 @@ func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThrea
 	r.gotWorkdir = workdir
 	r.gotResume = resumeThreadID
 	r.gotInstructions = instructions
-	if freshThreadHistory != nil {
+	if freshThreadHistory != nil && !r.skipHistory {
 		if history, err := freshThreadHistory(ctx); err == nil {
 			r.gotHistory = history
 		}
@@ -164,14 +165,70 @@ type fakeAgentSession struct {
 	gotPrompt string
 	closed    int
 	dead      bool
+	runCount  int
 }
 
 func (s *fakeAgentSession) RunTurn(ctx context.Context, prompt string, emit func(agentRuntimeEvent)) error {
+	s.runCount++
 	s.gotPrompt = prompt
 	for _, e := range s.emits {
 		emit(e)
 	}
 	return s.err
+}
+
+func TestHandleUserMessageDeduplicatesPositiveSeq(t *testing.T) {
+	tests := []struct {
+		name     string
+		seq      int64
+		wantRuns int
+	}{
+		{name: "sequenced redelivery", seq: 17, wantRuns: 1},
+		{name: "legacy unsequenced", seq: 0, wantRuns: 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			session := &fakeAgentSession{err: errors.New("stop after runtime invocation")}
+			runtime := &fakeAgentRuntime{session: session, skipHistory: true}
+			conv := &agentConversation{
+				id:      "conv-1",
+				workdir: t.TempDir(),
+				ready:   make(chan struct{}),
+				session: session,
+			}
+			conv.setReady(nil)
+			d := &agentDaemon{
+				runtime:       runtime,
+				baseCtx:       context.Background(),
+				conversations: map[string]*agentConversation{conv.id: conv},
+			}
+			msg := &corev1.DeliverUserMessage{ConversationId: conv.id, Text: "hello", Seq: tc.seq}
+
+			d.handleUserMessage(context.Background(), msg)
+			d.handleUserMessage(context.Background(), msg)
+
+			if session.runCount != tc.wantRuns {
+				t.Fatalf("runtime turns = %d, want %d", session.runCount, tc.wantRuns)
+			}
+		})
+	}
+}
+
+func TestSendSystemErrorBuffersKnownConversation(t *testing.T) {
+	conv := &agentConversation{id: "conv-1"}
+	d := &agentDaemon{conversations: map[string]*agentConversation{conv.id: conv}}
+
+	d.sendSystemError(context.Background(), conv.id, errors.New("runtime disconnected"))
+
+	conv.outMu.Lock()
+	defer conv.outMu.Unlock()
+	if len(conv.pending) != 1 {
+		t.Fatalf("pending events = %d, want 1", len(conv.pending))
+	}
+	event := conv.pending[0]
+	if event.GetConversationId() != conv.id || event.GetRole() != "system" || event.GetType() != "error" || event.GetText() != "runtime disconnected" || event.GetClientSeq() != 1 {
+		t.Fatalf("buffered system error = %#v, want sequenced durable error", event)
+	}
 }
 
 func (s *fakeAgentSession) ThreadID() string { return s.threadID }

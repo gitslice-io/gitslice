@@ -134,7 +134,7 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		case *corev1.DaemonMessage_Heartbeat:
 			_ = s.Agents.SetDaemonStatus(ctx, daemon.Id, "online")
 		case *corev1.DaemonMessage_Started:
-			// Workspace ready; nothing to persist for now.
+			s.redeliverUnansweredUserMessages(ctx, daemon.Id, conn, p.Started.GetConversationId())
 		case *corev1.DaemonMessage_Event:
 			ev := p.Event
 			if ev.ConversationId == "" {
@@ -167,6 +167,34 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 			}
 		case *corev1.DaemonMessage_CheckUpdate:
 			s.handleCheckRunUpdate(ctx, daemon.Id, conn, p.CheckUpdate)
+		}
+	}
+}
+
+// redeliverUnansweredUserMessages pushes the conversation's trailing
+// unanswered user messages to the daemon. Called when the daemon reports a
+// conversation's workspace ready (ConversationStarted): any user message sent
+// while the daemon was offline/half-open was lost (SendAgentMessage's push is
+// best-effort), and the register-time StartConversation replay guarantees a
+// Started follows for every active conversation, so this is the redelivery
+// point. The daemon dedups on seq, so redelivering a message that actually
+// arrived (e.g. a turn still running with no durable output yet) is safe.
+func (s *AgentService) redeliverUnansweredUserMessages(ctx context.Context, daemonID string, conn *daemonConn, conversationID string) {
+	conv, err := s.Agents.GetConversation(ctx, conversationID)
+	if err != nil || conv.DaemonId != daemonID {
+		return
+	}
+	events, err := s.Agents.UnansweredUserEvents(ctx, conversationID)
+	if err != nil {
+		return
+	}
+	for _, ev := range events {
+		if !conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_UserMessage{UserMessage: &corev1.DeliverUserMessage{
+			ConversationId: conversationID,
+			Text:           ev.Text,
+			Seq:            ev.Seq,
+		}}}) {
+			return
 		}
 	}
 }
@@ -325,6 +353,7 @@ func (s *AgentService) SendAgentMessage(ctx context.Context, req *corev1.SendAge
 		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_UserMessage{UserMessage: &corev1.DeliverUserMessage{
 			ConversationId: conv.Id,
 			Text:           req.Text,
+			Seq:            ev.Seq,
 		}}})
 	}
 	return &corev1.SendAgentMessageResponse{Event: ev}, nil
