@@ -1480,9 +1480,14 @@ type DiffChangesetRequest struct {
 	ChangesetId string                 `protobuf:"bytes,1,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
 	// patchset, from_patchset, and to_patchset accept a patchset number encoded as
 	// a string, an exact patchset handle, or a canonical patchset id.
-	Patchset      string `protobuf:"bytes,2,opt,name=patchset,proto3" json:"patchset,omitempty"`
-	FromPatchset  string `protobuf:"bytes,3,opt,name=from_patchset,json=fromPatchset,proto3" json:"from_patchset,omitempty"`
-	ToPatchset    string `protobuf:"bytes,4,opt,name=to_patchset,json=toPatchset,proto3" json:"to_patchset,omitempty"`
+	Patchset     string `protobuf:"bytes,2,opt,name=patchset,proto3" json:"patchset,omitempty"`
+	FromPatchset string `protobuf:"bytes,3,opt,name=from_patchset,json=fromPatchset,proto3" json:"from_patchset,omitempty"`
+	ToPatchset   string `protobuf:"bytes,4,opt,name=to_patchset,json=toPatchset,proto3" json:"to_patchset,omitempty"`
+	// paths restricts the diff to these repository paths (exact matches against
+	// the changed paths). Empty means diff every changed path. changed_paths in
+	// the response always lists ALL changed paths for the selected patchset
+	// pair, so clients can enumerate files without fetching their diffs.
+	Paths         []string `protobuf:"bytes,5,rep,name=paths,proto3" json:"paths,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1543,6 +1548,13 @@ func (x *DiffChangesetRequest) GetToPatchset() string {
 		return x.ToPatchset
 	}
 	return ""
+}
+
+func (x *DiffChangesetRequest) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
 }
 
 type DiffChangesetResponse struct {
@@ -3287,13 +3299,14 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x16ListChangesetsResponse\x12;\n" +
 	"\n" +
 	"changesets\x18\x01 \x03(\v2\x1b.gitslice.core.v1.ChangesetR\n" +
-	"changesets\"\x9b\x01\n" +
+	"changesets\"\xb1\x01\n" +
 	"\x14DiffChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12\x1a\n" +
 	"\bpatchset\x18\x02 \x01(\tR\bpatchset\x12#\n" +
 	"\rfrom_patchset\x18\x03 \x01(\tR\ffromPatchset\x12\x1f\n" +
 	"\vto_patchset\x18\x04 \x01(\tR\n" +
-	"toPatchset\"\xce\x02\n" +
+	"toPatchset\x12\x14\n" +
+	"\x05paths\x18\x05 \x03(\tR\x05paths\"\xce\x02\n" +
 	"\x15DiffChangesetResponse\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12(\n" +
 	"\x10from_patchset_id\x18\x02 \x01(\tR\x0efromPatchsetId\x12$\n" +

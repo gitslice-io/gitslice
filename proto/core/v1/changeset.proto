@@ -203,6 +203,11 @@ message DiffChangesetRequest {
   string patchset = 2;
   string from_patchset = 3;
   string to_patchset = 4;
+  // paths restricts the diff to these repository paths (exact matches against
+  // the changed paths). Empty means diff every changed path. changed_paths in
+  // the response always lists ALL changed paths for the selected patchset
+  // pair, so clients can enumerate files without fetching their diffs.
+  repeated string paths = 5;
 }
 
 message DiffChangesetResponse {
