@@ -7,6 +7,12 @@ import (
 	"unicode/utf8"
 )
 
+// maxLCSCells bounds the O(n*m) LCS DP after prefix/suffix trimming: 1M cells
+// is ~8MB of DP, and the diff endpoint runs up to diffFileConcurrency files at
+// once inside a 1Gi Cloud Run instance. A trimmed core larger than this gets a
+// "Diff too large to render" stub instead. Var (not const) so tests can lower it.
+var maxLCSCells = 1_000_000
+
 type File struct {
 	Path   string
 	Exists bool
@@ -43,25 +49,44 @@ func UnifiedFileDiff(oldFile, newFile File) string {
 		}
 		fmt.Fprintf(&b, "Binary files %s and %s differ\n", oldLabel, newLabel)
 	} else {
-		if oldFile.Exists {
-			fmt.Fprintf(&b, "--- a/%s\n", label)
-		} else {
-			b.WriteString("--- /dev/null\n")
-		}
-		if newFile.Exists {
-			fmt.Fprintf(&b, "+++ b/%s\n", label)
-		} else {
-			b.WriteString("+++ /dev/null\n")
-		}
 		oldLines := splitLines(oldFile.Data)
 		newLines := splitLines(newFile.Data)
-		fmt.Fprintf(&b, "@@ -1,%d +1,%d @@\n", len(oldLines), len(newLines))
-		for _, line := range lcsDiff(oldLines, newLines) {
-			// Source lines retain their original trailing newline (or lack one for a
-			// final line without it), so emit each diff entry on its own line to keep
-			// the unified diff well-formed even when a file has no trailing newline.
-			b.WriteString(strings.TrimRight(line, "\n"))
-			b.WriteByte('\n')
+
+		prefix := 0
+		for prefix < len(oldLines) && prefix < len(newLines) && oldLines[prefix] == newLines[prefix] {
+			prefix++
+		}
+		oldEnd, newEnd := len(oldLines), len(newLines)
+		for oldEnd > prefix && newEnd > prefix && oldLines[oldEnd-1] == newLines[newEnd-1] {
+			oldEnd--
+			newEnd--
+		}
+		oldCore := oldLines[prefix:oldEnd]
+		newCore := newLines[prefix:newEnd]
+
+		if len(oldCore) > 0 && len(newCore) > maxLCSCells/len(oldCore) {
+			fmt.Fprintf(&b, "Diff too large to render: a/%s and b/%s differ (%d -> %d lines)\n", label, label, len(oldLines), len(newLines))
+		} else {
+			if oldFile.Exists {
+				fmt.Fprintf(&b, "--- a/%s\n", label)
+			} else {
+				b.WriteString("--- /dev/null\n")
+			}
+			if newFile.Exists {
+				fmt.Fprintf(&b, "+++ b/%s\n", label)
+			} else {
+				b.WriteString("+++ /dev/null\n")
+			}
+			fmt.Fprintf(&b, "@@ -1,%d +1,%d @@\n", len(oldLines), len(newLines))
+			for _, line := range oldLines[:prefix] {
+				writeDiffLine(&b, " "+line)
+			}
+			for _, line := range lcsDiff(oldCore, newCore) {
+				writeDiffLine(&b, line)
+			}
+			for _, line := range oldLines[oldEnd:] {
+				writeDiffLine(&b, " "+line)
+			}
 		}
 	}
 	diff := b.String()
@@ -69,6 +94,14 @@ func UnifiedFileDiff(oldFile, newFile File) string {
 		return strings.ToValidUTF8(diff, "�")
 	}
 	return diff
+}
+
+func writeDiffLine(b *strings.Builder, line string) {
+	// Source lines retain their original trailing newline (or lack one for a
+	// final line without it), so emit each diff entry on its own line to keep
+	// the unified diff well-formed even when a file has no trailing newline.
+	b.WriteString(strings.TrimRight(line, "\n"))
+	b.WriteByte('\n')
 }
 
 // isBinary reports whether data looks like binary content, using git's
