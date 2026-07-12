@@ -85,8 +85,8 @@ export function ChooseUsernamePage() {
           Choose your username
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          Use lowercase letters, numbers, and hyphens. This becomes your
-          account namespace, and your files live under{" "}
+          Use at least four lowercase letters, numbers, or hyphens. This becomes
+          your account namespace, and your files live under{" "}
           <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
             /&lt;username&gt;
           </code>
@@ -102,6 +102,8 @@ export function ChooseUsernamePage() {
               autoFocus
               className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
               disabled={chooseUsernameMutation.isPending}
+              maxLength={63}
+              minLength={4}
               onChange={(event) => {
                 setUsername(event.target.value);
                 if (submitError) {
@@ -113,7 +115,8 @@ export function ChooseUsernamePage() {
               value={username}
             />
             <span className="text-xs font-normal leading-5 text-slate-500">
-              Lowercase letters, numbers, and hyphens only.
+              At least four characters. Lowercase letters, numbers, and hyphens
+              only.
             </span>
           </label>
 

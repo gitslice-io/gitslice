@@ -142,10 +142,10 @@ workflow example so a new user can move from signup to shell, file upload,
 workspace initialization, status, changeset creation, diff, and submit:
 
 ```bash
-gs auth signup --username nic
+gs auth signup --username nico
 gs shell
-gs fs upload ./notes /nic/notes --recursive
-gs init nic/home
+gs fs upload ./notes /nico/notes --recursive
+gs init nico/home
 gs status
 gs cs create --title "update notes"
 gs cs diff
@@ -205,7 +205,7 @@ stable CLI error with an actionable recovery hint:
 
 ```text
 authentication failed: invalid token
-hint: Run gs auth status to inspect the saved token. If it is invalid, run gs auth signup --username nic.
+hint: Run gs auth status to inspect the saved token. If it is invalid, run gs auth signup --username nico.
 ```
 
 The username-specific hint is derived from local non-secret subject metadata
@@ -531,14 +531,14 @@ created as directories. The CLI can initialize the default personal home slice
 after signup:
 
 ```bash
-gs auth signup --username nic
-gs init nic/home
+gs auth signup --username nico
+gs init nico/home
 ```
 
 The `home` slice slug is reserved for the default personal slice. Its included
-path is the user's account root, for example `nic/home` covers `/nic`. Custom
+path is the user's account root, for example `nico/home` covers `/nico`. Custom
 personal slice slugs such as `tools` or `dotfiles` may cover narrower paths
-inside `/nic`, but not paths under another account.
+inside `/nico`, but not paths under another account.
 
 The CLI should preserve canonical account-rooted paths inside the workspace.
 Creating another workspace is the supported way to work on another slice.

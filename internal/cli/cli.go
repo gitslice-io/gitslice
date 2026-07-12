@@ -799,7 +799,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "gs",
 		Short:         "Gitslice native CLI",
-		Example:       "  gs auth signup --username nic\n  gs shell\n  gs fs upload ./notes /nic/notes --recursive\n  gs init nic/home\n  gs status\n  gs create --message \"update notes\"\n  gs diff\n  gs submit",
+		Example:       "  gs auth signup --username nico\n  gs shell\n  gs fs upload ./notes /nico/notes --recursive\n  gs init nico/home\n  gs status\n  gs create --message \"update notes\"\n  gs diff\n  gs submit",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

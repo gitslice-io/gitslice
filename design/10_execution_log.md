@@ -7479,3 +7479,37 @@ Verification:
 - local preview asset checks: `HEAD /favicon.png` and
   `GET /site.webmanifest` returned HTTP 200; page rendering could not be checked
   locally because the checkout has no Clerk secret key
+
+## 2026-07-12: Username minimum length and reserved-name policy
+
+Request: require usernames to contain at least four characters and maintain a
+reservation list covering system identities, well-known brands, and public
+figures.
+
+- Added `internal/usernames` as the shared username-policy source for both the
+  PostgreSQL and in-memory auth stores. Normalized usernames remain lowercase,
+  convert underscores to hyphens, allow only ASCII letters, numbers, and
+  hyphens, may not start or end with a hyphen, and are now limited to 4–63
+  characters.
+- Added a categorized, test-covered reservation list with more than 100
+  canonical names. Reservation matching is exact after normalization; verified
+  or otherwise exceptional account provisioning can be added as a separate
+  administrative flow rather than weakening self-service signup.
+- Existing account rows are unchanged. The stricter policy applies when
+  checking or choosing a new username, so previously provisioned short names
+  are effectively grandfathered.
+- Updated signup examples and web guidance to use four-character usernames.
+
+Verification:
+
+```bash
+go test ./internal/usernames ./internal/storage/memory ./internal/postgres ./service
+go test ./...
+go build ./cmd/...
+npm --prefix web test -- --run src/routes/router.test.ts
+npm --prefix web test
+npm --prefix web run build
+```
+
+All commands passed. The real PostgreSQL e2e gate was not run because
+`env.local` is absent, so no `GITSLICE_TEST_DATABASE_URL` is configured.

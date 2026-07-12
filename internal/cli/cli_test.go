@@ -790,8 +790,8 @@ func TestRootHelpIncludesWorkflowExamples(t *testing.T) {
 		t.Fatalf("help failed: %v\nstderr:\n%s", err, stderr.String())
 	}
 	for _, want := range []string{
-		"gs auth signup --username nic",
-		"gs fs upload ./notes /nic/notes --recursive",
+		"gs auth signup --username nico",
+		"gs fs upload ./notes /nico/notes --recursive",
 		"gs create --message \"update notes\"",
 		"gs submit",
 		"HELP TOPICS",
