@@ -70,9 +70,9 @@ export function SourceCodeViewer({
   }, [code, language, shouldRenderRaw]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-        <div className="min-w-0 truncate font-mono text-slate-600">{path}</div>
+    <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-4 py-3 text-xs text-slate-500 dark:text-zinc-400">
+        <div className="min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400">{path}</div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           {isMarkdown ? (
             <MarkdownViewToggle
@@ -82,7 +82,7 @@ export function SourceCodeViewer({
           ) : null}
           <div className="flex items-center gap-3">
             {shouldRenderRaw && highlight.isLoading && code ? (
-              <span className="text-slate-400">highlighting…</span>
+              <span className="text-slate-400 dark:text-zinc-500">highlighting…</span>
             ) : null}
             <span>{language}</span>
             <span>{lineCount} lines</span>
@@ -94,7 +94,7 @@ export function SourceCodeViewer({
           <MarkdownViewer source={code} />
         ) : highlight.html ? (
           <div
-            className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white [&_pre]:text-sm [&_pre]:leading-6"
+            className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white dark:bg-zinc-900 [&_pre]:text-sm [&_pre]:leading-6"
             dangerouslySetInnerHTML={{ __html: highlight.html }}
           />
         ) : (
@@ -102,13 +102,13 @@ export function SourceCodeViewer({
           // Shiki core load or a (potentially large) grammar-chunk download.
           // Highlighting is layered in by swapping to the rendered HTML once it
           // resolves; the plain <pre> matches its sizing to avoid layout shift.
-          <pre className="min-w-max overflow-visible bg-white p-4 text-sm leading-6 text-zinc-900">
+          <pre className="min-w-max overflow-visible bg-white dark:bg-zinc-900 p-4 text-sm leading-6 text-zinc-900 dark:text-zinc-100">
             <code>{code}</code>
           </pre>
         )}
       </div>
       {highlight.error ? (
-        <div className="border-t border-slate-200 px-4 py-3 text-xs text-amber-700">
+        <div className="border-t border-slate-200 dark:border-zinc-800 px-4 py-3 text-xs text-amber-700 dark:text-amber-300">
           Syntax highlighting unavailable: {highlight.error}
         </div>
       ) : null}
@@ -124,15 +124,15 @@ function MarkdownViewToggle({
   value: MarkdownViewMode;
 }) {
   return (
-    <div className="inline-flex h-8 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5">
+    <div className="inline-flex h-8 w-fit overflow-hidden rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 p-0.5">
       {(["preview", "raw"] as const).map((mode) => (
         <button
           aria-pressed={value === mode}
           className={cn(
             "rounded px-2.5 text-xs font-medium capitalize transition",
             value === mode
-              ? "bg-white text-zinc-950 shadow-sm"
-              : "text-slate-600 hover:text-zinc-950"
+              ? "bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-sm"
+              : "text-slate-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-50"
           )}
           key={mode}
           onClick={() => onChange(mode)}

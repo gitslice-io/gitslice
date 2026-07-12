@@ -54,7 +54,7 @@ export function PageHeader({
 
   return (
     <header
-      className="sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 bg-slate-50/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+      className="sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/95 dark:bg-zinc-950/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-3"
       ref={headerRef}
     >
       <div className="min-w-0 sm:flex-1">

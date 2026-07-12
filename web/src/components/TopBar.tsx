@@ -4,6 +4,7 @@ import { useAuth, UserButton } from "@clerk/tanstack-react-start";
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
 import { BrandMark } from "./BrandMark";
+import { ThemeToggle } from "./ThemeToggle";
 
 const navItems = [
   { label: "Home", to: "/", section: "slices" },
@@ -69,11 +70,11 @@ export function TopBar() {
   const isConversationsActive = pathname.startsWith("/conversations");
 
   return (
-    <header className="border-b border-slate-200 bg-white/95 px-3 backdrop-blur sm:px-4 md:px-6">
+    <header className="border-b border-slate-200 bg-white/95 px-3 backdrop-blur transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-4 md:px-6">
       <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2 sm:min-h-16 sm:flex-nowrap sm:py-0">
         <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <Link
-            className="flex shrink-0 items-center gap-2 text-sm font-semibold tracking-normal text-zinc-950"
+            className="flex shrink-0 items-center gap-2 text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50"
             to="/"
           >
             <BrandMark className="size-6" />
@@ -92,12 +93,12 @@ export function TopBar() {
                     : undefined
                 }
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 sm:px-3",
+                  "inline-flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 sm:px-3",
                   ((item.section === "slices" && isSlicesActive) ||
                     (item.section === "doc" && isDocActive) ||
                     (item.section === "conversations" &&
                       isConversationsActive)) &&
-                    "bg-zinc-950 text-white hover:bg-zinc-950 hover:text-white"
+                    "bg-zinc-950 text-white hover:bg-zinc-950 hover:text-white dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:hover:text-zinc-950"
                 )}
                 key={item.label}
                 to={item.to}
@@ -107,10 +108,11 @@ export function TopBar() {
               </Link>
             ))}
           </nav>
+          <ThemeToggle />
           {account ? (
-            <div className="hidden min-w-0 text-right text-xs font-semibold text-slate-500 sm:block">
+            <div className="hidden min-w-0 text-right text-xs font-semibold text-slate-500 dark:text-zinc-500 sm:block">
               Account
-              <div className="truncate text-sm font-medium text-zinc-900">
+              <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
                 {account}
               </div>
             </div>
@@ -118,7 +120,7 @@ export function TopBar() {
           {!isLoaded ? (
             <div
               aria-hidden
-              className="size-8 shrink-0 animate-pulse rounded-full bg-slate-200"
+              className="size-8 shrink-0 animate-pulse rounded-full bg-slate-200 dark:bg-zinc-700"
             />
           ) : isSignedIn ? (
             // Pin the avatar to the same 2rem box as the loading placeholder so
@@ -139,7 +141,7 @@ export function TopBar() {
             </div>
           ) : (
             <Link
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
               to="/login"
             >
               Sign in

@@ -85,28 +85,40 @@ export function Popup({
         aria-label={title}
         aria-modal="true"
         className={cn(
-          "relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-md transform flex-col overflow-hidden rounded-lg bg-white shadow-xl transition duration-200",
+          "relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-md transform flex-col overflow-hidden rounded-lg bg-white dark:bg-zinc-900 shadow-xl transition duration-200",
           entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
         )}
         role="dialog"
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 px-4 py-3">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-zinc-950">{title}</h2>
+            <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+              {title}
+            </h2>
             {description ? (
-              <p className="mt-1 truncate text-xs text-slate-500">
+              <p className="mt-1 truncate text-xs text-slate-500 dark:text-zinc-400">
                 {description}
               </p>
             ) : null}
           </div>
           <button
             aria-label={`Close ${title}`}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
             onClick={onClose}
             ref={closeButtonRef}
             type="button"
           >
-            ✕
+            <svg
+              aria-hidden="true"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="1.8"
+              viewBox="0 0 24 24"
+            >
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
           </button>
         </div>
         <div className="min-h-0 overflow-y-auto px-4 py-4">{children}</div>

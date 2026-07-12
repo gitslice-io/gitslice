@@ -290,7 +290,7 @@ export function SliceDetailPage() {
         primaryAction={
           <>
             <Link
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
               search={{ slice: sliceLabel } as never}
               to="/changesets"
             >
@@ -298,7 +298,7 @@ export function SliceDetailPage() {
             </Link>
             {isSignedIn && sliceRouteParams ? (
               <Link
-                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
                 params={sliceRouteParams as never}
                 to="/slices/$account/$slice/agents"
               >
@@ -307,7 +307,7 @@ export function SliceDetailPage() {
             ) : null}
             {canEdit && sliceRouteParams ? (
               <Link
-                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
                 params={sliceRouteParams as never}
                 to="/slices/$account/$slice/settings"
               >
@@ -333,7 +333,7 @@ export function SliceDetailPage() {
             aria-expanded={false}
             aria-label="Show files"
             className={cn(
-              "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 bg-white px-1.5 py-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]",
+              "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 py-3 text-xs font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]",
               showTree ? "" : "lg:flex",
             )}
             onClick={() => setShowTree(true)}
@@ -374,7 +374,7 @@ export function SliceDetailPage() {
           >
             <div className="mb-3 lg:hidden">
               <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
                 onClick={() => selectPath("")}
                 type="button"
               >

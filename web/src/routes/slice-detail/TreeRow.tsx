@@ -30,8 +30,8 @@ export function TreeRow({
         className={[
           "group flex h-8 min-w-0 items-center gap-1.5 pr-2 text-sm transition",
           isActive
-            ? "bg-slate-100 text-zinc-950"
-            : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
+            ? "bg-slate-100 dark:bg-zinc-800 text-zinc-950 dark:text-zinc-50"
+            : "text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
         ].join(" ")}
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
       >
@@ -39,7 +39,7 @@ export function TreeRow({
           <button
             aria-expanded={isExpanded}
             aria-label={`${isExpanded ? "Collapse" : "Expand"} ${buttonLabel}`}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-500 transition hover:bg-slate-200 hover:text-zinc-950"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-500 dark:text-zinc-400 transition hover:bg-slate-200 dark:hover:bg-zinc-700 hover:text-zinc-950 dark:hover:text-zinc-50"
             onClick={() => onToggle(node.path)}
             type="button"
           >
@@ -65,7 +65,7 @@ export function TreeRow({
             className={[
               "truncate",
               isActive ? "font-semibold" : "font-medium",
-              node.synthetic ? "text-slate-600" : ""
+              node.synthetic ? "text-slate-600 dark:text-zinc-400" : ""
             ].join(" ")}
           >
             {node.name}

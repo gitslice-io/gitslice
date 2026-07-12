@@ -59,15 +59,15 @@ export function ChangedFilesTree({
 
   if (files.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+      <div className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-3 py-4 text-sm text-slate-500 dark:text-zinc-400">
         No changed files.
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
+    <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+      <div className="border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-3 py-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
         Files
       </div>
       <div
@@ -126,7 +126,7 @@ function TreeNodeRow({
     <div>
       <button
         aria-expanded={!isCollapsed}
-        className="flex w-full items-center gap-1 px-2 py-1 text-left text-slate-600 transition hover:bg-slate-50 hover:text-zinc-950"
+        className="flex w-full items-center gap-1 px-2 py-1 text-left text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
         onClick={() => onToggleDirectory(collapsed.path)}
         style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
         type="button"
@@ -179,7 +179,7 @@ function FileRow({
         "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1 text-left transition",
         active
           ? "bg-slate-900 text-white"
-          : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
+          : "text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
       )}
       onClick={() => onSelect(file.id)}
       style={{ paddingLeft: `${depth * 0.75 + 1.25}rem` }}
@@ -200,13 +200,13 @@ function FileRow({
       <span
         className={cn(
           "flex shrink-0 gap-1 text-[11px]",
-          active ? "text-slate-200" : "text-slate-500"
+          active ? "text-slate-200" : "text-slate-500 dark:text-zinc-400"
         )}
       >
-        <span className={active ? "text-emerald-200" : "text-emerald-700"}>
+        <span className={active ? "text-emerald-200" : "text-emerald-700 dark:text-emerald-300"}>
           +{file.additions}
         </span>
-        <span className={active ? "text-rose-200" : "text-rose-700"}>
+        <span className={active ? "text-rose-200" : "text-rose-700 dark:text-rose-300"}>
           -{file.deletions}
         </span>
       </span>
@@ -310,12 +310,12 @@ function statusGlyph(kind: FileChangeKind) {
 function statusGlyphClass(kind: FileChangeKind) {
   switch (kind) {
     case "added":
-      return "bg-emerald-100 text-emerald-800";
+      return "bg-emerald-100 dark:bg-emerald-950/45 text-emerald-800 dark:text-emerald-200";
     case "deleted":
-      return "bg-rose-100 text-rose-800";
+      return "bg-rose-100 dark:bg-rose-950/45 text-rose-800 dark:text-rose-200";
     case "renamed":
       return "bg-violet-100 text-violet-800";
     case "modified":
-      return "bg-amber-100 text-amber-900";
+      return "bg-amber-100 dark:bg-amber-950/45 text-amber-900 dark:text-amber-200";
   }
 }

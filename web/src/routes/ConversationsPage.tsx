@@ -80,7 +80,7 @@ export function ConversationsPage() {
       <PageHeader
         primaryAction={
           <button
-            className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+            className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98]"
             onClick={() => setIsCreateOpen(true)}
             type="button"
           >
@@ -88,7 +88,7 @@ export function ConversationsPage() {
           </button>
         }
         title={
-          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg">
             Conversations
           </h1>
         }
@@ -101,17 +101,17 @@ export function ConversationsPage() {
       />
 
       <div className="mt-2 grid gap-4">
-        <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm shadow-slate-200/50 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 shadow-sm shadow-slate-200/50 dark:shadow-black/50 sm:flex-row sm:items-center sm:justify-between">
           <input
             aria-label="Filter conversations"
-            className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 sm:max-w-sm sm:flex-1"
+            className="min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 sm:max-w-sm sm:flex-1"
             onChange={(event) => setFilterText(event.target.value)}
             placeholder="Filter by title or slice"
             value={filterText}
           />
           <select
             aria-label="Filter by status"
-            className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 sm:w-40"
+            className="min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 sm:w-40"
             onChange={(event) =>
               setStatusFilter(event.target.value as StatusFilter)
             }
@@ -130,7 +130,7 @@ export function ConversationsPage() {
             {getErrorMessage(conversationsQuery.error)}
           </SliceNotice>
         ) : filteredConversations.length === 0 ? (
-          <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+          <div className="rounded-md border border-dashed border-slate-300 dark:border-zinc-700 p-4 text-sm text-slate-600 dark:text-zinc-400">
             No conversations yet.
           </div>
         ) : (
@@ -154,11 +154,11 @@ function ConversationSkeletonGrid() {
       {[0, 1, 2, 3, 4, 5].map((item) => (
         <div
           aria-hidden
-          className="rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm"
+          className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 shadow-sm"
           key={item}
         >
-          <div className="h-4 w-3/4 animate-pulse rounded bg-slate-200" />
-          <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-slate-100" />
+          <div className="h-4 w-3/4 animate-pulse rounded bg-slate-200 dark:bg-zinc-700" />
+          <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-slate-100 dark:bg-zinc-800" />
         </div>
       ))}
     </div>

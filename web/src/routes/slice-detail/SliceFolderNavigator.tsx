@@ -147,17 +147,17 @@ export function SliceFolderNavigator({
 
   return (
     <SlicePanel className="max-h-[60dvh] overflow-auto p-0 lg:min-h-full lg:max-h-none lg:overflow-visible">
-      <div className="border-b border-slate-200 px-3 py-3">
+      <div className="border-b border-slate-200 dark:border-zinc-800 px-3 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-zinc-950">Files</h2>
-            <p className="mt-1 truncate text-xs leading-5 text-slate-500">
+            <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Files</h2>
+            <p className="mt-1 truncate text-xs leading-5 text-slate-500 dark:text-zinc-400">
               Slice-projected source tree
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+              className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
               onClick={() => onSelectPath("")}
               type="button"
             >
@@ -168,7 +168,7 @@ export function SliceFolderNavigator({
                 aria-controls="slice-file-tree-panel"
                 aria-expanded={true}
                 aria-label="Hide files"
-                className="hidden h-7 w-7 items-center justify-center rounded-md border border-slate-300 bg-white text-sm leading-none text-slate-600 transition hover:bg-slate-50 active:scale-[0.98] lg:inline-flex"
+                className="hidden h-7 w-7 items-center justify-center rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm leading-none text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] lg:inline-flex"
                 onClick={onCollapse}
                 title="Hide files"
                 type="button"
@@ -202,7 +202,7 @@ export function SliceFolderNavigator({
             />
           ))
         ) : (
-          <p className="mx-3 rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+          <p className="mx-3 rounded-md border border-dashed border-slate-300 dark:border-zinc-700 p-3 text-sm text-slate-600 dark:text-zinc-400">
             No files in this slice.
           </p>
         )}
@@ -211,7 +211,7 @@ export function SliceFolderNavigator({
           .filter((result) => result.error)
           .map((result) => (
             <p
-              className="mx-3 mt-2 rounded-md bg-rose-50 p-3 text-sm text-rose-800"
+              className="mx-3 mt-2 rounded-md bg-rose-50 dark:bg-rose-950/30 p-3 text-sm text-rose-800 dark:text-rose-200"
               key={`error-${result.path || "root"}`}
             >
               Could not load {result.path || "slice root"}:{" "}

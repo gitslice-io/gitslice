@@ -358,21 +358,21 @@ export function DiffViewer({
 
   return (
     <>
-      <section className="mt-2.5 rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3">
-        <div className="sticky top-[var(--page-header-height,3rem)] z-20 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white lg:py-3 lg:backdrop-blur-none">
+      <section className="mt-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:mt-3">
+        <div className="sticky top-[var(--page-header-height,3rem)] z-20 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/95 px-3 py-2 backdrop-blur md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white dark:lg:bg-zinc-900 lg:py-3 lg:backdrop-blur-none">
           <div className="flex items-center justify-between gap-2 md:gap-3">
             <div className="min-w-0 flex-1 lg:flex-none">
               <div className="hidden flex-wrap items-baseline gap-x-2 gap-y-0.5 lg:flex">
-                <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 md:text-base">
+                <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 md:text-base">
                   Files
                 </h2>
-                <span className="text-xs text-slate-500 md:text-sm">
+                <span className="text-xs text-slate-500 dark:text-zinc-400 md:text-sm">
                   {isLoading ? "Loading…" : `${changedCount} changed`}
                 </span>
                 {!isLoading && files.length > 0 ? (
                   <span className="flex gap-1.5 font-mono text-xs">
-                    <span className="text-emerald-700">+{totalAdditions}</span>
-                    <span className="text-rose-700">-{totalDeletions}</span>
+                    <span className="text-emerald-700 dark:text-emerald-300">+{totalAdditions}</span>
+                    <span className="text-rose-700 dark:text-rose-300">-{totalDeletions}</span>
                   </span>
                 ) : null}
               </div>
@@ -385,10 +385,10 @@ export function DiffViewer({
                 />
               ) : (
                 <div className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-0.5 lg:hidden">
-                  <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950">
+                  <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50">
                     Files
                   </h2>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-slate-500 dark:text-zinc-400">
                     {isLoading ? "Loading…" : `${changedCount} changed`}
                   </span>
                 </div>
@@ -435,7 +435,7 @@ export function DiffViewer({
           </div>
         ) : (
           <div className="p-5 md:p-6">
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+            <div className="rounded-lg border border-dashed border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 px-4 py-6 text-sm text-slate-600 dark:text-zinc-400">
               No textual changes to display.
             </div>
           </div>
@@ -464,15 +464,15 @@ function ViewModeToggle({
   value: ViewMode;
 }) {
   return (
-    <div className="inline-flex h-8 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 md:h-9">
+    <div className="inline-flex h-8 w-fit overflow-hidden rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 p-0.5 md:h-9">
       {(["unified", "split"] as const).map((mode) => (
         <button
           aria-pressed={value === mode}
           className={cn(
             "rounded px-2.5 text-xs font-medium capitalize transition md:px-3 md:text-sm",
             value === mode
-              ? "bg-white text-zinc-950 shadow-sm"
-              : "text-slate-600 hover:text-zinc-950"
+              ? "bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-sm"
+              : "text-slate-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-50"
           )}
           key={mode}
           onClick={() => onChange(mode)}
@@ -502,22 +502,22 @@ function DiffFilePanel({
 }) {
   return (
     <article
-      className="scroll-mt-32 overflow-hidden rounded-lg border border-slate-200 bg-white lg:scroll-mt-28"
+      className="scroll-mt-32 overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 lg:scroll-mt-28"
       id={file.id}
       ref={refCallback}
     >
-      <div className="flex flex-col gap-1.5 border-b border-slate-200 bg-slate-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4 sm:py-3">
+      <div className="flex flex-col gap-1.5 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4 sm:py-3">
         <div className="flex min-w-0 items-center gap-2">
           <ChangeKindBadge kind={file.changeKind} />
-          <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-950 sm:text-sm">
+          <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-950 dark:text-zinc-50 sm:text-sm">
             {file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}
           </h3>
         </div>
         <div className="flex shrink-0 gap-2 font-mono text-xs">
-          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-800 sm:px-2 sm:py-1">
+          <span className="rounded bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-emerald-800 dark:text-emerald-200 sm:px-2 sm:py-1">
             +{file.additions}
           </span>
-          <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-800 sm:px-2 sm:py-1">
+          <span className="rounded bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 text-rose-800 dark:text-rose-200 sm:px-2 sm:py-1">
             -{file.deletions}
           </span>
         </div>
@@ -564,7 +564,7 @@ function DiffBodyPlaceholder({
   return (
     <div
       aria-hidden="true"
-      className="bg-white"
+      className="bg-white dark:bg-zinc-900"
       style={{ height: estimatedDiffBodyHeight(file, viewMode) }}
     />
   );
@@ -594,7 +594,7 @@ function UnifiedDiff({
   );
 
   return (
-    <pre className="overflow-x-auto bg-white text-xs leading-4 md:text-[13px]">
+    <pre className="overflow-x-auto bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
       <code className="block min-w-max py-1.5">
         {segments.map((segment) =>
           segment.type === "gap" ? (
@@ -616,10 +616,10 @@ function UnifiedDiff({
                     )}
                     key={`${index}-${line.text}`}
                   >
-                    <span className="hidden select-none pr-1 text-right text-[10px] text-slate-400 sm:block sm:pr-3 sm:text-xs">
+                    <span className="hidden select-none pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:block sm:pr-3 sm:text-xs">
                       {line.oldNumber ?? ""}
                     </span>
-                    <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
+                    <span className="select-none pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pr-3 sm:text-xs">
                       {line.newNumber ?? ""}
                     </span>
                     <span>{line.text || " "}</span>
@@ -662,14 +662,14 @@ function SplitDiff({
 
   if (rows.length === 0) {
     return (
-      <div className="bg-white px-4 py-5 text-sm text-slate-500">
+      <div className="bg-white dark:bg-zinc-900 px-4 py-5 text-sm text-slate-500 dark:text-zinc-400">
         No line changes in this file.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto bg-white text-xs leading-4 md:text-[13px]">
+    <div className="overflow-x-auto bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
       <div className="min-w-[48rem] py-1.5">
         {segments.map((segment) =>
           segment.type === "gap" ? (
@@ -697,10 +697,10 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
     return (
       <div
         className={cn(
-          "border-t border-slate-100 px-4 py-0.5 font-mono first:border-t-0",
+          "border-t border-slate-100 dark:border-zinc-800 px-4 py-0.5 font-mono first:border-t-0",
           row.hunkText?.startsWith("@@")
-            ? "bg-sky-50 text-sky-700"
-            : "bg-slate-50 text-slate-500"
+            ? "bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300"
+            : "bg-slate-50 dark:bg-zinc-950 text-slate-500 dark:text-zinc-400"
         )}
       >
         {row.hunkText}
@@ -710,7 +710,7 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
 
   return (
     <div
-      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-t border-slate-100 first:border-t-0"
+      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-t border-slate-100 dark:border-zinc-800 first:border-t-0"
       key={splitRowKey(row, index)}
     >
       <SplitCell
@@ -739,10 +739,10 @@ function ExpandSeparator({
   onExpand: ExpandFn;
 }) {
   return (
-    <span className="flex w-full items-center justify-center gap-3 border-y border-slate-100 bg-sky-50/70 px-4 py-1 font-mono text-xs text-sky-700 first:border-t-0">
+    <span className="flex w-full items-center justify-center gap-3 border-y border-slate-100 dark:border-zinc-800 bg-sky-50/70 px-4 py-1 font-mono text-xs text-sky-700 dark:text-sky-300 first:border-t-0">
       <button
         aria-label={`Expand ${EXPAND_CHUNK} lines up`}
-        className="rounded px-1.5 hover:bg-sky-100"
+        className="rounded px-1.5 hover:bg-sky-100 dark:hover:bg-sky-950/45"
         onClick={() => onExpand(keyFor(), "up", gap.hiddenTotal)}
         type="button"
       >
@@ -750,7 +750,7 @@ function ExpandSeparator({
       </button>
       <button
         aria-label="Expand all hidden lines"
-        className="rounded px-2 hover:bg-sky-100 hover:underline"
+        className="rounded px-2 hover:bg-sky-100 dark:hover:bg-sky-950/45 hover:underline"
         onClick={() => onExpand(keyFor(), "all", gap.hiddenTotal)}
         type="button"
       >
@@ -758,7 +758,7 @@ function ExpandSeparator({
       </button>
       <button
         aria-label={`Expand ${EXPAND_CHUNK} lines down`}
-        className="rounded px-1.5 hover:bg-sky-100"
+        className="rounded px-1.5 hover:bg-sky-100 dark:hover:bg-sky-950/45"
         onClick={() => onExpand(keyFor(), "down", gap.hiddenTotal)}
         type="button"
       >
@@ -776,19 +776,19 @@ function SplitCell({
   tone: "add" | "context" | "del";
 }) {
   if (!line) {
-    return <div className="min-h-4 bg-slate-50/80" />;
+    return <div className="min-h-4 bg-slate-50/80 dark:bg-zinc-950/80" />;
   }
 
   return (
     <div
       className={cn(
         "grid min-h-4 grid-cols-[1.75rem_minmax(0,1fr)] overflow-x-auto whitespace-pre px-2 font-mono sm:grid-cols-[3.5rem_minmax(0,1fr)] sm:px-4",
-        tone === "add" && "bg-emerald-50 text-emerald-900",
-        tone === "del" && "bg-rose-50 text-rose-900",
-        tone === "context" && "text-slate-700"
+        tone === "add" && "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200",
+        tone === "del" && "bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200",
+        tone === "context" && "text-slate-700 dark:text-zinc-300"
       )}
     >
-      <span className="select-none pr-1 text-right text-[10px] text-slate-400 sm:pr-3 sm:text-xs">
+      <span className="select-none pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pr-3 sm:text-xs">
         {tone === "add" ? line.newNumber : line.oldNumber}
       </span>
       <span>{line.content || " "}</span>
@@ -814,17 +814,17 @@ function DiffSkeleton() {
     <div className="grid gap-4 p-4 md:p-5">
       {Array.from({ length: 2 }).map((_, index) => (
         <div
-          className="overflow-hidden rounded-lg border border-slate-200"
+          className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800"
           key={index}
         >
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="h-4 w-64 animate-pulse rounded bg-slate-200" />
+          <div className="border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-4 py-3">
+            <div className="h-4 w-64 animate-pulse rounded bg-slate-200 dark:bg-zinc-700" />
           </div>
           <div className="space-y-2 p-4">
-            <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
-            <div className="h-4 w-11/12 animate-pulse rounded bg-slate-100" />
-            <div className="h-4 w-4/5 animate-pulse rounded bg-slate-100" />
-            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
+            <div className="h-4 w-full animate-pulse rounded bg-slate-100 dark:bg-zinc-800" />
+            <div className="h-4 w-11/12 animate-pulse rounded bg-slate-100 dark:bg-zinc-800" />
+            <div className="h-4 w-4/5 animate-pulse rounded bg-slate-100 dark:bg-zinc-800" />
+            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100 dark:bg-zinc-800" />
           </div>
         </div>
       ))}
@@ -834,7 +834,7 @@ function DiffSkeleton() {
 
 function DiffErrorBox({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+    <div className="rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 px-4 py-3 text-sm text-rose-800 dark:text-rose-200">
       {message}
     </div>
   );
@@ -843,28 +843,28 @@ function DiffErrorBox({ message }: { message: string }) {
 function diffLineClass(kind: DiffLineKind) {
   switch (kind) {
     case "add":
-      return "bg-emerald-50 text-emerald-900";
+      return "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200";
     case "del":
-      return "bg-rose-50 text-rose-900";
+      return "bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200";
     case "hunk":
-      return "bg-sky-50 text-sky-700";
+      return "bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300";
     case "meta":
-      return "bg-slate-50 text-slate-500";
+      return "bg-slate-50 dark:bg-zinc-950 text-slate-500 dark:text-zinc-400";
     case "context":
-      return "text-slate-700";
+      return "text-slate-700 dark:text-zinc-300";
   }
 }
 
 function changeKindClass(kind: FileChangeKind) {
   switch (kind) {
     case "added":
-      return "bg-emerald-100 text-emerald-800";
+      return "bg-emerald-100 dark:bg-emerald-950/45 text-emerald-800 dark:text-emerald-200";
     case "deleted":
-      return "bg-rose-100 text-rose-800";
+      return "bg-rose-100 dark:bg-rose-950/45 text-rose-800 dark:text-rose-200";
     case "renamed":
       return "bg-violet-100 text-violet-800";
     case "modified":
-      return "bg-amber-100 text-amber-900";
+      return "bg-amber-100 dark:bg-amber-950/45 text-amber-900 dark:text-amber-200";
   }
 }
 

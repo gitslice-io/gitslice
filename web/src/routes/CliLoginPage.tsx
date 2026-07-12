@@ -95,7 +95,7 @@ export function CliLoginPage() {
   if (!isLoaded) {
     return (
       <AuthFrame title="Authorizing CLI">
-        <p className="text-sm text-slate-600">Loading session...</p>
+        <p className="text-sm text-slate-600 dark:text-zinc-400">Loading session...</p>
       </AuthFrame>
     );
   }
@@ -110,7 +110,7 @@ export function CliLoginPage() {
   return (
     <AuthFrame title={title}>
       {completeSucceeded ? (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-600 dark:text-zinc-400">
           Authorization complete — return to your terminal.
         </p>
       ) : error ? (
@@ -118,7 +118,7 @@ export function CliLoginPage() {
       ) : !code && !callbackUrl ? (
         <p className="text-sm text-red-700">Missing code query parameter.</p>
       ) : (
-        <p className="text-sm text-slate-600">Authorizing CLI...</p>
+        <p className="text-sm text-slate-600 dark:text-zinc-400">Authorizing CLI...</p>
       )}
     </AuthFrame>
   );

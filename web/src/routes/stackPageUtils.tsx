@@ -9,13 +9,13 @@ import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
 
 export const primaryButtonClass =
-  "inline-flex items-center justify-center rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex items-center justify-center rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
 
 export const secondaryButtonClass =
-  "inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex items-center justify-center rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
 
 export const dangerButtonClass =
-  "inline-flex items-center justify-center rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex items-center justify-center rounded-md border border-rose-300 dark:border-rose-800/70 bg-white dark:bg-zinc-900 px-4 py-2.5 text-sm font-medium text-rose-700 dark:text-rose-300 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
 
 export function parseSliceSearch(value: unknown): Required<SliceRef> | null {
   if (typeof value !== "string") {
@@ -292,23 +292,23 @@ export function statusClass(status?: string) {
     case "merged":
     case "closed":
     case "clean":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200";
     case "accepted":
     case "pending_publish":
     case "partial":
     case "needs_restack":
     case "needs_rebase":
-      return "border-amber-200 bg-amber-50 text-amber-900";
+      return "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200";
     case "blocked":
     case "failed":
     case "abandoned":
     case "conflict":
     case "conflicted":
-      return "border-rose-200 bg-rose-50 text-rose-800";
+      return "border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200";
     case "draft":
     case "open":
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
     default:
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
   }
 }

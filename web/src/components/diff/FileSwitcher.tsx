@@ -56,14 +56,14 @@ export function MobileFileSwitcher({
         aria-label={`Open file picker, ${active.basename}, ${
           active.index + 1
         } of ${files.length}`}
-        className="grid h-9 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-left transition hover:bg-slate-100 active:scale-[0.98]"
+        className="grid h-9 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-2.5 text-left transition hover:bg-slate-100 dark:hover:bg-zinc-800 active:scale-[0.98]"
         onClick={onOpenPicker}
         type="button"
       >
-        <span className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-950">
+        <span className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-950 dark:text-zinc-50">
           {active.basename}
         </span>
-        <span className="shrink-0 rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-600 shadow-sm">
+        <span className="shrink-0 rounded bg-white dark:bg-zinc-900 px-1.5 py-0.5 font-mono text-[11px] text-slate-600 dark:text-zinc-400 shadow-sm">
           {active.index + 1} / {files.length}
         </span>
       </button>
@@ -154,28 +154,28 @@ export function FilePickerSheet({
         aria-labelledby="diff-file-picker-title"
         aria-modal="true"
         className={cn(
-          "absolute inset-x-0 bottom-0 z-10 flex max-h-[80dvh] min-h-0 transform flex-col overflow-hidden rounded-t-lg bg-white shadow-xl transition-transform duration-200",
+          "absolute inset-x-0 bottom-0 z-10 flex max-h-[80dvh] min-h-0 transform flex-col overflow-hidden rounded-t-lg bg-white dark:bg-zinc-900 shadow-xl transition-transform duration-200",
           entered ? "translate-y-0" : "translate-y-full"
         )}
         role="dialog"
       >
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3">
           <div className="flex min-w-0 items-baseline gap-2">
             <h2
-              className="truncate text-sm font-semibold text-zinc-950"
+              className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50"
               id="diff-file-picker-title"
             >
               Files changed
             </h2>
             <div className="flex shrink-0 gap-1.5 font-mono text-xs">
-              <span className="text-emerald-700">+{totalAdditions}</span>
-              <span className="text-slate-300">/</span>
-              <span className="text-rose-700">-{totalDeletions}</span>
+              <span className="text-emerald-700 dark:text-emerald-300">+{totalAdditions}</span>
+              <span className="text-slate-300 dark:text-zinc-500">/</span>
+              <span className="text-rose-700 dark:text-rose-300">-{totalDeletions}</span>
             </div>
           </div>
           <button
             aria-label="Close file picker"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
             onClick={onClose}
             type="button"
           >
@@ -197,10 +197,10 @@ export function FilePickerSheet({
 
 function fileNavButtonClass(disabled: boolean) {
   return cn(
-    "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-700 shadow-sm transition active:scale-[0.98]",
+    "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-semibold text-slate-700 dark:text-zinc-300 shadow-sm transition active:scale-[0.98]",
     disabled
       ? "cursor-not-allowed opacity-40"
-      : "hover:bg-slate-50 hover:text-zinc-950"
+      : "hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
   );
 }
 

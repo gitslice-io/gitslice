@@ -11,7 +11,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
 
   if (!isLoaded) {
     return (
-      <main className="grid min-h-[100dvh] place-items-center bg-slate-50 p-6 text-sm text-slate-600">
+      <main className="grid min-h-[100dvh] place-items-center bg-slate-50 dark:bg-zinc-950 p-6 text-sm text-slate-600 dark:text-zinc-400">
         Loading session...
       </main>
     );

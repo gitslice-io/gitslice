@@ -158,7 +158,7 @@ export function SliceSourceWorkspace({
         onOpenHistory={onOpenHistory}
         selectedPath={selectedPath}
       />
-      <p className="mt-4 text-sm text-slate-600">
+      <p className="mt-4 text-sm text-slate-600 dark:text-zinc-400">
         {entryKindLabel(entry.kind)} entries are visible in the navigator but do
         not have a preview in this view.
       </p>

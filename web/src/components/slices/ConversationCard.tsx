@@ -19,15 +19,15 @@ export function ConversationCard({
   const timeSource = conversation.updatedAt || conversation.createdAt;
   const timeLabel = formatRelativeTime(timeSource);
   const cardClass =
-    "block rounded-lg border border-slate-200 bg-white px-3.5 py-3 shadow-sm shadow-slate-200/50 transition hover:border-slate-300 hover:bg-slate-50";
+    "block rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-3 shadow-sm shadow-slate-200/50 dark:shadow-black/50 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950";
   const body = (
     <>
-      <p className="truncate text-sm font-semibold text-zinc-950">{title}</p>
-      <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-slate-500">
+      <p className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">{title}</p>
+      <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
         <ConversationStatusPill conversation={conversation} />
         <span className="min-w-0 truncate">{sliceLabel}</span>
         <span
-          className="ml-auto shrink-0 whitespace-nowrap font-mono text-[0.7rem] text-slate-400"
+          className="ml-auto shrink-0 whitespace-nowrap font-mono text-[0.7rem] text-slate-400 dark:text-zinc-500"
           title={timeSource}
         >
           {timeLabel}
@@ -66,7 +66,7 @@ export function ConversationStatusPill({
         "inline-block h-2 w-2 shrink-0 rounded-full ring-2",
         active
           ? "bg-emerald-500 ring-emerald-500/15"
-          : "bg-slate-300 ring-slate-300/20"
+          : "bg-slate-300 dark:bg-zinc-600 ring-slate-300/20"
       )}
       role="img"
       title={value}

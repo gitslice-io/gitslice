@@ -107,7 +107,7 @@ export function ConversationDrawer({
 
   if (docked) {
     return (
-      <aside className="mt-2.5 flex max-h-[calc(100dvh-2rem)] w-[24rem] shrink-0 flex-col overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:mt-3 xl:sticky xl:top-4 xl:self-start">
+      <aside className="mt-2.5 flex max-h-[calc(100dvh-2rem)] w-[24rem] shrink-0 flex-col overflow-y-auto rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:mt-3 xl:sticky xl:top-4 xl:self-start">
         {drawerContent}
       </aside>
     );
@@ -132,7 +132,7 @@ export function ConversationDrawer({
         aria-label="Agent conversation"
         aria-modal="true"
         className={cn(
-          "fixed inset-y-0 right-0 z-10 flex w-full max-w-[28rem] transform flex-col overflow-hidden bg-white shadow-xl transition-transform duration-200",
+          "fixed inset-y-0 right-0 z-10 flex w-full max-w-[28rem] transform flex-col overflow-hidden bg-white dark:bg-zinc-900 shadow-xl transition-transform duration-200",
           entered ? "translate-x-0" : "translate-x-full"
         )}
         role="dialog"
@@ -152,18 +152,18 @@ export function ConversationDrawerHeader({
   onClose(): void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+    <div className="flex items-start justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3">
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold text-zinc-950">
+        <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           Agent conversation
         </h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
           The exchange behind the selected diff.
         </p>
       </div>
       <button
         aria-label="Close conversation"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
         onClick={onClose}
         ref={closeButtonRef}
         type="button"
@@ -204,7 +204,7 @@ export function PatchsetConversationContent({
 
   if (!range) {
     return (
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-slate-600 dark:text-zinc-400">
         This patchset was not produced by an agent conversation.
       </p>
     );
@@ -216,13 +216,13 @@ export function PatchsetConversationContent({
   return (
     <>
       {eventsQuery.isPending ? (
-        <p className="text-sm text-slate-600">Loading conversation…</p>
+        <p className="text-sm text-slate-600 dark:text-zinc-400">Loading conversation…</p>
       ) : eventsQuery.isError ? (
-        <p className="text-sm text-rose-600">
+        <p className="text-sm text-rose-600 dark:text-rose-300">
           Could not load the conversation for this patchset.
         </p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-slate-600">No messages for this patchset.</p>
+        <p className="text-sm text-slate-600 dark:text-zinc-400">No messages for this patchset.</p>
       ) : (
         <ul className="space-y-3">
           {items.map((item, index) =>
@@ -236,13 +236,13 @@ export function PatchsetConversationContent({
                 className={cn(
                   "rounded-lg border px-3 py-2 text-sm",
                   item.event.role === "user"
-                    ? "border-zinc-200 bg-zinc-50"
+                    ? "border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900"
                     : item.event.role === "system"
-                      ? "border-amber-200 bg-amber-50"
-                      : "border-slate-200 bg-white"
+                      ? "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30"
+                      : "border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"
                 )}
               >
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
                   {item.event.role ?? "agent"}
                   {item.event.type && item.event.type !== "message"
                     ? ` · ${item.event.type}`
@@ -251,7 +251,7 @@ export function PatchsetConversationContent({
                 {item.event.role === "user" ||
                 item.event.role === "system" ||
                 !item.event.text ? (
-                  <div className="whitespace-pre-wrap break-words text-slate-800">
+                  <div className="whitespace-pre-wrap break-words text-slate-800 dark:text-zinc-200">
                     {item.event.text}
                   </div>
                 ) : (
@@ -275,7 +275,7 @@ function MessageMarkdown({ source }: { source: string }) {
   const onLinkClick = useInternalLinkClickHandler();
   return (
     <div
-      className="prose prose-sm prose-slate max-w-none break-words text-slate-800 prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:text-zinc-900 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
+      className="prose prose-sm prose-slate max-w-none break-words text-slate-800 dark:text-zinc-200 prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
       dangerouslySetInnerHTML={{ __html: html }}
       onClick={onLinkClick}
     />
@@ -362,18 +362,18 @@ export function isTraceEvent(event: ConversationEvent) {
 
 export function ConversationTrace({ events }: { events: ConversationEvent[] }) {
   return (
-    <details className="rounded-lg border border-slate-200 bg-slate-50/70 text-sm">
-      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-zinc-950">
+    <details className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/70 text-sm">
+      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400 transition hover:text-zinc-950 dark:hover:text-zinc-50">
         Agent thinking ({events.length})
       </summary>
-      <ul className="space-y-2 border-t border-slate-200 px-3 py-2">
+      <ul className="space-y-2 border-t border-slate-200 dark:border-zinc-800 px-3 py-2">
         {events.map((event, index) => (
           <li key={event.id ?? `${event.seq}-${index}`}>
-            <div className="mb-0.5 text-[0.7rem] font-semibold uppercase tracking-wide text-slate-400">
+            <div className="mb-0.5 text-[0.7rem] font-semibold uppercase tracking-wide text-slate-400 dark:text-zinc-500">
               {event.role ?? "agent"}
               {event.type ? ` · ${event.type}` : ""}
             </div>
-            <div className="whitespace-pre-wrap break-words text-slate-600">
+            <div className="whitespace-pre-wrap break-words text-slate-600 dark:text-zinc-400">
               {event.text || event.dataJson}
             </div>
           </li>

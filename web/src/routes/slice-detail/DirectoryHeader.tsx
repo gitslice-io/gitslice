@@ -75,7 +75,7 @@ export function DirectoryHeader({
   const rightActions = actions !== undefined ? actions : ownMenu;
   const historyButton = onOpenHistory ? (
     <button
-      className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+      className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
       onClick={onOpenHistory}
       type="button"
     >
@@ -84,15 +84,15 @@ export function DirectoryHeader({
   ) : null;
 
   return (
-    <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
+    <div className="border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="break-all text-base font-semibold text-zinc-950">
+          <h2 className="break-all text-base font-semibold text-zinc-950 dark:text-zinc-50">
             {selectedPath || "Slice root"}
           </h2>
-          <p className="mt-1 hidden text-xs text-slate-500 sm:block">
+          <p className="mt-1 hidden text-xs text-slate-500 dark:text-zinc-400 sm:block">
             Commit{" "}
-            <span className="font-mono text-slate-700" title={commitId}>
+            <span className="font-mono text-slate-700 dark:text-zinc-300" title={commitId}>
               {shortHash(commitId)}
             </span>
           </p>

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import { BrandMark } from "../components/BrandMark";
+import { ThemeToggle } from "../components/ThemeToggle";
 
 type FeatureIconName =
   | "slice"
@@ -131,13 +132,11 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
 
 export function LandingPage() {
   return (
-    <div className="relative min-h-[100dvh] overflow-hidden bg-zinc-950 font-sans text-zinc-100">
+    <div className="relative min-h-[100dvh] overflow-hidden bg-slate-50 font-sans text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-40"
+        className="landing-grid pointer-events-none absolute inset-0 opacity-70 dark:opacity-40"
         style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)",
           backgroundSize: "56px 56px"
         }}
       />
@@ -146,25 +145,29 @@ export function LandingPage() {
         className="pointer-events-none absolute left-1/2 top-0 h-[34rem] w-[46rem] -translate-x-1/2 animate-pulse rounded-full bg-sky-500/[0.08] blur-3xl"
       />
 
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-zinc-950/85 backdrop-blur-xl">
+      <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-slate-50/85 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/85">
         <div className="mx-auto flex min-h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
           <Link
             aria-label="Gitslice home"
-            className="flex items-center gap-2.5 rounded-md text-sm font-semibold tracking-tight text-white outline-none transition hover:text-zinc-200 focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+            className="flex items-center gap-2.5 rounded-md text-sm font-semibold tracking-tight text-zinc-950 outline-none transition hover:text-zinc-600 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-white dark:hover:text-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
             to="/"
           >
             <BrandMark className="h-7 w-7" />
             <span>Gitslice</span>
           </Link>
-          <nav aria-label="Landing page" className="flex items-center gap-1 sm:gap-2">
+          <nav
+            aria-label="Landing page"
+            className="flex items-center gap-1 sm:gap-2"
+          >
+            <ThemeToggle inverted />
             <Link
-              className="rounded-full px-2.5 py-2 text-sm font-medium text-zinc-300 outline-none transition hover:bg-white/[0.06] hover:text-white active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:px-4"
+              className="rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
               to="/login"
             >
               Sign in
             </Link>
             <Link
-              className="rounded-full bg-white px-3.5 py-2 text-sm font-semibold text-zinc-950 outline-none transition hover:bg-zinc-200 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:px-4"
+              className="rounded-full bg-zinc-950 px-3.5 py-2 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
               to="/login"
             >
               Get started
@@ -176,19 +179,28 @@ export function LandingPage() {
       <main className="relative">
         <section className="mx-auto grid w-full max-w-7xl items-center gap-12 px-4 pb-20 pt-16 sm:px-6 sm:pb-24 sm:pt-24 lg:grid-cols-[minmax(0,1.05fr)_minmax(25rem,0.95fr)] lg:gap-16 lg:px-8 lg:pb-32 lg:pt-28">
           <div>
-            <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+            <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
               <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
               Source infrastructure for humans and agents
             </div>
-            <h1 className="max-w-3xl text-4xl font-semibold leading-[1.02] tracking-[-0.045em] text-white sm:text-5xl md:text-6xl">
+            <h1 className="max-w-3xl text-4xl font-semibold leading-[1.02] tracking-[-0.045em] text-zinc-950 dark:text-white sm:text-5xl md:text-6xl">
               One source graph. A thousand small workspaces.
             </h1>
-            <p className="mt-7 max-w-2xl text-base leading-7 text-zinc-400 sm:text-lg sm:leading-8">
-              Gitslice gives you repo-like <strong className="font-medium text-zinc-200">slices</strong> over one global codebase, <strong className="font-medium text-zinc-200">changesets</strong> for review and submit, and Git compatibility at the boundary—built for humans and coding agents.
+            <p className="mt-7 max-w-2xl text-base leading-7 text-slate-600 dark:text-zinc-400 sm:text-lg sm:leading-8">
+              Gitslice gives you repo-like{" "}
+              <strong className="font-medium text-zinc-800 dark:text-zinc-200">
+                slices
+              </strong>{" "}
+              over one global codebase,{" "}
+              <strong className="font-medium text-zinc-800 dark:text-zinc-200">
+                changesets
+              </strong>{" "}
+              for review and submit, and Git compatibility at the boundary—built
+              for humans and coding agents.
             </p>
             <div className="mt-9 flex flex-col gap-3 min-[380px]:flex-row">
               <Link
-                className="inline-flex min-h-11 items-center justify-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-zinc-950 outline-none transition hover:bg-zinc-200 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+                className="inline-flex min-h-11 items-center justify-center rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
                 to="/login"
               >
                 Get started
@@ -207,7 +219,7 @@ export function LandingPage() {
                 </svg>
               </Link>
               <Link
-                className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-5 py-2.5 text-sm font-semibold text-zinc-200 outline-none transition hover:border-white/20 hover:bg-white/[0.08] active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-300 bg-white/70 px-5 py-2.5 text-sm font-semibold text-zinc-700 outline-none transition hover:border-slate-400 hover:bg-white active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:border-white/20 dark:hover:bg-white/[0.08] dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
                 to="/login"
               >
                 Sign in
@@ -239,9 +251,13 @@ export function LandingPage() {
                 <p className="text-zinc-500">Authenticated as mira@orbit.dev</p>
                 <p className="mt-4">
                   <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">gs workspace init orbit/checkout</span>
+                  <span className="text-zinc-200">
+                    gs workspace init orbit/checkout
+                  </span>
                 </p>
-                <p className="text-zinc-500">Hydrated 318 files from slice orbit/checkout</p>
+                <p className="text-zinc-500">
+                  Hydrated 318 files from slice orbit/checkout
+                </p>
                 <p className="mt-4">
                   <span className="text-sky-400">$</span>{" "}
                   <span className="text-zinc-200">gs status</span>
@@ -252,7 +268,9 @@ export function LandingPage() {
                 </p>
                 <p className="mt-4">
                   <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">gs cs create --title &quot;Tighten authorization&quot;</span>
+                  <span className="text-zinc-200">
+                    gs cs create --title &quot;Tighten authorization&quot;
+                  </span>
                 </p>
                 <p className="text-zinc-500">Created orbit/checkout@184</p>
                 <p className="mt-4">
@@ -260,12 +278,14 @@ export function LandingPage() {
                   <span className="text-zinc-200">gs cs submit</span>
                 </p>
                 <p className="text-zinc-500">
-                  <span className="text-emerald-300">Checks 4/4</span> · submitted to global
+                  <span className="text-emerald-300">Checks 4/4</span> ·
+                  submitted to global
                 </p>
               </div>
             </div>
             <figcaption className="sr-only">
-              An example Gitslice CLI session authenticating, creating a workspace, reviewing changes, and submitting a changeset.
+              An example Gitslice CLI session authenticating, creating a
+              workspace, reviewing changes, and submitting a changeset.
             </figcaption>
           </figure>
         </section>
@@ -274,20 +294,21 @@ export function LandingPage() {
           aria-labelledby="features-heading"
           className="mx-auto w-full max-w-7xl px-4 pb-24 sm:px-6 sm:pb-32 lg:px-8"
         >
-          <div className="border-t border-white/10 pt-20 sm:pt-24">
+          <div className="border-t border-slate-200 pt-20 dark:border-white/10 sm:pt-24">
             <div className="grid gap-6 md:grid-cols-[0.7fr_1.3fr] md:items-end">
               <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-sky-400">
                 Native by design
               </p>
               <div>
                 <h2
-                  className="text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl"
+                  className="text-3xl font-semibold tracking-[-0.035em] text-zinc-950 dark:text-white sm:text-4xl"
                   id="features-heading"
                 >
                   Small surfaces. One coherent system.
                 </h2>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-400">
-                  Source, policy, review, and automation share the same graph—without making every developer carry the whole thing.
+                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 dark:text-zinc-400">
+                  Source, policy, review, and automation share the same
+                  graph—without making every developer carry the whole thing.
                 </p>
               </div>
             </div>
@@ -295,18 +316,18 @@ export function LandingPage() {
             <div className="mt-12 grid gap-4 md:grid-cols-2 lg:gap-5">
               {features.map((feature, index) => (
                 <article
-                  className={`group rounded-2xl border border-white/10 bg-white/[0.035] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.06] sm:p-7 ${
+                  className={`group rounded-2xl border border-slate-200 bg-white/75 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:bg-white dark:border-white/10 dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:border-white/20 dark:hover:bg-white/[0.06] sm:p-7 ${
                     index === 0 || index === 3 ? "md:translate-y-5" : ""
                   }`}
                   key={feature.title}
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-sky-400/20 bg-sky-400/[0.08] text-sky-300 transition group-hover:border-sky-400/30 group-hover:bg-sky-400/[0.12]">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-sky-300 bg-sky-50 text-sky-700 transition group-hover:border-sky-400 group-hover:bg-sky-100 dark:border-sky-400/20 dark:bg-sky-400/[0.08] dark:text-sky-300 dark:group-hover:border-sky-400/30 dark:group-hover:bg-sky-400/[0.12]">
                     <FeatureIcon name={feature.icon} />
                   </div>
-                  <h3 className="mt-6 text-lg font-semibold tracking-tight text-zinc-100">
+                  <h3 className="mt-6 text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     {feature.title}
                   </h3>
-                  <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-400">
+                  <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-zinc-400">
                     {feature.description}
                   </p>
                 </article>
@@ -316,14 +337,14 @@ export function LandingPage() {
         </section>
       </main>
 
-      <footer className="relative border-t border-white/10">
+      <footer className="relative border-t border-slate-200 dark:border-white/10">
         <div className="mx-auto flex min-h-20 w-full max-w-7xl flex-col items-start justify-between gap-4 px-4 py-6 text-sm text-zinc-500 min-[380px]:flex-row min-[380px]:items-center sm:px-6 lg:px-8">
           <div className="flex items-center gap-2.5">
             <BrandMark className="h-5 w-5 opacity-80" />
             <span>© 2026 Gitslice</span>
           </div>
           <Link
-            className="rounded-md text-zinc-400 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+            className="rounded-md text-slate-600 outline-none transition hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-400 dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
             to="/login"
           >
             Sign in
