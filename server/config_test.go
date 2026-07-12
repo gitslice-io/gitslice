@@ -65,6 +65,95 @@ func TestConfigFromEnvReadsRequireR2(t *testing.T) {
 	}
 }
 
+func TestValidateRequireMetricsToken(t *testing.T) {
+	tests := []struct {
+		name         string
+		requireToken bool
+		token        string
+		wantErr      bool
+	}{
+		{name: "required with token", requireToken: true, token: "metrics-token"},
+		{name: "required without token", requireToken: true, wantErr: true},
+		{name: "optional without token"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := baseValidConfig()
+			cfg.RequireMetricsToken = tt.requireToken
+			cfg.MetricsToken = tt.token
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("Validate() = nil, want error")
+				}
+				if !strings.Contains(err.Error(), "GITSLICE_REQUIRE_METRICS_TOKEN") {
+					t.Fatalf("Validate() error = %q, want it to contain %q", err.Error(), "GITSLICE_REQUIRE_METRICS_TOKEN")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestValidateRequireStrictCORS(t *testing.T) {
+	tests := []struct {
+		name          string
+		requireStrict bool
+		allowedOrigin string
+		wantErr       bool
+	}{
+		{name: "strict with wildcard", requireStrict: true, allowedOrigin: "*", wantErr: true},
+		{name: "strict with explicit origin", requireStrict: true, allowedOrigin: "https://app.example.com"},
+		{name: "strict with wildcard in list", requireStrict: true, allowedOrigin: "https://a.com,*", wantErr: true},
+		{name: "non-strict with wildcard", allowedOrigin: "*"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := baseValidConfig()
+			cfg.RequireStrictCORS = tt.requireStrict
+			cfg.HTTPAllowedOrigin = tt.allowedOrigin
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("Validate() = nil, want error")
+				}
+				if !strings.Contains(err.Error(), "GITSLICE_REQUIRE_STRICT_CORS") {
+					t.Fatalf("Validate() error = %q, want it to contain %q", err.Error(), "GITSLICE_REQUIRE_STRICT_CORS")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestConfigFromEnvReadsProductionHardeningConfig(t *testing.T) {
+	t.Setenv("GITSLICE_REQUIRE_METRICS_TOKEN", "1")
+	t.Setenv("GITSLICE_REQUIRE_STRICT_CORS", "1")
+	cfg := ConfigFromEnv()
+	if !cfg.RequireMetricsToken {
+		t.Fatal("ConfigFromEnv() RequireMetricsToken = false, want true")
+	}
+	if !cfg.RequireStrictCORS {
+		t.Fatal("ConfigFromEnv() RequireStrictCORS = false, want true")
+	}
+
+	t.Setenv("GITSLICE_REQUIRE_METRICS_TOKEN", "0")
+	t.Setenv("GITSLICE_REQUIRE_STRICT_CORS", "0")
+	cfg = ConfigFromEnv()
+	if cfg.RequireMetricsToken {
+		t.Fatal("ConfigFromEnv() RequireMetricsToken = true, want false when GITSLICE_REQUIRE_METRICS_TOKEN=0")
+	}
+	if cfg.RequireStrictCORS {
+		t.Fatal("ConfigFromEnv() RequireStrictCORS = true, want false when GITSLICE_REQUIRE_STRICT_CORS=0")
+	}
+}
+
 func TestValidateRequireSecretsKey(t *testing.T) {
 	validKey := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("a", 32)))
 	tests := []struct {
