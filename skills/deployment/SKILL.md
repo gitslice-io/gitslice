@@ -1,6 +1,6 @@
 ---
 name: deployment
-description: Deploy and verify Gitslice staging/production backend/web surfaces. Use when an agent is asked to deploy, release, restart staging, update the Cloudflare Worker web app, roll out backend binaries, prepare deployment checks, inspect deployment environment requirements, verify agenttools.dev / api.agenttools.dev (staging) or gitslice.io / api.gitslice.io (production), or troubleshoot PM2, Wrangler, Cloud Run, Cloud Build, CORS, R2, Neon, auth, migration, or deployed-service issues.
+description: Deploy and verify Gitslice staging/production backend/web surfaces. Use when an agent is asked to deploy, release, restart staging, update or inspect the Git-connected Cloudflare Worker web app, roll out backend binaries, prepare deployment checks, inspect deployment environment requirements, verify agenttools.dev / api.agenttools.dev (staging) or gitslice.io / api.gitslice.io (production), or troubleshoot Workers Builds, PM2, Wrangler, Cloud Run, Cloud Build, CORS, R2, Neon, auth, migration, or deployed-service issues.
 ---
 
 # Gitslice Deployment
@@ -20,7 +20,7 @@ If the target is ambiguous, ask for the target. Two environments exist:
 - API: `https://api.gitslice.io` — Cloud Run service `gitslice-prod` (region `us-west1`), Neon Postgres, R2 object store
 - deploy path: Cloud Build pipeline `cloudbuild.yaml`, run **daily** by Cloud Scheduler (not on merge)
 
-Do not deploy production unless the user explicitly names production. Note the production **API** ships on a **daily schedule**: Cloud Scheduler runs the Cloud Build trigger once a day, and the pipeline no-ops when `main` hasn't moved since the last deploy. Merging to `main` does **not** deploy immediately — merged backend code ships with the next scheduled build unless the user asks to ship it now (then run the trigger manually) — see "Production (Cloud Run + gitslice.io)" and "Production Deploy Monitoring & Rollback" below. Only the web Worker is deployed manually.
+Do not manually deploy production unless the user explicitly names production. Note the production **API** ships on a **daily schedule**: Cloud Scheduler runs the Cloud Build trigger once a day, and the pipeline no-ops when `main` hasn't moved since the last deploy. Merging to `main` does **not** deploy the API immediately — merged backend code ships with the next scheduled build unless the user asks to ship it now (then run the trigger manually) — see "Production (Cloud Run + gitslice.io)" and "Production Deploy Monitoring & Rollback" below. Web changes under `web/` are different: Git-connected Cloudflare Workers Builds deploy both live web Workers from `main` automatically.
 
 Never print secret values. `.env.staging`, `.env.prod`, `.env.local`, and `deploy/` are gitignored local operator state. To inspect environment shape, list keys only:
 
@@ -36,14 +36,38 @@ Backend staging is a Go `gitslice-server` process behind nginx. `ops/nginx.conf`
 
 The optional local helper `deploy/run-staging.sh` sources `.env.staging`, defaults `GITSLICE_HTTP_ADDR` to `127.0.0.1:8081`, and execs `bin/gitslice-server`. Treat it as operator-local context because `deploy/` is gitignored.
 
-The web app deploys to Cloudflare Workers through a single script `web/scripts/deploy.sh <staging|production>`, normally via the npm wrappers:
+The web app normally deploys through Cloudflare Workers Builds connected to
+`gitslice-io/gitslice`. Both Workers use `/web` as the project root and `web/*`
+as the included watch path:
+
+- `gitslice-web-staging`: `main` runs `npm run build` followed by
+  `npx wrangler deploy --env staging`; other branches upload previews with
+  `npx wrangler versions upload --env staging`.
+- `gitslice-web-production`: `main` runs `npm run build` followed by
+  `npx wrangler deploy --env production`; other branches upload previews with
+  `npx wrangler versions upload --env production`.
+
+Each trigger has build-time values for `VITE_CLERK_PUBLISHABLE_KEY`,
+`VITE_CLERK_AUTHORIZED_PARTIES`, `VITE_API_BASE_URL`, and
+`VITE_GITSLICE_GIT_HTTP_BASE_URL`. These are separate from runtime bindings in
+`web/wrangler.jsonc` and persistent Worker secrets such as
+`CLERK_SECRET_KEY`. Do not put the Clerk secret key in the Vite build variables.
+
+The repository also provides a manual/operator path through
+`web/scripts/deploy.sh <staging|production>` and the npm wrappers:
 
 ```bash
 npm --prefix web run deploy:staging      # -> deploy.sh staging   (agenttools.dev)
 npm --prefix web run deploy:production   # -> deploy.sh production (gitslice.io)
 ```
 
-That script picks the env file per target (`.env.staging` / `.env.prod`), maps `PUBLIC_API_BASE_URL` into `VITE_API_BASE_URL`, maps `PUBLIC_GITSLICE_GIT_HTTP_BASE_URL` into `VITE_GITSLICE_GIT_HTTP_BASE_URL`, builds the bundle (TanStack Start SSR → `.output/`), updates the `CLERK_SECRET_KEY` Worker secret when present (required for SSR — see the Web section), then runs `wrangler deploy --env <target>`. Worker envs and their custom-domain routes are defined under `env` in `web/wrangler.jsonc`.
+Use the manual path only when the user explicitly requests an immediate/manual
+web deploy, when repairing a failed Git build, or when rotating the runtime
+Clerk secret. The script picks the env file per target (`.env.staging` /
+`.env.prod`), maps the public URLs into Vite variables, builds the TanStack
+Start SSR bundle into `.output/`, updates `CLERK_SECRET_KEY` when present, and
+runs `wrangler deploy --env <target>`. Worker envs, runtime variables, assets,
+and custom-domain routes are defined under `env` in `web/wrangler.jsonc`.
 
 ## Preflight
 
@@ -116,7 +140,36 @@ and depends on `GITSLICE_SERVICE_JWT_*` settings.
 
 ## Web (Staging & Production)
 
-Deploy the Cloudflare Worker from the repository root:
+The normal deployment path is automatic:
+
+- A push to `main` containing a path matched by `web/*` builds and deploys both
+  live Workers with their environment-specific commands.
+- A push to any other branch containing a matching path uploads preview
+  versions for both Workers without changing live traffic.
+- Changes outside `web/` do not normally start a Worker build. Cloudflare can
+  bypass watch-path matching for empty pushes or unusually large pushes.
+
+Do not run a second manual deploy merely because a web change merged. Inspect
+the Workers Build first. The Builds API requires a user-scoped token with
+Workers Builds Configuration:Edit (Workers CI Write); never print the token:
+
+```bash
+set -a
+. ./.env.prod
+set +a
+ACCOUNT_ID=02fa014ee5c259f9cb1e01cf224ae197
+
+# Discover immutable Worker tags, then list builds for the relevant tag.
+curl -sS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/workers/scripts" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+curl -sS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/builds/workers/$WORKER_TAG/builds" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+curl -sS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/builds/builds/$BUILD_UUID/logs" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+```
+
+For an explicitly requested manual deploy or repair, deploy from the repository
+root:
 
 ```bash
 npm --prefix web run deploy:staging      # agenttools.dev
@@ -131,7 +184,13 @@ The deploy script (`web/scripts/deploy.sh <env>`) requires, in the matching env 
 - `VITE_GITSLICE_GIT_HTTP_BASE_URL` or `PUBLIC_GITSLICE_GIT_HTTP_BASE_URL`
 - `CLERK_SECRET_KEY` — **required for SSR, not optional.** `web/src/start.ts` runs Clerk's `clerkMiddleware` on every server render; without this Worker secret the SSR throws and the site returns 500 `{"message":"HTTPError"}`. The deploy script `wrangler secret put`s it when present in the env file. (Distinct from the Go backend, which uses only the publishable key — the *web Worker* additionally needs the secret key from the same Clerk instance.)
 
-`CLOUDFLARE_API_TOKEN` must be in the env file (or operator env) with Workers Scripts:Edit and, for custom-domain routes, Workers Routes:Edit. If the deployed web bundle points at localhost or an old API host, rebuild and redeploy through `web/scripts/deploy.sh`; Wrangler runtime vars are not visible to `import.meta.env` during the build.
+For the manual path, `CLOUDFLARE_API_TOKEN` must be in the env file (or operator
+env) with Workers Scripts:Edit and, for custom-domain routes, Workers
+Routes:Edit. If the deployed web bundle points at localhost or an old API host,
+first inspect the matching Workers Build variables. Repair the four `VITE_*`
+build variables on both the main and preview triggers, then rebuild; Wrangler
+runtime vars are not visible to `import.meta.env` during the build. Use the
+manual deploy script only when an explicit repair deployment is required.
 
 ## Production (Cloud Run + gitslice.io)
 
@@ -148,7 +207,11 @@ Key production facts:
 - CORS: `GITSLICE_HTTP_ALLOWED_ORIGIN=https://gitslice.io` (Cloud Build substitution `_ALLOWED_ORIGIN`).
 - `api.gitslice.io` is a Cloud Run domain mapping (CNAME → `ghs.googlehosted.com`, DNS-only); its Google-managed cert can take up to ~1 hour to provision after DNS is set.
 
-The web app then deploys with `npm --prefix web run deploy:production` (custom domain `gitslice.io`), pointing `PUBLIC_API_BASE_URL` at `https://api.gitslice.io`. The web Worker does **not** auto-deploy on merge — it remains a manual step.
+The production web Worker is independent of the daily API schedule. A matching
+`web/*` change on `main` deploys it through Workers Builds to the custom domain
+`gitslice.io`, with the production build variables pointing at
+`https://api.gitslice.io`. Use `npm --prefix web run deploy:production` only for
+an explicitly requested manual deployment or repair.
 
 ## Production Deploy Monitoring & Rollback
 
