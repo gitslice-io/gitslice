@@ -37,7 +37,7 @@ const features: Array<{
   {
     title: "CI checks",
     description:
-      "Required checks and approvals live with the slice. The server enforces them before changes reach the global graph.",
+      "The same agent on your host runs checks in a container, so build caches stay hot instead of starting cold on every run. The server still enforces results before changes reach the global graph.",
     icon: "check"
   },
   {
