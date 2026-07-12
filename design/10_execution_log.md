@@ -7480,6 +7480,109 @@ Verification:
   `GET /site.webmanifest` returned HTTP 200; page rendering could not be checked
   locally because the checkout has no Clerk secret key
 
+## 2026-07-12: Deploy security-review fixes to staging + production
+
+Request: manual full-stack deploy to staging (agenttools.dev) and production
+(gitslice.io) after merging the security-review batch (#306–#313).
+
+Shipped `main` @ `fd3c233` (S1 import allowlist, S2 blob tenancy + edit-hash
+gate, S3 secrets-at-rest capability, S4 checks-require-container, S7 XFF,
+S8/S10 prod fail-fast). Env config was left UNCHANGED: none of the new
+`GITSLICE_REQUIRE_*` flags or `GITSLICE_SECRETS_KEY`/`GITSLICE_CHECKS_REQUIRE_CONTAINER`
+were set, so the always-on fixes (S1/S2/S7) activate and the flag-gated
+hardening (S3/S4/S8/S10) stays dormant pending a deliberate follow-up that
+provisions secrets. The fail-fast validators do not trip when their flags are
+unset, so boot is safe.
+
+Decisions:
+- Skipped the full `go test ./...` gate; relied on per-PR build/vet/unit +
+  full `tests/cli`+`tests/rpc` (real DB) run on each branch and `main`
+  build/vet after each merge. Ran the compile gate (`go build ./cmd/...`).
+- Prod API shipped by running the daily Cloud Build trigger manually
+  (`gcloud builds triggers run b062cbb8-… --branch=main`), not `gcloud run deploy`.
+
+Actions + verification:
+- Backend staging: built `bin/gitslice-server`, `bin/gs`, and
+  `~/.local/bin/gs-staging-agent` (S4 touched checkexec/agent path);
+  `pm2 restart gitslice-rewrite-staging --update-env`. Booted clean (grpc
+  50052 / http 8081 listening, restarts stable, no migration error →
+  migration 0021 `blob_slices` applied). Curls: StartCliLogin 200,
+  GetAuthStatus 401, CORS OPTIONS 204 `access-control-allow-origin:
+  https://agenttools.dev`.
+- Web staging: `npm --prefix web run deploy:staging` (ships #304 SSR flash fix
+  + #305 brand assets). `agenttools.dev/` 200, `/site.webmanifest` 200.
+- Backend prod: Cloud Build `3afdfcf2-36b1-4598-9eea-b8af6d8dac54` SUCCESS
+  (gate/config/build/push/migrate/deploy all pass). New revision
+  `gitslice-prod-00021-wf7` image `:fd3c233`, condition True.
+  `api.gitslice.io` StartCliLogin 200, CORS OPTIONS 204
+  `access-control-allow-origin: https://gitslice.io`.
+- Web prod: `npm --prefix web run deploy:production`. `gitslice.io/` 200.
+
+Follow-up (not done here): to activate the flag-gated hardening, provision
+`GITSLICE_SECRETS_KEY` (staging `.env.staging`; prod Secret Manager +
+`cloudbuild.yaml`), then set `GITSLICE_REQUIRE_SECRETS_KEY`,
+`GITSLICE_REQUIRE_METRICS_TOKEN` (+ token), `GITSLICE_REQUIRE_STRICT_CORS`,
+and `GITSLICE_CHECKS_REQUIRE_CONTAINER=1` on BYOA daemons.
+
+## 2026-07-12: Activate flag-gated hardening on staging + production
+
+Request: activate the flag-gated hardening (follow-up to the deploy above).
+
+Server-side flags done on BOTH environments (S3 secrets-at-rest, S8 metrics
+auth, S10 strict CORS):
+- Staging: appended `GITSLICE_SECRETS_KEY` (openssl rand -base64 32),
+  `GITSLICE_REQUIRE_SECRETS_KEY=1`, `GITSLICE_METRICS_TOKEN` (openssl rand
+  -hex 32), `GITSLICE_REQUIRE_METRICS_TOKEN=1`, `GITSLICE_REQUIRE_STRICT_CORS=1`
+  to `.env.staging` (backup kept), `pm2 restart … --update-env`. Booted clean
+  (no fail-fast). Verified: local `/metrics` 401 without token / 200 with token;
+  `api.agenttools.dev` StartCliLogin 200; CORS 204 origin agenttools.dev.
+- Production: created Secret Manager secret `gitslice-secrets-key` (32-byte
+  base64, v1) + granted `secretAccessor` to runtime SA
+  `147550290058-compute@…`; PR #314 added the three `GITSLICE_REQUIRE_*` to
+  `ENVS` and `GITSLICE_SECRETS_KEY=gitslice-secrets-key:latest` to `SECRETS`
+  in `cloudbuild.yaml`. Ran trigger → build `d4785a14-…` SUCCESS (migrate
+  passed Validate() with the flags → key valid). Revision
+  `gitslice-prod-00022-68b` (`:f0adae8`). Verified: `api.gitslice.io/metrics`
+  401; StartCliLogin 200; CORS 204 origin gitslice.io; `gitslice.io/` 200.
+
+NOT done — S4 `GITSLICE_CHECKS_REQUIRE_CONTAINER`: it is daemon-side (read by
+checkexec in the agent/CI runner, not the server), rejects host-mode checks,
+and would require restarting the long-lived staging daemon
+`nic-staging-racknerd-c9fc21c` (online since 2026-06-29; see the
+empty-dir-guard continuity gap in agent-daemon-ops memory).
+
+Investigated whether staging checks are image-based (2026-07-12): staging DB
+has 23 check_runs, all from 2026-06-29, checks `repo-check`,
+`nic/realtime/smoke`, `nic/realtime/always-pass`, `nic/repo-check` (the user's
+own `/nic/*` test slices); two `.gitslice/checks.yaml` exist (`/nic`,
+`/nic/realtime`). Could not read the specs cleanly: blobs are R2-only (fs root
+absent), no S3 CLI installed, and a throwaway R2-by-hash reader was correctly
+blocked by the auto-mode classifier as a slice-access bypass (removed). The
+proper read path is the authenticated ReadFile RPC.
+
+Conclusion / recommendation: do NOT enable S4 on the staging daemon. It is a
+single-user daemon running the user's own trivial (name-wise host-mode) smoke
+checks, so S4's threat model (untrusted checks on a SHARED daemon) does not
+apply there — enabling it risks breaking those checks for no security gain.
+Keep S4 as operator guidance for genuinely multi-tenant / BYOA check daemons,
+where checks must declare an image.
+
+## 2026-07-12: Production web deploy — SSR auth-status prefetch (PR #304)
+
+Request: deploy the first-paint "Loading session…" fix to production.
+
+- Scope: web-only (PR #304, `web/src/routes/router.tsx` SSR loader prefetching
+  `GetAuthStatus`); backend untouched, no Cloud Build run needed.
+- Preflight: main in sync with origin at `f0adae8`; `npm --prefix web test`
+  172/172 passed. Skipped Go gates (no backend change).
+- Deploy: `npm --prefix web run deploy:production` → Worker
+  `gitslice-web-production` version `960f24a8-80fc-4c2f-ae9d-1601a2324be9`,
+  custom domain gitslice.io.
+- Verified: `gitslice.io/` 200 (SSR HTML, no "Loading session" string in
+  anonymous first paint); `api.gitslice.io` StartCliLogin 200. Signed-in
+  first-paint path not curl-testable without auth cookies; bundle built from
+  main containing the loader.
+
 ## 2026-07-12: Username minimum length and reserved-name policy
 
 Request: require usernames to contain at least four characters and maintain a
@@ -7513,3 +7616,235 @@ npm --prefix web run build
 
 All commands passed. The real PostgreSQL e2e gate was not run because
 `env.local` is absent, so no `GITSLICE_TEST_DATABASE_URL` is configured.
+
+## 2026-07-12 (follow-up): the SSR prefetch never worked on Workers — redirect: "error"
+
+The earlier web deploy did NOT fix the first-paint flash: the user still saw
+"Loading session…" in the initial HTML. Debug-instrumented staging Worker +
+`wrangler tail` showed the appRoute loader failing with:
+
+  RpcError: Invalid redirect value, must be one of "follow" or "manual"
+
+connect-web calls fetch with `redirect: "error"`, which workerd does not
+implement, so EVERY SSR-loader RPC (authStatus prefetch #304 and all slice
+route prefetches) threw instantly on Cloudflare and was swallowed by the
+loaders' `catch {}`. Local dev (Node fetch) supports `redirect: "error"`,
+which is why it never reproduced locally.
+
+Fix (PR #316, `61da64d`): `createApiClient` accepts a `fetch` override;
+`createServerApiClient` forces `redirect: "follow"` (API never redirects).
+Verified on staging: tail showed "authStatus prefetched" for signed-in SSR;
+anonymous SSR of public slice `nic/realtime` grew 6.2KB → 15.8KB and contains
+dehydrated slice data; user confirmed the flash is gone. Clean main then
+deployed to production and staging.
+
+Ops notes: one staging build was OOM-killed (load avg ~30 on the box —
+serialize web builds); the permission classifier blocked prod-DB reads, Clerk
+session/user creation, and un-approved instrumented prod deploys — staging
+instrumentation + user reload was the approved diagnostic path.
+
+## 2026-07-12: public landing page at /, e2e username fixture fix, web deploys
+
+Request: "by default, show a cool landing page", then fix the failing CI
+tests, merge, and deploy to staging and production.
+
+Landing page (PR #317, `7809f5f`): `/` previously redirected signed-out
+visitors to /login. It is now a top-level route (moved out of the RequireAuth
+appRoute subtree) that renders a new self-contained marketing page
+`web/src/routes/LandingPage.tsx` when signed out and the unchanged app home
+when signed in; Clerk resolves auth during SSR so each audience gets the right
+page on first paint. AppShell accepts optional children so the signed-in home
+reuses the app layout. All other routes keep the auth gate. Implementation was
+delegated to codex in a worktree; integration, verification, and PR by the
+main agent.
+
+CI fix (PR #318, `901497c`): #315's username policy (min 4 chars) broke two
+rpc e2e tests that provision the acme member "bob"
+(TestRPCSliceVisibilityRolesAndBlobScopeAuthorization,
+TestRPCSubmitApprovalRequiredSliceBlocksUntilNonAuthorApproval) on every
+branch — this was the red "PostgreSQL e2e tests" job on #317, whose diff is
+web-only. Renamed the fixture user to "bobby" (tests/rpc plus the identical
+uncalled helper case in tests/cli).
+
+Verification: full `./tests/rpc` suite green locally against the
+gitslice_test DB (:55432) after reproducing the failure first; `./tests/cli`
+green (one run hit the known flaky agent-deltas test, passed on re-run);
+`npm --prefix web run build` + `npm --prefix web test` (172/172) green on
+merged main; dev-server SSR curl of `/` unauthenticated contained the landing
+hero/CTAs/terminal before the PR went up. CI on #318 fully green including
+the e2e job.
+
+Deploys (web Worker only — the Go diff is test-only, so no backend ship;
+prod API stays on the daily gated Cloud Build): `deploy:staging` version
+6eb55634-ddc4-4b4c-86c6-4dd2e101421d, `deploy:production`
+dba4d206-9d26-423c-a30d-d9b5d9258171. Verified both: `/` returns 200 and the
+SSR HTML contains the landing content ("One source graph", CTAs, `gs auth
+login` terminal mock) on agenttools.dev and gitslice.io; `/login` returns 200
+on both.
+
+## 2026-07-12: configure Cloudflare Workers Builds for the web app
+
+Request: inspect and configure the Git-connected Cloudflare Workers Builds
+settings for `gitslice-web-production` and `gitslice-web-staging` using the
+CLI/API.
+
+The initial triggers treated the repository root as the project, had no build
+command or build variables, and invoked Wrangler without selecting the matching
+environment. Updated both the main-branch and preview triggers for each Worker:
+
+- root directory: `/web`
+- build command: `npm run build`
+- production deploy commands: `npx wrangler deploy --env production` and
+  `npx wrangler deploy --env staging`
+- preview deploy commands: `npx wrangler versions upload --env production` and
+  `npx wrangler versions upload --env staging`
+- build variables sourced from the matching local environment file:
+  `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_AUTHORIZED_PARTIES`,
+  `VITE_API_BASE_URL`, and `VITE_GITSLICE_GIT_HTTP_BASE_URL`
+
+Branch selection and the existing per-Worker build-cache choices were left
+unchanged. The main and preview triggers for both Workers now include only
+`web/*`, so backend-only and documentation-only commits do not normally consume
+Workers Build minutes. No build was manually triggered, so these configuration
+changes did not deploy either Worker.
+
+Updated `skills/deployment/SKILL.md` and its generated `agents/openai.yaml`
+metadata to describe Git-connected Workers Builds as the normal web deployment
+path, the environment-specific main/preview commands, watch paths, build
+variables, runtime secrets, inspection API, and the explicit manual fallback.
+
+Verification used the Cloudflare Workers Builds API with the repository's
+user-scoped token:
+
+```bash
+curl -sS -X PATCH \
+  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/builds/triggers/$TRIGGER_UUID" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '<environment-specific trigger configuration>'
+curl -sS -X PATCH \
+  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/builds/triggers/$TRIGGER_UUID/environment_variables" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '<environment-specific VITE variables>'
+curl -sS \
+  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/builds/workers/$WORKER_TAG/triggers" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+curl -sS \
+  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/builds/triggers/$TRIGGER_UUID/environment_variables" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+```
+
+Read-back verification passed for all four triggers, including exact command,
+root-directory, variable-name, and variable-value matches. Variable values were
+not printed in command output or recorded in this log. A second read-back
+confirmed `path_includes=["web/*"]` and an empty exclude list for all four
+triggers. Skill validation passed with:
+
+```bash
+python3 /home/nic/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/deployment
+git diff --check -- skills/deployment design/10_execution_log.md
+```
+
+## 2026-07-12: site-wide light and dark themes
+
+Request: add light/dark theme support across the web app and verify that the
+Git-connected Cloudflare Workers Builds deployment runs automatically.
+
+Implementation decisions:
+
+- added a pre-paint root bootstrap that resolves a saved choice before browser
+  rendering, otherwise follows `prefers-color-scheme`, preventing a light flash
+  during dark-mode hydration
+- added an accessible shared toggle to the landing header, app top bar, and auth
+  surfaces; explicit choices persist in `localStorage`, while an unpinned theme
+  continues to follow operating-system changes
+- enabled Tailwind class-based dark mode and added dark variants across app
+  shells, forms, tables, dialogs, source/diff views, conversations, changesets,
+  empty/loading/error states, and documentation
+- passed CSS-variable-backed theme values through Clerk's supported appearance
+  variables and loaded both GitHub light/dark Shiki themes for source code
+- kept the landing page's terminal as an intentionally dark technical surface
+  in both palettes while making the surrounding page genuinely light or dark
+
+Verification:
+
+```bash
+npm --prefix web test -- --run src/components/ThemeToggle.test.tsx
+npm --prefix web test -- --reporter=dot
+npm --prefix web run build
+git diff --check -- web
+```
+
+The focused theme test and full web suite passed (12 files, 173 tests). The
+production Vite/Nitro build passed with the existing chunk-size and dependency
+bundling warnings. Browser checks covered the light and dark landing page,
+dark Clerk login, persisted navigation, and a 390px mobile viewport.
+
+Pull request #320 was squash-merged to `main` as
+`f0045a16ff65f60238d6cee3914fb6adc233feaa`. Automatic deployment was verified
+at both stages of the Git-connected workflow:
+
+- production preview build `b3ac7387-fd2b-435e-a128-0bb7ceb1b7ee` succeeded
+- staging preview build `e2de4220-953f-4897-917e-b7d6fb4cb2d0` succeeded
+- production main build `72e20986-a06e-4d4a-bbe7-64936720f108` succeeded
+- staging main build `6808a066-eb6c-4bb8-8112-0da6a6d76ea5` succeeded
+
+The preview builds used `wrangler versions upload` and the post-merge main
+builds used the environment-specific `wrangler deploy` commands configured on
+the triggers. Final live browser checks on `https://gitslice.io/` and
+`https://agenttools.dev/` confirmed that both domains served the themed build,
+that the toggle changed the root theme from light to dark, and that the choice
+persisted as `gitslice-theme=dark`.
+
+## 2026-07-12: BYOA lost-user-message hang + binary diff marshal failure (PRs #324, #325)
+
+Request: investigate why prod conversation
+`conv_ef1b85e430feec4974167a03d62155a8` (slices/home) hung, then "fix it for
+real"; later the same changeset surfaced `DiffChangeset` failing with
+`marshal message: proto: field DiffChangesetResponse.diff contains invalid UTF-8`
+on `cs_baedabb4a1…` — deploy prod and verify.
+
+Root causes:
+- The conversation hung because `SendAgentMessage` pushed `DeliverUserMessage`
+  to the daemon fire-and-forget (no ack/redelivery). The user's message
+  (19:48:48Z, seq 1, the only persisted event) hit a half-open Connect stream
+  window (Cloud Run resets the bidi stream routinely; the daemon logged 13×
+  RST_STREAM that day and 1–2 min half-open watchdog reconnects) and vanished;
+  register-time replay resent only `StartConversation`, never user messages.
+- The diff failure: the conversation's later import turn captured 395 files
+  including six PNGs; `diffutil.UnifiedFileDiff` had no binary detection and
+  embedded raw bytes in the proto3 `string` diff. Bonus bug: patchset 1
+  contained the daemon's own `/slices/.agent-meta.json` because the capture
+  scan skipped `.git`/`.gs`/`.gitslice` but not the agent metadata file.
+
+Fixes (both squash-merged to `main`):
+- #324: `DeliverUserMessage` carries the persisted event seq; on
+  `ConversationStarted` the server redelivers trailing unanswered user messages
+  (`UnansweredUserEvents` store method, postgres+memory), gated on daemon
+  ownership; the daemon dedups by a seen-set of seqs under the turn mutex
+  (seq 0 = legacy, always runs); `sendSystemError` now uses the durable
+  client-seq buffered path. Server redelivery is at-least-once; daemon dedup
+  makes it exactly-once per seq.
+- #325: `UnifiedFileDiff` detects binary sides (NUL in first 8000 bytes),
+  emits git-style `Binary files … differ`, and guarantees valid UTF-8 output
+  (replacement runes for latin-1-style text); capture skips root
+  `.agent-meta.json` / `.agent-meta-*.tmp`.
+
+Deploy + verification:
+- Staging backend rebuilt and PM2-restarted (`gitslice-rewrite-staging`);
+  `StartCliLogin` 200.
+- Prod daemon binary swapped (`gs-prod-agent`, .bak convention) and restarted
+  in place in the same workspace (same daemon id `agent_f3524a…`, disk
+  rehydration, `daemonOnline: true`). Daemon-before-server ordering matters:
+  an old daemon with a new server would not dedup redelivered duplicates.
+- Prod API shipped by running the daily Cloud Build trigger manually
+  (build `7584e007`, SUCCESS; revision `gitslice-prod-00024-q55` at 100%).
+- Verified the exact failing call:
+  `DiffChangeset{changeset_id: baedabb4a1, to_patchset: ps_7804415d…}` went
+  from the marshal error (captured before deploy) to a valid 5.3 MB diff with
+  six `Binary files … differ` lines. CORS preflight 204.
+- NOT restarted: the staging agent daemon — its staging clitok exists only in
+  the running process (config.json now holds prod creds); restart needs a
+  fresh `gs auth login` against staging. Its on-disk binary IS updated, so the
+  next restart picks up the fix.
