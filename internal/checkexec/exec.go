@@ -44,6 +44,15 @@ type Result struct {
 	RunMs    int64
 }
 
+// requireContainerChecks reports whether host-mode execution is disabled for
+// this daemon. Shared / multi-tenant daemons set GITSLICE_CHECKS_REQUIRE_CONTAINER
+// so an untrusted check cannot run directly on the host; single-tenant self-host
+// leaves it unset and keeps host mode.
+func requireContainerChecks() bool {
+	v := strings.TrimSpace(os.Getenv("GITSLICE_CHECKS_REQUIRE_CONTAINER"))
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
 // Run executes one resolved check against workspaceRoot.
 func Run(ctx context.Context, workspaceRoot string, spec checks.CheckSpec) (Result, error) {
 	timeout := spec.Timeout
@@ -52,6 +61,9 @@ func Run(ctx context.Context, workspaceRoot string, spec checks.CheckSpec) (Resu
 	}
 	if strings.TrimSpace(spec.Image) != "" || len(spec.Setup) > 0 {
 		return runContainer(ctx, workspaceRoot, spec, timeout)
+	}
+	if requireContainerChecks() {
+		return Result{}, fmt.Errorf("check %q must declare an image or setup: host-mode execution is disabled on this daemon", spec.Name)
 	}
 	return runHost(ctx, workspaceRoot, spec, timeout)
 }
