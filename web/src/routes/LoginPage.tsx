@@ -43,7 +43,18 @@ export function LoginPage() {
 
   return (
     <AuthFrame title="Sign in">
-      <SignIn path="/login" routing="path" />
+      <SignIn
+        appearance={{
+          elements: {
+            // Clerk's card is a fixed 25rem wide by default, which gets
+            // clipped by AuthFrame's overflow-hidden card on narrow phones.
+            rootBox: { width: "100%" },
+            cardBox: { width: "100%" }
+          }
+        }}
+        path="/login"
+        routing="path"
+      />
     </AuthFrame>
   );
 }
