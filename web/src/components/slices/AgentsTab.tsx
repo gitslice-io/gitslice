@@ -209,11 +209,11 @@ export function AgentsTab({
       <SlicePanel className="min-h-[28rem]">
         <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
           <div className="grid gap-3">
-            <div className="h-8 animate-pulse rounded-md bg-slate-200" />
-            <div className="h-20 animate-pulse rounded-md bg-slate-100" />
-            <div className="h-20 animate-pulse rounded-md bg-slate-100" />
+            <div className="h-8 animate-pulse rounded-md bg-slate-200 dark:bg-zinc-700" />
+            <div className="h-20 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
+            <div className="h-20 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
           </div>
-          <div className="h-72 animate-pulse rounded-md bg-slate-100" />
+          <div className="h-72 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
         </div>
       </SlicePanel>
     );
@@ -235,7 +235,7 @@ export function AgentsTab({
     <button
       aria-controls="agent-conversation-sidebar"
       aria-expanded={isSidebarOpen}
-      className="hidden rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98] lg:inline-flex"
+      className="hidden rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98] lg:inline-flex"
       onClick={() => setIsSidebarOpen((open) => !open)}
       type="button"
     >
@@ -246,7 +246,7 @@ export function AgentsTab({
   const conversationToolbar = (
     <div className="flex items-center gap-2">
       <button
-        className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98] lg:hidden"
+        className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98] lg:hidden"
         onClick={backToConversations}
         type="button"
       >
@@ -288,21 +288,21 @@ export function AgentsTab({
             // while the transcript scrolls the page, instead of scrolling off
             // into an empty gutter. self-start keeps the grid item from
             // stretching so sticky has room to resolve.
-            "lg:sticky lg:top-16 lg:max-h-[calc(100dvh-5rem)] lg:self-start lg:border-r lg:border-slate-200 lg:p-5",
+            "lg:sticky lg:top-16 lg:max-h-[calc(100dvh-5rem)] lg:self-start lg:border-r lg:border-slate-200 dark:lg:border-zinc-800 lg:p-5",
           )}
           id="agent-conversation-sidebar"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-zinc-950">
+              <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                 Conversations
               </h2>
-              <p className="mt-1 truncate text-xs leading-5 text-slate-500">
+              <p className="mt-1 truncate text-xs leading-5 text-slate-500 dark:text-zinc-400">
                 {sliceKey}
               </p>
             </div>
             <button
-              className="shrink-0 rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="shrink-0 rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-zinc-600"
               disabled={!onlineDaemons.length || isCreating}
               onClick={openCreate}
               type="button"
@@ -312,15 +312,15 @@ export function AgentsTab({
           </div>
 
           <div className="mt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
               Daemons
             </h3>
             {onlineDaemons.length === 0 ? (
-              <div className="mt-3 rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-700">
-                <p className="font-semibold text-zinc-950">No online daemons</p>
+              <div className="mt-3 rounded-md border border-dashed border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 p-4 text-sm text-slate-700 dark:text-zinc-300">
+                <p className="font-semibold text-zinc-950 dark:text-zinc-50">No online daemons</p>
                 <p className="mt-2 leading-6">
                   Run{" "}
-                  <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-slate-800">
+                  <code className="rounded bg-white dark:bg-zinc-900 px-1.5 py-0.5 font-mono text-xs text-slate-800 dark:text-zinc-200">
                     gs agent start
                   </code>{" "}
                   in an empty directory to make an agent available here.
@@ -335,19 +335,19 @@ export function AgentsTab({
             )}
           </div>
 
-          <div className="mt-5 border-t border-slate-200 pt-4">
+          <div className="mt-5 border-t border-slate-200 dark:border-zinc-800 pt-4">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
                 History
               </h3>
               {conversations.length ? (
-                <span className="font-mono text-xs text-slate-400">
+                <span className="font-mono text-xs text-slate-400 dark:text-zinc-500">
                   {conversations.length}
                 </span>
               ) : null}
             </div>
             {conversations.length === 0 ? (
-              <p className="mt-3 rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-600">
+              <p className="mt-3 rounded-md border border-dashed border-slate-300 dark:border-zinc-700 p-3 text-sm text-slate-600 dark:text-zinc-400">
                 No conversations yet.
               </p>
             ) : (
@@ -361,8 +361,8 @@ export function AgentsTab({
                         className={cn(
                           "min-w-0 w-full rounded-md px-3 py-2 text-left text-sm transition active:scale-[0.98]",
                           isSelected
-                            ? "bg-slate-100 text-zinc-950"
-                            : "text-slate-700 hover:bg-slate-50 hover:text-zinc-950",
+                            ? "bg-slate-100 dark:bg-zinc-800 text-zinc-950 dark:text-zinc-50"
+                            : "text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50",
                         )}
                         onClick={() => {
                           selectConversation(conversation.id ?? "");
@@ -379,13 +379,13 @@ export function AgentsTab({
                             status={conversation.status}
                           />
                           {conversation.daemonOnline === false ? (
-                            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[0.7rem] font-medium text-amber-700">
+                            <span className="shrink-0 rounded-full bg-amber-100 dark:bg-amber-950/45 px-2 py-0.5 text-[0.7rem] font-medium text-amber-700 dark:text-amber-300">
                               Offline
                             </span>
                           ) : null}
                           {conversation.updatedAt ? (
                             <span
-                              className="truncate font-mono text-[0.7rem] text-slate-400"
+                              className="truncate font-mono text-[0.7rem] text-slate-400 dark:text-zinc-500"
                               title={conversation.updatedAt}
                             >
                               {formatRelativeTime(conversation.updatedAt)}
@@ -401,11 +401,11 @@ export function AgentsTab({
           </div>
 
           {hasSelectedConversation ? null : (
-            <div className="mt-5 rounded-md border border-slate-200 bg-slate-50/60 p-4 text-center lg:hidden">
-              <h2 className="text-sm font-semibold text-zinc-950">
+            <div className="mt-5 rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-950/60 p-4 text-center lg:hidden">
+              <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                 No conversation selected
               </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
                 {onlineDaemons.length
                   ? "Start a new conversation with an online daemon, or pick one from the list."
                   : "Run gs agent start to make an agent available, then create a conversation."}
@@ -428,10 +428,10 @@ export function AgentsTab({
               toolbar={conversationToolbar}
             />
           ) : (
-            <div className="flex min-h-[60vh] flex-col bg-slate-50/60">
-              <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-5">
+            <div className="flex min-h-[60vh] flex-col bg-slate-50/60 dark:bg-zinc-950/60">
+              <div className="border-b border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3 sm:px-5">
                 <div className="flex items-center justify-between gap-2">
-                  <h2 className="truncate text-sm font-semibold text-zinc-950">
+                  <h2 className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                     No conversation selected
                   </h2>
                   {desktopSidebarToggle}
@@ -439,14 +439,14 @@ export function AgentsTab({
               </div>
               <div className="flex flex-1 items-center justify-center p-6 text-center">
                 <div className="max-w-sm">
-                  <p className="text-sm leading-6 text-slate-600">
+                  <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
                     {onlineDaemons.length
                       ? "Start a new conversation with an online daemon, or pick one from the sidebar."
                       : "Run gs agent start to make an agent available, then create a conversation."}
                   </p>
                   {onlineDaemons.length ? (
                     <button
-                      className="mt-4 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+                      className="mt-4 rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98]"
                       onClick={openCreate}
                       type="button"
                     >
@@ -468,10 +468,10 @@ export function AgentsTab({
       >
         {onlineDaemons.length ? (
           <form className="grid gap-3" onSubmit={createConversation}>
-            <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
+            <label className="grid gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
               Agent daemon
               <select
-                className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+                className="min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700"
                 onChange={(event) => setSelectedDaemonId(event.target.value)}
                 value={selectedDaemonId}
               >
@@ -485,28 +485,28 @@ export function AgentsTab({
                 ))}
               </select>
             </label>
-            <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
+            <label className="grid gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
               Title
               <input
-                className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+                className="min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700"
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Optional"
                 value={title}
               />
             </label>
             {createError ? (
-              <p className="text-sm text-rose-700">{createError}</p>
+              <p className="text-sm text-rose-700 dark:text-rose-300">{createError}</p>
             ) : null}
             <div className="mt-1 flex justify-end gap-2">
               <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
                 onClick={closeCreate}
                 type="button"
               >
                 Cancel
               </button>
               <button
-                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-zinc-600"
                 disabled={!selectedDaemonId || isCreating}
                 type="submit"
               >
@@ -515,7 +515,7 @@ export function AgentsTab({
             </div>
           </form>
         ) : (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-600 dark:text-zinc-400">
             No online daemons are available right now.
           </p>
         )}
@@ -529,17 +529,17 @@ export function AgentsTab({
 
 function DaemonRow({ daemon }: { daemon: AgentDaemon }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
+    <div className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3">
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 break-words text-sm font-semibold text-zinc-950">
+        <p className="min-w-0 break-words text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           {daemon.name || daemon.id || "Unnamed agent"}
         </p>
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700">
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700 dark:text-emerald-300">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           online
         </span>
       </div>
-      <p className="mt-1 break-all font-mono text-xs text-slate-500">
+      <p className="mt-1 break-all font-mono text-xs text-slate-500 dark:text-zinc-400">
         {daemon.runtime || "runtime"} {daemon.version || ""}
       </p>
     </div>
@@ -554,7 +554,7 @@ function ConversationStatusPill({ status }: { status?: string }) {
       aria-label={value}
       className={cn(
         "inline-block h-2 w-2 shrink-0 rounded-full",
-        active ? "bg-emerald-500" : "bg-slate-300",
+        active ? "bg-emerald-500" : "bg-slate-300 dark:bg-zinc-600",
       )}
       role="img"
       title={value}

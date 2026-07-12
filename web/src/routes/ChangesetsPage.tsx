@@ -82,12 +82,12 @@ export function ChangesetsPage() {
       <PageHeader
         breadcrumb={<Breadcrumb items={breadcrumbItems} />}
         title={
-          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg">
             {pageTitle}
           </h1>
         }
       />
-      <p className="mb-4 text-sm leading-6 text-slate-600">{description}</p>
+      <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">{description}</p>
       <div className="mt-0">
         {!sliceRef ? (
           <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
@@ -126,10 +126,10 @@ function ChangesetsTable({
   queryKey: ChangesetsQueryKey;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+    <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-          <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
+        <table className="min-w-full divide-y divide-slate-200 dark:divide-zinc-800 text-left text-sm">
+          <thead className="bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
             <tr>
               <th className="px-3 py-3 sm:px-4">Changeset</th>
               <th className="hidden px-3 py-3 sm:table-cell sm:px-4">Status</th>
@@ -143,7 +143,7 @@ function ChangesetsTable({
               ) : null}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
+          <tbody className="divide-y divide-slate-200 dark:divide-zinc-800">
             {changesets.map((changeset) => (
               <ChangesetRow
                 api={api}
@@ -204,7 +204,7 @@ function ChangesetRow({
   const busy = mergeMutation.isPending;
 
   return (
-    <tr className="align-top transition hover:bg-slate-50">
+    <tr className="align-top transition hover:bg-slate-50 dark:hover:bg-zinc-950">
       <td className="max-w-[14rem] px-3 py-4 sm:min-w-72 sm:max-w-none sm:px-4">
         <div className="flex flex-col gap-1">
           <div className="sm:hidden">
@@ -216,24 +216,24 @@ function ChangesetRow({
               params={{ id: detailId }}
               to="/cs/$id"
             >
-              <span className="block break-words font-semibold text-zinc-950 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
+              <span className="block break-words font-semibold text-zinc-950 dark:text-zinc-50 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
                 {label}
               </span>
-              <span className="mt-1 block max-w-xl break-words text-sm text-slate-700 group-hover:text-zinc-950">
+              <span className="mt-1 block max-w-xl break-words text-sm text-slate-700 dark:text-zinc-300 group-hover:text-zinc-950 dark:group-hover:text-zinc-50">
                 {changeset.title || "Untitled changeset"}
               </span>
             </Link>
           ) : (
             <>
-              <span className="font-semibold text-zinc-950">{label}</span>
-              <span className="max-w-xl break-words text-sm text-slate-700">
+              <span className="font-semibold text-zinc-950 dark:text-zinc-50">{label}</span>
+              <span className="max-w-xl break-words text-sm text-slate-700 dark:text-zinc-300">
                 {changeset.title || "Untitled changeset"}
               </span>
             </>
           )}
           {changeset.affectedPaths?.length ? (
             <span
-              className="text-xs text-slate-500"
+              className="text-xs text-slate-500 dark:text-zinc-400"
               title={changeset.affectedPaths.join("\n")}
             >
               {changeset.affectedPaths.length}{" "}
@@ -241,7 +241,7 @@ function ChangesetRow({
             </span>
           ) : null}
           {changeset.submitBlockedReason ? (
-            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs leading-5 text-amber-900 md:hidden">
+            <p className="mt-2 rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-xs leading-5 text-amber-900 dark:text-amber-200 md:hidden">
               {displaySubmitBlockedReason(changeset.submitBlockedReason)}
             </p>
           ) : null}
@@ -255,17 +255,17 @@ function ChangesetRow({
       <td className="hidden px-3 py-4 sm:table-cell sm:px-4">
         <StatusBadge status={changeset.status} />
       </td>
-      <td className="hidden px-4 py-4 text-slate-700 md:table-cell">
+      <td className="hidden px-4 py-4 text-slate-700 dark:text-zinc-300 md:table-cell">
         {changeset.author || "not returned"}
       </td>
-      <td className="hidden px-4 py-4 text-slate-700 md:table-cell">
+      <td className="hidden px-4 py-4 text-slate-700 dark:text-zinc-300 md:table-cell">
         {changeset.submitRequirements?.requiredApprovals ?? "not returned"}
       </td>
-      <td className="hidden max-w-sm px-4 py-4 text-slate-700 md:table-cell">
+      <td className="hidden max-w-sm px-4 py-4 text-slate-700 dark:text-zinc-300 md:table-cell">
         {changeset.submitBlockedReason ? (
           <span>{displaySubmitBlockedReason(changeset.submitBlockedReason)}</span>
         ) : (
-          <span className="text-slate-400">None</span>
+          <span className="text-slate-400 dark:text-zinc-500">None</span>
         )}
         {rowError ? (
           <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -277,7 +277,7 @@ function ChangesetRow({
         <td className="px-3 py-4 sm:px-4">
           <div className="flex flex-wrap justify-end gap-2">
             <button
-              className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
               disabled={busy || !changesetId || !mergeable}
               onClick={() => mergeMutation.mutate()}
               type="button"
@@ -325,13 +325,13 @@ function OpenChangesetForm({ onOpen }: { onOpen(id: string): void }) {
 
   return (
     <form
-      className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50"
+      className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-sm shadow-slate-200/50 dark:shadow-black/50"
       onSubmit={submit}
     >
-      <label className="grid gap-2 text-sm font-medium text-zinc-800">
+      <label className="grid gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
         Open changeset
         <input
-          className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
+          className="h-11 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700"
           onChange={(event) => setChangeset(event.target.value)}
           placeholder="3f9a2b1c4d"
           value={changeset}
@@ -341,7 +341,7 @@ function OpenChangesetForm({ onOpen }: { onOpen(id: string): void }) {
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
 
       <button
-        className="mt-5 rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 active:translate-y-px"
+        className="mt-5 rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px"
         type="submit"
       >
         Open
@@ -430,15 +430,15 @@ function statusClass(status?: string) {
     case "published":
     case "merged":
     case "submitted":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200";
     case "pending_publish":
-      return "border-amber-200 bg-amber-50 text-amber-900";
+      return "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200";
     case "abandoned":
       return "border-red-200 bg-red-50 text-red-800";
     case "draft":
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
     default:
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
   }
 }
 

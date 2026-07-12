@@ -112,12 +112,12 @@ export function SliceCreatePage() {
           />
         }
         title={
-          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg">
             New slice
           </h1>
         }
       />
-      <p className="mb-4 text-sm leading-6 text-slate-600">
+      <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
         Create a slice under your signed-in account with a visibility value and
         included source paths.
       </p>
@@ -125,28 +125,28 @@ export function SliceCreatePage() {
       <form className="mt-8 space-y-6" onSubmit={createSlice}>
         <SlicePanel className="space-y-4">
           <div>
-            <h2 className="text-base font-semibold text-zinc-950">
+            <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
               Slice identity
             </h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
+            <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
               The account is resolved from your signed-in session.
             </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-2 text-sm font-medium text-zinc-950">
+            <label className="grid gap-2 text-sm font-medium text-zinc-950 dark:text-zinc-50">
               Account
               <input
-                className="h-10 min-w-0 rounded-md border border-slate-300 bg-slate-50 px-3 font-mono text-sm text-slate-700 outline-none"
+                className="h-10 min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 px-3 font-mono text-sm text-slate-700 dark:text-zinc-300 outline-none"
                 readOnly
                 value={selection.isLoading ? "Loading..." : account}
               />
             </label>
 
-            <label className="grid gap-2 text-sm font-medium text-zinc-950">
+            <label className="grid gap-2 text-sm font-medium text-zinc-950 dark:text-zinc-50">
               Slice name
               <input
-                className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+                className="h-10 min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 font-mono text-sm text-zinc-950 dark:text-zinc-50 outline-none transition focus:border-slate-500 dark:focus:border-zinc-500 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800 disabled:text-slate-500 dark:disabled:text-zinc-400"
                 disabled={isBusy}
                 onChange={(event) => {
                   setSliceName(event.target.value);
@@ -158,11 +158,11 @@ export function SliceCreatePage() {
                 spellCheck={false}
                 value={sliceName}
               />
-              <span className="text-xs font-normal leading-5 text-slate-500">
+              <span className="text-xs font-normal leading-5 text-slate-500 dark:text-zinc-400">
                 Use lowercase letters, digits, and hyphens.
               </span>
               {nameError ? (
-                <span className="text-xs font-semibold leading-5 text-rose-700">
+                <span className="text-xs font-semibold leading-5 text-rose-700 dark:text-rose-300">
                   {nameError}
                 </span>
               ) : null}
@@ -205,7 +205,7 @@ export function SliceCreatePage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+            className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 dark:disabled:bg-zinc-700 disabled:text-slate-500 dark:disabled:text-zinc-400"
             disabled={selection.isLoading || isBusy}
             type="submit"
           >

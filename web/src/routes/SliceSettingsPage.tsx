@@ -220,12 +220,12 @@ export function SliceSettingsPage() {
           />
         }
         title={
-          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg">
             {`Slice Settings: ${sliceLabel}`}
           </h1>
         }
       />
-      <p className="mb-4 text-sm leading-6 text-slate-600">
+      <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
         Edit the supported slice definition fields only.
       </p>
 
@@ -316,14 +316,14 @@ export function SliceSettingsPage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+            className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 dark:disabled:bg-zinc-700 disabled:text-slate-500 dark:disabled:text-zinc-400"
             disabled={updateMutation.isPending}
             type="submit"
           >
             {updateMutation.isPending ? "Saving..." : "Save definition"}
           </button>
           <button
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+            className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
             disabled={sliceQuery.isFetching}
             onClick={() => {
               void sliceQuery.refetch();
@@ -368,24 +368,24 @@ function SliceCIDaemonPanel({
     <SlicePanel>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,24rem)] lg:items-start">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-zinc-950">CI daemon</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
+          <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">CI daemon</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
             Full-tree checks for this slice run on the selected online agent daemon.
           </p>
-          <p className="mt-3 text-xs font-semibold uppercase tracking-normal text-slate-500">
+          <p className="mt-3 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
             Current
           </p>
-          <code className="mt-1 block break-all font-mono text-xs text-zinc-950">
+          <code className="mt-1 block break-all font-mono text-xs text-zinc-950 dark:text-zinc-50">
             {currentDaemonId || "none"}
           </code>
         </div>
 
         <div className="grid gap-2">
-          <label className="grid gap-1.5 text-sm font-medium text-zinc-800">
+          <label className="grid gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
             CI daemon
             <select
               aria-label="CI daemon"
-              className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+              className="min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800 disabled:text-slate-500 dark:disabled:text-zinc-400"
               disabled={isLoading || pending || !canUpdate}
               onChange={(event) => onChange(event.target.value)}
               value={currentDaemonId}
@@ -404,19 +404,19 @@ function SliceCIDaemonPanel({
             </select>
           </label>
           {isLoading ? (
-            <p className="text-xs text-slate-500">Loading daemons...</p>
+            <p className="text-xs text-slate-500 dark:text-zinc-400">Loading daemons...</p>
           ) : onlineDaemons.length === 0 ? (
-            <p className="text-xs leading-5 text-slate-500">
+            <p className="text-xs leading-5 text-slate-500 dark:text-zinc-400">
               No online daemons are available. You can still clear the current
               runner by choosing None.
             </p>
           ) : null}
           {error ? (
-            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+            <p className="rounded-md border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 px-3 py-2 text-sm text-rose-900 dark:text-rose-200">
               {error}
             </p>
           ) : message ? (
-            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            <p className="rounded-md border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200">
               {message}
             </p>
           ) : null}

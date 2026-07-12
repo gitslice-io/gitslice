@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
   color: #18181b;
   background: #f8fafc;
   font-synthesis: none;
@@ -11,10 +12,17 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root.dark {
+  color-scheme: dark;
+  color: #f4f4f5;
+  background: #09090b;
+}
+
 body {
   min-width: 320px;
   min-height: 100dvh;
   margin: 0;
+  background: inherit;
 }
 
 button,
@@ -22,4 +30,49 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+::selection {
+  background: rgb(14 165 233 / 0.22);
+}
+
+:root.dark ::selection {
+  background: rgb(56 189 248 / 0.28);
+}
+
+:root.dark .shiki,
+:root.dark .shiki span {
+  background-color: var(--shiki-dark-bg) !important;
+  color: var(--shiki-dark) !important;
+}
+
+.landing-grid {
+  background-image:
+    linear-gradient(rgb(15 23 42 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(15 23 42 / 0.05) 1px, transparent 1px);
+}
+
+:root.dark .landing-grid {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+}
+
+/* Clerk renders its hosted controls inside our auth surface. These variables
+   keep the embedded form aligned with the root theme without a second theme
+   provider or a hydration-sensitive appearance object. */
+:root {
+  --clerk-color-background: #ffffff;
+  --clerk-color-input-background: #ffffff;
+  --clerk-color-neutral: #18181b;
+  --clerk-color-text: #18181b;
+  --clerk-color-text-secondary: #64748b;
+}
+
+:root.dark {
+  --clerk-color-background: #18181b;
+  --clerk-color-input-background: #27272a;
+  --clerk-color-neutral: #f4f4f5;
+  --clerk-color-text: #f4f4f5;
+  --clerk-color-text-secondary: #a1a1aa;
 }

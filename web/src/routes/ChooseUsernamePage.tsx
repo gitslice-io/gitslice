@@ -1,12 +1,9 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useApi } from "../api/useApi";
 import { BrandMark } from "../components/BrandMark";
+import { ThemeToggle } from "../components/ThemeToggle";
 
 export function ChooseUsernamePage() {
   const api = useApi();
@@ -75,32 +72,35 @@ export function ChooseUsernamePage() {
   }
 
   return (
-    <main className="grid min-h-[100dvh] place-items-center bg-slate-50 p-4 text-zinc-900 sm:p-6">
-      <section className="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50 sm:p-6">
-        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-slate-500">
-          <BrandMark className="size-5" />
-          Gitslice
-        </p>
-        <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">
+    <main className="grid min-h-[100dvh] place-items-center bg-slate-50 p-4 text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100 sm:p-6">
+      <section className="w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/20 sm:p-6">
+        <div className="flex items-center justify-between gap-4">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
+            <BrandMark className="size-5" />
+            Gitslice
+          </p>
+          <ThemeToggle />
+        </div>
+        <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-2xl">
           Choose your username
         </h1>
-        <p className="mt-3 text-sm leading-6 text-slate-600">
+        <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           Use at least four lowercase letters, numbers, or hyphens. This becomes
           your account namespace, and your files live under{" "}
-          <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+          <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
             /&lt;username&gt;
           </code>
           .
         </p>
 
         <form className="mt-6 space-y-5" onSubmit={submitUsername}>
-          <label className="grid gap-2 text-sm font-medium text-zinc-950">
+          <label className="grid gap-2 text-sm font-medium text-zinc-950 dark:text-zinc-100">
             Username
             <input
               autoCapitalize="none"
               autoComplete="username"
               autoFocus
-              className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+              className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-500 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
               disabled={chooseUsernameMutation.isPending}
               maxLength={63}
               minLength={4}
@@ -114,7 +114,7 @@ export function ChooseUsernamePage() {
               spellCheck={false}
               value={username}
             />
-            <span className="text-xs font-normal leading-5 text-slate-500">
+            <span className="text-xs font-normal leading-5 text-slate-500 dark:text-zinc-500">
               At least four characters. Lowercase letters, numbers, and hyphens
               only.
             </span>
@@ -122,14 +122,16 @@ export function ChooseUsernamePage() {
 
           <div aria-live="polite" className="min-h-5 text-xs leading-5">
             {trimmedUsername && isChecking ? (
-              <p className="font-semibold text-slate-600">Checking…</p>
+              <p className="font-semibold text-slate-600 dark:text-zinc-400">
+                Checking…
+              </p>
             ) : null}
 
             {trimmedUsername &&
             !isChecking &&
             hasCurrentAvailability &&
             availabilityQuery.isError ? (
-              <p className="font-semibold text-rose-700">
+              <p className="font-semibold text-rose-700 dark:text-rose-300">
                 {availabilityQuery.error instanceof Error
                   ? availabilityQuery.error.message
                   : "Could not check username."}
@@ -141,13 +143,13 @@ export function ChooseUsernamePage() {
             hasCurrentAvailability &&
             !availabilityQuery.isError &&
             availability?.available === false ? (
-              <p className="font-semibold text-rose-700">
+              <p className="font-semibold text-rose-700 dark:text-rose-300">
                 {availability.reason || "Username is not available."}
               </p>
             ) : null}
 
             {trimmedUsername && !isChecking && isAvailable ? (
-              <p className="font-semibold text-emerald-700">
+              <p className="font-semibold text-emerald-700 dark:text-emerald-300">
                 {normalizedDiffers
                   ? `${debouncedUsername} is available and will be saved as ${normalized}.`
                   : `${normalized || debouncedUsername} is available.`}
@@ -156,13 +158,13 @@ export function ChooseUsernamePage() {
           </div>
 
           {submitError ? (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold leading-6 text-rose-900">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold leading-6 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">
               {submitError}
             </div>
           ) : null}
 
           <button
-            className="w-full rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+            className="w-full rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-500"
             disabled={!canSubmit}
             type="submit"
           >

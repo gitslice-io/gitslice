@@ -87,15 +87,15 @@ export function EditableFileView({
   return (
     <div className="space-y-3">
       <SlicePanel className="p-0">
-        <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
+        <div className="border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h2 className="break-all text-base font-semibold text-zinc-950">
+              <h2 className="break-all text-base font-semibold text-zinc-950 dark:text-zinc-50">
                 {selectedPath || "Slice root"}
               </h2>
-              <p className="mt-1 hidden text-xs text-slate-500 sm:block">
+              <p className="mt-1 hidden text-xs text-slate-500 dark:text-zinc-400 sm:block">
                 Commit{" "}
-                <span className="font-mono text-slate-700" title={commitId}>
+                <span className="font-mono text-slate-700 dark:text-zinc-300" title={commitId}>
                   {commitId.slice(0, 8)}
                 </span>
               </p>
@@ -103,7 +103,7 @@ export function EditableFileView({
             <div className="flex shrink-0 items-center gap-2">
               {onOpenHistory ? (
                 <button
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
                   onClick={onOpenHistory}
                   type="button"
                 >
@@ -152,31 +152,31 @@ export function EditableFileView({
                 originalName={repositoryPathName(selectedPath)}
               />
               {renameError ? (
-                <p className="mt-2 text-sm text-rose-700">{renameError}</p>
+                <p className="mt-2 text-sm text-rose-700 dark:text-rose-300">{renameError}</p>
               ) : null}
             </div>
           ) : null}
         </div>
         {isEditing ? (
           <div className="p-4 sm:p-5">
-            <label className="grid gap-2 text-sm font-medium text-zinc-800">
+            <label className="grid gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
               File content
               <textarea
-                className="min-h-80 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 sm:min-h-[28rem]"
+                className="min-h-80 w-full min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 font-mono text-sm leading-6 text-zinc-950 dark:text-zinc-50 outline-none transition placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 sm:min-h-[28rem]"
                 onChange={(event) => setDraft(event.target.value)}
                 value={draft}
               />
             </label>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
-                className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+                className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98]"
                 onClick={saveEdit}
                 type="button"
               >
                 Save
               </button>
               <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
                 onClick={() => {
                   setDraft(displayedContent);
                   setIsEditing(false);

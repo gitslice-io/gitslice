@@ -39,7 +39,7 @@ export function SliceDirectoryTable({
 
   if (!sortedEntries.length) {
     return (
-      <div className="p-8 text-sm text-slate-600">
+      <div className="p-8 text-sm text-slate-600 dark:text-zinc-400">
         This slice-projected directory is empty.
       </div>
     );
@@ -47,8 +47,8 @@ export function SliceDirectoryTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-        <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
+      <table className="min-w-full divide-y divide-slate-200 dark:divide-zinc-800 text-left text-sm">
+        <thead className="bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
           <tr>
             <th className="w-full px-3 py-3 sm:px-4">Name</th>
             <th className="hidden px-4 py-3 md:table-cell">Kind</th>
@@ -59,7 +59,7 @@ export function SliceDirectoryTable({
             ) : null}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
           {sortedEntries.map((entry) => {
             const path = normalizeRepositoryPath(entry.path ?? "");
             const isDirectory = entry.kind === "ENTRY_KIND_DIRECTORY";
@@ -73,10 +73,10 @@ export function SliceDirectoryTable({
               : TOP_LEVEL_SLICE_FOLDER_TITLE;
 
             return (
-              <tr className="align-top transition hover:bg-slate-50" key={entry.path ?? entryDisplayName(entry)}>
+              <tr className="align-top transition hover:bg-slate-50 dark:hover:bg-zinc-950" key={entry.path ?? entryDisplayName(entry)}>
                 <td className="min-w-0 px-3 py-3 sm:min-w-56 sm:px-4">
                   <button
-                    className="break-words text-left font-medium text-zinc-950 underline-offset-4 hover:underline"
+                    className="break-words text-left font-medium text-zinc-950 dark:text-zinc-50 underline-offset-4 hover:underline"
                     onClick={() => onSelectPath(path)}
                     type="button"
                   >
@@ -84,18 +84,18 @@ export function SliceDirectoryTable({
                     {isDirectory ? "/" : ""}
                   </button>
                   {entry.path ? (
-                    <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 sm:truncate">
+                    <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 dark:text-zinc-500 sm:truncate">
                       {entry.path}
                     </div>
                   ) : null}
                 </td>
-                <td className="hidden px-4 py-3 text-slate-600 md:table-cell">
+                <td className="hidden px-4 py-3 text-slate-600 dark:text-zinc-400 md:table-cell">
                   {entryKindLabel(entry.kind)}
                 </td>
-                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
+                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 dark:text-zinc-400 md:table-cell">
                   {formatSize(entry.size)}
                 </td>
-                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 md:table-cell">
+                <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 dark:text-zinc-400 md:table-cell">
                   {entryHash ? (
                     <span title={entryHash}>{shortHash(entryHash)}</span>
                   ) : (

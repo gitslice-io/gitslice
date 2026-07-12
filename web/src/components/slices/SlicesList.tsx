@@ -54,13 +54,13 @@ export function SlicesList() {
     <section>
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-zinc-950">Slices</h2>
-          <p className="text-sm leading-6 text-slate-600">
+          <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Slices</h2>
+          <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
             Definitions for slices under the selected account.
           </p>
         </div>
         <Link
-          className="shrink-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+          className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
           to="/slices/new"
         >
           New slice
@@ -92,7 +92,7 @@ export function SlicesList() {
           <>
             {/* Mobile: a compact stacked list — a 5-column table collapses to a
                 sparse two-column layout on narrow screens, so render rows. */}
-            <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:hidden">
+            <ul className="divide-y divide-slate-200 dark:divide-zinc-800 overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:hidden">
               {slices.map((slice) => {
                 const sliceId = slice.id ?? "";
                 const routeParams = toSliceRouteParams(slice.ref);
@@ -102,11 +102,11 @@ export function SlicesList() {
                   <li key={sliceId || name}>
                     {routeParams ? (
                       <Link
-                        className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50"
+                        className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-zinc-950"
                         params={routeParams}
                         to="/slices/$account/$slice"
                       >
-                        <span className="min-w-0 truncate font-medium text-zinc-950">
+                        <span className="min-w-0 truncate font-medium text-zinc-950 dark:text-zinc-50">
                           {name}
                         </span>
                         <VisibilityBadge
@@ -115,7 +115,7 @@ export function SlicesList() {
                       </Link>
                     ) : (
                       <div className="flex items-center justify-between gap-3 px-4 py-3">
-                        <span className="min-w-0 truncate font-medium text-zinc-950">
+                        <span className="min-w-0 truncate font-medium text-zinc-950 dark:text-zinc-50">
                           {name}
                         </span>
                         <VisibilityBadge
@@ -129,10 +129,10 @@ export function SlicesList() {
             </ul>
 
             {/* Desktop: the full detail table. */}
-            <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 md:block">
+            <div className="hidden overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:block">
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                  <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
+                <table className="min-w-full divide-y divide-slate-200 dark:divide-zinc-800 text-left text-sm">
+                  <thead className="bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
                     <tr>
                       <th className="px-4 py-3">Slice</th>
                       <th className="px-4 py-3">Visibility</th>
@@ -141,7 +141,7 @@ export function SlicesList() {
                       <th className="px-4 py-3">Included paths</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
+                  <tbody className="divide-y divide-slate-200 dark:divide-zinc-800">
                     {slices.map((slice) => {
                       const paths = slice.definition?.includedPaths ?? [];
                       const sliceId = slice.id ?? "";
@@ -149,10 +149,10 @@ export function SlicesList() {
 
                       return (
                         <tr
-                          className="align-top transition hover:bg-slate-50"
+                          className="align-top transition hover:bg-slate-50 dark:hover:bg-zinc-950"
                           key={sliceId || sliceDisplayName(slice)}
                         >
-                          <td className="px-4 py-3 font-medium text-zinc-950">
+                          <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">
                             {routeParams ? (
                               <Link
                                 className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
@@ -170,10 +170,10 @@ export function SlicesList() {
                               visibility={slice.definition?.visibility}
                             />
                           </td>
-                          <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                          <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-zinc-300">
                             {slice.definition?.version ?? "unknown"}
                           </td>
-                          <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700">
+                          <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 dark:text-zinc-300">
                             {slice.definitionHash ? (
                               <span title={slice.definitionHash}>
                                 {shortHash(slice.definitionHash)}
@@ -182,8 +182,8 @@ export function SlicesList() {
                               "none"
                             )}
                           </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            <span className="font-medium text-zinc-950">
+                          <td className="px-4 py-3 text-slate-700 dark:text-zinc-300">
+                            <span className="font-medium text-zinc-950 dark:text-zinc-50">
                               {paths.length}
                             </span>{" "}
                             <span>{formatPathPreview(paths)}</span>

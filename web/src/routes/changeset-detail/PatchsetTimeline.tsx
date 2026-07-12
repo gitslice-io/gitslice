@@ -89,7 +89,7 @@ export function PatchsetTimeline({
 
   if (!selectablePatchsets.length) {
     return (
-      <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+      <p className="mt-2 rounded-md bg-slate-50 dark:bg-zinc-950 px-3 py-2 text-sm text-slate-600 dark:text-zinc-400">
         No patchsets returned.
       </p>
     );
@@ -134,7 +134,7 @@ export function PatchsetTimeline({
           className="relative mx-auto h-full"
           style={{ maxWidth: "100%", width: trackWidth }}
         >
-          <div className="absolute inset-x-0 top-[7px] h-0.5 -translate-y-1/2 rounded-full bg-slate-200" />
+          <div className="absolute inset-x-0 top-[7px] h-0.5 -translate-y-1/2 rounded-full bg-slate-200 dark:bg-zinc-700" />
           <div
             aria-hidden="true"
             className="absolute top-[7px] h-0.5 -translate-y-1/2 rounded-full bg-zinc-900"
@@ -172,7 +172,7 @@ export function PatchsetTimeline({
                         ? "h-3.5 w-3.5 border-zinc-950 bg-zinc-950"
                         : inRange
                           ? "h-3 w-3 border-zinc-900 bg-zinc-900"
-                          : "h-2.5 w-2.5 border-slate-300 bg-white",
+                          : "h-2.5 w-2.5 border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900",
                       isCurrent &&
                         !isEndpoint &&
                         !inRange &&
@@ -183,9 +183,9 @@ export function PatchsetTimeline({
                   <span
                     className={cn(
                       isEndpoint || inRange
-                        ? "text-zinc-950"
-                        : "text-slate-500",
-                      isCurrent && !isEndpoint && !inRange && "text-emerald-700"
+                        ? "text-zinc-950 dark:text-zinc-50"
+                        : "text-slate-500 dark:text-zinc-400",
+                      isCurrent && !isEndpoint && !inRange && "text-emerald-700 dark:text-emerald-300"
                     )}
                   >
                     {step.label}

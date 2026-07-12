@@ -30,7 +30,7 @@ export function HomePage() {
       <PageHeader
         primaryAction={
           <button
-            className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98]"
+            className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98]"
             onClick={() => setIsCreateOpen(true)}
             type="button"
           >
@@ -38,7 +38,7 @@ export function HomePage() {
           </button>
         }
         title={
-          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 sm:text-lg">
+          <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg">
             Home
           </h1>
         }

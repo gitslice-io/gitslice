@@ -232,7 +232,7 @@ function normalizeSection(value: string | undefined): DocSection {
 
 function CommandBlock({ children }: { children: string }) {
   return (
-    <pre className="mt-3 overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-700">
+    <pre className="mt-3 overflow-x-auto rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-3 py-2 font-mono text-xs leading-5 text-slate-700 dark:text-zinc-300">
       <code className="whitespace-pre">{children}</code>
     </pre>
   );
@@ -250,8 +250,8 @@ function SectionLink({
       className={[
         "block rounded-md border px-4 py-3 text-left transition active:scale-[0.98]",
         active
-          ? "border-zinc-950 bg-zinc-950 text-white"
-          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-zinc-950"
+          ? "border-zinc-950 dark:border-zinc-100 bg-zinc-950 dark:bg-zinc-100 text-white dark:text-zinc-950"
+          : "border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
       ].join(" ")}
       to={docPath(section.id)}
     >
@@ -259,7 +259,7 @@ function SectionLink({
       <span
         className={[
           "mt-1 block text-xs leading-5",
-          active ? "text-slate-300" : "text-slate-500"
+          active ? "text-slate-300 dark:text-zinc-500" : "text-slate-500 dark:text-zinc-400"
         ].join(" ")}
       >
         {section.description}
@@ -308,14 +308,14 @@ function PageHeader({
   title: string;
 }) {
   return (
-    <header className="border-b border-slate-200 pb-5">
-      <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">
+    <header className="border-b border-slate-200 dark:border-zinc-800 pb-5">
+      <p className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
         {eyebrow}
       </p>
-      <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 sm:text-2xl">
+      <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-2xl">
         {title}
       </h1>
-      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-zinc-400">
         {description}
       </p>
     </header>
@@ -331,19 +331,19 @@ function StartHereDoc() {
         description="Use this path if you want to get productive before learning the whole model. Gitslice gives you repository-like slices over one global source graph, and changesets are how work lands."
       />
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
           First workflow
         </h2>
         <ol className="mt-4 space-y-5">
           {startSteps.map((step, index) => (
             <li className="flex gap-3 text-sm leading-6" key={step.title}>
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 dark:bg-zinc-100 text-xs font-semibold text-white dark:text-zinc-950">
                 {index + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-zinc-950">{step.title}</h3>
-                <p className="mt-1 text-slate-600">{step.description}</p>
+                <h3 className="font-semibold text-zinc-950 dark:text-zinc-50">{step.title}</h3>
+                <p className="mt-1 text-slate-600 dark:text-zinc-400">{step.description}</p>
                 <CommandBlock>{step.command}</CommandBlock>
               </div>
             </li>
@@ -379,21 +379,21 @@ function ConceptsDoc() {
       <section className="mt-8 grid gap-4 md:grid-cols-2">
         {conceptCards.map((concept) => (
           <article
-            className="rounded-md border border-slate-200 bg-white p-5"
+            className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5"
             key={concept.title}
           >
-            <h2 className="text-base font-semibold text-zinc-950">
+            <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
               {concept.title}
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
               {concept.description}
             </p>
           </article>
         ))}
       </section>
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
           Submit lifecycle
         </h2>
         <div className="mt-4">
@@ -405,11 +405,11 @@ function ConceptsDoc() {
               ["Native commit", "Immutable snapshot behind refs/global/main."]
             ].map(([title, description]) => (
               <div
-                className="rounded-md border border-slate-200 bg-slate-50 p-4"
+                className="rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 p-4"
                 key={title}
               >
-                <h3 className="font-semibold text-zinc-950">{title}</h3>
-                <p className="mt-2 leading-6 text-slate-600">{description}</p>
+                <h3 className="font-semibold text-zinc-950 dark:text-zinc-50">{title}</h3>
+                <p className="mt-2 leading-6 text-slate-600 dark:text-zinc-400">{description}</p>
               </div>
             ))}
           </div>
@@ -428,33 +428,33 @@ function AgentsDoc() {
         description="Bring your own coding agent. Run an agent daemon on your machine and drive it from a slice's Agents page; each conversation works in its own slice workspace, and its edits land as a normal changeset."
       />
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">How it works</h2>
-        <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">How it works</h2>
+        <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           <li>
-            <span className="font-semibold text-zinc-950">Daemon:</span> you run{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Daemon:</span> you run{" "}
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               gs agent start
             </code>{" "}
             in an empty directory. It holds one outbound connection to the server,
             so it works from behind a firewall with no inbound ports.
           </li>
           <li>
-            <span className="font-semibold text-zinc-950">Runtime:</span> the
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Runtime:</span> the
             first supported agent is the{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               codex
             </code>{" "}
             CLI, which must be installed and on your PATH.
           </li>
           <li>
-            <span className="font-semibold text-zinc-950">Conversations:</span>{" "}
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Conversations:</span>{" "}
             open a slice&apos;s Agents page and start a conversation. Each one runs
             in its own workspace sub-directory bound to that slice, so multiple
             conversations stay isolated.
           </li>
           <li>
-            <span className="font-semibold text-zinc-950">Changesets:</span> after
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Changesets:</span> after
             each turn the agent&apos;s edits are captured as a patchset on a
             changeset for the slice — linked back to the exact conversation that
             produced it.
@@ -462,8 +462,8 @@ function AgentsDoc() {
         </ul>
       </section>
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">Get started</h2>
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">Get started</h2>
         <ol className="mt-4 space-y-5">
           {[
             {
@@ -486,12 +486,12 @@ function AgentsDoc() {
             }
           ].map((step, index) => (
             <li className="flex gap-3 text-sm leading-6" key={step.title}>
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 dark:bg-zinc-100 text-xs font-semibold text-white dark:text-zinc-950">
                 {index + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-zinc-950">{step.title}</h3>
-                <p className="mt-1 text-slate-600">{step.description}</p>
+                <h3 className="font-semibold text-zinc-950 dark:text-zinc-50">{step.title}</h3>
+                <p className="mt-1 text-slate-600 dark:text-zinc-400">{step.description}</p>
                 {step.command ? (
                   <CommandBlock>{step.command}</CommandBlock>
                 ) : null}
@@ -526,54 +526,54 @@ function ChecksDoc() {
         description="Checks are build/test/lint commands defined in your source. They run automatically on every new patchset and can gate submit. No separate CI service to configure — checks run on a machine you control and report back."
       />
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">How it works</h2>
-        <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">How it works</h2>
+        <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           <li>
-            <span className="font-semibold text-zinc-950">Defined in source:</span>{" "}
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Defined in source:</span>{" "}
             checks live in{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               .gitslice/checks.yaml
             </code>{" "}
             files committed alongside your code — one per folder. They are
             versioned with the revision they apply to.
           </li>
           <li>
-            <span className="font-semibold text-zinc-950">Folder-scoped &amp; cascading:</span>{" "}
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Folder-scoped &amp; cascading:</span>{" "}
             for each path a patchset changes, every{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               checks.yaml
             </code>{" "}
             from that folder up to the repository root applies. A check defined in{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               backend/
             </code>{" "}
             only runs when something under{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               backend/
             </code>{" "}
             changes; an optional{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               paths
             </code>{" "}
             filter narrows it further.
           </li>
           <li>
-            <span className="font-semibold text-zinc-950">Runs on each patchset:</span>{" "}
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Runs on each patchset:</span>{" "}
             when you capture a patchset (including each agent turn), the applicable
             checks run and their pass/fail is recorded against that patchset. A new
             patchset re-runs them.
           </li>
           <li>
-            <span className="font-semibold text-zinc-950">Gates submit:</span> a
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Gates submit:</span> a
             slice can mark checks as <em>required</em>. The changeset cannot submit
             until every required check passes for the current patchset.
           </li>
           <li>
-            <span className="font-semibold text-zinc-950">Where they run:</span> in
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Where they run:</span> in
             the common case checks run on the same machine that authored the change
             (your agent or CLI), in a container when an{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               image
             </code>{" "}
             is set, otherwise directly. Checks that need files beyond the slice run
@@ -582,17 +582,17 @@ function ChecksDoc() {
         </ul>
       </section>
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
           The checks.yaml format
         </h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           Place this at{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             &lt;folder&gt;/.gitslice/checks.yaml
           </code>
           . A check&apos;s id is its folder path plus its name, e.g.{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             backend/test
           </code>
           .
@@ -616,59 +616,59 @@ checks:
     run: "./scripts/smoke.sh"
     include: ["/go.mod", "/go.sum"]  # extra paths to make available
     network: true                    # allow network (default: denied)`}</CommandBlock>
-        <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-600">
+        <ul className="mt-4 space-y-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           <li>
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               run
             </code>{" "}
             (required) — the command, run via{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               sh -c
             </code>{" "}
             from the check&apos;s folder. Exit 0 passes.
           </li>
           <li>
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               paths
             </code>{" "}
             — globs (folder-relative, or{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               /
             </code>
             -absolute); the check is skipped if none match the change.
           </li>
           <li>
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               image
             </code>
             ,{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               env
             </code>
             ,{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               network
             </code>
             ,{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               timeout
             </code>
             ,{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               working_dir
             </code>
             ,{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               include
             </code>{" "}
             — all optional per check (or under{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               defaults
             </code>
             ).
           </li>
           <li>
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               setup
             </code>{" "}
             — commands run once to prepare the container image (install
@@ -676,19 +676,19 @@ checks:
             and reused on later runs, so setup does not repeat. Keep it
             change-independent (no workspace files); use a dependency cache for
             per-change caches like{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               go mod
             </code>{" "}
             or{" "}
-            <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               npm
             </code>
             .
           </li>
         </ul>
-        <p className="mt-4 text-sm leading-6 text-slate-600">
+        <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           Run the applicable checks for your current workspace at any time with{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             gs ci
           </code>{" "}
           — it runs the same set locally (with setup/run timing) and reports
@@ -696,8 +696,8 @@ checks:
         </p>
       </section>
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">Add checks</h2>
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">Add checks</h2>
         <ol className="mt-4 space-y-5">
           {[
             {
@@ -727,12 +727,12 @@ checks:
             }
           ].map((step, index) => (
             <li className="flex gap-3 text-sm leading-6" key={step.title}>
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 dark:bg-zinc-100 text-xs font-semibold text-white dark:text-zinc-950">
                 {index + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <h3 className="font-semibold text-zinc-950">{step.title}</h3>
-                <p className="mt-1 text-slate-600">{step.description}</p>
+                <h3 className="font-semibold text-zinc-950 dark:text-zinc-50">{step.title}</h3>
+                <p className="mt-1 text-slate-600 dark:text-zinc-400">{step.description}</p>
                 {step.command ? (
                   <CommandBlock>{step.command}</CommandBlock>
                 ) : null}
@@ -767,23 +767,23 @@ function GitUsersDoc() {
         description="Use this page if your mental model starts with repos, branches, commits, and pull requests. Gitslice keeps familiar boundaries but changes the native write path."
       />
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
           Git to Gitslice
         </h2>
         <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-normal text-slate-500">
+          <table className="min-w-full divide-y divide-slate-200 dark:divide-zinc-800 text-left text-sm">
+            <thead className="bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
               <tr>
                 <th className="px-4 py-3">Git term</th>
                 <th className="px-4 py-3">Gitslice term</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
               {gitTranslations.map(([git, gitslice]) => (
                 <tr key={git}>
-                  <td className="px-4 py-3 font-medium text-zinc-950">{git}</td>
-                  <td className="px-4 py-3 text-slate-600">{gitslice}</td>
+                  <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">{git}</td>
+                  <td className="px-4 py-3 text-slate-600 dark:text-zinc-400">{gitslice}</td>
                 </tr>
               ))}
             </tbody>
@@ -791,8 +791,8 @@ function GitUsersDoc() {
         </div>
       </section>
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
           Familiar workflow, native submit
         </h2>
         <CommandBlock>{`gs auth login
@@ -801,7 +801,7 @@ gs init <account>:<slice>
 gs status
 gs create --message "change title"
 gs submit`}</CommandBlock>
-        <p className="mt-3 text-sm leading-6 text-slate-600">
+        <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           The important shift: you do not need to create a local commit before
           review. A changeset is the review unit, and submit creates the accepted
           native snapshot.
@@ -811,13 +811,13 @@ gs submit`}</CommandBlock>
       <section className="mt-8 grid gap-4 md:grid-cols-2">
         {gitQuestions.map((item) => (
           <article
-            className="rounded-md border border-slate-200 bg-white p-5"
+            className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5"
             key={item.question}
           >
-            <h2 className="text-base font-semibold text-zinc-950">
+            <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
               {item.question}
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
               {item.answer}
             </p>
           </article>
@@ -836,50 +836,50 @@ function CliReferenceDoc() {
         description="A compact lookup for the commands used in normal Gitslice work. Use Start Here for the walkthrough."
       />
 
-      <section className="mt-8 rounded-md border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-zinc-950">
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
           Install the gs CLI
         </h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           The CLI is a single Go binary named{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             gs
           </code>
           . Installing it requires Go 1.24 or newer.
         </p>
 
-        <h3 className="mt-5 text-sm font-semibold text-zinc-950">
+        <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           Option A — go install (quickest)
         </h3>
         <CommandBlock>{`go install github.com/gitslice-io/gitslice/cmd/gs@latest`}</CommandBlock>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           Make sure your Go bin directory is on{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             PATH
           </code>
           :
         </p>
         <CommandBlock>{`export PATH="$PATH:$(go env GOPATH)/bin"`}</CommandBlock>
 
-        <h3 className="mt-5 text-sm font-semibold text-zinc-950">
+        <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           Option B — build from source
         </h3>
         <CommandBlock>{`git clone https://github.com/gitslice-io/gitslice.git
 cd gitslice
 make install   # builds gs (and gitslice-server) into your Go bin`}</CommandBlock>
 
-        <h3 className="mt-5 text-sm font-semibold text-zinc-950">Verify</h3>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+        <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">Verify</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             gs
           </code>{" "}
           defaults to the hosted endpoint, so you can sign in right away. Point
           at a different server with{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             --server
           </code>{" "}
           or{" "}
-          <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             GS_SERVER_ADDR
           </code>
           .
@@ -892,21 +892,21 @@ gs auth status`}</CommandBlock>
       <section className="mt-8 grid gap-4 md:grid-cols-2">
         {commandGroups.map((group) => (
           <article
-            className="rounded-md border border-slate-200 bg-white p-5"
+            className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5"
             key={group.title}
           >
-            <h2 className="text-base font-semibold text-zinc-950">
+            <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
               {group.title}
             </h2>
             <dl className="mt-4 space-y-3">
               {group.commands.map(([command, description]) => (
                 <div key={command}>
                   <dt>
-                    <code className="rounded-md bg-slate-50 px-2 py-1 font-mono text-xs text-slate-700">
+                    <code className="rounded-md bg-slate-50 dark:bg-zinc-950 px-2 py-1 font-mono text-xs text-slate-700 dark:text-zinc-300">
                       {command}
                     </code>
                   </dt>
-                  <dd className="mt-1 text-sm leading-6 text-slate-600">
+                  <dd className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
                     {description}
                   </dd>
                 </div>
@@ -930,11 +930,11 @@ function NextDocCard({
 }) {
   return (
     <Link
-      className="rounded-md border border-slate-200 bg-white p-5 transition hover:bg-slate-50 active:scale-[0.98]"
+      className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
       to={docPath(section)}
     >
-      <h2 className="text-base font-semibold text-zinc-950">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+      <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">{title}</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">{description}</p>
     </Link>
   );
 }

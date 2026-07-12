@@ -8,16 +8,16 @@ interface IconSpec {
 }
 
 const toneClasses = {
-  amber: "border-amber-300 bg-amber-50 text-amber-800",
+  amber: "border-amber-300 dark:border-amber-800/70 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200",
   blue: "border-blue-300 bg-blue-50 text-blue-700",
   cyan: "border-cyan-300 bg-cyan-50 text-cyan-700",
-  emerald: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  emerald: "border-emerald-300 dark:border-emerald-800/70 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300",
   indigo: "border-indigo-300 bg-indigo-50 text-indigo-700",
   orange: "border-orange-300 bg-orange-50 text-orange-700",
   pink: "border-pink-300 bg-pink-50 text-pink-700",
-  rose: "border-rose-300 bg-rose-50 text-rose-700",
-  sky: "border-sky-300 bg-sky-50 text-sky-700",
-  slate: "border-slate-300 bg-slate-50 text-slate-700",
+  rose: "border-rose-300 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300",
+  sky: "border-sky-300 dark:border-sky-800/70 bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300",
+  slate: "border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300",
   teal: "border-teal-300 bg-teal-50 text-teal-700",
   violet: "border-violet-300 bg-violet-50 text-violet-700"
 };

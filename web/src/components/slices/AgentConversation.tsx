@@ -591,7 +591,7 @@ export function AgentConversation({
 
   return (
     <div className="flex min-h-[calc(100dvh-12rem)] flex-col">
-      <div className="flex flex-1 flex-col bg-slate-50/60">
+      <div className="flex flex-1 flex-col bg-slate-50/60 dark:bg-zinc-950/60">
         {/* The header lives at the top of the scroll region rather than pinned
             above it, so it collapses out of view as you scroll the transcript —
             like the changeset detail page, whose header is normal page flow.
@@ -599,14 +599,14 @@ export function AgentConversation({
             scrolled away, handing its space to the conversation. The page
             breadcrumb lives outside this panel, pinned above it like every
             other slice page. */}
-        <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-5">
+        <div className="border-b border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3 sm:px-5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold text-zinc-950">
+              <h2 className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                 {title}
               </h2>
               {conversation?.workspaceSubdir ? (
-                <p className="truncate font-mono text-xs text-slate-500">
+                <p className="truncate font-mono text-xs text-slate-500 dark:text-zinc-400">
                   {conversation.workspaceSubdir}
                 </p>
               ) : null}
@@ -614,7 +614,7 @@ export function AgentConversation({
             <div className="flex shrink-0 items-center gap-2">
               {toolbar}
               <button
-                className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98]"
+                className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
                 onClick={() => {
                   void copyConversationLink();
                 }}
@@ -624,7 +624,7 @@ export function AgentConversation({
               </button>
               {!readOnly && isConversationActive ? (
                 <button
-                  className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800 disabled:text-slate-400 dark:disabled:text-zinc-500"
                   disabled={closeConversationMutation.isPending}
                   onClick={() => setIsCloseConfirmOpen(true)}
                   type="button"
@@ -639,7 +639,7 @@ export function AgentConversation({
             <div
               aria-label="Conversation stream status"
               aria-live="polite"
-              className="mt-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:flex-row sm:items-center sm:justify-between"
+              className="mt-3 flex flex-col gap-2 rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-950 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
               role="status"
             >
               <div className="min-w-0">
@@ -649,14 +649,14 @@ export function AgentConversation({
                     : "Stream stopped"}
                 </p>
                 <p
-                  className="mt-0.5 truncate leading-5 text-amber-900/80"
+                  className="mt-0.5 truncate leading-5 text-amber-900/80 dark:text-amber-200/80"
                   title={streamError}
                 >
                   {streamError}
                 </p>
               </div>
               <button
-                className="w-fit rounded-md border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-900 transition hover:bg-amber-100 active:scale-[0.98]"
+                className="w-fit rounded-md border border-amber-300 dark:border-amber-800/70 bg-white dark:bg-zinc-900 px-3 py-1.5 font-semibold text-amber-900 dark:text-amber-200 transition hover:bg-amber-100 dark:hover:bg-amber-950/45 active:scale-[0.98]"
                 onClick={() => {
                   setStreamError("");
                   setIsStreamReconnecting(false);
@@ -690,10 +690,10 @@ export function AgentConversation({
             ) : (
               <div className="flex min-h-64 items-center justify-center text-center">
                 <div className="max-w-sm">
-                  <h3 className="text-sm font-semibold text-zinc-950">
+                  <h3 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                     No messages yet
                   </h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                  <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
                     Send a message to start this agent conversation.
                   </p>
                 </div>
@@ -712,7 +712,7 @@ export function AgentConversation({
                   ref={topSentinelRef}
                 >
                   <button
-                    className="rounded-md border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-1 text-xs font-semibold text-slate-600 dark:text-zinc-400 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={isLoadingEarlier}
                     onClick={() => {
                       void loadEarlierMessages();
@@ -724,7 +724,7 @@ export function AgentConversation({
                       : "Load earlier messages"}
                   </button>
                   {earlierError ? (
-                    <p className="text-xs text-rose-700">{earlierError}</p>
+                    <p className="text-xs text-rose-700 dark:text-rose-300">{earlierError}</p>
                   ) : null}
                 </div>
               ) : null}
@@ -756,13 +756,13 @@ export function AgentConversation({
 
       {readOnly ? null : (
         <form
-          className="sticky bottom-0 z-20 border-t border-slate-200 bg-white px-3 py-3 sm:px-5"
+          className="sticky bottom-0 z-20 border-t border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3 sm:px-5"
           onSubmit={sendMessage}
         >
           {agentOffline ? (
-            <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <div className="mb-3 rounded-md border border-amber-300 dark:border-amber-800/70 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
               This agent is offline. Run{" "}
-              <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-amber-900">
+              <code className="rounded bg-white dark:bg-zinc-900 px-1.5 py-0.5 font-mono text-xs text-amber-900 dark:text-amber-200">
                 gs agent start
               </code>{" "}
               on the machine hosting it to resume the conversation.
@@ -771,7 +771,7 @@ export function AgentConversation({
           <div className="flex items-end gap-2">
             <textarea
               aria-label="Message"
-              className="max-h-48 min-h-16 w-full min-w-0 resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 outline-none transition placeholder:text-slate-400 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+              className="max-h-48 min-h-16 w-full min-w-0 resize-y rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm leading-6 text-zinc-950 dark:text-zinc-50 outline-none transition placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800 disabled:text-slate-500 dark:disabled:text-zinc-400"
               disabled={agentOffline}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={
@@ -782,7 +782,7 @@ export function AgentConversation({
               value={draft}
             />
             <button
-              className="shrink-0 rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="shrink-0 rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-zinc-600"
               disabled={isSending || !draft.trim() || agentOffline}
               type="submit"
             >
@@ -790,7 +790,7 @@ export function AgentConversation({
             </button>
           </div>
           {sendError ? (
-            <p className="mt-2 text-sm text-rose-700">{sendError}</p>
+            <p className="mt-2 text-sm text-rose-700 dark:text-rose-300">{sendError}</p>
           ) : null}
         </form>
       )}
@@ -831,7 +831,7 @@ function ConversationStatusDot({ status }: { status?: string }) {
       aria-label={value}
       className={cn(
         "inline-block h-2 w-2 shrink-0 rounded-full",
-        active ? "bg-emerald-500" : "bg-slate-300"
+        active ? "bg-emerald-500" : "bg-slate-300 dark:bg-zinc-600"
       )}
       role="img"
       title={value}
@@ -907,40 +907,40 @@ function groupConversationEvents(
 
 function ConversationTraceGroup({ events }: { events: ConversationEvent[] }) {
   return (
-    <details className="mr-auto max-w-full rounded-md border border-slate-200 bg-white/90 text-sm shadow-sm shadow-slate-200/60 sm:max-w-[44rem]">
-      <summary className="flex cursor-pointer items-start justify-between gap-3 px-3 py-2 text-slate-700 transition hover:bg-slate-50">
+    <details className="mr-auto max-w-full rounded-md border border-slate-200 dark:border-zinc-800 bg-white/90 dark:bg-zinc-900/90 text-sm shadow-sm shadow-slate-200/60 dark:shadow-black/60 sm:max-w-[44rem]">
+      <summary className="flex cursor-pointer items-start justify-between gap-3 px-3 py-2 text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950">
         <span className="min-w-0">
           <span className="block truncate font-semibold">
             {traceGroupLabel(events)}
           </span>
           {tracePreview(events) ? (
-            <span className="mt-0.5 block truncate font-mono text-xs text-slate-500">
+            <span className="mt-0.5 block truncate font-mono text-xs text-slate-500 dark:text-zinc-400">
               {tracePreview(events)}
             </span>
           ) : null}
         </span>
-        <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+        <span className="shrink-0 rounded bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:text-zinc-400">
           details
         </span>
       </summary>
-      <div className="grid grid-cols-1 gap-2 border-t border-slate-100 bg-slate-50/70 p-3">
+      <div className="grid grid-cols-1 gap-2 border-t border-slate-100 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/70 p-3">
         {events.map((event, index) => (
           <div
-            className="rounded-md bg-white p-2 shadow-sm shadow-slate-200/50"
+            className="rounded-md bg-white dark:bg-zinc-900 p-2 shadow-sm shadow-slate-200/50 dark:shadow-black/50"
             key={eventKey(event, index)}
           >
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500">
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
               <span>{traceEventLabel(event)}</span>
               {hasSequence(event) ? (
-                <span className="text-slate-400">#{event.seq}</span>
+                <span className="text-slate-400 dark:text-zinc-500">#{event.seq}</span>
               ) : null}
             </div>
             {traceEventContent(event) ? (
-              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700">
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700 dark:text-zinc-300">
                 {traceEventContent(event)}
               </pre>
             ) : (
-              <p className="text-xs text-slate-500">No payload</p>
+              <p className="text-xs text-slate-500 dark:text-zinc-400">No payload</p>
             )}
           </div>
         ))}
@@ -958,7 +958,7 @@ function MessageMarkdown({ source }: { source: string }) {
   const onLinkClick = useInternalLinkClickHandler();
   return (
     <div
-      className="prose prose-sm prose-slate max-w-none break-words prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-50 prose-pre:text-zinc-900 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
+      className="prose prose-sm prose-slate max-w-none break-words prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
       dangerouslySetInnerHTML={{ __html: html }}
       onClick={onLinkClick}
     />
@@ -978,8 +978,8 @@ function isLiveDelta(event: ConversationEvent): event is ConversationEvent & {
 function LiveDeltaBubble({ event }: { event: ConversationEvent }) {
   const text = event.text ?? "";
   return (
-    <article className="mr-auto max-w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-zinc-950 shadow-sm shadow-slate-200/60 sm:max-w-[44rem]">
-      <div className="mb-1 flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500">
+    <article className="mr-auto max-w-full rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm leading-6 text-zinc-950 dark:text-zinc-50 shadow-sm shadow-slate-200/60 dark:shadow-black/60 sm:max-w-[44rem]">
+      <div className="mb-1 flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
         <span>agent</span>
       </div>
       <MessageMarkdown source={text} />
@@ -1055,7 +1055,7 @@ function AgentWorkingIndicator({ label }: { label: string }) {
     <div
       aria-label="Agent activity"
       aria-live="polite"
-      className="mr-auto flex w-fit items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm shadow-slate-200/60"
+      className="mr-auto flex w-fit items-center gap-2 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-slate-600 dark:text-zinc-400 shadow-sm shadow-slate-200/60 dark:shadow-black/60"
       role="status"
     >
       <span aria-hidden="true" className="flex gap-1">
@@ -1080,11 +1080,11 @@ function TranscriptSkeleton() {
       className="flex flex-1 flex-col justify-end gap-3"
       role="presentation"
     >
-      <span className="mr-auto h-16 w-full max-w-[32rem] animate-pulse rounded-md bg-slate-200/70" />
-      <span className="ml-auto h-10 w-full max-w-[20rem] animate-pulse rounded-md bg-slate-200/70" />
-      <span className="mr-auto h-24 w-full max-w-[36rem] animate-pulse rounded-md bg-slate-200/70" />
-      <span className="ml-auto h-11 w-full max-w-[16rem] animate-pulse rounded-md bg-slate-200/70" />
-      <span className="mr-auto h-20 w-full max-w-[34rem] animate-pulse rounded-md bg-slate-200/70" />
+      <span className="mr-auto h-16 w-full max-w-[32rem] animate-pulse rounded-md bg-slate-200/70 dark:bg-zinc-700/70" />
+      <span className="ml-auto h-10 w-full max-w-[20rem] animate-pulse rounded-md bg-slate-200/70 dark:bg-zinc-700/70" />
+      <span className="mr-auto h-24 w-full max-w-[36rem] animate-pulse rounded-md bg-slate-200/70 dark:bg-zinc-700/70" />
+      <span className="ml-auto h-11 w-full max-w-[16rem] animate-pulse rounded-md bg-slate-200/70 dark:bg-zinc-700/70" />
+      <span className="mr-auto h-20 w-full max-w-[34rem] animate-pulse rounded-md bg-slate-200/70 dark:bg-zinc-700/70" />
     </div>
   );
 }
@@ -1102,18 +1102,18 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
       className={cn(
         "rounded-md px-3 py-2 text-sm leading-6 shadow-sm",
         isUser &&
-          "ml-auto max-w-[min(44rem,85%)] bg-zinc-950 text-white shadow-slate-900/10",
+          "ml-auto max-w-[min(44rem,85%)] bg-zinc-950 dark:bg-zinc-100 text-white dark:text-zinc-950 shadow-slate-900/10",
         isAgent &&
-          "mr-auto max-w-full border border-slate-200 bg-white text-zinc-950 shadow-slate-200/60 sm:max-w-[44rem]",
+          "mr-auto max-w-full border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-slate-200/60 dark:shadow-black/60 sm:max-w-[44rem]",
         !isUser &&
           !isAgent &&
-          "mx-auto max-w-full border border-slate-200 bg-white text-slate-700 shadow-slate-200/60 sm:max-w-[44rem]"
+          "mx-auto max-w-full border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 shadow-slate-200/60 dark:shadow-black/60 sm:max-w-[44rem]"
       )}
     >
       <div
         className={cn(
           "mb-1 flex items-center gap-2 text-[0.7rem] font-semibold uppercase tracking-normal",
-          isUser ? "text-slate-300" : "text-slate-500"
+          isUser ? "text-slate-300 dark:text-zinc-500" : "text-slate-500 dark:text-zinc-400"
         )}
       >
         <span>{role}</span>
@@ -1121,13 +1121,13 @@ function ConversationEventBubble({ event }: { event: ConversationEvent }) {
       </div>
       {capturedPatchset ? (
         <div className="grid grid-cols-1 gap-2">
-          <p className="font-medium text-zinc-950">
+          <p className="font-medium text-zinc-950 dark:text-zinc-50">
             Captured patchset {capturedPatchset.patchsetNumber}
           </p>
           <CapturedChangesetLink changesetId={capturedPatchset.changesetId} />
         </div>
       ) : event.dataJson && !event.text ? (
-        <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-100 p-2 font-mono text-xs text-slate-700">
+        <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-100 dark:bg-zinc-800 p-2 font-mono text-xs text-slate-700 dark:text-zinc-300">
           {event.dataJson}
         </pre>
       ) : isAgent && event.text ? (
@@ -1158,7 +1158,7 @@ function CapturedChangesetLink({ changesetId }: { changesetId: string }) {
 
   return (
     <Link
-      className="inline-flex w-fit max-w-full items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-semibold text-zinc-900 underline decoration-slate-300 underline-offset-4 transition hover:border-slate-400 hover:decoration-slate-700 active:scale-[0.98]"
+      className="inline-flex w-fit max-w-full items-center rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 font-mono text-xs font-semibold text-zinc-900 dark:text-zinc-100 underline decoration-slate-300 underline-offset-4 transition hover:border-slate-400 dark:hover:border-zinc-600 hover:decoration-slate-700 active:scale-[0.98]"
       onFocus={prefetchChangeset}
       onMouseEnter={prefetchChangeset}
       params={{ id: changesetId }}
