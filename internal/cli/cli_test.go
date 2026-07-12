@@ -1610,6 +1610,26 @@ func TestScanWorkspaceFilesIncludesUserDotPaths(t *testing.T) {
 	}
 }
 
+func TestShouldSkipAgentMetadataOnlyAtWorkspaceRoot(t *testing.T) {
+	tests := []struct {
+		rel  string
+		want bool
+	}{
+		{rel: ".agent-meta.json", want: true},
+		{rel: "sub/.agent-meta.json", want: false},
+		{rel: ".agent-meta-abc123.tmp", want: true},
+		{rel: ".git/x", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.rel, func(t *testing.T) {
+			if got := shouldSkip(tt.rel, nil); got != tt.want {
+				t.Fatalf("shouldSkip(%q) = %t, want %t", tt.rel, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveSliceRefInputAcceptsExplicitSliceOffline(t *testing.T) {
 	r := Runner{}
 	explicit, err := r.resolveSliceRefInput(context.Background(), UserConfig{SubjectID: "user_alice"}, nil, "acme/Payment_API")

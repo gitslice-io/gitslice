@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 type File struct {
@@ -12,6 +13,8 @@ type File struct {
 	Data   []byte
 }
 
+// UnifiedFileDiff returns a unified file diff that is always valid UTF-8 so it
+// is safe for callers to store in proto3 string fields.
 func UnifiedFileDiff(oldFile, newFile File) string {
 	if oldFile.Exists && newFile.Exists && bytes.Equal(oldFile.Data, newFile.Data) {
 		return ""
@@ -29,27 +32,52 @@ func UnifiedFileDiff(oldFile, newFile File) string {
 	if oldFile.Exists && !newFile.Exists {
 		fmt.Fprintf(&b, "deleted file mode 100644\n")
 	}
-	if oldFile.Exists {
-		fmt.Fprintf(&b, "--- a/%s\n", label)
+	if oldFile.Exists && isBinary(oldFile.Data) || newFile.Exists && isBinary(newFile.Data) {
+		oldLabel := "/dev/null"
+		if oldFile.Exists {
+			oldLabel = "a/" + label
+		}
+		newLabel := "/dev/null"
+		if newFile.Exists {
+			newLabel = "b/" + label
+		}
+		fmt.Fprintf(&b, "Binary files %s and %s differ\n", oldLabel, newLabel)
 	} else {
-		b.WriteString("--- /dev/null\n")
+		if oldFile.Exists {
+			fmt.Fprintf(&b, "--- a/%s\n", label)
+		} else {
+			b.WriteString("--- /dev/null\n")
+		}
+		if newFile.Exists {
+			fmt.Fprintf(&b, "+++ b/%s\n", label)
+		} else {
+			b.WriteString("+++ /dev/null\n")
+		}
+		oldLines := splitLines(oldFile.Data)
+		newLines := splitLines(newFile.Data)
+		fmt.Fprintf(&b, "@@ -1,%d +1,%d @@\n", len(oldLines), len(newLines))
+		for _, line := range lcsDiff(oldLines, newLines) {
+			// Source lines retain their original trailing newline (or lack one for a
+			// final line without it), so emit each diff entry on its own line to keep
+			// the unified diff well-formed even when a file has no trailing newline.
+			b.WriteString(strings.TrimRight(line, "\n"))
+			b.WriteByte('\n')
+		}
 	}
-	if newFile.Exists {
-		fmt.Fprintf(&b, "+++ b/%s\n", label)
-	} else {
-		b.WriteString("+++ /dev/null\n")
+	diff := b.String()
+	if !utf8.ValidString(diff) {
+		return strings.ToValidUTF8(diff, "�")
 	}
-	oldLines := splitLines(oldFile.Data)
-	newLines := splitLines(newFile.Data)
-	fmt.Fprintf(&b, "@@ -1,%d +1,%d @@\n", len(oldLines), len(newLines))
-	for _, line := range lcsDiff(oldLines, newLines) {
-		// Source lines retain their original trailing newline (or lack one for a
-		// final line without it), so emit each diff entry on its own line to keep
-		// the unified diff well-formed even when a file has no trailing newline.
-		b.WriteString(strings.TrimRight(line, "\n"))
-		b.WriteByte('\n')
+	return diff
+}
+
+// isBinary reports whether data looks like binary content, using git's
+// heuristic: any NUL byte in the first 8000 bytes.
+func isBinary(data []byte) bool {
+	if len(data) > 8000 {
+		data = data[:8000]
 	}
-	return b.String()
+	return bytes.IndexByte(data, 0) >= 0
 }
 
 func splitLines(data []byte) []string {
