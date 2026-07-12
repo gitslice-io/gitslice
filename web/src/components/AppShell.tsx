@@ -1,4 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
 import { TopBar } from "./TopBar";
 
@@ -6,12 +7,12 @@ import { TopBar } from "./TopBar";
 // `?account=` query param / path on load (see state/selection.tsx); AppShell must
 // not write to history directly, or it desyncs the router and breaks navigation
 // (clicks needing two presses to take effect).
-export function AppShell() {
+export function AppShell({ children }: { children?: ReactNode }) {
   return (
     <div className="min-h-[100dvh] bg-slate-50 text-zinc-900">
       <TopBar />
       <main className="px-2 py-6 sm:px-4 md:px-8 md:py-8">
-        <Outlet />
+        {children ?? <Outlet />}
       </main>
     </div>
   );
