@@ -232,6 +232,11 @@ type AgentStore interface {
 	// (with the previously stored event). clientSeq <= 0 is always inserted.
 	AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string, clientSeq int64) (ev *corev1.ConversationEvent, inserted bool, err error)
 	ListEvents(ctx context.Context, conversationID string, afterSeq int64) ([]*corev1.ConversationEvent, error)
+	// UnansweredUserEvents returns the conversation's trailing user "message"
+	// events that have no later non-user event — i.e. user messages the daemon
+	// has not (durably) responded to. Ordered by seq ascending. Used to redeliver
+	// user messages that were lost while the daemon's Connect stream was down.
+	UnansweredUserEvents(ctx context.Context, conversationID string) ([]*corev1.ConversationEvent, error)
 	// ListEventsRange returns events with afterSeq < seq <= beforeSeq, ordered
 	// ascending by seq. A beforeSeq <= 0 means no upper bound. When limit > 0,
 	// only the newest `limit` events in that window are returned (still ordered

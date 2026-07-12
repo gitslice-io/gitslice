@@ -249,6 +249,30 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 	return out, rows.Err()
 }
 
+func (s *AgentStore) UnansweredUserEvents(ctx context.Context, conversationID string) ([]*corev1.ConversationEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select id, conversation_id, seq, role, type, text, data_json, created_at, item_id, client_seq
+		from agent_conversation_events
+		where conversation_id = $1 and role = 'user' and type = 'message'
+		  and seq > coalesce((select max(seq) from agent_conversation_events
+		                      where conversation_id = $1 and role <> 'user'), 0)
+		order by seq asc
+	`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.ConversationEvent
+	for rows.Next() {
+		ev, err := scanEventRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}
+
 func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq, limit int64) ([]*corev1.ConversationEvent, error) {
 	// With a limit we want the newest `limit` events in the window, so fetch seq
 	// desc and reverse below; without one, fetch the whole window ascending.

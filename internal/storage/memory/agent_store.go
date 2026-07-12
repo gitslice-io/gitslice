@@ -201,6 +201,25 @@ func (s *AgentStore) ListEvents(ctx context.Context, conversationID string, afte
 	return out, nil
 }
 
+func (s *AgentStore) UnansweredUserEvents(ctx context.Context, conversationID string) ([]*corev1.ConversationEvent, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var latestNonUserSeq int64
+	for _, ev := range s.b.agentEvents[conversationID] {
+		if ev.Role != "user" && ev.Seq > latestNonUserSeq {
+			latestNonUserSeq = ev.Seq
+		}
+	}
+	var out []*corev1.ConversationEvent
+	for _, ev := range s.b.agentEvents[conversationID] {
+		if ev.Role == "user" && ev.Type == "message" && ev.Seq > latestNonUserSeq {
+			out = append(out, cloneEvent(ev))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	return out, nil
+}
+
 func (s *AgentStore) ListEventsRange(ctx context.Context, conversationID string, afterSeq, beforeSeq, limit int64) ([]*corev1.ConversationEvent, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

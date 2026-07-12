@@ -1233,8 +1233,12 @@ type DeliverUserMessage struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	Text           string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// seq is the persisted conversation event seq of this user message. The
+	// daemon dedups redelivered messages on it. 0 means unsequenced (legacy
+	// server); the daemon always runs those.
+	Seq           int64 `protobuf:"varint,3,opt,name=seq,proto3" json:"seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeliverUserMessage) Reset() {
@@ -1279,6 +1283,13 @@ func (x *DeliverUserMessage) GetText() string {
 		return x.Text
 	}
 	return ""
+}
+
+func (x *DeliverUserMessage) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
 }
 
 type CancelConversation struct {
@@ -2545,10 +2556,11 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\bslice_id\x18\x03 \x01(\tR\asliceId\x12\x1f\n" +
 	"\vserver_addr\x18\x04 \x01(\tR\n" +
 	"serverAddr\x12\x14\n" +
-	"\x05title\x18\x05 \x01(\tR\x05title\"Q\n" +
+	"\x05title\x18\x05 \x01(\tR\x05title\"c\n" +
 	"\x12DeliverUserMessage\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x12\n" +
-	"\x04text\x18\x02 \x01(\tR\x04text\"=\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x10\n" +
+	"\x03seq\x18\x03 \x01(\x03R\x03seq\"=\n" +
 	"\x12CancelConversation\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\"\x06\n" +
 	"\x04Ping\"]\n" +

@@ -180,6 +180,10 @@ message StartConversation {
 message DeliverUserMessage {
   string conversation_id = 1;
   string text = 2;
+  // seq is the persisted conversation event seq of this user message. The
+  // daemon dedups redelivered messages on it. 0 means unsequenced (legacy
+  // server); the daemon always runs those.
+  int64 seq = 3;
 }
 
 message CancelConversation {

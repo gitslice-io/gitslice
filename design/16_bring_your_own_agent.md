@@ -45,6 +45,14 @@ stream, tagged by `conversation_id`.
   per-conversation monotonic `seq`. History reloads from the DB; a reconnecting
   web stream replays from `after_seq` then tails live.
 
+Server→daemon user-message delivery is durable across a missing or half-open
+`Connect` stream. `DeliverUserMessage` carries the persisted user event `seq`;
+after the daemon reports `ConversationStarted` during reconnect replay, the
+server resends every trailing user message with no later durable non-user event.
+The daemon serializes turns and deduplicates positive seqs, while legacy seq 0
+messages still run every time. Daemon runtime errors for known conversations use
+the existing client-sequenced ack/resend buffer as well.
+
 ## Components
 
 ### Proto: `AgentService` (`proto/core/v1/agent.proto`)
