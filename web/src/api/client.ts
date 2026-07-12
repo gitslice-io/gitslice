@@ -39,15 +39,18 @@ export const defaultApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 export interface CreateApiClientOptions {
   getToken: () => Promise<string | null | undefined>;
   baseUrl?: string;
+  fetch?: typeof globalThis.fetch;
 }
 
 export function createApiClient({
   getToken,
-  baseUrl = defaultApiBaseUrl
+  baseUrl = defaultApiBaseUrl,
+  fetch: fetchFn
 }: CreateApiClientOptions): ApiClient {
   const transport = createConnectTransport({
     baseUrl: baseUrl.replace(/\/+$/, ""),
-    interceptors: [authInterceptor(getToken)]
+    interceptors: [authInterceptor(getToken)],
+    ...(fetchFn ? { fetch: fetchFn } : {})
   });
 
   const auth = createClient(AuthService, transport);
