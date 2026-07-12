@@ -249,14 +249,15 @@ const conversationsRoute = createRoute({
   component: ConversationsPage
 });
 
+// Public docs: reachable from the signed-out landing page.
 const docRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => publicAppRoute,
   path: "doc",
   component: DocPage
 });
 
 const docSectionRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => publicAppRoute,
   path: "doc/$section",
   component: DocPage
 });
@@ -478,13 +479,13 @@ const routeTree = rootRoute.addChildren([
   cliLoginRoute,
   appRoute.addChildren([
     conversationsRoute,
-    docRoute,
-    docSectionRoute,
     slicesRoute,
     sliceCreateRoute,
     sliceSettingsRoute
   ]),
   publicAppRoute.addChildren([
+    docRoute,
+    docSectionRoute,
     sliceDetailRoute,
     sliceAgentsRoute,
     sliceAgentConversationRoute,
