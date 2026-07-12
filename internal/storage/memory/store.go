@@ -17,6 +17,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/objectid"
 	"github.com/gitslice-io/gitslice/internal/paths"
 	"github.com/gitslice-io/gitslice/internal/storage"
+	"github.com/gitslice-io/gitslice/internal/usernames"
 	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -2391,24 +2392,7 @@ func normalizeSlug(value string) string {
 }
 
 func normalizeSignupUsername(username string) (string, error) {
-	username = strings.ToLower(strings.TrimSpace(username))
-	username = strings.ReplaceAll(username, "_", "-")
-	if username == "" {
-		return "", fmt.Errorf("username is required")
-	}
-	if len(username) > 63 {
-		return "", fmt.Errorf("username must be 63 characters or fewer")
-	}
-	if strings.HasPrefix(username, "-") || strings.HasSuffix(username, "-") {
-		return "", fmt.Errorf("username must not start or end with '-'")
-	}
-	for _, r := range username {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			continue
-		}
-		return "", fmt.Errorf("username may contain only letters, numbers, '-' or '_'")
-	}
-	return username, nil
+	return usernames.Normalize(username)
 }
 
 func sliceID(account, slice string) string { return "slice_" + account + "_" + slice }

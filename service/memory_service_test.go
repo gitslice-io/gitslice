@@ -946,25 +946,25 @@ func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 
 func TestChooseUsernameCreatesHomeSliceInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
-	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nic", "nic@example.com")
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nico", "nico@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := authctx.WithSubjectID(context.Background(), subjectID)
-	chosen, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "nic"})
+	chosen, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "nico"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chosen.SubjectId != subjectID || chosen.Account != "nic" {
+	if chosen.SubjectId != subjectID || chosen.Account != "nico" {
 		t.Fatalf("unexpected choose-username response: %#v", chosen)
 	}
 	slice, err := handlers.Slice.ResolveSlice(ctx, &corev1.ResolveSliceRequest{
-		Ref: &corev1.SliceRef{Account: "nic", Slice: "home"},
+		Ref: &corev1.SliceRef{Account: "nico", Slice: "home"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(slice.Definition.IncludedPaths, ",") != "/nic" {
+	if strings.Join(slice.Definition.IncludedPaths, ",") != "/nico" {
 		t.Fatalf("home included paths = %#v", slice.Definition.IncludedPaths)
 	}
 	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{RefName: storage.DefaultTargetRef})
@@ -973,7 +973,7 @@ func TestChooseUsernameCreatesHomeSliceInMemoryStorage(t *testing.T) {
 	}
 	resolved, err := handlers.Repository.ResolvePath(ctx, &corev1.ResolvePathRequest{
 		CommitId: ref.CommitId,
-		Path:     "/nic",
+		Path:     "/nico",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1114,16 +1114,16 @@ func TestCommitAuthorsResolveToPersonalUsername(t *testing.T) {
 
 func TestUpdateSliceDefinitionRejectsHomeIncludedPathChange(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
-	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nic", "nic@example.com")
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nico", "nico@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := authctx.WithSubjectID(context.Background(), subjectID)
-	if _, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "nic"}); err != nil {
+	if _, err := handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: "nico"}); err != nil {
 		t.Fatal(err)
 	}
 	home, err := handlers.Slice.ResolveSlice(ctx, &corev1.ResolveSliceRequest{
-		Ref: &corev1.SliceRef{Account: "nic", Slice: "home"},
+		Ref: &corev1.SliceRef{Account: "nico", Slice: "home"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1134,7 +1134,7 @@ func TestUpdateSliceDefinitionRejectsHomeIncludedPathChange(t *testing.T) {
 		SliceId:                home.Id,
 		ExpectedDefinitionHash: home.DefinitionHash,
 		Definition: &corev1.SliceDefinition{
-			IncludedPaths: []string{"/nic", "/nic/extra"},
+			IncludedPaths: []string{"/nico", "/nico/extra"},
 			Visibility:    home.Definition.Visibility,
 		},
 	})
@@ -1663,6 +1663,36 @@ func TestAuthChooseUsernameForExternalSubjectInMemoryStorage(t *testing.T) {
 	}
 	if available.Available || available.Normalized != "taylor-name" || available.Reason != "username is taken" {
 		t.Fatalf("taken availability = %#v, want taken taylor-name", available)
+	}
+}
+
+func TestAuthUsernamePolicyInMemoryStorage(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+
+	for _, test := range []struct {
+		name   string
+		input  string
+		reason string
+	}{
+		{name: "minimum length", input: "abc", reason: "username must be at least 4 characters"},
+		{name: "reserved brand", input: "OpenAI", reason: "username is reserved"},
+		{name: "reserved public figure", input: "Taylor_Swift", reason: "username is reserved"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			available, err := handlers.Auth.CheckUsernameAvailable(ctx, &corev1.CheckUsernameAvailableRequest{Username: test.input})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if available.Available || available.Reason != test.reason {
+				t.Fatalf("availability = %#v, want unavailable reason %q", available, test.reason)
+			}
+
+			_, err = handlers.Auth.ChooseUsername(ctx, &corev1.ChooseUsernameRequest{Username: test.input})
+			if status.Code(err) != codes.InvalidArgument || !strings.Contains(err.Error(), test.reason) {
+				t.Fatalf("ChooseUsername(%q) error = %v, want InvalidArgument containing %q", test.input, err, test.reason)
+			}
+		})
 	}
 }
 

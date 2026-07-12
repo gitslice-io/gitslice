@@ -102,7 +102,7 @@ a real identity provider.
 CLI usage:
 
 ```bash
-gs auth signup --username nic
+gs auth signup --username nico
 ```
 
 Implementation behavior:
@@ -129,6 +129,12 @@ Username normalization:
 
 - usernames are lowercased
 - underscores are converted to hyphens for the account slug
+- normalized usernames must be between 4 and 63 ASCII characters
+- normalized usernames may contain only lower-case letters, numbers, and
+  hyphens, and may not start or end with a hyphen
+- self-service signup rejects names in the maintained reservation list in
+  `internal/usernames`; the list covers Gitslice/system identities, well-known
+  brands and platforms, and well-known public figures
 - the user subject id is `user_<username>` with hyphens converted to underscores
 - the personal account id is `acct_<username>` with hyphens converted to
   underscores
@@ -144,18 +150,18 @@ signup flow.
 Every signed-up personal account owns a default home slice:
 
 ```text
-nic/home
+nico/home
 ```
 
 The slice slug is always `home`. The included path is the user's account root:
 
 ```text
-nic/home -> /nic
+nico/home -> /nico
 ```
 
 This is deliberate. The home slice represents the user's personal source root,
-not a nested `/nic/home` folder. Existing changeset validation then limits files
-created through `nic/home` to `/nic`.
+not a nested `/nico/home` folder. Existing changeset validation then limits files
+created through `nico/home` to `/nico`.
 
 Outside a workspace, `gs shell` resolves the signed-in user's `home` slice when
 it exists and labels the shell with that slice. The empty account-root folder is
@@ -164,12 +170,12 @@ see `nic/` from `ls` before creating any files.
 
 `gs fs` and mutating `gs shell` commands use the same personal home slice as
 their authoring slice. Paths must resolve under the home slice included path,
-for example `/nic`. Client-side checks reject absolute paths outside that root
+for example `/nico`. Client-side checks reject absolute paths outside that root
 before submit, and the changeset service revalidates the same path containment
-against the `nic/home` slice definition.
+against the `nico/home` slice definition.
 
 Custom personal slices may use other URL-safe slugs such as `tools`,
-`dotfiles`, or `blog`, but their included paths must stay under `/nic`.
+`dotfiles`, or `blog`, but their included paths must stay under `/nico`.
 Organization slices use the same `<account>/<slice-slug>` identity shape, such
 as `acme/payment`, and may include paths under their owning account root.
 
