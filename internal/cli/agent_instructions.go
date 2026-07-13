@@ -44,7 +44,10 @@ func agentWorkspaceEditableScope(includedPaths []string) string {
 	}
 	b.WriteString("  Files outside these paths are not part of the workspace; do not " +
 		"create or edit files elsewhere, as those changes are out of scope and will " +
-		"not be captured.")
+		"not be captured. These are canonical account-rooted repository paths; the " +
+		"matching on-disk path omits only the leading slash (for example, /slices/io " +
+		"is slices/io in the workspace). Follow that layout for new files and use " +
+		"`gs status` to confirm their canonical paths.")
 	return b.String()
 }
 
@@ -65,9 +68,13 @@ const agentWorkspaceInstructionsPreamble = `You are working inside a Gitslice wo
 - This directory is a gitslice workspace bound to a single slice. It is not a git
   repo: do not run ` + "`git`" + ` commands. Git is not the source of truth here, and
   git operations will not reflect or persist your work.
-- Edit files directly with your normal tools. Your changes are captured
-  automatically as a patchset at the end of each turn — you do not need to commit
-  or run any capture command yourself.
+- Edit files directly with your normal tools. The daemon captures the complete
+  workspace result as a patchset only after your turn completes — you do not need
+  to commit or run any capture command yourself.
+- ` + "`gs status`" + ` and ` + "`gs diff`" + ` compare the complete workspace result with the
+  changeset base. Files captured by an earlier turn can remain listed while the
+  draft is active; listed paths are not necessarily uncaptured changes from this
+  turn.
 - NEVER create or update a changeset yourself. The Gitslice agent daemon monitors
   this workspace and creates and updates the changeset automatically. Do not run
   ` + "`gs cs create`" + `, ` + "`gs cs update`" + `, ` + "`gs cs capture`" + `, ` + "`gs cs submit`" + `, or
@@ -96,24 +103,44 @@ const agentWorkspaceInstructionsFileLinks = `- When you mention a workspace file
   ` + "`gsfile:`" + ` link is resolved to the right file in the UI for you. Use it only
   for files inside this workspace.`
 
-const agentWorkspaceInstructionsCommands = `- Use the ` + "`gs`" + ` CLI for source-control operations. Useful commands:
-    gs status            show the workspace status (pending edits)
+const agentWorkspaceInstructionsCommands = `- Treat ` + "`gs`" + ` commands according to their side effects; discovering a command
+  in ` + "`gs --help`" + ` does not make it safe inside an agent-managed draft.
+- Safe inspection commands include:
+    gs context           show resolved server, auth, workspace, and slice context
+    gs status            show the complete workspace result against the base
+    gs diff              show the complete workspace diff against the base
     gs log               show slice history
-    gs diff              show changes against the slice base
     gs show <commit>     show a specific commit
-    gs sync              pull the latest slice state into the workspace
     gs cs status         show the current changeset status
     gs cs show           show the current changeset details
-  Run ` + "`gs --help`" + ` or ` + "`gs <command> --help`" + ` for anything else.
+  ` + "`gs ci`" + ` is also safe: it runs applicable checks locally without capturing or
+  submitting.
+- Do not run other commands that mutate this draft or unrelated remote state as
+  an ordinary implementation step. In particular, ` + "`gs sync`" + ` is a
+  changeset-mutating rebase when a draft is active. Do not run mutating ` + "`gs fs`" + `
+  or ` + "`gs shell`" + ` operations, slice mutations, or changeset mutations unless the
+  user explicitly requests that exact native operation and its separate side
+  effect is intended.
+- ` + "`gs import`" + ` is a server-side native operation: the server performs the Git
+  clone and publishes a native changeset/commit outside this daemon-managed
+  draft. It does not copy files into the local workspace. Run it only when the
+  user explicitly wants a native Gitslice import; if the request could instead
+  mean copying source into this draft for review, clarify which result they want.
+  A server/RPC import failure cannot be fixed by changing the local ` + "`git`" + `
+  executable or ` + "`PATH`" + `. Never replace a failed native import with an archive
+  copy or another semantically different workflow without the user's agreement.
 - If a ` + "`gs`" + ` command fails with an authentication error (e.g. "not logged in",
   "invalid token", or an Unauthenticated/Unauthorized response), do NOT try to
   re-authenticate or work around it yourself — you run with the agent daemon's
   credentials and cannot complete a login from here. Tell the user to run
   ` + "`gs auth login`" + ` on the machine running the agent daemon and approve the
   sign-in URL it prints in their browser, then retry.
-- Do NOT create AGENTS.md, CLAUDE.md, or other agent-instruction files in the
-  workspace. These instructions are provided out-of-band; writing such a file
-  would pollute the slice's changeset.`
+- Do not create an agent-instruction file merely to persist these injected
+  Gitslice instructions; they are already provided out-of-band.
+- Existing or imported ` + "`AGENTS.md`" + `, ` + "`CLAUDE.md`" + `, ` + "`.claude/**`" + `, and similar
+  project files are ordinary repository content. Preserve and follow them. Edit,
+  create, or delete them only when the user's task specifically requires it; do
+  not remove them merely because they contain agent guidance.`
 
 // agentWorkspaceInstructionsChecks tells the agent about CI checks: they run
 // automatically when the turn is captured, the agent may maintain the
@@ -128,6 +155,17 @@ const agentWorkspaceInstructionsChecks = `- CI checks: a slice can define checks
   checks must pass before the changeset can submit.
 - You MAY create or edit ` + "`.gitslice/checks.yaml`" + ` like any other workspace file
   to add or adjust checks for the code you change — it is committed with the slice.
+- In a check definition, ` + "`paths`" + ` matches changed repository paths only. It
+  cannot represent GitHub event conditions such as branch filters, schedules, or
+  ` + "`workflow_dispatch`" + `. Report unsupported trigger semantics rather than
+  approximating them with unrelated path filters.
+- Check ` + "`paths`" + `, ` + "`include`" + `, and ` + "`working_dir`" + ` values use the logical
+  repository-root namespace, not canonical ` + "`/<account>/...`" + ` paths. A leading
+  slash means that logical root. Prefer omitting ` + "`working_dir`" + ` or using ` + "`.`" + `
+  when the checks file is colocated with the code it tests.
+- When replacing another CI system, keep the source CI definition until the
+  native checks validate successfully. Remove it afterward only when replacement
+  is part of the user's request.
 - Before ending a turn, run ` + "`gs ci`" + ` to run all applicable checks for your
   changes and confirm they pass; fix failures rather than leaving a failing
   patchset. ` + "`gs ci`" + ` runs the checks locally and does NOT capture or submit, so
