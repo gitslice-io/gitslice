@@ -304,6 +304,8 @@ function statusGlyph(kind: FileChangeKind) {
       return "R";
     case "modified":
       return "M";
+    case "pending":
+      return "·";
   }
 }
 
@@ -317,5 +319,7 @@ function statusGlyphClass(kind: FileChangeKind) {
       return "bg-violet-100 text-violet-800";
     case "modified":
       return "bg-amber-100 dark:bg-amber-950/45 text-amber-900 dark:text-amber-200";
+    case "pending":
+      return "bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400";
   }
 }

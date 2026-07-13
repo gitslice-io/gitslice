@@ -577,16 +577,14 @@ function findEditForPath(edits: FileEdit[] | undefined, path: string) {
   return edits?.find((edit) => edit.path === path || edit.oldPath === path);
 }
 
-function changeKindForEdit(edit: FileEdit): FileChangeKind {
+function changeKindForEdit(edit: FileEdit): FileChangeKind | undefined {
   switch (edit.op) {
-    case "add":
-      return "added";
     case "delete":
       return "deleted";
     case "rename":
       return "renamed";
     default:
-      return "modified";
+      return undefined;
   }
 }
 
@@ -610,7 +608,7 @@ function diffFileForResponse(
 
   return {
     ...parsed,
-    changeKind: metadataKind ?? parsed.changeKind,
+    changeKind: parsed.changeKind,
     id: diffFileId(path),
     path
   };

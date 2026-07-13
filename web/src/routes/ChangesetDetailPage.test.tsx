@@ -79,7 +79,12 @@ vi.mock("../components/diff/DiffViewer", () => ({
     onFileNeeded,
     onFileRetry
   }: {
-    fileStates?: { path: string; status: string }[];
+    fileStates?: {
+      path: string;
+      status: string;
+      changeKind?: string;
+      file?: { changeKind?: string };
+    }[];
     onFileNeeded?(path: string): void;
     onFileRetry?(path: string): void;
   }) => (
@@ -87,7 +92,8 @@ vi.mock("../components/diff/DiffViewer", () => ({
       Diff viewer
       {fileStates?.map((file, index) => (
         <div data-testid={`file-state-${index}`} key={file.path}>
-          {file.path}: {file.status}
+          {file.path}: {file.status} kind=
+          {file.file?.changeKind ?? file.changeKind ?? "unknown"}
           <button
             aria-label={`Need ${file.path}`}
             onClick={() => onFileNeeded?.(file.path)}
@@ -249,7 +255,7 @@ describe("changeset detail page", () => {
       "/acme/payment/beta.go"
     ];
     detail.patchsets![0].fileEdits = paths.map((path) => ({
-      op: "update",
+      op: "upsert",
       path
     }));
     api.getChangeset = vi.fn().mockResolvedValue(detail);
@@ -277,7 +283,7 @@ describe("changeset detail page", () => {
     );
     detail.patchsets![0].changedPaths = paths;
     detail.patchsets![0].fileEdits = paths.map((path) => ({
-      op: "update",
+      op: "upsert",
       path
     }));
     const eleventhPath = paths[10];
@@ -432,6 +438,105 @@ describe("changeset detail page", () => {
       })
     );
     expect(routerMock.back).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows pending glyph for files beyond eager window that have not loaded", async () => {
+    routerMock.params = { id: "cs_large" };
+    const api = makeApi();
+    const detail = changeset("cs_large", "large diff");
+    const paths = Array.from(
+      { length: 21 },
+      (_, index) => `/acme/payment/file-${String(index + 1).padStart(2, "0")}.go`
+    );
+    detail.patchsets![0].changedPaths = paths;
+    detail.patchsets![0].fileEdits = paths.map((path) => ({
+      op: "upsert",
+      path
+    }));
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    api.diffChangeset = vi.fn().mockImplementation(
+      async (request: { paths?: string[] }) => {
+        const path = request.paths?.[0];
+        if (!path) {
+          throw new Error("full diff should not be requested");
+        }
+        return {
+          changedPaths: paths,
+          diff: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`
+        };
+      }
+    );
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    await waitFor(() => expect(api.diffChangeset).toHaveBeenCalledTimes(10));
+    // Files beyond the eager window (index >= 10) should not be requested yet
+    expect(
+      api.diffChangeset.mock.calls.some(([request]) => request.paths?.[0] === paths[10])
+    ).toBe(false);
+    // An upsert edit's kind is unknown until its diff loads — it must NOT be
+    // presented as "modified".
+    expect(screen.getByTestId("file-state-10")).toHaveTextContent(
+      "kind=unknown"
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("file-state-0")).toHaveTextContent(
+        "kind=modified"
+      )
+    );
+  });
+
+  it("shows added glyph for lazily loaded files with new file mode header", async () => {
+    routerMock.params = { id: "cs_large" };
+    const api = makeApi();
+    const detail = changeset("cs_large", "large diff");
+    const paths = Array.from(
+      { length: 21 },
+      (_, index) => `/acme/payment/file-${String(index + 1).padStart(2, "0")}.go`
+    );
+    detail.patchsets![0].changedPaths = paths;
+    detail.patchsets![0].fileEdits = paths.map((path) => ({
+      op: "upsert",
+      path
+    }));
+    const eleventhPath = paths[10];
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    api.diffChangeset = vi.fn().mockImplementation(
+      async (request: { paths?: string[] }) => {
+        const path = request.paths?.[0];
+        if (!path) {
+          throw new Error("full diff should not be requested");
+        }
+        return {
+          changedPaths: paths,
+          diff: `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1 @@\n+new content\n`
+        };
+      }
+    );
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    await waitFor(() => expect(api.diffChangeset).toHaveBeenCalledTimes(10));
+    
+    // Request the 11th file
+    fireEvent.click(screen.getByRole("button", { name: `Need ${eleventhPath}` }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("file-state-10")).toHaveTextContent("loaded")
+    );
+
+    // The parsed diff ("new file mode") is authoritative over the "upsert"
+    // edit metadata: the file must present as added, not modified.
+    expect(screen.getByTestId("file-state-10")).toHaveTextContent("kind=added");
+    expect(api.diffChangeset).toHaveBeenCalledTimes(11);
+    expect(api.diffChangeset).toHaveBeenLastCalledWith({
+      changesetId: "cs_large",
+      fromPatchset: undefined,
+      paths: [eleventhPath],
+      toPatchset: detail.currentPatchsetId
+    });
   });
 
   it("shows dependent (child) changesets on changeset detail", async () => {
