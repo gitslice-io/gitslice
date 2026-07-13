@@ -7848,3 +7848,41 @@ Deploy + verification:
   the running process (config.json now holds prod creds); restart needs a
   fresh `gs auth login` against staging. Its on-disk binary IS updated, so the
   next restart picks up the fix.
+
+## 2026-07-13: Clarify injected Gitslice agent instructions
+
+Request: review production conversation
+`conv_ef1b85e430feec4974167a03d62155a8` for places where the coding agent
+misunderstood Gitslice behavior, improve the injected instructions, and publish
+the change as a pull request.
+
+Decisions:
+
+- clarified that each turn captures the complete workspace result only after the
+  turn completes, and that `gs status` / `gs diff` show the full draft result
+  against its base rather than only uncaptured changes from the latest turn
+- replaced the ambiguous command list with explicit side-effect guidance:
+  read-only inspection is safe, `gs sync` can mutate an active draft, and remote
+  mutations must not be treated as ordinary local implementation steps
+- documented that `gs import` clones and publishes on the server, does not
+  populate the local agent workspace, and must not be silently replaced with an
+  archive-copy fallback when the native operation fails
+- narrowed the instruction-file prohibition so it only prevents persisting the
+  injected prompt; existing or imported `AGENTS.md`, `CLAUDE.md`, and
+  `.claude/**` content must be preserved unless the user's task requires a change
+- documented canonical account-rooted workspace paths and the separate logical
+  repository-root namespace used by check definitions
+- clarified that check `paths` are changed-path filters, not substitutes for
+  GitHub branch, schedule, or `workflow_dispatch` conditions, and that source CI
+  should remain until its native replacement validates
+- added regression assertions for each behavior so future prompt edits do not
+  reintroduce the production conversation's ambiguities
+
+Verification:
+
+```bash
+go test ./internal/cli -run 'TestAgentWorkspaceInstructions' -count=1
+go test ./...
+go build ./cmd/...
+git diff --check
+```

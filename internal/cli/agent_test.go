@@ -15,7 +15,7 @@ import (
 
 func TestAgentWorkspaceInstructionsIncludesEditableScope(t *testing.T) {
 	got := agentWorkspaceInstructions([]string{"/nic/File"})
-	for _, want := range []string{"/nic/File/", "only edit files", "gsfile:nic/File/Lol.txt", "not\n  `gsfile:Lol.txt`"} {
+	for _, want := range []string{"/nic/File/", "only edit files", "canonical account-rooted", "gsfile:nic/File/Lol.txt", "not\n  `gsfile:Lol.txt`"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("instructions missing %q:\n%s", want, got)
 		}
@@ -25,6 +25,34 @@ func TestAgentWorkspaceInstructionsIncludesEditableScope(t *testing.T) {
 	fallback := agentWorkspaceInstructions(nil)
 	if !strings.Contains(fallback, "included paths") {
 		t.Fatalf("fallback instructions missing scope guidance:\n%s", fallback)
+	}
+}
+
+func TestAgentWorkspaceInstructionsExplainGitsliceSideEffects(t *testing.T) {
+	got := agentWorkspaceInstructions([]string{"/slices"})
+	for _, want := range []string{
+		"complete workspace result",
+		"only after your turn completes",
+		"`gs sync` is a\n  changeset-mutating rebase",
+		"`gs import` is a server-side native operation",
+		"local `git`\n  executable or `PATH`",
+		"Existing or imported `AGENTS.md`",
+		"`paths` matches changed repository paths only",
+		"`workflow_dispatch`",
+		"logical\n  repository-root namespace",
+		"keep the source CI definition",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("instructions missing %q:\n%s", want, got)
+		}
+	}
+	for _, notWant := range []string{
+		"gs sync              pull the latest slice state",
+		"Do NOT create AGENTS.md",
+	} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("instructions unexpectedly contain %q:\n%s", notWant, got)
+		}
 	}
 }
 
