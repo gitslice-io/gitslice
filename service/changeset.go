@@ -40,7 +40,7 @@ type diffValidator struct {
 	Slices     storage.SliceStore
 }
 
-const diffFileConcurrency = 16
+const diffFileConcurrency = 64
 
 func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
 	subjectID, err := requireSubject(ctx)
@@ -128,10 +128,43 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 		}
 	}
 	paths := changedPathsForDiff(fromPatchset, toPatchset)
-	chunks := make([]string, len(paths))
+	fromID := ""
+	if fromPatchset != nil {
+		fromID = fromPatchset.Id
+	}
+	response := &corev1.DiffChangesetResponse{
+		ChangesetId:    cs.Id,
+		FromPatchsetId: fromID,
+		ToPatchsetId:   toPatchset.Id,
+		ChangedPaths:   paths,
+	}
+
+	diffPaths := paths
+	fullDiff := len(req.Paths) == 0
+	cacheKey := ""
+	if fullDiff {
+		cacheKey = diffCacheKey(cs.Id, fromID, toPatchset.Id)
+		if diff, ok := s.readDiffCache(ctx, cacheKey); ok {
+			response.Diff = diff
+			return response, nil
+		}
+	} else {
+		requested := make(map[string]struct{}, len(req.Paths))
+		for _, p := range req.Paths {
+			requested[p] = struct{}{}
+		}
+		diffPaths = make([]string, 0, len(paths))
+		for _, p := range paths {
+			if _, ok := requested[p]; ok {
+				diffPaths = append(diffPaths, p)
+			}
+		}
+	}
+
+	chunks := make([]string, len(diffPaths))
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(diffFileConcurrency)
-	for i, p := range paths {
+	for i, p := range diffPaths {
 		i, p := i, p
 		group.Go(func() error {
 			oldFile, newFile, err := s.diffFileSides(groupCtx, fromPatchset, toPatchset, p)
@@ -151,17 +184,11 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 			out.WriteString(chunk)
 		}
 	}
-	fromID := ""
-	if fromPatchset != nil {
-		fromID = fromPatchset.Id
+	response.Diff = out.String()
+	if fullDiff {
+		s.writeDiffCache(ctx, cacheKey, response.Diff)
 	}
-	return &corev1.DiffChangesetResponse{
-		ChangesetId:    cs.Id,
-		FromPatchsetId: fromID,
-		ToPatchsetId:   toPatchset.Id,
-		ChangedPaths:   paths,
-		Diff:           out.String(),
-	}, nil
+	return response, nil
 }
 
 func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.UpdateChangesetRequest) (*corev1.Patchset, error) {
