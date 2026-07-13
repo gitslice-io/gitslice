@@ -13,6 +13,7 @@ import { ChangedFilesTree } from "./ChangedFilesTree";
 import { computeSegments, type RevealState } from "./collapse";
 import { FilePickerSheet, MobileFileSwitcher } from "./FileSwitcher";
 import {
+  diffFileId,
   parseDiff,
   type DiffFile,
   type DiffLine,
@@ -53,42 +54,80 @@ interface DiffViewerProps {
    * value, as soon as the diff contains a matching file.
    */
   focusFilePath?: string;
+  fileStates?: DiffViewerFileState[];
+  onFileNeeded?(path: string): void;
+  onFileRetry?(path: string): void;
+}
+
+export type DiffFileLoadStatus =
+  | "loaded"
+  | "loading"
+  | "error"
+  | "pending";
+
+export interface DiffViewerFileState {
+  changeKind?: FileChangeKind;
+  error?: unknown;
+  file?: DiffFile;
+  oldPath?: string;
+  path: string;
+  status: DiffFileLoadStatus;
 }
 
 type ViewMode = "unified" | "split";
 
-interface MountedDiffBodies {
-  files: DiffFile[];
-  ids: Set<string>;
-}
-
 const diffViewStorageKey = "gitslice.diffView";
 const lazyDiffBodyRootMargin = "1200px 0px 1200px 0px";
 const minDiffBodyPlaceholderHeight = 48;
+const largeDiffLineLimit = 5000;
 
 export function DiffViewer({
   diffResponse,
   error,
   isError,
   isLoading,
-  focusFilePath
+  focusFilePath,
+  fileStates,
+  onFileNeeded,
+  onFileRetry
 }: DiffViewerProps) {
-  const files = useMemo(
+  const parsedFiles = useMemo(
     () =>
       parseDiff(diffResponse?.diff ?? "", diffResponse?.changedPaths ?? []),
     [diffResponse?.changedPaths, diffResponse?.diff]
   );
+  const files = useMemo(
+    () =>
+      fileStates === undefined
+        ? parsedFiles
+        : fileStates.map(navigationFileForState),
+    [fileStates, parsedFiles]
+  );
+  const fileListKey = files.map((file) => file.id).join("\0");
+  const fileIds = useMemo(
+    () => new Set(files.map((file) => file.id)),
+    // The ids, rather than loaded file bodies, define list identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fileListKey]
+  );
+  const filePathsById = useMemo(
+    () => new Map(files.map((file) => [file.id, file.path])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fileListKey]
+  );
+  const fileStatesById = useMemo(
+    () =>
+      new Map(
+        (fileStates ?? []).map((state) => [diffFileId(state.path), state])
+      ),
+    [fileStates]
+  );
   const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
   const [activeId, setActiveId] = useState<string | undefined>();
-  const [mountedDiffBodies, setMountedDiffBodies] = useState<MountedDiffBodies>(
-    () => ({
-      files: [],
-      ids: new Set()
-    })
+  const [mountedDiffBodies, setMountedDiffBodies] = useState<Set<string>>(
+    () => new Set()
   );
   const [filePickerOpen, setFilePickerOpen] = useState(false);
-  const mountedFileIds =
-    mountedDiffBodies.files === files ? mountedDiffBodies.ids : undefined;
   const [revealed, setRevealed] = useState<Record<string, RevealState>>({});
   const panelRefs = useRef<Record<string, HTMLElement | null>>({});
   // When the user explicitly picks a file (prev/next or the picker), pin it as
@@ -99,12 +138,15 @@ export function DiffViewer({
   // Tracks the focusFilePath we have already scrolled to, so a deep link is
   // honored once rather than yanking the view back on every diff re-render.
   const focusAppliedRef = useRef<string | null>(null);
-  const changedPathCount = diffResponse?.changedPaths?.length ?? 0;
+  const changedPathCount =
+    fileStates?.length ?? diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
   const totalAdditions = files.reduce((total, file) => total + file.additions, 0);
   const totalDeletions = files.reduce((total, file) => total + file.deletions, 0);
   const hasTextualDiff =
-    (diffResponse?.diff ?? "").trim().length > 0 && files.length > 0;
+    fileStates !== undefined
+      ? files.length > 0
+      : (diffResponse?.diff ?? "").trim().length > 0 && files.length > 0;
   const canUseMobileFileSwitcher =
     !isLoading && hasTextualDiff && files.length > 0;
   const activeFileIndex = files.findIndex((file) => file.id === activeId);
@@ -122,7 +164,7 @@ export function DiffViewer({
   // Reset collapse state whenever a new diff loads.
   useEffect(() => {
     setRevealed({});
-  }, [files]);
+  }, [diffResponse?.diff, fileListKey]);
 
   useEffect(() => {
     if (!canUseMobileFileSwitcher) {
@@ -151,18 +193,20 @@ export function DiffViewer({
     });
   }, []);
 
+  const firstFileId = files[0]?.id;
+
   useEffect(() => {
     pinnedActiveIdRef.current = null;
 
-    if (!files.length) {
+    if (!fileIds.size) {
       setActiveId(undefined);
       return;
     }
 
     setActiveId((current) =>
-      current && files.some((file) => file.id === current) ? current : files[0].id
+      current && fileIds.has(current) ? current : firstFileId
     );
-  }, [files]);
+  }, [fileIds, firstFileId]);
 
   // Release the active-file pin as soon as the user scrolls themselves, so the
   // scroll-spy resumes tracking whatever they scroll to. Programmatic
@@ -183,26 +227,22 @@ export function DiffViewer({
   }, []);
 
   useEffect(() => {
-    const fileIds = new Set(files.map((file) => file.id));
-
     setMountedDiffBodies((current) => {
-      const currentIds =
-        current.files === files ? current.ids : new Set<string>();
       const next = new Set<string>();
 
-      currentIds.forEach((id) => {
+      current.forEach((id) => {
         if (fileIds.has(id)) {
           next.add(id);
         }
       });
 
-      if (current.files === files && next.size === currentIds.size) {
+      if (next.size === current.size) {
         return current;
       }
 
-      return { files, ids: next };
+      return next;
     });
-  }, [files]);
+  }, [fileIds]);
 
   useEffect(() => {
     if (!files.length || typeof IntersectionObserver === "undefined") {
@@ -235,15 +275,15 @@ export function DiffViewer({
       }
     );
 
-    files.forEach((file) => {
-      const panel = panelRefs.current[file.id];
+    fileIds.forEach((id) => {
+      const panel = panelRefs.current[id];
       if (panel) {
         observer.observe(panel);
       }
     });
 
     return () => observer.disconnect();
-  }, [files]);
+  }, [fileIds]);
 
   useEffect(() => {
     if (!files.length) {
@@ -251,10 +291,8 @@ export function DiffViewer({
     }
 
     if (typeof IntersectionObserver === "undefined") {
-      setMountedDiffBodies({
-        files,
-        ids: new Set(files.map((file) => file.id))
-      });
+      setMountedDiffBodies(new Set(fileIds));
+      filePathsById.forEach((path) => onFileNeeded?.(path));
       return;
     }
 
@@ -268,10 +306,15 @@ export function DiffViewer({
           return;
         }
 
+        visibleIds.forEach((id) => {
+          const path = filePathsById.get(id);
+          if (path) {
+            onFileNeeded?.(path);
+          }
+        });
+
         setMountedDiffBodies((current) => {
-          const currentIds =
-            current.files === files ? current.ids : new Set<string>();
-          const next = new Set(currentIds);
+          const next = new Set(current);
           let changed = false;
 
           visibleIds.forEach((id) => {
@@ -281,11 +324,11 @@ export function DiffViewer({
             }
           });
 
-          if (current.files === files && !changed) {
+          if (!changed) {
             return current;
           }
 
-          return { files, ids: next };
+          return next;
         });
       },
       {
@@ -295,32 +338,29 @@ export function DiffViewer({
       }
     );
 
-    files.forEach((file) => {
-      const panel = panelRefs.current[file.id];
+    fileIds.forEach((id) => {
+      const panel = panelRefs.current[id];
       if (panel) {
         observer.observe(panel);
       }
     });
 
     return () => observer.disconnect();
-  }, [files]);
+  }, [fileIds, filePathsById, onFileNeeded]);
 
   const mountFileBody = useCallback(
     (id: string) => {
       setMountedDiffBodies((current) => {
-        const currentIds =
-          current.files === files ? current.ids : new Set<string>();
-
-        if (current.files === files && currentIds.has(id)) {
+        if (current.has(id)) {
           return current;
         }
 
-        const next = new Set(currentIds);
+        const next = new Set(current);
         next.add(id);
-        return { files, ids: next };
+        return next;
       });
     },
-    [files]
+    []
   );
 
   const selectFile = useCallback(
@@ -328,6 +368,10 @@ export function DiffViewer({
       pinnedActiveIdRef.current = id;
       setActiveId(id);
       mountFileBody(id);
+      const path = filePathsById.get(id);
+      if (path) {
+        onFileNeeded?.(path);
+      }
       window.setTimeout(() => {
         document.getElementById(id)?.scrollIntoView({
           behavior: "smooth",
@@ -335,7 +379,7 @@ export function DiffViewer({
         });
       }, 0);
     },
-    [mountFileBody]
+    [filePathsById, mountFileBody, onFileNeeded]
   );
 
   // Honor a `?file=` deep link: once the diff contains the requested path, pin
@@ -421,9 +465,11 @@ export function DiffViewer({
               {files.map((file) => (
                 <DiffFilePanel
                   file={file}
-                  isBodyMounted={mountedFileIds?.has(file.id) ?? false}
+                  fileState={fileStatesById.get(file.id)}
+                  isBodyMounted={mountedDiffBodies.has(file.id)}
                   key={file.id}
                   onExpand={expandGap}
+                  onRetry={onFileRetry}
                   refCallback={(node) => {
                     panelRefs.current[file.id] = node;
                   }}
@@ -487,19 +533,31 @@ function ViewModeToggle({
 
 function DiffFilePanel({
   file,
+  fileState,
   isBodyMounted,
   onExpand,
+  onRetry,
   refCallback,
   revealed,
   viewMode
 }: {
   file: DiffFile;
+  fileState?: DiffViewerFileState;
   isBodyMounted: boolean;
   onExpand: ExpandFn;
+  onRetry?(path: string): void;
   refCallback(node: HTMLElement | null): void;
   revealed: Record<string, RevealState>;
   viewMode: ViewMode;
 }) {
+  const [showLargeDiff, setShowLargeDiff] = useState(false);
+  const status = fileState?.status ?? "loaded";
+  const isLargeDiff = file.lines.length > largeDiffLineLimit;
+
+  useEffect(() => {
+    setShowLargeDiff(false);
+  }, [file.lines]);
+
   return (
     <article
       className="scroll-mt-32 overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 lg:scroll-mt-28"
@@ -513,16 +571,29 @@ function DiffFilePanel({
             {file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}
           </h3>
         </div>
-        <div className="flex shrink-0 gap-2 font-mono text-xs">
-          <span className="rounded bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-emerald-800 dark:text-emerald-200 sm:px-2 sm:py-1">
-            +{file.additions}
-          </span>
-          <span className="rounded bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 text-rose-800 dark:text-rose-200 sm:px-2 sm:py-1">
-            -{file.deletions}
-          </span>
-        </div>
+        {status === "loaded" ? (
+          <div className="flex shrink-0 gap-2 font-mono text-xs">
+            <span className="rounded bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-emerald-800 dark:text-emerald-200 sm:px-2 sm:py-1">
+              +{file.additions}
+            </span>
+            <span className="rounded bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 text-rose-800 dark:text-rose-200 sm:px-2 sm:py-1">
+              -{file.deletions}
+            </span>
+          </div>
+        ) : null}
       </div>
-      {isBodyMounted ? (
+      {status !== "loaded" ? (
+        <PendingDiffBody
+          error={fileState?.error}
+          onRetry={onRetry ? () => onRetry(file.path) : undefined}
+          status={status}
+        />
+      ) : isLargeDiff && !showLargeDiff ? (
+        <LargeDiffGuard
+          lineCount={file.lines.length}
+          onShow={() => setShowLargeDiff(true)}
+        />
+      ) : isBodyMounted || showLargeDiff ? (
         <DiffFileBody
           file={file}
           onExpand={onExpand}
@@ -533,6 +604,62 @@ function DiffFilePanel({
         <DiffBodyPlaceholder file={file} viewMode={viewMode} />
       )}
     </article>
+  );
+}
+
+function PendingDiffBody({
+  error,
+  onRetry,
+  status
+}: {
+  error?: unknown;
+  onRetry?(): void;
+  status: Exclude<DiffFileLoadStatus, "loaded">;
+}) {
+  if (status === "error") {
+    return (
+      <div className="flex min-h-20 flex-wrap items-center justify-between gap-3 bg-rose-50/60 dark:bg-rose-950/20 px-4 py-4 text-sm text-rose-800 dark:text-rose-200">
+        <span>{errorMessage(error)}</span>
+        {onRetry ? (
+          <button
+            className="rounded-md border border-rose-300 dark:border-rose-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-semibold transition hover:bg-rose-50 dark:hover:bg-rose-950/30 active:scale-[0.98]"
+            onClick={onRetry}
+            type="button"
+          >
+            Retry
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-20 items-center bg-white dark:bg-zinc-900 px-4 py-4 text-sm text-slate-500 dark:text-zinc-400">
+      {status === "loading"
+        ? "Loading diff…"
+        : "Diff loads as this file nears the viewport."}
+    </div>
+  );
+}
+
+function LargeDiffGuard({
+  lineCount,
+  onShow
+}: {
+  lineCount: number;
+  onShow(): void;
+}) {
+  return (
+    <div className="flex min-h-20 flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-zinc-950 px-4 py-4 text-sm text-slate-600 dark:text-zinc-400">
+      <span>Large diff ({lineCount} lines)</span>
+      <button
+        className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-950 dark:text-zinc-50 transition hover:bg-slate-100 dark:hover:bg-zinc-800 active:scale-[0.98]"
+        onClick={onShow}
+        type="button"
+      >
+        Show diff
+      </button>
+    </div>
   );
 }
 
@@ -693,12 +820,12 @@ function SplitDiff({
 }
 
 function SplitRow({ index, row }: { index: number; row: DiffRow }) {
-  if (row.kind === "hunk") {
+  if (row.kind === "hunk" || row.kind === "meta") {
     return (
       <div
         className={cn(
           "border-t border-slate-100 dark:border-zinc-800 px-4 py-0.5 font-mono first:border-t-0",
-          row.hunkText?.startsWith("@@")
+          row.kind === "hunk" && row.hunkText?.startsWith("@@")
             ? "bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300"
             : "bg-slate-50 dark:bg-zinc-950 text-slate-500 dark:text-zinc-400"
         )}
@@ -893,4 +1020,17 @@ function readStoredViewMode(): ViewMode {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
+}
+
+function navigationFileForState(state: DiffViewerFileState): DiffFile {
+  return {
+    additions: state.file?.additions ?? 0,
+    changeKind: state.file?.changeKind ?? state.changeKind ?? "modified",
+    deletions: state.file?.deletions ?? 0,
+    id: diffFileId(state.path),
+    lines: state.file?.lines ?? [],
+    oldPath: state.file?.oldPath ?? state.oldPath,
+    path: state.path,
+    rows: state.file?.rows ?? []
+  };
 }

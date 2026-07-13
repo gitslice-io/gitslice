@@ -127,7 +127,7 @@ export interface ApiClient {
   ): Promise<ListChangesetsResponse>;
   getChangeset(request: GetChangesetRequest): Promise<Changeset>;
   diffChangeset(
-    request: DiffChangesetRequest
+    request: DiffChangesetRequest & { paths?: string[] }
   ): Promise<DiffChangesetResponse>;
   updateChangeset(request: UpdateChangesetRequest): Promise<Patchset>;
   approveChangeset(
