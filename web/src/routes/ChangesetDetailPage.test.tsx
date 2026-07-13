@@ -74,7 +74,40 @@ vi.mock("@tanstack/react-router", async () => {
 });
 
 vi.mock("../components/diff/DiffViewer", () => ({
-  DiffViewer: () => <div data-testid="diff-viewer">Diff viewer</div>
+  DiffViewer: ({
+    fileStates,
+    onFileNeeded,
+    onFileRetry
+  }: {
+    fileStates?: { path: string; status: string }[];
+    onFileNeeded?(path: string): void;
+    onFileRetry?(path: string): void;
+  }) => (
+    <div data-testid="diff-viewer">
+      Diff viewer
+      {fileStates?.map((file, index) => (
+        <div data-testid={`file-state-${index}`} key={file.path}>
+          {file.path}: {file.status}
+          <button
+            aria-label={`Need ${file.path}`}
+            onClick={() => onFileNeeded?.(file.path)}
+            type="button"
+          >
+            Need
+          </button>
+          {file.status === "error" ? (
+            <button
+              aria-label={`Retry ${file.path}`}
+              onClick={() => onFileRetry?.(file.path)}
+              type="button"
+            >
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
 }));
 
 describe("changeset detail page", () => {
@@ -205,6 +238,101 @@ describe("changeset detail page", () => {
         toPatchset: "ps_child_2"
       })
     );
+  });
+
+  it("uses one unfiltered diff request for comparisons with at most 20 paths", async () => {
+    routerMock.params = { id: "cs_small" };
+    const api = makeApi();
+    const detail = changeset("cs_small", "small diff");
+    const paths = [
+      "/acme/payment/alpha.go",
+      "/acme/payment/beta.go"
+    ];
+    detail.patchsets![0].fileEdits = paths.map((path) => ({
+      op: "update",
+      path
+    }));
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: paths, diff: "" });
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    await waitFor(() => expect(api.diffChangeset).toHaveBeenCalledTimes(1));
+    expect(api.diffChangeset).toHaveBeenCalledWith({
+      changesetId: "cs_small",
+      fromPatchset: undefined,
+      toPatchset: detail.currentPatchsetId
+    });
+    expect(api.diffChangeset.mock.calls[0][0]).not.toHaveProperty("paths");
+  });
+
+  it("fetches large diffs per file, enables file 11 on demand, and retries errors", async () => {
+    routerMock.params = { id: "cs_large" };
+    const api = makeApi();
+    const detail = changeset("cs_large", "large diff");
+    const paths = Array.from(
+      { length: 21 },
+      (_, index) => `/acme/payment/file-${String(index + 1).padStart(2, "0")}.go`
+    );
+    detail.patchsets![0].changedPaths = paths;
+    detail.patchsets![0].fileEdits = paths.map((path) => ({
+      op: "update",
+      path
+    }));
+    const eleventhPath = paths[10];
+    let eleventhAttempts = 0;
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    api.diffChangeset = vi.fn().mockImplementation(
+      async (request: { paths?: string[] }) => {
+        const path = request.paths?.[0];
+        if (!path) {
+          throw new Error("full diff should not be requested");
+        }
+        if (path === eleventhPath && eleventhAttempts++ === 0) {
+          throw new Error("temporary diff failure");
+        }
+        return {
+          changedPaths: paths,
+          diff: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`
+        };
+      }
+    );
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    await waitFor(() => expect(api.diffChangeset).toHaveBeenCalledTimes(10));
+    expect(
+      api.diffChangeset.mock.calls.map(([request]) => request.paths)
+    ).toEqual(paths.slice(0, 10).map((path) => [path]));
+    expect(
+      api.diffChangeset.mock.calls.some(([request]) => !request.paths?.length)
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: `Need ${eleventhPath}` }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: `Retry ${eleventhPath}` })
+      ).toBeInTheDocument()
+    );
+    expect(api.diffChangeset).toHaveBeenCalledTimes(11);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: `Retry ${eleventhPath}` })
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("file-state-10")).toHaveTextContent("loaded")
+    );
+    expect(api.diffChangeset).toHaveBeenCalledTimes(12);
+    expect(api.diffChangeset).toHaveBeenLastCalledWith({
+      changesetId: "cs_large",
+      fromPatchset: undefined,
+      paths: [eleventhPath],
+      toPatchset: detail.currentPatchsetId
+    });
   });
 
   it("opens the conversation drawer from the URL", async () => {

@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient
+} from "@tanstack/react-query";
 import {
   useNavigate,
   useParams,
@@ -14,11 +19,20 @@ import {
   type FormEvent
 } from "react";
 
-import type { Changeset } from "../api/types";
+import type { Changeset, FileEdit, Patchset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
-import { DiffViewer } from "../components/diff/DiffViewer";
+import {
+  DiffViewer,
+  type DiffViewerFileState
+} from "../components/diff/DiffViewer";
+import {
+  diffFileId,
+  parseDiff,
+  type DiffFile,
+  type FileChangeKind
+} from "../components/diff/parseDiff";
 import { cn } from "../lib/cn";
 
 import {
@@ -39,6 +53,9 @@ import {
   isTerminalStatus
 } from "./changeset-detail/status";
 import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
+
+const fullDiffPathLimit = 20;
+const eagerFileDiffCount = 10;
 
 export function ChangesetDetailPage() {
   const api = useApi();
@@ -144,6 +161,69 @@ export function ChangesetDetailPage() {
   const selectedToPatchset =
     search.to && patchsetIds.has(search.to) ? search.to : defaultToPatchset;
 
+  const selectedFromPatchset = useMemo(
+    () => patchsets.find((patchset) => patchset.id === fromPatchset),
+    [fromPatchset, patchsets]
+  );
+  const selectedToPatchsetMetadata = useMemo(
+    () => patchsets.find((patchset) => patchset.id === selectedToPatchset),
+    [patchsets, selectedToPatchset]
+  );
+  const changedPaths = useMemo(
+    () =>
+      changedPathsForDiff(
+        selectedFromPatchset,
+        selectedToPatchsetMetadata
+      ),
+    [selectedFromPatchset, selectedToPatchsetMetadata]
+  );
+  const changedPathSet = useMemo(() => new Set(changedPaths), [changedPaths]);
+  const fileMetadataByPath = useMemo(
+    () =>
+      new Map(
+        changedPaths.map((path) => [
+          path,
+          fileMetadataForPath(
+            path,
+            selectedFromPatchset,
+            selectedToPatchsetMetadata
+          )
+        ])
+      ),
+    [changedPaths, selectedFromPatchset, selectedToPatchsetMetadata]
+  );
+  const usesLazyFileDiffs = changedPaths.length > fullDiffPathLimit;
+  const comparisonKey = `${canonicalChangesetId}\0${fromPatchset}\0${selectedToPatchset}`;
+  const [requestedFilePaths, setRequestedFilePaths] = useState<{
+    comparisonKey: string;
+    paths: Set<string>;
+  }>(() => ({ comparisonKey: "", paths: new Set() }));
+  const demandedFilePaths =
+    requestedFilePaths.comparisonKey === comparisonKey
+      ? requestedFilePaths.paths
+      : undefined;
+
+  const requestFileDiff = useCallback(
+    (path: string) => {
+      if (!usesLazyFileDiffs || !changedPathSet.has(path)) {
+        return;
+      }
+      setRequestedFilePaths((current) => {
+        const currentPaths =
+          current.comparisonKey === comparisonKey
+            ? current.paths
+            : new Set<string>();
+        if (currentPaths.has(path)) {
+          return current;
+        }
+        const nextPaths = new Set(currentPaths);
+        nextPaths.add(path);
+        return { comparisonKey, paths: nextPaths };
+      });
+    },
+    [changedPathSet, comparisonKey, usesLazyFileDiffs]
+  );
+
   const updateCompareSearch = useCallback(
     (next: { from?: string; to?: string }) => {
       void navigate({
@@ -174,7 +254,9 @@ export function ChangesetDetailPage() {
   );
 
   const diffQuery = useQuery({
-    enabled: Boolean(changeset && canonicalChangesetId),
+    enabled: Boolean(
+      changeset && canonicalChangesetId && !usesLazyFileDiffs
+    ),
     queryKey: [
       "changesetDiff",
       canonicalChangesetId,
@@ -188,6 +270,91 @@ export function ChangesetDetailPage() {
         toPatchset: selectedToPatchset || undefined
       })
   });
+
+  const fileDiffQueries = useQueries({
+    queries: usesLazyFileDiffs
+      ? changedPaths.map((path, index) => ({
+          enabled: Boolean(
+            canonicalChangesetId &&
+              (index < eagerFileDiffCount ||
+                demandedFilePaths?.has(path) ||
+                search.file === path)
+          ),
+          queryKey: [
+            "changesetFileDiff",
+            canonicalChangesetId,
+            fromPatchset,
+            selectedToPatchset,
+            path
+          ],
+          queryFn: async () => {
+            const response = await api.diffChangeset({
+              changesetId: canonicalChangesetId,
+              fromPatchset: fromPatchset || undefined,
+              paths: [path],
+              toPatchset: selectedToPatchset || undefined
+            });
+            return {
+              file: diffFileForResponse(
+                path,
+                fileMetadataByPath.get(path)?.changeKind,
+                response.diff
+              )
+            };
+          },
+          retry: false,
+          staleTime: Infinity
+        }))
+      : []
+  });
+
+  const fileStates = useMemo<DiffViewerFileState[] | undefined>(() => {
+    if (!usesLazyFileDiffs) {
+      return undefined;
+    }
+
+    return changedPaths.map((path, index) => {
+      const query = fileDiffQueries[index];
+      const metadata = fileMetadataByPath.get(path) ?? {};
+
+      if (query?.data) {
+        return {
+          ...metadata,
+          file: query.data.file,
+          path,
+          status: "loaded"
+        };
+      }
+      if (query?.isError) {
+        return {
+          ...metadata,
+          error: query.error,
+          path,
+          status: "error"
+        };
+      }
+      if (query?.isFetching) {
+        return { ...metadata, path, status: "loading" };
+      }
+      return { ...metadata, path, status: "pending" };
+    });
+  }, [
+    changedPaths,
+    fileMetadataByPath,
+    fileDiffQueries,
+    usesLazyFileDiffs
+  ]);
+
+  const retryFileDiff = useCallback(
+    (path: string) => {
+      requestFileDiff(path);
+      const index = changedPaths.indexOf(path);
+      if (index >= 0) {
+        void fileDiffQueries[index]?.refetch();
+      }
+    },
+    [changedPaths, fileDiffQueries, requestFileDiff]
+  );
 
   const invalidateChangeset = async () => {
     await queryClient.invalidateQueries({
@@ -347,9 +514,13 @@ export function ChangesetDetailPage() {
           <DiffViewer
             diffResponse={diffQuery.data}
             error={diffQuery.error}
+            fileStates={fileStates}
             focusFilePath={search.file}
             isError={diffQuery.isError}
-            isLoading={diffQuery.isPending}
+            isLoading={!usesLazyFileDiffs && diffQuery.isPending}
+            key={comparisonKey}
+            onFileNeeded={requestFileDiff}
+            onFileRetry={retryFileDiff}
           />
         </div>
         <ConversationDrawer
@@ -367,3 +538,80 @@ export function ChangesetDetailPage() {
 }
 
 export { sortedPatchsets };
+
+function changedPathsForDiff(from?: Patchset, to?: Patchset) {
+  const paths = new Set<string>();
+  [from, to].forEach((patchset) => {
+    patchset?.fileEdits?.forEach((edit) => {
+      if (edit.path) {
+        paths.add(edit.path);
+      }
+      if (edit.oldPath) {
+        paths.add(edit.oldPath);
+      }
+    });
+  });
+  return Array.from(paths).sort();
+}
+
+function fileMetadataForPath(
+  path: string,
+  from?: Patchset,
+  to?: Patchset
+): { changeKind?: FileChangeKind; oldPath?: string } {
+  const edit =
+    findEditForPath(to?.fileEdits, path) ??
+    findEditForPath(from?.fileEdits, path);
+  if (!edit) {
+    return {};
+  }
+
+  return {
+    changeKind: changeKindForEdit(edit),
+    oldPath:
+      edit.op === "rename" && edit.path === path ? edit.oldPath : undefined
+  };
+}
+
+function findEditForPath(edits: FileEdit[] | undefined, path: string) {
+  return edits?.find((edit) => edit.path === path || edit.oldPath === path);
+}
+
+function changeKindForEdit(edit: FileEdit): FileChangeKind {
+  switch (edit.op) {
+    case "add":
+      return "added";
+    case "delete":
+      return "deleted";
+    case "rename":
+      return "renamed";
+    default:
+      return "modified";
+  }
+}
+
+function diffFileForResponse(
+  path: string,
+  metadataKind: FileChangeKind | undefined,
+  diff: string | undefined
+): DiffFile {
+  const parsed = parseDiff(diff ?? "", [path])[0];
+  if (!parsed) {
+    return {
+      additions: 0,
+      changeKind: metadataKind ?? "modified",
+      deletions: 0,
+      id: diffFileId(path),
+      lines: [],
+      path,
+      rows: []
+    };
+  }
+
+  return {
+    ...parsed,
+    changeKind: metadataKind ?? parsed.changeKind,
+    id: diffFileId(path),
+    path
+  };
+}

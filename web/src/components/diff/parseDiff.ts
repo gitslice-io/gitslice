@@ -11,7 +11,7 @@ export interface DiffLine {
 export interface DiffRow {
   left?: DiffLine;
   right?: DiffLine;
-  kind: "context" | "add" | "del" | "replace" | "hunk";
+  kind: "context" | "add" | "del" | "replace" | "hunk" | "meta";
   hunkText?: string;
 }
 
@@ -26,6 +26,10 @@ export interface DiffFile {
   deletions: number;
   lines: DiffLine[];
   rows: DiffRow[];
+}
+
+export function diffFileId(path: string) {
+  return `diff-file-${encodeURIComponent(path)}`;
 }
 
 interface DiffSectionDraft {
@@ -115,7 +119,7 @@ function buildDiffFile(
     additions: parsedLines.lines.filter((line) => line.kind === "add").length,
     changeKind: changeKindForSection(section, displayOldPath, path),
     deletions: parsedLines.lines.filter((line) => line.kind === "del").length,
-    id: `diff-file-${index + 1}`,
+    id: diffFileId(path),
     lines: parsedLines.lines,
     oldPath: displayOldPath,
     path,
@@ -221,11 +225,15 @@ function parseDiffLines(lines: string[]) {
     }
 
     flushChangedRows();
-    diffLines.push({
+    const diffLine: DiffLine = {
       content: line,
       kind: "meta",
       text: line
-    });
+    };
+    diffLines.push(diffLine);
+    if (isFileDiffStubLine(line)) {
+      rows.push({ hunkText: line, kind: "meta" });
+    }
   });
 
   flushChangedRows();
@@ -336,4 +344,11 @@ function isDeletionLine(line: string) {
 
 function isInsideHunk(oldLine: number, newLine: number) {
   return oldLine > 0 || newLine > 0;
+}
+
+function isFileDiffStubLine(line: string) {
+  return (
+    /^Binary files .+ differ$/.test(line) ||
+    line.startsWith("Diff too large to render: ")
+  );
 }
