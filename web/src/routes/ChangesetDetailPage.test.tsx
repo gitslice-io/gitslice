@@ -580,6 +580,58 @@ describe("changeset detail page", () => {
       limit: 200
     });
   });
+
+  it("shows guidance message for merge network errors", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = {};
+    const api = makeApi();
+    api.submitChangeset = vi.fn().mockRejectedValue(
+      new TypeError("Failed to fetch")
+    );
+    api.getChangeset = vi.fn().mockResolvedValue(
+      changeset("cs_child", "use parser in payment API", {
+        patchsetId: "ps_child_1",
+        patchsetNumber: "1"
+      })
+    );
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    const mergeButton = await screen.findByRole("button", { name: "Merge" });
+    fireEvent.click(mergeButton);
+
+    expect(
+      await screen.findByText(
+        "The merge request did not complete. Large changesets can take a couple of minutes — keep this tab in the foreground and try again."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("shows server error message for non-network merge errors", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = {};
+    const api = makeApi();
+    api.submitChangeset = vi.fn().mockRejectedValue(
+      new Error("Changeset conflicts with base")
+    );
+    api.getChangeset = vi.fn().mockResolvedValue(
+      changeset("cs_child", "use parser in payment API", {
+        patchsetId: "ps_child_1",
+        patchsetNumber: "1"
+      })
+    );
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    const mergeButton = await screen.findByRole("button", { name: "Merge" });
+    fireEvent.click(mergeButton);
+
+    expect(
+      await screen.findByText("Changeset conflicts with base")
+    ).toBeInTheDocument();
+  });
 });
 
 function renderRoute(element: ReactElement) {
@@ -627,6 +679,7 @@ function makeApi() {
     resolveSlice: vi.fn().mockResolvedValue({ id: "slice_payment" }),
     restack: vi.fn(),
     streamCheckRun: vi.fn(async function* () {}),
+    submitChangeset: vi.fn().mockResolvedValue({ changesetId: "cs_child" }),
     submitStack: vi.fn(),
     updateChangeset: vi.fn(),
     uploadBlob: vi.fn()

@@ -19,6 +19,7 @@ import {
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
+import { mergeErrorMessage } from "./changeset-detail/status";
 import { displaySubmitBlockedReason } from "./stackPageUtils";
 
 interface ChangesetsSearch {
@@ -193,7 +194,7 @@ function ChangesetRow({
         expectedCurrentPatchsetId: changeset.currentPatchsetId
       });
     },
-    onError: (error) => setRowError(getErrorMessage(error)),
+    onError: (error) => setRowError(mergeErrorMessage(error)),
     onMutate: () => setRowError(""),
     onSuccess: async () => {
       setRowError("");

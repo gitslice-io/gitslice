@@ -1,3 +1,5 @@
+import { Code, ConnectError } from "@connectrpc/connect";
+
 import type { Changeset } from "../../api/types";
 import type { Crumb } from "../../components/Breadcrumb";
 import { shortChangesetId } from "../../lib/objectId";
@@ -117,6 +119,26 @@ export function changesetLabel(changeset: Changeset) {
 export function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
 }
+
+// Merge submits can legitimately run for minutes on large changesets; an
+// aborted or timed-out request needs guidance, not a raw fetch error.
+export function mergeErrorMessage(error: unknown): string {
+  if (error instanceof TypeError) {
+    return mergeIncompleteMessage;
+  }
+  const connectError = ConnectError.from(error);
+  if (
+    connectError.code === Code.DeadlineExceeded ||
+    connectError.code === Code.Canceled ||
+    connectError.code === Code.Unavailable
+  ) {
+    return mergeIncompleteMessage;
+  }
+  return errorMessage(error);
+}
+
+const mergeIncompleteMessage =
+  "The merge request did not complete. Large changesets can take a couple of minutes — keep this tab in the foreground and try again.";
 
 export const dangerButtonClass =
   "self-end rounded-md border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:border-rose-500 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
