@@ -7927,3 +7927,22 @@ curl -sS -D - -o /tmp/preflight_ms.out -X OPTIONS 'https://api.gitslice.io/gitsl
 for `internal/checkexec` (`Cannot connect to the Docker daemon at
 unix:///Users/nic/.docker/run/docker.sock`). The broad non-Docker package set,
 `go test ./server`, and `go build ./cmd/...` passed.
+
+Deployment:
+
+- Pushed commit `59d7e61` to `main` and ran production Cloud Build
+  `186471e0-f4eb-4cfd-b619-14eccf83c30e`.
+- Cloud Run deployed revision `gitslice-prod-00027-8kd` with image tag
+  `59d7e61` and routed 100% of `gitslice-prod` traffic to it.
+- Replayed the browser preflight against production and confirmed the response
+  now includes `Connect-Timeout-Ms` in `Access-Control-Allow-Headers`.
+
+Deployment verification:
+
+```bash
+gcloud builds triggers run b062cbb8-55bc-4c52-a801-d41e598cce6c --branch=main --project=unified-surfer-486904-i6
+gcloud builds describe 186471e0-f4eb-4cfd-b619-14eccf83c30e --project=unified-surfer-486904-i6 --format='value(status)'
+gcloud run revisions list --service=gitslice-prod --region=us-west1 --project=unified-surfer-486904-i6 --limit=5 --format='table(metadata.name,metadata.creationTimestamp,status.conditions[0].status)'
+gcloud run services describe gitslice-prod --region=us-west1 --project=unified-surfer-486904-i6 --format='json(status.traffic,status.latestReadyRevisionName,spec.template.spec.containers[0].image)'
+curl -sS -D - -o /tmp/preflight_ms_after.out -X OPTIONS 'https://api.gitslice.io/gitslice.core.v1.ChangesetService/SubmitChangeset' -H 'Origin: https://gitslice.io' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,connect-protocol-version,connect-timeout-ms,content-type,x-user-agent'
+```
