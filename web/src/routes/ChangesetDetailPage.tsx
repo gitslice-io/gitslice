@@ -50,7 +50,8 @@ import {
   changesetSliceSearch,
   errorMessage,
   isMergeableStatus,
-  isTerminalStatus
+  isTerminalStatus,
+  mergeErrorMessage
 } from "./changeset-detail/status";
 import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
 
@@ -398,7 +399,7 @@ export function ChangesetDetailPage() {
         expectedCurrentPatchsetId: changeset.currentPatchsetId
       });
     },
-    onError: (error) => setActionError(errorMessage(error)),
+    onError: (error) => setActionError(mergeErrorMessage(error)),
     onMutate: () => setActionError(""),
     onSuccess: async () => {
       setActionError("");

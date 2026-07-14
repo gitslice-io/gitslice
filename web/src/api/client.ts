@@ -149,7 +149,7 @@ export function createApiClient({
       ),
     submitChangeset: (request) =>
       unary<Api.SubmitChangesetResponse>(() =>
-        changeset.submitChangeset(toProtoRequest(request))
+        changeset.submitChangeset(toProtoRequest(request), { timeoutMs: 300000 })
       ),
     abandonChangeset: (request) =>
       unary<Api.Empty>(() => changeset.abandonChangeset(toProtoRequest(request))),
