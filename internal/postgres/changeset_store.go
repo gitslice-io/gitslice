@@ -1823,13 +1823,11 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 	if err != nil {
 		return nil, err
 	}
-	for _, base := range patchset.PathBases {
-		if err := s.validateAcceptedPathBaseTx(ctx, tx, currentCommitID, base); err != nil {
-			if !errors.Is(err, ErrConflict) {
-				return nil, err
-			}
-			return nil, blockSubmitTx(ctx, tx, cs.ID, "path base conflict, refresh or rebase the changeset")
+	if err := s.validateAcceptedPathBasesTx(ctx, tx, currentCommitID, patchset.PathBases); err != nil {
+		if !errors.Is(err, ErrConflict) {
+			return nil, err
 		}
+		return nil, blockSubmitTx(ctx, tx, cs.ID, "path base conflict, refresh or rebase the changeset")
 	}
 	if err := applyPathHeadEditsTx(ctx, tx, cs.ID, patchset.Id, patchset.FileEdits); err != nil {
 		return nil, err
@@ -3018,6 +3016,10 @@ func scanPatchset(row scanner) (*corev1.Patchset, error) {
 }
 
 func treeEditsFromPatchsetTx(ctx context.Context, tx *sql.Tx, edits []*corev1.FileEdit) ([]treestore.FileEdit, error) {
+	blobs, err := getBlobsTx(ctx, tx, blobIDsForEdits(edits))
+	if err != nil {
+		return nil, err
+	}
 	out := make([]treestore.FileEdit, 0, len(edits))
 	for _, edit := range edits {
 		treeEdit := treestore.FileEdit{
@@ -3028,9 +3030,9 @@ func treeEditsFromPatchsetTx(ctx context.Context, tx *sql.Tx, edits []*corev1.Fi
 		switch edit.Op {
 		case "delete", "rename", "mkdir":
 		default:
-			blob, err := getBlobTx(ctx, tx, edit.BlobId)
-			if err != nil {
-				return nil, err
+			blob, ok := blobs[edit.BlobId]
+			if !ok {
+				return nil, ErrNotFound
 			}
 			treeEdit.File = &treestore.FileEntry{
 				Path:        edit.Path,
@@ -3045,11 +3047,112 @@ func treeEditsFromPatchsetTx(ctx context.Context, tx *sql.Tx, edits []*corev1.Fi
 	return out, nil
 }
 
-func (s *ChangesetStore) validateAcceptedPathBaseTx(ctx context.Context, tx *sql.Tx, currentCommitID string, base *corev1.PathBase) error {
-	head, err := s.getOrInitPathHeadTx(ctx, tx, currentCommitID, base.Path)
+func blobIDsForEdits(edits []*corev1.FileEdit) []string {
+	seen := map[string]struct{}{}
+	var ids []string
+	for _, edit := range edits {
+		switch edit.Op {
+		case "delete", "rename", "mkdir":
+			continue
+		}
+		if _, ok := seen[edit.BlobId]; ok {
+			continue
+		}
+		seen[edit.BlobId] = struct{}{}
+		ids = append(ids, edit.BlobId)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func getBlobsTx(ctx context.Context, tx *sql.Tx, blobIDs []string) (map[string]*corev1.BlobRecord, error) {
+	blobs := make(map[string]*corev1.BlobRecord, len(blobIDs))
+	if len(blobIDs) == 0 {
+		return blobs, nil
+	}
+	rows, err := tx.QueryContext(ctx, `
+		select id, content_hash, size
+		from blobs
+		where id = any($1) and state = 'available'
+	`, blobIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var blob corev1.BlobRecord
+		if err := rows.Scan(&blob.Id, &blob.ContentHash, &blob.Size); err != nil {
+			return nil, err
+		}
+		blobs[blob.Id] = &blob
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return blobs, nil
+}
+
+func (s *ChangesetStore) validateAcceptedPathBasesTx(ctx context.Context, tx *sql.Tx, currentCommitID string, bases []*corev1.PathBase) error {
+	paths := make([]string, 0, len(bases))
+	for _, base := range bases {
+		paths = append(paths, base.Path)
+	}
+	paths = uniqueSortedStrings(paths)
+	heads, err := getPathHeadsTx(ctx, tx, paths)
 	if err != nil {
 		return err
 	}
+	missingPaths := make([]string, 0, len(paths)-len(heads))
+	for _, p := range paths {
+		if _, ok := heads[p]; !ok {
+			missingPaths = append(missingPaths, p)
+		}
+	}
+	if len(missingPaths) > 0 {
+		rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, currentCommitID)
+		if err != nil {
+			return err
+		}
+		initialHeads := make([]PathHead, 0, len(missingPaths))
+		for _, p := range missingPaths {
+			entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, p)
+			if errors.Is(err, ErrNotFound) {
+				initialHeads = append(initialHeads, PathHead{
+					Path:             p,
+					Exists:           false,
+					EntryFingerprint: MissingEntryFingerprint(),
+				})
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			initialHeads = append(initialHeads, pathHeadFromTreeEntry(*entry))
+		}
+		if err := insertInitialPathHeadsTx(ctx, tx, initialHeads); err != nil {
+			return err
+		}
+		initialized, err := getPathHeadsTx(ctx, tx, missingPaths)
+		if err != nil {
+			return err
+		}
+		for p, head := range initialized {
+			heads[p] = head
+		}
+	}
+	for _, base := range bases {
+		head, ok := heads[base.Path]
+		if !ok {
+			return ErrNotFound
+		}
+		if err := validateAcceptedPathBase(head, base); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAcceptedPathBase(head PathHead, base *corev1.PathBase) error {
 	if !head.Exists {
 		if base.Exists || base.EntryFingerprint != MissingEntryFingerprint() {
 			return ErrConflict
@@ -3065,107 +3168,86 @@ func (s *ChangesetStore) validateAcceptedPathBaseTx(ctx context.Context, tx *sql
 	return nil
 }
 
-func (s *ChangesetStore) getOrInitPathHeadTx(ctx context.Context, tx *sql.Tx, currentCommitID, p string) (*PathHead, error) {
-	head, err := getPathHeadTx(ctx, tx, p)
-	if err == nil {
-		return head, nil
+func getPathHeadsTx(ctx context.Context, tx *sql.Tx, paths []string) (map[string]PathHead, error) {
+	heads := make(map[string]PathHead, len(paths))
+	if len(paths) == 0 {
+		return heads, nil
 	}
-	if !errors.Is(err, ErrNotFound) {
-		return nil, err
-	}
-	entry, err := s.repository.getEntryAtCommitTx(ctx, tx, currentCommitID, p)
-	if errors.Is(err, ErrNotFound) {
-		if err := insertInitialPathHeadTx(ctx, tx, PathHead{
-			Path:             p,
-			Exists:           false,
-			EntryFingerprint: MissingEntryFingerprint(),
-		}, "", ""); err != nil {
-			return nil, err
-		}
-		return getPathHeadTx(ctx, tx, p)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := insertInitialPathHeadTx(ctx, tx, pathHeadFromTreeEntry(*entry), "", ""); err != nil {
-		return nil, err
-	}
-	return getPathHeadTx(ctx, tx, p)
-}
-
-func getPathHeadTx(ctx context.Context, tx *sql.Tx, p string) (*PathHead, error) {
-	var head PathHead
-	var blobID, contentHash sql.NullString
-	var mode, size sql.NullInt64
-	err := tx.QueryRowContext(ctx, `
+	rows, err := tx.QueryContext(ctx, `
 		select path, exists, entry_fingerprint, blob_id, content_hash, mode, size
 		from path_heads
-		where path = $1
+		where path = any($1)
+		order by path
 		for update
-	`, p).Scan(&head.Path, &head.Exists, &head.EntryFingerprint, &blobID, &contentHash, &mode, &size)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
+	`, paths)
 	if err != nil {
 		return nil, err
 	}
-	if blobID.Valid {
-		head.BlobID = blobID.String
+	defer rows.Close()
+	for rows.Next() {
+		head, err := scanPathHead(rows)
+		if err != nil {
+			return nil, err
+		}
+		heads[head.Path] = head
 	}
-	if contentHash.Valid {
-		head.ContentHash = contentHash.String
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
-	if mode.Valid {
-		head.Mode = uint32(mode.Int64)
-	}
-	if size.Valid {
-		head.Size = size.Int64
-	}
-	return &head, nil
+	return heads, nil
 }
 
 func applyPathHeadEditsTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string, edits []*corev1.FileEdit) error {
+	paths := make([]string, 0, len(edits)*2)
+	for _, edit := range edits {
+		paths = append(paths, edit.Path)
+		if edit.Op == "rename" {
+			paths = append(paths, edit.OldPath)
+		}
+	}
+	heads, err := getPathHeadsTx(ctx, tx, uniqueSortedStrings(paths))
+	if err != nil {
+		return err
+	}
+	blobs, err := getBlobsTx(ctx, tx, blobIDsForEdits(edits))
+	if err != nil {
+		return err
+	}
+	dirty := map[string]PathHead{}
+	setHead := func(head PathHead) {
+		heads[head.Path] = head
+		dirty[head.Path] = head
+	}
 	for _, edit := range edits {
 		switch edit.Op {
 		case "mkdir":
-			if err := upsertPathHeadTx(ctx, tx, PathHead{
+			setHead(PathHead{
 				Path:             edit.Path,
 				Exists:           true,
 				EntryFingerprint: DirectoryEntryFingerprint(treestore.EmptyRootID()),
-			}, changesetID, patchsetID); err != nil {
-				return err
-			}
+			})
 		case "delete":
-			if err := upsertPathHeadTx(ctx, tx, PathHead{
+			setHead(PathHead{
 				Path:             edit.Path,
 				Exists:           false,
 				EntryFingerprint: MissingEntryFingerprint(),
-			}, changesetID, patchsetID); err != nil {
-				return err
-			}
+			})
 		case "rename":
-			head, err := getPathHeadTx(ctx, tx, edit.OldPath)
-			if err != nil {
-				return err
-			}
-			if !head.Exists {
+			head, ok := heads[edit.OldPath]
+			if !ok || !head.Exists {
 				return ErrConflict
 			}
-			if err := upsertPathHeadTx(ctx, tx, PathHead{
+			setHead(PathHead{
 				Path:             edit.OldPath,
 				Exists:           false,
 				EntryFingerprint: MissingEntryFingerprint(),
-			}, changesetID, patchsetID); err != nil {
-				return err
-			}
+			})
 			head.Path = edit.Path
-			if err := upsertPathHeadTx(ctx, tx, *head, changesetID, patchsetID); err != nil {
-				return err
-			}
+			setHead(head)
 		default:
-			blob, err := getBlobTx(ctx, tx, edit.BlobId)
-			if err != nil {
-				return err
+			blob, ok := blobs[edit.BlobId]
+			if !ok {
+				return ErrNotFound
 			}
 			entry := FileEntry{
 				Path:        edit.Path,
@@ -3174,33 +3256,38 @@ func applyPathHeadEditsTx(ctx context.Context, tx *sql.Tx, changesetID, patchset
 				Mode:        edit.Mode,
 				Size:        blob.Size,
 			}
-			if err := upsertPathHeadTx(ctx, tx, pathHeadFromFile(entry), changesetID, patchsetID); err != nil {
-				return err
-			}
+			setHead(pathHeadFromFile(entry))
 		}
 	}
-	return nil
+	return upsertPathHeadsTx(ctx, tx, pathHeadsFromMap(dirty), changesetID, patchsetID)
 }
 
 func upsertPathHeadTx(ctx context.Context, tx *sql.Tx, head PathHead, changesetID, patchsetID string) error {
-	var blobID, contentHash any
-	var mode, size any
-	if head.Exists {
-		blobID = head.BlobID
-		contentHash = head.ContentHash
-		mode = int64(head.Mode)
-		size = head.Size
+	return upsertPathHeadsTx(ctx, tx, []PathHead{head}, changesetID, patchsetID)
+}
+
+func upsertPathHeadsTx(ctx context.Context, tx *sql.Tx, heads []PathHead, changesetID, patchsetID string) error {
+	heads = normalizedPathHeads(heads)
+	if len(heads) == 0 {
+		return nil
 	}
-	var acceptedChangesetID, acceptedPatchsetID any
-	if changesetID != "" {
-		acceptedChangesetID = changesetID
-	}
-	if patchsetID != "" {
-		acceptedPatchsetID = patchsetID
-	}
+	batch := newPathHeadBatch(heads)
 	_, err := tx.ExecContext(ctx, `
 		insert into path_heads(path, exists, entry_fingerprint, blob_id, content_hash, mode, size, accepted_changeset_id, accepted_patchset_id, updated_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+		select input.path,
+		       input.path_exists,
+		       input.entry_fingerprint,
+		       case when input.path_exists then input.blob_id end,
+		       case when input.path_exists then input.content_hash end,
+		       case when input.path_exists then input.mode::integer end,
+		       case when input.path_exists then input.size end,
+		       $8::text,
+		       $9::text,
+		       now()
+		from unnest(
+			$1::text[], $2::boolean[], $3::text[], $4::text[],
+			$5::text[], $6::bigint[], $7::bigint[]
+		) as input(path, path_exists, entry_fingerprint, blob_id, content_hash, mode, size)
 		on conflict (path) do update
 		set exists = excluded.exists,
 		    entry_fingerprint = excluded.entry_fingerprint,
@@ -3211,7 +3298,8 @@ func upsertPathHeadTx(ctx context.Context, tx *sql.Tx, head PathHead, changesetI
 		    accepted_changeset_id = excluded.accepted_changeset_id,
 		    accepted_patchset_id = excluded.accepted_patchset_id,
 		    updated_at = now()
-	`, head.Path, head.Exists, head.EntryFingerprint, blobID, contentHash, mode, size, acceptedChangesetID, acceptedPatchsetID)
+	`, batch.paths, batch.exists, batch.entryFingerprints, batch.blobIDs, batch.contentHashes, batch.modes, batch.sizes,
+		nullString(changesetID), nullString(patchsetID))
 	return err
 }
 
@@ -3255,28 +3343,94 @@ func pathHeadLikePrefix(p string) string {
 	return prefix + "%"
 }
 
-func insertInitialPathHeadTx(ctx context.Context, tx *sql.Tx, head PathHead, changesetID, patchsetID string) error {
-	var blobID, contentHash any
-	var mode, size any
-	if head.Exists {
-		blobID = head.BlobID
-		contentHash = head.ContentHash
-		mode = int64(head.Mode)
-		size = head.Size
+func insertInitialPathHeadsTx(ctx context.Context, tx *sql.Tx, heads []PathHead) error {
+	heads = normalizedPathHeads(heads)
+	if len(heads) == 0 {
+		return nil
 	}
-	var acceptedChangesetID, acceptedPatchsetID any
-	if changesetID != "" {
-		acceptedChangesetID = changesetID
-	}
-	if patchsetID != "" {
-		acceptedPatchsetID = patchsetID
-	}
+	batch := newPathHeadBatch(heads)
 	_, err := tx.ExecContext(ctx, `
 		insert into path_heads(path, exists, entry_fingerprint, blob_id, content_hash, mode, size, accepted_changeset_id, accepted_patchset_id, updated_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+		select input.path,
+		       input.path_exists,
+		       input.entry_fingerprint,
+		       case when input.path_exists then input.blob_id end,
+		       case when input.path_exists then input.content_hash end,
+		       case when input.path_exists then input.mode::integer end,
+		       case when input.path_exists then input.size end,
+		       null,
+		       null,
+		       now()
+		from unnest(
+			$1::text[], $2::boolean[], $3::text[], $4::text[],
+			$5::text[], $6::bigint[], $7::bigint[]
+		) as input(path, path_exists, entry_fingerprint, blob_id, content_hash, mode, size)
 		on conflict (path) do nothing
-	`, head.Path, head.Exists, head.EntryFingerprint, blobID, contentHash, mode, size, acceptedChangesetID, acceptedPatchsetID)
+	`, batch.paths, batch.exists, batch.entryFingerprints, batch.blobIDs, batch.contentHashes, batch.modes, batch.sizes)
 	return err
+}
+
+type pathHeadBatch struct {
+	paths             []string
+	exists            []bool
+	entryFingerprints []string
+	blobIDs           []string
+	contentHashes     []string
+	modes             []int64
+	sizes             []int64
+}
+
+func newPathHeadBatch(heads []PathHead) pathHeadBatch {
+	batch := pathHeadBatch{
+		paths:             make([]string, 0, len(heads)),
+		exists:            make([]bool, 0, len(heads)),
+		entryFingerprints: make([]string, 0, len(heads)),
+		blobIDs:           make([]string, 0, len(heads)),
+		contentHashes:     make([]string, 0, len(heads)),
+		modes:             make([]int64, 0, len(heads)),
+		sizes:             make([]int64, 0, len(heads)),
+	}
+	for _, head := range heads {
+		batch.paths = append(batch.paths, head.Path)
+		batch.exists = append(batch.exists, head.Exists)
+		batch.entryFingerprints = append(batch.entryFingerprints, head.EntryFingerprint)
+		batch.blobIDs = append(batch.blobIDs, head.BlobID)
+		batch.contentHashes = append(batch.contentHashes, head.ContentHash)
+		batch.modes = append(batch.modes, int64(head.Mode))
+		batch.sizes = append(batch.sizes, head.Size)
+	}
+	return batch
+}
+
+func normalizedPathHeads(heads []PathHead) []PathHead {
+	byPath := make(map[string]PathHead, len(heads))
+	for _, head := range heads {
+		byPath[head.Path] = head
+	}
+	return pathHeadsFromMap(byPath)
+}
+
+func pathHeadsFromMap(heads map[string]PathHead) []PathHead {
+	out := make([]PathHead, 0, len(heads))
+	for _, head := range heads {
+		out = append(out, head)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func pathHeadFromFile(entry FileEntry) PathHead {
