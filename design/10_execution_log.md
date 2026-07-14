@@ -7886,3 +7886,44 @@ go test ./...
 go build ./cmd/...
 git diff --check
 ```
+
+## 2026-07-14: Production web merge CORS preflight failure
+
+Request: explain and fix the `Failed to fetch` error when merging
+`https://gitslice.io/cs/11ba1395a0`.
+
+Findings:
+
+- Production Cloud Run request logs showed the browser sending multiple
+  `OPTIONS /gitslice.core.v1.ChangesetService/SubmitChangeset` preflights from
+  `https://gitslice.io`, all returning HTTP 204, with no matching browser POST
+  reaching the API.
+- The changeset `cs_11ba1395a00354adf00fa51c76538b12` was still `draft`, had
+  one current file edit, and had no `pending_publish` row, confirming the merge
+  request was blocked before submit reached the Go service.
+- `@connectrpc/connect` 2.1.2 sends the per-request timeout as
+  `Connect-Timeout-Ms`; the backend CORS allow-list only included the older
+  `Connect-Timeout` spelling. Browsers therefore rejected the real POST after
+  the successful preflight.
+
+Decision:
+
+- Keep `Connect-Timeout` for compatibility and add `Connect-Timeout-Ms` to the
+  server CORS allow-list used by `NewHTTPHandler`.
+- Add a focused regression test for the exact browser preflight shape used by
+  the web merge call.
+
+Verification:
+
+```bash
+go test ./server
+go test ./...
+go test $(go list ./... | rg -v '/internal/checkexec$')
+go build ./cmd/...
+curl -sS -D - -o /tmp/preflight_ms.out -X OPTIONS 'https://api.gitslice.io/gitslice.core.v1.ChangesetService/SubmitChangeset' -H 'Origin: https://gitslice.io' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,connect-protocol-version,connect-timeout-ms,content-type,x-user-agent'
+```
+
+`go test ./...` was blocked only by the local Docker daemon being unavailable
+for `internal/checkexec` (`Cannot connect to the Docker daemon at
+unix:///Users/nic/.docker/run/docker.sock`). The broad non-Docker package set,
+`go test ./server`, and `go build ./cmd/...` passed.
