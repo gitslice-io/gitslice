@@ -86,7 +86,12 @@ export function SliceDetailPage() {
   });
 
   const latestQuery = useQuery({
-    enabled: Boolean(isLoaded && sliceQuery.isSuccess),
+    // getRef(refs/global/main) is independent of the slice, so it does not need
+    // to wait for resolveSlice to succeed. Firing it in parallel removes one hop
+    // from the file-view request waterfall (resolveSlice/getRef both feed the
+    // commit + slice that resolvePath/readFile need). It stays gated on the
+    // slice not having errored so we skip the fetch for missing/forbidden slices.
+    enabled: Boolean(isLoaded && routeSliceRef && !sliceQuery.isError),
     queryKey: ["globalRef", GLOBAL_REF_NAME],
     queryFn: async () => {
       const ref = await api.getRef({ refName: GLOBAL_REF_NAME });
@@ -167,10 +172,18 @@ export function SliceDetailPage() {
   });
 
   const fileQuery = useQuery({
+    // Fire readFile in parallel with resolvePath rather than waiting for it to
+    // report the entry is a file. Gating on isFile serialized the two slowest
+    // RPCs into a waterfall (resolvePath ~800ms -> readFile ~600ms). We only
+    // suppress it once resolvePath has proven the path is a directory
+    // (isDirectory); while the kind is still unknown it runs optimistically.
+    // readFile on a directory returns an inert error we never render, since the
+    // file view is shown only when isFile.
     enabled: Boolean(
       commitId &&
       selectedPath &&
-      isFile &&
+      !isDirectory &&
+      !isProjectedDirectoryPath &&
       sliceRef?.account &&
       sliceRef?.slice,
     ),
