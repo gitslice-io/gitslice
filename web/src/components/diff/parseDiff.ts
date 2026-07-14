@@ -15,7 +15,7 @@ export interface DiffRow {
   hunkText?: string;
 }
 
-export type FileChangeKind = "added" | "deleted" | "modified" | "renamed";
+export type FileChangeKind = "added" | "deleted" | "modified" | "renamed" | "pending";
 
 export interface DiffFile {
   id: string;

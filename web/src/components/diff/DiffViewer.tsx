@@ -992,6 +992,8 @@ function changeKindClass(kind: FileChangeKind) {
       return "bg-violet-100 text-violet-800";
     case "modified":
       return "bg-amber-100 dark:bg-amber-950/45 text-amber-900 dark:text-amber-200";
+    case "pending":
+      return "bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400";
   }
 }
 
@@ -1025,7 +1027,7 @@ function errorMessage(error: unknown) {
 function navigationFileForState(state: DiffViewerFileState): DiffFile {
   return {
     additions: state.file?.additions ?? 0,
-    changeKind: state.file?.changeKind ?? state.changeKind ?? "modified",
+    changeKind: state.file?.changeKind ?? state.changeKind ?? "pending",
     deletions: state.file?.deletions ?? 0,
     id: diffFileId(state.path),
     lines: state.file?.lines ?? [],
