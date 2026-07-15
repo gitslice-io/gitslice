@@ -1915,7 +1915,6 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 		select commit_id
 		from refs
 		where name = $1
-		for update
 	`, targetRef).Scan(&originalCommitID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrNotFound
@@ -2027,6 +2026,23 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			return 0, err
 		}
 		return 0, nil
+	}
+	var lockedCommitID string
+	err = tx.QueryRowContext(ctx, `
+		select commit_id
+		from refs
+		where name = $1
+		for update
+	`, targetRef).Scan(&lockedCommitID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	if lockedCommitID != originalCommitID {
+		storage.RecordRefCASFailure()
+		return 0, ErrConflict
 	}
 	if err := insertPublishedCommitsTx(ctx, tx, commitInserts); err != nil {
 		return 0, err
