@@ -1823,7 +1823,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateAcceptedPathBasesTx(ctx, tx, currentCommitID, patchset.PathBases); err != nil {
+	if err := s.validateAcceptedPathBasesTx(ctx, tx, cs.TargetRef, currentCommitID, patchset.PathBases); err != nil {
 		if !errors.Is(err, ErrConflict) {
 			return nil, err
 		}
@@ -2266,9 +2266,23 @@ type pathHeadRefreshTarget struct {
 }
 
 func (s *ChangesetStore) refreshPathHeadsForPatchsetRootTx(ctx context.Context, tx *sql.Tx, rootTreeID, changesetID, patchsetID string, edits []*corev1.FileEdit) error {
+	var pending []PathHead
+	flushPending := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		if err := upsertPathHeadsTx(ctx, tx, pending, changesetID, patchsetID); err != nil {
+			return err
+		}
+		pending = pending[:0]
+		return nil
+	}
 	for _, target := range pathHeadRefreshTargetsForEdits(edits) {
 		entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, target.Path)
 		if errors.Is(err, ErrNotFound) {
+			if err := flushPending(); err != nil {
+				return err
+			}
 			if err := markPathHeadDeletedRecursiveTx(ctx, tx, target.Path, changesetID, patchsetID); err != nil {
 				return err
 			}
@@ -2278,22 +2292,18 @@ func (s *ChangesetStore) refreshPathHeadsForPatchsetRootTx(ctx context.Context, 
 			return err
 		}
 		if target.Recursive && entry.Kind == "directory" {
-			if err := s.refreshPathHeadSubtreeTx(ctx, tx, rootTreeID, *entry, changesetID, patchsetID); err != nil {
+			if err := s.refreshPathHeadSubtreeTx(ctx, rootTreeID, *entry, &pending); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(*entry), changesetID, patchsetID); err != nil {
-			return err
-		}
+		pending = append(pending, pathHeadFromTreeEntry(*entry))
 	}
-	return nil
+	return flushPending()
 }
 
-func (s *ChangesetStore) refreshPathHeadSubtreeTx(ctx context.Context, tx *sql.Tx, rootTreeID string, entry TreeEntry, changesetID, patchsetID string) error {
-	if err := upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(entry), changesetID, patchsetID); err != nil {
-		return err
-	}
+func (s *ChangesetStore) refreshPathHeadSubtreeTx(ctx context.Context, rootTreeID string, entry TreeEntry, heads *[]PathHead) error {
+	*heads = append(*heads, pathHeadFromTreeEntry(entry))
 	if entry.Kind != "directory" {
 		return nil
 	}
@@ -2302,7 +2312,7 @@ func (s *ChangesetStore) refreshPathHeadSubtreeTx(ctx context.Context, tx *sql.T
 		return err
 	}
 	for _, child := range children {
-		if err := s.refreshPathHeadSubtreeTx(ctx, tx, rootTreeID, child, changesetID, patchsetID); err != nil {
+		if err := s.refreshPathHeadSubtreeTx(ctx, rootTreeID, child, heads); err != nil {
 			return err
 		}
 	}
@@ -3620,7 +3630,7 @@ func getBlobsTx(ctx context.Context, tx *sql.Tx, blobIDs []string) (map[string]*
 	return blobs, nil
 }
 
-func (s *ChangesetStore) validateAcceptedPathBasesTx(ctx context.Context, tx *sql.Tx, currentCommitID string, bases []*corev1.PathBase) error {
+func (s *ChangesetStore) validateAcceptedPathBasesTx(ctx context.Context, tx *sql.Tx, targetRef, currentCommitID string, bases []*corev1.PathBase) error {
 	paths := make([]string, 0, len(bases))
 	for _, base := range bases {
 		paths = append(paths, base.Path)
@@ -3637,25 +3647,9 @@ func (s *ChangesetStore) validateAcceptedPathBasesTx(ctx context.Context, tx *sq
 		}
 	}
 	if len(missingPaths) > 0 {
-		rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, currentCommitID)
+		initialHeads, err := s.initialAcceptedPathHeadsTx(ctx, tx, targetRef, currentCommitID, missingPaths)
 		if err != nil {
 			return err
-		}
-		initialHeads := make([]PathHead, 0, len(missingPaths))
-		for _, p := range missingPaths {
-			entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, p)
-			if errors.Is(err, ErrNotFound) {
-				initialHeads = append(initialHeads, PathHead{
-					Path:             p,
-					Exists:           false,
-					EntryFingerprint: MissingEntryFingerprint(),
-				})
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			initialHeads = append(initialHeads, pathHeadFromTreeEntry(*entry))
 		}
 		if err := insertInitialPathHeadsTx(ctx, tx, initialHeads); err != nil {
 			return err
@@ -3678,6 +3672,129 @@ func (s *ChangesetStore) validateAcceptedPathBasesTx(ctx context.Context, tx *sq
 		}
 	}
 	return nil
+}
+
+func (s *ChangesetStore) initialAcceptedPathHeadsTx(ctx context.Context, tx *sql.Tx, targetRef, currentCommitID string, paths []string) ([]PathHead, error) {
+	if targetRef == "" {
+		targetRef = DefaultTargetRef
+	}
+	materializedCommitID, ok, err := materializedHeadCommitTx(ctx, tx, targetRef)
+	if err != nil {
+		return nil, err
+	}
+	if ok && materializedCommitID == currentCommitID {
+		return s.initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx, tx, targetRef, currentCommitID, paths)
+	}
+	return s.initialAcceptedPathHeadsFromTreeTx(ctx, tx, currentCommitID, paths)
+}
+
+func materializedHeadCommitTx(ctx context.Context, tx *sql.Tx, targetRef string) (string, bool, error) {
+	var commitID string
+	err := tx.QueryRowContext(ctx, `
+		select commit_id
+		from ref_materialized_heads
+		where target_ref = $1
+	`, targetRef).Scan(&commitID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return commitID, true, nil
+}
+
+func (s *ChangesetStore) initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx context.Context, tx *sql.Tx, targetRef, currentCommitID string, paths []string) ([]PathHead, error) {
+	type currentHeadRow struct {
+		path        string
+		kind        string
+		contentHash string
+		mode        int64
+		blobID      string
+		size        int64
+	}
+	rows, err := tx.QueryContext(ctx, `
+		select cpe.path,
+		       cpe.kind,
+		       coalesce(cpe.content_hash, ''),
+		       coalesce(cpe.mode, 0),
+		       coalesce(b.id, ''),
+		       coalesce(b.size, 0)
+		from current_path_entities cpe
+		left join blobs b on b.content_hash = cpe.content_hash
+		where cpe.target_ref = $1
+		  and cpe.path = any($2)
+	`, targetRef, paths)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	found := make(map[string]struct{}, len(paths))
+	fallbackPaths := make([]string, 0)
+	heads := make([]PathHead, 0, len(paths))
+	for rows.Next() {
+		var row currentHeadRow
+		if err := rows.Scan(&row.path, &row.kind, &row.contentHash, &row.mode, &row.blobID, &row.size); err != nil {
+			return nil, err
+		}
+		found[row.path] = struct{}{}
+		if row.kind != "file" || row.contentHash == "" || row.blobID == "" || row.mode <= 0 {
+			fallbackPaths = append(fallbackPaths, row.path)
+			continue
+		}
+		heads = append(heads, pathHeadFromFile(FileEntry{
+			Path:        row.path,
+			BlobID:      row.blobID,
+			ContentHash: row.contentHash,
+			Mode:        uint32(row.mode),
+			Size:        row.size,
+		}))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, p := range paths {
+		if _, ok := found[p]; ok {
+			continue
+		}
+		heads = append(heads, PathHead{
+			Path:             p,
+			Exists:           false,
+			EntryFingerprint: MissingEntryFingerprint(),
+		})
+	}
+	if len(fallbackPaths) > 0 {
+		fallbackHeads, err := s.initialAcceptedPathHeadsFromTreeTx(ctx, tx, currentCommitID, fallbackPaths)
+		if err != nil {
+			return nil, err
+		}
+		heads = append(heads, fallbackHeads...)
+	}
+	return heads, nil
+}
+
+func (s *ChangesetStore) initialAcceptedPathHeadsFromTreeTx(ctx context.Context, tx *sql.Tx, currentCommitID string, paths []string) ([]PathHead, error) {
+	rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, currentCommitID)
+	if err != nil {
+		return nil, err
+	}
+	initialHeads := make([]PathHead, 0, len(paths))
+	for _, p := range paths {
+		entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, p)
+		if errors.Is(err, ErrNotFound) {
+			initialHeads = append(initialHeads, PathHead{
+				Path:             p,
+				Exists:           false,
+				EntryFingerprint: MissingEntryFingerprint(),
+			})
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		initialHeads = append(initialHeads, pathHeadFromTreeEntry(*entry))
+	}
+	return initialHeads, nil
 }
 
 func validateAcceptedPathBase(head PathHead, base *corev1.PathBase) error {

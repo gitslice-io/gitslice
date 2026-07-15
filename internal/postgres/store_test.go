@@ -474,6 +474,38 @@ func TestStorageRefreshesRenamedDirectoryDescendantPathHeads(t *testing.T) {
 	if _, err := store.Repository().GetFile(ctx, ref.CommitId, "/acme/payment/moved/nested/b.go"); err != nil {
 		t.Fatalf("moved file not readable: %v", err)
 	}
+	rootTreeID, err := store.Repository().RootTreeForCommit(ctx, ref.CommitId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHeads := map[string]PathHead{}
+	for _, p := range []string{
+		"/acme",
+		"/acme/payment",
+		"/acme/payment/moved",
+		"/acme/payment/moved/a.go",
+		"/acme/payment/moved/nested",
+		"/acme/payment/moved/nested/b.go",
+	} {
+		entry, err := store.Repository().GetEntryAtTree(ctx, rootTreeID, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantHeads[p] = pathHeadFromTreeEntry(*entry)
+	}
+	for _, p := range []string{
+		"/acme/payment/src",
+		"/acme/payment/src/a.go",
+		"/acme/payment/src/nested",
+		"/acme/payment/src/nested/b.go",
+	} {
+		wantHeads[p] = PathHead{
+			Path:             p,
+			EntryFingerprint: MissingEntryFingerprint(),
+		}
+	}
+	assertPathHeadRowsForTest(t, ctx, store, wantHeads, move.ChangesetId, move.Id)
+
 	report, err := store.VerifyIntegrity(ctx, objectStore)
 	if err != nil || !report.OK() {
 		t.Fatalf("integrity after directory rename failed: err=%v report=%#v", err, report)
@@ -820,6 +852,49 @@ func getTestRef(t *testing.T, ctx context.Context, store *DB) *corev1.Ref {
 		t.Fatal(err)
 	}
 	return ref
+}
+
+func assertPathHeadRowsForTest(t *testing.T, ctx context.Context, store *DB, want map[string]PathHead, wantChangesetID, wantPatchsetID string) {
+	t.Helper()
+	for p, wantHead := range want {
+		var got PathHead
+		var blobID, contentHash sql.NullString
+		var mode, size sql.NullInt64
+		var changesetID, patchsetID string
+		if err := store.db.QueryRowContext(ctx, `
+			select path,
+			       exists,
+			       entry_fingerprint,
+			       blob_id,
+			       content_hash,
+			       mode,
+			       size,
+			       coalesce(accepted_changeset_id, ''),
+			       coalesce(accepted_patchset_id, '')
+			from path_heads
+			where path = $1
+		`, p).Scan(&got.Path, &got.Exists, &got.EntryFingerprint, &blobID, &contentHash, &mode, &size, &changesetID, &patchsetID); err != nil {
+			t.Fatal(err)
+		}
+		if blobID.Valid {
+			got.BlobID = blobID.String
+		}
+		if contentHash.Valid {
+			got.ContentHash = contentHash.String
+		}
+		if mode.Valid {
+			got.Mode = uint32(mode.Int64)
+		}
+		if size.Valid {
+			got.Size = size.Int64
+		}
+		if got != wantHead {
+			t.Fatalf("path_heads[%s] = %#v, want %#v", p, got, wantHead)
+		}
+		if changesetID != wantChangesetID || patchsetID != wantPatchsetID {
+			t.Fatalf("path_heads[%s] attribution = (%q, %q), want (%q, %q)", p, changesetID, patchsetID, wantChangesetID, wantPatchsetID)
+		}
+	}
 }
 
 func outboxDepthForTest(t *testing.T, ctx context.Context, store *DB) int {
