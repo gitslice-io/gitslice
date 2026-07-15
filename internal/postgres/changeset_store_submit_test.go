@@ -110,6 +110,144 @@ func TestSubmitBatchesMixedPathHeads(t *testing.T) {
 	})
 }
 
+func TestSubmitInitializesColdFilePathBasesFromMaterializedIndex(t *testing.T) {
+	ctx, store, objects := newPostgresTestStoreWithObjects(t)
+	counter := useCountingTreeStore(store, objects)
+	base := getTestRef(t, ctx, store)
+	firstPath := "/acme/payment/cold_fast_first.txt"
+	secondPath := "/acme/payment/cold_fast_second.txt"
+	firstID, firstHash := upsertTestBlob(t, ctx, store, "cold fast first\n")
+	secondID, secondHash := upsertTestBlob(t, ctx, store, "cold fast second\n")
+	headCommitID := publishRepositoryTestEdits(t, ctx, store, base.CommitId, []*corev1.FileEdit{
+		{Op: "upsert", Path: firstPath, BlobId: firstID, ContentHash: firstHash, Mode: 0o100644},
+		{Op: "upsert", Path: secondPath, BlobId: secondID, ContentHash: secondHash, Mode: 0o100755},
+	})
+	requireMaterializedHead(t, ctx, store, headCommitID)
+
+	rootTreeID, err := store.Repository().RootTreeForCommit(ctx, headCommitID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEntry, err := store.Repository().GetEntryAtTree(ctx, rootTreeID, firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEntry, err := store.Repository().GetEntryAtTree(ctx, rootTreeID, secondPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPath := "/acme/payment/cold_fast_new.txt"
+	newID, newHash := upsertTestBlob(t, ctx, store, "cold fast new\n")
+	patchset := createPatchsetWithExplicitPathBasesForSubmitTest(t, ctx, store, headCommitID, []*corev1.FileEdit{{
+		Op:          "upsert",
+		Path:        newPath,
+		BlobId:      newID,
+		ContentHash: newHash,
+		Mode:        0o100644,
+	}}, []*corev1.PathBase{
+		pathBaseForTestPath(t, ctx, store, headCommitID, firstPath),
+		pathBaseForTestPath(t, ctx, store, headCommitID, secondPath),
+		pathBaseForTestPath(t, ctx, store, headCommitID, newPath),
+	})
+	deletePathHeadsForSubmitTest(t, ctx, store, []string{firstPath, secondPath, newPath})
+
+	counter.resetGets()
+	submit, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submit.Status != "pending_publish" {
+		t.Fatalf("submit status = %q, want pending_publish", submit.Status)
+	}
+	if gotReads := counter.getCount(); gotReads != 0 {
+		t.Fatalf("tree object reads = %d, want 0 for cold file path-base initialization from current_path_entities", gotReads)
+	}
+	assertSubmitPathHead(t, pathHeadForSubmitTest(t, ctx, store, firstPath), pathHeadFromTreeEntry(*firstEntry))
+	assertSubmitPathHead(t, pathHeadForSubmitTest(t, ctx, store, secondPath), pathHeadFromTreeEntry(*secondEntry))
+}
+
+func TestSubmitColdPathBasesFallbackToTreeWhenMaterializedMarkerAbsent(t *testing.T) {
+	ctx, store, objects := newPostgresTestStoreWithObjects(t)
+	counter := useCountingTreeStore(store, objects)
+	base := getTestRef(t, ctx, store)
+	filePath := "/acme/payment/cold_stale_file.txt"
+	blobID, contentHash := upsertTestBlob(t, ctx, store, "cold stale file\n")
+	headCommitID := publishRepositoryTestEdits(t, ctx, store, base.CommitId, []*corev1.FileEdit{{
+		Op:          "upsert",
+		Path:        filePath,
+		BlobId:      blobID,
+		ContentHash: contentHash,
+		Mode:        0o100644,
+	}})
+	requireMaterializedHead(t, ctx, store, headCommitID)
+
+	rootTreeID, err := store.Repository().RootTreeForCommit(ctx, headCommitID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := store.Repository().GetEntryAtTree(ctx, rootTreeID, filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPath := "/acme/payment/cold_stale_new.txt"
+	newID, newHash := upsertTestBlob(t, ctx, store, "cold stale new\n")
+	patchset := createPatchsetWithExplicitPathBasesForSubmitTest(t, ctx, store, headCommitID, []*corev1.FileEdit{{
+		Op:          "upsert",
+		Path:        newPath,
+		BlobId:      newID,
+		ContentHash: newHash,
+		Mode:        0o100644,
+	}}, []*corev1.PathBase{
+		pathBaseForTestPath(t, ctx, store, headCommitID, filePath),
+		pathBaseForTestPath(t, ctx, store, headCommitID, newPath),
+	})
+	deletePathHeadsForSubmitTest(t, ctx, store, []string{filePath, newPath})
+	if _, err := store.db.ExecContext(ctx, `delete from ref_materialized_heads where target_ref = $1`, DefaultTargetRef); err != nil {
+		t.Fatal(err)
+	}
+
+	counter.resetGets()
+	submit, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submit.Status != "pending_publish" {
+		t.Fatalf("submit status = %q, want pending_publish", submit.Status)
+	}
+	if gotReads := counter.getCount(); gotReads == 0 {
+		t.Fatal("tree object reads = 0, want marker-absent path-base initialization to fall back to tree")
+	}
+	assertSubmitPathHead(t, pathHeadForSubmitTest(t, ctx, store, filePath), pathHeadFromTreeEntry(*entry))
+}
+
+func TestSubmitMissingPathBaseFromMaterializedIndexUsesMissingFingerprint(t *testing.T) {
+	ctx, store, objects := newPostgresTestStoreWithObjects(t)
+	counter := useCountingTreeStore(store, objects)
+	base := getTestRef(t, ctx, store)
+	requireMaterializedHead(t, ctx, store, base.CommitId)
+	missingPath := "/acme/payment/cold_fast_missing.txt"
+	patchset := createPatchsetWithExplicitPathBasesForSubmitTest(t, ctx, store, base.CommitId, nil, []*corev1.PathBase{{
+		Path:             missingPath,
+		BaseCommitId:     base.CommitId,
+		Exists:           true,
+		EntryKind:        "file",
+		EntryFingerprint: "claimed-present",
+		Check:            "entry_fingerprint",
+	}})
+
+	counter.resetGets()
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Submit err = %v, want ErrConflict", err)
+	}
+	if gotReads := counter.getCount(); gotReads != 0 {
+		t.Fatalf("tree object reads = %d, want 0 for materialized-head missing path-base initialization", gotReads)
+	}
+	assertSubmitPathHead(t, pathHeadForSubmitTest(t, ctx, store, missingPath), PathHead{
+		Path:             missingPath,
+		EntryFingerprint: MissingEntryFingerprint(),
+	})
+}
+
 func TestSubmitBatchedPathBaseFingerprintMismatch(t *testing.T) {
 	ctx, store := newPostgresTestStore(t)
 	base := getTestRef(t, ctx, store)
@@ -260,6 +398,48 @@ func pathHeadForSubmitTest(t *testing.T, ctx context.Context, store *DB, p strin
 		t.Fatal(err)
 	}
 	return head
+}
+
+func createPatchsetWithExplicitPathBasesForSubmitTest(t *testing.T, ctx context.Context, store *DB, baseCommitID string, edits []*corev1.FileEdit, pathBases []*corev1.PathBase) *corev1.Patchset {
+	t.Helper()
+	cs, err := store.Changesets().Create(ctx, "user_alice", &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      DefaultTargetRef,
+		BaseCommitId:   baseCommitID,
+		Title:          "storage test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedPaths := changedPathsForTestEdits(edits)
+	readSet := make([]*corev1.PathSetEntry, 0, len(pathBases))
+	for _, base := range pathBases {
+		readSet = append(readSet, &corev1.PathSetEntry{Path: base.Path})
+	}
+	writeSet := make([]*corev1.PathSetEntry, 0, len(changedPaths))
+	for _, p := range changedPaths {
+		writeSet = append(writeSet, &corev1.PathSetEntry{Path: p})
+	}
+	patchset, err := store.Changesets().AddPatchset(ctx, cs.Id, "", &corev1.Patchset{
+		BaseCommitId: baseCommitID,
+		Author:       "user_alice",
+		ChangedPaths: changedPaths,
+		FileEdits:    edits,
+		PathBases:    pathBases,
+		ReadSet:      readSet,
+		WriteSet:     writeSet,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return patchset
+}
+
+func deletePathHeadsForSubmitTest(t *testing.T, ctx context.Context, store *DB, paths []string) {
+	t.Helper()
+	if _, err := store.db.ExecContext(ctx, `delete from path_heads where path = any($1)`, paths); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertSubmitPathHead(t *testing.T, got, want PathHead) {
