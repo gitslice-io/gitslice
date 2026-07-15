@@ -799,9 +799,9 @@ func commitPathPrefixWhere(refName string, prefixes []string) (string, []any) {
 			continue
 		}
 		exact := len(args) + 1
-		lower := len(args) + 2
-		clauses = append(clauses, fmt.Sprintf("(cp.path = $%d or left(cp.path, length($%d)) = $%d)", exact, lower, lower))
-		args = append(args, prefix, strings.TrimRight(prefix, "/")+"/")
+		pattern := len(args) + 2
+		clauses = append(clauses, fmt.Sprintf("(cp.path = $%d or cp.path like $%d escape '\\')", exact, pattern))
+		args = append(args, prefix, likePrefixPattern(prefix))
 	}
 	return "cp.target_ref = $1 and (" + strings.Join(clauses, " or ") + ")", args
 }
@@ -815,9 +815,9 @@ func currentPathEntityPrefixWhere(refName string, prefixes []string) (string, []
 			continue
 		}
 		exact := len(args) + 1
-		lower := len(args) + 2
-		clauses = append(clauses, fmt.Sprintf("(cpe.path = $%d or left(cpe.path, length($%d)) = $%d)", exact, lower, lower))
-		args = append(args, prefix, strings.TrimRight(prefix, "/")+"/")
+		pattern := len(args) + 2
+		clauses = append(clauses, fmt.Sprintf("(cpe.path = $%d or cpe.path like $%d escape '\\')", exact, pattern))
+		args = append(args, prefix, likePrefixPattern(prefix))
 	}
 	return "cpe.target_ref = $1 and (" + strings.Join(clauses, " or ") + ")", args
 }
