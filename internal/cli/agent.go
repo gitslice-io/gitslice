@@ -165,7 +165,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 }
 
 func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOptions, name, runtimeName string, reportOnline bool) error {
-	conn, err := dial(ctx, d.cfg.ServerAddr)
+	conn, err := dialAgentStream(ctx, d.cfg.ServerAddr)
 	if err != nil {
 		return err
 	}

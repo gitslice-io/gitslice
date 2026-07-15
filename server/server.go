@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -351,6 +352,10 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
 		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve), grpcRateLimitUnaryInterceptor(grpcLimiter)),
 		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(resolve), grpcRateLimitStreamInterceptor(grpcLimiter)),
 	)
