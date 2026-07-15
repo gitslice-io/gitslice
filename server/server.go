@@ -356,6 +356,18 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 			MinTime:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
+		// Server-side transport keepalive. Time/Timeout let the server detect a
+		// black-holed daemon (mirror of the client fix) and drop it within ~30s
+		// instead of holding a dead Connect stream. MaxConnectionAge gracefully
+		// GOAWAYs long-lived streams at ~30m — well under Cloud Run's --timeout=3600
+		// hard cut — so the edge's abrupt RST_STREAM is replaced by a clean,
+		// client-driven reconnect; Grace lets in-flight RPCs finish first.
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:                  20 * time.Second,
+			Timeout:               10 * time.Second,
+			MaxConnectionAge:      30 * time.Minute,
+			MaxConnectionAgeGrace: 30 * time.Second,
+		}),
 		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve), grpcRateLimitUnaryInterceptor(grpcLimiter)),
 		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(resolve), grpcRateLimitStreamInterceptor(grpcLimiter)),
 	)
