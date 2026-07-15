@@ -49,7 +49,13 @@ function createQueryClient() {
     defaultOptions: {
       queries: {
         staleTime: 15_000,
-        retry: 1,
+        // SSR route loaders await ensureQueryData before the HTML is flushed.
+        // react-query's default retry waits ~1s before the single retry, so a
+        // failing prefetch (e.g. an RPC that 401s for a signed-out request)
+        // blocks the document response for a full second. These prefetches are
+        // best-effort — the component refetches client-side on a miss — so we
+        // never retry during SSR. The browser keeps one retry.
+        retry: import.meta.env.SSR ? false : 1,
         refetchOnWindowFocus: false
       }
     }
