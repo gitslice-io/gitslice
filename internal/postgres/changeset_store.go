@@ -2351,7 +2351,11 @@ func addPathHeadRefreshPath(seen map[string]bool, p string, recursiveSelf, inclu
 }
 
 func (s *ChangesetStore) applyEntityHistoryTx(ctx context.Context, tx *sql.Tx, targetRef, baseCommitID, commitID string, edits []*corev1.FileEdit, committedAt time.Time) error {
-	inferredMoves, err := s.inferExactMovesTx(ctx, tx, targetRef, baseCommitID, edits)
+	stage, err := s.newEntityHistoryStageTx(ctx, tx, targetRef, baseCommitID, edits)
+	if err != nil {
+		return err
+	}
+	inferredMoves, err := s.inferExactMovesTx(ctx, tx, stage, edits)
 	if err != nil {
 		return err
 	}
@@ -2360,66 +2364,58 @@ func (s *ChangesetStore) applyEntityHistoryTx(ctx context.Context, tx *sql.Tx, t
 	for _, move := range inferredMoves {
 		matchedOld[move.OldPath] = struct{}{}
 		matchedNew[move.Path] = struct{}{}
-		if err := s.moveEntityTx(ctx, tx, targetRef, move.Entity, move.OldPath, move.Path, commitID, committedAt, "exact_content_match", move.ContentHash, move.Mode); err != nil {
+		if err := stage.moveEntity(ctx, tx, move.Entity, move.OldPath, move.Path, commitID, committedAt, "exact_content_match", move.ContentHash, move.Mode); err != nil {
 			return err
 		}
 	}
 	for _, edit := range edits {
 		switch edit.Op {
 		case "rename":
-			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.OldPath)
+			entity, err := stage.ensurePathEntity(ctx, tx, edit.OldPath)
 			if err != nil {
 				return err
 			}
 			if entity == nil {
 				return ErrConflict
 			}
-			if err := s.moveEntityTx(ctx, tx, targetRef, *entity, edit.OldPath, edit.Path, commitID, committedAt, "explicit", entity.ContentHash, entity.Mode); err != nil {
+			if err := stage.moveEntity(ctx, tx, *entity, edit.OldPath, edit.Path, commitID, committedAt, "explicit", entity.ContentHash, entity.Mode); err != nil {
 				return err
 			}
 		case "mkdir":
-			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			entity, err := stage.ensurePathEntity(ctx, tx, edit.Path)
 			if err != nil {
 				return err
 			}
 			if entity != nil {
 				continue
 			}
-			created, err := s.createEntityTx(ctx, tx, commitID, edit.Path, "directory", "", 0)
+			created, err := stage.createEntity(ctx, tx, commitID, edit.Path, "directory", "", 0)
 			if err != nil {
 				return err
 			}
-			if err := upsertCurrentPathEntityTx(ctx, tx, targetRef, *created); err != nil {
-				return err
-			}
-			if err := insertEntityChangeTx(ctx, tx, targetRef, commitID, entityChange{Entity: *created, Path: edit.Path, ChangeKind: "added", Source: "explicit", Confidence: 100}, committedAt); err != nil {
-				return err
-			}
+			stage.upsertCurrentPathEntity(*created)
+			stage.insertEntityChange(entityChange{Entity: *created, Path: edit.Path, ChangeKind: "added", Source: "explicit", Confidence: 100})
 		case "delete":
 			if _, ok := matchedOld[edit.Path]; ok {
 				continue
 			}
-			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			entity, err := stage.ensurePathEntity(ctx, tx, edit.Path)
 			if err != nil {
 				return err
 			}
 			if entity == nil {
 				continue
 			}
-			if err := deleteCurrentPathEntityTx(ctx, tx, targetRef, edit.Path, entity.Kind == "directory"); err != nil {
+			if err := stage.deleteCurrentPathEntity(ctx, tx, edit.Path, entity.Kind == "directory"); err != nil {
 				return err
 			}
-			if err := markEntityDeletedTx(ctx, tx, *entity, commitID); err != nil {
-				return err
-			}
-			if err := insertEntityChangeTx(ctx, tx, targetRef, commitID, entityChange{Entity: *entity, Path: edit.Path, ChangeKind: "deleted", Source: "explicit", Confidence: 100, ContentHash: entity.ContentHash, Mode: entity.Mode}, committedAt); err != nil {
-				return err
-			}
+			stage.markEntityDeleted(*entity, commitID)
+			stage.insertEntityChange(entityChange{Entity: *entity, Path: edit.Path, ChangeKind: "deleted", Source: "explicit", Confidence: 100, ContentHash: entity.ContentHash, Mode: entity.Mode})
 		default:
 			if _, ok := matchedNew[edit.Path]; ok {
 				continue
 			}
-			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			entity, err := stage.ensurePathEntity(ctx, tx, edit.Path)
 			if err != nil {
 				return err
 			}
@@ -2427,7 +2423,7 @@ func (s *ChangesetStore) applyEntityHistoryTx(ctx context.Context, tx *sql.Tx, t
 			var current pathEntity
 			if entity == nil {
 				changeKind = "added"
-				created, err := s.createEntityTx(ctx, tx, commitID, edit.Path, "file", edit.ContentHash, edit.Mode)
+				created, err := stage.createEntity(ctx, tx, commitID, edit.Path, "file", edit.ContentHash, edit.Mode)
 				if err != nil {
 					return err
 				}
@@ -2437,14 +2433,244 @@ func (s *ChangesetStore) applyEntityHistoryTx(ctx context.Context, tx *sql.Tx, t
 				current.ContentHash = edit.ContentHash
 				current.Mode = edit.Mode
 			}
-			if err := upsertCurrentPathEntityTx(ctx, tx, targetRef, current); err != nil {
-				return err
-			}
-			if err := insertEntityChangeTx(ctx, tx, targetRef, commitID, entityChange{Entity: current, Path: edit.Path, ChangeKind: changeKind, Source: "explicit", Confidence: 100, ContentHash: edit.ContentHash, Mode: edit.Mode}, committedAt); err != nil {
-				return err
-			}
+			stage.upsertCurrentPathEntity(current)
+			stage.insertEntityChange(entityChange{Entity: current, Path: edit.Path, ChangeKind: changeKind, Source: "explicit", Confidence: 100, ContentHash: edit.ContentHash, Mode: edit.Mode})
 		}
 	}
+	return stage.flush(ctx, tx, commitID, committedAt)
+}
+
+type entityHistoryStage struct {
+	store        *ChangesetStore
+	targetRef    string
+	baseCommitID string
+	paths        []string
+
+	current       map[string]pathEntity
+	dirtyUpserts  map[string]pathEntity
+	dirtyDeletes  map[string]struct{}
+	created       []stagedEntityCreation
+	deleted       []stagedEntityDeletion
+	changes       []entityChange
+	accountIDs    map[string]string
+	accountsReady bool
+}
+
+type stagedEntityCreation struct {
+	entity          pathEntity
+	createdCommitID string
+}
+
+type stagedEntityDeletion struct {
+	entity   pathEntity
+	commitID string
+}
+
+func (s *ChangesetStore) newEntityHistoryStageTx(ctx context.Context, tx *sql.Tx, targetRef, baseCommitID string, edits []*corev1.FileEdit) (*entityHistoryStage, error) {
+	paths := entityHistoryPaths(edits)
+	current, err := getCurrentPathEntitiesTx(ctx, tx, targetRef, paths)
+	if err != nil {
+		return nil, err
+	}
+	return &entityHistoryStage{
+		store:        s,
+		targetRef:    targetRef,
+		baseCommitID: baseCommitID,
+		paths:        paths,
+		current:      current,
+		dirtyUpserts: map[string]pathEntity{},
+		dirtyDeletes: map[string]struct{}{},
+		accountIDs:   map[string]string{},
+	}, nil
+}
+
+func entityHistoryPaths(edits []*corev1.FileEdit) []string {
+	seen := map[string]struct{}{}
+	for _, edit := range edits {
+		if edit == nil {
+			continue
+		}
+		if edit.Path != "" {
+			seen[edit.Path] = struct{}{}
+		}
+		if edit.OldPath != "" {
+			seen[edit.OldPath] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (stage *entityHistoryStage) ensurePathEntity(ctx context.Context, tx *sql.Tx, p string) (*pathEntity, error) {
+	if entity, ok := stage.current[p]; ok {
+		return &entity, nil
+	}
+	entry, err := stage.store.repository.getEntryAtCommitTx(ctx, tx, stage.baseCommitID, p)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	kind := entry.Kind
+	contentHash := ""
+	mode := uint32(0)
+	if kind == "file" {
+		contentHash = entry.ContentHash
+		mode = entry.Mode
+	}
+	entity, err := stage.createEntity(ctx, tx, "", p, kind, contentHash, mode)
+	if err != nil {
+		return nil, err
+	}
+	stage.upsertCurrentPathEntity(*entity)
+	return entity, nil
+}
+
+func (stage *entityHistoryStage) createEntity(ctx context.Context, tx *sql.Tx, commitID, p, kind, contentHash string, mode uint32) (*pathEntity, error) {
+	accountID, err := stage.accountIDForPath(ctx, tx, p)
+	if err != nil {
+		return nil, err
+	}
+	entityID, err := objectid.RandomID("ent")
+	if err != nil {
+		return nil, err
+	}
+	entity := pathEntity{Path: p, AccountID: accountID, EntityID: entityID, Kind: kind, ContentHash: contentHash, Mode: mode}
+	stage.created = append(stage.created, stagedEntityCreation{entity: entity, createdCommitID: commitID})
+	return &entity, nil
+}
+
+func (stage *entityHistoryStage) accountIDForPath(ctx context.Context, tx *sql.Tx, p string) (string, error) {
+	if !stage.accountsReady {
+		ids, err := accountIDsForPathsTx(ctx, tx, stage.paths)
+		if err != nil {
+			return "", err
+		}
+		stage.accountIDs = ids
+		stage.accountsReady = true
+	}
+	trimmed := strings.Trim(p, "/")
+	if trimmed == "" {
+		return "", ErrInvalid
+	}
+	slug := strings.Split(trimmed, "/")[0]
+	accountID, ok := stage.accountIDs[slug]
+	if !ok {
+		return "", ErrNotFound
+	}
+	return accountID, nil
+}
+
+func (stage *entityHistoryStage) upsertCurrentPathEntity(entity pathEntity) {
+	stage.current[entity.Path] = entity
+	stage.dirtyUpserts[entity.Path] = entity
+	delete(stage.dirtyDeletes, entity.Path)
+}
+
+func (stage *entityHistoryStage) deleteCurrentPathEntity(ctx context.Context, tx *sql.Tx, p string, recursive bool) error {
+	if recursive {
+		if err := stage.flushPathState(ctx, tx); err != nil {
+			return err
+		}
+		if err := deleteCurrentPathEntityTx(ctx, tx, stage.targetRef, p, true); err != nil {
+			return err
+		}
+		return stage.reloadCurrentPathEntities(ctx, tx)
+	}
+	delete(stage.current, p)
+	delete(stage.dirtyUpserts, p)
+	stage.dirtyDeletes[p] = struct{}{}
+	return nil
+}
+
+func (stage *entityHistoryStage) moveCurrentPathEntity(ctx context.Context, tx *sql.Tx, oldPath, newPath string, entity pathEntity) error {
+	if entity.Kind == "directory" {
+		if err := stage.flushPathState(ctx, tx); err != nil {
+			return err
+		}
+		if err := moveCurrentPathEntityTx(ctx, tx, stage.targetRef, oldPath, newPath, entity); err != nil {
+			return err
+		}
+		return stage.reloadCurrentPathEntities(ctx, tx)
+	}
+	if err := stage.deleteCurrentPathEntity(ctx, tx, oldPath, false); err != nil {
+		return err
+	}
+	stage.upsertCurrentPathEntity(entity)
+	return nil
+}
+
+func (stage *entityHistoryStage) moveEntity(ctx context.Context, tx *sql.Tx, entity pathEntity, oldPath, newPath, commitID string, committedAt time.Time, source, contentHash string, mode uint32) error {
+	entity.Path = newPath
+	if contentHash != "" {
+		entity.ContentHash = contentHash
+	}
+	if mode != 0 {
+		entity.Mode = mode
+	}
+	if err := stage.moveCurrentPathEntity(ctx, tx, oldPath, newPath, entity); err != nil {
+		return err
+	}
+	stage.insertEntityChange(entityChange{
+		Entity:      entity,
+		Path:        newPath,
+		OldPath:     oldPath,
+		ChangeKind:  "moved",
+		Source:      source,
+		Confidence:  100,
+		ContentHash: entity.ContentHash,
+		Mode:        entity.Mode,
+	})
+	return nil
+}
+
+func (stage *entityHistoryStage) insertEntityChange(change entityChange) {
+	stage.changes = append(stage.changes, change)
+}
+
+func (stage *entityHistoryStage) markEntityDeleted(entity pathEntity, commitID string) {
+	stage.deleted = append(stage.deleted, stagedEntityDeletion{entity: entity, commitID: commitID})
+}
+
+func (stage *entityHistoryStage) reloadCurrentPathEntities(ctx context.Context, tx *sql.Tx) error {
+	current, err := getCurrentPathEntitiesTx(ctx, tx, stage.targetRef, stage.paths)
+	if err != nil {
+		return err
+	}
+	stage.current = current
+	stage.dirtyUpserts = map[string]pathEntity{}
+	stage.dirtyDeletes = map[string]struct{}{}
+	return nil
+}
+
+func (stage *entityHistoryStage) flush(ctx context.Context, tx *sql.Tx, commitID string, committedAt time.Time) error {
+	if err := stage.flushPathState(ctx, tx); err != nil {
+		return err
+	}
+	if err := insertEntityChangesTx(ctx, tx, stage.targetRef, commitID, stage.changes, committedAt); err != nil {
+		return err
+	}
+	return markEntitiesDeletedTx(ctx, tx, stage.deleted)
+}
+
+func (stage *entityHistoryStage) flushPathState(ctx context.Context, tx *sql.Tx) error {
+	if err := insertFSEntitiesTx(ctx, tx, stage.created); err != nil {
+		return err
+	}
+	stage.created = nil
+	if err := upsertCurrentPathEntitiesTx(ctx, tx, stage.targetRef, pathEntitiesFromMap(stage.dirtyUpserts)); err != nil {
+		return err
+	}
+	if err := deleteCurrentPathEntitiesTx(ctx, tx, stage.targetRef, stringsFromSet(stage.dirtyDeletes)); err != nil {
+		return err
+	}
+	stage.dirtyUpserts = map[string]pathEntity{}
+	stage.dirtyDeletes = map[string]struct{}{}
 	return nil
 }
 
@@ -2456,7 +2682,7 @@ type inferredMove struct {
 	Mode        uint32
 }
 
-func (s *ChangesetStore) inferExactMovesTx(ctx context.Context, tx *sql.Tx, targetRef, baseCommitID string, edits []*corev1.FileEdit) ([]inferredMove, error) {
+func (s *ChangesetStore) inferExactMovesTx(ctx context.Context, tx *sql.Tx, stage *entityHistoryStage, edits []*corev1.FileEdit) ([]inferredMove, error) {
 	type deleteCandidate struct {
 		path   string
 		entity pathEntity
@@ -2471,7 +2697,7 @@ func (s *ChangesetStore) inferExactMovesTx(ctx context.Context, tx *sql.Tx, targ
 	for _, edit := range edits {
 		switch edit.Op {
 		case "delete":
-			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			entity, err := stage.ensurePathEntity(ctx, tx, edit.Path)
 			if err != nil {
 				return nil, err
 			}
@@ -2484,7 +2710,7 @@ func (s *ChangesetStore) inferExactMovesTx(ctx context.Context, tx *sql.Tx, targ
 			if edit.ContentHash == "" {
 				continue
 			}
-			entity, err := s.ensurePathEntityTx(ctx, tx, targetRef, baseCommitID, edit.Path)
+			entity, err := stage.ensurePathEntity(ctx, tx, edit.Path)
 			if err != nil {
 				return nil, err
 			}
@@ -2599,6 +2825,45 @@ func (s *ChangesetStore) createEntityTx(ctx context.Context, tx *sql.Tx, commitI
 	return &pathEntity{Path: p, AccountID: accountID, EntityID: entityID, Kind: kind, ContentHash: contentHash, Mode: mode}, nil
 }
 
+func insertFSEntitiesTx(ctx context.Context, tx *sql.Tx, created []stagedEntityCreation) error {
+	if len(created) == 0 {
+		return nil
+	}
+	accountIDs := make([]string, 0, len(created))
+	entityIDs := make([]string, 0, len(created))
+	kinds := make([]string, 0, len(created))
+	createdCommitIDs := make([]string, 0, len(created))
+	for _, item := range created {
+		accountIDs = append(accountIDs, item.entity.AccountID)
+		entityIDs = append(entityIDs, item.entity.EntityID)
+		kinds = append(kinds, item.entity.Kind)
+		createdCommitIDs = append(createdCommitIDs, item.createdCommitID)
+	}
+	_, err := tx.ExecContext(ctx, `
+		with input as (
+			select *
+			from unnest(
+				$1::text[], $2::text[], $3::text[], $4::text[]
+			) with ordinality as input(account_id, entity_id, kind, created_commit_id, ord)
+		),
+		deduped as (
+			select distinct on (account_id, entity_id)
+			       account_id, entity_id, kind, created_commit_id, ord
+			from input
+			order by account_id, entity_id, ord
+		)
+		insert into fs_entities(account_id, entity_id, kind, created_commit_id)
+		select deduped.account_id,
+		       deduped.entity_id,
+		       deduped.kind,
+		       case when deduped.created_commit_id <> '' then deduped.created_commit_id end
+		from deduped
+		order by deduped.ord
+		on conflict do nothing
+	`, accountIDs, entityIDs, kinds, createdCommitIDs)
+	return err
+}
+
 func accountIDForPathTx(ctx context.Context, tx *sql.Tx, p string) (string, error) {
 	trimmed := strings.Trim(p, "/")
 	if trimmed == "" {
@@ -2615,6 +2880,80 @@ func accountIDForPathTx(ctx context.Context, tx *sql.Tx, p string) (string, erro
 		return "", ErrNotFound
 	}
 	return accountID, err
+}
+
+func accountIDsForPathsTx(ctx context.Context, tx *sql.Tx, paths []string) (map[string]string, error) {
+	out := map[string]string{}
+	slugs := accountSlugsForPaths(paths)
+	if len(slugs) == 0 {
+		return out, nil
+	}
+	rows, err := tx.QueryContext(ctx, `
+		select slug, id
+		from accounts
+		where slug = any($1)
+	`, slugs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var slug, accountID string
+		if err := rows.Scan(&slug, &accountID); err != nil {
+			return nil, err
+		}
+		out[slug] = accountID
+	}
+	return out, rows.Err()
+}
+
+func accountSlugsForPaths(paths []string) []string {
+	seen := map[string]struct{}{}
+	for _, p := range paths {
+		trimmed := strings.Trim(p, "/")
+		if trimmed == "" {
+			continue
+		}
+		slug := strings.Split(trimmed, "/")[0]
+		seen[slug] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for slug := range seen {
+		out = append(out, slug)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func getCurrentPathEntitiesTx(ctx context.Context, tx *sql.Tx, targetRef string, paths []string) (map[string]pathEntity, error) {
+	out := make(map[string]pathEntity, len(paths))
+	paths = uniqueSortedStrings(paths)
+	if len(paths) == 0 {
+		return out, nil
+	}
+	rows, err := tx.QueryContext(ctx, `
+		select path, account_id, entity_id, kind, content_hash, mode
+		from current_path_entities
+		where target_ref = $1 and path = any($2)
+	`, targetRef, paths)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var entity pathEntity
+		var contentHash sql.NullString
+		var mode sql.NullInt64
+		if err := rows.Scan(&entity.Path, &entity.AccountID, &entity.EntityID, &entity.Kind, &contentHash, &mode); err != nil {
+			return nil, err
+		}
+		entity.ContentHash = contentHash.String
+		if mode.Valid && mode.Int64 > 0 {
+			entity.Mode = uint32(mode.Int64)
+		}
+		out[entity.Path] = entity
+	}
+	return out, rows.Err()
 }
 
 func getCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, p string) (*pathEntity, error) {
@@ -2662,6 +3001,48 @@ func upsertCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef string
 	return err
 }
 
+func upsertCurrentPathEntitiesTx(ctx context.Context, tx *sql.Tx, targetRef string, entities []pathEntity) error {
+	if len(entities) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(entities))
+	accountIDs := make([]string, 0, len(entities))
+	entityIDs := make([]string, 0, len(entities))
+	kinds := make([]string, 0, len(entities))
+	contentHashes := make([]string, 0, len(entities))
+	modes := make([]int64, 0, len(entities))
+	for _, entity := range entities {
+		paths = append(paths, entity.Path)
+		accountIDs = append(accountIDs, entity.AccountID)
+		entityIDs = append(entityIDs, entity.EntityID)
+		kinds = append(kinds, entity.Kind)
+		contentHashes = append(contentHashes, entity.ContentHash)
+		modes = append(modes, int64(entity.Mode))
+	}
+	_, err := tx.ExecContext(ctx, `
+		insert into current_path_entities(target_ref, path, account_id, entity_id, kind, content_hash, mode, updated_at)
+		select $1::text,
+		       input.path,
+		       input.account_id,
+		       input.entity_id,
+		       input.kind,
+		       case when input.content_hash <> '' then input.content_hash end,
+		       case when input.mode > 0 then input.mode::integer end,
+		       now()
+		from unnest(
+			$2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::bigint[]
+		) as input(path, account_id, entity_id, kind, content_hash, mode)
+		on conflict (target_ref, path) do update
+		set account_id = excluded.account_id,
+		    entity_id = excluded.entity_id,
+		    kind = excluded.kind,
+		    content_hash = excluded.content_hash,
+		    mode = excluded.mode,
+		    updated_at = now()
+	`, targetRef, paths, accountIDs, entityIDs, kinds, contentHashes, modes)
+	return err
+}
+
 func deleteCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, p string, recursive bool) error {
 	if recursive {
 		_, err := tx.ExecContext(ctx, `
@@ -2675,6 +3056,18 @@ func deleteCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, p str
 		delete from current_path_entities
 		where target_ref = $1 and path = $2
 	`, targetRef, p)
+	return err
+}
+
+func deleteCurrentPathEntitiesTx(ctx context.Context, tx *sql.Tx, targetRef string, paths []string) error {
+	paths = uniqueSortedStrings(paths)
+	if len(paths) == 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		delete from current_path_entities
+		where target_ref = $1 and path = any($2)
+	`, targetRef, paths)
 	return err
 }
 
@@ -2704,6 +3097,30 @@ func markEntityDeletedTx(ctx context.Context, tx *sql.Tx, entity pathEntity, com
 		set deleted_commit_id = $3
 		where account_id = $1 and entity_id = $2
 	`, entity.AccountID, entity.EntityID, commitID)
+	return err
+}
+
+func markEntitiesDeletedTx(ctx context.Context, tx *sql.Tx, deleted []stagedEntityDeletion) error {
+	if len(deleted) == 0 {
+		return nil
+	}
+	accountIDs := make([]string, 0, len(deleted))
+	entityIDs := make([]string, 0, len(deleted))
+	commitIDs := make([]string, 0, len(deleted))
+	for _, item := range deleted {
+		accountIDs = append(accountIDs, item.entity.AccountID)
+		entityIDs = append(entityIDs, item.entity.EntityID)
+		commitIDs = append(commitIDs, item.commitID)
+	}
+	_, err := tx.ExecContext(ctx, `
+		update fs_entities entity
+		set deleted_commit_id = input.commit_id
+		from unnest(
+			$1::text[], $2::text[], $3::text[]
+		) as input(account_id, entity_id, commit_id)
+		where entity.account_id = input.account_id
+		  and entity.entity_id = input.entity_id
+	`, accountIDs, entityIDs, commitIDs)
 	return err
 }
 
@@ -2737,6 +3154,101 @@ func insertEntityChangeTx(ctx context.Context, tx *sql.Tx, targetRef, commitID s
 		on conflict do nothing
 	`, targetRef, commitID, change.Entity.AccountID, change.Entity.EntityID, change.Entity.Kind, change.Path, oldPath, change.ChangeKind, source, confidence, contentHash, mode, committedAt)
 	return err
+}
+
+func insertEntityChangesTx(ctx context.Context, tx *sql.Tx, targetRef, commitID string, changes []entityChange, committedAt time.Time) error {
+	if len(changes) == 0 {
+		return nil
+	}
+	accountIDs := make([]string, 0, len(changes))
+	entityIDs := make([]string, 0, len(changes))
+	kinds := make([]string, 0, len(changes))
+	paths := make([]string, 0, len(changes))
+	oldPaths := make([]string, 0, len(changes))
+	changeKinds := make([]string, 0, len(changes))
+	sources := make([]string, 0, len(changes))
+	confidences := make([]int64, 0, len(changes))
+	contentHashes := make([]string, 0, len(changes))
+	modes := make([]int64, 0, len(changes))
+	for _, change := range changes {
+		source := change.Source
+		if source == "" {
+			source = "explicit"
+		}
+		confidence := change.Confidence
+		if confidence == 0 {
+			confidence = 100
+		}
+		accountIDs = append(accountIDs, change.Entity.AccountID)
+		entityIDs = append(entityIDs, change.Entity.EntityID)
+		kinds = append(kinds, change.Entity.Kind)
+		paths = append(paths, change.Path)
+		oldPaths = append(oldPaths, change.OldPath)
+		changeKinds = append(changeKinds, change.ChangeKind)
+		sources = append(sources, source)
+		confidences = append(confidences, int64(confidence))
+		contentHashes = append(contentHashes, change.ContentHash)
+		modes = append(modes, int64(change.Mode))
+	}
+	_, err := tx.ExecContext(ctx, `
+		with input as (
+			select *
+			from unnest(
+				$4::text[], $5::text[], $6::text[], $7::text[], $8::text[],
+				$9::text[], $10::text[], $11::bigint[], $12::text[], $13::bigint[]
+			) with ordinality as input(account_id, entity_id, kind, path, old_path, change_kind, source, confidence, content_hash, mode, ord)
+		),
+		deduped as (
+			select distinct on (account_id, entity_id, path, change_kind)
+			       account_id, entity_id, kind, path, old_path, change_kind,
+			       source, confidence, content_hash, mode, ord
+			from input
+			order by account_id, entity_id, path, change_kind, ord
+		)
+		insert into commit_entity_changes(
+			target_ref, commit_id, account_id, entity_id, kind, path, old_path,
+			change_kind, source, confidence, content_hash, mode, committed_at
+		)
+		select $1::text,
+		       $2::text,
+		       deduped.account_id,
+		       deduped.entity_id,
+		       deduped.kind,
+		       deduped.path,
+		       case when deduped.old_path <> '' then deduped.old_path end,
+		       deduped.change_kind,
+		       deduped.source,
+		       deduped.confidence::integer,
+		       case when deduped.content_hash <> '' then deduped.content_hash end,
+		       case when deduped.mode > 0 then deduped.mode::integer end,
+		       $3::timestamptz
+		from deduped
+		order by deduped.ord
+		on conflict do nothing
+	`, targetRef, commitID, committedAt, accountIDs, entityIDs, kinds, paths, oldPaths, changeKinds, sources, confidences, contentHashes, modes)
+	return err
+}
+
+func pathEntitiesFromMap(values map[string]pathEntity) []pathEntity {
+	paths := make([]string, 0, len(values))
+	for p := range values {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	out := make([]pathEntity, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, values[p])
+	}
+	return out
+}
+
+func stringsFromSet(values map[string]struct{}) []string {
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {
