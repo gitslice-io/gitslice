@@ -47,6 +47,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -11776,6 +11777,21 @@ func authContext(ctx context.Context, cfg UserConfig) context.Context {
 }
 
 func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	return dialWithOptions(ctx, addr)
+}
+
+// dialAgentStream is dial for the daemon's long-lived Connect stream. It adds
+// transport-level gRPC keepalive so a black-holed but still-ESTABLISHED socket
+// is torn down within ~Timeout instead of blocking a pending Send/Recv forever.
+func dialAgentStream(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	return dialWithOptions(ctx, addr, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		Time:                20 * time.Second,
+		Timeout:             10 * time.Second,
+		PermitWithoutStream: true,
+	}))
+}
+
+func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.DialOption) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	target, useTLS := resolveDialTarget(addr)
@@ -11787,14 +11803,16 @@ func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 		}
 		creds = credentials.NewTLS(&tls.Config{ServerName: host})
 	}
-	return grpc.DialContext(ctx, target,
+	options := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 			grpc.MaxCallSendMsgSize(rpclimits.MaxUnaryMessageBytes),
 		),
 		grpc.WithBlock(),
-	)
+	}
+	options = append(options, extraOptions...)
+	return grpc.DialContext(ctx, target, options...)
 }
 
 // resolveDialTarget strips any scheme from a server address and decides whether
