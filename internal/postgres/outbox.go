@@ -238,6 +238,15 @@ func (s *ChangesetStore) RebuildDerivedIndexes(ctx context.Context, targetRef st
 	`, targetRef, outboxKindCommitPublished); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into ref_materialized_heads (target_ref, commit_id, updated_at)
+		values ($1, $2, now())
+		on conflict (target_ref) do update
+		set commit_id = excluded.commit_id,
+		    updated_at = now()
+	`, targetRef, currentCommitID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

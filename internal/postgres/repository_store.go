@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +33,16 @@ type CurrentPathEntity = storage.CurrentPathEntity
 type commitPageCursor struct {
 	CommitID    string `json:"commit_id"`
 	CommittedAt string `json:"committed_at"`
+}
+
+type materializedPathEntry struct {
+	Path        string
+	Kind        string
+	ContentHash string
+	Mode        uint32
+	BlobID      string
+	Size        int64
+	BlobOK      bool
 }
 
 func (s *RepositoryStore) GetRef(ctx context.Context, name string) (*corev1.Ref, error) {
@@ -870,6 +882,9 @@ func shiftPostgresPlaceholders(query string, offset int) string {
 }
 
 func (s *RepositoryStore) GetFile(ctx context.Context, commitID, p string) (*FileEntry, error) {
+	if entry, handled, err := s.getFileFromMaterializedHead(ctx, DefaultTargetRef, commitID, p); handled {
+		return entry, err
+	}
 	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
 	if err != nil {
 		return nil, err
@@ -894,6 +909,9 @@ func (s *RepositoryStore) ListDirectoryAtTree(ctx context.Context, rootTreeID, p
 }
 
 func (s *RepositoryStore) GetEntry(ctx context.Context, commitID, p string) (*TreeEntry, error) {
+	if entry, handled, err := s.getEntryFromMaterializedHead(ctx, DefaultTargetRef, commitID, p); handled {
+		return entry, err
+	}
 	rootTreeID, err := s.rootTreeIDForCommit(ctx, commitID)
 	if err != nil {
 		return nil, err
@@ -915,6 +933,145 @@ func (s *RepositoryStore) ListFiles(ctx context.Context, commitID, prefix string
 		return nil, err
 	}
 	return s.listFilesFromTree(ctx, rootTreeID, prefix)
+}
+
+// materializedHeadCommit returns the commit id that current_path_entities
+// currently reflects for targetRef, or ("", false) if none is recorded.
+func (s *RepositoryStore) materializedHeadCommit(ctx context.Context, targetRef string) (string, bool, error) {
+	if targetRef == "" {
+		targetRef = DefaultTargetRef
+	}
+	var commitID string
+	err := s.db.QueryRowContext(ctx, `
+		select commit_id
+		from ref_materialized_heads
+		where target_ref = $1
+	`, targetRef).Scan(&commitID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return commitID, true, nil
+}
+
+func (s *RepositoryStore) getFileFromMaterializedHead(ctx context.Context, targetRef, commitID, p string) (*FileEntry, bool, error) {
+	if s.trees == nil {
+		return nil, false, nil
+	}
+	lookupPath, ok := flatIndexLookupPath(p)
+	if !ok || lookupPath == "/" {
+		return nil, false, nil
+	}
+	head, ok, err := s.materializedHeadCommit(ctx, targetRef)
+	if err != nil || !ok || head != commitID {
+		return nil, false, nil
+	}
+	entry, ok, err := s.materializedPathEntry(ctx, targetRef, lookupPath)
+	if err != nil {
+		return nil, false, nil
+	}
+	if !ok || entry.Kind != "file" {
+		return nil, true, ErrNotFound
+	}
+	if !entry.completeFile() {
+		return nil, false, nil
+	}
+	return &FileEntry{
+		Path:        entry.Path,
+		BlobID:      entry.BlobID,
+		ContentHash: entry.ContentHash,
+		Mode:        entry.Mode,
+		Size:        entry.Size,
+	}, true, nil
+}
+
+func (s *RepositoryStore) getEntryFromMaterializedHead(ctx context.Context, targetRef, commitID, p string) (*TreeEntry, bool, error) {
+	if s.trees == nil {
+		return nil, false, nil
+	}
+	lookupPath, ok := flatIndexLookupPath(p)
+	if !ok || lookupPath == "/" {
+		return nil, false, nil
+	}
+	head, ok, err := s.materializedHeadCommit(ctx, targetRef)
+	if err != nil || !ok || head != commitID {
+		return nil, false, nil
+	}
+	entry, ok, err := s.materializedPathEntry(ctx, targetRef, lookupPath)
+	if err != nil || !ok {
+		return nil, false, nil
+	}
+	if entry.Kind != "file" {
+		return nil, false, nil
+	}
+	if !entry.completeFile() {
+		return nil, false, nil
+	}
+	return &TreeEntry{
+		Path:        entry.Path,
+		Name:        path.Base(entry.Path),
+		Kind:        "file",
+		Mode:        entry.Mode,
+		BlobID:      entry.BlobID,
+		ContentHash: entry.ContentHash,
+		Size:        entry.Size,
+	}, true, nil
+}
+
+func (s *RepositoryStore) materializedPathEntry(ctx context.Context, targetRef, p string) (materializedPathEntry, bool, error) {
+	if targetRef == "" {
+		targetRef = DefaultTargetRef
+	}
+	var entry materializedPathEntry
+	var contentHash, blobID sql.NullString
+	var mode, size sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `
+		select cpe.path, cpe.kind, cpe.content_hash, cpe.mode, b.id, b.size
+		from current_path_entities cpe
+		left join blobs b on b.content_hash = cpe.content_hash
+		where cpe.target_ref = $1 and cpe.path = $2
+	`, targetRef, p).Scan(&entry.Path, &entry.Kind, &contentHash, &mode, &blobID, &size)
+	if errors.Is(err, sql.ErrNoRows) {
+		return materializedPathEntry{}, false, nil
+	}
+	if err != nil {
+		return materializedPathEntry{}, false, err
+	}
+	entry.ContentHash = contentHash.String
+	if mode.Valid && mode.Int64 > 0 {
+		entry.Mode = uint32(mode.Int64)
+	}
+	if blobID.Valid && size.Valid {
+		entry.BlobID = blobID.String
+		entry.Size = size.Int64
+		entry.BlobOK = true
+	}
+	return entry, true, nil
+}
+
+func (entry materializedPathEntry) completeFile() bool {
+	return entry.Kind == "file" && entry.ContentHash != "" && entry.BlobOK && entry.BlobID != ""
+}
+
+func flatIndexLookupPath(p string) (string, bool) {
+	p = strings.TrimSpace(p)
+	if p == "" || p == "/" {
+		return "/", true
+	}
+	if !strings.HasPrefix(p, "/") {
+		return "", false
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(p))
+	if cleaned == "/" {
+		return "/", true
+	}
+	trimmed := strings.TrimPrefix(cleaned, "/")
+	if strings.HasPrefix(trimmed, "../") || trimmed == ".." {
+		return "", false
+	}
+	return cleaned, true
 }
 
 func (s *RepositoryStore) rootTreeIDForCommit(ctx context.Context, commitID string) (string, error) {
