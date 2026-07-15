@@ -210,6 +210,52 @@ func TestRepositoryStoreGetFileMissingPathAtMaterializedHead(t *testing.T) {
 	}
 }
 
+// TestRepositoryStoreIncrementalOutboxAdvancesMaterializedHead guards the
+// production path: the index worker advances current_path_entities via
+// ProcessOutbox (incremental), NOT RebuildDerivedIndexes. The materialized-head
+// marker must be set on that path too, or the read fast path never engages.
+func TestRepositoryStoreIncrementalOutboxAdvancesMaterializedHead(t *testing.T) {
+	ctx, store, objects := newPostgresTestStoreWithObjects(t)
+	counter := useCountingTreeStore(store, objects)
+	base := getTestRef(t, ctx, store)
+	blobID, contentHash := upsertTestBlob(t, ctx, store, "incremental head file\n")
+	filePath := "/acme/payment/deep/incremental/head.txt"
+	headCommitID := publishRepositoryTestEdits(t, ctx, store, base.CommitId, []*corev1.FileEdit{{
+		Op:          "upsert",
+		Path:        filePath,
+		BlobId:      blobID,
+		ContentHash: contentHash,
+		Mode:        0o100644,
+	}})
+
+	// Drain the outbox through the production incremental path. Do NOT call
+	// RebuildDerivedIndexes here — that would mask a marker that is only set by
+	// the full rebuild.
+	if err := store.Changesets().WaitForOutboxDrain(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	gotCommitID, ok, err := store.Repository().materializedHeadCommit(ctx, DefaultTargetRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || gotCommitID != headCommitID {
+		t.Fatalf("materialized head = %q ok=%v, want %q from incremental outbox drain", gotCommitID, ok, headCommitID)
+	}
+
+	counter.resetGets()
+	got, err := store.Repository().GetFile(ctx, headCommitID, filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ContentHash != contentHash {
+		t.Fatalf("GetFile content hash = %q, want %q", got.ContentHash, contentHash)
+	}
+	if gotReads := counter.getCount(); gotReads != 0 {
+		t.Fatalf("tree object reads = %d, want 0 after incremental materialization", gotReads)
+	}
+}
+
 func useCountingTreeStore(store *DB, base treestore.ObjectStore) *countingTreeObjectStore {
 	counter := &countingTreeObjectStore{base: base}
 	store.SetTreeStore(treestore.New(counter))

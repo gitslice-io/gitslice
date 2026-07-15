@@ -143,7 +143,15 @@ func (s *ChangesetStore) applyCommitPublishedOutboxTx(ctx context.Context, tx *s
 	if err != nil {
 		return err
 	}
-	return s.applyEntityHistoryTx(ctx, tx, payload.TargetRef, payload.BaseCommitID, payload.CommitID, patchset.FileEdits, payload.CommittedAt)
+	if err := s.applyEntityHistoryTx(ctx, tx, payload.TargetRef, payload.BaseCommitID, payload.CommitID, patchset.FileEdits, payload.CommittedAt); err != nil {
+		return err
+	}
+	// current_path_entities now reflects payload.CommitID for this ref; advance
+	// the materialized-head marker in the same transaction so the read fast path
+	// can serve head reads. Without this the marker would only ever be set by the
+	// manual RebuildDerivedIndexes admin path and the fast path would never engage
+	// in normal operation.
+	return setMaterializedHeadTx(ctx, tx, payload.TargetRef, payload.CommitID)
 }
 
 func (s *ChangesetStore) OutboxDepth(ctx context.Context) (int, error) {
@@ -238,16 +246,27 @@ func (s *ChangesetStore) RebuildDerivedIndexes(ctx context.Context, targetRef st
 	`, targetRef, outboxKindCommitPublished); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `
+	if err := setMaterializedHeadTx(ctx, tx, targetRef, currentCommitID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// setMaterializedHeadTx records, in the caller's transaction, the commit that
+// current_path_entities now reflects for targetRef. The read fast path in
+// RepositoryStore.GetFile/GetEntry only serves from the flat index when the
+// requested commit equals this marker, so it must be updated in the SAME
+// transaction that advances current_path_entities — both the incremental outbox
+// path (applyCommitPublishedOutboxTx) and the full RebuildDerivedIndexes rebuild.
+func setMaterializedHeadTx(ctx context.Context, tx *sql.Tx, targetRef, commitID string) error {
+	_, err := tx.ExecContext(ctx, `
 		insert into ref_materialized_heads (target_ref, commit_id, updated_at)
 		values ($1, $2, now())
 		on conflict (target_ref) do update
 		set commit_id = excluded.commit_id,
 		    updated_at = now()
-	`, targetRef, currentCommitID); err != nil {
-		return err
-	}
-	return tx.Commit()
+	`, targetRef, commitID)
+	return err
 }
 
 func lockOutboxProcessorTx(ctx context.Context, tx *sql.Tx) error {
