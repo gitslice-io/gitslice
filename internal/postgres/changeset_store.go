@@ -2651,8 +2651,8 @@ func deleteCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, p str
 		_, err := tx.ExecContext(ctx, `
 			delete from current_path_entities
 			where target_ref = $1
-			  and (path = $2 or left(path, length($3)) = $3)
-		`, targetRef, p, strings.TrimRight(p, "/")+"/")
+			  and (path = $2 or path like $3 escape '\')
+		`, targetRef, p, likePrefixPattern(p))
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `
@@ -2670,8 +2670,8 @@ func moveCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, oldPath
 			    updated_at = now()
 			where target_ref = $1
 			  and path <> $3
-			  and left(path, length($4)) = $4
-		`, targetRef, newPath, oldPath, strings.TrimRight(oldPath, "/")+"/")
+			  and (path = $3 or path like $4 escape '\')
+		`, targetRef, newPath, oldPath, likePrefixPattern(oldPath))
 		if err != nil {
 			return err
 		}
@@ -3324,7 +3324,7 @@ func markPathHeadDeletedRecursiveTx(ctx context.Context, tx *sql.Tx, p, changese
 		    updated_at = now()
 		where path = $4 or path like $5
 		escape '\'
-	`, MissingEntryFingerprint(), acceptedChangesetID, acceptedPatchsetID, p, pathHeadLikePrefix(p))
+	`, MissingEntryFingerprint(), acceptedChangesetID, acceptedPatchsetID, p, likePrefixPattern(p))
 	if err != nil {
 		return err
 	}
@@ -3335,7 +3335,7 @@ func markPathHeadDeletedRecursiveTx(ctx context.Context, tx *sql.Tx, p, changese
 	}, changesetID, patchsetID)
 }
 
-func pathHeadLikePrefix(p string) string {
+func likePrefixPattern(p string) string {
 	prefix := strings.TrimRight(p, "/") + "/"
 	prefix = strings.ReplaceAll(prefix, `\`, `\\`)
 	prefix = strings.ReplaceAll(prefix, `%`, `\%`)

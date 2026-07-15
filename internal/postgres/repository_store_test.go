@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -253,6 +254,121 @@ func TestRepositoryStoreIncrementalOutboxAdvancesMaterializedHead(t *testing.T) 
 	}
 	if gotReads := counter.getCount(); gotReads != 0 {
 		t.Fatalf("tree object reads = %d, want 0 after incremental materialization", gotReads)
+	}
+}
+
+func TestCurrentPathEntityPrefixQueriesEscapeLikeMetacharacters(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	metaPrefix := `/acme/literal%_\dir`
+	deletePrefix := `/acme/delete%_\dir`
+	paths := []string{
+		"/acme/pay",
+		"/acme/pay/ledger.txt",
+		"/acme/pay/reports/q1.txt",
+		"/acme/payment/ledger.txt",
+		"/acme/payroll/ledger.txt",
+		metaPrefix,
+		metaPrefix + "/inside.txt",
+		`/acme/literalABCZ\dir/inside.txt`,
+		`/acme/literal%_\dirish/inside.txt`,
+		deletePrefix,
+		deletePrefix + "/child.txt",
+		deletePrefix + "/nested/grandchild.txt",
+		`/acme/deleteABCZ\dir/child.txt`,
+		`/acme/delete%_\dirish/child.txt`,
+	}
+	insertCurrentPathEntitiesForTest(t, ctx, store, paths)
+
+	payEntities, err := store.Repository().CurrentPathEntitiesByPrefixes(ctx, DefaultTargetRef, []string{"/acme/pay"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCurrentEntityPaths(t, payEntities, []string{
+		"/acme/pay",
+		"/acme/pay/ledger.txt",
+		"/acme/pay/reports/q1.txt",
+	})
+
+	metaEntities, err := store.Repository().CurrentPathEntitiesByPrefixes(ctx, DefaultTargetRef, []string{metaPrefix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCurrentEntityPaths(t, metaEntities, []string{
+		metaPrefix,
+		metaPrefix + "/inside.txt",
+	})
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deleteCurrentPathEntityTx(ctx, tx, DefaultTargetRef, deletePrefix, true); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	deletedEntities, err := store.Repository().CurrentPathEntitiesByPrefixes(ctx, DefaultTargetRef, []string{deletePrefix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCurrentEntityPaths(t, deletedEntities, nil)
+
+	remainingEntities, err := store.Repository().CurrentPathEntitiesByPaths(ctx, DefaultTargetRef, []string{
+		`/acme/deleteABCZ\dir/child.txt`,
+		`/acme/delete%_\dirish/child.txt`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCurrentEntityPaths(t, remainingEntities, []string{
+		`/acme/delete%_\dirish/child.txt`,
+		`/acme/deleteABCZ\dir/child.txt`,
+	})
+}
+
+func insertCurrentPathEntitiesForTest(t *testing.T, ctx context.Context, store *DB, paths []string) {
+	t.Helper()
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for i, p := range paths {
+		entityID := fmt.Sprintf("ent_prefix_query_%02d", i)
+		if _, err := tx.ExecContext(ctx, `
+			insert into fs_entities(account_id, entity_id, kind, created_at)
+			values ('acct_acme', $1, 'file', now())
+		`, entityID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into current_path_entities(target_ref, path, account_id, entity_id, kind, content_hash, mode, updated_at)
+			values ($1, $2, 'acct_acme', $3, 'file', '', 33188, now())
+		`, DefaultTargetRef, p, entityID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertCurrentEntityPaths(t *testing.T, entities []CurrentPathEntity, want []string) {
+	t.Helper()
+	got := make([]string, 0, len(entities))
+	for _, entity := range entities {
+		got = append(got, entity.Path)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("paths = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("paths = %#v, want %#v", got, want)
+		}
 	}
 }
 
