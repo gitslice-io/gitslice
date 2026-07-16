@@ -138,7 +138,7 @@ steps:
         gcloud run deploy ${_SERVICE_NAME} --region ${_DEPLOY_REGION} --image "$$IMG" \
           --port=8080 \
           --use-http2 \
-          --no-cpu-throttling \
+          --cpu-throttling \
           --min-instances=${_MIN_INSTANCES} --max-instances=${_MAX_INSTANCES} \
           --cpu=1 --memory=1Gi --concurrency=80 --timeout=3600 \
           --allow-unauthenticated \
