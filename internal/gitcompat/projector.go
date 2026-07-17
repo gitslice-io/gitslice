@@ -188,7 +188,10 @@ func (p *Projector) rebuild(ctx context.Context, repoPath string, slice *corev1.
 func (p *Projector) projectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]storage.FileEntry, error) {
 	byPath := map[string]storage.FileEntry{}
 	for _, prefix := range slice.Definition.IncludedPaths {
-		canonical, err := paths.Canonical(prefix)
+		// Included paths may be account-root prefixes (a single segment) for
+		// home slices, so use CanonicalPrefix rather than Canonical, which
+		// requires an account/slice pair and would reject e.g. "/acme".
+		canonical, err := paths.CanonicalPrefix(prefix)
 		if err != nil {
 			return nil, err
 		}
