@@ -33,12 +33,17 @@ export function pathSearchValue(value: unknown) {
     : "";
 }
 
-export function buildGitCloneHint(account?: string, slug?: string) {
+export function buildGitCloneHint(account?: string, slug?: string, origin?: string) {
   const gitEnv = import.meta.env as GitCloneEnv;
-  const baseUrl = (gitEnv.VITE_GITSLICE_GIT_HTTP_BASE_URL ?? "").replace(
+  const envBase = (gitEnv.VITE_GITSLICE_GIT_HTTP_BASE_URL ?? "").replace(
     /\/+$/,
     ""
   );
+  // The git smart-HTTP endpoint is served same-origin with the web app (the
+  // Worker reverse-proxies /git/* to the backend), so prefer the live origin
+  // when the caller supplies it. Fall back to the build-time base for SSR and
+  // local dev, where git runs on its own port.
+  const baseUrl = (origin ?? "").replace(/\/+$/, "") || envBase;
   const clonePath = `/git/${encodeURIComponent(
     account || "account"
   )}/${encodeURIComponent(slug || "slice")}.git`;

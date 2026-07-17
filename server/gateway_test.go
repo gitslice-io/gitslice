@@ -10,7 +10,7 @@ import (
 func TestHTTPHandlerCORSAllowsConnectTimeoutMs(t *testing.T) {
 	handler := NewHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("preflight should not reach wrapped handler")
-	}), "https://gitslice.io", Config{RateLimitDisabled: true})
+	}), nil, "https://gitslice.io", Config{RateLimitDisabled: true})
 
 	req := httptest.NewRequest(http.MethodOptions, "/gitslice.core.v1.ChangesetService/SubmitChangeset", nil)
 	req.Header.Set("Origin", "https://gitslice.io")
