@@ -43,7 +43,7 @@ substitutions:
   _CLERK_PUBLISHABLE_KEY: ""        # required (publishable, non-secret)
   _CLERK_ISSUER: ""                 # required (for example https://clerk.gitslice.io)
   _MIN_INSTANCES: "0"               # scale to zero when idle; outbox/publisher backoff (#299) makes idle instances cheap and workers pause with the instance
-  _MAX_INSTANCES: "3"               # 32*N DB conns must stay under Neon's limit
+  _MAX_INSTANCES: "2"               # 32*N DB conns must stay under Neon's limit
   _PUBLISH_INTERVAL_MS: "30000"     # long fallback; nudges drain real activity now
   _INDEX_INTERVAL_MS: "30000"
 
