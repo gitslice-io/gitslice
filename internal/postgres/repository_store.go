@@ -604,7 +604,7 @@ func (s *RepositoryStore) CurrentPathEntitiesByPrefixes(ctx context.Context, ref
 		select path, account_id, entity_id, kind, coalesce(content_hash, ''), coalesce(mode, 0)
 		from current_path_entities cpe
 		where `+where+`
-		order by path
+		order by path collate "C"
 	`, args...)
 	if err != nil {
 		return nil, err
@@ -655,7 +655,7 @@ func (s *RepositoryStore) CurrentPathEntitiesByPaths(ctx context.Context, refNam
 		select path, account_id, entity_id, kind, coalesce(content_hash, ''), coalesce(mode, 0)
 		from current_path_entities
 		where target_ref = $1 and path in (`+strings.Join(placeholders, ", ")+`)
-		order by path
+		order by path collate "C"
 	`, args...)
 	if err != nil {
 		return nil, err
