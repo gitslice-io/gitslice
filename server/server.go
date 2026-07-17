@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -135,8 +136,26 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg)
 	apiHandler := NewConnectHandler(resolveSubject, handlers)
+	gitCacheRoot := cfg.GitCacheRoot
+	if gitCacheRoot == "" {
+		if cfg.ObjectStoreRoot != "" {
+			gitCacheRoot = filepath.Join(cfg.ObjectStoreRoot, "git-cache")
+		} else {
+			gitCacheRoot = filepath.Join(os.TempDir(), "gitslice-git-cache")
+		}
+	}
+	projector, err := gitcompat.NewProjector(gitcompat.ProjectorStores{
+		Auth:       db.Auth(),
+		Repository: db.Repository(),
+		Slices:     db.Slices(),
+	}, objectStore, gitCacheRoot)
+	if err != nil {
+		return err
+	}
+	var gitHandler http.Handler = gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset)
+	gitHandler = newHTTPRateLimitMiddleware(cfg)(gitHandler)
 	combinedServer := &http.Server{
-		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(apiHandler, cfg.HTTPAllowedOrigin, cfg)),
+		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg)),
 		ReadHeaderTimeout: gatewayReadHeaderTimeout,
 		IdleTimeout:       gatewayIdleTimeout,
 	}
@@ -148,7 +167,7 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		gatewayServer = &http.Server{
-			Handler:           NewHTTPHandler(apiHandler, cfg.HTTPAllowedOrigin, cfg),
+			Handler:           NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg),
 			ReadHeaderTimeout: gatewayReadHeaderTimeout,
 			ReadTimeout:       gatewayReadTimeout,
 			WriteTimeout:      gatewayWriteTimeout,
@@ -158,26 +177,10 @@ func Run(ctx context.Context, cfg Config) error {
 	var gitHTTPServer *http.Server
 	var gitHTTPLis net.Listener
 	if cfg.GitHTTPAddr != "" {
-		if cfg.GitCacheRoot == "" {
-			if cfg.ObjectStoreRoot == "" {
-				return fmt.Errorf("GITSLICE_GIT_CACHE_ROOT is required when the git http server is enabled without a filesystem object store")
-			}
-			cfg.GitCacheRoot = filepath.Join(cfg.ObjectStoreRoot, "git-cache")
-		}
-		projector, err := gitcompat.NewProjector(gitcompat.ProjectorStores{
-			Auth:       db.Auth(),
-			Repository: db.Repository(),
-			Slices:     db.Slices(),
-		}, objectStore, cfg.GitCacheRoot)
-		if err != nil {
-			return err
-		}
 		gitHTTPLis, err = net.Listen("tcp", cfg.GitHTTPAddr)
 		if err != nil {
 			return err
 		}
-		var gitHandler http.Handler = gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset)
-		gitHandler = newHTTPRateLimitMiddleware(cfg)(gitHandler)
 		gitHTTPServer = &http.Server{
 			Handler: gitHandler,
 			// Git clone/fetch/push transfers can be large and slow, so only the
