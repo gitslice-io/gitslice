@@ -614,13 +614,38 @@ export function AgentConversation({
             <div className="flex shrink-0 items-center gap-2">
               {toolbar}
               <button
-                className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
+                aria-label="Copy conversation link"
+                className={cn(
+                  "inline-flex size-7 shrink-0 items-center justify-center rounded-md transition hover:bg-slate-100 dark:hover:bg-zinc-800 active:scale-[0.98]",
+                  linkCopied
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-slate-400 dark:text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-50",
+                )}
                 onClick={() => {
                   void copyConversationLink();
                 }}
+                title={linkCopied ? "Link copied" : "Copy link"}
                 type="button"
               >
-                {linkCopied ? "Copied!" : "Copy link"}
+                <svg
+                  aria-hidden="true"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  viewBox="0 0 24 24"
+                >
+                  {linkCopied ? (
+                    <path d="M20 6 9 17l-5-5" />
+                  ) : (
+                    <>
+                      <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 4.5" />
+                      <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07l1.32-1.32" />
+                    </>
+                  )}
+                </svg>
               </button>
               {!readOnly && isConversationActive ? (
                 <button

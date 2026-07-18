@@ -233,8 +233,7 @@ describe("AgentsTab", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders the selected conversation with a mobile back button", async () => {
-    const onBack = vi.fn();
+  it("closes the transcript and shows the list when the conversation is deselected", async () => {
     const api = makeApi({
       conversations: [
         {
@@ -246,29 +245,37 @@ describe("AgentsTab", () => {
       ],
     });
 
-    renderWithClient(
-      <AgentsTab
-        api={api}
-        conversationId="conv_one"
-        onBack={onBack}
-        slice={{ account: "nic", slice: "home" }}
-      />,
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        mutations: { retry: false },
+        queries: { retry: false, gcTime: 0, staleTime: 0 },
+      },
+    });
+    const ui = (conversationId: string): ReactElement => (
+      <QueryClientProvider client={queryClient}>
+        <AgentsTab
+          api={api}
+          conversationId={conversationId}
+          slice={{ account: "nic", slice: "home" }}
+        />
+      </QueryClientProvider>
     );
+    const { rerender } = render(ui("conv_one"));
 
     expect(
       await screen.findByRole("heading", { name: "Only chat" }),
     ).toBeInTheDocument();
-    const backButton = screen.getByRole("button", {
-      name: "← Conversations",
-    });
-    expect(backButton).toBeInTheDocument();
 
-    fireEvent.click(backButton);
+    // Deselecting the conversation — e.g. via the "Conversations" breadcrumb,
+    // which drops the conversationId from the route — closes the transcript and
+    // returns to the full-screen list on mobile.
+    rerender(ui(""));
 
-    expect(onBack).toHaveBeenCalledTimes(1);
-    expect(
-      screen.queryByRole("heading", { name: "Only chat" }),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Only chat" }),
+      ).not.toBeInTheDocument(),
+    );
     expect(
       screen.getByRole("complementary", { name: "Agent conversations" }),
     ).toBeInTheDocument();
