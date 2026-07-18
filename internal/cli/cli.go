@@ -135,6 +135,39 @@ type workingFile struct {
 	AbsPath string
 }
 
+type workspaceScanStats struct {
+	FileCount    int
+	ByteCount    int64
+	HashWorkers  int
+	WalkDuration time.Duration
+	HashDuration time.Duration
+}
+
+type blobAttachStats struct {
+	RequiredBlobs  int
+	AvailableBlobs int
+	UploadedBlobs  int
+	UploadedBytes  int64
+	UploadWorkers  int
+	StatusDuration time.Duration
+	UploadDuration time.Duration
+}
+
+type snapshotEditsStats struct {
+	Scan         workspaceScanStats
+	Blobs        blobAttachStats
+	DiffDuration time.Duration
+}
+
+type captureDiagnostics struct {
+	Result         string
+	ChangedPaths   int
+	Snapshot       snapshotEditsStats
+	ChecksDuration time.Duration
+	UpdateDuration time.Duration
+	TotalDuration  time.Duration
+}
+
 type commandOptions struct {
 	Format         string
 	JSONFields     []string
@@ -5352,7 +5385,19 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 // It is a no-op when the workspace has no pending edits, so an agent daemon can
 // call it after every turn without producing empty patchsets. The conversation
 // link comes from the workspace config (WorkspaceConfig.ConversationID).
-func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, title string, noChecks bool) error {
+func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, title string, noChecks bool) (retErr error) {
+	started := time.Now()
+	diagnostics := captureDiagnostics{Result: "captured"}
+	if opts.Verbose || opts.Debug || opts.Trace {
+		defer func() {
+			diagnostics.TotalDuration = time.Since(started)
+			if retErr != nil {
+				diagnostics.Result = "error"
+			}
+			r.writeCaptureDiagnostics(diagnostics)
+		}()
+	}
+
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -5365,11 +5410,14 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	callCtx := authContext(ctx, cfg)
 	changesetClient := corev1.NewChangesetServiceClient(conn)
 
-	edits, _, err := r.snapshotEdits(ctx, conn, cfg, ws, true)
+	edits, _, snapshotStats, err := r.snapshotEditsWithStats(ctx, conn, cfg, ws, true, defaultCaptureHashConcurrency(), defaultUploadConcurrency())
+	diagnostics.Snapshot = snapshotStats
+	diagnostics.ChangedPaths = len(edits)
 	if err != nil {
 		return err
 	}
 	if len(edits) == 0 {
+		diagnostics.Result = "no_changes"
 		if !opts.jsonOutput() && !opts.Quiet {
 			fmt.Fprintln(r.Stdout, "no changes to capture")
 		}
@@ -5416,12 +5464,15 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 
 	var bundledCheckRuns []*corev1.BundledCheckRun
 	if !noChecks {
+		checksStarted := time.Now()
 		bundledCheckRuns, err = r.captureBundledCheckRuns(ctx, opts, ws, changedPathsFromEdits(edits))
+		diagnostics.ChecksDuration = time.Since(checksStarted)
 		if err != nil {
 			return err
 		}
 	}
 
+	updateStarted := time.Now()
 	patchset, err := changesetClient.UpdateChangeset(callCtx, &corev1.UpdateChangesetRequest{
 		ChangesetId:               changesetID,
 		ExpectedCurrentPatchsetId: expectedPatchsetID,
@@ -5430,10 +5481,12 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 		ConversationId:            ws.ConversationID,
 		BundledCheckRuns:          bundledCheckRuns,
 	})
+	diagnostics.UpdateDuration = time.Since(updateStarted)
 	if err != nil {
 		return err
 	}
 	if priorPatchsetID != "" && patchset.Id == priorPatchsetID {
+		diagnostics.Result = "unchanged_patchset"
 		// No new patchset: the edits leave the changeset content unchanged.
 		// Keep local state pointing at the live patchset so later turns agree.
 		state.CurrentChangesetID = changesetID
@@ -5472,6 +5525,34 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	}
 	fmt.Fprintf(r.Stdout, "captured changeset %s patchset %d\n", label, patchset.Number)
 	return nil
+}
+
+func (r Runner) writeCaptureDiagnostics(stats captureDiagnostics) {
+	formatDuration := func(value time.Duration) time.Duration {
+		return value.Round(time.Millisecond)
+	}
+	fmt.Fprintf(
+		r.stderr(),
+		"capture diagnostics: result=%s files=%d hashed_bytes=%d changed_paths=%d unique_blobs=%d remote_hits=%d uploaded_blobs=%d uploaded_bytes=%d hash_workers=%d upload_workers=%d walk=%s hash=%s diff=%s blob_status=%s upload=%s checks=%s update=%s total=%s\n",
+		stats.Result,
+		stats.Snapshot.Scan.FileCount,
+		stats.Snapshot.Scan.ByteCount,
+		stats.ChangedPaths,
+		stats.Snapshot.Blobs.RequiredBlobs,
+		stats.Snapshot.Blobs.AvailableBlobs,
+		stats.Snapshot.Blobs.UploadedBlobs,
+		stats.Snapshot.Blobs.UploadedBytes,
+		stats.Snapshot.Scan.HashWorkers,
+		stats.Snapshot.Blobs.UploadWorkers,
+		formatDuration(stats.Snapshot.Scan.WalkDuration),
+		formatDuration(stats.Snapshot.Scan.HashDuration),
+		formatDuration(stats.Snapshot.DiffDuration),
+		formatDuration(stats.Snapshot.Blobs.StatusDuration),
+		formatDuration(stats.Snapshot.Blobs.UploadDuration),
+		formatDuration(stats.ChecksDuration),
+		formatDuration(stats.UpdateDuration),
+		formatDuration(stats.TotalDuration),
+	)
 }
 
 func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool) error {
@@ -6394,6 +6475,30 @@ func defaultUploadConcurrency() int {
 	return n
 }
 
+func defaultCaptureHashConcurrency() int {
+	n := runtime.NumCPU() / 2
+	if n < 2 {
+		return 2
+	}
+	if n > 8 {
+		return 8
+	}
+	return n
+}
+
+func boundedCaptureHashConcurrency(value, itemCount int) int {
+	if itemCount <= 0 {
+		return 0
+	}
+	if value <= 0 {
+		value = defaultCaptureHashConcurrency()
+	}
+	if value > itemCount {
+		return itemCount
+	}
+	return value
+}
+
 func boundedUploadConcurrency(value, itemCount int) int {
 	if itemCount <= 0 {
 		return 1
@@ -6633,10 +6738,33 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 		hashes = append(hashes, hash)
 	}
 	sort.Strings(hashes)
+	uploaded, err := uploadBlobsConcurrently(ctx, hashes, concurrency, func(hash string) (*corev1.UploadBlobResponse, error) {
+		return uploadLocalBlob(ctx, blobClient, sliceRef, missing[hash])
+	})
+	records := make(map[string]*corev1.BlobRecord, len(uploaded))
+	for hash, upload := range uploaded {
+		if upload == nil {
+			continue
+		}
+		records[hash] = &corev1.BlobRecord{
+			Id:          upload.BlobId,
+			ContentHash: upload.ContentHash,
+			Size:        upload.Size,
+			State:       "present",
+		}
+	}
+	return records, err
+}
+
+func uploadBlobsConcurrently(ctx context.Context, hashes []string, concurrency int, upload func(string) (*corev1.UploadBlobResponse, error)) (map[string]*corev1.UploadBlobResponse, error) {
+	if len(hashes) == 0 {
+		return map[string]*corev1.UploadBlobResponse{}, nil
+	}
+	concurrency = boundedUploadConcurrency(concurrency, len(hashes))
 	type result struct {
-		hash   string
-		record *corev1.BlobRecord
-		err    error
+		hash     string
+		response *corev1.UploadBlobResponse
+		err      error
 	}
 	jobs := make(chan string)
 	results := make(chan result, len(hashes))
@@ -6646,21 +6774,12 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 		go func() {
 			defer wg.Done()
 			for hash := range jobs {
-				file := missing[hash]
-				upload, err := uploadLocalBlob(ctx, blobClient, sliceRef, file)
-				if err != nil {
+				if err := ctx.Err(); err != nil {
 					results <- result{hash: hash, err: err}
 					continue
 				}
-				results <- result{
-					hash: hash,
-					record: &corev1.BlobRecord{
-						Id:          upload.BlobId,
-						ContentHash: upload.ContentHash,
-						Size:        upload.Size,
-						State:       "present",
-					},
-				}
+				response, err := upload(hash)
+				results <- result{hash: hash, response: response, err: err}
 			}
 		}()
 	}
@@ -6678,17 +6797,25 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 		wg.Wait()
 		close(results)
 	}()
-	records := map[string]*corev1.BlobRecord{}
+
+	uploaded := make(map[string]*corev1.UploadBlobResponse, len(hashes))
+	var firstErr error
 	for result := range results {
 		if result.err != nil {
-			return nil, result.err
+			if firstErr == nil {
+				firstErr = result.err
+			}
+			continue
 		}
-		records[result.hash] = result.record
+		uploaded[result.hash] = result.response
+	}
+	if firstErr != nil {
+		return uploaded, firstErr
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return uploaded, err
 	}
-	return records, nil
+	return uploaded, nil
 }
 
 func uploadLocalBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, file localUploadFile) (*corev1.UploadBlobResponse, error) {
@@ -10416,31 +10543,44 @@ func (h *workspaceHydrator) cachedFileBytes(ctx context.Context, entry *corev1.T
 }
 
 func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {
+	edits, current, _, err := r.snapshotEditsWithStats(ctx, conn, cfg, ws, upload, defaultCaptureHashConcurrency(), defaultUploadConcurrency())
+	return edits, current, err
+}
+
+func (r Runner) snapshotEditsWithStats(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, upload bool, hashConcurrency, uploadConcurrency int) ([]*corev1.FileEdit, map[string]workingFile, snapshotEditsStats, error) {
 	base, err := r.readBaseSnapshot()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, snapshotEditsStats{}, err
 	}
-	return r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, upload)
+	return r.snapshotEditsAgainstBaseWithStats(ctx, conn, cfg, ws, base, upload, hashConcurrency, uploadConcurrency)
 }
 
 func (r Runner) snapshotEditsAgainstBase(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {
-	current, err := r.scanWorkspaceFiles(ws)
+	edits, current, _, err := r.snapshotEditsAgainstBaseWithStats(ctx, conn, cfg, ws, base, upload, defaultCaptureHashConcurrency(), defaultUploadConcurrency())
+	return edits, current, err
+}
+
+func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool, hashConcurrency, uploadConcurrency int) ([]*corev1.FileEdit, map[string]workingFile, snapshotEditsStats, error) {
+	var stats snapshotEditsStats
+	current, scanStats, err := r.scanWorkspaceFilesWithStats(ctx, ws, hashConcurrency)
+	stats.Scan = scanStats
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, stats, err
 	}
 	var blobClient corev1.BlobServiceClient
 	callCtx := ctx
 	if upload {
 		if conn == nil {
-			return nil, nil, fmt.Errorf("connection is required for blob upload")
+			return nil, nil, stats, fmt.Errorf("connection is required for blob upload")
 		}
 		blobClient = corev1.NewBlobServiceClient(conn)
 		callCtx = authContext(ctx, cfg)
 	}
 	cache, err := r.objectCache()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, stats, err
 	}
+	diffStarted := time.Now()
 	var edits []*corev1.FileEdit
 	for p, file := range current {
 		baseFile, ok := base.Files[p]
@@ -10455,13 +10595,16 @@ func (r Runner) snapshotEditsAgainstBase(ctx context.Context, conn *grpc.ClientC
 			edits = append(edits, &corev1.FileEdit{Op: "delete", Path: p})
 		}
 	}
+	stats.DiffDuration = time.Since(diffStarted)
 	if upload {
-		if err := attachBlobIDs(callCtx, blobClient, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits); err != nil {
-			return nil, nil, err
+		blobStats, err := attachBlobIDsWithStats(callCtx, blobClient, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits, uploadConcurrency)
+		stats.Blobs = blobStats
+		if err != nil {
+			return edits, current, stats, err
 		}
 	}
 	sortFileEdits(edits)
-	return edits, current, nil
+	return edits, current, stats, nil
 }
 
 func (r Runner) stackBaseSnapshotThroughChangeset(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, stack *corev1.ChangesetStack, throughChangesetID string) (BaseSnapshot, error) {
@@ -10604,21 +10747,39 @@ func renameSnapshotPath(ws WorkspaceConfig, files map[string]BaseSnapshotFile, o
 	return nil
 }
 
+type workspaceScanCandidate struct {
+	absPath    string
+	globalPath string
+	relPath    string
+	mode       uint32
+	size       int64
+}
+
 func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, error) {
+	files, _, err := r.scanWorkspaceFilesWithStats(context.Background(), ws, defaultCaptureHashConcurrency())
+	return files, err
+}
+
+func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceConfig, concurrency int) (map[string]workingFile, workspaceScanStats, error) {
+	var stats workspaceScanStats
 	cache, err := r.objectCache()
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 	root, err := r.workspaceRoot()
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 	if len(ws.IncludedPaths) == 0 {
-		return nil, fmt.Errorf("workspace has no included paths")
+		return nil, stats, fmt.Errorf("workspace has no included paths")
 	}
-	files := map[string]workingFile{}
+	candidates := []workspaceScanCandidate{}
+	walkStarted := time.Now()
 	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if p == root {
@@ -10642,10 +10803,6 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 		if err != nil {
 			return err
 		}
-		cached, err := cache.PutFile(p)
-		if err != nil {
-			return err
-		}
 		globalPath, err := workspaceRelativePathToGlobalPath(ws, rel)
 		if err != nil {
 			return err
@@ -10654,25 +10811,123 @@ func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, 
 		if info.Mode()&0o111 != 0 {
 			mode = 0o100755
 		}
-		files[globalPath] = workingFile{
-			BaseSnapshotFile: BaseSnapshotFile{
-				Path:        globalPath,
-				RelPath:     rel,
-				ContentHash: cached.ContentHash,
-				Mode:        mode,
-				Size:        info.Size(),
-			},
-			AbsPath: p,
-		}
+		candidates = append(candidates, workspaceScanCandidate{
+			absPath:    p,
+			globalPath: globalPath,
+			relPath:    rel,
+			mode:       mode,
+			size:       info.Size(),
+		})
+		stats.ByteCount += info.Size()
 		return nil
 	})
+	stats.WalkDuration = time.Since(walkStarted)
+	stats.FileCount = len(candidates)
 	if err != nil {
+		return nil, stats, err
+	}
+
+	paths := make([]string, len(candidates))
+	for i := range candidates {
+		paths[i] = candidates[i].absPath
+	}
+	stats.HashWorkers = boundedCaptureHashConcurrency(concurrency, len(paths))
+	hashStarted := time.Now()
+	objects, err := hashWorkspaceFiles(ctx, paths, stats.HashWorkers, cache.PutFile)
+	stats.HashDuration = time.Since(hashStarted)
+	if err != nil {
+		return nil, stats, err
+	}
+
+	files := make(map[string]workingFile, len(candidates))
+	for i, candidate := range candidates {
+		cached := objects[i]
+		files[candidate.globalPath] = workingFile{
+			BaseSnapshotFile: BaseSnapshotFile{
+				Path:        candidate.globalPath,
+				RelPath:     candidate.relPath,
+				ContentHash: cached.ContentHash,
+				Mode:        candidate.mode,
+				Size:        candidate.size,
+			},
+			AbsPath: candidate.absPath,
+		}
+	}
+	return files, stats, nil
+}
+
+func hashWorkspaceFiles(ctx context.Context, paths []string, concurrency int, hashFile func(string) (clientcache.Object, error)) ([]clientcache.Object, error) {
+	if len(paths) == 0 {
+		return []clientcache.Object{}, nil
+	}
+	concurrency = boundedCaptureHashConcurrency(concurrency, len(paths))
+	type result struct {
+		index  int
+		object clientcache.Object
+		err    error
+	}
+	jobs := make(chan int)
+	results := make(chan result, len(paths))
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				if err := ctx.Err(); err != nil {
+					results <- result{index: index, err: err}
+					continue
+				}
+				object, err := hashFile(paths[index])
+				if err != nil {
+					err = fmt.Errorf("hash workspace file %s: %w", paths[index], err)
+				}
+				results <- result{index: index, object: object, err: err}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for index := range paths {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- index:
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	objects := make([]clientcache.Object, len(paths))
+	var firstErr error
+	for result := range results {
+		if result.err != nil {
+			if firstErr == nil {
+				firstErr = result.err
+			}
+			continue
+		}
+		objects[result.index] = result.object
+	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return files, nil
+	return objects, nil
 }
 
 func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit) error {
+	_, err := attachBlobIDsWithStats(ctx, blobClient, sliceRef, cache, edits, defaultUploadConcurrency())
+	return err
+}
+
+func attachBlobIDsWithStats(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit, concurrency int) (blobAttachStats, error) {
+	var stats blobAttachStats
 	hashSet := map[string]struct{}{}
 	for _, edit := range edits {
 		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.BlobId != "" || edit.ContentHash == "" {
@@ -10681,7 +10936,7 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sli
 		hashSet[edit.ContentHash] = struct{}{}
 	}
 	if len(hashSet) == 0 {
-		return nil
+		return stats, nil
 	}
 
 	hashes := make([]string, 0, len(hashSet))
@@ -10689,36 +10944,72 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sli
 		hashes = append(hashes, hash)
 	}
 	sort.Strings(hashes)
+	stats.RequiredBlobs = len(hashes)
 
-	status, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes, Slice: sliceRef})
-	if err != nil {
-		return err
-	}
 	blobIDs := map[string]string{}
-	for _, record := range status.Blobs {
-		if record.Id != "" && record.State == "available" {
-			blobIDs[record.ContentHash] = record.Id
+	statusStarted := time.Now()
+	const statusBatchSize = 512
+	for start := 0; start < len(hashes); start += statusBatchSize {
+		end := start + statusBatchSize
+		if end > len(hashes) {
+			end = len(hashes)
+		}
+		status, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes[start:end], Slice: sliceRef})
+		if err != nil {
+			stats.StatusDuration = time.Since(statusStarted)
+			return stats, err
+		}
+		for _, record := range status.Blobs {
+			if record.Id != "" && record.State == "available" {
+				blobIDs[record.ContentHash] = record.Id
+			}
 		}
 	}
+	stats.StatusDuration = time.Since(statusStarted)
+	stats.AvailableBlobs = len(blobIDs)
 
+	missing := make([]string, 0, len(hashes)-len(blobIDs))
 	for _, hash := range hashes {
 		if blobIDs[hash] != "" {
 			continue
 		}
-		uploaded, err := uploadCachedBlob(ctx, blobClient, sliceRef, cache, hash)
-		if err != nil {
-			return err
+		missing = append(missing, hash)
+	}
+	if len(missing) > 0 {
+		stats.UploadWorkers = boundedUploadConcurrency(concurrency, len(missing))
+	}
+	uploadStarted := time.Now()
+	uploaded, err := uploadCachedBlobs(ctx, blobClient, sliceRef, cache, missing, stats.UploadWorkers)
+	stats.UploadDuration = time.Since(uploadStarted)
+	for hash, response := range uploaded {
+		if response == nil || response.BlobId == "" {
+			continue
 		}
-		blobIDs[hash] = uploaded.BlobId
+		blobIDs[hash] = response.BlobId
+		stats.UploadedBlobs++
+		stats.UploadedBytes += response.Size
+	}
+	if err != nil {
+		return stats, err
 	}
 
 	for _, edit := range edits {
 		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.BlobId != "" {
 			continue
 		}
-		edit.BlobId = blobIDs[edit.ContentHash]
+		blobID := blobIDs[edit.ContentHash]
+		if blobID == "" {
+			return stats, fmt.Errorf("blob upload did not return blob id for content hash %s", edit.ContentHash)
+		}
+		edit.BlobId = blobID
 	}
-	return nil
+	return stats, nil
+}
+
+func uploadCachedBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hashes []string, concurrency int) (map[string]*corev1.UploadBlobResponse, error) {
+	return uploadBlobsConcurrently(ctx, hashes, concurrency, func(hash string) (*corev1.UploadBlobResponse, error) {
+		return uploadCachedBlob(ctx, blobClient, sliceRef, cache, hash)
+	})
 }
 
 func uploadCachedBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hash string) (*corev1.UploadBlobResponse, error) {
