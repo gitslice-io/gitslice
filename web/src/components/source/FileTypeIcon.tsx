@@ -39,6 +39,7 @@ const basenameIcons: Partial<Record<string, IconSpec>> = {
 
 const extensionIcons: Partial<Record<string, IconSpec>> = {
   avif: { classes: toneClasses.emerald, glyph: "image" },
+  bmp: { classes: toneClasses.emerald, glyph: "image" },
   gif: { classes: toneClasses.emerald, glyph: "image" },
   ico: { classes: toneClasses.emerald, glyph: "image" },
   jpeg: { classes: toneClasses.emerald, glyph: "image" },

@@ -7946,3 +7946,38 @@ gcloud run revisions list --service=gitslice-prod --region=us-west1 --project=un
 gcloud run services describe gitslice-prod --region=us-west1 --project=unified-surfer-486904-i6 --format='json(status.traffic,status.latestReadyRevisionName,spec.template.spec.containers[0].image)'
 curl -sS -D - -o /tmp/preflight_ms_after.out -X OPTIONS 'https://api.gitslice.io/gitslice.core.v1.ChangesetService/SubmitChangeset' -H 'Origin: https://gitslice.io' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,connect-protocol-version,connect-timeout-ms,content-type,x-user-agent'
 ```
+
+## 2026-07-14: Render Images in the Slice Content Detail View
+
+Request: render image files on the slice content detail page, including the
+`apple-touch-icon.png` file linked from the production `slices/home` slice.
+
+Decision: keep `RepositoryService.ReadFile` and its protobuf contract unchanged;
+the response already contains the exact file bytes as base64. The slice detail
+page now carries that binary representation alongside the existing UTF-8 text
+decode and selects a dedicated image preview for allowlisted browser-supported
+extensions (`avif`, `bmp`, `gif`, `ico`, `jpeg`, `jpg`, `png`, `svg`, and
+`webp`). The preview constructs its data URL from a fixed extension-to-MIME map,
+keeps images bounded within the content pane, and reports loading, empty-file,
+and browser decode-error states. Image actions retain rename/delete but omit the
+text editor so binary files cannot be accidentally rewritten from a lossy UTF-8
+decode.
+
+Verification:
+
+```bash
+npm --prefix web test -- src/components/source/ImageViewer.test.tsx src/routes/slice-detail/EditableFileView.test.tsx
+npm --prefix web run build
+npm --prefix web test
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+Results: the seven focused image/detail tests, web production build, full Go
+suite, and command builds passed. The full web run passed 14 test files and all
+166 tests it launched, then hit Vitest's worker-start timeout before launching
+the existing `AgentConversation.test.tsx`; rerunning that remaining file alone
+passed all 24 tests.
+
