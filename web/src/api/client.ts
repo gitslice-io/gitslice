@@ -218,7 +218,9 @@ export function createApiClient({
       ),
     getConversationEvents: (request) =>
       unary<Api.GetConversationEventsResponse>(() =>
-        agent.getConversationEvents(toProtoRequest(request))
+        agent.getConversationEvents(
+          toProtoRequest(request, conversationEventInt64FieldNames)
+        )
       ),
     streamConversation: async function* (request, signal) {
       try {
@@ -258,7 +260,6 @@ const int64FieldNames = new Set([
   "depth",
   "displayOrder",
   "length",
-  "limit",
   "number",
   "offset",
   "seq",
@@ -270,24 +271,37 @@ const int64FieldNames = new Set([
   "version"
 ]);
 
+// Most list limits are int32. GetConversationEventsRequest is the one API
+// request whose identically named limit field is int64.
+const conversationEventInt64FieldNames = new Set(["limit"]);
+
 const bytesFieldNames = new Set(["data"]);
 
-function toProtoRequest(value: unknown): any {
-  return toProtoValue("", value);
+function toProtoRequest(
+  value: unknown,
+  additionalInt64FieldNames: ReadonlySet<string> = new Set()
+): any {
+  return toProtoValue("", value, additionalInt64FieldNames);
 }
 
-function toProtoValue(key: string, value: unknown): unknown {
+function toProtoValue(
+  key: string,
+  value: unknown,
+  additionalInt64FieldNames: ReadonlySet<string>
+): unknown {
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (int64FieldNames.has(key)) {
+  if (int64FieldNames.has(key) || additionalInt64FieldNames.has(key)) {
     return toBigInt(value);
   }
   if (bytesFieldNames.has(key)) {
     return toBytes(value);
   }
   if (Array.isArray(value)) {
-    return value.map((item) => toProtoValue("", item));
+    return value.map((item) =>
+      toProtoValue("", item, additionalInt64FieldNames)
+    );
   }
   if (typeof value === "object") {
     if (value instanceof Uint8Array) {
@@ -297,7 +311,11 @@ function toProtoValue(key: string, value: unknown): unknown {
     for (const [childKey, childValue] of Object.entries(
       value as Record<string, unknown>
     )) {
-      const converted = toProtoValue(childKey, childValue);
+      const converted = toProtoValue(
+        childKey,
+        childValue,
+        additionalInt64FieldNames
+      );
       if (converted !== undefined) {
         out[childKey] = converted;
       }

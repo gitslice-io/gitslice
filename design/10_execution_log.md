@@ -8063,3 +8063,28 @@ All listed local gates passed. The preferred real-PostgreSQL CLI/RPC gate was
 not available: `env.local` is absent and `pg_isready` reported no response from
 the local PostgreSQL socket. No database e2e result is claimed.
 
+## 2026-07-17: Fix Web History Limit Serialization
+
+Request: fix the slice history drawer failure reporting that
+`ListCommitsRequest.limit` expected an `int32` number but received `50n`.
+
+Decision: stop treating every request field named `limit` as protobuf `int64`.
+Repository and changeset list limits are `int32` and must remain JavaScript
+numbers; only `GetConversationEventsRequest.limit` is `int64`, so that endpoint
+now opts into the bigint conversion explicitly. The regression coverage checks
+the serialized Connect JSON for both integer widths, including the changeset
+request made alongside commit history.
+
+Verification:
+
+```bash
+npm --prefix web test -- --run src/api/client.test.ts
+npm --prefix web run build
+npm --prefix web test
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All focused and repository gates passed. The full web suite passed 16 test files
+and 192 tests.
