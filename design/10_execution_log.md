@@ -7981,3 +7981,85 @@ suite, and command builds passed. The full web run passed 14 test files and all
 the existing `AgentConversation.test.tsx`; rerunning that remaining file alone
 passed all 24 tests.
 
+## 2026-07-15: Design Agent Workspace Pre-Upload and Fast Capture
+
+Request: explain how to make end-of-turn agent changeset capture faster and
+write a full design for monitoring conversation workspaces and periodically
+pre-uploading immutable blobs. Obtain an independent opinion from Claude through
+its local CLI.
+
+Decisions:
+
+- keep final workspace reconciliation authoritative and preserve one atomic
+  `UpdateChangeset`; watcher/index state only prepares cache objects and never
+  creates a patchset or ref
+- first instrument and parallelize the existing serial capture path, then test a
+  separately guarded stat/content index, and add continuous watching only if
+  measured finalization latency still justifies it
+- use shared traversal rules, stable reads, generations, periodic
+  reconciliation, bounded daemon-wide scheduling, and a full-capture fallback
+- require staged pre-upload sessions before background transfer becomes a
+  default because today's `UploadBlob` immediately associates content with the
+  slice; speculative blobs must not become ordinarily readable before a
+  patchset references them
+- start remote transfer with known paths and keep all-path transfer opt-in due
+  to transient-file and secret-disclosure risk
+- add pending-finalization recovery, an explicit capture UI phase, and an exact
+  daemon `client_seq` conversation cutoff so a manually stopped daemon can
+  safely resume post-response capture
+- incorporate Claude CLI's review: distinguish pre-hash from pre-upload and
+  rehash avoidance, prioritize simpler concurrency wins, guard stat shortcuts,
+  pause speculative work during in-place checks, and measure descriptor and
+  orphan pressure
+
+Verification:
+
+```bash
+git diff --check -- design/10_execution_log.md
+git diff --no-index --check /dev/null design/18_agent_workspace_preupload.md
+```
+
+The no-index command returned the expected status 1 because the design is a new
+file and emitted no whitespace errors. No implementation or generated files
+changed, so code and build suites were not run.
+
+## 2026-07-15: Implement the First Fast-Capture Step
+
+Request: implement the first recommendation from the agent workspace pre-upload
+design: instrument and parallelize final workspace hashing and missing-blob
+uploads before introducing a watcher or stat cache.
+
+Decisions:
+
+- preserve the authoritative full-content-hash scan; this change does not reuse
+  stat fingerprints or trust cached path metadata
+- separate directory traversal from content hashing and hash files through a
+  bounded worker pool (`2..8`, capped by file count)
+- refactor the existing bounded upload worker into a shared executor and use it
+  for capture cache objects as well as direct filesystem uploads; default upload
+  concurrency remains `4..16`, capped by unique missing hashes
+- retain hash deduplication and batch `GetBlobStatus` requests at 512 hashes, so
+  duplicate edits upload one immutable object and large captures do not create
+  an oversized status request
+- emit one verbose capture diagnostic summary with file/blob/byte counts and
+  walk, hash, diff, status, upload, check, update, and total timings
+- make agent capture enable verbose diagnostics automatically, tee them to the
+  daemon's stderr, and filter them from conversation error text
+- add barrier-based tests that prove hashing and uploads reach, but do not
+  exceed, their configured concurrency; run the full CLI package under the Go
+  race detector
+
+Verification:
+
+```bash
+go test ./internal/cli -count=1
+go test -race ./internal/cli -count=1
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed local gates passed. The preferred real-PostgreSQL CLI/RPC gate was
+not available: `env.local` is absent and `pg_isready` reported no response from
+the local PostgreSQL socket. No database e2e result is claimed.
+

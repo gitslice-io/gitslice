@@ -6,13 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gitslice-io/gitslice/internal/clientcache"
 	"github.com/gitslice-io/gitslice/internal/objectid"
@@ -1610,6 +1613,114 @@ func TestScanWorkspaceFilesIncludesUserDotPaths(t *testing.T) {
 	}
 }
 
+func TestHashWorkspaceFilesUsesBoundedConcurrency(t *testing.T) {
+	paths := []string{"a", "b", "c", "d", "e", "f"}
+	started := make(chan struct{}, len(paths))
+	release := make(chan struct{})
+	var mu sync.Mutex
+	current := 0
+	maximum := 0
+
+	done := make(chan error, 1)
+	go func() {
+		objects, err := hashWorkspaceFiles(context.Background(), paths, 3, func(p string) (clientcache.Object, error) {
+			mu.Lock()
+			current++
+			if current > maximum {
+				maximum = current
+			}
+			mu.Unlock()
+			started <- struct{}{}
+			<-release
+			mu.Lock()
+			current--
+			mu.Unlock()
+			return clientcache.Object{ContentHash: objectid.RawContentHash([]byte(p)), Size: int64(len(p))}, nil
+		})
+		if err == nil && len(objects) != len(paths) {
+			err = fmt.Errorf("hashed object count = %d, want %d", len(objects), len(paths))
+		}
+		done <- err
+	}()
+
+	for i := 0; i < 3; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for hash worker")
+		}
+	}
+	mu.Lock()
+	gotCurrent, gotMaximum := current, maximum
+	mu.Unlock()
+	if gotCurrent != 3 || gotMaximum != 3 {
+		t.Fatalf("hash concurrency current=%d max=%d, want 3", gotCurrent, gotMaximum)
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for hash workers to finish")
+	}
+}
+
+func TestWriteCaptureDiagnosticsReportsPhaseTimingsAndCounts(t *testing.T) {
+	var stderr bytes.Buffer
+	r := Runner{Stderr: &stderr}
+	r.writeCaptureDiagnostics(captureDiagnostics{
+		Result:       "captured",
+		ChangedPaths: 7,
+		Snapshot: snapshotEditsStats{
+			Scan: workspaceScanStats{
+				FileCount:    11,
+				ByteCount:    2048,
+				HashWorkers:  4,
+				WalkDuration: 2 * time.Millisecond,
+				HashDuration: 3 * time.Millisecond,
+			},
+			Blobs: blobAttachStats{
+				RequiredBlobs:  6,
+				AvailableBlobs: 2,
+				UploadedBlobs:  4,
+				UploadedBytes:  1024,
+				UploadWorkers:  4,
+				StatusDuration: time.Millisecond,
+				UploadDuration: 5 * time.Millisecond,
+			},
+			DiffDuration: time.Millisecond,
+		},
+		ChecksDuration: 6 * time.Millisecond,
+		UpdateDuration: 7 * time.Millisecond,
+		TotalDuration:  25 * time.Millisecond,
+	})
+
+	got := stderr.String()
+	for _, want := range []string{
+		"result=captured",
+		"files=11",
+		"hashed_bytes=2048",
+		"changed_paths=7",
+		"unique_blobs=6",
+		"remote_hits=2",
+		"uploaded_blobs=4",
+		"hash_workers=4",
+		"upload_workers=4",
+		"walk=2ms",
+		"hash=3ms",
+		"upload=5ms",
+		"checks=6ms",
+		"update=7ms",
+		"total=25ms",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("diagnostics missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestShouldSkipAgentMetadataOnlyAtWorkspaceRoot(t *testing.T) {
 	tests := []struct {
 		rel  string
@@ -1741,8 +1852,8 @@ func TestAttachBlobIDsReusesServerBlobStatus(t *testing.T) {
 	if err := attachBlobIDs(context.Background(), client, &corev1.SliceRef{Account: "acme", Slice: "payment"}, cache, edits); err != nil {
 		t.Fatal(err)
 	}
-	if client.uploads != 0 {
-		t.Fatalf("expected no uploads, got %d", client.uploads)
+	if uploads, _, _ := client.uploadSnapshot(); uploads != 0 {
+		t.Fatalf("expected no uploads, got %d", uploads)
 	}
 	for _, edit := range edits {
 		if edit.BlobId != "blob_existing" {
@@ -1770,8 +1881,8 @@ func TestAttachBlobIDsUploadsEachMissingHashOnceFromCache(t *testing.T) {
 	if err := attachBlobIDs(context.Background(), client, &corev1.SliceRef{Account: "acme", Slice: "payment"}, cache, edits); err != nil {
 		t.Fatal(err)
 	}
-	if client.uploads != 1 {
-		t.Fatalf("expected one upload, got %d", client.uploads)
+	if uploads, _, _ := client.uploadSnapshot(); uploads != 1 {
+		t.Fatalf("expected one upload, got %d", uploads)
 	}
 	wantBlobID := objectid.BlobID(content)
 	for _, edit := range edits {
@@ -1781,10 +1892,73 @@ func TestAttachBlobIDsUploadsEachMissingHashOnceFromCache(t *testing.T) {
 	}
 }
 
+func TestAttachBlobIDsUploadsMissingHashesConcurrently(t *testing.T) {
+	cache, err := clientcache.New(filepath.Join(t.TempDir(), "cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	edits := make([]*corev1.FileEdit, 0, 6)
+	for i := 0; i < 6; i++ {
+		cached, err := cache.PutBytes([]byte(fmt.Sprintf("content-%d", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		edits = append(edits, &corev1.FileEdit{Op: "upsert", Path: fmt.Sprintf("/acme/payment/%d.txt", i), ContentHash: cached.ContentHash})
+	}
+	client := &fakeBlobClient{
+		status:        map[string]*corev1.BlobRecord{},
+		uploadStarted: make(chan struct{}, len(edits)),
+		uploadRelease: make(chan struct{}),
+	}
+	type attachResult struct {
+		stats blobAttachStats
+		err   error
+	}
+	done := make(chan attachResult, 1)
+	go func() {
+		stats, err := attachBlobIDsWithStats(context.Background(), client, &corev1.SliceRef{Account: "acme", Slice: "payment"}, cache, edits, 3)
+		done <- attachResult{stats: stats, err: err}
+	}()
+
+	for i := 0; i < 3; i++ {
+		select {
+		case <-client.uploadStarted:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for upload worker")
+		}
+	}
+	uploads, current, maximum := client.uploadSnapshot()
+	if uploads != 3 || current != 3 || maximum != 3 {
+		t.Fatalf("upload concurrency uploads=%d current=%d max=%d, want 3", uploads, current, maximum)
+	}
+	close(client.uploadRelease)
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.stats.RequiredBlobs != 6 || result.stats.UploadedBlobs != 6 || result.stats.UploadWorkers != 3 {
+			t.Fatalf("unexpected upload stats: %#v", result.stats)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for uploads to finish")
+	}
+	for _, edit := range edits {
+		if edit.BlobId == "" {
+			t.Fatalf("missing blob id for %s", edit.Path)
+		}
+	}
+}
+
 type fakeBlobClient struct {
 	corev1.BlobServiceClient
-	status  map[string]*corev1.BlobRecord
-	uploads int
+	mu             sync.Mutex
+	status         map[string]*corev1.BlobRecord
+	uploads        int
+	currentUploads int
+	maximumUploads int
+	uploadStarted  chan struct{}
+	uploadRelease  chan struct{}
 }
 
 type fakeStackMoveServer struct {
@@ -2290,6 +2464,8 @@ func pathBaseForTest(p string) string {
 }
 
 func (f *fakeBlobClient) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStatusRequest, opts ...grpc.CallOption) (*corev1.GetBlobStatusResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	out := make([]*corev1.BlobRecord, 0, len(req.ContentHashes))
 	for _, hash := range req.ContentHashes {
 		if record := f.status[hash]; record != nil {
@@ -2302,12 +2478,42 @@ func (f *fakeBlobClient) GetBlobStatus(ctx context.Context, req *corev1.GetBlobS
 }
 
 func (f *fakeBlobClient) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequest, opts ...grpc.CallOption) (*corev1.UploadBlobResponse, error) {
+	f.mu.Lock()
 	f.uploads++
+	f.currentUploads++
+	if f.currentUploads > f.maximumUploads {
+		f.maximumUploads = f.currentUploads
+	}
+	started := f.uploadStarted
+	release := f.uploadRelease
+	f.mu.Unlock()
+	if started != nil {
+		started <- struct{}{}
+	}
+	if release != nil {
+		select {
+		case <-ctx.Done():
+			f.mu.Lock()
+			f.currentUploads--
+			f.mu.Unlock()
+			return nil, ctx.Err()
+		case <-release:
+		}
+	}
+	f.mu.Lock()
+	f.currentUploads--
+	f.mu.Unlock()
 	return &corev1.UploadBlobResponse{
 		BlobId:      objectid.BlobID(req.Data),
 		ContentHash: objectid.RawContentHash(req.Data),
 		Size:        int64(len(req.Data)),
 	}, nil
+}
+
+func (f *fakeBlobClient) uploadSnapshot() (uploads, current, maximum int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.uploads, f.currentUploads, f.maximumUploads
 }
 
 func readSignupApprovalURL(t *testing.T, r io.Reader) string {
