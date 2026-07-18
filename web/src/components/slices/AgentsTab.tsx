@@ -11,7 +11,6 @@ import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 interface AgentsTabProps {
   api: ApiClient;
   conversationId?: string;
-  onBack?: () => void;
   onSelectConversation?: (id: string) => void;
   slice: SliceRef;
 }
@@ -19,7 +18,6 @@ interface AgentsTabProps {
 export function AgentsTab({
   api,
   conversationId,
-  onBack,
   onSelectConversation,
   slice,
 }: AgentsTabProps) {
@@ -68,11 +66,6 @@ export function AgentsTab({
     },
     [onSelectConversation],
   );
-
-  const backToConversations = useCallback(() => {
-    setSelectedConversationId("");
-    onBack?.();
-  }, [onBack]);
 
   // Resolve the lg breakpoint on the client and keep it in sync as the viewport
   // crosses it (resize / rotate). Guarded for SSR and jsdom, where matchMedia
@@ -244,16 +237,7 @@ export function AgentsTab({
   );
 
   const conversationToolbar = (
-    <div className="flex items-center gap-2">
-      <button
-        className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98] lg:hidden"
-        onClick={backToConversations}
-        type="button"
-      >
-        ← Conversations
-      </button>
-      {desktopSidebarToggle}
-    </div>
+    <div className="flex items-center gap-2">{desktopSidebarToggle}</div>
   );
 
   const createError = createMutation.error
