@@ -408,6 +408,7 @@ export function SliceDetailPage() {
               directoryError={directoryQuery.error}
               entry={entry}
               fileContent={decodeBase64File(fileQuery.data?.data)}
+              fileData={fileQuery.data?.data ?? ""}
               fileError={fileQuery.error}
               includedPaths={includedPaths}
               isDirectoryLoading={directoryQuery.isPending}
