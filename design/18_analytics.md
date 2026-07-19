@@ -166,14 +166,14 @@ staging and production** so `agenttools.dev` test traffic does not pollute
    `npm run deploy:staging` / `deploy:production`.
 3. **Server:** set `GITSLICE_POSTHOG_API_KEY` (and optional
    `GITSLICE_POSTHOG_HOST`) on the Cloud Run service; redeploy.
-4. **Reverse proxy (`/ingest/*`):** front PostHog ingestion first-party to dodge
-   adblockers. Options, cheapest first:
-   - a Cloudflare **rule / snippet** on the zone that rewrites
-     `gitslice.io/ingest/*` → the PostHog ingestion host; or
-   - a route handler in the web Worker (nitro) that reverse-proxies `/ingest/*`.
-   Then set `VITE_POSTHOG_HOST` to `https://<domain>/ingest`. This step is not
-   yet implemented in-repo — it needs the account + a chosen approach and its
-   own verification.
+4. **Reverse proxy (`/ingest/*`):** implemented in the web Worker
+   (`web/src/analytics/ingestProxy.ts`, hooked in `web/src/server.ts`). It
+   forwards `/ingest/static/*` → the PostHog assets host and `/ingest/*` → the
+   ingestion host, strips the prefix and app cookies, and caches static assets.
+   To enable it, set `VITE_POSTHOG_HOST=https://<domain>/ingest`. Defaults to the
+   US region; for an EU project set `VITE_POSTHOG_UPSTREAM_HOST=eu.i.posthog.com`
+   and `VITE_POSTHOG_UPSTREAM_ASSETS_HOST=eu-assets.i.posthog.com`. Still needs
+   end-to-end verification against a real PostHog project.
 5. **Verify** on staging (below), then set a per-product **billing limit** in
    PostHog as a backstop.
 

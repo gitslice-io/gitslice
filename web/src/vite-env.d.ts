@@ -7,6 +7,10 @@ interface ImportMetaEnv {
   // Product analytics (optional). Unset ⇒ posthog-js stays a no-op.
   readonly VITE_POSTHOG_KEY?: string;
   readonly VITE_POSTHOG_HOST?: string;
+  // /ingest reverse-proxy upstreams (optional; default to US region hosts).
+  // Override for an EU project: "eu.i.posthog.com" / "eu-assets.i.posthog.com".
+  readonly VITE_POSTHOG_UPSTREAM_HOST?: string;
+  readonly VITE_POSTHOG_UPSTREAM_ASSETS_HOST?: string;
 }
 
 interface ImportMeta {
