@@ -13,7 +13,9 @@ import (
 
 var openMetricsWarningOnce sync.Once
 
-func NewHTTPHandler(api http.Handler, allowedOrigin string, cfgs ...Config) http.Handler {
+// NewHTTPHandler builds the gateway mux. gitHandler is mounted at /git/ (git
+// smart-HTTP) when non-nil; pass nil to disable the git routes.
+func NewHTTPHandler(api http.Handler, gitHandler http.Handler, allowedOrigin string, cfgs ...Config) http.Handler {
 	var cfg Config
 	configured := false
 	if len(cfgs) > 0 {
@@ -29,6 +31,9 @@ func NewHTTPHandler(api http.Handler, allowedOrigin string, cfgs ...Config) http
 		warnOpenMetricsEndpoint()
 	}
 	mux.Handle("/metrics", metricsHandler)
+	if gitHandler != nil {
+		mux.Handle("/git/", gitHandler)
+	}
 
 	apiHandler := withMaxBody(api, rpclimits.MaxUnaryMessageBytes)
 	apiHandler = newHTTPRateLimitMiddleware(cfg)(apiHandler)

@@ -7946,3 +7946,145 @@ gcloud run revisions list --service=gitslice-prod --region=us-west1 --project=un
 gcloud run services describe gitslice-prod --region=us-west1 --project=unified-surfer-486904-i6 --format='json(status.traffic,status.latestReadyRevisionName,spec.template.spec.containers[0].image)'
 curl -sS -D - -o /tmp/preflight_ms_after.out -X OPTIONS 'https://api.gitslice.io/gitslice.core.v1.ChangesetService/SubmitChangeset' -H 'Origin: https://gitslice.io' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,connect-protocol-version,connect-timeout-ms,content-type,x-user-agent'
 ```
+
+## 2026-07-14: Render Images in the Slice Content Detail View
+
+Request: render image files on the slice content detail page, including the
+`apple-touch-icon.png` file linked from the production `slices/home` slice.
+
+Decision: keep `RepositoryService.ReadFile` and its protobuf contract unchanged;
+the response already contains the exact file bytes as base64. The slice detail
+page now carries that binary representation alongside the existing UTF-8 text
+decode and selects a dedicated image preview for allowlisted browser-supported
+extensions (`avif`, `bmp`, `gif`, `ico`, `jpeg`, `jpg`, `png`, `svg`, and
+`webp`). The preview constructs its data URL from a fixed extension-to-MIME map,
+keeps images bounded within the content pane, and reports loading, empty-file,
+and browser decode-error states. Image actions retain rename/delete but omit the
+text editor so binary files cannot be accidentally rewritten from a lossy UTF-8
+decode.
+
+Verification:
+
+```bash
+npm --prefix web test -- src/components/source/ImageViewer.test.tsx src/routes/slice-detail/EditableFileView.test.tsx
+npm --prefix web run build
+npm --prefix web test
+npm --prefix web test -- src/components/slices/AgentConversation.test.tsx
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+Results: the seven focused image/detail tests, web production build, full Go
+suite, and command builds passed. The full web run passed 14 test files and all
+166 tests it launched, then hit Vitest's worker-start timeout before launching
+the existing `AgentConversation.test.tsx`; rerunning that remaining file alone
+passed all 24 tests.
+
+## 2026-07-15: Design Agent Workspace Pre-Upload and Fast Capture
+
+Request: explain how to make end-of-turn agent changeset capture faster and
+write a full design for monitoring conversation workspaces and periodically
+pre-uploading immutable blobs. Obtain an independent opinion from Claude through
+its local CLI.
+
+Decisions:
+
+- keep final workspace reconciliation authoritative and preserve one atomic
+  `UpdateChangeset`; watcher/index state only prepares cache objects and never
+  creates a patchset or ref
+- first instrument and parallelize the existing serial capture path, then test a
+  separately guarded stat/content index, and add continuous watching only if
+  measured finalization latency still justifies it
+- use shared traversal rules, stable reads, generations, periodic
+  reconciliation, bounded daemon-wide scheduling, and a full-capture fallback
+- require staged pre-upload sessions before background transfer becomes a
+  default because today's `UploadBlob` immediately associates content with the
+  slice; speculative blobs must not become ordinarily readable before a
+  patchset references them
+- start remote transfer with known paths and keep all-path transfer opt-in due
+  to transient-file and secret-disclosure risk
+- add pending-finalization recovery, an explicit capture UI phase, and an exact
+  daemon `client_seq` conversation cutoff so a manually stopped daemon can
+  safely resume post-response capture
+- incorporate Claude CLI's review: distinguish pre-hash from pre-upload and
+  rehash avoidance, prioritize simpler concurrency wins, guard stat shortcuts,
+  pause speculative work during in-place checks, and measure descriptor and
+  orphan pressure
+
+Verification:
+
+```bash
+git diff --check -- design/10_execution_log.md
+git diff --no-index --check /dev/null design/18_agent_workspace_preupload.md
+```
+
+The no-index command returned the expected status 1 because the design is a new
+file and emitted no whitespace errors. No implementation or generated files
+changed, so code and build suites were not run.
+
+## 2026-07-15: Implement the First Fast-Capture Step
+
+Request: implement the first recommendation from the agent workspace pre-upload
+design: instrument and parallelize final workspace hashing and missing-blob
+uploads before introducing a watcher or stat cache.
+
+Decisions:
+
+- preserve the authoritative full-content-hash scan; this change does not reuse
+  stat fingerprints or trust cached path metadata
+- separate directory traversal from content hashing and hash files through a
+  bounded worker pool (`2..8`, capped by file count)
+- refactor the existing bounded upload worker into a shared executor and use it
+  for capture cache objects as well as direct filesystem uploads; default upload
+  concurrency remains `4..16`, capped by unique missing hashes
+- retain hash deduplication and batch `GetBlobStatus` requests at 512 hashes, so
+  duplicate edits upload one immutable object and large captures do not create
+  an oversized status request
+- emit one verbose capture diagnostic summary with file/blob/byte counts and
+  walk, hash, diff, status, upload, check, update, and total timings
+- make agent capture enable verbose diagnostics automatically, tee them to the
+  daemon's stderr, and filter them from conversation error text
+- add barrier-based tests that prove hashing and uploads reach, but do not
+  exceed, their configured concurrency; run the full CLI package under the Go
+  race detector
+
+Verification:
+
+```bash
+go test ./internal/cli -count=1
+go test -race ./internal/cli -count=1
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All listed local gates passed. The preferred real-PostgreSQL CLI/RPC gate was
+not available: `env.local` is absent and `pg_isready` reported no response from
+the local PostgreSQL socket. No database e2e result is claimed.
+
+## 2026-07-17: Fix Web History Limit Serialization
+
+Request: fix the slice history drawer failure reporting that
+`ListCommitsRequest.limit` expected an `int32` number but received `50n`.
+
+Decision: stop treating every request field named `limit` as protobuf `int64`.
+Repository and changeset list limits are `int32` and must remain JavaScript
+numbers; only `GetConversationEventsRequest.limit` is `int64`, so that endpoint
+now opts into the bigint conversion explicitly. The regression coverage checks
+the serialized Connect JSON for both integer widths, including the changeset
+request made alongside commit history.
+
+Verification:
+
+```bash
+npm --prefix web test -- --run src/api/client.test.ts
+npm --prefix web run build
+npm --prefix web test
+go test ./...
+go build ./cmd/...
+git diff --check
+```
+
+All focused and repository gates passed. The full web suite passed 16 test files
+and 192 tests.

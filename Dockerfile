@@ -24,8 +24,23 @@ ENV CGO_ENABLED=0 GOOS=linux
 RUN go build -trimpath -ldflags="-s -w" -o /out/gitslice-server ./cmd/gitslice-server
 
 # ----- runtime stage -----
-FROM gcr.io/distroless/static-debian12:nonroot
+# The git smart-HTTP handler shells out to `git` and `git http-backend` (see
+# internal/gitcompat), so the runtime image needs a real git install. Distroless
+# ships no git, so use a minimal Debian base with git + ca-certificates (the
+# latter is needed for TLS to Neon, R2, and Clerk).
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/gitslice-server /usr/local/bin/gitslice-server
+
+# Run unprivileged, mirroring the previous distroless :nonroot uid/gid (65532).
+# HOME must be a writable dir so git has somewhere to resolve config; the git
+# cache root also defaults under $TMPDIR (/tmp).
+RUN groupadd --gid 65532 nonroot \
+ && useradd --uid 65532 --gid 65532 --home-dir /home/nonroot --create-home --shell /usr/sbin/nologin nonroot
+USER 65532:65532
+ENV HOME=/home/nonroot
 
 # Documented default; deploy/cloudrun.sh sets the real value. Cloud Run injects
 # PORT=8080 by default and routes to the --port we configure (also 8080).

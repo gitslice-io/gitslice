@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -165,7 +166,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 }
 
 func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOptions, name, runtimeName string, reportOnline bool) error {
-	conn, err := dial(ctx, d.cfg.ServerAddr)
+	conn, err := dialAgentStream(ctx, d.cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -754,7 +755,7 @@ func (d *agentDaemon) capturePatchset(ctx context.Context, conv *agentConversati
 	if title == "" {
 		title = "agent: " + conv.id
 	}
-	out, err := d.runWorkspaceGS(ctx, conv, "cs", "capture", "--title", title)
+	out, err := d.runWorkspaceGS(ctx, conv, "cs", "capture", "--title", title, "--verbose")
 	if err != nil {
 		text := "patchset capture failed"
 		if out != "" {
@@ -789,8 +790,35 @@ func (d *agentDaemon) runWorkspaceGS(ctx context.Context, conv *agentConversatio
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Dir = conv.workdir
 	cmd.Env = agentWorkspaceInitEnv(d.runner, d.cfg)
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = io.MultiWriter(&stderr, d.runner.stderr())
+	err = cmd.Run()
+	if err != nil {
+		out := strings.TrimSpace(stdout.String())
+		errOut := workspaceGSUserError(stderr.String())
+		if out == "" {
+			return errOut, err
+		}
+		if errOut == "" {
+			return out, err
+		}
+		return out + "\n" + errOut, err
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+func workspaceGSUserError(stderr string) string {
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "capture diagnostics:") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
 func (d *agentDaemon) handleCancelConversation(cancel *corev1.CancelConversation) {

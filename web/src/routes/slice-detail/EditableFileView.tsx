@@ -9,6 +9,10 @@ import {
   type PendingEdit
 } from "../../components/source/SliceEditing";
 import { ActionMenu } from "../../components/source/ActionMenu";
+import {
+  ImageViewer,
+  imageMimeTypeFromPath
+} from "../../components/source/ImageViewer";
 import { SourceCodeViewer } from "../../components/source/SourceCodeViewer";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import { canModifyPath, joinRepositoryPath } from "./DirectoryHeader";
@@ -19,6 +23,7 @@ const TOP_LEVEL_SLICE_FOLDER_TITLE =
 interface EditableFileViewProps {
   commitId: string;
   fileContent: string;
+  fileData: string;
   includedPaths: string[];
   onOpenHistory(): void;
   onStageEdit?: (edit: PendingEdit) => void;
@@ -29,6 +34,7 @@ interface EditableFileViewProps {
 export function EditableFileView({
   commitId,
   fileContent,
+  fileData,
   includedPaths,
   onOpenHistory,
   onStageEdit,
@@ -37,6 +43,7 @@ export function EditableFileView({
 }: EditableFileViewProps) {
   const pendingWrite = pendingWriteForPath(pendingEdits, selectedPath);
   const displayedContent = pendingWrite?.content ?? fileContent;
+  const isImage = Boolean(imageMimeTypeFromPath(selectedPath));
   const [isEditing, setIsEditing] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [draft, setDraft] = useState(displayedContent);
@@ -113,13 +120,17 @@ export function EditableFileView({
               {onStageEdit ? (
                 <ActionMenu
                   items={[
-                    {
-                      label: "Edit",
-                      onSelect: () => {
-                        setDraft(displayedContent);
-                        setIsEditing(true);
-                      }
-                    },
+                    ...(isImage
+                      ? []
+                      : [
+                          {
+                            label: "Edit",
+                            onSelect: () => {
+                              setDraft(displayedContent);
+                              setIsEditing(true);
+                            }
+                          }
+                        ]),
                     {
                       label: "Rename",
                       disabled: !canModifySelectedPath,
@@ -190,7 +201,11 @@ export function EditableFileView({
         ) : null}
       </SlicePanel>
       {!isEditing ? (
-        <SourceCodeViewer code={displayedContent} fill path={selectedPath} />
+        isImage ? (
+          <ImageViewer data={fileData} path={selectedPath} />
+        ) : (
+          <SourceCodeViewer code={displayedContent} fill path={selectedPath} />
+        )
       ) : null}
     </div>
   );

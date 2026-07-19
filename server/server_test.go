@@ -149,7 +149,7 @@ func TestConnectHTTPHandlerServesAPI(t *testing.T) {
 		}
 		return "", storage.ErrUnauthenticated
 	}
-	httpServer := httptest.NewServer(NewHTTPHandler(NewConnectHandler(resolve, handlers), "http://web.test"))
+	httpServer := httptest.NewServer(NewHTTPHandler(NewConnectHandler(resolve, handlers), nil, "http://web.test"))
 	t.Cleanup(httpServer.Close)
 
 	client := corev1connect.NewSliceServiceClient(httpServer.Client(), httpServer.URL)

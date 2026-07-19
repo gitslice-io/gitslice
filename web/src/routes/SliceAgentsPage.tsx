@@ -60,7 +60,13 @@ export function SliceAgentsPage() {
           params: sliceRouteParams,
         }
       : { label: sliceLabel },
-    { label: "Conversations" },
+    sliceRouteParams
+      ? {
+          label: "Conversations",
+          to: "/slices/$account/$slice/agents",
+          params: sliceRouteParams,
+        }
+      : { label: "Conversations" },
   ];
   if (conversationId) {
     const conversationTitle = conversationQuery.data?.title?.trim();
@@ -81,14 +87,6 @@ export function SliceAgentsPage() {
     },
     [navigate, routeAccount, routeSlice],
   );
-
-  const onBackToConversations = useCallback(() => {
-    void navigate({
-      to: "/slices/$account/$slice/agents",
-      params: { account: routeAccount, slice: routeSlice },
-      replace: true,
-    });
-  }, [navigate, routeAccount, routeSlice]);
 
   const breadcrumb = <Breadcrumb items={breadcrumbItems} />;
 
@@ -113,7 +111,6 @@ export function SliceAgentsPage() {
         <AgentsTab
           api={api}
           conversationId={conversationId}
-          onBack={onBackToConversations}
           onSelectConversation={onSelectConversation}
           slice={sliceRef}
         />

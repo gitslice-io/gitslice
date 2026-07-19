@@ -125,9 +125,11 @@ func ciCheckDetails(result WorkspaceCheckResult) string {
 	} else if result.SetupMs > 0 {
 		parts = append(parts, "setup "+formatCheckDuration(result.SetupMs))
 	}
-	if result.RunMs > 0 || len(parts) > 0 {
-		parts = append(parts, "run "+formatCheckDuration(result.RunMs))
-	}
+	// A result reaching here past the "skipped" early return has actually
+	// executed, so always report the run duration. Gating on RunMs > 0 dropped
+	// the timing for sub-millisecond checks (RunMs rounds to 0), which made the
+	// summary nondeterministic on fast machines.
+	parts = append(parts, "run "+formatCheckDuration(result.RunMs))
 	if summary := strings.TrimSpace(result.Summary); summary != "" && summary != "exit 0" {
 		parts = append(parts, summary)
 	}
@@ -136,7 +138,7 @@ func ciCheckDetails(result WorkspaceCheckResult) string {
 
 func formatCheckDuration(ms int64) string {
 	if ms <= 0 {
-		return "0s"
+		return "0ms"
 	}
 	if ms < 1000 {
 		return fmt.Sprintf("%dms", ms)

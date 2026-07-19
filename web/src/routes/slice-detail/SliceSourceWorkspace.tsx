@@ -15,6 +15,7 @@ interface SliceSourceWorkspaceProps {
   directoryError: Error | null;
   entry: TreeEntry | undefined;
   fileContent: string;
+  fileData: string;
   fileError: Error | null;
   includedPaths: string[];
   isDirectoryLoading: boolean;
@@ -38,6 +39,7 @@ export function SliceSourceWorkspace({
   directoryError,
   entry,
   fileContent,
+  fileData,
   fileError,
   includedPaths,
   isDirectoryLoading,
@@ -141,6 +143,7 @@ export function SliceSourceWorkspace({
       <EditableFileView
         commitId={commitId}
         fileContent={fileContent}
+        fileData={fileData}
         includedPaths={includedPaths}
         onOpenHistory={onOpenHistory}
         onStageEdit={onStageEdit}

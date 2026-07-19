@@ -41,6 +41,7 @@ import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
 import { pathSearchValue, buildGitCloneHint } from "./slice-detail/sourceTree";
+import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
@@ -79,6 +80,7 @@ export function SliceDetailPage() {
   // of navigating away from the slice page entirely.
   const historyOpen = Boolean(search.history);
   const [showTree, setShowTree] = useState(true);
+  const gitCloneOrigin = useGitCloneOrigin();
   const canEdit = Boolean(isLoaded && isSignedIn && account);
 
   const sliceQuery = useQuery({
@@ -288,7 +290,11 @@ export function SliceDetailPage() {
   }
 
   const includedPaths = slice.definition?.includedPaths ?? [];
-  const gitCloneHint = buildGitCloneHint(slice.ref?.account, slice.ref?.slice);
+  const gitCloneHint = buildGitCloneHint(
+    slice.ref?.account,
+    slice.ref?.slice,
+    gitCloneOrigin
+  );
   const currentEntries = directoryQuery.data ?? [];
   const projectedRoots = includedPaths
     .map((includedPath) => includedPath.replace(/^\/+|\/+$/g, ""))
@@ -414,6 +420,7 @@ export function SliceDetailPage() {
               directoryError={directoryQuery.error}
               entry={entry}
               fileContent={decodeBase64File(fileQuery.data?.data)}
+              fileData={fileQuery.data?.data ?? ""}
               fileError={fileQuery.error}
               includedPaths={includedPaths}
               isDirectoryLoading={directoryQuery.isPending}

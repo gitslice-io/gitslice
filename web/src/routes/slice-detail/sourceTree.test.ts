@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildSourceTree,
@@ -12,6 +12,7 @@ import {
   compareRepositoryPaths,
   pathSearchValue,
   initialTreeExpansion,
+  buildGitCloneHint,
   type DirectoryLoadResult
 } from "./sourceTree";
 
@@ -400,5 +401,36 @@ describe("initialTreeExpansion", () => {
     expect(expanded).toContain("/foo");
     expect(expanded).toContain("/foo/bar");
     expect(expanded).toContain("/baz");
+  });
+});
+
+describe("buildGitCloneHint", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("prefers the supplied origin over the configured base", () => {
+    vi.stubEnv("VITE_GITSLICE_GIT_HTTP_BASE_URL", "https://api.gitslice.io");
+    const hint = buildGitCloneHint("slices", "home", "https://gitslice.io");
+    expect(hint.configured).toBe(true);
+    expect(hint.url).toBe("https://gitslice.io/git/slices/home.git");
+  });
+
+  it("trims a trailing slash from the origin", () => {
+    const hint = buildGitCloneHint("slices", "home", "https://gitslice.io/");
+    expect(hint.url).toBe("https://gitslice.io/git/slices/home.git");
+  });
+
+  it("falls back to the configured base when no origin is given", () => {
+    vi.stubEnv("VITE_GITSLICE_GIT_HTTP_BASE_URL", "http://localhost:8081");
+    const hint = buildGitCloneHint("slices", "home");
+    expect(hint.url).toBe("http://localhost:8081/git/slices/home.git");
+  });
+
+  it("reports not configured and uses a placeholder when nothing is set", () => {
+    vi.stubEnv("VITE_GITSLICE_GIT_HTTP_BASE_URL", "");
+    const hint = buildGitCloneHint("slices", "home");
+    expect(hint.configured).toBe(false);
+    expect(hint.url).toBe("http://<git-http-host>/git/slices/home.git");
   });
 });
