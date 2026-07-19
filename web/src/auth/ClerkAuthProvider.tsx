@@ -1,5 +1,7 @@
-import { ClerkProvider } from "@clerk/tanstack-react-start";
-import type { ReactNode } from "react";
+import { ClerkProvider, useAuth } from "@clerk/tanstack-react-start";
+import { useEffect, useRef, type ReactNode } from "react";
+
+import { aliasUser, identifyUser, resetUser } from "../analytics/posthog";
 
 interface ClerkAuthProviderProps {
   children: ReactNode;
@@ -41,7 +43,37 @@ export function ClerkAuthProvider({ children }: ClerkAuthProviderProps) {
       }}
       publishableKey={publishableKey}
     >
+      <ClerkAnalyticsIdentity />
       {children}
     </ClerkProvider>
   );
+}
+
+function ClerkAnalyticsIdentity() {
+  const { isLoaded, isSignedIn, userId } = useAuth();
+  const identifiedUserId = useRef<string | undefined>();
+
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+
+    if (isSignedIn && userId) {
+      if (identifiedUserId.current === userId) {
+        return;
+      }
+
+      identifyUser(userId);
+      aliasUser(userId);
+      identifiedUserId.current = userId;
+      return;
+    }
+
+    if (identifiedUserId.current) {
+      resetUser();
+      identifiedUserId.current = undefined;
+    }
+  }, [isLoaded, isSignedIn, userId]);
+
+  return null;
 }
