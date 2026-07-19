@@ -110,14 +110,27 @@ type Client interface {
 | `$pageview` | web | route path |
 | `slice_viewed` | web | slice id |
 | `slice_created` | **server** | slice id |
-| `changeset_submitted` | **server** | changeset id, slice id |
-| `changeset_merged` | **server** | changeset id, slice id |
+| `changeset_submitted` | **server** | changeset id |
 | `patchset_pushed` | **server** | changeset id, patchset id |
-| `auth_login` | **server** | method |
 | `cli_login_completed` | **server** | — |
+| `changeset_merged` | **server** _(deferred)_ | changeset id |
+| `auth_login` | **server** _(deferred)_ | method |
 
 Names and prop keys are declared once in Go (`internal/analytics/events.go`)
 and mirrored in `web/src/analytics/events.ts`.
+
+**Implementation notes (v1 as shipped):**
+
+- Emission is **service-layer only** — the coarse gRPC interceptor described
+  above is deferred; each event is emitted at the point its operation succeeds,
+  guarded by a real `authctx.SubjectID`. This avoids double-counting and
+  allowlist upkeep. The interceptor can be added later if broad coverage is
+  wanted.
+- `changeset_merged` is **deferred**: merge completion happens in the
+  publish/storage flow, not a clean service-layer method. `auth_login` is
+  **deferred**: web login has no distinct server-side completion signal in the
+  current auth methods (`ChooseUsername` is idempotent onboarding). Both remain
+  in the taxonomy for when a correct home exists.
 
 ## Ingestion / anti-adblock
 
@@ -131,7 +144,11 @@ first-party path.
 | Surface | Var | Where |
 |---|---|---|
 | Web | `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | `web/wrangler.jsonc` per-env `vars` |
-| Server | `POSTHOG_API_KEY`, `POSTHOG_HOST` | Cloud Run env |
+| Server | `GITSLICE_POSTHOG_API_KEY`, `GITSLICE_POSTHOG_HOST` | Cloud Run env |
+
+Server config is wired (`server/config.go`); unset key ⇒ no-op client. The web
+`wrangler.jsonc` vars and the Cloudflare `/ingest/*` reverse-proxy route are the
+remaining deploy-config steps (they need the PostHog account + project keys).
 
 Unset key ⇒ no-op client. Use **separate PostHog projects for staging and
 production** so `agenttools.dev` test traffic does not pollute `gitslice.io`
