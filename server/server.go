@@ -92,10 +92,10 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	objectStore = cache.New(objectStore, cfg.ObjectCacheBytes, 4<<20)
-	tracker, err := analytics.New(cfg.PostHogAPIKey, cfg.PostHogHost)
+	tracker, err := analytics.New(cfg.PostHogAPIKey, cfg.PostHogHost, cfg.PostHogEnvironment)
 	if err != nil {
 		slog.Warn("failed to initialize analytics; using no-op client", "error", err)
-		tracker, err = analytics.New("", "")
+		tracker, err = analytics.New("", "", "")
 		if err != nil {
 			slog.Warn("failed to initialize no-op analytics client", "error", err)
 		}

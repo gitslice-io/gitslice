@@ -50,6 +50,7 @@ type Config struct {
 	RequireMetricsToken      bool
 	PostHogAPIKey            string
 	PostHogHost              string
+	PostHogEnvironment       string
 }
 
 func ConfigFromEnv() Config {
@@ -94,6 +95,7 @@ func ConfigFromEnv() Config {
 		RequireMetricsToken:      os.Getenv("GITSLICE_REQUIRE_METRICS_TOKEN") == "1",
 		PostHogAPIKey:            os.Getenv("GITSLICE_POSTHOG_API_KEY"),
 		PostHogHost:              os.Getenv("GITSLICE_POSTHOG_HOST"),
+		PostHogEnvironment:       os.Getenv("GITSLICE_POSTHOG_ENV"),
 	}
 }
 

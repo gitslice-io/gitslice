@@ -19,6 +19,9 @@ export type AnalyticsUserProperties = Record<
 const env = import.meta.env as Record<string, string | undefined>;
 const posthogKey = env.VITE_POSTHOG_KEY;
 const posthogHost = env.VITE_POSTHOG_HOST;
+// Deployment environment, set per build by deploy.sh (staging|production);
+// defaults to "development" for local builds.
+const posthogEnvironment = env.VITE_POSTHOG_ENV || "development";
 
 let posthogModulePromise: Promise<PostHogModule> | undefined;
 let initialized = false;
@@ -56,6 +59,9 @@ async function loadPostHog(): Promise<PostHogClient | undefined> {
       }
 
       posthog.init(key, config);
+      // Attach the environment to every event (including $pageview) so one
+      // PostHog project can serve staging and production.
+      posthog.register({ [AnalyticsProps.environment]: posthogEnvironment });
       initialized = true;
     }
 

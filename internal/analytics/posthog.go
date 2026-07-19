@@ -7,10 +7,11 @@ import (
 )
 
 type postHogClient struct {
-	client posthog.Client
+	client      posthog.Client
+	environment string
 }
 
-func newPostHogClient(apiKey, host string) (Client, error) {
+func newPostHogClient(apiKey, host, environment string) (Client, error) {
 	config := posthog.Config{}
 	if host != "" {
 		config.Endpoint = host
@@ -19,17 +20,21 @@ func newPostHogClient(apiKey, host string) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &postHogClient{client: client}, nil
+	return &postHogClient{client: client, environment: environment}, nil
 }
 
 func (c *postHogClient) Capture(ctx context.Context, e Event) {
 	if c == nil || c.client == nil {
 		return
 	}
+	props := e.Props
+	if c.environment != "" {
+		props = withEnvironment(props, c.environment)
+	}
 	_ = posthog.EnqueueWithContext(ctx, c.client, posthog.Capture{
 		DistinctId: e.DistinctID,
 		Event:      e.Name,
-		Properties: postHogProperties(e.Props),
+		Properties: postHogProperties(props),
 	})
 }
 
@@ -59,4 +64,15 @@ func postHogProperties(props map[string]any) posthog.Properties {
 		converted[key] = value
 	}
 	return converted
+}
+
+// withEnvironment returns a copy of props with the environment property set,
+// without mutating the caller's map. An explicit environment on the event wins.
+func withEnvironment(props map[string]any, environment string) map[string]any {
+	merged := make(map[string]any, len(props)+1)
+	merged[PropEnvironment] = environment
+	for key, value := range props {
+		merged[key] = value
+	}
+	return merged
 }

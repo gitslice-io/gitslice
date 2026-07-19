@@ -125,7 +125,7 @@ func TestConnectHTTPHandlerServesAPI(t *testing.T) {
 	mem := memory.New()
 	mem.AddAccount("user_alice", "acme")
 	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "payment"}, []string{"/acme/payment"}, "private")
-	tracker, err := analytics.New("", "")
+	tracker, err := analytics.New("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

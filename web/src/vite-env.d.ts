@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   // Product analytics (optional). Unset ⇒ posthog-js stays a no-op.
   readonly VITE_POSTHOG_KEY?: string;
   readonly VITE_POSTHOG_HOST?: string;
+  // Deployment environment tag; set per build by deploy.sh (staging|production).
+  readonly VITE_POSTHOG_ENV?: string;
   // /ingest reverse-proxy upstreams (optional; default to US region hosts).
   // Override for an EU project: "eu.i.posthog.com" / "eu-assets.i.posthog.com".
   readonly VITE_POSTHOG_UPSTREAM_HOST?: string;

@@ -13,4 +13,7 @@ export const AnalyticsProps = {
   changesetId: "changeset_id",
   patchsetId: "patchset_id",
   method: "method",
+  // Deployment environment ("production" / "staging"), registered as a super
+  // property so it rides on every event. Mirrors the server's PropEnvironment.
+  environment: "environment",
 } as const;

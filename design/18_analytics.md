@@ -144,11 +144,22 @@ first-party path.
 | Surface | Var | Kind | Where it is set |
 |---|---|---|---|
 | Web | `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | **build-time** (embedded by Vite) | `../.env.staging` / `../.env.prod`, sourced by `web/scripts/deploy.sh` |
+| Web | `VITE_POSTHOG_ENV` | build-time | auto-set by `deploy.sh` from the deploy target; rarely set by hand |
 | Server | `GITSLICE_POSTHOG_API_KEY`, `GITSLICE_POSTHOG_HOST` | runtime | Cloud Run service env |
+| Server | `GITSLICE_POSTHOG_ENV` | runtime | Cloud Run service env (`production` / `staging`) |
 
-Unset key ⇒ no-op client on both surfaces. Use **separate PostHog projects for
-staging and production** so `agenttools.dev` test traffic does not pollute
-`gitslice.io` analytics.
+Unset key ⇒ no-op client on both surfaces.
+
+**One project, tagged by environment.** We use a **single PostHog project** for
+all environments and stamp every event with an `environment` property
+(`production` / `staging` / `development`) so they can be split in analysis. The
+web registers it as a super property (rides on every event, `$pageview`
+included); the server injects it into every captured event's properties. The
+env value is derived automatically — `deploy.sh` sets `VITE_POSTHOG_ENV` from the
+deploy target, and the server reads `GITSLICE_POSTHOG_ENV` from its Cloud Run
+service — so there is nothing per-event to remember. Filter or break down by
+`environment` in PostHog to isolate `agenttools.dev` (staging) from
+`gitslice.io` (production).
 
 > **Important:** the web vars are `VITE_*` build-time values baked in during
 > `vite build` — they do **not** go in `wrangler.jsonc` (whose `vars` are
@@ -164,8 +175,9 @@ staging and production** so `agenttools.dev` test traffic does not pollute
 2. **Web:** add `VITE_POSTHOG_KEY` (and `VITE_POSTHOG_HOST` = the `/ingest`
    proxy URL) to `../.env.staging` / `../.env.prod`. Redeploy via
    `npm run deploy:staging` / `deploy:production`.
-3. **Server:** set `GITSLICE_POSTHOG_API_KEY` (and optional
-   `GITSLICE_POSTHOG_HOST`) on the Cloud Run service; redeploy.
+3. **Server:** set `GITSLICE_POSTHOG_API_KEY`, `GITSLICE_POSTHOG_ENV`
+   (`production` / `staging`), and optional `GITSLICE_POSTHOG_HOST` on the Cloud
+   Run service; redeploy.
 4. **Reverse proxy (`/ingest/*`):** implemented in the web Worker
    (`web/src/analytics/ingestProxy.ts`, hooked in `web/src/server.ts`). It
    forwards `/ingest/static/*` → the PostHog assets host and `/ingest/*` → the

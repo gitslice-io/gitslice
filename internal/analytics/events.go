@@ -15,4 +15,8 @@ const (
 	PropChangesetID = "changeset_id"
 	PropPatchsetID  = "patchset_id"
 	PropMethod      = "method"
+	// PropEnvironment tags every event with its deployment environment
+	// (e.g. "production" / "staging") so a single PostHog project can serve
+	// multiple environments. Injected by the client, not per call site.
+	PropEnvironment = "environment"
 )

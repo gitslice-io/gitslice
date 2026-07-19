@@ -15,10 +15,12 @@ type Client interface {
 }
 
 // New returns a PostHog-backed client when apiKey is non-empty, otherwise a
-// no-op client. host may be empty (SDK default endpoint is used).
-func New(apiKey, host string) (Client, error) {
+// no-op client. host may be empty (SDK default endpoint is used). environment,
+// when non-empty, is attached to every captured event as the "environment"
+// property so one PostHog project can serve staging and production.
+func New(apiKey, host, environment string) (Client, error) {
 	if apiKey == "" {
 		return noopClient{}, nil
 	}
-	return newPostHogClient(apiKey, host)
+	return newPostHogClient(apiKey, host, environment)
 }
