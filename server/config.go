@@ -48,6 +48,9 @@ type Config struct {
 	RateLimitHTTPPerIPBurst  int
 	MetricsToken             string
 	RequireMetricsToken      bool
+	PostHogAPIKey            string
+	PostHogHost              string
+	PostHogEnvironment       string
 }
 
 func ConfigFromEnv() Config {
@@ -90,6 +93,9 @@ func ConfigFromEnv() Config {
 		RateLimitHTTPPerIPBurst:  intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_BURST"), 60),
 		MetricsToken:             os.Getenv("GITSLICE_METRICS_TOKEN"),
 		RequireMetricsToken:      os.Getenv("GITSLICE_REQUIRE_METRICS_TOKEN") == "1",
+		PostHogAPIKey:            os.Getenv("GITSLICE_POSTHOG_API_KEY"),
+		PostHogHost:              os.Getenv("GITSLICE_POSTHOG_HOST"),
+		PostHogEnvironment:       os.Getenv("GITSLICE_POSTHOG_ENV"),
 	}
 }
 

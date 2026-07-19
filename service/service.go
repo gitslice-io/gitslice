@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 
+	"github.com/gitslice-io/gitslice/internal/analytics"
+	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/storage"
 )
 
@@ -35,7 +37,7 @@ type Stores struct {
 	Checks     storage.CheckStore
 }
 
-func New(stores Stores, objectStore ObjectStore) *Handlers {
+func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Client) *Handlers {
 	validator := diffValidator{
 		Blobs:      stores.Blobs,
 		Repository: stores.Repository,
@@ -52,7 +54,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 		hub:         hub,
 	}
 	return &Handlers{
-		Auth: &AuthService{Auth: stores.Auth},
+		Auth: &AuthService{Auth: stores.Auth, Analytics: analyticsClient},
 		Repository: &RepositoryService{
 			Auth:        stores.Auth,
 			Blobs:       stores.Blobs,
@@ -67,6 +69,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			Auth:       stores.Auth,
 			Repository: stores.Repository,
 			Slices:     stores.Slices,
+			Analytics:  analyticsClient,
 		},
 		Workspace: &WorkspaceService{
 			Auth:        stores.Auth,
@@ -84,6 +87,7 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			Agents:      stores.Agents,
 			Checks:      stores.Checks,
 			ObjectStore: objectStore,
+			Analytics:   analyticsClient,
 			validator:   validator,
 			dispatcher:  checkDispatcher,
 		},
@@ -117,4 +121,19 @@ func New(stores Stores, objectStore ObjectStore) *Handlers {
 			dispatcher: checkDispatcher,
 		},
 	}
+}
+
+func captureAnalytics(ctx context.Context, tracker analytics.Client, eventName string, props map[string]any) {
+	if tracker == nil {
+		return
+	}
+	subjectID, ok := authctx.SubjectID(ctx)
+	if !ok || subjectID == "" {
+		return
+	}
+	tracker.Capture(ctx, analytics.Event{
+		Name:       eventName,
+		DistinctID: subjectID,
+		Props:      props,
+	})
 }

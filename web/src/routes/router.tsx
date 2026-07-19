@@ -18,6 +18,7 @@ import { useAuth } from "@clerk/tanstack-react-start";
 import type { ReactNode } from "react";
 
 import appCss from "../index.css?url";
+import { PostHogProvider } from "../analytics/PostHogProvider";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
@@ -97,6 +98,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
       </head>
       <body>
+        <PostHogProvider />
         <ClerkAuthProvider>
           <QueryClientProvider client={queryClient}>
             <HydrationBoundary state={getDehydratedQueryState()}>

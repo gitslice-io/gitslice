@@ -1760,7 +1760,7 @@ func newMemoryHandlers() (*memory.Stores, *Handlers) {
 		Slices:     mem.Slices,
 		Agents:     mem.Agents,
 		Checks:     mem.Checks,
-	}, mem.Objects)
+	}, mem.Objects, nil)
 	return mem, handlers
 }
 

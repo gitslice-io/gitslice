@@ -33,6 +33,9 @@ set +a
 
 export VITE_API_BASE_URL="${VITE_API_BASE_URL:-${PUBLIC_API_BASE_URL:-}}"
 export VITE_GITSLICE_GIT_HTTP_BASE_URL="${VITE_GITSLICE_GIT_HTTP_BASE_URL:-${PUBLIC_GITSLICE_GIT_HTTP_BASE_URL:-}}"
+# Tag analytics events with the deploy target (staging|production) unless the
+# env file already pins VITE_POSTHOG_ENV explicitly.
+export VITE_POSTHOG_ENV="${VITE_POSTHOG_ENV:-$ENV}"
 
 if [[ -z "${VITE_CLERK_PUBLISHABLE_KEY:-}" ]]; then
   echo "VITE_CLERK_PUBLISHABLE_KEY is required in $ENV_FILE" >&2

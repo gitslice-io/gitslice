@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/gitslice-io/gitslice/internal/analytics"
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
@@ -12,7 +13,8 @@ import (
 )
 
 type AuthService struct {
-	Auth storage.AuthStore
+	Auth      storage.AuthStore
+	Analytics analytics.Client
 }
 
 func (s *AuthService) StartCliLogin(ctx context.Context, req *corev1.StartCliLoginRequest) (*corev1.StartCliLoginResponse, error) {
@@ -47,6 +49,7 @@ func (s *AuthService) CompleteCliLogin(ctx context.Context, req *corev1.Complete
 	if err := s.Auth.CompleteCliLogin(ctx, req.Code, subjectID); err != nil {
 		return nil, grpcError(err)
 	}
+	captureAnalytics(ctx, s.Analytics, analytics.EventCLILoginCompleted, nil)
 	return &corev1.CompleteCliLoginResponse{SubjectId: subjectID}, nil
 }
 

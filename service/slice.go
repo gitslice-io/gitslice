@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/analytics"
 	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
@@ -16,6 +17,7 @@ type SliceService struct {
 	Auth       storage.AuthStore
 	Repository storage.RepositoryStore
 	Slices     storage.SliceStore
+	Analytics  analytics.Client
 }
 
 func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceRequest) (*corev1.Slice, error) {
@@ -40,6 +42,11 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 	slice, err := s.Slices.Create(ctx, subjectID, ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if slice != nil {
+		captureAnalytics(ctx, s.Analytics, analytics.EventSliceCreated, map[string]any{
+			analytics.PropSliceID: slice.Id,
+		})
 	}
 	return slice, nil
 }
