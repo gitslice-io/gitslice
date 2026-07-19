@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gitslice-io/gitslice/internal/analytics"
 	"github.com/gitslice-io/gitslice/internal/auth/clerk"
 	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
 	"github.com/gitslice-io/gitslice/internal/authctx"
@@ -91,6 +92,22 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	objectStore = cache.New(objectStore, cfg.ObjectCacheBytes, 4<<20)
+	tracker, err := analytics.New(cfg.PostHogAPIKey, cfg.PostHogHost)
+	if err != nil {
+		slog.Warn("failed to initialize analytics; using no-op client", "error", err)
+		tracker, err = analytics.New("", "")
+		if err != nil {
+			slog.Warn("failed to initialize no-op analytics client", "error", err)
+		}
+	}
+	defer func() {
+		if tracker == nil {
+			return
+		}
+		if err := tracker.Close(); err != nil {
+			slog.Warn("failed to close analytics client", "error", err)
+		}
+	}()
 	resolveSubject, err := newSubjectResolver(db.Auth(), cfg)
 	if err != nil {
 		return err
@@ -128,7 +145,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Agents:     db.Agents(),
 		Checks:     db.Checks(),
 	}
-	handlers := service.New(stores, objectStore)
+	handlers := service.New(stores, objectStore, tracker)
 	if handlers.Agent != nil {
 		go handlers.Agent.RunCheckDispatchSweep(ctx)
 	}

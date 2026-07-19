@@ -31,7 +31,7 @@ func TestBlobAccessIsScopedToSliceWithPathHeadFallback(t *testing.T) {
 		Slices:     mem.Slices,
 		Agents:     mem.Agents,
 		Checks:     mem.Checks,
-	}, mem.Objects)
+	}, mem.Objects, nil)
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	data := []byte("slice-owned blob\n")
 	uploaded, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Slice: uploaderRef, Data: data})

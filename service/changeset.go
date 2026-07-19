@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gitslice-io/gitslice/internal/analytics"
 	"github.com/gitslice-io/gitslice/internal/authz"
 	"github.com/gitslice-io/gitslice/internal/diffutil"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
@@ -30,6 +31,7 @@ type ChangesetService struct {
 	Agents      storage.AgentStore
 	Checks      storage.CheckStore
 	ObjectStore ObjectStore
+	Analytics   analytics.Client
 	validator   diffValidator
 	dispatcher  *checkDispatcher
 }
@@ -244,7 +246,8 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if priorPatchsetID == "" || patchset.Id != priorPatchsetID {
+	createdPatchset := priorPatchsetID == "" || patchset.Id != priorPatchsetID
+	if createdPatchset {
 		s.recordBundledCheckRuns(ctx, cs.Id, patchset.Id, req.BundledCheckRuns)
 		if s.dispatcher != nil {
 			s.dispatcher.cancelOpenCheckRunsBeforePatchset(ctx, cs.Id, patchset.Id)
@@ -259,6 +262,12 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		if username := usernames[patchset.Author]; username != "" {
 			patchset.Author = username
 		}
+	}
+	if createdPatchset {
+		captureAnalytics(ctx, s.Analytics, analytics.EventPatchsetPushed, map[string]any{
+			analytics.PropChangesetID: cs.Id,
+			analytics.PropPatchsetID:  patchset.Id,
+		})
 	}
 	return patchset, nil
 }
@@ -786,10 +795,14 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	emitSubmitted := cs.Status != "pending_publish" && cs.Status != "submitted"
 	if submitter, ok := s.Changesets.(changesetSubmitWithCheckStatuses); ok {
 		res, err := submitter.SubmitWithCheckStatuses(ctx, cs.Id, req.ExpectedCurrentPatchsetId, extraCheckStatuses)
 		if err != nil {
 			return nil, grpcError(err)
+		}
+		if emitSubmitted {
+			s.captureChangesetSubmitted(ctx, cs)
 		}
 		return res, nil
 	}
@@ -797,7 +810,19 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	if emitSubmitted {
+		s.captureChangesetSubmitted(ctx, cs)
+	}
 	return res, nil
+}
+
+func (s *ChangesetService) captureChangesetSubmitted(ctx context.Context, cs *corev1.Changeset) {
+	if cs == nil {
+		return
+	}
+	captureAnalytics(ctx, s.Analytics, analytics.EventChangesetSubmitted, map[string]any{
+		analytics.PropChangesetID: cs.Id,
+	})
 }
 
 func (s *ChangesetService) ApproveChangeset(ctx context.Context, req *corev1.ApproveChangesetRequest) (*corev1.ApproveChangesetResponse, error) {

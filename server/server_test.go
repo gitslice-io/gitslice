@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gitslice-io/gitslice/internal/analytics"
 	"github.com/gitslice-io/gitslice/internal/authctx"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/internal/storage/memory"
@@ -124,6 +125,15 @@ func TestConnectHTTPHandlerServesAPI(t *testing.T) {
 	mem := memory.New()
 	mem.AddAccount("user_alice", "acme")
 	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "payment"}, []string{"/acme/payment"}, "private")
+	tracker, err := analytics.New("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := tracker.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
 	handlers := service.New(service.Stores{
 		Auth:       mem.Auth,
 		Blobs:      mem.Blobs,
@@ -132,7 +142,7 @@ func TestConnectHTTPHandlerServesAPI(t *testing.T) {
 		Slices:     mem.Slices,
 		Agents:     mem.Agents,
 		Checks:     mem.Checks,
-	}, mem.Objects)
+	}, mem.Objects, tracker)
 	resolve := func(ctx context.Context, token string) (string, error) {
 		if token == "token_123" {
 			return "user_alice", nil
