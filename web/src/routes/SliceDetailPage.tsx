@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
   Link,
@@ -9,6 +9,8 @@ import {
 } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
+import { AnalyticsEvents, AnalyticsProps } from "../analytics/events";
+import { capture } from "../analytics/posthog";
 import type { SliceRef, TreeEntry } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -123,6 +125,16 @@ export function SliceDetailPage() {
     selectedPath,
     slice?.definition?.includedPaths ?? [],
   );
+
+  useEffect(() => {
+    if (!sliceId) {
+      return;
+    }
+
+    capture(AnalyticsEvents.sliceViewed, {
+      [AnalyticsProps.sliceId]: sliceId,
+    });
+  }, [sliceId]);
 
   const pathQuery = useQuery({
     enabled: Boolean(
