@@ -141,18 +141,41 @@ first-party path.
 
 ## Configuration
 
-| Surface | Var | Where |
-|---|---|---|
-| Web | `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | `web/wrangler.jsonc` per-env `vars` |
-| Server | `GITSLICE_POSTHOG_API_KEY`, `GITSLICE_POSTHOG_HOST` | Cloud Run env |
+| Surface | Var | Kind | Where it is set |
+|---|---|---|---|
+| Web | `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | **build-time** (embedded by Vite) | `../.env.staging` / `../.env.prod`, sourced by `web/scripts/deploy.sh` |
+| Server | `GITSLICE_POSTHOG_API_KEY`, `GITSLICE_POSTHOG_HOST` | runtime | Cloud Run service env |
 
-Server config is wired (`server/config.go`); unset key ⇒ no-op client. The web
-`wrangler.jsonc` vars and the Cloudflare `/ingest/*` reverse-proxy route are the
-remaining deploy-config steps (they need the PostHog account + project keys).
+Unset key ⇒ no-op client on both surfaces. Use **separate PostHog projects for
+staging and production** so `agenttools.dev` test traffic does not pollute
+`gitslice.io` analytics.
 
-Unset key ⇒ no-op client. Use **separate PostHog projects for staging and
-production** so `agenttools.dev` test traffic does not pollute `gitslice.io`
-analytics.
+> **Important:** the web vars are `VITE_*` build-time values baked in during
+> `vite build` — they do **not** go in `wrangler.jsonc` (whose `vars` are
+> `PUBLIC_*` runtime Worker values). `deploy.sh` sources the per-env file with
+> `set -a`, so any `VITE_POSTHOG_*` present there flows into the build
+> automatically. They are optional, so — unlike the Clerk keys — `deploy.sh`
+> does not require them.
+
+### Deploy checklist (per environment)
+
+1. Create the PostHog project (staging vs prod); note the **public project key**
+   and pick the region (US/EU).
+2. **Web:** add `VITE_POSTHOG_KEY` (and `VITE_POSTHOG_HOST` = the `/ingest`
+   proxy URL) to `../.env.staging` / `../.env.prod`. Redeploy via
+   `npm run deploy:staging` / `deploy:production`.
+3. **Server:** set `GITSLICE_POSTHOG_API_KEY` (and optional
+   `GITSLICE_POSTHOG_HOST`) on the Cloud Run service; redeploy.
+4. **Reverse proxy (`/ingest/*`):** front PostHog ingestion first-party to dodge
+   adblockers. Options, cheapest first:
+   - a Cloudflare **rule / snippet** on the zone that rewrites
+     `gitslice.io/ingest/*` → the PostHog ingestion host; or
+   - a route handler in the web Worker (nitro) that reverse-proxies `/ingest/*`.
+   Then set `VITE_POSTHOG_HOST` to `https://<domain>/ingest`. This step is not
+   yet implemented in-repo — it needs the account + a chosen approach and its
+   own verification.
+5. **Verify** on staging (below), then set a per-product **billing limit** in
+   PostHog as a backstop.
 
 ## Rollout plan
 

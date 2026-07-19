@@ -20,6 +20,13 @@ VITE_CLERK_AUTHORIZED_PARTIES
 VITE_API_BASE_URL
 ```
 
+Optional (product analytics — see [../design/18_analytics.md](../design/18_analytics.md)):
+
+```text
+VITE_POSTHOG_KEY    # public PostHog project key; unset ⇒ analytics no-op
+VITE_POSTHOG_HOST   # first-party /ingest proxy URL; unset ⇒ PostHog default host
+```
+
 The API client uses ConnectRPC over HTTP with TypeScript descriptors generated
 from `proto/core/v1/*.proto` into `src/gen/`. The browser does not use the
 grpc-gateway JSON routes. Regenerate the generated files from the repository
