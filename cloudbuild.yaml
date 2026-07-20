@@ -42,6 +42,8 @@ substitutions:
   _R2_REGION: auto
   _CLERK_PUBLISHABLE_KEY: ""        # required (publishable, non-secret)
   _CLERK_ISSUER: ""                 # required (for example https://clerk.gitslice.io)
+  _POSTHOG_API_KEY: ""              # PostHog project key (publishable); set on the trigger to enable server analytics. Empty = no-op.
+  _POSTHOG_ENV: production          # analytics environment tag (production/staging)
   _MIN_INSTANCES: "0"               # scale to zero when idle; outbox/publisher backoff (#299) makes idle instances cheap and workers pause with the instance
   _MAX_INSTANCES: "2"               # 32*N DB conns must stay under Neon's limit
   _PUBLISH_INTERVAL_MS: "30000"     # long fallback; nudges drain real activity now
@@ -77,7 +79,7 @@ steps:
       - |
         cat > /workspace/deployenv.sh <<'EOF'
         export IMG="${_AR_HOSTNAME}/$PROJECT_ID/${_AR_REPOSITORY}/${_SERVICE_NAME}:${_TAG}"
-        export ENVS="GITSLICE_GRPC_ADDR=0.0.0.0:8080,OBJECT_STORE_TYPE=r2,GITSLICE_REQUIRE_R2=1,R2_ENDPOINT=${_R2_ENDPOINT},R2_REGION=${_R2_REGION},R2_BUCKET=${_R2_BUCKET},R2_PREFIX=${_R2_PREFIX},R2_USE_PATH_STYLE=false,AUTH_PROVIDER=clerk,CLERK_PUBLISHABLE_KEY=${_CLERK_PUBLISHABLE_KEY},CLERK_ISSUER=${_CLERK_ISSUER},CLERK_AUTHORIZED_PARTIES=${_ALLOWED_ORIGIN},GITSLICE_HTTP_ALLOWED_ORIGIN=${_ALLOWED_ORIGIN},GITSLICE_REQUIRE_SECRETS_KEY=1,GITSLICE_REQUIRE_METRICS_TOKEN=1,GITSLICE_REQUIRE_STRICT_CORS=1,GITSLICE_PUBLISH_INTERVAL_MS=${_PUBLISH_INTERVAL_MS},GITSLICE_INDEX_INTERVAL_MS=${_INDEX_INTERVAL_MS}"
+        export ENVS="GITSLICE_GRPC_ADDR=0.0.0.0:8080,OBJECT_STORE_TYPE=r2,GITSLICE_REQUIRE_R2=1,R2_ENDPOINT=${_R2_ENDPOINT},R2_REGION=${_R2_REGION},R2_BUCKET=${_R2_BUCKET},R2_PREFIX=${_R2_PREFIX},R2_USE_PATH_STYLE=false,AUTH_PROVIDER=clerk,CLERK_PUBLISHABLE_KEY=${_CLERK_PUBLISHABLE_KEY},CLERK_ISSUER=${_CLERK_ISSUER},CLERK_AUTHORIZED_PARTIES=${_ALLOWED_ORIGIN},GITSLICE_HTTP_ALLOWED_ORIGIN=${_ALLOWED_ORIGIN},GITSLICE_REQUIRE_SECRETS_KEY=1,GITSLICE_REQUIRE_METRICS_TOKEN=1,GITSLICE_REQUIRE_STRICT_CORS=1,GITSLICE_PUBLISH_INTERVAL_MS=${_PUBLISH_INTERVAL_MS},GITSLICE_INDEX_INTERVAL_MS=${_INDEX_INTERVAL_MS},GITSLICE_POSTHOG_API_KEY=${_POSTHOG_API_KEY},GITSLICE_POSTHOG_ENV=${_POSTHOG_ENV}"
         export SECRETS="GITSLICE_DATABASE_URL=gitslice-database-url:latest,R2_ACCESS_KEY_ID=gitslice-r2-access-key-id:latest,R2_SECRET_ACCESS_KEY=gitslice-r2-secret-access-key:latest,GITSLICE_METRICS_TOKEN=gitslice-metrics-token:latest,GITSLICE_SECRETS_KEY=gitslice-secrets-key:latest"
         EOF
 
