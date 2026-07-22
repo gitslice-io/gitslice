@@ -50,7 +50,12 @@ async function loadPostHog(): Promise<PostHogClient | undefined> {
 
     if (!initialized) {
       const config: Partial<PostHogConfig> = {
+        // We drive $pageview manually from the router (capture_pageview off),
+        // but $pageleave defaults to "if_capture_pageview" and would be
+        // disabled too — keep it on so bounce rate / session duration stay
+        // accurate. PostHog captures $pageleave itself on unload/visibility.
         capture_pageview: false,
+        capture_pageleave: true,
         person_profiles: "identified_only",
       };
 
