@@ -10,6 +10,11 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* The page/window is the scroll container for most views (conversations,
+     changeset detail). Reserve the vertical scrollbar's gutter at all times so
+     the layout doesn't jog sideways when a taller/shorter view adds or removes
+     the scrollbar — e.g. clicking between conversations of different lengths. */
+  scrollbar-gutter: stable;
 }
 
 :root.dark {
