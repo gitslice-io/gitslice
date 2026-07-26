@@ -217,19 +217,19 @@ function ChangesetRow({
               params={{ id: detailId }}
               to="/cs/$id"
             >
-              <span className="block break-words font-semibold text-zinc-950 dark:text-zinc-50 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
-                {label}
-              </span>
-              <span className="mt-1 block max-w-xl break-words text-sm text-slate-700 dark:text-zinc-300 group-hover:text-zinc-950 dark:group-hover:text-zinc-50">
+              <span className="block max-w-xl break-words font-semibold text-zinc-950 dark:text-zinc-50 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
                 {changeset.title || "Untitled changeset"}
+              </span>
+              <span className="mt-1 block break-words text-sm text-slate-500 dark:text-zinc-400">
+                {label}
               </span>
             </Link>
           ) : (
             <>
-              <span className="font-semibold text-zinc-950 dark:text-zinc-50">{label}</span>
-              <span className="max-w-xl break-words text-sm text-slate-700 dark:text-zinc-300">
+              <span className="max-w-xl break-words font-semibold text-zinc-950 dark:text-zinc-50">
                 {changeset.title || "Untitled changeset"}
               </span>
+              <span className="mt-1 text-sm text-slate-500 dark:text-zinc-400">{label}</span>
             </>
           )}
           {changeset.affectedPaths?.length ? (
