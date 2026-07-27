@@ -797,11 +797,11 @@ function SplitDiff({
 
   return (
     <div className="overflow-x-auto bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
-      <div className="grid min-w-full grid-cols-[1.75rem_minmax(16rem,max-content)_1.75rem_minmax(16rem,max-content)_1fr] py-1.5 sm:grid-cols-[3.5rem_minmax(24rem,max-content)_3.5rem_minmax(24rem,max-content)_1fr]">
+      <div className="grid w-max min-w-full grid-cols-[1.75rem_minmax(16rem,max-content)_1.75rem_minmax(16rem,max-content)_1fr] py-1.5 sm:grid-cols-[3.5rem_minmax(24rem,max-content)_3.5rem_minmax(24rem,max-content)_1fr]">
         {segments.map((segment) =>
           segment.type === "gap" ? (
             <ExpandSeparator
-              className="col-span-5"
+              className="col-span-full"
               gap={segment}
               key={`gap-${segment.index}`}
               keyFor={() => gapKey(file.id, "split", segment.index)}
@@ -810,7 +810,7 @@ function SplitDiff({
           ) : (
             <Fragment key={`block-${segment.start}`}>
               {rangeIndexes(segment.start, segment.end).map((index) => (
-                <SplitRow index={index} key={index} row={rows[index]} />
+                <SplitRow key={index} row={rows[index]} />
               ))}
             </Fragment>
           )
@@ -820,12 +820,17 @@ function SplitDiff({
   );
 }
 
-function SplitRow({ index, row }: { index: number; row: DiffRow }) {
+// Renders one split-view row as bare grid cells (a fragment, not a wrapper) so
+// every cell is a direct child of the single shared grid in SplitDiff. Direct
+// children make the `max-content` code columns size to the widest line and stay
+// aligned across rows, with one horizontal scrollbar — subgrid did neither
+// reliably on mobile Safari.
+function SplitRow({ row }: { row: DiffRow }) {
   if (row.kind === "hunk" || row.kind === "meta") {
     return (
       <div
         className={cn(
-          "col-span-5 border-t border-slate-100 dark:border-zinc-800 px-4 py-0.5 font-mono first:border-t-0",
+          "col-span-full border-t border-slate-100 dark:border-zinc-800 px-4 py-0.5 font-mono",
           row.kind === "hunk" && row.hunkText?.startsWith("@@")
             ? "bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300"
             : "bg-slate-50 dark:bg-zinc-950 text-slate-500 dark:text-zinc-400"
@@ -837,10 +842,7 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
   }
 
   return (
-    <div
-      className="col-span-5 grid grid-cols-subgrid border-t border-slate-100 dark:border-zinc-800 first:border-t-0"
-      key={splitRowKey(row, index)}
-    >
+    <>
       <SplitCell
         line={row.left}
         tone={row.kind === "del" || row.kind === "replace" ? "del" : "context"}
@@ -849,8 +851,8 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
         line={row.right}
         tone={row.kind === "add" || row.kind === "replace" ? "add" : "context"}
       />
-      <div className="bg-white dark:bg-zinc-900" />
-    </div>
+      <div className="border-t border-slate-100 dark:border-zinc-800 bg-white dark:bg-zinc-900" />
+    </>
   );
 }
 
@@ -911,11 +913,16 @@ function SplitCell({
   line?: DiffLine;
   tone: "add" | "context" | "del";
 }) {
+  const rowBorder = "border-t border-slate-100 dark:border-zinc-800";
+
   if (!line) {
-    return <div className="col-span-2 min-h-4 bg-slate-50/80 dark:bg-zinc-950/80" />;
+    return (
+      <div className={cn("col-span-2 min-h-4 bg-slate-50/80 dark:bg-zinc-950/80", rowBorder)} />
+    );
   }
 
   const toneClass = cn(
+    rowBorder,
     tone === "add" && "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200",
     tone === "del" && "bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200",
     tone === "context" && "text-slate-700 dark:text-zinc-300"
@@ -1010,12 +1017,6 @@ function changeKindClass(kind: FileChangeKind) {
     case "pending":
       return "bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400";
   }
-}
-
-function splitRowKey(row: DiffRow, index: number) {
-  return `${index}-${row.left?.oldNumber ?? ""}-${row.right?.newNumber ?? ""}-${
-    row.left?.text ?? row.right?.text ?? ""
-  }`;
 }
 
 function estimatedDiffBodyHeight(file: DiffFile, viewMode: ViewMode) {
