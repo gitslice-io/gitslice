@@ -797,10 +797,11 @@ function SplitDiff({
 
   return (
     <div className="overflow-x-auto bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
-      <div className="min-w-[48rem] py-1.5">
+      <div className="grid min-w-full grid-cols-[1.75rem_minmax(16rem,max-content)_1.75rem_minmax(16rem,max-content)_1fr] py-1.5 sm:grid-cols-[3.5rem_minmax(24rem,max-content)_3.5rem_minmax(24rem,max-content)_1fr]">
         {segments.map((segment) =>
           segment.type === "gap" ? (
             <ExpandSeparator
+              className="col-span-5"
               gap={segment}
               key={`gap-${segment.index}`}
               keyFor={() => gapKey(file.id, "split", segment.index)}
@@ -824,7 +825,7 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
     return (
       <div
         className={cn(
-          "border-t border-slate-100 dark:border-zinc-800 px-4 py-0.5 font-mono first:border-t-0",
+          "col-span-5 border-t border-slate-100 dark:border-zinc-800 px-4 py-0.5 font-mono first:border-t-0",
           row.kind === "hunk" && row.hunkText?.startsWith("@@")
             ? "bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300"
             : "bg-slate-50 dark:bg-zinc-950 text-slate-500 dark:text-zinc-400"
@@ -837,7 +838,7 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
 
   return (
     <div
-      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-t border-slate-100 dark:border-zinc-800 first:border-t-0"
+      className="col-span-5 grid grid-cols-subgrid border-t border-slate-100 dark:border-zinc-800 first:border-t-0"
       key={splitRowKey(row, index)}
     >
       <SplitCell
@@ -848,6 +849,7 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
         line={row.right}
         tone={row.kind === "add" || row.kind === "replace" ? "add" : "context"}
       />
+      <div className="bg-white dark:bg-zinc-900" />
     </div>
   );
 }
@@ -857,16 +859,23 @@ function SplitRow({ index, row }: { index: number; row: DiffRow }) {
 // bottom. Rendered with `flex` so it works inside both the unified <pre><code>
 // and the split <div> bodies.
 function ExpandSeparator({
+  className,
   gap,
   keyFor,
   onExpand
 }: {
+  className?: string;
   gap: { hiddenTotal: number; remaining: number };
   keyFor(): string;
   onExpand: ExpandFn;
 }) {
   return (
-    <span className="flex w-full items-center justify-center gap-3 border-y border-slate-100 dark:border-zinc-800 bg-sky-50/70 px-4 py-1 font-mono text-xs text-sky-700 dark:text-sky-300 first:border-t-0">
+    <span
+      className={cn(
+        "flex w-full items-center justify-center gap-3 border-y border-slate-100 dark:border-zinc-800 bg-sky-50/70 px-4 py-1 font-mono text-xs text-sky-700 dark:text-sky-300 first:border-t-0",
+        className
+      )}
+    >
       <button
         aria-label={`Expand ${EXPAND_CHUNK} lines up`}
         className="rounded px-1.5 hover:bg-sky-100 dark:hover:bg-sky-950/45"
@@ -903,23 +912,29 @@ function SplitCell({
   tone: "add" | "context" | "del";
 }) {
   if (!line) {
-    return <div className="min-h-4 bg-slate-50/80 dark:bg-zinc-950/80" />;
+    return <div className="col-span-2 min-h-4 bg-slate-50/80 dark:bg-zinc-950/80" />;
   }
 
+  const toneClass = cn(
+    tone === "add" && "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200",
+    tone === "del" && "bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200",
+    tone === "context" && "text-slate-700 dark:text-zinc-300"
+  );
+
   return (
-    <div
-      className={cn(
-        "grid min-h-4 grid-cols-[1.75rem_minmax(0,1fr)] overflow-x-auto whitespace-pre px-2 font-mono sm:grid-cols-[3.5rem_minmax(0,1fr)] sm:px-4",
-        tone === "add" && "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200",
-        tone === "del" && "bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200",
-        tone === "context" && "text-slate-700 dark:text-zinc-300"
-      )}
-    >
-      <span className="select-none pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pr-3 sm:text-xs">
+    <>
+      <span
+        className={cn(
+          "min-h-4 select-none whitespace-pre pl-2 pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pl-4 sm:pr-3 sm:text-xs",
+          toneClass
+        )}
+      >
         {tone === "add" ? line.newNumber : line.oldNumber}
       </span>
-      <span>{line.content || " "}</span>
-    </div>
+      <span className={cn("min-h-4 whitespace-pre pr-2 font-mono sm:pr-4", toneClass)}>
+        {line.content || " "}
+      </span>
+    </>
   );
 }
 
