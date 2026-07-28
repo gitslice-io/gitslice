@@ -22,6 +22,10 @@ const routerMock = vi.hoisted(() => ({
   search: {} as Record<string, unknown>
 }));
 
+const authMock = vi.hoisted(() => ({
+  current: { isLoaded: true, isSignedIn: false }
+}));
+
 const selectionMock = vi.hoisted(() => ({
   current: {
     account: "nic",
@@ -38,7 +42,7 @@ vi.mock("../api/useApi", () => ({
 }));
 
 vi.mock("@clerk/tanstack-react-start", () => ({
-  useAuth: () => ({ isLoaded: true, isSignedIn: false })
+  useAuth: () => authMock.current
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -65,6 +69,7 @@ describe("slice route pages (render smoke)", () => {
     routerMock.back = vi.fn();
     routerMock.params = { account: "nic", slice: "home" };
     routerMock.search = {};
+    authMock.current = { isLoaded: true, isSignedIn: false };
     apiMock.current = makeApi();
     consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -173,6 +178,40 @@ describe("slice route pages (render smoke)", () => {
         slice: { account: "nic", slice: "home" }
       })
     );
+  });
+
+  it("creates a changeset and redirects after a folder operation", async () => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
+    const api = makeApi();
+    api.createChangeset = vi
+      .fn()
+      .mockResolvedValue({ id: "cs_abcdef123456", currentPatchsetId: "ps_1" });
+    api.updateChangeset = vi.fn().mockResolvedValue({ id: "ps_2" });
+    apiMock.current = api;
+
+    renderRoute(<SliceDetailPage />);
+    await waitFor(() => expect(api.resolveSlice).toHaveBeenCalled());
+    await flushAsync();
+
+    // Open the directory "Create item" menu and start a new folder.
+    fireEvent.click(await screen.findByLabelText("Create item"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "New folder" }));
+    fireEvent.change(screen.getByPlaceholderText(/docs or/i), {
+      target: { value: "images" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // The operation creates the draft changeset and stages the mkdir edit...
+    await waitFor(() => expect(api.createChangeset).toHaveBeenCalled());
+    await waitFor(() => expect(api.updateChangeset).toHaveBeenCalled());
+
+    // ...then redirects to the changeset it landed in.
+    await waitFor(() =>
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ to: "/cs/$id" })
+      )
+    );
+    expectHealthy();
   });
 
   it("renders the new slice page", async () => {

@@ -36,7 +36,7 @@ import {
   type PendingEdit,
 } from "../components/source/SliceEditing";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
-import { shortHash } from "../lib/objectId";
+import { shortChangesetId, shortHash } from "../lib/objectId";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
@@ -80,6 +80,8 @@ export function SliceDetailPage() {
   // of navigating away from the slice page entirely.
   const historyOpen = Boolean(search.history);
   const [showTree, setShowTree] = useState(true);
+  const [isCreatingChangeset, setIsCreatingChangeset] = useState(false);
+  const [changesetError, setChangesetError] = useState("");
   const gitCloneOrigin = useGitCloneOrigin();
   const canEdit = Boolean(isLoaded && isSignedIn && account);
 
@@ -248,11 +250,27 @@ export function SliceDetailPage() {
     }
   }
 
-  function stagePendingEdit(edit: PendingEdit) {
-    if (!canEdit) {
+  async function stagePendingEdit(edit: PendingEdit) {
+    if (!canEdit || !sliceRouteParams) {
       return;
     }
-    draftChangeset.stageEdit(edit);
+    setChangesetError("");
+    setIsCreatingChangeset(true);
+    try {
+      const id = await draftChangeset.stageEditAndPersist(edit);
+      if (id) {
+        await navigate({
+          params: { id: shortChangesetId(id) } as never,
+          to: "/cs/$id",
+        });
+      }
+    } catch (error) {
+      setChangesetError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setIsCreatingChangeset(false);
+    }
   }
 
   if (!isLoaded || sliceQuery.isPending) {
@@ -447,6 +465,45 @@ export function SliceDetailPage() {
           sliceRef={sliceRef}
         />
       </>
+      {isCreatingChangeset ? <CreatingChangesetOverlay /> : null}
+      {changesetError ? (
+        <div
+          className="fixed inset-x-0 bottom-4 z-50 mx-auto w-[min(28rem,calc(100%-2rem))] rounded-md border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 px-4 py-3 text-sm text-rose-900 dark:text-rose-200 shadow-lg"
+          role="alert"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <span className="min-w-0 break-words">{changesetError}</span>
+            <button
+              className="shrink-0 font-semibold underline decoration-rose-300 underline-offset-4 hover:decoration-rose-700"
+              onClick={() => setChangesetError("")}
+              type="button"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function CreatingChangesetOverlay() {
+  return (
+    <div
+      aria-busy="true"
+      aria-live="polite"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 dark:bg-black/50 backdrop-blur-sm"
+      role="status"
+    >
+      <div className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-5 py-4 shadow-xl">
+        <span
+          aria-hidden="true"
+          className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 dark:border-zinc-700 border-t-zinc-900 dark:border-t-zinc-100"
+        />
+        <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+          Creating changeset…
+        </span>
+      </div>
+    </div>
   );
 }
