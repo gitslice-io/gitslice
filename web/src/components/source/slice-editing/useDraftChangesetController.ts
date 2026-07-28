@@ -42,6 +42,7 @@ export interface DraftChangesetController {
   retrySave(): void;
   saveStatus: DraftSaveStatus;
   stageEdit(edit: PendingEdit): void;
+  stageEditAndPersist(edit: PendingEdit): Promise<string>;
   discardDraft(): Promise<void>;
   submitDraft(): Promise<string>;
 }
@@ -298,6 +299,22 @@ export function useDraftChangesetController({
     queueFlush(editsRef.current);
   }, [queueFlush]);
 
+  // Stage an edit and resolve once it has been persisted, returning the draft
+  // changeset id so callers can navigate to the changeset the edit landed in.
+  // The staged flush is chained onto flushTailRef, so awaiting the current tail
+  // waits for this edit's createChangeset/updateChangeset round trip to finish.
+  const stageEditAndPersist = useCallback(
+    async (edit: PendingEdit): Promise<string> => {
+      stageEdit(edit);
+      await flushTailRef.current;
+      if (errorMessageRef.current) {
+        throw new Error(errorMessageRef.current);
+      }
+      return changesetIdRef.current;
+    },
+    [stageEdit]
+  );
+
   const submitDraft = useCallback(async () => {
     setActionStatus("submitting");
     try {
@@ -355,6 +372,7 @@ export function useDraftChangesetController({
     retrySave,
     saveStatus,
     stageEdit,
+    stageEditAndPersist,
     discardDraft,
     submitDraft
   };
