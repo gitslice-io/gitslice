@@ -44,8 +44,9 @@ const (
 )
 
 type agentStartOptions struct {
-	Name    string
-	Runtime string
+	Name        string
+	Runtime     string
+	IdleTimeout time.Duration
 }
 
 type agentDaemonOutput struct {
@@ -77,6 +78,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	}
 	startCmd.Flags().StringVar(&start.Name, "name", start.Name, "daemon name")
 	startCmd.Flags().StringVar(&start.Runtime, "runtime", start.Runtime, "agent runtime")
+	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",
@@ -101,6 +103,15 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 }
 
 func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agentStartOptions) error {
+	idleTimeout := in.IdleTimeout
+	if idleTimeout <= 0 {
+		if value, ok := os.LookupEnv("GITSLICE_AGENT_IDLE_TIMEOUT"); ok {
+			if parsed, err := time.ParseDuration(value); err == nil {
+				idleTimeout = parsed
+			}
+		}
+	}
+
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
@@ -139,18 +150,31 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		recentCheckRuns: map[string]struct{}{},
 	}
 	daemon.loadExistingConversations()
+	daemon.lastActivity = time.Now()
+	if idleTimeout > 0 {
+		go daemon.runIdleMonitor(agentCtx, cancel, idleTimeout)
+	}
 	defer func() {
 		daemon.cancelAll()
 		cancel()
 	}()
+	reportIdleExit := func() {
+		if daemon.idleShutdownRequested() && !opts.Quiet {
+			fmt.Fprintln(r.stderr(), "agent daemon exited after idle timeout")
+		}
+	}
 
 	reportedOnline := false
 	for {
 		err := daemon.serveAgentConnection(agentCtx, opts, in.Name, runtimeName, !reportedOnline)
 		if err == nil {
+			if agentCtx.Err() != nil {
+				reportIdleExit()
+			}
 			return nil
 		}
 		if agentCtx.Err() != nil {
+			reportIdleExit()
 			return nil
 		}
 		reportedOnline = true
@@ -159,6 +183,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		}
 		select {
 		case <-agentCtx.Done():
+			reportIdleExit()
 			return nil
 		case <-time.After(2 * time.Second):
 		}
@@ -308,6 +333,11 @@ type agentDaemon struct {
 	workingDir string
 	sendQueue  *agentSendQueue
 
+	idleMu       sync.Mutex
+	lastActivity time.Time
+	activeWork   int
+	idleShutdown bool
+
 	mu                  sync.Mutex
 	conversations       map[string]*agentConversation
 	checkRuns           map[string]context.CancelFunc
@@ -336,6 +366,46 @@ func (s *agentInboundState) lastSeen() time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.last
+}
+
+func (d *agentDaemon) markActivity() {
+	d.idleMu.Lock()
+	d.lastActivity = time.Now()
+	d.idleMu.Unlock()
+}
+
+func (d *agentDaemon) beginWork() {
+	d.idleMu.Lock()
+	d.activeWork++
+	d.lastActivity = time.Now()
+	d.idleMu.Unlock()
+}
+
+func (d *agentDaemon) endWork() {
+	d.idleMu.Lock()
+	if d.activeWork > 0 {
+		d.activeWork--
+	}
+	d.lastActivity = time.Now()
+	d.idleMu.Unlock()
+}
+
+func (d *agentDaemon) isIdle(now time.Time, timeout time.Duration) bool {
+	d.idleMu.Lock()
+	defer d.idleMu.Unlock()
+	return timeout > 0 && d.activeWork == 0 && !d.lastActivity.IsZero() && now.Sub(d.lastActivity) > timeout
+}
+
+func (d *agentDaemon) requestIdleShutdown() {
+	d.idleMu.Lock()
+	d.idleShutdown = true
+	d.idleMu.Unlock()
+}
+
+func (d *agentDaemon) idleShutdownRequested() bool {
+	d.idleMu.Lock()
+	defer d.idleMu.Unlock()
+	return d.idleShutdown
 }
 
 type agentConversation struct {
@@ -386,14 +456,25 @@ type conversationMeta struct {
 func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.CancelFunc, msg *corev1.ServerMessage) {
 	switch payload := msg.GetPayload().(type) {
 	case *corev1.ServerMessage_Start:
-		go d.handleStartConversation(ctx, payload.Start)
+		d.beginWork()
+		go func() {
+			defer d.endWork()
+			d.handleStartConversation(ctx, payload.Start)
+		}()
 	case *corev1.ServerMessage_UserMessage:
-		go d.handleUserMessage(ctx, payload.UserMessage)
+		d.beginWork()
+		go func() {
+			defer d.endWork()
+			d.handleUserMessage(ctx, payload.UserMessage)
+		}()
 	case *corev1.ServerMessage_Cancel:
+		d.markActivity()
 		d.handleCancelConversation(payload.Cancel)
 	case *corev1.ServerMessage_Close:
+		d.markActivity()
 		go d.handleCloseWorkspace(payload.Close)
 	case *corev1.ServerMessage_Reconcile:
+		d.markActivity()
 		go d.handleReconcileWorkspaces(payload.Reconcile)
 	case *corev1.ServerMessage_Ping:
 		if err := d.sendDaemonMessage(ctx, heartbeatDaemonMessage()); err != nil {
@@ -403,10 +484,16 @@ func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.Ca
 		d.handleEventAck(payload.Ack)
 	case *corev1.ServerMessage_RunChecks:
 		fmt.Fprintf(d.runner.stderr(), "agent received RunChecks: checks=%d run_ids=%v\n", len(payload.RunChecks.GetChecks()), runCheckIDs(payload.RunChecks))
-		go d.handleRunChecks(payload.RunChecks)
+		d.beginWork()
+		go func() {
+			defer d.endWork()
+			d.handleRunChecks(payload.RunChecks)
+		}()
 	case *corev1.ServerMessage_CancelCheck:
+		d.markActivity()
 		d.handleCancelCheckRun(payload.CancelCheck)
 	case *corev1.ServerMessage_CheckAck:
+		d.markActivity()
 		d.handleCheckRunAck(payload.CheckAck)
 	}
 }
@@ -560,6 +647,34 @@ func (d *agentDaemon) runInboundWatchdog(ctx context.Context, cancel context.Can
 			now := time.Now()
 			if inboundStale(last, now, agentInboundStaleTimeout) {
 				fmt.Fprintf(d.runner.stderr(), "no server message in %s; assuming half-open stream, reconnecting\n", now.Sub(last).Round(time.Second))
+				cancel()
+				return
+			}
+		}
+	}
+}
+
+func (d *agentDaemon) runIdleMonitor(ctx context.Context, cancel context.CancelFunc, timeout time.Duration) {
+	if timeout <= 0 {
+		return
+	}
+	interval := timeout
+	if interval > time.Minute {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if ctx.Err() != nil {
+				return
+			}
+			if d.isIdle(time.Now(), timeout) {
+				fmt.Fprintf(d.runner.stderr(), "no conversation activity for %s; disconnecting and exiting (run 'gs agent start' to resume)\n", timeout)
+				d.requestIdleShutdown()
 				cancel()
 				return
 			}
