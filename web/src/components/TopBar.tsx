@@ -9,7 +9,8 @@ import { ThemeToggle } from "./ThemeToggle";
 const navItems = [
   { label: "Home", to: "/", section: "slices" },
   { label: "Conversations", to: "/conversations", section: "conversations" },
-  { label: "Doc", to: "/doc", section: "doc" }
+  { label: "Doc", to: "/doc", section: "doc" },
+  { label: "Blog", to: "/blogs", section: "blog" }
 ] as const;
 
 type NavSection = (typeof navItems)[number]["section"];
@@ -45,6 +46,15 @@ function NavIcon({ section }: { section: NavSection }) {
     );
   }
 
+  if (section === "blog") {
+    return (
+      <svg {...common}>
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5A2.5 2.5 0 0 1 4 18.5z" />
+        <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v18h5.5a2.5 2.5 0 0 0 2.5-2.5z" />
+      </svg>
+    );
+  }
+
   // Home
   return (
     <svg {...common}>
@@ -67,6 +77,7 @@ export function TopBar() {
     pathname.startsWith("/changesets") ||
     pathname.startsWith("/cs");
   const isDocActive = pathname.startsWith("/doc");
+  const isBlogActive = pathname.startsWith("/blogs");
   const isConversationsActive = pathname.startsWith("/conversations");
 
   return (
@@ -88,6 +99,7 @@ export function TopBar() {
                 aria-current={
                   (item.section === "slices" && isSlicesActive) ||
                   (item.section === "doc" && isDocActive) ||
+                  (item.section === "blog" && isBlogActive) ||
                   (item.section === "conversations" && isConversationsActive)
                     ? "page"
                     : undefined
@@ -96,6 +108,7 @@ export function TopBar() {
                   "inline-flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 sm:px-3",
                   ((item.section === "slices" && isSlicesActive) ||
                     (item.section === "doc" && isDocActive) ||
+                    (item.section === "blog" && isBlogActive) ||
                     (item.section === "conversations" &&
                       isConversationsActive)) &&
                     "bg-zinc-950 text-white hover:bg-zinc-950 hover:text-white dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:hover:text-zinc-950"
