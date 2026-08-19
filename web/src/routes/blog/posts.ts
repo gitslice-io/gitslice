@@ -57,9 +57,9 @@ Once storage is a single graph and a repository is just a named view over it, th
 
 The repository stops being a storage boundary and becomes what it always should have been: a named view with access rules. That single reframing is where most of Gitslice's leverage comes from.
 
-## 4. What we borrowed from Cursor
+## 4. What we learned from Cursor
 
-The native-graph model is ours. But the thing that makes our *write path* scale, we borrowed — and it's worth being honest about where from. Cursor's [*Git at any scale*](https://cursor.com/blog/git-at-any-scale) solves a different problem than we do, from the opposite direction, yet it lands on a substrate instinct we share.
+We pay attention to how others solve version control at scale, and Cursor's [*Git at any scale*](https://cursor.com/blog/git-at-any-scale) taught us something that reshaped our own roadmap. It answers a different question than we do — how to host unmodified Git at massive scale — from the opposite direction, but it surfaced a substrate lesson that applies to us just as much.
 
 | | Cursor "Continuity" | Gitslice |
 |---|---|---|
@@ -69,20 +69,20 @@ The native-graph model is ours. But the thing that makes our *write path* scale,
 | Read scaling | Hundreds of elastic per-repo replicas | Indexes and caches over one graph |
 | Solves | Hosting unmodified Git at massive scale | Agent-driven, multi-account codebases |
 
-Different problems — Cursor asks *"how do we host unmodified Git at massive scale?"*; we ask *"what should version control be for an agent-driven, multi-account codebase?"* — but the same underlying move solves the one place our design was weakest: **write throughput on a hot ref.**
+Cursor scales the repository; we dissolve it. Different problems, different engines — yet the same underlying lesson landed on the one place our design was weakest: **write throughput on a hot ref.**
 
-> The borrowed instinct: the authoritative, linearizing write should live in object storage, not in a single-primary database — and everything else should be a rebuildable view of that log.
+> The lesson: the authoritative, linearizing write should live in object storage, not in a single-primary database — and everything else should be a rebuildable view of that log.
 
-Today our accepted-history commit point is a PostgreSQL transaction that holds row locks while doing per-file object-store round-trips, then moves the ref with a compare-and-swap. Every landing reaches the single primary. Cursor's post pushed us to write down a fix, in two independent steps:
+Today our accepted-history commit point is a PostgreSQL transaction that holds row locks while doing per-file object-store round-trips, then moves the ref with a compare-and-swap. Every landing reaches the single primary. Reading how Cursor handles this pushed us to write down a fix, in two independent steps:
 
 1. **Get object storage out of the transaction.** No log needed yet — build the tree chain and commit objects *before* opening the transaction, so it shrinks to metadata writes plus the ref compare-and-swap. Content-addressing makes an abandoned build harmless: it's just garbage-collectable objects. *(Ships first; the biggest single throughput jump, valuable on its own.)*
-2. **Move the commit point off the database.** The Cursor-shaped step: a per-target-ref write-ahead log in object storage becomes the linearization point, appended with a create-only conditional PUT so exactly one writer wins each sequence. Postgres becomes an idempotent applier behind a watermark — a rebuildable view of the log. *(Gated: measure → shadow-write parity → authority flip behind a flag.)*
+2. **Move the commit point off the database.** The bigger step: a per-target-ref write-ahead log in object storage becomes the linearization point, appended with a create-only conditional PUT so exactly one writer wins each sequence. Postgres becomes an idempotent applier behind a watermark — a rebuildable view of the log. *(Gated: measure → shadow-write parity → authority flip behind a flag.)*
 
-What we explicitly did **not** copy: Git packfiles and local repos as the compute engine, UDP gossip replication, and elastic per-repo replica fleets. Those solve *Cursor's* problem — hosting Git. We took one substrate idea and left the engine alone, because the engine is the whole point.
+Plenty of Cursor's approach doesn't fit ours — Git packfiles and local repos as the compute engine, gossip replication, elastic per-repo replica fleets. Those answer *their* question, not ours. What we took away was narrower and deeper: where the authoritative write belongs. The engine stays ours; the lesson made it faster.
 
 ## 5. The bet
 
-Gitslice's wager is that version control for the next decade — many teams, one codebase, agents writing alongside people — wants a native source graph with a real metadata model, not a fleet of Git servers. Keep Git at the boundary, where the ecosystem lives. Keep the truth in a single content-addressed graph, where the product lives. The best ideas from the Git-hosting world, like an object-storage write log, still apply — we just get to adopt them on our own terms, one costume removed.`
+Gitslice's wager is that version control for the next decade — many teams, one codebase, agents writing alongside people — wants a native source graph with a real metadata model, not a fleet of Git servers. Keep Git at the boundary, where the ecosystem lives. Keep the truth in a single content-addressed graph, where the product lives. The best ideas from the Git-hosting world, like an object-storage write log, apply to us too — we just get to put them to work on our own terms, one costume removed.`
   }
 ];
 
