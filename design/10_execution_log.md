@@ -8088,3 +8088,60 @@ git diff --check
 
 All focused and repository gates passed. The full web suite passed 16 test files
 and 192 tests.
+
+## 2026-08-19 — Publish path: move object-store work out of the commit transaction (WAL plan Phase 1 / "Fix A")
+
+Goal: raise write throughput on a hot target ref. Implements Phase 1 of
+`design/19_object_storage_wal.md` (the no-WAL step). Before this change,
+`ChangesetStore.PublishPending` opened one transaction and held its
+`pending_publish` row locks open across O(edits) R2 round-trips
+(`treestore.ApplyEdits`, plus tree-node reads inside the path-head refresh),
+serializing landings behind remote object-store latency.
+
+Decision: split `PublishPending` into three stages with no PG transaction open
+during object-store I/O:
+
+1. `claimPendingPublishBatch` (short tx): select the pending batch for a single
+   target ref (`for update skip locked`), read the ref head + root tree, mark
+   the claimed rows `status='publishing'`, bump `updated_at`, commit. The
+   existing partial index `where status='pending'` hides claimed rows from other
+   workers, so this replaces the long-held row locks with a durable claim.
+2. `buildPendingPublishBatch` (NO tx): load patchsets/blobs via plain reads,
+   `s.trees.ApplyEdits` to build the deterministic tree + commit chain, and
+   gather the path-head upserts/deletes — all object-store work, no PG writes.
+3. `finalizePendingPublishBatch` (short tx): re-read the refs row `for update`;
+   on head mismatch (or a concurrently-changed changeset) reset the claimed rows
+   to `pending` and return `ErrConflict`; otherwise insert commits, apply path
+   heads, mark pending/changesets, insert outbox, and move the ref with CAS.
+
+Crash safety: a worker that dies between claim and finalize leaves rows in
+`publishing`; `reapStalePendingPublishClaims` (threshold
+`pendingPublishClaimTimeout`, 60s) resets rows whose `updated_at` is older than
+the timeout at the start of every `PublishPending`. Rebuilding an abandoned
+batch is safe because tree nodes are content-addressed (orphans are GC-eligible)
+and losing workers roll back before writing commit rows. No schema change: the
+`'publishing'` status reuses the existing untyped `status` column and
+`updated_at`.
+
+Semantics preserved: single-target-ref batches, skip changesets whose status is
+not `pending_publish`, deterministic commit chain, atomic ref move, and
+`ErrConflict` (retryable) on CAS loss. `PublishPending` signature and the
+`internal/storage` interface are unchanged; the in-memory store is untouched.
+
+Pre-existing follow-up (not a regression): a `pending_publish` row whose
+changeset is permanently not `pending_publish` is reset to `pending` and
+re-claimed each pass, same as the prior `continue` behavior.
+
+Verification (real Postgres on :55432):
+
+```bash
+GITSLICE_TEST_DATABASE_URL='postgres://nic@127.0.0.1:55432/gitslice_test?sslmode=disable' \
+  go test -count=1 -run Publish ./internal/postgres/   # ok, incl. new concurrency + reaper tests
+gofmt -l internal/postgres/changeset_store.go
+go vet ./internal/postgres/
+go build ./... && go test ./internal/treestore/... ./service/...
+```
+
+New tests: `TestPublishPendingMultiChangesetDeterministicChainMovesRefOnce`,
+`TestPublishPendingConcurrentWorkersDoNotDoublePublishOrLoseRows`,
+`TestPublishPendingReapsStaleClaim`.
