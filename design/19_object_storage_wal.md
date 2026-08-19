@@ -329,6 +329,54 @@ Phase 1") is **not** met — further work is justified. But the highest-leverage
 next step is publisher tree-build batching, evaluated together with (not
 strictly after) the WAL.
 
+#### Phase 0 results — 2026-08-19: publisher tree-build batching + op-count diagnosis
+
+Tried the tree-build batching optimization flagged above: a `treestore`
+`ApplyEditChain` that folds all of a publish batch's edit sets through one shared
+buffer and flushes once (instead of one `ApplyEdits`+flush per changeset), wired
+into `buildPendingPublishBatch`. Commit ids/ordering are unchanged (equivalence
+test + publish suite green).
+
+Result was a **modest ~1.65×**, not the order-of-magnitude the flush-collapse
+hypothesis predicted:
+
+```
+inj. latency   landings/s before   after (batched build)
+90 ms          ~0.98               ~1.62
+180 ms         ~0.49               ~0.84
+```
+
+Instrumenting the injected object store (per-op counters) explained why. In the
+timed submit→visible window for 32 disjoint landings:
+
+- **837 Gets + 310 Puts = ~36 object-store ops per landing**, only ~5× overlapped
+  (1147 × 90 ms / 19.5 s wall ≈ 5.3 effective concurrency).
+- **Reads dominate: ~26 Gets/landing.** Batching consolidated the *writes* (the
+  flushes) — a real but small win — while the read-chattiness, which is the bulk
+  of the cost, is untouched.
+
+Reframed conclusion — this is the important one for the whole plan:
+
+- The hot-ref throughput ceiling under R2 latency is set by **how many
+  object-store round-trips the create→submit→publish flow makes per landing
+  (~36, read-dominated), not by the commit point.**
+- Therefore the **WAL does not raise landings/sec** on its own — it replaces ~1
+  of the ~36 ops (the DB commit/CAS) with an object-store append; it's still the
+  right move for *durability/linearization and taking the single-primary DB off
+  the write path*, but it is **not** the throughput lever.
+- The throughput lever is a **read-elimination / caching pass across submit +
+  publish**: reuse the base root-tree chain across a batch instead of re-reading
+  it per landing; compute path-head data from the tree already in memory during
+  the build instead of re-fetching via `getEntryFromTree`; validate submit path
+  predicates without re-walking the base tree. That work targets the ~26
+  reads/landing directly and is where the next order-of-magnitude is.
+
+Net: ship the batched build (correct, incremental), keep the WAL as the
+durability/linearization play, and prioritize a publish-path read-elimination
+pass for hot-ref throughput. The Phase 0 abort criterion (Fix A alone giving
+>10x headroom) is firmly **not** met, and the highest-leverage next step is now
+identified by measurement rather than assumed.
+
 Still outstanding: the same benchmark pointed at real R2 + Neon to confirm the
 absolute numbers (local injection is a model), run carefully so it does not
 hammer shared staging.

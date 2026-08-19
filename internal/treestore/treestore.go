@@ -279,13 +279,50 @@ func (s *Store) ListFiles(ctx context.Context, rootTreeID, prefix string) ([]Fil
 }
 
 func (s *Store) ApplyEdits(ctx context.Context, rootTreeID string, edits []FileEdit) (string, error) {
-	if len(edits) == 0 {
-		return rootTreeID, nil
+	buf := newBufferingObjectStore(s.objects)
+	buffered := &Store{objects: buf}
+	newRoot, err := s.applyEditSet(ctx, buffered, rootTreeID, edits)
+	if err != nil {
+		return "", err
+	}
+	if err := buf.flush(ctx); err != nil {
+		return "", err
+	}
+	return newRoot, nil
+}
+
+// ApplyEditChain applies each edit set in order against a single shared
+// buffer (so intermediate tree nodes are served from memory, not the object
+// store) and flushes all new nodes once at the end. It returns the resulting
+// root tree id after each set — roots[i] is the root after applying
+// editSets[0..i]. Equivalent to folding ApplyEdits over the sets, but with
+// one flush instead of len(editSets).
+func (s *Store) ApplyEditChain(ctx context.Context, baseRootTreeID string, editSets [][]FileEdit) ([]string, error) {
+	if len(editSets) == 0 {
+		return []string{}, nil
 	}
 	buf := newBufferingObjectStore(s.objects)
 	buffered := &Store{objects: buf}
-	var newRoot string
-	var err error
+	current := baseRootTreeID
+	roots := make([]string, 0, len(editSets))
+	for _, edits := range editSets {
+		var err error
+		current, err = s.applyEditSet(ctx, buffered, current, edits)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, current)
+	}
+	if err := buf.flush(ctx); err != nil {
+		return nil, err
+	}
+	return roots, nil
+}
+
+func (s *Store) applyEditSet(ctx context.Context, buffered *Store, current string, edits []FileEdit) (string, error) {
+	if len(edits) == 0 {
+		return current, nil
+	}
 	if canApplyEditsInBatch(edits) {
 		ops := make([]batchEdit, 0, len(edits))
 		for _, edit := range edits {
@@ -305,17 +342,10 @@ func (s *Store) ApplyEdits(ctx context.Context, rootTreeID string, edits []FileE
 			}
 			ops = append(ops, op)
 		}
-		newRoot, _, err = buffered.applyBatch(ctx, rootTreeID, ops)
-	} else {
-		newRoot, err = buffered.applyEditsSequential(ctx, rootTreeID, edits)
+		newRoot, _, err := buffered.applyBatch(ctx, current, ops)
+		return newRoot, err
 	}
-	if err != nil {
-		return "", err
-	}
-	if err := buf.flush(ctx); err != nil {
-		return "", err
-	}
-	return newRoot, nil
+	return buffered.applyEditsSequential(ctx, current, edits)
 }
 
 func (s *Store) applyEditsSequential(ctx context.Context, rootTreeID string, edits []FileEdit) (string, error) {
