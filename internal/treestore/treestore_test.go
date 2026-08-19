@@ -200,6 +200,74 @@ func TestApplyEditsFlushesBufferedTreeNodesToBase(t *testing.T) {
 	}
 }
 
+func TestApplyEditChainMatchesSequentialApplyEdits(t *testing.T) {
+	ctx := context.Background()
+	baseEdits := []FileEdit{
+		{
+			Op:   "upsert",
+			Path: "/acme/payment/obsolete.go",
+			File: &FileEntry{Path: "/acme/payment/obsolete.go", BlobID: "blob-obsolete", ContentHash: "sha256:obsolete", Mode: 0o100644, Size: 8},
+		},
+		{
+			Op:   "upsert",
+			Path: "/shared/keep.txt",
+			File: &FileEntry{Path: "/shared/keep.txt", BlobID: "blob-keep", ContentHash: "sha256:keep", Mode: 0o100644, Size: 4},
+		},
+	}
+	editSets := [][]FileEdit{
+		{
+			{
+				Op:   "upsert",
+				Path: "/acme/payment/first.go",
+				File: &FileEntry{Path: "/acme/payment/first.go", BlobID: "blob-first", ContentHash: "sha256:first", Mode: 0o100644, Size: 5},
+			},
+			{
+				Op:   "upsert",
+				Path: "/zenith/ops/second.go",
+				File: &FileEntry{Path: "/zenith/ops/second.go", BlobID: "blob-second", ContentHash: "sha256:second", Mode: 0o100644, Size: 6},
+			},
+		},
+		{{Op: "mkdir", Path: "/acme/payment/nested/deeper"}},
+		{
+			{
+				Op:   "upsert",
+				Path: "/acme/payment/nested/deeper/third.go",
+				File: &FileEntry{Path: "/acme/payment/nested/deeper/third.go", BlobID: "blob-third", ContentHash: "sha256:third", Mode: 0o100644, Size: 5},
+			},
+			{Op: "delete", Path: "/acme/payment/obsolete.go"},
+		},
+	}
+
+	batchedStore := New(newMemoryObjectStore())
+	batchedBase, err := batchedStore.ApplyEdits(ctx, EmptyRootID(), baseEdits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := batchedStore.ApplyEditChain(ctx, batchedBase, editSets)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sequentialStore := New(newMemoryObjectStore())
+	sequentialBase, err := sequentialStore.ApplyEdits(ctx, EmptyRootID(), baseEdits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := make([]string, 0, len(editSets))
+	current := sequentialBase
+	for _, edits := range editSets {
+		current, err = sequentialStore.ApplyEdits(ctx, current, edits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, current)
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("roots mismatch:\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestRenameAndDelete(t *testing.T) {
 	ctx := context.Background()
 	store := New(newMemoryObjectStore())

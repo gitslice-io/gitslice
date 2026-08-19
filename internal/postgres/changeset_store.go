@@ -2020,16 +2020,24 @@ func (s *ChangesetStore) buildPendingPublishBatch(ctx context.Context, claim *pe
 		CurrentCommitID: claim.OriginalCommitID,
 		UpdatedBy:       "publisher",
 	}
-	rootTreeID := claim.RootTreeID
 	baseTime := time.Now().UTC().Truncate(time.Microsecond)
+	type changesetFields struct {
+		Author    string
+		Title     string
+		Status    string
+		StackID   string
+		UpdatedAt time.Time
+	}
+	type publishableEntry struct {
+		row       pendingPublishRow
+		cs        changesetFields
+		patchset  *corev1.Patchset
+		treeEdits []treestore.FileEdit
+	}
+	publishable := make([]publishableEntry, 0, len(claim.Rows))
+	editSets := make([][]treestore.FileEdit, 0, len(claim.Rows))
 	for _, row := range claim.Rows {
-		var cs struct {
-			Author    string
-			Title     string
-			Status    string
-			StackID   string
-			UpdatedAt time.Time
-		}
+		var cs changesetFields
 		err := s.db.QueryRowContext(ctx, `
 				select author_subject_id, title, status, coalesce(stack_id, ''), updated_at
 				from changesets
@@ -2049,18 +2057,26 @@ func (s *ChangesetStore) buildPendingPublishBatch(ctx context.Context, claim *pe
 		if err != nil {
 			return nil, err
 		}
-		baseCommitID := build.CurrentCommitID
 		treeEdits, err := treeEditsFromPatchset(ctx, s.db, patchset.FileEdits)
 		if err != nil {
 			return nil, err
 		}
-		rootTreeID, err = s.trees.ApplyEdits(ctx, rootTreeID, treeEdits)
-		if errors.Is(err, treestore.ErrNotFound) {
-			return nil, ErrConflict
-		}
-		if err != nil {
-			return nil, err
-		}
+		publishable = append(publishable, publishableEntry{row: row, cs: cs, patchset: patchset, treeEdits: treeEdits})
+		editSets = append(editSets, treeEdits)
+	}
+	roots, err := s.trees.ApplyEditChain(ctx, claim.RootTreeID, editSets)
+	if errors.Is(err, treestore.ErrNotFound) {
+		return nil, ErrConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+	for i, entry := range publishable {
+		row := entry.row
+		cs := entry.cs
+		patchset := entry.patchset
+		rootTreeID := roots[i]
+		baseCommitID := build.CurrentCommitID
 		now := baseTime.Add(time.Duration(len(build.PendingUpdates)) * time.Microsecond)
 		message := cs.Title
 		if message == "" {
