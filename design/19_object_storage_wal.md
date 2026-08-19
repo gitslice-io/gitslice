@@ -248,6 +248,43 @@ possibility is that Fix A alone is sufficient for years.
 - **Abort/hold criterion:** if measured demand headroom over current capacity
   is >10x, stop after Phase 1 and file the rest as future work.
 
+#### Phase 0 results — 2026-08-19: R2 conditional-PUT probe (partial)
+
+Ran a standalone probe against the staging R2 bucket (aws-sdk-go-v2 S3,
+`If-None-Match: *`), from this dev box. Results:
+
+- **Create-only semantics: confirmed.** First conditional PUT to a fresh key
+  succeeds; a second conditional PUT to the same key returns
+  `PreconditionFailed` (412).
+- **Exactly-one-winner: confirmed.** 5 rounds × 12 goroutines racing a
+  create-only PUT to the same fresh key: every round had exactly 1 winner and
+  11 precondition failures, 0 anomalies. This validates the WAL's linearization
+  primitive and **resolves Open Question #1** — the PG-arbitrated-seq fallback
+  is not required for correctness.
+- **Latency (distinct keys, n=40): p50 ≈ 182 ms, p90 ≈ 241 ms, p99 ≈ 341 ms,
+  max ≈ 689 ms.**
+
+Implication — this reshapes the throughput/latency story and should steer the
+later phases:
+
+- A conditional-PUT append is ~180 ms p50, so the WAL is a **throughput play
+  via batching, not a per-landing latency win.** One append per *batch* means
+  ceiling ≈ `batch_size / 0.18s` (e.g. 64/batch ≈ 350 landings/s — in line with
+  Cursor's numbers), but a single un-batched submit pays ~180 ms p50 / ~340 ms
+  p99 extra before ack (Open Question #2). Generous batching and Phase 4
+  pipelining (append batch N+1 while applying N) are therefore load-bearing, not
+  optional.
+- It also confirms **Fix A was worth shipping first**: at ~180 ms per object op,
+  the old path that held row locks across multiple tree-node ops per publish was
+  holding locks for hundreds of ms to seconds under real R2 latency — exactly
+  what Phase 1 removes.
+
+Still outstanding for the Phase 0 gate (needs the load harness pointed at
+R2 + Neon, and must not hammer shared staging): sustained landings/sec and
+submit-to-visible latency at batch sizes 1/8/64, and the go/no-go against the
+abort criterion. A latency-injecting object-store wrapper is the safer way to
+get these numbers locally without loading staging.
+
 ### Phase 1 — Fix A: Shrink The Publish Transaction (no WAL)
 
 Restructure `PublishPending`:
@@ -339,11 +376,15 @@ Postgres lost                     restore control-plane from backup, then replay
 
 ## 7. Open Questions
 
-1. Exact R2 conditional-write guarantees under concurrent same-key creates
-   (Phase 0 must prove exactly-one-winner; if unproven, fall back to a
-   PG-arbitrated seq allocation with WAL as durability-only until proven).
-2. Per-append latency cost in the fast path (one extra R2 RTT before ack) —
-   acceptable if batching amortizes it; Phase 0 measures.
+1. ~~Exact R2 conditional-write guarantees under concurrent same-key creates.~~
+   **Resolved 2026-08-19** (see Phase 0 results above): create-only
+   `If-None-Match: *` gives exactly-one-winner on the staging R2 bucket across
+   12-way races, every round. No PG-arbitrated-seq fallback needed.
+2. Per-append latency cost in the fast path (one extra R2 RTT before ack).
+   **Measured 2026-08-19: ~180 ms p50 / ~340 ms p99 per conditional PUT** — so
+   this is only acceptable when amortized by batching; a single un-batched
+   submit visibly pays it. Sizing the batch/pipeline to hide it is now a Phase 4
+   design requirement, not an open maybe.
 3. Whether outbox consumers move to WAL-tailing in Phase 4 or stay on the
    table indefinitely (both are correct; table is simpler, tail removes writes
    from the apply txn).
