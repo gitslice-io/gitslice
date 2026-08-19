@@ -109,6 +109,75 @@ func TestLoadConcurrentDisjointSubmit(t *testing.T) {
 	reportDurations(t, "concurrent_disjoint_submit", workers, time.Since(start), durations)
 }
 
+func TestLoadDisjointPublishThroughput(t *testing.T) {
+	ts := startLoadServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	conn := dialLoadGRPC(t, ts.addr)
+	defer conn.Close()
+	clients := newLoadCoreClients(t, ctx, ts, conn)
+	if _, _, err := submitLoadEdits(clients, &corev1.SliceRef{Account: "acme", Slice: "payment"}, "seed disjoint publish benchmark", []*corev1.FileEdit{
+		{Op: "mkdir", Path: "/acme/payment/bench"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	workers := envInt("GITSLICE_LOAD_DISJOINT_WORKERS", 64)
+	prepared := make([]disjointPublish, workers)
+	prepareErrs := make(chan error, workers)
+	var prepareWG sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		prepareWG.Add(1)
+		go func(worker int) {
+			defer prepareWG.Done()
+			publish, err := prepareDisjointPublish(clients, worker)
+			if err != nil {
+				prepareErrs <- fmt.Errorf("prepare worker %d: %w", worker, err)
+				return
+			}
+			prepared[worker] = publish
+		}(worker)
+	}
+	prepareWG.Wait()
+	close(prepareErrs)
+	for err := range prepareErrs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	durations := make(chan time.Duration, workers)
+	submitErrs := make(chan error, workers)
+	startGate := make(chan struct{})
+	var submitWG sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		submitWG.Add(1)
+		go func(worker int) {
+			defer submitWG.Done()
+			<-startGate
+			duration, err := submitDisjointPublish(clients, prepared[worker])
+			if err != nil {
+				submitErrs <- fmt.Errorf("submit worker %d: %w", worker, err)
+				return
+			}
+			durations <- duration
+		}(worker)
+	}
+	start := time.Now()
+	close(startGate)
+	submitWG.Wait()
+	wall := time.Since(start)
+	close(durations)
+	close(submitErrs)
+	for err := range submitErrs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	reportDurationsNoBudget(t, "disjoint_publish_throughput", workers, wall, drainDurations(durations), envInt("GITSLICE_LOAD_OBJECT_STORE_LATENCY_MS", 0))
+}
+
 func TestLoadSamePathSubmitContention(t *testing.T) {
 	ts := startLoadServer(t)
 	workers := envInt("GITSLICE_LOAD_WORKERS", 16)
@@ -910,9 +979,10 @@ func startLoadServer(t *testing.T) *loadServer {
 	}
 	go func() {
 		ts.errCh <- server.Run(ctx, server.Config{
-			GRPCAddr:        ts.addr,
-			DatabaseURL:     databaseURLWithSearchPath(t, databaseURL, schema),
-			ObjectStoreRoot: ts.objectRoot,
+			GRPCAddr:           ts.addr,
+			DatabaseURL:        databaseURLWithSearchPath(t, databaseURL, schema),
+			ObjectStoreRoot:    ts.objectRoot,
+			ObjectStoreLatency: time.Duration(envInt("GITSLICE_LOAD_OBJECT_STORE_LATENCY_MS", 0)) * time.Millisecond,
 			ServiceToken: servicetoken.Config{
 				PublicKeyPEM: ts.servicePub,
 				Issuer:       servicetoken.DefaultIssuer,
@@ -961,6 +1031,11 @@ type hotFile struct {
 type hotSubmitResult struct {
 	ChangesetID      string
 	PendingPublishID string
+}
+
+type disjointPublish struct {
+	changesetID string
+	patchsetID  string
 }
 
 type twoSliceAppendWriter struct {
@@ -1703,6 +1778,50 @@ func submitHotFileWithRetry(clients loadCoreClients, file hotFile, worker, opera
 	return nil, maxAttempts, conflicts, fmt.Errorf("exhausted %d attempts on %s", maxAttempts, file.path)
 }
 
+func prepareDisjointPublish(clients loadCoreClients, worker int) (disjointPublish, error) {
+	ref, err := clients.repo.GetRef(clients.ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	if err != nil {
+		return disjointPublish{}, err
+	}
+	path := fmt.Sprintf("/acme/payment/bench/w%03d.go", worker)
+	edit, err := loadUploadFileEdit(clients, path, []byte(fmt.Sprintf("package bench\n\nconst Worker%d = %d\n", worker, worker)))
+	if err != nil {
+		return disjointPublish{}, err
+	}
+	cs, err := clients.changeset.CreateChangeset(clients.ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      postgres.DefaultTargetRef,
+		BaseCommitId:   ref.CommitId,
+		Title:          fmt.Sprintf("disjoint publish worker %03d", worker),
+	})
+	if err != nil {
+		return disjointPublish{}, err
+	}
+	patchset, err := clients.changeset.UpdateChangeset(clients.ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: ref.CommitId,
+		FileEdits:    []*corev1.FileEdit{edit},
+	})
+	if err != nil {
+		return disjointPublish{}, err
+	}
+	return disjointPublish{changesetID: cs.Id, patchsetID: patchset.Id}, nil
+}
+
+func submitDisjointPublish(clients loadCoreClients, publish disjointPublish) (time.Duration, error) {
+	begin := time.Now()
+	if _, err := clients.changeset.SubmitChangeset(clients.ctx, &corev1.SubmitChangesetRequest{
+		ChangesetId:               publish.changesetID,
+		ExpectedCurrentPatchsetId: publish.patchsetID,
+	}); err != nil {
+		return 0, err
+	}
+	if _, err := waitForRPCSubmittedWithTimeout(clients.ctx, clients.changeset, publish.changesetID, loadPublishTimeout(1)); err != nil {
+		return 0, err
+	}
+	return time.Since(begin), nil
+}
+
 func submitHotFileOnce(clients loadCoreClients, file hotFile, label string, operation, attempt int) (*hotSubmitResult, error) {
 	ref, err := clients.repo.GetRef(clients.ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
 	if err != nil {
@@ -1951,6 +2070,23 @@ func reportDurations(t *testing.T, name string, operations int, wall time.Durati
 	if p95 > p95Budget {
 		t.Fatalf("%s p95=%s exceeds budget %s; override with GITSLICE_LOAD_BUDGET_P95_MS or %s", name, p95, p95Budget, loadBudgetEnvKey(name))
 	}
+}
+
+func reportDurationsNoBudget(t *testing.T, name string, operations int, wall time.Duration, durations []time.Duration, objectStoreLatencyMS int) {
+	t.Helper()
+	if len(durations) == 0 {
+		t.Fatalf("%s recorded no durations", name)
+	}
+	t.Logf("%s operations=%d wall=%s throughput=%.2f/s p50=%s p95=%s p99=%s object_store_latency_ms=%d",
+		name,
+		operations,
+		wall,
+		float64(operations)/wall.Seconds(),
+		percentile(durations, 0.50),
+		percentile(durations, 0.95),
+		percentile(durations, 0.99),
+		objectStoreLatencyMS,
+	)
 }
 
 func percentile(durations []time.Duration, p float64) time.Duration {
