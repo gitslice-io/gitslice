@@ -20,6 +20,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/indexworker"
 	"github.com/gitslice-io/gitslice/internal/objectstore/cache"
 	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
+	"github.com/gitslice-io/gitslice/internal/objectstore/latency"
 	"github.com/gitslice-io/gitslice/internal/objectstore/r2"
 	"github.com/gitslice-io/gitslice/internal/postgres"
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
@@ -303,12 +304,27 @@ func NewCombinedGRPCGatewayHandler(grpcServer *grpc.Server, gateway http.Handler
 type subjectResolver func(ctx context.Context, token string) (string, error)
 
 // newObjectStore selects the object store backend from config: Cloudflare R2 when
-// OBJECT_STORE_TYPE=r2, otherwise the prototype filesystem store.
+// OBJECT_STORE_TYPE=r2, otherwise the prototype filesystem store. An optional
+// benchmark latency wrapper remains inside the cache installed by callers.
 func newObjectStore(cfg Config) (service.ObjectStore, error) {
+	var objectStore service.ObjectStore
 	if cfg.usesR2() {
-		return r2.New(cfg.R2)
+		store, err := r2.New(cfg.R2)
+		if err != nil {
+			return nil, err
+		}
+		objectStore = store
+	} else {
+		store, err := filesystem.New(cfg.ObjectStoreRoot)
+		if err != nil {
+			return nil, err
+		}
+		objectStore = store
 	}
-	return filesystem.New(cfg.ObjectStoreRoot)
+	if cfg.ObjectStoreLatency > 0 {
+		objectStore = latency.New(objectStore, cfg.ObjectStoreLatency)
+	}
+	return objectStore, nil
 }
 
 // newSubjectResolver builds the token->subject resolver for the configured auth

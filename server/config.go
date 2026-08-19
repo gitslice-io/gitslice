@@ -28,6 +28,7 @@ type Config struct {
 	SecretsKey               string
 	RequireSecretsKey        bool
 	ObjectCacheBytes         int64
+	ObjectStoreLatency       time.Duration
 	R2                       r2.Config
 	AuthProvider             string
 	Clerk                    clerk.Config
@@ -68,6 +69,7 @@ func ConfigFromEnv() Config {
 		SecretsKey:            os.Getenv("GITSLICE_SECRETS_KEY"),
 		RequireSecretsKey:     os.Getenv("GITSLICE_REQUIRE_SECRETS_KEY") == "1",
 		ObjectCacheBytes:      int64ValueOrDefault(os.Getenv("GITSLICE_OBJECT_CACHE_BYTES"), 256<<20),
+		ObjectStoreLatency:    millisecondsDuration(os.Getenv("GITSLICE_OBJECT_STORE_LATENCY_MS")),
 		R2:                    r2.ConfigFromEnv(),
 		AuthProvider:          os.Getenv("AUTH_PROVIDER"),
 		Clerk:                 clerk.ConfigFromEnv(),
@@ -193,4 +195,12 @@ func int64ValueOrDefault(value string, fallback int64) int64 {
 		return fallback
 	}
 	return parsed
+}
+
+func millisecondsDuration(value string) time.Duration {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 || parsed > int64(math.MaxInt64)/int64(time.Millisecond) {
+		return 0
+	}
+	return time.Duration(parsed) * time.Millisecond
 }

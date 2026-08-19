@@ -279,11 +279,59 @@ later phases:
   holding locks for hundreds of ms to seconds under real R2 latency — exactly
   what Phase 1 removes.
 
-Still outstanding for the Phase 0 gate (needs the load harness pointed at
-R2 + Neon, and must not hammer shared staging): sustained landings/sec and
-submit-to-visible latency at batch sizes 1/8/64, and the go/no-go against the
-abort criterion. A latency-injecting object-store wrapper is the safer way to
-get these numbers locally without loading staging.
+#### Phase 0 results — 2026-08-19: local latency-injection landings/sec sweep
+
+Built a benchmark harness (`internal/objectstore/latency` wrapper +
+`GITSLICE_OBJECT_STORE_LATENCY_MS` server config +
+`tests/load/TestLoadDisjointPublishThroughput`) that injects a fixed per-op
+object-store delay beneath the process cache, so uncached reads and all writes
+pay it — modelling R2 without touching staging. The benchmark submits N
+changesets to **disjoint** paths (no same-path CAS contention) and measures
+sustained landings/sec and submit-to-visible latency on `refs/global/main`.
+
+Results (post-Fix-A code, filesystem store + injected delay):
+
+```
+inj. latency   landings/s   p50 submit->visible
+0 ms           ~40          0.65 s
+90 ms          ~0.98        ~16 s
+180 ms         ~0.49        ~47 s
+```
+
+Throughput is **flat across client concurrency** (0.99/s at 8 workers vs 0.98/s
+at 32 at 90 ms), and scales as ~`1 / (~11 × latency)`. Interpretation:
+
+- The bottleneck is the **single target-ref publisher building trees serially,
+  ~11 object-store ops per landing.** Under R2-like latency (~90–180 ms/op) the
+  ref caps at **~0.5–1 landing/s regardless of how many clients submit.** This
+  is the real ceiling, independent of the DB.
+- **Fix A did not raise this ceiling** — and wasn't meant to. Its win is
+  removing those ~11 R2 round-trips from *inside the DB transaction/locks*, so
+  they no longer block other submits, readers, or the ref row. The ceiling is
+  set by serial per-landing object-store work.
+- **Consequence for the WAL:** the WAL fixes the *commit point* (one ~180 ms
+  conditional-PUT append per batch instead of a DB round-trip per landing) but
+  does **not** by itself remove the ~11-ops-per-landing tree-build cost. So the
+  WAL is **necessary but not sufficient** for hot-ref throughput. Two
+  co-equal optimizations belong on the roadmap alongside it, and may deliver
+  more per unit effort:
+    1. **Cut ops-per-landing** — batch disjoint edits from multiple changesets
+       into one tree-build against a shared base (one set of upper-directory
+       writes for the whole batch instead of per-changeset), and keep the base
+       root-tree chain warm in cache across the batch.
+    2. **Parallelize/pipeline the build stage** where the linear commit chain
+       allows (independent subtrees for disjoint paths can be built concurrently
+       before the serial chain-assembly step).
+
+Revised go/no-go: Fix A alone does **not** clear a hot-ref throughput target
+under real R2 latency, so the abort criterion (">10x headroom, stop after
+Phase 1") is **not** met — further work is justified. But the highest-leverage
+next step is publisher tree-build batching, evaluated together with (not
+strictly after) the WAL.
+
+Still outstanding: the same benchmark pointed at real R2 + Neon to confirm the
+absolute numbers (local injection is a model), run carefully so it does not
+hammer shared staging.
 
 ### Phase 1 — Fix A: Shrink The Publish Transaction (no WAL)
 
