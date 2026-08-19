@@ -25,6 +25,8 @@ import { AppShell } from "../components/AppShell";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
+import { BlogListPage } from "./BlogListPage";
+import { BlogPostPage } from "./BlogPostPage";
 import { ChangesetDetailPage, sortedPatchsets } from "./ChangesetDetailPage";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
@@ -270,6 +272,18 @@ const docSectionRoute = createRoute({
   component: DocPage
 });
 
+const blogsRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "blogs",
+  component: BlogListPage
+});
+
+const blogPostRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "blogs/$slug",
+  component: BlogPostPage
+});
+
 const slicesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices",
@@ -494,6 +508,8 @@ const routeTree = rootRoute.addChildren([
   publicAppRoute.addChildren([
     docRoute,
     docSectionRoute,
+    blogsRoute,
+    blogPostRoute,
     sliceDetailRoute,
     sliceAgentsRoute,
     sliceAgentConversationRoute,
