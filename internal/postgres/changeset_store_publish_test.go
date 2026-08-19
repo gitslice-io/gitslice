@@ -188,10 +188,263 @@ func TestPublishPendingBatchPublishesAndSkipsNonPendingChangesets(t *testing.T) 
 	})
 }
 
+func TestPublishPendingMultiChangesetDeterministicChainMovesRefOnce(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	firstPath := "/acme/payment/deterministic_first.go"
+	secondPath := "/acme/payment/deterministic_second.go"
+	firstBlobID, firstHash := upsertTestBlob(t, ctx, store, "package payment\nconst DeterministicFirst = true\n")
+	secondBlobID, secondHash := upsertTestBlob(t, ctx, store, "package payment\nconst DeterministicSecond = true\n")
+	first := createDraftPatchset(t, ctx, store, base.CommitId, firstPath, firstBlobID, firstHash)
+	second := createDraftPatchset(t, ctx, store, base.CommitId, secondPath, secondBlobID, secondHash)
+	for _, patchset := range []*corev1.Patchset{first, second} {
+		if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	versionBefore := refVersionForPublishTest(t, ctx, store)
+
+	published, err := store.Changesets().PublishPending(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 2 {
+		t.Fatalf("published = %d, want 2", published)
+	}
+
+	firstState := requirePublishStateForTest(t, ctx, store, first.ChangesetId)
+	secondState := requirePublishStateForTest(t, ctx, store, second.ChangesetId)
+	firstCommit := commitInputsForPublishTest(t, ctx, store, firstState.PendingCommit.String)
+	secondCommit := commitInputsForPublishTest(t, ctx, store, secondState.PendingCommit.String)
+	wantFirstID := objectid.CommitID(objectid.CommitObject{
+		ParentIDs:    []string{base.CommitId},
+		RootTreeID:   firstCommit.RootTreeID,
+		Author:       "user_alice",
+		Message:      "storage test",
+		CreatedAt:    firstCommit.CreatedAt,
+		ChangedPaths: []string{firstPath},
+	})
+	wantSecondID := objectid.CommitID(objectid.CommitObject{
+		ParentIDs:    []string{wantFirstID},
+		RootTreeID:   secondCommit.RootTreeID,
+		Author:       "user_alice",
+		Message:      "storage test",
+		CreatedAt:    secondCommit.CreatedAt,
+		ChangedPaths: []string{secondPath},
+	})
+	if firstState.PendingCommit.String != wantFirstID {
+		t.Fatalf("first commit id = %s, want deterministic id %s", firstState.PendingCommit.String, wantFirstID)
+	}
+	if secondState.PendingCommit.String != wantSecondID {
+		t.Fatalf("second commit id = %s, want deterministic id %s", secondState.PendingCommit.String, wantSecondID)
+	}
+	if got := secondCommit.CreatedAt.Sub(firstCommit.CreatedAt); got != time.Microsecond {
+		t.Fatalf("commit timestamp step = %s, want 1us", got)
+	}
+	if got := getTestRef(t, ctx, store).CommitId; got != wantSecondID {
+		t.Fatalf("ref commit = %s, want final deterministic commit %s", got, wantSecondID)
+	}
+	if got := refVersionForPublishTest(t, ctx, store); got != versionBefore+1 {
+		t.Fatalf("ref version = %d, want one move to %d", got, versionBefore+1)
+	}
+	for _, p := range []string{firstPath, secondPath} {
+		if _, err := store.Repository().GetFile(ctx, wantSecondID, p); err != nil {
+			t.Fatalf("GetFile(%s): %v", p, err)
+		}
+	}
+}
+
+func TestPublishPendingConcurrentWorkersDoNotDoublePublishOrLoseRows(t *testing.T) {
+	ctx, store, objects := newPostgresTestStoreWithObjects(t)
+	base := getTestRef(t, ctx, store)
+	firstPath := "/acme/payment/concurrent_first.go"
+	secondPath := "/acme/payment/concurrent_second.go"
+	firstBlobID, firstHash := upsertTestBlobObject(t, ctx, store, objects, "package payment\nconst ConcurrentFirst = true\n")
+	secondBlobID, secondHash := upsertTestBlobObject(t, ctx, store, objects, "package payment\nconst ConcurrentSecond = true\n")
+	first := createDraftPatchset(t, ctx, store, base.CommitId, firstPath, firstBlobID, firstHash)
+	second := createDraftPatchset(t, ctx, store, base.CommitId, secondPath, secondBlobID, secondHash)
+	for _, patchset := range []*corev1.Patchset{first, second} {
+		if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	versionBefore := refVersionForPublishTest(t, ctx, store)
+
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	store.SetTreeStore(treestore.New(&blockingPublishObjectStore{
+		base:    objects,
+		entered: entered,
+		release: release,
+	}))
+	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	type result struct {
+		published int
+		err       error
+	}
+	results := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			published, err := store.Changesets().PublishPending(testCtx, 1)
+			results <- result{published: published, err: err}
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-testCtx.Done():
+			t.Fatalf("workers did not both reach transaction-free tree build: %v", testCtx.Err())
+		}
+	}
+	close(release)
+	released = true
+
+	var got []result
+	for i := 0; i < 2; i++ {
+		select {
+		case res := <-results:
+			got = append(got, res)
+		case <-testCtx.Done():
+			t.Fatalf("PublishPending workers did not settle: %v", testCtx.Err())
+		}
+	}
+	wins, conflicts := 0, 0
+	for _, res := range got {
+		switch {
+		case res.err == nil && res.published == 1:
+			wins++
+		case errors.Is(res.err, ErrConflict) && res.published == 0:
+			conflicts++
+		default:
+			t.Fatalf("concurrent PublishPending result = %#v, want one publish or ErrConflict", res)
+		}
+	}
+	if wins != 1 || conflicts != 1 {
+		t.Fatalf("concurrent results = %#v, want one winner and one conflict", got)
+	}
+	assertPendingPublishStatusCounts(t, ctx, store, 1, 0, 1)
+
+	published, err := store.Changesets().PublishPending(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 {
+		t.Fatalf("retry published = %d, want remaining row", published)
+	}
+	assertPendingPublishStatusCounts(t, ctx, store, 0, 0, 2)
+	for _, patchset := range []*corev1.Patchset{first, second} {
+		state := requirePublishStateForTest(t, ctx, store, patchset.ChangesetId)
+		if state.ChangesetStatus != "submitted" || state.PendingStatus != "published" || !state.PendingCommit.Valid {
+			t.Fatalf("final publish state = %#v, want submitted/published", state)
+		}
+	}
+	var publishedRows, distinctCommits int
+	if err := store.db.QueryRowContext(ctx, `
+		select count(*), count(distinct commit_id)
+		from pending_publish
+		where status = 'published'
+	`).Scan(&publishedRows, &distinctCommits); err != nil {
+		t.Fatal(err)
+	}
+	if publishedRows != 2 || distinctCommits != 2 {
+		t.Fatalf("published rows/distinct commits = %d/%d, want 2/2", publishedRows, distinctCommits)
+	}
+	if got := outboxDepthForTest(t, ctx, store); got != 2 {
+		t.Fatalf("commit-published outbox rows = %d, want 2", got)
+	}
+	if got := refVersionForPublishTest(t, ctx, store); got != versionBefore+2 {
+		t.Fatalf("ref version = %d, want exactly two moves to %d", got, versionBefore+2)
+	}
+	finalRef := getTestRef(t, ctx, store)
+	for _, p := range []string{firstPath, secondPath} {
+		if _, err := store.Repository().GetFile(ctx, finalRef.CommitId, p); err != nil {
+			t.Fatalf("GetFile(%s): %v", p, err)
+		}
+	}
+}
+
+func TestPublishPendingReapsStaleClaim(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	p := "/acme/payment/reaped_claim.go"
+	blobID, contentHash := upsertTestBlob(t, ctx, store, "package payment\nconst ReapedClaim = true\n")
+	patchset := createDraftPatchset(t, ctx, store, base.CommitId, p, blobID, contentHash)
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		update pending_publish
+		set status = 'publishing', updated_at = now() - interval '5 minutes'
+		where changeset_id = $1
+	`, patchset.ChangesetId); err != nil {
+		t.Fatal(err)
+	}
+
+	published, err := store.Changesets().PublishPending(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 {
+		t.Fatalf("published = %d, want reclaimed row", published)
+	}
+	state := requirePublishStateForTest(t, ctx, store, patchset.ChangesetId)
+	if state.ChangesetStatus != "submitted" || state.PendingStatus != "published" || !state.PendingCommit.Valid {
+		t.Fatalf("state after stale-claim reaping = %#v, want submitted/published", state)
+	}
+	if got := getTestRef(t, ctx, store).CommitId; got != state.PendingCommit.String {
+		t.Fatalf("ref commit = %s, want reclaimed commit %s", got, state.PendingCommit.String)
+	}
+}
+
 type publishHookObjectStore struct {
 	base  treestore.ObjectStore
 	hook  func(context.Context) error
 	fired atomic.Bool
+}
+
+type blockingPublishObjectStore struct {
+	base    treestore.ObjectStore
+	entered chan<- struct{}
+	release <-chan struct{}
+	calls   atomic.Int32
+}
+
+func (s *blockingPublishObjectStore) Put(ctx context.Context, key string, r io.Reader) error {
+	if err := s.maybeBlock(ctx); err != nil {
+		return err
+	}
+	return s.base.Put(ctx, key, r)
+}
+
+func (s *blockingPublishObjectStore) Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if err := s.maybeBlock(ctx); err != nil {
+		return nil, err
+	}
+	return s.base.Get(ctx, key, offset, length)
+}
+
+func (s *blockingPublishObjectStore) maybeBlock(ctx context.Context) error {
+	if s.calls.Add(1) > 2 {
+		return nil
+	}
+	select {
+	case s.entered <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-s.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *publishHookObjectStore) Put(ctx context.Context, key string, r io.Reader) error {
@@ -280,6 +533,54 @@ func createDirectPublishTestCommit(t *testing.T, ctx context.Context, store *DB,
 		t.Fatal(err)
 	}
 	return commitID
+}
+
+type commitInputsForPublish struct {
+	RootTreeID string
+	CreatedAt  time.Time
+}
+
+func commitInputsForPublishTest(t *testing.T, ctx context.Context, store *DB, commitID string) commitInputsForPublish {
+	t.Helper()
+	var inputs commitInputsForPublish
+	if err := store.db.QueryRowContext(ctx, `
+		select root_tree_id, created_at
+		from commits
+		where id = $1
+	`, commitID).Scan(&inputs.RootTreeID, &inputs.CreatedAt); err != nil {
+		t.Fatal(err)
+	}
+	return inputs
+}
+
+func refVersionForPublishTest(t *testing.T, ctx context.Context, store *DB) int64 {
+	t.Helper()
+	var version int64
+	if err := store.db.QueryRowContext(ctx, `
+		select version
+		from refs
+		where name = $1
+	`, DefaultTargetRef).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	return version
+}
+
+func assertPendingPublishStatusCounts(t *testing.T, ctx context.Context, store *DB, pending, publishing, published int) {
+	t.Helper()
+	var gotPending, gotPublishing, gotPublished int
+	if err := store.db.QueryRowContext(ctx, `
+		select count(*) filter (where status = 'pending'),
+		       count(*) filter (where status = 'publishing'),
+		       count(*) filter (where status = 'published')
+		from pending_publish
+	`).Scan(&gotPending, &gotPublishing, &gotPublished); err != nil {
+		t.Fatal(err)
+	}
+	if gotPending != pending || gotPublishing != publishing || gotPublished != published {
+		t.Fatalf("pending publish statuses = pending:%d publishing:%d published:%d, want %d/%d/%d",
+			gotPending, gotPublishing, gotPublished, pending, publishing, published)
+	}
 }
 
 func countRowsForTest(t *testing.T, ctx context.Context, store *DB, query string, args ...any) int {

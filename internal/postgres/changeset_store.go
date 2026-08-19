@@ -49,8 +49,9 @@ type entityChange struct {
 const (
 	outboxKindCommitPublished = "commit_published"
 
-	submitRetryAttempts = 5
-	submitRetryBaseWait = 5 * time.Millisecond
+	submitRetryAttempts        = 5
+	submitRetryBaseWait        = 5 * time.Millisecond
+	pendingPublishClaimTimeout = 60 * time.Second
 )
 
 func isRetryableSerializationError(err error) bool {
@@ -87,9 +88,36 @@ type publishedPendingUpdate struct {
 }
 
 type submittedChangesetUpdate struct {
+	ChangesetID       string
+	CommitID          string
+	StackID           string
+	ObservedUpdatedAt time.Time
+}
+
+type pendingPublishClaim struct {
+	Rows             []pendingPublishRow
+	TargetRef        string
+	OriginalCommitID string
+	RootTreeID       string
+}
+
+type pendingPublishBuild struct {
+	CurrentCommitID   string
+	UpdatedBy         string
+	CommitInserts     []publishCommitInsert
+	PathHeadMutations []publishPathHeadMutation
+	OutboxPayloads    []commitPublishedPayload
+	PendingUpdates    []publishedPendingUpdate
+	ChangesetUpdates  []submittedChangesetUpdate
+	SkippedPendingIDs []string
+	PublishLatencies  []time.Duration
+}
+
+type publishPathHeadMutation struct {
+	Heads       []PathHead
+	DeletePath  string
 	ChangesetID string
-	CommitID    string
-	StackID     string
+	PatchsetID  string
 }
 
 func (s *ChangesetStore) CreateStack(ctx context.Context, subjectID string, req *corev1.CreateStackRequest) (*corev1.ChangesetStack, error) {
@@ -1869,9 +1897,43 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 	if limit <= 0 {
 		limit = 64
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	if err := s.reapStalePendingPublishClaims(ctx); err != nil {
+		return 0, err
+	}
+	claim, err := s.claimPendingPublishBatch(ctx, limit)
 	if err != nil {
 		return 0, err
+	}
+	if len(claim.Rows) == 0 {
+		return 0, nil
+	}
+	build, err := s.buildPendingPublishBatch(ctx, claim)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.finalizePendingPublishBatch(ctx, claim, build); err != nil {
+		return 0, err
+	}
+	for _, latency := range build.PublishLatencies {
+		storage.ObservePublishLatency(latency)
+	}
+	return len(build.PendingUpdates), nil
+}
+
+func (s *ChangesetStore) reapStalePendingPublishClaims(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+		update pending_publish
+		set status = 'pending', updated_at = now()
+		where status = 'publishing'
+		  and updated_at < now() - ($1::bigint * interval '1 second')
+	`, int64(pendingPublishClaimTimeout/time.Second))
+	return err
+}
+
+func (s *ChangesetStore) claimPendingPublishBatch(ctx context.Context, limit int) (*pendingPublishClaim, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, `
@@ -1883,117 +1945,144 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 		for update skip locked
 	`, limit)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	var pending []pendingPublishRow
 	for rows.Next() {
 		var row pendingPublishRow
 		if err := rows.Scan(&row.ID, &row.ChangesetID, &row.PatchsetID, &row.TargetRef, &row.CreatedAt); err != nil {
 			_ = rows.Close()
-			return 0, err
+			return nil, err
 		}
 		pending = append(pending, row)
 	}
 	if err := rows.Close(); err != nil {
-		return 0, err
+		return nil, err
 	}
 	if len(pending) == 0 {
 		if err := tx.Commit(); err != nil {
-			return 0, err
+			return nil, err
 		}
-		return 0, nil
+		return &pendingPublishClaim{}, nil
 	}
 	targetRef := pending[0].TargetRef
-	batch := pending[:0]
+	batch := make([]pendingPublishRow, 0, len(pending))
 	for _, row := range pending {
 		if row.TargetRef == targetRef {
 			batch = append(batch, row)
 		}
 	}
-	var originalCommitID string
+	var originalCommitID, rootTreeID string
 	err = tx.QueryRowContext(ctx, `
-		select commit_id
-		from refs
-		where name = $1
-	`, targetRef).Scan(&originalCommitID)
+		select ref.commit_id, commit.root_tree_id
+		from refs ref
+		join commits commit on commit.id = ref.commit_id
+		where ref.name = $1
+	`, targetRef).Scan(&originalCommitID, &rootTreeID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
+		return nil, ErrNotFound
 	}
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	currentCommitID := originalCommitID
-	rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, currentCommitID)
-	if err != nil {
-		return 0, err
-	}
-	baseTime := time.Now().UTC().Truncate(time.Microsecond)
-	var publishLatencies []time.Duration
-	var commitInserts []publishCommitInsert
-	var outboxPayloads []commitPublishedPayload
-	var pendingUpdates []publishedPendingUpdate
-	var changesetUpdates []submittedChangesetUpdate
-	updatedBy := "publisher"
+	claimedIDs := make([]string, 0, len(batch))
 	for _, row := range batch {
+		claimedIDs = append(claimedIDs, row.ID)
+	}
+	res, err := tx.ExecContext(ctx, `
+		update pending_publish
+		set status = 'publishing', updated_at = now()
+		where id = any($1) and status = 'pending'
+	`, claimedIDs)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected != int64(len(batch)) {
+		return nil, fmt.Errorf("claimed %d pending publish rows, want %d", affected, len(batch))
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &pendingPublishClaim{
+		Rows:             batch,
+		TargetRef:        targetRef,
+		OriginalCommitID: originalCommitID,
+		RootTreeID:       rootTreeID,
+	}, nil
+}
+
+func (s *ChangesetStore) buildPendingPublishBatch(ctx context.Context, claim *pendingPublishClaim) (*pendingPublishBuild, error) {
+	build := &pendingPublishBuild{
+		CurrentCommitID: claim.OriginalCommitID,
+		UpdatedBy:       "publisher",
+	}
+	rootTreeID := claim.RootTreeID
+	baseTime := time.Now().UTC().Truncate(time.Microsecond)
+	for _, row := range claim.Rows {
 		var cs struct {
-			Author  string
-			Title   string
-			Status  string
-			StackID string
+			Author    string
+			Title     string
+			Status    string
+			StackID   string
+			UpdatedAt time.Time
 		}
-		err := tx.QueryRowContext(ctx, `
-				select author_subject_id, title, status, coalesce(stack_id, '')
+		err := s.db.QueryRowContext(ctx, `
+				select author_subject_id, title, status, coalesce(stack_id, ''), updated_at
 				from changesets
 				where id = $1
-				for update
-			`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Status, &cs.StackID)
+			`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Status, &cs.StackID, &cs.UpdatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, ErrNotFound
+			return nil, ErrNotFound
 		}
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		if cs.Status != "pending_publish" {
+			build.SkippedPendingIDs = append(build.SkippedPendingIDs, row.ID)
 			continue
 		}
-		patchset, err := getPatchsetTx(ctx, tx, row.PatchsetID)
+		patchset, err := getPatchset(ctx, s.db, row.PatchsetID)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		baseCommitID := currentCommitID
-		treeEdits, err := treeEditsFromPatchsetTx(ctx, tx, patchset.FileEdits)
+		baseCommitID := build.CurrentCommitID
+		treeEdits, err := treeEditsFromPatchset(ctx, s.db, patchset.FileEdits)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		rootTreeID, err = s.trees.ApplyEdits(ctx, rootTreeID, treeEdits)
 		if errors.Is(err, treestore.ErrNotFound) {
-			return 0, ErrConflict
+			return nil, ErrConflict
 		}
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		now := baseTime.Add(time.Duration(published) * time.Microsecond)
+		now := baseTime.Add(time.Duration(len(build.PendingUpdates)) * time.Microsecond)
 		message := cs.Title
 		if message == "" {
 			message = "Submit " + storage.ShortChangesetID(row.ChangesetID)
 		}
 		commitID := objectid.CommitID(objectid.CommitObject{
-			ParentIDs:    []string{currentCommitID},
+			ParentIDs:    []string{build.CurrentCommitID},
 			RootTreeID:   rootTreeID,
 			Author:       cs.Author,
 			Message:      message,
 			CreatedAt:    now,
 			ChangedPaths: patchset.ChangedPaths,
 		})
-		parentJSON, err := encodeJSON([]string{currentCommitID})
+		parentJSON, err := encodeJSON([]string{build.CurrentCommitID})
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		changedJSON, err := encodeJSON(patchset.ChangedPaths)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		commitInserts = append(commitInserts, publishCommitInsert{
+		build.CommitInserts = append(build.CommitInserts, publishCommitInsert{
 			ID:              commitID,
 			ParentIDsJSON:   parentJSON,
 			RootTreeID:      rootTreeID,
@@ -2002,11 +2091,13 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			CreatedAt:       now,
 			ChangedJSON:     changedJSON,
 		})
-		if err := s.refreshPathHeadsForPatchsetRootTx(ctx, tx, rootTreeID, row.ChangesetID, row.PatchsetID, patchset.FileEdits); err != nil {
-			return 0, err
+		mutations, err := s.pathHeadMutationsForPatchsetRoot(ctx, rootTreeID, row.ChangesetID, row.PatchsetID, patchset.FileEdits)
+		if err != nil {
+			return nil, err
 		}
-		outboxPayloads = append(outboxPayloads, commitPublishedPayload{
-			TargetRef:    targetRef,
+		build.PathHeadMutations = append(build.PathHeadMutations, mutations...)
+		build.OutboxPayloads = append(build.OutboxPayloads, commitPublishedPayload{
+			TargetRef:    claim.TargetRef,
 			CommitID:     commitID,
 			BaseCommitID: baseCommitID,
 			ChangesetID:  row.ChangesetID,
@@ -2014,18 +2105,38 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			ChangedPaths: patchset.ChangedPaths,
 			CommittedAt:  now,
 		})
-		pendingUpdates = append(pendingUpdates, publishedPendingUpdate{PendingID: row.ID, CommitID: commitID})
-		changesetUpdates = append(changesetUpdates, submittedChangesetUpdate{ChangesetID: row.ChangesetID, CommitID: commitID, StackID: cs.StackID})
-		currentCommitID = commitID
-		updatedBy = cs.Author
-		published++
-		publishLatencies = append(publishLatencies, time.Since(row.CreatedAt))
+		build.PendingUpdates = append(build.PendingUpdates, publishedPendingUpdate{PendingID: row.ID, CommitID: commitID})
+		build.ChangesetUpdates = append(build.ChangesetUpdates, submittedChangesetUpdate{
+			ChangesetID:       row.ChangesetID,
+			CommitID:          commitID,
+			StackID:           cs.StackID,
+			ObservedUpdatedAt: cs.UpdatedAt,
+		})
+		build.CurrentCommitID = commitID
+		build.UpdatedBy = cs.Author
+		build.PublishLatencies = append(build.PublishLatencies, time.Since(row.CreatedAt))
 	}
-	if published == 0 {
-		if err := tx.Commit(); err != nil {
-			return 0, err
+	return build, nil
+}
+
+func (s *ChangesetStore) finalizePendingPublishBatch(ctx context.Context, claim *pendingPublishClaim, build *pendingPublishBuild) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	claimedIDs := make([]string, 0, len(claim.Rows))
+	for _, row := range claim.Rows {
+		claimedIDs = append(claimedIDs, row.ID)
+	}
+	if len(build.PendingUpdates) == 0 {
+		if err := resetPendingPublishClaimsTx(ctx, tx, claimedIDs); err != nil {
+			return err
 		}
-		return 0, nil
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return nil
 	}
 	var lockedCommitID string
 	err = tx.QueryRowContext(ctx, `
@@ -2033,55 +2144,141 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 		from refs
 		where name = $1
 		for update
-	`, targetRef).Scan(&lockedCommitID)
+	`, claim.TargetRef).Scan(&lockedCommitID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
+		return ErrNotFound
 	}
 	if err != nil {
-		return 0, err
+		return err
 	}
-	if lockedCommitID != originalCommitID {
+	if lockedCommitID != claim.OriginalCommitID {
+		if err := resetPendingPublishClaimsTx(ctx, tx, claimedIDs); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 		storage.RecordRefCASFailure()
-		return 0, ErrConflict
+		return ErrConflict
 	}
-	if err := insertPublishedCommitsTx(ctx, tx, commitInserts); err != nil {
-		return 0, err
+	if err := lockPendingPublishChangesetsTx(ctx, tx, build.ChangesetUpdates); err != nil {
+		if errors.Is(err, ErrConflict) {
+			if resetErr := resetPendingPublishClaimsTx(ctx, tx, claimedIDs); resetErr != nil {
+				return resetErr
+			}
+			if commitErr := tx.Commit(); commitErr != nil {
+				return commitErr
+			}
+		}
+		return err
 	}
-	if err := insertCommitPublishedOutboxTx(ctx, tx, outboxPayloads); err != nil {
-		return 0, err
+	if err := insertPublishedCommitsTx(ctx, tx, build.CommitInserts); err != nil {
+		return err
 	}
-	if err := markPendingPublishedTx(ctx, tx, pendingUpdates); err != nil {
-		return 0, err
+	if err := applyPublishPathHeadMutationsTx(ctx, tx, build.PathHeadMutations); err != nil {
+		return err
 	}
-	if err := markChangesetsSubmittedTx(ctx, tx, changesetUpdates); err != nil {
-		return 0, err
+	if err := markPendingPublishedTx(ctx, tx, build.PendingUpdates); err != nil {
+		return err
 	}
-	if err := refreshClosedStackStatusesForSubmittedTx(ctx, tx, changesetUpdates); err != nil {
-		return 0, err
+	if err := resetPendingPublishClaimsTx(ctx, tx, build.SkippedPendingIDs); err != nil {
+		return err
+	}
+	if err := markChangesetsSubmittedTx(ctx, tx, build.ChangesetUpdates); err != nil {
+		return err
+	}
+	if err := refreshClosedStackStatusesForSubmittedTx(ctx, tx, build.ChangesetUpdates); err != nil {
+		return err
+	}
+	if err := insertCommitPublishedOutboxTx(ctx, tx, build.OutboxPayloads); err != nil {
+		return err
 	}
 	res, err := tx.ExecContext(ctx, `
 		update refs
 		set commit_id = $1, version = version + 1, updated_at = now(), updated_by = $2
 		where name = $3 and commit_id = $4
-	`, currentCommitID, updatedBy, targetRef, originalCommitID)
+	`, build.CurrentCommitID, build.UpdatedBy, claim.TargetRef, claim.OriginalCommitID)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if affected == 0 {
 		storage.RecordRefCASFailure()
-		return 0, ErrConflict
+		return ErrConflict
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return err
 	}
-	for _, latency := range publishLatencies {
-		storage.ObservePublishLatency(latency)
+	return nil
+}
+
+func resetPendingPublishClaimsTx(ctx context.Context, tx *sql.Tx, pendingIDs []string) error {
+	if len(pendingIDs) == 0 {
+		return nil
 	}
-	return published, nil
+	_, err := tx.ExecContext(ctx, `
+		update pending_publish
+		set status = 'pending', updated_at = now()
+		where id = any($1) and status = 'publishing'
+	`, pendingIDs)
+	return err
+}
+
+func lockPendingPublishChangesetsTx(ctx context.Context, tx *sql.Tx, updates []submittedChangesetUpdate) error {
+	changesetIDs := make([]string, 0, len(updates))
+	updatesByID := make(map[string]submittedChangesetUpdate, len(updates))
+	for _, update := range updates {
+		changesetIDs = append(changesetIDs, update.ChangesetID)
+		updatesByID[update.ChangesetID] = update
+	}
+	rows, err := tx.QueryContext(ctx, `
+		select id, status, updated_at
+		from changesets
+		where id = any($1)
+		order by id
+		for update
+	`, changesetIDs)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var changesetID, status string
+		var updatedAt time.Time
+		if err := rows.Scan(&changesetID, &status, &updatedAt); err != nil {
+			return err
+		}
+		seen++
+		if status != "pending_publish" || !updatedAt.Equal(updatesByID[changesetID].ObservedUpdatedAt) {
+			return ErrConflict
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if seen != len(changesetIDs) {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func applyPublishPathHeadMutationsTx(ctx context.Context, tx *sql.Tx, mutations []publishPathHeadMutation) error {
+	for _, mutation := range mutations {
+		if mutation.DeletePath != "" {
+			if err := markPathHeadDeletedRecursiveTx(ctx, tx, mutation.DeletePath, mutation.ChangesetID, mutation.PatchsetID); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := upsertPathHeadsTx(ctx, tx, mutation.Heads, mutation.ChangesetID, mutation.PatchsetID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *ChangesetStore) PendingPublishDepth(ctx context.Context) (int, error) {
@@ -2265,44 +2462,47 @@ type pathHeadRefreshTarget struct {
 	Recursive bool
 }
 
-func (s *ChangesetStore) refreshPathHeadsForPatchsetRootTx(ctx context.Context, tx *sql.Tx, rootTreeID, changesetID, patchsetID string, edits []*corev1.FileEdit) error {
+func (s *ChangesetStore) pathHeadMutationsForPatchsetRoot(ctx context.Context, rootTreeID, changesetID, patchsetID string, edits []*corev1.FileEdit) ([]publishPathHeadMutation, error) {
+	var mutations []publishPathHeadMutation
 	var pending []PathHead
-	flushPending := func() error {
+	flushPending := func() {
 		if len(pending) == 0 {
-			return nil
+			return
 		}
-		if err := upsertPathHeadsTx(ctx, tx, pending, changesetID, patchsetID); err != nil {
-			return err
-		}
+		mutations = append(mutations, publishPathHeadMutation{
+			Heads:       append([]PathHead(nil), pending...),
+			ChangesetID: changesetID,
+			PatchsetID:  patchsetID,
+		})
 		pending = pending[:0]
-		return nil
 	}
 	for _, target := range pathHeadRefreshTargetsForEdits(edits) {
 		entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, target.Path)
 		if errors.Is(err, ErrNotFound) {
-			if err := flushPending(); err != nil {
-				return err
-			}
-			if err := markPathHeadDeletedRecursiveTx(ctx, tx, target.Path, changesetID, patchsetID); err != nil {
-				return err
-			}
+			flushPending()
+			mutations = append(mutations, publishPathHeadMutation{
+				DeletePath:  target.Path,
+				ChangesetID: changesetID,
+				PatchsetID:  patchsetID,
+			})
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if target.Recursive && entry.Kind == "directory" {
-			if err := s.refreshPathHeadSubtreeTx(ctx, rootTreeID, *entry, &pending); err != nil {
-				return err
+			if err := s.appendPathHeadSubtree(ctx, rootTreeID, *entry, &pending); err != nil {
+				return nil, err
 			}
 			continue
 		}
 		pending = append(pending, pathHeadFromTreeEntry(*entry))
 	}
-	return flushPending()
+	flushPending()
+	return mutations, nil
 }
 
-func (s *ChangesetStore) refreshPathHeadSubtreeTx(ctx context.Context, rootTreeID string, entry TreeEntry, heads *[]PathHead) error {
+func (s *ChangesetStore) appendPathHeadSubtree(ctx context.Context, rootTreeID string, entry TreeEntry, heads *[]PathHead) error {
 	*heads = append(*heads, pathHeadFromTreeEntry(entry))
 	if entry.Kind != "directory" {
 		return nil
@@ -2312,7 +2512,7 @@ func (s *ChangesetStore) refreshPathHeadSubtreeTx(ctx context.Context, rootTreeI
 		return err
 	}
 	for _, child := range children {
-		if err := s.refreshPathHeadSubtreeTx(ctx, rootTreeID, child, heads); err != nil {
+		if err := s.appendPathHeadSubtree(ctx, rootTreeID, child, heads); err != nil {
 			return err
 		}
 	}
@@ -3486,8 +3686,17 @@ func (s *ChangesetStore) PatchsetsByConversation(ctx context.Context, conversati
 	return out, rows.Err()
 }
 
+type publishQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.Patchset, error) {
-	row := tx.QueryRowContext(ctx, `
+	return getPatchset(ctx, tx, patchsetID)
+}
+
+func getPatchset(ctx context.Context, queryer publishQueryer, patchsetID string) (*corev1.Patchset, error) {
+	row := queryer.QueryRowContext(ctx, `
 		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
 		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements,
 		       base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id,
@@ -3554,7 +3763,11 @@ func scanPatchset(row scanner) (*corev1.Patchset, error) {
 }
 
 func treeEditsFromPatchsetTx(ctx context.Context, tx *sql.Tx, edits []*corev1.FileEdit) ([]treestore.FileEdit, error) {
-	blobs, err := getBlobsTx(ctx, tx, blobIDsForEdits(edits))
+	return treeEditsFromPatchset(ctx, tx, edits)
+}
+
+func treeEditsFromPatchset(ctx context.Context, queryer publishQueryer, edits []*corev1.FileEdit) ([]treestore.FileEdit, error) {
+	blobs, err := getBlobs(ctx, queryer, blobIDsForEdits(edits))
 	if err != nil {
 		return nil, err
 	}
@@ -3604,11 +3817,15 @@ func blobIDsForEdits(edits []*corev1.FileEdit) []string {
 }
 
 func getBlobsTx(ctx context.Context, tx *sql.Tx, blobIDs []string) (map[string]*corev1.BlobRecord, error) {
+	return getBlobs(ctx, tx, blobIDs)
+}
+
+func getBlobs(ctx context.Context, queryer publishQueryer, blobIDs []string) (map[string]*corev1.BlobRecord, error) {
 	blobs := make(map[string]*corev1.BlobRecord, len(blobIDs))
 	if len(blobIDs) == 0 {
 		return blobs, nil
 	}
-	rows, err := tx.QueryContext(ctx, `
+	rows, err := queryer.QueryContext(ctx, `
 		select id, content_hash, size
 		from blobs
 		where id = any($1) and state = 'available'
