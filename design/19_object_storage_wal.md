@@ -1,7 +1,45 @@
 # Object-Storage WAL For Write Throughput
 
-Status: DRAFT — not scheduled. Phase 0 measurement gate must pass before any
-implementation phase begins.
+Status: **SHELVED (2026-08-20).** Not planned. This document is kept as the
+record of the investigation, not an active roadmap.
+
+Why shelved:
+
+- **Not needed for throughput.** The "weak write path" this doc was built around
+  was a measurement artifact (benchmarks run on a contended host with the object
+  cache disabled). Controlled re-runs show a single hot ref sustains ~20+
+  landings/s under R2-like latency — see the 2026-08-20 correction in the Phase 0
+  results below.
+- **Not needed for durability.** Managed Postgres (Neon) already provides
+  durability, PITR, and HA. A second durable substrate adds nothing here.
+- **Wrong lever for the real gap.** The WAL only decouples the accepted-publish
+  *journal* (one of the two jobs Postgres does for us); it leaves the *index*
+  (changesets, slices, coverage, path-history, reviews) on single-primary
+  Postgres. Cursor can be "no DB in the path" only because Git-on-disk is *their*
+  index; ours is Postgres.
+- **If single-primary ever becomes the binding constraint** (a write-availability
+  SLO the failover window can't meet, or multi-region writes), the recommended
+  answer is to migrate the metadata store to a **geo-distributed, Postgres-
+  compatible SQL database** (CockroachDB / YugabyteDB; Spanner if a dialect port
+  is acceptable) — because what needs distributing is the *index*, not just the
+  journal. Migration risks to prototype first: advisory-lock sequencer leases
+  and `FOR UPDATE SKIP LOCKED` claims (engine-dependent), hot-ref CAS behavior,
+  and isolation semantics. Note a single hot ref stays one leader/one-winner-per-
+  position on any of these — geo buys availability and locality, not hot-ref
+  throughput.
+
+Fix A (Phase 1, shipped) and the batched publisher build (shipped) stand on
+their own merits — shorter lock-hold and fewer flushes — independent of this
+plan; keep them. The rest below is preserved for reference only.
+
+---
+
+Original framing (superseded — read the status above first):
+
+This document plans an evolution of the publish path: a per-target-ref
+write-ahead log (WAL) in object storage becomes the durability and
+linearization point for accepted commits, with PostgreSQL demoted to a derived
+(but still transactional and queryable) apply target for that log.
 
 This document plans an evolution of the publish path: a per-target-ref
 write-ahead log (WAL) in object storage becomes the durability and
