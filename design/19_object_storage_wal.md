@@ -281,6 +281,15 @@ later phases:
 
 #### Phase 0 results — 2026-08-19: local latency-injection landings/sec sweep
 
+> **SUPERSEDED (see the 2026-08-20 correction below).** The absolute numbers in
+> this subsection and the next were measured on the shared dev box *while
+> concurrent codex agents and Go builds were saturating it*, and the benchmark
+> also ran with the object cache disabled. Controlled re-runs put throughput
+> ~20x higher and cache-neutral. The "publisher-bound ~1 landing/s" and
+> "read-chattiness ceiling" conclusions below are measurement artifacts; keep
+> reading for the corrected picture.
+
+
 Built a benchmark harness (`internal/objectstore/latency` wrapper +
 `GITSLICE_OBJECT_STORE_LATENCY_MS` server config +
 `tests/load/TestLoadDisjointPublishThroughput`) that injects a fixed per-op
@@ -380,6 +389,60 @@ identified by measurement rather than assumed.
 Still outstanding: the same benchmark pointed at real R2 + Neon to confirm the
 absolute numbers (local injection is a model), run carefully so it does not
 hammer shared staging.
+
+#### Phase 0 CORRECTION — 2026-08-20: controlled re-run retracts the ceiling
+
+The two subsections above are wrong about absolute throughput. Re-running the
+benchmark **on a quiet box, back-to-back, cache on vs off**, exposed two
+confounds:
+
+1. **Host contention.** The ~0.5–1.6 landings/s numbers were collected while
+   several codex agents and Go builds were hammering this shared machine. With
+   the box idle, identical code does ~20x more.
+2. **Cache disabled in the harness.** `startLoadServer` never set
+   `ObjectCacheBytes` (Config zero → `cache.New` returns the store uncached),
+   while production runs a 256 MB cache. Fixed (env
+   `GITSLICE_LOAD_OBJECT_CACHE_BYTES`, default 256 MB).
+
+Controlled numbers (post-Fix-A + batched build, 32 concurrent submitters, one
+hot ref `refs/global/main`, quiet host):
+
+```
+inj. latency   landings/s (cache on)   cache off (contrast)
+0 ms           ~41
+90 ms          ~23                     ~20   (cache ≈ neutral here)
+180 ms         ~14
+```
+
+Cache on vs off at 90 ms interleaved: 21.0/20.8/24.6 vs 23.5/18.1/19.5 — within
+noise. The object cache barely moves this microbenchmark because the per-op
+latency is already amortized across high concurrency (32 submitters + a 16-wide
+flush), so cold reads overlap rather than serialize.
+
+Corrected conclusions:
+
+- **There is no ~1 landing/s serial-publisher ceiling.** A single hot ref
+  sustains **~20+ landings/s under R2-like 90 ms latency**, degrading gracefully
+  (41 → 23 → 14 as 0 → 90 → 180 ms). The publish path is already highly
+  concurrent.
+- **The read-chattiness "ceiling" was an artifact.** Reads happen, but they
+  overlap; they are not the throughput wall. The planned read-elimination pass
+  is **not** justified by data — dropped.
+- **Fix A and the batched build stand** on their own merits (less lock-hold,
+  fewer flushes) and are correct, but their *measured* multipliers were noise;
+  do not cite them.
+- **The Phase 0 abort criterion is plausibly MET.** ~20+ landings/s per hot ref
+  under injected R2 latency is ample headroom for foreseeable load, so
+  Fix A + batching likely suffice for throughput. **The WAL reverts to its
+  original rationale — durability and taking the single-primary DB off the
+  accepted-write path — not a throughput rescue.** Build it (or not) on that
+  basis, not on hot-ref landings/sec.
+
+Methodology caveat (important): this benchmark is **sensitive to host load**.
+Single-run absolute numbers on a shared box are unreliable; always run
+back-to-back interleaved reps on an idle machine (or a dedicated one), and
+prefer *relative* deltas over absolutes. The real-R2 + Neon confirmation should
+follow the same discipline.
 
 ### Phase 1 — Fix A: Shrink The Publish Transaction (no WAL)
 
