@@ -77,7 +77,7 @@ If we ever outgrow a single primary, the honest answer isn't a bespoke log — i
 
 ## 5. The bet
 
-Gitslice's wager is that version control for the next decade — many teams, one codebase, agents writing alongside people — wants a native source graph with a real metadata model, not a fleet of Git servers. Keep Git at the boundary, where the ecosystem lives. Keep the truth in a single content-addressed graph, where the product lives. The best ideas from the Git-hosting world, like an object-storage write log, apply to us too — we just get to put them to work on our own terms, one costume removed.`
+Gitslice's wager is that version control for the next decade — many teams, one codebase, agents writing alongside people — wants a native source graph with a real metadata model, not a fleet of Git servers. Keep Git at the boundary, where the ecosystem lives. Keep the truth in a single content-addressed graph, where the product lives. The best ideas from the Git-hosting world still travel to us — but they arrive changed by what our database is for: a map of one graph, not a journal of one repo. We take what fits and leave the rest, one costume removed.`
   }
 ];
 
