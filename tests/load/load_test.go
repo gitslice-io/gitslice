@@ -982,6 +982,7 @@ func startLoadServer(t *testing.T) *loadServer {
 			GRPCAddr:           ts.addr,
 			DatabaseURL:        databaseURLWithSearchPath(t, databaseURL, schema),
 			ObjectStoreRoot:    ts.objectRoot,
+			ObjectCacheBytes:   int64(envInt("GITSLICE_LOAD_OBJECT_CACHE_BYTES", 256<<20)),
 			ObjectStoreLatency: time.Duration(envInt("GITSLICE_LOAD_OBJECT_STORE_LATENCY_MS", 0)) * time.Millisecond,
 			ServiceToken: servicetoken.Config{
 				PublicKeyPEM: ts.servicePub,
