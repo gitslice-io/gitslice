@@ -59,26 +59,21 @@ The repository stops being a storage boundary and becomes what it always should 
 
 ## 4. What we learned from Cursor
 
-We pay attention to how others solve version control at scale, and Cursor's [*Git at any scale*](https://cursor.com/blog/git-at-any-scale) taught us something that reshaped our own roadmap. It answers a different question than we do — how to host unmodified Git at massive scale — from the opposite direction, but it surfaced a substrate lesson that applies to us just as much.
+We pay attention to how others solve version control at scale, and Cursor's [*Git at any scale*](https://cursor.com/blog/git-at-any-scale) is the sharpest recent example. It answers a different question than we do — how to host *unmodified* Git at massive scale — and reading it sent us to stress-test our own write path. Ours held up. The lesson we took isn't a fix we borrowed; it's an architectural line we can now draw cleanly.
 
 | | Cursor "Continuity" | Gitslice |
 |---|---|---|
 | Strategy | Scale the repository | Dissolve the repository |
 | Engine | Standard Git on local NVMe | Native content-addressed graph |
 | Source of truth | Write-ahead log in object storage | Postgres (metadata) + object store (bytes) |
-| Read scaling | Hundreds of elastic per-repo replicas | Indexes and caches over one graph |
+| The index | Git-on-disk, rebuilt from the log | Postgres |
 | Solves | Hosting unmodified Git at massive scale | Agent-driven, multi-account codebases |
 
-Cursor scales the repository; we dissolve it. Different problems, different engines — yet the same underlying lesson landed on the one place our design was weakest: **write throughput on a hot ref.**
+The striking thing about Continuity is that it runs with **no database in the hosting path**. Cursor can do that because *Git-on-disk is their index*: object storage holds an append-only log, and a real Git repository — rebuilt on demand, discarded when idle — answers every query about refs and objects. Placement is *computed* with rendezvous hashing instead of stored in a routing table. The two jobs a database usually does — the durable ordered journal and the queryable index — are handled by object storage and by Git itself.
 
-> The lesson: the authoritative, linearizing write should live in object storage, not in a single-primary database — and everything else should be a rebuildable view of that log.
+We can't take that shortcut, and we don't want to. **Our Postgres *is* our index** — overlapping slices, per-path authorization, global history, reviewed changesets. None of that falls out of Git-on-disk; it's the whole reason we run a native graph instead of a pile of repositories. So the deepest move Cursor demonstrates — object-storage-as-source-of-truth, no DB in the path — is one we studied closely and deliberately set aside. For us it would replace only the journal while leaving the index exactly where it is.
 
-Today our accepted-history commit point is a PostgreSQL transaction that holds row locks while doing per-file object-store round-trips, then moves the ref with a compare-and-swap. Every landing reaches the single primary. Reading how Cursor handles this pushed us to write down a fix, in two independent steps:
-
-1. **Get object storage out of the transaction.** No log needed yet — build the tree chain and commit objects *before* opening the transaction, so it shrinks to metadata writes plus the ref compare-and-swap. Content-addressing makes an abandoned build harmless: it's just garbage-collectable objects. *(Ships first; the biggest single throughput jump, valuable on its own.)*
-2. **Move the commit point off the database.** The bigger step: a per-target-ref write-ahead log in object storage becomes the linearization point, appended with a create-only conditional PUT so exactly one writer wins each sequence. Postgres becomes an idempotent applier behind a watermark — a rebuildable view of the log. *(Gated: measure → shadow-write parity → authority flip behind a flag.)*
-
-Plenty of Cursor's approach doesn't fit ours — Git packfiles and local repos as the compute engine, gossip replication, elastic per-repo replica fleets. Those answer *their* question, not ours. What we took away was narrower and deeper: where the authoritative write belongs. The engine stays ours; the lesson made it faster.
+If we ever outgrow a single primary, the honest answer isn't a bespoke log — it's a geo-distributed SQL database, because what we'd need to distribute is the *index*, not just the journal. That's the real lesson: the right substrate follows from what your database is actually for. Cursor's is a journal; ours is the map.
 
 ## 5. The bet
 
