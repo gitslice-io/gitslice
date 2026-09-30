@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -2172,6 +2173,26 @@ func startTestServer(t *testing.T) *testServer {
 
 func (ts *testServer) start(t *testing.T, migrate bool) {
 	t.Helper()
+	for attempt := 1; ; attempt++ {
+		err := ts.launch(t, migrate)
+		if err == nil {
+			break
+		}
+		ts.cancel()
+		ts.cancel = nil
+		if attempt < 3 && retryableStartupError(err) {
+			t.Logf("test server lost a port, retrying on fresh ones: %v", err)
+			ts.addr, ts.httpAddr, ts.gitAddr = freeAddr(t), freeAddr(t), freeAddr(t)
+			continue
+		}
+		t.Fatal(err)
+	}
+	waitForHTTPGateway(t, ts.httpAddr)
+	waitForGitHTTP(t, ts.gitAddr)
+}
+
+func (ts *testServer) launch(t *testing.T, migrate bool) error {
+	t.Helper()
 	ts.ctx, ts.cancel = context.WithCancel(context.Background())
 	ts.errCh = make(chan error, 1)
 	go func() {
@@ -2190,9 +2211,7 @@ func (ts *testServer) start(t *testing.T, migrate bool) {
 			RunMigrations: migrate,
 		})
 	}()
-	waitForHealth(t, ts.addr)
-	waitForHTTPGateway(t, ts.httpAddr)
-	waitForGitHTTP(t, ts.gitAddr)
+	return waitForHealth(ts.addr, ts.errCh)
 }
 
 func (ts *testServer) stop(t *testing.T) {
@@ -3108,11 +3127,28 @@ func freeAddr(t *testing.T) string {
 	return lis.Addr().String()
 }
 
-func waitForHealth(t *testing.T, addr string) {
-	t.Helper()
+// serverExitError reports that the in-process server returned before its
+// health check passed, carrying the server's own error.
+type serverExitError struct{ err error }
+
+func (e *serverExitError) Error() string {
+	return fmt.Sprintf("server exited during startup: %v", e.err)
+}
+func (e *serverExitError) Unwrap() error { return e.err }
+
+// waitForHealth waits for the gRPC health check to pass. It also watches the
+// server goroutine: if server.Run returns first (e.g. its port was taken
+// between freeAddr and Listen), the real error is returned at once instead of
+// a generic health-check timeout 10s later.
+func waitForHealth(addr string, errCh <-chan error) error {
 	deadline := time.Now().Add(10 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-errCh:
+			return &serverExitError{err: err}
+		default:
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 		if err == nil {
@@ -3122,12 +3158,19 @@ func waitForHealth(t *testing.T, addr string) {
 		}
 		cancel()
 		if err == nil {
-			return
+			return nil
 		}
 		lastErr = err
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal(fmt.Errorf("server health check did not pass: %w", lastErr))
+	return fmt.Errorf("server health check did not pass: %w", lastErr)
+}
+
+// retryableStartupError reports whether a startup failure was a lost port,
+// which a retry on fresh ports fixes.
+func retryableStartupError(err error) bool {
+	var exitErr *serverExitError
+	return errors.As(err, &exitErr) && errors.Is(exitErr.err, syscall.EADDRINUSE)
 }
 
 func waitForHTTPGateway(t *testing.T, addr string) {

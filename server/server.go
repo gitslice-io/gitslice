@@ -89,6 +89,12 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer db.Close()
+	// Background workers (publisher, outbox/index worker, check sweep) run on
+	// ctx. Cancel it on every return path, before db.Close runs, so a startup
+	// failure such as a port already in use does not leave them spinning on a
+	// closed database.
+	ctx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers()
 	db.Slices().Secrets = secrets
 	objectStore, err := newObjectStore(cfg)
 	if err != nil {

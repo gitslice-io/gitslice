@@ -642,3 +642,42 @@ func requireOutboxPayloadsForTest(t *testing.T, ctx context.Context, store *DB, 
 		t.Fatalf("outbox payloads = %#v, want %#v", got, want)
 	}
 }
+
+// A failed publish batch must hand its claimed rows back immediately rather
+// than leave them in 'publishing' until the stale-claim reaper (60s) runs.
+func TestPublishPendingReleasesClaimsOnFailure(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	p := "/acme/payment/released_claim.go"
+	blobID, contentHash := upsertTestBlob(t, ctx, store, "package payment\nconst ReleasedClaim = true\n")
+	patchset := createDraftPatchset(t, ctx, store, base.CommitId, p, blobID, contentHash)
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hold the changeset row so finalize blocks, then time the batch out.
+	blocker, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blocker.ExecContext(ctx, `select id from changesets where id = $1 for update`, patchset.ChangesetId); err != nil {
+		t.Fatal(err)
+	}
+	failCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	published, err := store.Changesets().PublishPending(failCtx, 10)
+	cancel()
+	if err == nil || published != 0 {
+		t.Fatalf("PublishPending with a blocked changeset = %d, %v; want an error", published, err)
+	}
+	if err := blocker.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if state := requirePublishStateForTest(t, ctx, store, patchset.ChangesetId); state.PendingStatus != "pending" {
+		t.Fatalf("pending status after failed batch = %q, want pending (released)", state.PendingStatus)
+	}
+
+	published, err = store.Changesets().PublishPending(ctx, 10)
+	if err != nil || published != 1 {
+		t.Fatalf("retry PublishPending = %d, %v; want 1", published, err)
+	}
+}
