@@ -1,0 +1,83 @@
+name: Release gs
+
+# Builds the gs CLI for Linux, macOS and Windows and publishes it as a GitHub
+# release when a version tag (v*) is pushed. Asset names carry no version so
+# https://github.com/gitslice-io/gitslice/releases/latest/download/<asset>
+# always points at the newest build (used by https://gitslice.io/install.sh).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build and publish, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binaries
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          pkg="github.com/gitslice-io/gitslice/internal/cli"
+          ldflags="-s -w -X ${pkg}.Version=${TAG} -X ${pkg}.BuildCommit=${commit} -X ${pkg}.BuildDate=${date}"
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            name="gs_${os}_${arch}"
+            bin="gs"; [ "$os" = windows ] && bin="gs.exe"
+            workdir="$(mktemp -d)"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$ldflags" -o "$workdir/$bin" ./cmd/gs
+            cp LICENSE* "$workdir/" 2>/dev/null || true
+            if [ "$os" = windows ]; then
+              (cd "$workdir" && zip -q "$GITHUB_WORKSPACE/dist/${name}.zip" ./*)
+            else
+              tar -C "$workdir" -czf "dist/${name}.tar.gz" .
+            fi
+          done
+          (cd dist && sha256sum * > checksums.txt)
+          ls -l dist
+          cat dist/checksums.txt
+
+      - name: Smoke-test the linux/amd64 build
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          tar -C "$tmp" -xzf dist/gs_linux_amd64.tar.gz
+          "$tmp/gs" version | tee /dev/stderr | grep -q "gs version ${TAG}"
+          "$tmp/gs" auth register-agent --help | grep -q "Username rules"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "gs ${TAG}" --generate-notes
+          fi
