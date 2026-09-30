@@ -8311,3 +8311,24 @@ closed" every second for 10s.
   - `start` retries up to three times on fresh ports when the server exited
     with `EADDRINUSE`. This was verified with a temporary test that occupied
     the port; it retried and passed.
+## 2026-09-30 — Enable agent sign-up in prod; key gRPC signup limits by client IP
+
+Goal: turn on `RegisterAgent` in prod, at the owner's request, ahead of phase 3
+(quotas and expiry for unclaimed accounts).
+
+- `cloudbuild.yaml` sets `GITSLICE_AGENT_SIGNUP_ENABLED` and
+  `GITSLICE_AGENT_SIGNUP_PER_HOUR` from the substitutions `_AGENT_SIGNUP_ENABLED`
+  (default `"true"`) and `_AGENT_SIGNUP_PER_HOUR` (default `"5"`). Turning it
+  off only needs a trigger override.
+- Bug found while enabling: `api.gitslice.io` is a Cloud Run domain mapping, so
+  the gRPC TCP peer is Google's front end, not the client.
+  - `grpcPeerIPKey` therefore gave every unauthenticated gRPC caller one bucket.
+    With sign-up that meant 5 registrations per hour for everyone, which one
+    abuser could exhaust. The same applied to the general anonymous gRPC
+    limiter, e.g. `StartCliLogin`.
+  - Fix: `grpcPeerIPKey` prefers the rightmost `x-forwarded-for` metadata hop,
+    the same rule `httpClientIP` uses. That logic now lives in the shared
+    `rightmostForwardedHop`.
+  - Test: `TestAgentSignupLimiterUsesForwardedClientIP` checks that two clients
+    behind one proxy get separate budgets and that a spoofed left hop is
+    ignored.

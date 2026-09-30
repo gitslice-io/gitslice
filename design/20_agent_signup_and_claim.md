@@ -153,7 +153,14 @@ Open, unauthenticated account creation is the main risk. Phase 1 ships with:
   same count as the burst. It keys on the same client IP the existing limiters
   use.
 
-Later, before enabling it in production:
+In production the `RegisterAgent` limiter keys gRPC calls on the rightmost
+`x-forwarded-for` hop, like the HTTP limiter. Cloud Run's TCP peer is its own
+front end, so keying on the peer would give every client one shared bucket.
+Sign-up is enabled in prod through the `_AGENT_SIGNUP_ENABLED` /
+`_AGENT_SIGNUP_PER_HOUR` Cloud Build substitutions (defaults `"true"` / `"5"`).
+Set `_AGENT_SIGNUP_ENABLED=false` on the trigger to turn it off.
+
+Still to do (phase 3); these were planned before enabling it in production:
 
 - quotas for unclaimed agent accounts (stored bytes, slices, changesets/day);
 - automatic expiry of agent accounts left unclaimed for N days;

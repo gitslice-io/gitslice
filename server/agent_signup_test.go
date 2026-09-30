@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
@@ -76,5 +77,27 @@ func TestAgentSignupLimiterHTTP(t *testing.T) {
 	}
 	if code := call("/gitslice.core.v1.AuthService/PollCliLogin"); code != http.StatusOK {
 		t.Fatalf("other path = %d; want 200", code)
+	}
+}
+
+func TestAgentSignupLimiterUsesForwardedClientIP(t *testing.T) {
+	interceptor := agentSignupUnaryInterceptor(newAgentSignupLimiter(Config{AgentSignupPerHour: 1}))
+	handler := func(ctx context.Context, req any) (any, error) { return "ok", nil }
+	info := &grpc.UnaryServerInfo{FullMethod: agentSignupMethod}
+	// Every request arrives from the same proxy peer, as on Cloud Run.
+	viaProxy := func(forwarded string) context.Context {
+		ctx := peer.NewContext(context.Background(), &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("169.254.1.1"), Port: 1234}})
+		return metadata.NewIncomingContext(ctx, metadata.Pairs("x-forwarded-for", forwarded))
+	}
+
+	if _, err := interceptor(viaProxy("203.0.113.10"), nil, info, handler); err != nil {
+		t.Fatalf("first client: %v", err)
+	}
+	if _, err := interceptor(viaProxy("198.51.100.20"), nil, info, handler); err != nil {
+		t.Fatalf("a second client behind the same proxy must have its own budget: %v", err)
+	}
+	// The rightmost hop is the one our edge appended; a spoofed left hop is ignored.
+	if _, err := interceptor(viaProxy("1.2.3.4, 203.0.113.10"), nil, info, handler); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("spoofed left hop code = %v; want ResourceExhausted", status.Code(err))
 	}
 }
