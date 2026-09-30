@@ -8480,3 +8480,16 @@ and compiling from source, because there were no releases.
   with the installer. `go install` and building from source remain as options.
 - Ordering: the release existed before the docs advertised the installer, so
   it was never live but broken.
+
+## 2026-09-30 — Put the installer where newcomers start
+
+A live check after #380 found that the one-line installer only appeared on
+`/doc/cli`, `/doc/agents` and `/llms.txt`. Start Here (`/doc`) began with
+`gs auth login` and had no install step, and the landing page never mentioned
+installing. Both gaps predate #380.
+
+- Start Here: a new step 1, "Install gs", with
+  `curl -fsSL https://gitslice.io/install.sh | sh` and `gs version`. It points
+  Windows, `go install` and from-source users to the CLI Reference.
+- Landing page: an "Install the CLI:" line under the hero buttons, and the
+  terminal mock now opens with the installer.

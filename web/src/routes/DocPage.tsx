@@ -51,6 +51,12 @@ const docSections: Array<{
 
 const startSteps = [
   {
+    title: "Install gs",
+    description:
+      "One command for Linux and macOS: downloads the latest prebuilt binary, verifies its checksum, and installs it to ~/.local/bin. For Windows, go install, or building from source, see the CLI Reference.",
+    command: "curl -fsSL https://gitslice.io/install.sh | sh\ngs version"
+  },
+  {
     title: "Sign in",
     description: "Authenticate once, then use the same identity for CLI and web.",
     command: "gs auth login\ngs auth status"
