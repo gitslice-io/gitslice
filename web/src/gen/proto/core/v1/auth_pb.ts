@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/auth.proto.
  */
 export const file_proto_core_v1_auth: GenFile = /*@__PURE__*/
-  fileDesc("Chhwcm90by9jb3JlL3YxL2F1dGgucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiFgoUU3RhcnRDbGlMb2dpblJlcXVlc3QiWAoVU3RhcnRDbGlMb2dpblJlc3BvbnNlEgwKBGNvZGUYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYAyABKAUiIwoTUG9sbENsaUxvZ2luUmVxdWVzdBIMCgRjb2RlGAEgASgJIkkKFFBvbGxDbGlMb2dpblJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRINCgV0b2tlbhgCIAEoCRISCgpzdWJqZWN0X2lkGAMgASgJIicKF0NvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0EgwKBGNvZGUYASABKAkiLgoYQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkiFgoUR2V0QXV0aFN0YXR1c1JlcXVlc3QiVQoVR2V0QXV0aFN0YXR1c1Jlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkSEAoIYWNjb3VudHMYAiADKAkSFgoObmVlZHNfdXNlcm5hbWUYAyABKAgiMQodQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiVwoeQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlc3BvbnNlEhEKCWF2YWlsYWJsZRgBIAEoCBISCgpub3JtYWxpemVkGAIgASgJEg4KBnJlYXNvbhgDIAEoCSIpChVDaG9vc2VVc2VybmFtZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiPQoWQ2hvb3NlVXNlcm5hbWVSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAky/QQKC0F1dGhTZXJ2aWNlEmAKDVN0YXJ0Q2xpTG9naW4SJi5naXRzbGljZS5jb3JlLnYxLlN0YXJ0Q2xpTG9naW5SZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5TdGFydENsaUxvZ2luUmVzcG9uc2USXQoMUG9sbENsaUxvZ2luEiUuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXF1ZXN0GiYuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXNwb25zZRJpChBDb21wbGV0ZUNsaUxvZ2luEikuZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUNsaUxvZ2luUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEmAKDUdldEF1dGhTdGF0dXMSJi5naXRzbGljZS5jb3JlLnYxLkdldEF1dGhTdGF0dXNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5HZXRBdXRoU3RhdHVzUmVzcG9uc2USewoWQ2hlY2tVc2VybmFtZUF2YWlsYWJsZRIvLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QaMC5naXRzbGljZS5jb3JlLnYxLkNoZWNrVXNlcm5hbWVBdmFpbGFibGVSZXNwb25zZRJjCg5DaG9vc2VVc2VybmFtZRInLmdpdHNsaWNlLmNvcmUudjEuQ2hvb3NlVXNlcm5hbWVSZXF1ZXN0GiguZ2l0c2xpY2UuY29yZS52MS5DaG9vc2VVc2VybmFtZVJlc3BvbnNlQjZaNGdpdGh1Yi5jb20vZ2l0c2xpY2UtaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw");
+  fileDesc("Chhwcm90by9jb3JlL3YxL2F1dGgucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiFgoUU3RhcnRDbGlMb2dpblJlcXVlc3QiWAoVU3RhcnRDbGlMb2dpblJlc3BvbnNlEgwKBGNvZGUYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYAyABKAUiIwoTUG9sbENsaUxvZ2luUmVxdWVzdBIMCgRjb2RlGAEgASgJIkkKFFBvbGxDbGlMb2dpblJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRINCgV0b2tlbhgCIAEoCRISCgpzdWJqZWN0X2lkGAMgASgJIicKF0NvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0EgwKBGNvZGUYASABKAkiLgoYQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkiFgoUR2V0QXV0aFN0YXR1c1JlcXVlc3QiVQoVR2V0QXV0aFN0YXR1c1Jlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkSEAoIYWNjb3VudHMYAiADKAkSFgoObmVlZHNfdXNlcm5hbWUYAyABKAgiMQodQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiVwoeQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlc3BvbnNlEhEKCWF2YWlsYWJsZRgBIAEoCBISCgpub3JtYWxpemVkGAIgASgJEg4KBnJlYXNvbhgDIAEoCSIpChVDaG9vc2VVc2VybmFtZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiPQoWQ2hvb3NlVXNlcm5hbWVSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkiUwoUUmVnaXN0ZXJBZ2VudFJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEwoLb3duZXJfZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJIk0KFVJlZ2lzdGVyQWdlbnRSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDwoHYXBpX2tleRgDIAEoCTLfBQoLQXV0aFNlcnZpY2USYAoNU3RhcnRDbGlMb2dpbhImLmdpdHNsaWNlLmNvcmUudjEuU3RhcnRDbGlMb2dpblJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLlN0YXJ0Q2xpTG9naW5SZXNwb25zZRJdCgxQb2xsQ2xpTG9naW4SJS5naXRzbGljZS5jb3JlLnYxLlBvbGxDbGlMb2dpblJlcXVlc3QaJi5naXRzbGljZS5jb3JlLnYxLlBvbGxDbGlMb2dpblJlc3BvbnNlEmkKEENvbXBsZXRlQ2xpTG9naW4SKS5naXRzbGljZS5jb3JlLnYxLkNvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUNsaUxvZ2luUmVzcG9uc2USYAoNR2V0QXV0aFN0YXR1cxImLmdpdHNsaWNlLmNvcmUudjEuR2V0QXV0aFN0YXR1c1JlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkdldEF1dGhTdGF0dXNSZXNwb25zZRJ7ChZDaGVja1VzZXJuYW1lQXZhaWxhYmxlEi8uZ2l0c2xpY2UuY29yZS52MS5DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVxdWVzdBowLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlc3BvbnNlEmMKDkNob29zZVVzZXJuYW1lEicuZ2l0c2xpY2UuY29yZS52MS5DaG9vc2VVc2VybmFtZVJlcXVlc3QaKC5naXRzbGljZS5jb3JlLnYxLkNob29zZVVzZXJuYW1lUmVzcG9uc2USYAoNUmVnaXN0ZXJBZ2VudBImLmdpdHNsaWNlLmNvcmUudjEuUmVnaXN0ZXJBZ2VudFJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLlJlZ2lzdGVyQWdlbnRSZXNwb25zZUI2WjRnaXRodWIuY29tL2dpdHNsaWNlLWlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM");
 
 /**
  * @generated from message gitslice.core.v1.StartCliLoginRequest
@@ -267,6 +267,69 @@ export const ChooseUsernameResponseSchema: GenMessage<ChooseUsernameResponse> = 
   messageDesc(file_proto_core_v1_auth, 11);
 
 /**
+ * @generated from message gitslice.core.v1.RegisterAgentRequest
+ */
+export type RegisterAgentRequest = Message<"gitslice.core.v1.RegisterAgentRequest"> & {
+  /**
+   * Desired username; same rules as ChooseUsername.
+   *
+   * @generated from field: string username = 1;
+   */
+  username: string;
+
+  /**
+   * Email of the human who may later claim co-ownership. Required. Not verified
+   * at registration; a claim requires a verified sign-in with this address.
+   *
+   * @generated from field: string owner_email = 2;
+   */
+  ownerEmail: string;
+
+  /**
+   * Optional human-readable name, e.g. "release-bot". Defaults to username.
+   *
+   * @generated from field: string display_name = 3;
+   */
+  displayName: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.RegisterAgentRequest.
+ * Use `create(RegisterAgentRequestSchema)` to create a new message.
+ */
+export const RegisterAgentRequestSchema: GenMessage<RegisterAgentRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 12);
+
+/**
+ * @generated from message gitslice.core.v1.RegisterAgentResponse
+ */
+export type RegisterAgentResponse = Message<"gitslice.core.v1.RegisterAgentResponse"> & {
+  /**
+   * @generated from field: string subject_id = 1;
+   */
+  subjectId: string;
+
+  /**
+   * @generated from field: string account = 2;
+   */
+  account: string;
+
+  /**
+   * Plaintext API key ("gsk_..."). Returned only once; the server keeps a hash.
+   *
+   * @generated from field: string api_key = 3;
+   */
+  apiKey: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.RegisterAgentResponse.
+ * Use `create(RegisterAgentResponseSchema)` to create a new message.
+ */
+export const RegisterAgentResponseSchema: GenMessage<RegisterAgentResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 13);
+
+/**
  * @generated from service gitslice.core.v1.AuthService
  */
 export const AuthService: GenService<{
@@ -317,6 +380,18 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof ChooseUsernameRequestSchema;
     output: typeof ChooseUsernameResponseSchema;
+  },
+  /**
+   * RegisterAgent self-registers an agent with its own personal account and
+   * returns a long-lived API key. Unauthenticated; disabled unless the server
+   * sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.RegisterAgent
+   */
+  registerAgent: {
+    methodKind: "unary";
+    input: typeof RegisterAgentRequestSchema;
+    output: typeof RegisterAgentResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_auth, 0);

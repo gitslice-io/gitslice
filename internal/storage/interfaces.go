@@ -27,6 +27,13 @@ type AuthStore interface {
 	// UsernamesForSubjects maps each given subject id to its personal account slug
 	// (the username). Subject ids without a personal account are omitted from the map.
 	UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error)
+	// RegisterAgent creates an agent subject together with its personal account
+	// (admin membership, home slice), records the owner email that may later
+	// claim co-ownership, and issues the agent's first API key.
+	RegisterAgent(ctx context.Context, in RegisterAgentInput) (*RegisteredAgent, error)
+	// SubjectForToken resolves a bearer token to a subject. Tokens starting with
+	// APIKeyPrefix resolve against unrevoked, unexpired API keys; all others
+	// against login sessions.
 	SubjectForToken(ctx context.Context, token string) (*Subject, error)
 	EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error
 	AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error)

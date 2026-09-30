@@ -102,6 +102,12 @@ gs auth login --server 127.0.0.1:50051
 gs auth login --clerk-token - --server 127.0.0.1:50051
 ```
 
+An agent with no human available to sign in can register itself, when the server enables agent sign-up. This creates the agent's own personal account and saves a long-lived API key as the CLI credential. The human who owns `--email` can later claim co-ownership:
+
+```bash
+gs auth register-agent --username release-bot --email owner@example.com --server 127.0.0.1:50051
+```
+
 For local tests, fixtures may write `~/.gitslice/config.json` directly with a service token; do that only inside test harnesses or when the user explicitly asks for test setup.
 
 Use `gs context --json` before workspace-sensitive operations. It reports the cwd, config path, signed-in subject, nearest workspace, active slice, and source of that slice resolution.

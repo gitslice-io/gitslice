@@ -8145,3 +8145,60 @@ go build ./... && go test ./internal/treestore/... ./service/...
 New tests: `TestPublishPendingMultiChangesetDeterministicChainMovesRefOnce`,
 `TestPublishPendingConcurrentWorkersDoNotDoublePublishOrLoseRows`,
 `TestPublishPendingReapsStaleClaim`.
+
+## 2026-09-29 — Agent self-registration and API keys (design 20, phase 1)
+
+Goal: let an agent start using Gitslice with no human in the loop. It registers
+itself, gets its own personal account plus a long-lived API key, and names an
+owner email that can later claim co-ownership. The claim flow (phase 2) and
+member/key management (phase 3) are designed in
+`design/20_agent_signup_and_claim.md` but not built.
+
+Decisions:
+
+- New unauthenticated `AuthService/RegisterAgent`. It is **off by default**
+  (`GITSLICE_AGENT_SIGNUP_ENABLED`) because every call creates an account.
+- Agents are `subjects.kind = 'agent'` with ids `agent_<random>`. Account
+  provisioning reuses `provisionAccountForSubject`, so an agent gets exactly
+  what `ChooseUsername` gives a human: an admin membership, a home slice, and the
+  account root directory. Agents share the username namespace with humans.
+- Migration `0024_agent_signup.sql`:
+  - `agent_registrations` holds the owner email (normalized, unverified) and the
+    claim columns.
+  - `api_keys` holds `gsk_…` keys stored as sha256, the same scheme as sessions.
+    Keys live apart from `sessions` so phase 3 can name, list, and revoke them.
+- `SubjectForToken` routes `gsk_` tokens to `api_keys`. The Clerk resolver
+  already tries `SubjectForToken` first, so keys work under both auth providers
+  with no resolver change. `last_used_at` is stamped at most once a minute, and
+  a failed stamp never fails authentication.
+- A dedicated per-IP limiter covers `RegisterAgent` only
+  (`GITSLICE_AGENT_SIGNUP_PER_HOUR`, default 5, with a burst of the same size).
+  It applies on both gRPC (peer IP) and Connect (`httpClientIP`) and respects
+  `GITSLICE_RATELIMIT_DISABLED`. The bucket TTL is 2h, which is longer than a
+  full refill, so an idle IP's spent budget is not forgotten early.
+- CLI `gs auth register-agent --username --email [--display-name]` saves the key
+  as the bearer credential, the same way login does. JSON output reports
+  `subject_id`, `account`, and `server_addr`, and never the key.
+- The owner email is only shape-checked (`storage.NormalizeOwnerEmail`). It
+  grants nothing until a verified sign-in claims it (phase 2).
+- The RPC e2e harness now always sets `AgentSignupEnabled: true`. It has no
+  effect on other tests.
+
+Surprise: codex could not be used for this task. The ChatGPT account rejected
+both `gpt-5.6-sol` (the config default) and `gpt-5.5`, so the change was
+implemented directly.
+
+Verification:
+
+```bash
+gofmt -l . && go vet ./... && go build ./... && go test ./...
+GITSLICE_TEST_DATABASE_URL=postgres://postgres:***@127.0.0.1:32768/gitslice_test?sslmode=disable \
+  go test -count=1 ./tests/rpc ./tests/cli
+```
+
+New tests: `TestNormalizeOwnerEmail`, `TestRegisterAgentProvisionsAccountAndKey`,
+`TestRegisterAgentRejectsTakenUsernameAndBadEmail`,
+`TestRegisterAgentDisabledByDefault`, `TestRegisterAgentIssuesUsableKey`,
+`TestRegisterAgentIsPublic`, `TestAgentSignupLimiter{GRPC,Disabled,HTTP}`,
+`TestAuthRegisterAgent{SavesKeyAndSignsIn,DisabledServer,RequiresFlags}`,
+`TestRegisterAgentWithPostgres`.

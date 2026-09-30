@@ -113,6 +113,10 @@ func (a connectAuthAdapter) ChooseUsername(ctx context.Context, req *connect.Req
 	return connectResponse(a.svc.ChooseUsername(ctx, req.Msg))
 }
 
+func (a connectAuthAdapter) RegisterAgent(ctx context.Context, req *connect.Request[corev1.RegisterAgentRequest]) (*connect.Response[corev1.RegisterAgentResponse], error) {
+	return connectResponse(a.svc.RegisterAgent(ctx, req.Msg))
+}
+
 type connectRepositoryAdapter struct {
 	svc *service.RepositoryService
 }

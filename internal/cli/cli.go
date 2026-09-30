@@ -921,6 +921,22 @@ func (r Runner) rootCommand() *cobra.Command {
 			return r.runAuthLogout(*opts)
 		},
 	}
+	registerServer := defaultServerAddr()
+	registerUsername := ""
+	registerEmail := ""
+	registerDisplayName := ""
+	authRegisterAgentCmd := &cobra.Command{
+		Use:   "register-agent",
+		Short: "Register this agent with its own account and API key (no browser)",
+		Args:  noArgs("gs auth register-agent --username NAME --email OWNER_EMAIL [--display-name NAME] [--server addr]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAuthRegisterAgent(cmd.Context(), *opts, registerServer, registerUsername, registerEmail, registerDisplayName)
+		},
+	}
+	authRegisterAgentCmd.Flags().StringVar(&registerServer, "server", registerServer, "server gRPC address")
+	authRegisterAgentCmd.Flags().StringVar(&registerUsername, "username", "", "username for the agent's personal account")
+	authRegisterAgentCmd.Flags().StringVar(&registerEmail, "email", "", "email of the human who may later claim co-ownership")
+	authRegisterAgentCmd.Flags().StringVar(&registerDisplayName, "display-name", "", "human-readable agent name (defaults to the username)")
 	genKeyOut := ""
 	genServiceKeyCmd := &cobra.Command{
 		Use:   "gen-service-key",
@@ -951,7 +967,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	mintServiceTokenCmd.Flags().StringVar(&mintIssuer, "issuer", mintIssuer, "issuer claim (must match server GITSLICE_SERVICE_JWT_ISSUER)")
 	mintServiceTokenCmd.Flags().DurationVar(&mintTTL, "ttl", mintTTL, "token lifetime")
 
-	authCmd.AddCommand(loginCmd, authStatusCmd, authTokenCmd, authLogoutCmd, genServiceKeyCmd, mintServiceTokenCmd)
+	authCmd.AddCommand(loginCmd, authStatusCmd, authTokenCmd, authLogoutCmd, authRegisterAgentCmd, genServiceKeyCmd, mintServiceTokenCmd)
 
 	initCmd := &cobra.Command{
 		Use:   "init <slice|account:slice>",
@@ -2216,6 +2232,68 @@ func (r Runner) verifyToken(ctx context.Context, serverAddr, token string) (stri
 		return "", err
 	}
 	return res.SubjectId, nil
+}
+
+// runAuthRegisterAgent self-registers an agent via the unauthenticated
+// AuthService.RegisterAgent RPC and saves the returned API key as the CLI's
+// bearer credential, so later commands run as the agent. The key itself is never
+// printed; use `gs auth token` when a script needs it.
+func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, serverAddr, username, email, displayName string) error {
+	username = strings.TrimSpace(username)
+	email = strings.TrimSpace(email)
+	if username == "" || email == "" {
+		return userError("invalid_args", "--username and --email are required", "Run gs auth register-agent --username NAME --email OWNER_EMAIL.")
+	}
+	serverAddr = strings.TrimSpace(serverAddr)
+	if serverAddr == "" {
+		serverAddr = defaultServerAddr()
+	}
+	conn, err := dial(ctx, serverAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	resp, err := corev1.NewAuthServiceClient(conn).RegisterAgent(ctx, &corev1.RegisterAgentRequest{
+		Username:    username,
+		OwnerEmail:  email,
+		DisplayName: displayName,
+	})
+	if err != nil {
+		switch grpcstatus.Code(err) {
+		case codes.FailedPrecondition:
+			return userError("agent_signup_failed", grpcstatus.Convert(err).Message(), "The username may be taken, or the server may not allow agent sign-up (GITSLICE_AGENT_SIGNUP_ENABLED).")
+		case codes.InvalidArgument:
+			return userError("invalid_args", grpcstatus.Convert(err).Message(), "Check the username and email and try again.")
+		case codes.ResourceExhausted:
+			return userError("rate_limited", grpcstatus.Convert(err).Message(), "Too many agent registrations from this address; try again later.")
+		}
+		return err
+	}
+	if strings.TrimSpace(resp.ApiKey) == "" || strings.TrimSpace(resp.SubjectId) == "" {
+		return userError("agent_signup_failed", "server registered the agent without returning an API key", "Try gs auth register-agent again with a different username.")
+	}
+
+	cfg := UserConfig{ServerAddr: serverAddr, Token: resp.ApiKey, SubjectID: resp.SubjectId}
+	if existing, err := r.readPartialUserConfig(); err == nil {
+		cfg.Aliases = existing.Aliases
+	}
+	if err := r.writeUserConfig(cfg); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"server_addr": serverAddr,
+			"subject_id":  resp.SubjectId,
+			"account":     resp.Account,
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "registered agent %s with account %s; API key saved\n", resp.SubjectId, resp.Account)
+	fmt.Fprintf(r.Stdout, "%s can claim co-ownership by signing in with that email\n", strings.ToLower(email))
+	return nil
 }
 
 func (r Runner) persistAndReportLogin(opts commandOptions, cfg UserConfig) error {

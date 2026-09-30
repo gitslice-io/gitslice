@@ -8,6 +8,7 @@ const (
 	EventPatchsetPushed     = "patchset_pushed"
 	EventAuthLogin          = "auth_login"
 	EventCLILoginCompleted  = "cli_login_completed"
+	EventAgentRegistered    = "agent_registered"
 )
 
 const (

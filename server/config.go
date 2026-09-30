@@ -47,11 +47,15 @@ type Config struct {
 	RateLimitPerSubjectBurst int
 	RateLimitHTTPPerIPRPS    float64
 	RateLimitHTTPPerIPBurst  int
-	MetricsToken             string
-	RequireMetricsToken      bool
-	PostHogAPIKey            string
-	PostHogHost              string
-	PostHogEnvironment       string
+	// AgentSignupEnabled turns on the unauthenticated AuthService/RegisterAgent
+	// RPC; AgentSignupPerHour caps registrations per client IP.
+	AgentSignupEnabled  bool
+	AgentSignupPerHour  int
+	MetricsToken        string
+	RequireMetricsToken bool
+	PostHogAPIKey       string
+	PostHogHost         string
+	PostHogEnvironment  string
 }
 
 func ConfigFromEnv() Config {
@@ -93,6 +97,8 @@ func ConfigFromEnv() Config {
 		RateLimitPerSubjectBurst: intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_SUBJECT_BURST"), 1000),
 		RateLimitHTTPPerIPRPS:    floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_RPS"), 30),
 		RateLimitHTTPPerIPBurst:  intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_BURST"), 60),
+		AgentSignupEnabled:       envEnabled(os.Getenv("GITSLICE_AGENT_SIGNUP_ENABLED")),
+		AgentSignupPerHour:       intValueOrDefault(os.Getenv("GITSLICE_AGENT_SIGNUP_PER_HOUR"), 5),
 		MetricsToken:             os.Getenv("GITSLICE_METRICS_TOKEN"),
 		RequireMetricsToken:      os.Getenv("GITSLICE_REQUIRE_METRICS_TOKEN") == "1",
 		PostHogAPIKey:            os.Getenv("GITSLICE_POSTHOG_API_KEY"),
@@ -159,6 +165,15 @@ func valueOrDefault(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func envEnabled(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true":
+		return true
+	default:
+		return false
+	}
 }
 
 func intValueOrDefault(value string, fallback int) int {

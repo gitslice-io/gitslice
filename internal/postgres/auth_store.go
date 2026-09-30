@@ -20,6 +20,10 @@ const (
 	cliLoginStatusPending  = "pending"
 	cliLoginStatusApproved = "approved"
 	cliLoginStatusExpired  = "expired"
+
+	// apiKeyLastUsedGranularity bounds how often SubjectForToken rewrites
+	// api_keys.last_used_at, so key auth is not a write on every request.
+	apiKeyLastUsedGranularity = time.Minute
 )
 
 type AuthStore struct {
@@ -493,7 +497,111 @@ func ensureAccountRootDirectoryTx(ctx context.Context, tx *sql.Tx, accountSlug, 
 	return upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(treeEntryFromTree(*entry)), "", "")
 }
 
+// RegisterAgent creates an agent subject, its personal account (admin
+// membership + home slice), the claimable owner-email registration, and the
+// agent's first API key, all in one transaction.
+func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentInput) (*storage.RegisteredAgent, error) {
+	username, err := normalizeSignupUsername(in.Username)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	ownerEmail, err := storage.NormalizeOwnerEmail(in.OwnerEmail)
+	if err != nil {
+		return nil, err
+	}
+	displayName := strings.TrimSpace(in.DisplayName)
+	if displayName == "" {
+		displayName = username
+	}
+	subjectID, err := objectid.RandomID("agent")
+	if err != nil {
+		return nil, err
+	}
+	token, keyID, hashedToken, err := newAPIKey()
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		insert into subjects(id, kind, display_name, created_at)
+		values ($1, 'agent', $2, now())
+	`, subjectID, displayName); err != nil {
+		return nil, err
+	}
+	accountID, err := s.provisionAccountForSubject(ctx, tx, subjectID, username, displayName)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into agent_registrations(subject_id, account_id, owner_email, created_at)
+		values ($1, $2, $3, now())
+	`, subjectID, accountID, ownerEmail); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into api_keys(id, subject_id, name, token_hash, created_at)
+		values ($1, $2, 'default', $3, now())
+	`, keyID, subjectID, hashedToken); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &storage.RegisteredAgent{SubjectID: subjectID, Account: username, APIKey: token}, nil
+}
+
+func newAPIKey() (token, keyID, hashedToken string, err error) {
+	token, err = objectid.RandomID(strings.TrimSuffix(storage.APIKeyPrefix, "_"))
+	if err != nil {
+		return "", "", "", err
+	}
+	keyID, err = objectid.RandomID("key")
+	if err != nil {
+		return "", "", "", err
+	}
+	return token, keyID, tokenHash(token), nil
+}
+
+func (s *AuthStore) subjectForAPIKey(ctx context.Context, token string) (*Subject, error) {
+	var subject Subject
+	var keyID string
+	var lastUsedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		select api_keys.id, api_keys.last_used_at, subjects.id, subjects.display_name
+		from api_keys
+		join subjects on subjects.id = api_keys.subject_id
+		where api_keys.token_hash = $1
+		  and api_keys.revoked_at is null
+		  and (api_keys.expires_at is null or api_keys.expires_at > now())
+	`, tokenHash(token)).Scan(&keyID, &lastUsedAt, &subject.ID, &subject.DisplayName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrUnauthenticated
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !lastUsedAt.Valid || time.Since(lastUsedAt.Time) >= apiKeyLastUsedGranularity {
+		// Best effort: a failed usage stamp must not fail authentication.
+		_, _ = s.db.ExecContext(ctx, `
+			update api_keys
+			set last_used_at = now()
+			where id = $1
+			  and (last_used_at is null or last_used_at < now() - $2::interval)
+		`, keyID, fmt.Sprintf("%d seconds", int(apiKeyLastUsedGranularity/time.Second)))
+	}
+	return &subject, nil
+}
+
 func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject, error) {
+	if strings.HasPrefix(token, storage.APIKeyPrefix) {
+		return s.subjectForAPIKey(ctx, token)
+	}
 	var subject Subject
 	err := s.db.QueryRowContext(ctx, `
 		select subjects.id, subjects.display_name

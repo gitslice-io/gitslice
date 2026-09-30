@@ -36,6 +36,7 @@ func NewHTTPHandler(api http.Handler, gitHandler http.Handler, allowedOrigin str
 	}
 
 	apiHandler := withMaxBody(api, rpclimits.MaxUnaryMessageBytes)
+	apiHandler = newAgentSignupHTTPMiddleware(cfg)(apiHandler)
 	apiHandler = newHTTPRateLimitMiddleware(cfg)(apiHandler)
 	mux.Handle("/", withCORS(apiHandler, allowedOrigin))
 	return mux

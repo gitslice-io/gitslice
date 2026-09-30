@@ -17,6 +17,28 @@ type Subject struct {
 	DisplayName string
 }
 
+// APIKeyPrefix marks a long-lived API key (see design/20_agent_signup_and_claim.md).
+// SubjectForToken resolves tokens with this prefix against api keys rather than
+// login sessions.
+const APIKeyPrefix = "gsk_"
+
+// RegisterAgentInput is the request to self-register an agent subject with its
+// own personal account. OwnerEmail names the human who may later claim
+// co-ownership; it is not verified at registration time.
+type RegisterAgentInput struct {
+	Username    string
+	OwnerEmail  string
+	DisplayName string
+}
+
+// RegisteredAgent is the result of RegisterAgent. APIKey is the plaintext key and
+// is only available here; stores keep only its hash.
+type RegisteredAgent struct {
+	SubjectID string
+	Account   string
+	APIKey    string
+}
+
 type FileEntry struct {
 	Path        string
 	BlobID      string

@@ -51,6 +51,9 @@ const (
 	// AuthServiceChooseUsernameProcedure is the fully-qualified name of the AuthService's
 	// ChooseUsername RPC.
 	AuthServiceChooseUsernameProcedure = "/gitslice.core.v1.AuthService/ChooseUsername"
+	// AuthServiceRegisterAgentProcedure is the fully-qualified name of the AuthService's RegisterAgent
+	// RPC.
+	AuthServiceRegisterAgentProcedure = "/gitslice.core.v1.AuthService/RegisterAgent"
 )
 
 // AuthServiceClient is a client for the gitslice.core.v1.AuthService service.
@@ -61,6 +64,10 @@ type AuthServiceClient interface {
 	GetAuthStatus(context.Context, *connect.Request[v1.GetAuthStatusRequest]) (*connect.Response[v1.GetAuthStatusResponse], error)
 	CheckUsernameAvailable(context.Context, *connect.Request[v1.CheckUsernameAvailableRequest]) (*connect.Response[v1.CheckUsernameAvailableResponse], error)
 	ChooseUsername(context.Context, *connect.Request[v1.ChooseUsernameRequest]) (*connect.Response[v1.ChooseUsernameResponse], error)
+	// RegisterAgent self-registers an agent with its own personal account and
+	// returns a long-lived API key. Unauthenticated; disabled unless the server
+	// sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
+	RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the gitslice.core.v1.AuthService service. By
@@ -110,6 +117,12 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("ChooseUsername")),
 			connect.WithClientOptions(opts...),
 		),
+		registerAgent: connect.NewClient[v1.RegisterAgentRequest, v1.RegisterAgentResponse](
+			httpClient,
+			baseURL+AuthServiceRegisterAgentProcedure,
+			connect.WithSchema(authServiceMethods.ByName("RegisterAgent")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -121,6 +134,7 @@ type authServiceClient struct {
 	getAuthStatus          *connect.Client[v1.GetAuthStatusRequest, v1.GetAuthStatusResponse]
 	checkUsernameAvailable *connect.Client[v1.CheckUsernameAvailableRequest, v1.CheckUsernameAvailableResponse]
 	chooseUsername         *connect.Client[v1.ChooseUsernameRequest, v1.ChooseUsernameResponse]
+	registerAgent          *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
 }
 
 // StartCliLogin calls gitslice.core.v1.AuthService.StartCliLogin.
@@ -153,6 +167,11 @@ func (c *authServiceClient) ChooseUsername(ctx context.Context, req *connect.Req
 	return c.chooseUsername.CallUnary(ctx, req)
 }
 
+// RegisterAgent calls gitslice.core.v1.AuthService.RegisterAgent.
+func (c *authServiceClient) RegisterAgent(ctx context.Context, req *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error) {
+	return c.registerAgent.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the gitslice.core.v1.AuthService service.
 type AuthServiceHandler interface {
 	StartCliLogin(context.Context, *connect.Request[v1.StartCliLoginRequest]) (*connect.Response[v1.StartCliLoginResponse], error)
@@ -161,6 +180,10 @@ type AuthServiceHandler interface {
 	GetAuthStatus(context.Context, *connect.Request[v1.GetAuthStatusRequest]) (*connect.Response[v1.GetAuthStatusResponse], error)
 	CheckUsernameAvailable(context.Context, *connect.Request[v1.CheckUsernameAvailableRequest]) (*connect.Response[v1.CheckUsernameAvailableResponse], error)
 	ChooseUsername(context.Context, *connect.Request[v1.ChooseUsernameRequest]) (*connect.Response[v1.ChooseUsernameResponse], error)
+	// RegisterAgent self-registers an agent with its own personal account and
+	// returns a long-lived API key. Unauthenticated; disabled unless the server
+	// sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
+	RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -206,6 +229,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("ChooseUsername")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceRegisterAgentHandler := connect.NewUnaryHandler(
+		AuthServiceRegisterAgentProcedure,
+		svc.RegisterAgent,
+		connect.WithSchema(authServiceMethods.ByName("RegisterAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartCliLoginProcedure:
@@ -220,6 +249,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceCheckUsernameAvailableHandler.ServeHTTP(w, r)
 		case AuthServiceChooseUsernameProcedure:
 			authServiceChooseUsernameHandler.ServeHTTP(w, r)
+		case AuthServiceRegisterAgentProcedure:
+			authServiceRegisterAgentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -251,4 +282,8 @@ func (UnimplementedAuthServiceHandler) CheckUsernameAvailable(context.Context, *
 
 func (UnimplementedAuthServiceHandler) ChooseUsername(context.Context, *connect.Request[v1.ChooseUsernameRequest]) (*connect.Response[v1.ChooseUsernameResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ChooseUsername is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.RegisterAgent is not implemented"))
 }
