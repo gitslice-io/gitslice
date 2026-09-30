@@ -8493,3 +8493,44 @@ installing. Both gaps predate #380.
   Windows, `go install` and from-source users to the CLI Reference.
 - Landing page: an "Install the CLI:" line under the hero buttons, and the
   terminal mock now opens with the installer.
+
+## 2026-09-30 — gs browse builds real slice links
+
+An agent read the v0.1.0 source and found two bugs that compounded:
+
+- **`gs browse` glued its argument onto the web host.** `gs browse --print
+  /heibot/jev-pricing` printed `https://gitslice.io/heibot/jev-pricing`, which
+  is not a route. The slice page is `/slices/<account>/<slice>?path=<abs path>`.
+  An existing test even pinned `browse signup` → `/signup`, which returns 404 in
+  prod.
+- **The private-slice warning (#378) only matched URLs already shaped like
+  `slices/<a>/<s>`.** The malformed input, which was the case that most needed
+  a warning, stayed silent.
+
+Fix: `gs browse` resolves what the user typed.
+
+- **Accepted targets:**
+  - `account:slice`, optionally with `--path`;
+  - an absolute source path `/account/...`, shown in the workspace slice if
+    that slice includes it, else the most specific visible slice of that
+    account from `ListSlices` that includes it, else `account:home`;
+  - a workspace-relative path (mapped through the workspace root);
+  - a known web page (`slices`, `cs`, `changesets`, `conversations`, `doc`,
+    `blogs`, `claims`, `login`), passed through as-is;
+  - no argument, which now opens the current workspace's slice.
+- Anything else, including full URLs, is an error with examples instead of a
+  bogus link.
+- **Checks on every slice link** (stderr only, best effort):
+  - not signed in: says nothing was checked;
+  - slice missing or not visible: a warning;
+  - path missing at the latest published commit
+    (`GetRef` + `ResolvePath`): a warning;
+  - private slice: a note with the command to make it public.
+- **Tests:** `browse_test.go` covers every target form, workspace-relative
+  paths, a clear error for a bare word outside a workspace, and warnings
+  against an in-process server for a missing path, a private slice and a
+  missing slice. The `signup` test now uses `claims`.
+- The CLI's other generated links (`/slices/...`, `/cs/<id>`) were already
+  real routes.
+- **Delivery:** ships in `gs v0.1.1`. `llms.txt` and the `gs-cli` skill now
+  show `gs browse --print` for sharing links.
