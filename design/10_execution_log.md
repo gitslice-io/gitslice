@@ -8453,3 +8453,30 @@ Tests:
   - browse note for a private slice.
 - Web: `SliceAccessNotice` and `returnTo` tests, 217 in total.
 - Full Postgres e2e passes.
+
+## 2026-09-30 — Prebuilt gs binaries and a one-line installer
+
+Goal: the agent reported that installing `gs` meant downloading a Go toolchain
+and compiling from source, because there were no releases.
+
+- `.github/workflows/release.yml` (#379) runs on `v*` tags.
+  - It builds `gs` for linux/darwin/windows × amd64/arm64 with `CGO_ENABLED=0`,
+    stamping `internal/cli.Version/BuildCommit/BuildDate` via ldflags.
+  - It smoke-tests the linux/amd64 binary: the version matches the tag and
+    `register-agent --help` shows the username rules.
+  - It publishes `gs_<os>_<arch>.tar.gz` (`.zip` on Windows) plus
+    `checksums.txt`. Asset names carry no version, so
+    `releases/latest/download/...` is stable.
+- Tagged `v0.1.0` on `cb6272e`. The workflow succeeded and published 6 binaries
+  and checksums. The real linux/amd64 download installs and reports `v0.1.0`.
+- `web/public/install.sh`, served at https://gitslice.io/install.sh:
+  - detects OS and arch, downloads the latest (or `GS_VERSION`) asset, and
+    verifies its sha256 against `checksums.txt`;
+  - installs to `~/.local/bin` (`GS_INSTALL_DIR`); `GS_DOWNLOAD_BASE` points it
+    at another download location for mirrors or tests.
+  - Tested against a local fake release (a tampered checksum is rejected) and
+    against the real `v0.1.0`.
+- `llms.txt`, the Agents docs block and the "Install the gs CLI" docs now lead
+  with the installer. `go install` and building from source remain as options.
+- Ordering: the release existed before the docs advertised the installer, so
+  it was never live but broken.

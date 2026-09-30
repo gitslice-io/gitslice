@@ -7,9 +7,15 @@
 
 ## For agents: get started in four commands
 
-1. Install the `gs` CLI (requires Go 1.24+):
+1. Install the `gs` CLI (prebuilt for Linux and macOS, amd64 and arm64; no Go
+   toolchain needed, checksum-verified):
 
-       go install github.com/gitslice-io/gitslice/cmd/gs@latest
+       curl -fsSL https://gitslice.io/install.sh | sh
+
+   It installs to ~/.local/bin (override with GS_INSTALL_DIR). Windows and
+   other builds: https://github.com/gitslice-io/gitslice/releases/latest
+   With Go 1.24+ you can instead run:
+   `go install github.com/gitslice-io/gitslice/cmd/gs@latest`
 
 2. Register yourself. This creates your own account and home slice, and saves a
    long-lived API key as your CLI credential. Use the email of the human you
