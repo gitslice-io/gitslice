@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path"
 	"sort"
 	"strings"
@@ -1909,15 +1910,41 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 	}
 	build, err := s.buildPendingPublishBatch(ctx, claim)
 	if err != nil {
+		s.releasePendingPublishClaims(ctx, claim)
 		return 0, err
 	}
 	if err := s.finalizePendingPublishBatch(ctx, claim, build); err != nil {
+		s.releasePendingPublishClaims(ctx, claim)
 		return 0, err
 	}
 	for _, latency := range build.PublishLatencies {
 		storage.ObservePublishLatency(latency)
 	}
 	return len(build.PendingUpdates), nil
+}
+
+// releasePendingPublishClaims returns a failed batch's claimed rows to
+// 'pending' so the next publisher pass retries them, instead of leaving them in
+// 'publishing' until reapStalePendingPublishClaims times them out. Rows the
+// batch already published are untouched (the reset only matches 'publishing').
+// It uses a fresh context because the failure may be ctx cancellation.
+func (s *ChangesetStore) releasePendingPublishClaims(ctx context.Context, claim *pendingPublishClaim) {
+	ids := make([]string, 0, len(claim.Rows))
+	for _, row := range claim.Rows {
+		ids = append(ids, row.ID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if _, err := s.db.ExecContext(releaseCtx, `
+		update pending_publish
+		set status = 'pending', updated_at = now()
+		where id = any($1) and status = 'publishing'
+	`, ids); err != nil {
+		slog.Warn("release pending publish claims failed", "error", err, "rows", len(ids))
+	}
 }
 
 func (s *ChangesetStore) reapStalePendingPublishClaims(ctx context.Context) error {
@@ -2154,12 +2181,18 @@ func (s *ChangesetStore) finalizePendingPublishBatch(ctx context.Context, claim 
 		}
 		return nil
 	}
+	// FOR NO KEY UPDATE, not FOR UPDATE: the publisher only moves commit_id, and
+	// a full FOR UPDATE also blocks the FOR KEY SHARE that every pending_publish
+	// insert takes through its target_ref foreign key. Submit locks changesets
+	// and then inserts pending_publish (-> refs), while this transaction locks
+	// refs and then changesets, so FOR UPDATE here deadlocked with concurrent
+	// submits (e.g. SubmitStack while an earlier entry publishes).
 	var lockedCommitID string
 	err = tx.QueryRowContext(ctx, `
 		select commit_id
 		from refs
 		where name = $1
-		for update
+		for no key update
 	`, claim.TargetRef).Scan(&lockedCommitID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound

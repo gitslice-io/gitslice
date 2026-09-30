@@ -8262,3 +8262,52 @@ New tests:
 - `TestClaimsListAndAccept` (CLI)
 - `TestAgentClaimWithPostgres` (real Postgres; covers the personal-account fixes)
 - `PendingClaims.test.tsx` (web)
+
+## 2026-09-30 — Fix the two flaky Postgres e2e failures (publisher deadlock, lost test ports)
+
+Goal: make the Postgres e2e job reliable. It failed on both #372 and #373 with
+two unrelated tests.
+
+**`TestStackedChangesetsChildUsesParentPreviewAndSubmitOrder`** failed about
+50% of the time locally, on plain `main` too. This was a real product bug.
+
+- The Postgres log showed a deadlock (`40P01`) between the publisher's finalize
+  transaction and a concurrent submit:
+  - the publisher locked `refs` `FOR UPDATE`, then locked the `changesets` rows;
+  - submit locks the `changesets` rows, then inserts into `pending_publish`. That
+    insert's `target_ref` foreign key takes `FOR KEY SHARE` on the same `refs`
+    row, which `FOR UPDATE` blocks.
+- Fix: the publisher locks the ref with `FOR NO KEY UPDATE`.
+  - It only moves `commit_id`, so the weaker lock still excludes other ref
+    writers but no longer blocks foreign-key checks.
+  - No other code path takes `FOR UPDATE` on `refs`.
+- Second problem found at the same time: when a batch failed after claiming,
+  its rows stayed `publishing` until the stale-claim reaper ran 60s later. That
+  turned every transient publisher error into a one-minute publish stall, and
+  is why the test timed out.
+  - `PublishPending` now releases a failed batch's claims straight away
+    (`releasePendingPublishClaims`). It uses `context.WithoutCancel` plus a
+    timeout, so the release still runs when the failure was context
+    cancellation.
+- Verification:
+  - 40 of 40 runs passed, against 2 of 4 before, with no new deadlocks in the
+    Postgres log.
+  - New `TestPublishPendingReleasesClaimsOnFailure` fails without the fix.
+
+**`TestGitImportDeepListAndInspectCommits`** failed in CI with "server health
+check did not pass" after the server's workers had logged "sql: database is
+closed" every second for 10s.
+
+- `server.Run` started the publisher and index workers before binding its
+  listeners. When a bind failed, `Run` returned and closed the DB, but nothing
+  cancelled the workers' context, so they leaked and spun.
+  - Fix: `Run` derives a context and cancels it on every return path, before
+    `db.Close`.
+- The e2e harnesses picked ports with listen-on-:0-then-close. That can lose
+  the port when the rpc and cli packages run in parallel. The health wait also
+  ignored the server's exit, which hid the real error.
+  - Fix: `waitForHealth` watches the server's exit channel and returns its
+    error immediately.
+  - `start` retries up to three times on fresh ports when the server exited
+    with `EADDRINUSE`. This was verified with a temporary test that occupied
+    the port; it retried and passed.
