@@ -31,6 +31,9 @@ type AuthStore interface {
 	// registration claimed. It returns ErrNotFound unless the registration is
 	// unclaimed and its owner email is one of subjectID's verified emails.
 	AcceptClaim(ctx context.Context, subjectID, agentSubjectID string) (account string, err error)
+	// ListOwnedAgents returns the agents whose personal accounts subjectID holds
+	// an owner membership on, ordered by registration time.
+	ListOwnedAgents(ctx context.Context, subjectID string) ([]OwnedAgent, error)
 	// UsernameAvailable reports whether username (after normalization) is a
 	// valid, unclaimed personal-account slug. normalized is the canonical form;
 	// reason is a short explanation when available is false (invalid or taken).

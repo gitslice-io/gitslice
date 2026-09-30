@@ -76,6 +76,21 @@ export interface AcceptClaimResponse {
   account?: string;
 }
 
+export interface OwnedAgent {
+  agentSubjectId?: string;
+  agentDisplayName?: string;
+  account?: string;
+  registeredAt?: string;
+  claimedAt?: string;
+  lastActiveAt?: string;
+}
+
+export type ListOwnedAgentsRequest = Record<string, never>;
+
+export interface ListOwnedAgentsResponse {
+  agents?: OwnedAgent[];
+}
+
 export interface CompleteCliLoginRequest {
   code?: string;
 }

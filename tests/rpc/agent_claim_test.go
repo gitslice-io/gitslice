@@ -67,6 +67,17 @@ func TestAgentClaimWithPostgres(t *testing.T) {
 		t.Fatalf("second accept code = %v; want NotFound", grpcstatus.Code(err))
 	}
 
+	owned, err := auth.ListOwnedAgents(human, &corev1.ListOwnedAgentsRequest{})
+	if err != nil || len(owned.Agents) != 1 {
+		t.Fatalf("ListOwnedAgents = %+v, %v", owned, err)
+	}
+	if got := owned.Agents[0]; got.AgentSubjectId != agent.SubjectId || got.Account != "claim-bot" || got.RegisteredAt == "" || got.ClaimedAt == "" || got.LastActiveAt == "" {
+		t.Fatalf("owned agent = %+v; want claimed and active (the agent used its key)", got)
+	}
+	if list, err := auth.ListOwnedAgents(unverified, &corev1.ListOwnedAgentsRequest{}); err != nil || len(list.Agents) != 0 {
+		t.Fatalf("non-owner owned agents = %+v, %v", list, err)
+	}
+
 	// Co-ownership: both can reach the agent's home slice.
 	home := &corev1.ResolveSliceRequest{Ref: &corev1.SliceRef{Account: "claim-bot", Slice: "home"}}
 	if _, err := slices.ResolveSlice(human, home); err != nil {

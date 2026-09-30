@@ -61,6 +61,11 @@ func TestClaimFlowVerifiesEmailWithClerk(t *testing.T) {
 		t.Fatalf("AcceptClaim = %+v, %v", accepted, err)
 	}
 
+	owned, err := handlers.Auth.ListOwnedAgents(humanCtx, &corev1.ListOwnedAgentsRequest{})
+	if err != nil || len(owned.Agents) != 1 || owned.Agents[0].Account != "release-bot" || owned.Agents[0].ClaimedAt == "" || owned.Agents[0].LastActiveAt != "" {
+		t.Fatalf("ListOwnedAgents = %+v, %v", owned, err)
+	}
+
 	authStatus, err := handlers.Auth.GetAuthStatus(humanCtx, &corev1.GetAuthStatusRequest{})
 	if err != nil {
 		t.Fatal(err)

@@ -27,7 +27,9 @@ export function PendingClaims() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["pendingClaims"] }),
-        queryClient.invalidateQueries({ queryKey: ["authStatus"] })
+        queryClient.invalidateQueries({ queryKey: ["authStatus"] }),
+        queryClient.invalidateQueries({ queryKey: ["ownedAgents"] }),
+        queryClient.invalidateQueries({ queryKey: ["slices"] })
       ]);
     }
   });

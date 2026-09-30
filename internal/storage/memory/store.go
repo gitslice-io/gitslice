@@ -106,6 +106,7 @@ type agentRegistration struct {
 	ownerEmail string
 	createdAt  time.Time
 	claimedBy  string
+	claimedAt  time.Time
 }
 
 type externalIdentity struct {
@@ -661,6 +662,7 @@ func (s *AuthStore) AcceptClaim(ctx context.Context, subjectID, agentSubjectID s
 	}
 	s.b.addAccountRoleLocked(subjectID, reg.account, "owner")
 	reg.claimedBy = subjectID
+	reg.claimedAt = time.Now().UTC()
 	s.b.agentRegistrations[agentSubjectID] = reg
 	return reg.account, nil
 }
@@ -775,6 +777,34 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 	}
 	s.b.apiKeys[memoryTokenHash(token)] = subjectID
 	return &storage.RegisteredAgent{SubjectID: subjectID, Account: username, APIKey: token}, nil
+}
+
+// ListOwnedAgents mirrors the postgres query. The memory store does not track
+// API key usage, so LastActiveAt stays zero.
+func (s *AuthStore) ListOwnedAgents(ctx context.Context, subjectID string) ([]storage.OwnedAgent, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	subjectID = strings.TrimSpace(subjectID)
+	var out []storage.OwnedAgent
+	for agentID, reg := range s.b.agentRegistrations {
+		if agentID == subjectID || s.b.accountMembers[subjectID][reg.account] != "owner" {
+			continue
+		}
+		out = append(out, storage.OwnedAgent{
+			AgentSubjectID:   agentID,
+			AgentDisplayName: s.b.subjects[agentID].DisplayName,
+			Account:          reg.account,
+			RegisteredAt:     reg.createdAt,
+			ClaimedAt:        reg.claimedAt,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].RegisteredAt.Equal(out[j].RegisteredAt) {
+			return out[i].RegisteredAt.Before(out[j].RegisteredAt)
+		}
+		return out[i].AgentSubjectID < out[j].AgentSubjectID
+	})
+	return out, nil
 }
 
 func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*storage.Subject, error) {

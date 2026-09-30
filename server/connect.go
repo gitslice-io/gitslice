@@ -121,6 +121,10 @@ func (a connectAuthAdapter) AcceptClaim(ctx context.Context, req *connect.Reques
 	return connectResponse(a.svc.AcceptClaim(ctx, req.Msg))
 }
 
+func (a connectAuthAdapter) ListOwnedAgents(ctx context.Context, req *connect.Request[corev1.ListOwnedAgentsRequest]) (*connect.Response[corev1.ListOwnedAgentsResponse], error) {
+	return connectResponse(a.svc.ListOwnedAgents(ctx, req.Msg))
+}
+
 func (a connectAuthAdapter) RegisterAgent(ctx context.Context, req *connect.Request[corev1.RegisterAgentRequest]) (*connect.Response[corev1.RegisterAgentResponse], error) {
 	return connectResponse(a.svc.RegisterAgent(ctx, req.Msg))
 }

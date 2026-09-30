@@ -28,6 +28,7 @@ const (
 	AuthService_RegisterAgent_FullMethodName          = "/gitslice.core.v1.AuthService/RegisterAgent"
 	AuthService_ListPendingClaims_FullMethodName      = "/gitslice.core.v1.AuthService/ListPendingClaims"
 	AuthService_AcceptClaim_FullMethodName            = "/gitslice.core.v1.AuthService/AcceptClaim"
+	AuthService_ListOwnedAgents_FullMethodName        = "/gitslice.core.v1.AuthService/ListOwnedAgents"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -50,6 +51,9 @@ type AuthServiceClient interface {
 	// AcceptClaim makes the caller an owner of the agent's account. The agent
 	// keeps its own access, so the account becomes co-owned.
 	AcceptClaim(ctx context.Context, in *AcceptClaimRequest, opts ...grpc.CallOption) (*AcceptClaimResponse, error)
+	// ListOwnedAgents lists the self-registered agents whose accounts the caller
+	// owns (typically after AcceptClaim), with basic activity.
+	ListOwnedAgents(ctx context.Context, in *ListOwnedAgentsRequest, opts ...grpc.CallOption) (*ListOwnedAgentsResponse, error)
 }
 
 type authServiceClient struct {
@@ -141,6 +145,15 @@ func (c *authServiceClient) AcceptClaim(ctx context.Context, in *AcceptClaimRequ
 	return out, nil
 }
 
+func (c *authServiceClient) ListOwnedAgents(ctx context.Context, in *ListOwnedAgentsRequest, opts ...grpc.CallOption) (*ListOwnedAgentsResponse, error) {
+	out := new(ListOwnedAgentsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListOwnedAgents_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
@@ -161,6 +174,9 @@ type AuthServiceServer interface {
 	// AcceptClaim makes the caller an owner of the agent's account. The agent
 	// keeps its own access, so the account becomes co-owned.
 	AcceptClaim(context.Context, *AcceptClaimRequest) (*AcceptClaimResponse, error)
+	// ListOwnedAgents lists the self-registered agents whose accounts the caller
+	// owns (typically after AcceptClaim), with basic activity.
+	ListOwnedAgents(context.Context, *ListOwnedAgentsRequest) (*ListOwnedAgentsResponse, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
@@ -193,6 +209,9 @@ func (UnimplementedAuthServiceServer) ListPendingClaims(context.Context, *ListPe
 }
 func (UnimplementedAuthServiceServer) AcceptClaim(context.Context, *AcceptClaimRequest) (*AcceptClaimResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AcceptClaim not implemented")
+}
+func (UnimplementedAuthServiceServer) ListOwnedAgents(context.Context, *ListOwnedAgentsRequest) (*ListOwnedAgentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListOwnedAgents not implemented")
 }
 
 // UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -368,6 +387,24 @@ func _AuthService_AcceptClaim_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_ListOwnedAgents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListOwnedAgentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListOwnedAgents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListOwnedAgents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListOwnedAgents(ctx, req.(*ListOwnedAgentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -410,6 +447,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AcceptClaim",
 			Handler:    _AuthService_AcceptClaim_Handler,
+		},
+		{
+			MethodName: "ListOwnedAgents",
+			Handler:    _AuthService_ListOwnedAgents_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

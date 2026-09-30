@@ -52,6 +52,13 @@ func TestAgentClaimFlow(t *testing.T) {
 	if _, err := stores.Auth.AcceptClaim(ctx, human, agent.SubjectID); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("second accept err = %v; want ErrNotFound", err)
 	}
+	owned, err := stores.Auth.ListOwnedAgents(ctx, human)
+	if err != nil || len(owned) != 1 || owned[0].AgentSubjectID != agent.SubjectID || owned[0].Account != "release-bot" || owned[0].ClaimedAt.IsZero() {
+		t.Fatalf("ListOwnedAgents(human) = %+v, %v", owned, err)
+	}
+	if owned, _ := stores.Auth.ListOwnedAgents(ctx, agent.SubjectID); len(owned) != 0 {
+		t.Fatalf("an agent must not list itself as owned: %+v", owned)
+	}
 	if claims, _ := stores.Auth.ListPendingClaims(ctx, human); len(claims) != 0 {
 		t.Fatalf("claimed agent still listed: %+v", claims)
 	}

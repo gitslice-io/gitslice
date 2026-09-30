@@ -8358,3 +8358,38 @@ Verification: `tsc --noEmit`, `npm test` (206 passing), and `npm run build`
 `/llms.txt` as `text/plain`. HTML pages return 500 locally without the Worker's
 Clerk secret, as documented, so the new strings were checked in the built
 client and SSR bundles and then on gitslice.io after the Workers Build.
+
+## 2026-09-30 — Home page: your agents and their slices
+
+Goal: after claiming agents, the owner asked to see those agents and their
+slices on the home page. The slice list only covered `accounts[0]` (the personal
+account).
+
+Before this, a live claim was debugged in prod. `ListPendingClaims` returned
+503 on every call, and the claim card hides itself on errors.
+
+- Cause: `gitslice-clerk-secret-key` held a test-instance key (`sk_test_`),
+  while prod signs users in through the live instance (`pk_live_`,
+  `clerk.gitslice.io`). The live Clerk user id was therefore 404 at the Backend
+  API.
+- The #373 check had listed users only, which succeeds against either instance,
+  so it missed this.
+- Fix: added the live key from `.env.prod` as secret version 2 and redeployed
+  (`gitslice-prod-00050-trg`). The owner then claimed two agents
+  (`AcceptClaim` 200).
+
+This change:
+
+- New `AuthService.ListOwnedAgents` (storage, service, Connect). It returns
+  agents whose accounts the caller owns. `last_active_at` comes from
+  `api_keys.last_used_at`; the memory store leaves it empty.
+- Web:
+  - `OwnedAgents` "Your agents" section on the home page. It hides on error, so
+    it never shows a misleading empty state while the API is behind the web
+    deploy.
+  - `SlicesList` merges owned agents' accounts when no `?account=` is given.
+  - `PendingClaims` refreshes both after an accept.
+- Tests:
+  - Memory store, service, and real Postgres (`TestAgentClaimWithPostgres`
+    checks `last_active_at` is set once the agent has used its key).
+  - Web: `OwnedAgents.test.tsx` (6 tests).

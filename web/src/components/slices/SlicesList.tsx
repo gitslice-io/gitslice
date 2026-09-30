@@ -6,6 +6,7 @@ import { useApi } from "../../api/useApi";
 import { shortHash } from "../../lib/objectId";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { useSelection } from "../../state/selection";
+import { useOwnedAgents } from "./OwnedAgents";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -25,27 +26,28 @@ export function SlicesList() {
   const api = useApi();
   const selection = useSelection();
   const search = useSearch({ strict: false }) as SlicesSearch;
-  const effectiveAccount = (search.account || selection.account || "").trim();
+  const explicitAccount = (search.account || "").trim();
+  const effectiveAccount = (explicitAccount || selection.account || "").trim();
+  const ownedAgents = useOwnedAgents();
+  // Without an explicit ?account=, the home list also covers the accounts of
+  // agents you co-own, so their slices sit next to yours.
+  const agentAccounts = explicitAccount
+    ? []
+    : ownedAgents.agents
+        .map((agent) => agent.account ?? "")
+        .filter((account) => account && account !== effectiveAccount);
+  const accounts = effectiveAccount ? [effectiveAccount, ...agentAccounts] : [];
+  const agentAccountSet = new Set(agentAccounts);
 
   const slicesQuery = useQuery({
-    enabled: effectiveAccount.length > 0,
-    queryKey: ["slices", effectiveAccount],
+    enabled:
+      accounts.length > 0 && (Boolean(explicitAccount) || !ownedAgents.isLoading),
+    queryKey: ["slices", ...accounts],
     queryFn: async () => {
-      const slices: Slice[] = [];
-      let cursor = "";
-
-      do {
-        const response = await api.listSlices({
-          account: effectiveAccount,
-          cursor,
-          pageSize: PAGE_SIZE
-        });
-
-        slices.push(...(response.slices ?? []));
-        cursor = response.nextCursor ?? "";
-      } while (cursor);
-
-      return slices;
+      const perAccount = await Promise.all(
+        accounts.map((account) => listAllSlices(api, account))
+      );
+      return perAccount.flat();
     }
   });
   const slices = slicesQuery.data ?? [];
@@ -56,7 +58,9 @@ export function SlicesList() {
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Slices</h2>
           <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            Definitions for slices under the selected account.
+            {agentAccounts.length > 0
+              ? "Slices in your account and in your agents' accounts."
+              : "Definitions for slices under the selected account."}
           </p>
         </div>
         <Link
@@ -108,6 +112,9 @@ export function SlicesList() {
                       >
                         <span className="min-w-0 truncate font-medium text-zinc-950 dark:text-zinc-50">
                           {name}
+                          {agentAccountSet.has(slice.ref?.account ?? "") ? (
+                            <AgentBadge />
+                          ) : null}
                         </span>
                         <VisibilityBadge
                           visibility={slice.definition?.visibility}
@@ -164,6 +171,9 @@ export function SlicesList() {
                             ) : (
                               sliceDisplayName(slice)
                             )}
+                            {agentAccountSet.has(slice.ref?.account ?? "") ? (
+                              <AgentBadge />
+                            ) : null}
                           </td>
                           <td className="px-4 py-3">
                             <VisibilityBadge
@@ -199,5 +209,31 @@ export function SlicesList() {
         )}
       </div>
     </section>
+  );
+}
+
+async function listAllSlices(api: ReturnType<typeof useApi>, account: string) {
+  const slices: Slice[] = [];
+  let cursor = "";
+
+  do {
+    const response = await api.listSlices({
+      account,
+      cursor,
+      pageSize: PAGE_SIZE
+    });
+
+    slices.push(...(response.slices ?? []));
+    cursor = response.nextCursor ?? "";
+  } while (cursor);
+
+  return slices;
+}
+
+function AgentBadge() {
+  return (
+    <span className="ml-2 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 align-middle text-[10px] font-medium text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300">
+      agent
+    </span>
   );
 }
