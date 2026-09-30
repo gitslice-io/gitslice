@@ -80,3 +80,37 @@ func TestRegisterAgentWithPostgres(t *testing.T) {
 		t.Fatalf("revoked key code = %v; want Unauthenticated", grpcstatus.Code(err))
 	}
 }
+
+func TestRegisterAgentIsRetryableWithPostgres(t *testing.T) {
+	ts := startRPCServer(t)
+	conn := dialTestGRPC(t, ts.addr)
+	auth := corev1.NewAuthServiceClient(conn)
+	req := &corev1.RegisterAgentRequest{
+		Username:          "retry-bot",
+		OwnerEmail:        "owner@example.com",
+		RegistrationToken: strings.Repeat("t", 40),
+	}
+	first, err := auth.RegisterAgent(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a timeout after the server committed: the client never saw the
+	// first key, so it retries with the same token.
+	second, err := auth.RegisterAgent(context.Background(), req)
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if second.SubjectId != first.SubjectId || second.Account != "retry-bot" || second.ApiKey == first.ApiKey {
+		t.Fatalf("retry = %+v; want the same agent with a new key", second)
+	}
+	if _, err := auth.GetAuthStatus(grpcAuthContext(first.ApiKey), &corev1.GetAuthStatusRequest{}); grpcstatus.Code(err) != codes.Unauthenticated {
+		t.Fatalf("never-used first key code = %v; want Unauthenticated (revoked)", grpcstatus.Code(err))
+	}
+	if _, err := auth.GetAuthStatus(grpcAuthContext(second.ApiKey), &corev1.GetAuthStatusRequest{}); err != nil {
+		t.Fatalf("resumed key: %v", err)
+	}
+	// Without the token the username is simply taken.
+	if _, err := auth.RegisterAgent(context.Background(), &corev1.RegisterAgentRequest{Username: "retry-bot", OwnerEmail: "owner@example.com"}); grpcstatus.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("tokenless duplicate code = %v; want FailedPrecondition", grpcstatus.Code(err))
+	}
+}

@@ -8393,3 +8393,63 @@ This change:
   - Memory store, service, and real Postgres (`TestAgentClaimWithPostgres`
     checks `last_active_at` is set once the agent has used its key).
   - Web: `OwnedAgents.test.tsx` (6 tests).
+
+## 2026-09-30 — Agent onboarding fixes from an agent's own feedback
+
+Goal: the first agent to sign up through the public flow reported seven rough
+edges. This entry covers six of them; prebuilt binaries ship separately.
+
+- **Private slice looked like a 404.** A signed-out visitor to a private slice
+  got "Could not load slice: unauthenticated". A signed-in non-member got
+  "not found".
+  - New `SliceAccessNotice` handles each case:
+    - 401/403/404 while signed out: "This slice is private", with a Sign in
+      button that returns to the slice.
+    - 403/404 while signed in: "No access": either the slice doesn't exist or
+      it's private and you're not a member, with a pointer to `/claims`.
+    - Other errors: shown as errors.
+  - Generic return-after-sign-in: `auth/returnTo.ts` (same-origin paths only,
+    never `/login`). `RequireAuth` remembers the page, and `LoginPage` sends
+    the user back from an effect.
+- **No claim link after `register-agent`.**
+  - New `/claims` page (pending claims with an empty state, plus "Your agents").
+  - `register-agent` prints the link and two steps: open `<web>/claims` and sign
+    in with the email, then Accept (or `gs claims accept <id>`). It also prints
+    `gs init <account>:home`. JSON output adds `claim_url`, `owner_email` and
+    `resumed`. A `--web-url` flag sets the link's host.
+- **Agent sign-up hard to find on the website.** The landing page has a
+  "For agents" hero button and a header link to `/doc/agents#agent-signup`.
+  The earlier small hint was in the SSR HTML, but it was easy to miss, and the
+  agent probably visited before #376 deployed.
+- **Username rules only in the docs.** `register-agent --help` now states the
+  rules, and the CLI validates the username (`usernames.Normalize`) and email
+  (`storage.NormalizeOwnerEmail`) locally before any RPC.
+- **Timeout left it unclear whether the account existed.**
+  - `RegisterAgentRequest.registration_token`: a client secret of at least 32
+    characters. Migration 0026 adds `agent_registrations.registration_token_hash`
+    with a unique index.
+  - A retry with the same token, username and email resumes: it returns the same
+    agent with a fresh key and revokes that agent's never-used keys. A
+    different username or email for the same token is a conflict.
+  - The CLI saves the token to `~/.gitslice/pending-agent-registration.json`
+    (mode 0600) before calling. Each attempt has a 60s timeout. On
+    DeadlineExceeded, Unavailable or Aborted it retries up to 3 times with the
+    same token.
+  - If it still fails, it says the account may exist and that re-running the
+    command resumes it. The file is cleared on success or on a definitive error.
+- **`gs browse --print` gave no hint the link wouldn't work.** It now resolves
+  the slice (best effort, 5s) and, when the slice is private, prints a note on
+  stderr naming who can open it and the command to make it public. Stdout
+  stays just the URL.
+
+Tests:
+
+- Store resume (memory) and `TestRegisterAgentIsRetryableWithPostgres`: the
+  undelivered first key is revoked, and the resumed key works.
+- CLI:
+  - local username and email validation without an RPC;
+  - claim steps in the output;
+  - automatic resume after a server that commits and then returns Unavailable;
+  - browse note for a private slice.
+- Web: `SliceAccessNotice` and `returnTo` tests, 217 in total.
+- Full Postgres e2e passes.

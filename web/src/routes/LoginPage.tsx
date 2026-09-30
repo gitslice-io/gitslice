@@ -1,12 +1,15 @@
 import { SignIn, useAuth } from "@clerk/tanstack-react-start";
 import { Navigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { AuthFrame } from "../components/AuthFrame";
 import { CLI_LOGIN_SEARCH_STORAGE_KEY } from "../auth/cliLogin";
+import { clearReturnTo, peekReturnTo } from "../auth/returnTo";
 
 export function LoginPage() {
   const { isLoaded, isSignedIn } = useAuth();
+  // Read once: the page the user was on before being sent to sign in.
+  const [returnTo] = useState(peekReturnTo);
   const pendingCliLoginSearch =
     typeof window === "undefined"
       ? null
@@ -21,6 +24,14 @@ export function LoginPage() {
     window.location.replace(`/cli-login${pendingCliLoginSearch}`);
   }, [isLoaded, isSignedIn, pendingCliLoginSearch]);
 
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || pendingCliLoginSearch || !returnTo) {
+      return;
+    }
+    clearReturnTo();
+    window.location.replace(returnTo);
+  }, [isLoaded, isSignedIn, pendingCliLoginSearch, returnTo]);
+
   if (!isLoaded) {
     return (
       <AuthFrame title="Sign in">
@@ -33,6 +44,14 @@ export function LoginPage() {
     return (
       <AuthFrame title="Authorizing CLI">
         <p className="text-sm text-slate-600">Returning to CLI login...</p>
+      </AuthFrame>
+    );
+  }
+
+  if (isSignedIn && returnTo) {
+    return (
+      <AuthFrame title="Signed in">
+        <p className="text-sm text-slate-600">Returning to your page...</p>
       </AuthFrame>
     );
   }

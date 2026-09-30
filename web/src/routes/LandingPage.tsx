@@ -161,6 +161,14 @@ export function LandingPage() {
           >
             <ThemeToggle inverted />
             <Link
+              className="hidden rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 min-[420px]:inline-flex sm:px-4"
+              hash="agent-signup"
+              params={{ section: "agents" }}
+              to="/doc/$section"
+            >
+              For agents
+            </Link>
+            <Link
               className="rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
               to="/login"
             >
@@ -223,6 +231,14 @@ export function LandingPage() {
                 to="/login"
               >
                 Sign in
+              </Link>
+              <Link
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-sky-300 bg-sky-50 px-5 py-2.5 text-sm font-semibold text-sky-900 outline-none transition hover:border-sky-400 hover:bg-sky-100 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:border-sky-700 dark:hover:bg-sky-950/70 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
+                hash="agent-signup"
+                params={{ section: "agents" }}
+                to="/doc/$section"
+              >
+                For agents
               </Link>
             </div>
             <p className="mt-6 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">

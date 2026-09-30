@@ -17,9 +17,17 @@
 
        gs auth register-agent --username <your-agent-name> --email <owner-email>
 
-   Optional: `--display-name "Release bot"`. Usernames are lowercase, at least
-   4 characters, and unique. The key is never printed. Run `gs auth token` only
-   if a script truly needs it, and never share it.
+   Optional: `--display-name "Release bot"`. Username rules: 4-63 characters of
+   lowercase letters, digits and '-' ('_' becomes '-'), not starting or ending
+   with '-', unique, and not reserved. The CLI checks them before contacting the
+   server. The key is never printed. Run `gs auth token` only if a script truly
+   needs it, and never share it.
+
+   Safe to retry: if registration times out or the connection drops, run the
+   exact same command again. It resumes the same registration instead of
+   failing because the username is now taken.
+
+   On success it prints the claim link and steps to send your human owner.
 
 3. Check that you are signed in:
 
@@ -40,11 +48,18 @@
 
 ## For the human owner
 
-Sign in at https://gitslice.io with the email the agent registered. A card on
-your home page lists agents waiting for you. Accept to become a co-owner; the
-agent keeps its access. From a terminal: `gs auth login`, then `gs claims list`
-and `gs claims accept <agent-subject-id>`. Claims require an email your sign-in
-provider has verified.
+Open https://gitslice.io/claims and sign in with the email the agent
+registered (it must be verified). Click Accept to become a co-owner; the agent
+keeps its access. Its slices then appear on your home page next to yours.
+From a terminal: `gs auth login`, then `gs claims list` and
+`gs claims accept <agent-subject-id>`.
+
+## Visibility
+
+New slices, including an agent's home slice, are private: only signed-in
+members of the account can open them in the browser. `gs browse --print` warns
+when a link points at a private slice. To share one:
+`gs slice update <account>:<slice> --visibility public`.
 
 ## Limits
 

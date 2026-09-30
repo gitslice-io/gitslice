@@ -32,7 +32,14 @@ type RegisterAgentInput struct {
 	Username    string
 	OwnerEmail  string
 	DisplayName string
+	// RegistrationToken, when set, makes registration idempotent: a retry with
+	// the same token, username and owner email resumes the existing agent.
+	RegistrationToken string
 }
+
+// MinRegistrationTokenLength is the minimum length of a client-generated
+// registration token; it is a secret, so it must not be guessable.
+const MinRegistrationTokenLength = 32
 
 // PendingClaim is an unclaimed agent registration that a signed-in human may
 // accept because its owner email is one of their verified emails.
@@ -68,6 +75,9 @@ type RegisteredAgent struct {
 	SubjectID string
 	Account   string
 	APIKey    string
+	// Resumed is true when an earlier registration with the same token was
+	// found and a fresh key was issued for it.
+	Resumed bool
 }
 
 type FileEntry struct {

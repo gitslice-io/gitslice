@@ -107,6 +107,9 @@ type agentRegistration struct {
 	createdAt  time.Time
 	claimedBy  string
 	claimedAt  time.Time
+	// registrationTokenHash identifies a retryable registration; empty if the
+	// client sent no token.
+	registrationTokenHash string
 }
 
 type externalIdentity struct {
@@ -764,17 +767,44 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 		return nil, err
 	}
 
+	registrationToken := strings.TrimSpace(in.RegistrationToken)
+	if registrationToken != "" && len(registrationToken) < storage.MinRegistrationTokenLength {
+		return nil, fmt.Errorf("%w: registration token must be at least %d characters", storage.ErrInvalid, storage.MinRegistrationTokenLength)
+	}
+
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	if registrationToken != "" {
+		for agentID, reg := range s.b.agentRegistrations {
+			if reg.registrationTokenHash != memoryTokenHash(registrationToken) {
+				continue
+			}
+			if reg.account != username || reg.ownerEmail != ownerEmail {
+				return nil, fmt.Errorf("%w: registration token was already used for a different agent", storage.ErrConflict)
+			}
+			// The memory store does not track key usage; revoke all prior keys.
+			for hash, owner := range s.b.apiKeys {
+				if owner == agentID {
+					delete(s.b.apiKeys, hash)
+				}
+			}
+			s.b.apiKeys[memoryTokenHash(token)] = agentID
+			return &storage.RegisteredAgent{SubjectID: agentID, Account: reg.account, APIKey: token, Resumed: true}, nil
+		}
+	}
 	if s.b.accountSlugTakenLocked(username) {
 		return nil, fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
 	}
 	s.b.provisionPersonalAccountLocked(subjectID, username, displayName)
-	s.b.agentRegistrations[subjectID] = agentRegistration{
+	reg := agentRegistration{
 		account:    username,
 		ownerEmail: ownerEmail,
 		createdAt:  time.Now().UTC(),
 	}
+	if registrationToken != "" {
+		reg.registrationTokenHash = memoryTokenHash(registrationToken)
+	}
+	s.b.agentRegistrations[subjectID] = reg
 	s.b.apiKeys[memoryTokenHash(token)] = subjectID
 	return &storage.RegisteredAgent{SubjectID: subjectID, Account: username, APIKey: token}, nil
 }

@@ -38,6 +38,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/rpclimits"
 	"github.com/gitslice-io/gitslice/internal/storage"
 	"github.com/gitslice-io/gitslice/internal/treestore"
+	"github.com/gitslice-io/gitslice/internal/usernames"
 	"github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/itchyny/gojq"
 	"github.com/peterh/liner"
@@ -922,19 +923,40 @@ func (r Runner) rootCommand() *cobra.Command {
 		},
 	}
 	registerServer := defaultServerAddr()
+	registerWebURL := defaultWebURL()
 	registerUsername := ""
 	registerEmail := ""
 	registerDisplayName := ""
 	authRegisterAgentCmd := &cobra.Command{
 		Use:   "register-agent",
 		Short: "Register this agent with its own account and API key (no browser)",
-		Args:  noArgs("gs auth register-agent --username NAME --email OWNER_EMAIL [--display-name NAME] [--server addr]"),
+		Long: `Register this agent with its own personal account, home slice, and a
+long-lived API key, without a browser or a human. The key is saved as the CLI
+credential and never printed.
+
+Username rules: 4-63 characters; lowercase letters, digits and '-' (uppercase
+is lowered and '_' becomes '-'); must not start or end with '-'; must be
+unique across Gitslice; some names are reserved.
+
+--email names the human who may later claim co-ownership. They sign in at
+<web-url>/claims with that (verified) email and accept the agent.
+
+Safe to retry: an interrupted registration is remembered and the same command
+resumes it instead of failing because the username is now taken.`,
+		Args: noArgs("gs auth register-agent --username NAME --email OWNER_EMAIL [--display-name NAME] [--server addr]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runAuthRegisterAgent(cmd.Context(), *opts, registerServer, registerUsername, registerEmail, registerDisplayName)
+			return r.runAuthRegisterAgent(cmd.Context(), *opts, registerAgentOptions{
+				serverAddr:  registerServer,
+				webURL:      registerWebURL,
+				username:    registerUsername,
+				email:       registerEmail,
+				displayName: registerDisplayName,
+			})
 		},
 	}
 	authRegisterAgentCmd.Flags().StringVar(&registerServer, "server", registerServer, "server gRPC address")
-	authRegisterAgentCmd.Flags().StringVar(&registerUsername, "username", "", "username for the agent's personal account")
+	authRegisterAgentCmd.Flags().StringVar(&registerWebURL, "web-url", registerWebURL, "web app base URL used in the printed claim link")
+	authRegisterAgentCmd.Flags().StringVar(&registerUsername, "username", "", "agent account username: 4-63 chars, lowercase letters, digits, '-'; unique")
 	authRegisterAgentCmd.Flags().StringVar(&registerEmail, "email", "", "email of the human who may later claim co-ownership")
 	authRegisterAgentCmd.Flags().StringVar(&registerDisplayName, "display-name", "", "human-readable agent name (defaults to the username)")
 	genKeyOut := ""
@@ -1146,7 +1168,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			if len(args) > 0 {
 				route = args[0]
 			}
-			return r.runBrowse(*opts, browseWebURL, route, browsePrint)
+			return r.runBrowse(cmd.Context(), *opts, browseWebURL, route, browsePrint)
 		},
 	}
 	browseCmd.Flags().StringVar(&browseWebURL, "web-url", browseWebURL, "web UI base URL")
@@ -2256,44 +2278,153 @@ func (r Runner) verifyToken(ctx context.Context, serverAddr, token string) (stri
 	return res.SubjectId, nil
 }
 
+type registerAgentOptions struct {
+	serverAddr  string
+	webURL      string
+	username    string
+	email       string
+	displayName string
+}
+
+// pendingAgentRegistration is persisted before RegisterAgent is called so an
+// interrupted registration (timeout, cold start, lost response) can be resumed
+// with the same registration token instead of failing on the taken username.
+type pendingAgentRegistration struct {
+	ServerAddr string `json:"server_addr"`
+	Username   string `json:"username"`
+	OwnerEmail string `json:"owner_email"`
+	Token      string `json:"registration_token"`
+	CreatedAt  string `json:"created_at"`
+}
+
+const (
+	registerAgentAttempts       = 3
+	registerAgentAttemptTimeout = 60 * time.Second
+)
+
+// registerAgentRetryDelay is a variable so tests can shorten it.
+var registerAgentRetryDelay = 2 * time.Second
+
+func (r Runner) pendingAgentRegistrationPath() string {
+	return filepath.Join(filepath.Dir(r.userConfigPath()), "pending-agent-registration.json")
+}
+
+func (r Runner) readPendingAgentRegistration() (pendingAgentRegistration, bool) {
+	raw, err := os.ReadFile(r.pendingAgentRegistrationPath())
+	if err != nil {
+		return pendingAgentRegistration{}, false
+	}
+	var pending pendingAgentRegistration
+	if err := json.Unmarshal(raw, &pending); err != nil || len(pending.Token) < storage.MinRegistrationTokenLength {
+		return pendingAgentRegistration{}, false
+	}
+	return pending, true
+}
+
+func (r Runner) writePendingAgentRegistration(pending pendingAgentRegistration) error {
+	path := r.pendingAgentRegistrationPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(pending, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(raw, '\n'), 0o600)
+}
+
+func (r Runner) clearPendingAgentRegistration() {
+	_ = os.Remove(r.pendingAgentRegistrationPath())
+}
+
 // runAuthRegisterAgent self-registers an agent via the unauthenticated
 // AuthService.RegisterAgent RPC and saves the returned API key as the CLI's
 // bearer credential, so later commands run as the agent. The key itself is never
 // printed; use `gs auth token` when a script needs it.
-func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, serverAddr, username, email, displayName string) error {
-	username = strings.TrimSpace(username)
-	email = strings.TrimSpace(email)
-	if username == "" || email == "" {
+func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, in registerAgentOptions) error {
+	if strings.TrimSpace(in.username) == "" || strings.TrimSpace(in.email) == "" {
 		return userError("invalid_args", "--username and --email are required", "Run gs auth register-agent --username NAME --email OWNER_EMAIL.")
 	}
-	serverAddr = strings.TrimSpace(serverAddr)
+	// Validate locally with the server's own rules so mistakes fail fast.
+	username, err := usernames.Normalize(in.username)
+	if err != nil {
+		return userError("invalid_username", err.Error(), "Usernames are 4-63 characters of lowercase letters, digits and '-', must not start or end with '-', and must be unique. See gs auth register-agent --help.")
+	}
+	email, err := storage.NormalizeOwnerEmail(in.email)
+	if err != nil {
+		return userError("invalid_email", strings.TrimPrefix(err.Error(), "invalid: "), "Pass the email of the human who should be able to claim this agent, e.g. --email you@example.com.")
+	}
+	serverAddr := strings.TrimSpace(in.serverAddr)
 	if serverAddr == "" {
 		serverAddr = defaultServerAddr()
 	}
-	conn, err := dial(ctx, serverAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 
-	resp, err := corev1.NewAuthServiceClient(conn).RegisterAgent(ctx, &corev1.RegisterAgentRequest{
-		Username:    username,
-		OwnerEmail:  email,
-		DisplayName: displayName,
-	})
-	if err != nil {
-		switch grpcstatus.Code(err) {
-		case codes.FailedPrecondition:
-			return userError("agent_signup_failed", grpcstatus.Convert(err).Message(), "The username may be taken, or the server may not allow agent sign-up (GITSLICE_AGENT_SIGNUP_ENABLED).")
-		case codes.InvalidArgument:
-			return userError("invalid_args", grpcstatus.Convert(err).Message(), "Check the username and email and try again.")
-		case codes.ResourceExhausted:
-			return userError("rate_limited", grpcstatus.Convert(err).Message(), "Too many agent registrations from this address; try again later.")
+	pending, resuming := r.readPendingAgentRegistration()
+	if !resuming || pending.ServerAddr != serverAddr || pending.Username != username || pending.OwnerEmail != email {
+		token, err := objectid.RandomID("reg")
+		if err != nil {
+			return err
 		}
-		return err
+		pending = pendingAgentRegistration{
+			ServerAddr: serverAddr,
+			Username:   username,
+			OwnerEmail: email,
+			Token:      token,
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		}
+		resuming = false
+		if err := r.writePendingAgentRegistration(pending); err != nil {
+			return err
+		}
+	} else if !opts.Quiet {
+		fmt.Fprintf(r.stderr(), "resuming an earlier registration attempt for %s\n", username)
+	}
+
+	var resp *corev1.RegisterAgentResponse
+	var lastErr error
+	for attempt := 1; attempt <= registerAgentAttempts; attempt++ {
+		resp, lastErr = r.registerAgentOnce(ctx, serverAddr, &corev1.RegisterAgentRequest{
+			Username:          username,
+			OwnerEmail:        email,
+			DisplayName:       in.displayName,
+			RegistrationToken: pending.Token,
+		})
+		if lastErr == nil || !retryableRegisterError(lastErr) || attempt == registerAgentAttempts {
+			break
+		}
+		if !opts.Quiet {
+			fmt.Fprintf(r.stderr(), "registration attempt %d did not complete (%v); retrying safely...\n", attempt, lastErr)
+		}
+		select {
+		case <-ctx.Done():
+			lastErr = ctx.Err()
+		case <-time.After(registerAgentRetryDelay):
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	if lastErr != nil {
+		if retryableRegisterError(lastErr) {
+			// Keep the pending token: the account may exist, and re-running the
+			// command resumes it.
+			return userError("registration_incomplete",
+				fmt.Sprintf("could not confirm the registration with %s: %v", serverAddr, lastErr),
+				"The account may or may not have been created. Re-run the same command: it resumes this registration safely instead of failing on the username.")
+		}
+		r.clearPendingAgentRegistration()
+		switch grpcstatus.Code(lastErr) {
+		case codes.FailedPrecondition:
+			return userError("agent_signup_failed", grpcstatus.Convert(lastErr).Message(), "The username may be taken (pick another), or the server may not allow agent sign-up (GITSLICE_AGENT_SIGNUP_ENABLED).")
+		case codes.InvalidArgument:
+			return userError("invalid_args", grpcstatus.Convert(lastErr).Message(), "Check the username and email and try again. See gs auth register-agent --help.")
+		case codes.ResourceExhausted:
+			return userError("rate_limited", grpcstatus.Convert(lastErr).Message(), "Too many agent registrations from this address; try again later.")
+		}
+		return lastErr
 	}
 	if strings.TrimSpace(resp.ApiKey) == "" || strings.TrimSpace(resp.SubjectId) == "" {
-		return userError("agent_signup_failed", "server registered the agent without returning an API key", "Try gs auth register-agent again with a different username.")
+		return userError("agent_signup_failed", "server registered the agent without returning an API key", "Re-run the same command to resume the registration.")
 	}
 
 	cfg := UserConfig{ServerAddr: serverAddr, Token: resp.ApiKey, SubjectID: resp.SubjectId}
@@ -2303,19 +2434,55 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, s
 	if err := r.writeUserConfig(cfg); err != nil {
 		return err
 	}
+	r.clearPendingAgentRegistration()
+
+	claimURL, _ := webRouteURL(in.webURL, "claims")
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"server_addr": serverAddr,
 			"subject_id":  resp.SubjectId,
 			"account":     resp.Account,
+			"owner_email": email,
+			"claim_url":   claimURL,
+			"resumed":     resuming,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "registered agent %s with account %s; API key saved\n", resp.SubjectId, resp.Account)
-	fmt.Fprintf(r.Stdout, "%s can claim co-ownership by signing in with that email\n", strings.ToLower(email))
+	fmt.Fprintf(r.Stdout, "registered agent %s with account %s; API key saved to %s\n", resp.SubjectId, resp.Account, r.userConfigPath())
+	fmt.Fprintf(r.Stdout, "\nTo give %s co-ownership, send them these steps:\n", email)
+	fmt.Fprintf(r.Stdout, "  1. Open %s and sign in with %s (it must be a verified email).\n", claimURL, email)
+	fmt.Fprintf(r.Stdout, "  2. Click Accept next to this agent, or run: gs claims accept %s\n", resp.SubjectId)
+	fmt.Fprintf(r.Stdout, "\nStart working in your home slice:\n  gs init %s:home\n", resp.Account)
 	return nil
+}
+
+func (r Runner) registerAgentOnce(ctx context.Context, serverAddr string, req *corev1.RegisterAgentRequest) (*corev1.RegisterAgentResponse, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, registerAgentAttemptTimeout)
+	defer cancel()
+	conn, err := dial(attemptCtx, serverAddr)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	return corev1.NewAuthServiceClient(conn).RegisterAgent(attemptCtx, req)
+}
+
+// retryableRegisterError reports failures after which the registration may or
+// may not have happened (timeouts, dropped connections, cold starts).
+func retryableRegisterError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	switch grpcstatus.Code(err) {
+	case codes.DeadlineExceeded, codes.Unavailable, codes.Aborted:
+		return true
+	}
+	return false
 }
 
 type pendingClaimOutput struct {
@@ -2475,10 +2642,13 @@ func clerkLoginURL(webURL, callbackURL, state string) (string, error) {
 	return parsed.String(), nil
 }
 
-func (r Runner) runBrowse(opts commandOptions, webURL, route string, printOnly bool) error {
+func (r Runner) runBrowse(ctx context.Context, opts commandOptions, webURL, route string, printOnly bool) error {
 	target, err := webRouteURL(webURL, route)
 	if err != nil {
 		return err
+	}
+	if note := r.browseVisibilityNote(ctx, route); note != "" && !opts.Quiet {
+		fmt.Fprintln(r.stderr(), note)
 	}
 	if printOnly {
 		fmt.Fprintln(r.Stdout, target)
@@ -2497,6 +2667,36 @@ func (r Runner) runBrowse(opts commandOptions, webURL, route string, printOnly b
 	}
 	fmt.Fprintf(r.stderr(), "opened %s\n", target)
 	return nil
+}
+
+// browseVisibilityNote warns when a slice URL will not work for everyone: a
+// private slice shows only a sign-in prompt to anyone who is not a signed-in
+// member of its account. It is best effort and silent on lookup failures.
+func (r Runner) browseVisibilityNote(ctx context.Context, route string) string {
+	parts := strings.Split(strings.Trim(strings.SplitN(route, "?", 2)[0], "/"), "/")
+	if len(parts) < 3 || parts[0] != "slices" || parts[1] == "" || parts[2] == "" || parts[2] == "new" {
+		return ""
+	}
+	account, slug := parts[1], parts[2]
+	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return ""
+	}
+	conn, err := dial(lookupCtx, cfg.ServerAddr)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	slice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(authContext(lookupCtx, cfg), &corev1.ResolveSliceRequest{
+		Ref: &corev1.SliceRef{Account: account, Slice: slug},
+	})
+	if err != nil || slice.GetDefinition().GetVisibility() != "private" {
+		return ""
+	}
+	return fmt.Sprintf("note: %s/%s is private: the link only works for signed-in members of %s; others see a sign-in prompt.\n"+
+		"      To share it with anyone: gs slice update %s:%s --visibility public", account, slug, account, account, slug)
 }
 
 // webResourceURL builds a best-effort link into the web app for a created or

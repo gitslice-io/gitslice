@@ -117,9 +117,10 @@ func (s *AuthService) RegisterAgent(ctx context.Context, req *corev1.RegisterAge
 		return nil, status.Error(codes.FailedPrecondition, "agent sign-up is disabled on this server")
 	}
 	agent, err := s.Auth.RegisterAgent(ctx, storage.RegisterAgentInput{
-		Username:    req.GetUsername(),
-		OwnerEmail:  req.GetOwnerEmail(),
-		DisplayName: req.GetDisplayName(),
+		Username:          req.GetUsername(),
+		OwnerEmail:        req.GetOwnerEmail(),
+		DisplayName:       req.GetDisplayName(),
+		RegistrationToken: req.GetRegistrationToken(),
 	})
 	if err != nil {
 		return nil, grpcError(err)
