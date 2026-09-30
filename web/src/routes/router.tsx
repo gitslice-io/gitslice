@@ -20,6 +20,17 @@ import type { ReactNode } from "react";
 import appCss from "../index.css?url";
 import { PostHogProvider } from "../analytics/PostHogProvider";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
+import { RpcError } from "../api/client";
+import {
+  sliceDirectoryQueryKey,
+  sliceFileQueryKey,
+  slicePathQueryKey
+} from "../lib/sliceQueryKeys";
+import {
+  isSliceProjectionDirectoryPath,
+  listDirectoryAll
+} from "../components/source/sourceUtils";
+import { initialTreeExpansion, pathSearchValue } from "./slice-detail/sourceTree";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
@@ -59,7 +70,14 @@ function createQueryClient() {
         // blocks the document response for a full second. These prefetches are
         // best-effort — the component refetches client-side on a miss — so we
         // never retry during SSR. The browser keeps one retry.
-        retry: import.meta.env.SSR ? false : 1,
+        // Client errors (401/403/404, e.g. the optimistic readFile on a path
+        // that turns out to be a directory) will not succeed on retry, so only
+        // transient failures get the single browser retry.
+        retry: import.meta.env.SSR
+          ? false
+          : (failureCount, error) =>
+              failureCount < 1 &&
+              !(error instanceof RpcError && error.status >= 400 && error.status < 500),
         refetchOnWindowFocus: false
       }
     }
@@ -305,10 +323,18 @@ const sliceCreateRoute = createRoute({
   component: SliceCreatePage
 });
 
+// Upper bound on how long SSR waits for path-specific prefetches. Anything that
+// finishes in time is hydrated; the rest loads client-side as before, so a slow
+// API can delay the first byte by at most this much.
+const SLICE_PATH_PREFETCH_BUDGET_MS = 1200;
+
 const sliceDetailRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice",
-  loader: async ({ context, params }) => {
+  loaderDeps: ({ search }) => ({
+    path: pathSearchValue((search as { path?: unknown }).path)
+  }),
+  loader: async ({ context, deps, params }) => {
     if (import.meta.env.SSR && params.account && params.slice) {
       try {
         const { createServerApiClient } = await import("../api/serverApi");
@@ -317,7 +343,7 @@ const sliceDetailRoute = createRoute({
         // The default view resolves the slice and the latest global ref (which
         // yields the commit the file tree renders from); both fire on first
         // paint and have no derived inputs, so prefetch them together.
-        await Promise.all([
+        const [slice, latest] = await Promise.all([
           context.queryClient.ensureQueryData({
             queryKey: ["sliceRef", params.account, params.slice],
             queryFn: () => api.resolveSlice({ ref })
@@ -335,6 +361,60 @@ const sliceDetailRoute = createRoute({
             }
           })
         ]);
+        const commitId = latest.commitId ?? "";
+        const sliceRef = slice.ref ?? ref;
+        const includedPaths = slice.definition?.includedPaths ?? [];
+        const selectedPath = deps.path;
+        if (commitId) {
+          // Without this, the browser discovers the path's kind, then its
+          // listing, then the navigator's ancestor listings, one round trip at
+          // a time. Prefetch them here with the page's own query keys.
+          const listing = (path: string) =>
+            context.queryClient.ensureQueryData({
+              queryKey: sliceDirectoryQueryKey(sliceRef, commitId, path),
+              queryFn: () =>
+                listDirectoryAll(api, {
+                  allowMissingDirectory: isSliceProjectionDirectoryPath(path, includedPaths),
+                  commitId,
+                  path,
+                  slice: sliceRef
+                })
+            });
+          const navigatorPaths = new Set(
+            initialTreeExpansion(selectedPath, includedPaths, false)
+          );
+          const work: Promise<unknown>[] = Array.from(navigatorPaths, listing);
+          if (selectedPath && !isSliceProjectionDirectoryPath(selectedPath, includedPaths)) {
+            work.push(
+              context.queryClient
+                .ensureQueryData({
+                  queryKey: slicePathQueryKey(sliceRef, commitId, selectedPath),
+                  queryFn: () =>
+                    api.resolvePath({ commitId, path: selectedPath, slice: sliceRef })
+                })
+                .then((resolved): Promise<unknown> | undefined => {
+                  const kind = resolved.entry?.kind;
+                  if (kind === "ENTRY_KIND_DIRECTORY") {
+                    return listing(selectedPath);
+                  }
+                  if (kind === "ENTRY_KIND_FILE") {
+                    return context.queryClient.ensureQueryData({
+                      queryKey: sliceFileQueryKey(sliceRef, commitId, selectedPath),
+                      queryFn: () =>
+                        api.readFile({ commitId, path: selectedPath, slice: sliceRef })
+                    });
+                  }
+                  return undefined;
+                })
+            );
+          } else if (selectedPath) {
+            work.push(listing(selectedPath));
+          }
+          await Promise.race([
+            Promise.allSettled(work),
+            new Promise((resolve) => setTimeout(resolve, SLICE_PATH_PREFETCH_BUDGET_MS))
+          ]);
+        }
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }

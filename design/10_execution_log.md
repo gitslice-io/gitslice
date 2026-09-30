@@ -8534,3 +8534,57 @@ Fix: `gs browse` resolves what the user typed.
   real routes.
 - **Delivery:** ships in `gs v0.1.1`. `llms.txt` and the `gs-cli` skill now
   show `gs browse --print` for sharing links.
+
+## 2026-09-30 — Slice page with ?path= was slow (3-5s)
+
+Report: `https://gitslice.io/slices/heibot/home?path=%2Fheibot%2Fjev-pricing`
+was slow to render.
+
+Measured in prod:
+
+- Request logs for one page load showed 3-4 sequential browser waves over about
+  5s.
+  - Each wave was a pair of `ListDirectory` calls (0.6-1.2s each) plus
+    `ResolvePath` and `ReadFile`.
+  - `ReadFile` returned 404 and was retried: `jev-pricing` is a directory, and
+    the page reads the path as a file optimistically.
+  - SSR only prefetched `ResolveSlice` and `GetRef`.
+- Direct timing: `ResolvePath`, `ListDirectory` and `ReadFile` took 0.7-1.2s on
+  every call, with no warm-up across repeated identical calls.
+  - `/metrics` showed `ResolvePath` at 0.80s server-side, against 0.08-0.10s
+    for `GetRef` and `ResolveSlice`.
+  - The database is AWS us-west-2, next to Cloud Run us-west1, so it was not
+    the bottleneck.
+
+Causes and fixes:
+
+1. **The object cache never cached reads.** `objectstore/cache` was
+   write-through only ("reads that miss are NOT cached"). A serving instance
+   only cached objects it had written itself. Prod scales to zero and restarts
+   on every deploy, so every directory lookup walked tree nodes from R2 on every
+   request, one object per level.
+   - Fix: a full-object `Get` that misses fills the cache once the caller reads
+     to EOF within `maxObjectBytes` (4 MiB). The cache stays bounded at 256 MiB.
+     Objects are content-addressed and immutable, so this is always correct.
+   - Ranged reads, oversized objects and reads abandoned before EOF are not
+     cached, and nothing beyond the per-object limit is buffered.
+   - The old `TestMissReadsInnerAndIsNotCached` pinned the previous behavior and
+     was replaced with tests for fill, ranged miss, oversized miss and
+     abandoned read (`-race` clean).
+2. **Duplicate listings.** The folder navigator (`sliceTreeDirectory`, keyed by
+   slice id) and the main pane (`sliceDirectory`, keyed by `account:slice`)
+   listed the same directory under different keys.
+   - Fix: `lib/sliceQueryKeys.ts` gives the page, the navigator and the SSR
+     loader identical keys.
+3. **Client round-trip waterfall.**
+   - The SSR loader now reads `?path=` via `loaderDeps` and, after
+     `ResolveSlice` + `GetRef`, prefetches in parallel with the page's own keys:
+     the navigator's initial ancestor listings, and `ResolvePath` followed by
+     the directory listing or `ReadFile`.
+   - It waits at most 1.2s (`SLICE_PATH_PREFETCH_BUDGET_MS`). Anything
+     unfinished loads client-side as before.
+4. **Pointless retries.** The browser no longer retries 4xx `RpcError`s. The
+   single retry is kept for transient failures.
+
+Note: `npm run build` runs `tsc -b`, which is stricter than `tsc --noEmit -p .`
+and caught two type errors the latter missed.

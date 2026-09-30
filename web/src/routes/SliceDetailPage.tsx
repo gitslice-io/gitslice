@@ -42,6 +42,11 @@ import { cn } from "../lib/cn";
 import { pathSearchValue, buildGitCloneHint } from "./slice-detail/sourceTree";
 import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
 import { SliceAccessNotice } from "../components/slices/SliceAccessNotice";
+import {
+  sliceDirectoryQueryKey,
+  sliceFileQueryKey,
+  slicePathQueryKey,
+} from "../lib/sliceQueryKeys";
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
@@ -148,14 +153,7 @@ export function SliceDetailPage() {
       sliceRef?.account &&
       sliceRef?.slice,
     ),
-    queryKey: [
-      "slicePath",
-      sliceRouteKey,
-      commitId,
-      selectedPath,
-      sliceRef?.account,
-      sliceRef?.slice,
-    ],
+    queryKey: slicePathQueryKey(sliceRef, commitId, selectedPath),
     queryFn: () =>
       api.resolvePath({ commitId, path: selectedPath, slice: sliceRef }),
   });
@@ -170,14 +168,7 @@ export function SliceDetailPage() {
     enabled: Boolean(
       commitId && sliceRef?.account && sliceRef?.slice && isDirectory,
     ),
-    queryKey: [
-      "sliceDirectory",
-      sliceRouteKey,
-      commitId,
-      selectedPath,
-      sliceRef?.account,
-      sliceRef?.slice,
-    ],
+    queryKey: sliceDirectoryQueryKey(sliceRef, commitId, selectedPath),
     queryFn: () =>
       listDirectoryAll(api, {
         allowMissingDirectory: isProjectedDirectoryPath,
@@ -203,14 +194,7 @@ export function SliceDetailPage() {
       sliceRef?.account &&
       sliceRef?.slice,
     ),
-    queryKey: [
-      "sliceFile",
-      sliceRouteKey,
-      commitId,
-      selectedPath,
-      sliceRef?.account,
-      sliceRef?.slice,
-    ],
+    queryKey: sliceFileQueryKey(sliceRef, commitId, selectedPath),
     queryFn: () =>
       api.readFile({ commitId, path: selectedPath, slice: sliceRef }),
   });
