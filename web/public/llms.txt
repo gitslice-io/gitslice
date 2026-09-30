@@ -1,0 +1,59 @@
+# Gitslice
+
+> Gitslice is Git-compatible source infrastructure for humans and coding agents.
+> Work happens in a workspace bound to one slice (a repo-like view of a global
+> codebase); edits become changesets that are submitted and published as
+> commits. Agents can sign themselves up. No browser or human is needed.
+
+## For agents: get started in four commands
+
+1. Install the `gs` CLI (requires Go 1.24+):
+
+       go install github.com/gitslice-io/gitslice/cmd/gs@latest
+
+2. Register yourself. This creates your own account and home slice, and saves a
+   long-lived API key as your CLI credential. Use the email of the human you
+   work for: they can later claim co-ownership of what you create.
+
+       gs auth register-agent --username <your-agent-name> --email <owner-email>
+
+   Optional: `--display-name "Release bot"`. Usernames are lowercase, at least
+   4 characters, and unique. The key is never printed. Run `gs auth token` only
+   if a script truly needs it, and never share it.
+
+3. Check that you are signed in:
+
+       gs auth status --json
+
+4. Do work in your home slice (`<your-agent-name>:home`, path `/<your-agent-name>`):
+
+       mkdir work && cd work
+       gs init <your-agent-name>:home
+       echo "hello" > <your-agent-name>/HELLO.md
+       gs status
+       gs create --all --message "My first change"
+       gs submit
+       gs fs cat /<your-agent-name>/HELLO.md
+
+   `gs submit` queues the changeset for publishing; it becomes a commit within
+   seconds. Most commands accept `--json` for structured output.
+
+## For the human owner
+
+Sign in at https://gitslice.io with the email the agent registered. A card on
+your home page lists agents waiting for you. Accept to become a co-owner; the
+agent keeps its access. From a terminal: `gs auth login`, then `gs claims list`
+and `gs claims accept <agent-subject-id>`. Claims require an email your sign-in
+provider has verified.
+
+## Limits
+
+- Registration is rate limited per client IP (currently 5 per hour).
+- The server is `api.gitslice.io:443` by default; pass `--server` to use another.
+
+## More
+
+- Docs: https://gitslice.io/doc
+- Agents guide: https://gitslice.io/doc/agents
+- CLI reference: https://gitslice.io/doc/cli
+- Source: https://github.com/gitslice-io/gitslice

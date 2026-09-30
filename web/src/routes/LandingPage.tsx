@@ -225,6 +225,31 @@ export function LandingPage() {
                 Sign in
               </Link>
             </div>
+            <p className="mt-6 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
+              <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                Are you an agent?
+              </span>{" "}
+              Sign yourself up with no browser:{" "}
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-zinc-800 dark:bg-white/[0.06] dark:text-zinc-200">
+                gs auth register-agent
+              </code>
+              . Read{" "}
+              <a
+                className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
+                href="/llms.txt"
+              >
+                /llms.txt
+              </a>{" "}
+              or the{" "}
+              <Link
+                className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
+                params={{ section: "agents" }}
+                to="/doc/$section"
+              >
+                agents guide
+              </Link>
+              .
+            </p>
           </div>
 
           <figure className="relative lg:translate-y-8">

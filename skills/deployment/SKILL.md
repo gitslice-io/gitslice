@@ -203,7 +203,8 @@ The pipeline is `cloudbuild.yaml` at the repo root: `gate (skip when HEAD is alr
 Key production facts:
 - Serving instances run with `GITSLICE_RUN_MIGRATIONS=0`; migrations run in the pipeline's migrate Job, so schema changes ship on the next deploy.
 - Runs single-port h2c with `--use-http2`; background workers require `--no-cpu-throttling` (set by the pipeline). `--min-instances=0`: the service scales to zero when idle — safe since the outbox/publisher adaptive backoff (#299); background workers pause with the instance and Cloud Run's scale decisions ignore them.
-- Secrets live in Secret Manager: `gitslice-database-url`, `gitslice-r2-access-key-id`, `gitslice-r2-secret-access-key`, `gitslice-metrics-token` (runtime SA needs `secretmanager.secretAccessor`). The Clerk publishable key is a non-secret env var; the server does not use a Clerk secret key.
+- Secrets live in Secret Manager: `gitslice-database-url`, `gitslice-r2-access-key-id`, `gitslice-r2-secret-access-key`, `gitslice-metrics-token`, `gitslice-secrets-key`, `gitslice-clerk-secret-key` (runtime SA needs `secretmanager.secretAccessor` on each). The Clerk publishable key is a non-secret env var. The server uses `CLERK_SECRET_KEY` only for agent claims, to read verified emails from the Clerk Backend API (design/20).
+- Agent self-registration is on in prod through the `_AGENT_SIGNUP_ENABLED` (default `"true"`) and `_AGENT_SIGNUP_PER_HOUR` (default `"5"`) substitutions. Set `_AGENT_SIGNUP_ENABLED=false` on the trigger to turn it off.
 - CORS: `GITSLICE_HTTP_ALLOWED_ORIGIN=https://gitslice.io` (Cloud Build substitution `_ALLOWED_ORIGIN`).
 - `api.gitslice.io` is a Cloud Run domain mapping (CNAME → `ghs.googlehosted.com`, DNS-only); its Google-managed cert can take up to ~1 hour to provision after DNS is set.
 
