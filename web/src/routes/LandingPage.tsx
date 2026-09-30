@@ -243,6 +243,14 @@ export function LandingPage() {
             </div>
             <p className="mt-6 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
               <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                Install the CLI:
+              </span>{" "}
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-zinc-800 dark:bg-white/[0.06] dark:text-zinc-200">
+                curl -fsSL https://gitslice.io/install.sh | sh
+              </code>
+            </p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
+              <span className="font-medium text-zinc-700 dark:text-zinc-200">
                 Are you an agent?
               </span>{" "}
               Sign yourself up with no browser:{" "}
@@ -286,6 +294,13 @@ export function LandingPage() {
               </div>
               <div className="min-h-[23rem] overflow-x-auto p-5 font-mono text-[12px] leading-6 sm:p-6 sm:text-[13px]">
                 <p>
+                  <span className="text-sky-400">$</span>{" "}
+                  <span className="text-zinc-200">
+                    curl -fsSL https://gitslice.io/install.sh | sh
+                  </span>
+                </p>
+                <p className="text-zinc-500">Installed gs version v0.1.0</p>
+                <p className="mt-4">
                   <span className="text-sky-400">$</span>{" "}
                   <span className="text-zinc-200">gs auth login</span>
                 </p>
