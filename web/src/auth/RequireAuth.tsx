@@ -1,6 +1,7 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import { Navigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { currentPath, rememberReturnTo } from "./returnTo";
 
 interface RequireAuthProps {
   children: ReactNode;
@@ -18,6 +19,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
   }
 
   if (!isSignedIn) {
+    rememberReturnTo(currentPath());
     return <Navigate replace to="/login" />;
   }
 

@@ -31,6 +31,7 @@ import { ChangesetDetailPage, sortedPatchsets } from "./ChangesetDetailPage";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
 import { CliLoginPage } from "./CliLoginPage";
+import { ClaimsPage } from "./ClaimsPage";
 import { ConversationsPage } from "./ConversationsPage";
 import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
@@ -254,6 +255,12 @@ function UsernameGate({ children }: { children: ReactNode }) {
 
   return <>{children}</>;
 }
+
+const claimsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "claims",
+  component: ClaimsPage
+});
 
 const conversationsRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -502,6 +509,7 @@ const routeTree = rootRoute.addChildren([
   loginFlowRoute,
   cliLoginRoute,
   appRoute.addChildren([
+    claimsRoute,
     conversationsRoute,
     slicesRoute,
     sliceCreateRoute,

@@ -621,9 +621,15 @@ type RegisterAgentRequest struct {
 	// at registration; a claim requires a verified sign-in with this address.
 	OwnerEmail string `protobuf:"bytes,2,opt,name=owner_email,json=ownerEmail,proto3" json:"owner_email,omitempty"`
 	// Optional human-readable name, e.g. "release-bot". Defaults to username.
-	DisplayName   string `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DisplayName string `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	// Optional client-generated secret (at least 32 characters) that makes the
+	// call safely retryable. If a registration already exists for this token and
+	// the same username and owner email, the server resumes it: it returns the
+	// same agent with a fresh API key and revokes that agent's never-used keys.
+	// Clients should persist it until they receive a response.
+	RegistrationToken string `protobuf:"bytes,4,opt,name=registration_token,json=registrationToken,proto3" json:"registration_token,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *RegisterAgentRequest) Reset() {
@@ -673,6 +679,13 @@ func (x *RegisterAgentRequest) GetOwnerEmail() string {
 func (x *RegisterAgentRequest) GetDisplayName() string {
 	if x != nil {
 		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetRegistrationToken() string {
+	if x != nil {
+		return x.RegistrationToken
 	}
 	return ""
 }
@@ -1193,12 +1206,13 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\x16ChooseUsernameResponse\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x18\n" +
-	"\aaccount\x18\x02 \x01(\tR\aaccount\"v\n" +
+	"\aaccount\x18\x02 \x01(\tR\aaccount\"\xa5\x01\n" +
 	"\x14RegisterAgentRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1f\n" +
 	"\vowner_email\x18\x02 \x01(\tR\n" +
 	"ownerEmail\x12!\n" +
-	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\"i\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12-\n" +
+	"\x12registration_token\x18\x04 \x01(\tR\x11registrationToken\"i\n" +
 	"\x15RegisterAgentResponse\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x18\n" +

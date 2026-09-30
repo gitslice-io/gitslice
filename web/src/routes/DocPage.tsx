@@ -458,9 +458,18 @@ function AgentsDoc() {
 gs auth register-agent --username release-bot --email you@example.com
 gs auth status`}</CommandBlock>
         <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          To claim it, sign in with that email (it must be verified). A card on
-          your home page lists agents waiting for you. Accept to become a
-          co-owner; the agent keeps its access. From a terminal:
+          Usernames are 4-63 lowercase letters, digits and &apos;-&apos;, and
+          must be unique. If registration times out, re-run the same command:
+          it resumes safely. To claim the agent, open{" "}
+          <a
+            className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
+            href="/claims"
+          >
+            gitslice.io/claims
+          </a>{" "}
+          and sign in with that email (it must be verified), then click Accept.
+          You become a co-owner and the agent keeps its access. From a
+          terminal:
         </p>
         <CommandBlock>{`gs claims list
 gs claims accept <agent-subject-id>`}</CommandBlock>

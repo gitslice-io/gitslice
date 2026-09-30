@@ -9,7 +9,7 @@ import { getErrorMessage } from "./SlicePageParts";
 // PendingClaims lists agents that registered with one of the signed-in user's
 // verified emails and lets them accept co-ownership. It renders nothing when
 // there is nothing to claim or the lookup fails, so it never blocks the page.
-export function PendingClaims() {
+export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
   const api = useApi();
   const queryClient = useQueryClient();
   const { isLoaded, isSignedIn } = useAuth();
@@ -37,6 +37,22 @@ export function PendingClaims() {
   const claims = claimsQuery.data ?? [];
   const accepted = acceptMutation.isSuccess ? acceptMutation.data.account : "";
   if (!enabled || (claims.length === 0 && !accepted)) {
+    if (showEmpty && enabled && claimsQuery.isSuccess) {
+      return (
+        <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
+          No agents are waiting to be claimed. An agent shows up here after it
+          runs <code className="font-mono text-xs">gs auth register-agent</code>{" "}
+          with one of your verified emails.
+        </div>
+      );
+    }
+    if (showEmpty && claimsQuery.isError) {
+      return (
+        <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200" role="alert">
+          Could not check for agents to claim: {getErrorMessage(claimsQuery.error)}
+        </div>
+      );
+    }
     return null;
   }
 

@@ -531,11 +531,30 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 		return nil, err
 	}
 
+	registrationTokenHash, err := registrationTokenHashFor(in.RegistrationToken)
+	if err != nil {
+		return nil, err
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
+
+	if registrationTokenHash.Valid {
+		resumed, err := s.resumeAgentRegistrationTx(ctx, tx, registrationTokenHash.String, username, ownerEmail, keyID, hashedToken)
+		if err != nil {
+			return nil, err
+		}
+		if resumed != nil {
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
+			resumed.APIKey = token
+			return resumed, nil
+		}
+	}
 
 	if _, err := tx.ExecContext(ctx, `
 		insert into subjects(id, kind, display_name, created_at)
@@ -548,9 +567,9 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		insert into agent_registrations(subject_id, account_id, owner_email, created_at)
-		values ($1, $2, $3, now())
-	`, subjectID, accountID, ownerEmail); err != nil {
+		insert into agent_registrations(subject_id, account_id, owner_email, registration_token_hash, created_at)
+		values ($1, $2, $3, $4, now())
+	`, subjectID, accountID, ownerEmail, registrationTokenHash); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -563,6 +582,58 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 		return nil, err
 	}
 	return &storage.RegisteredAgent{SubjectID: subjectID, Account: username, APIKey: token}, nil
+}
+
+// registrationTokenHashFor validates an optional client registration token and
+// returns its hash, or an invalid NullString when none was given.
+func registrationTokenHashFor(token string) (sql.NullString, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return sql.NullString{}, nil
+	}
+	if len(token) < storage.MinRegistrationTokenLength {
+		return sql.NullString{}, fmt.Errorf("%w: registration token must be at least %d characters", ErrInvalid, storage.MinRegistrationTokenLength)
+	}
+	return sql.NullString{String: tokenHash(token), Valid: true}, nil
+}
+
+// resumeAgentRegistrationTx finishes a retried RegisterAgent. If a
+// registration exists for the token it must match the username and owner
+// email; the agent's never-used keys (e.g. one whose response was lost) are
+// revoked and a fresh key is issued. It returns nil when there is nothing to
+// resume.
+func (s *AuthStore) resumeAgentRegistrationTx(ctx context.Context, tx *sql.Tx, tokenHashValue, username, ownerEmail, keyID, hashedKey string) (*storage.RegisteredAgent, error) {
+	var subjectID, account, existingEmail string
+	err := tx.QueryRowContext(ctx, `
+		select r.subject_id, a.slug, r.owner_email
+		from agent_registrations r
+		join accounts a on a.id = r.account_id
+		where r.registration_token_hash = $1
+		for update of r
+	`, tokenHashValue).Scan(&subjectID, &account, &existingEmail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if account != username || existingEmail != ownerEmail {
+		return nil, fmt.Errorf("%w: registration token was already used for a different agent", ErrConflict)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update api_keys
+		set revoked_at = now()
+		where subject_id = $1 and last_used_at is null and revoked_at is null
+	`, subjectID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into api_keys(id, subject_id, name, token_hash, created_at)
+		values ($1, $2, 'default', $3, now())
+	`, keyID, subjectID, hashedKey); err != nil {
+		return nil, err
+	}
+	return &storage.RegisteredAgent{SubjectID: subjectID, Account: account, Resumed: true}, nil
 }
 
 func newAPIKey() (token, keyID, hashedToken string, err error) {

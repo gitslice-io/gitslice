@@ -20,7 +20,6 @@ import {
   SliceNotice,
   SlicePageHeader,
   SlicePanel,
-  getErrorMessage,
   sliceDisplayName,
 } from "../components/slices/SlicePageParts";
 import {
@@ -42,6 +41,7 @@ import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
 import { pathSearchValue, buildGitCloneHint } from "./slice-detail/sourceTree";
 import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
+import { SliceAccessNotice } from "../components/slices/SliceAccessNotice";
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
@@ -286,9 +286,11 @@ export function SliceDetailPage() {
       <section className="mx-auto w-full max-w-[100rem]">
         <SlicePageHeader title="Slice Home" />
         <div className="mt-8">
-          <SliceNotice title="Could not load slice" tone="error">
-            {getErrorMessage(sliceQuery.error)}
-          </SliceNotice>
+          <SliceAccessNotice
+            error={sliceQuery.error}
+            isSignedIn={Boolean(isLoaded && isSignedIn)}
+            sliceKey={`${routeAccount}/${routeSlice}`}
+          />
         </div>
       </section>
     );

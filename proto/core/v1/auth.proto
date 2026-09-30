@@ -95,6 +95,12 @@ message RegisterAgentRequest {
   string owner_email = 2;
   // Optional human-readable name, e.g. "release-bot". Defaults to username.
   string display_name = 3;
+  // Optional client-generated secret (at least 32 characters) that makes the
+  // call safely retryable. If a registration already exists for this token and
+  // the same username and owner email, the server resumes it: it returns the
+  // same agent with a fresh API key and revokes that agent's never-used keys.
+  // Clients should persist it until they receive a response.
+  string registration_token = 4;
 }
 
 message RegisterAgentResponse {

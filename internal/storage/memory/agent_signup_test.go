@@ -73,3 +73,36 @@ func TestRegisterAgentRejectsTakenUsernameAndBadEmail(t *testing.T) {
 		t.Fatalf("bad username err = %v; want ErrInvalid", err)
 	}
 }
+
+func TestRegisterAgentResumesWithSameToken(t *testing.T) {
+	ctx := context.Background()
+	stores := New()
+	token := strings.Repeat("r", storage.MinRegistrationTokenLength)
+	in := storage.RegisterAgentInput{Username: "resume-bot", OwnerEmail: "owner@example.com", RegistrationToken: token}
+
+	first, err := stores.Auth.RegisterAgent(ctx, in)
+	if err != nil || first.Resumed {
+		t.Fatalf("first RegisterAgent = %+v, %v", first, err)
+	}
+	// The response was "lost": retry with the same token resumes the agent.
+	second, err := stores.Auth.RegisterAgent(ctx, in)
+	if err != nil || !second.Resumed || second.SubjectID != first.SubjectID || second.APIKey == first.APIKey {
+		t.Fatalf("retry = %+v, %v; want same agent, new key", second, err)
+	}
+	if _, err := stores.Auth.SubjectForToken(ctx, first.APIKey); !errors.Is(err, storage.ErrUnauthenticated) {
+		t.Fatalf("undelivered first key err = %v; want revoked", err)
+	}
+	if subject, err := stores.Auth.SubjectForToken(ctx, second.APIKey); err != nil || subject.ID != first.SubjectID {
+		t.Fatalf("resumed key = %+v, %v", subject, err)
+	}
+
+	other := in
+	other.Username = "other-bot"
+	if _, err := stores.Auth.RegisterAgent(ctx, other); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("same token, different username err = %v; want ErrConflict", err)
+	}
+	short := storage.RegisterAgentInput{Username: "short-bot", OwnerEmail: "owner@example.com", RegistrationToken: "too-short"}
+	if _, err := stores.Auth.RegisterAgent(ctx, short); !errors.Is(err, storage.ErrInvalid) {
+		t.Fatalf("short token err = %v; want ErrInvalid", err)
+	}
+}
