@@ -122,6 +122,17 @@ export function DiffViewer({
       ),
     [fileStates]
   );
+  const loadedFileIds = useMemo(
+    () =>
+      fileStates === undefined
+        ? undefined
+        : new Set(
+            fileStates
+              .filter((state) => state.status === "loaded")
+              .map((state) => diffFileId(state.path))
+          ),
+    [fileStates]
+  );
   const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [mountedDiffBodies, setMountedDiffBodies] = useState<Set<string>>(
@@ -141,8 +152,23 @@ export function DiffViewer({
   const changedPathCount =
     fileStates?.length ?? diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
-  const totalAdditions = files.reduce((total, file) => total + file.additions, 0);
-  const totalDeletions = files.reduce((total, file) => total + file.deletions, 0);
+  const totalsArePartial = Boolean(
+    fileStates?.some((state) => state.status !== "loaded")
+  );
+  const totalAdditions = files.reduce(
+    (total, file) =>
+      !loadedFileIds || loadedFileIds.has(file.id)
+        ? total + file.additions
+        : total,
+    0
+  );
+  const totalDeletions = files.reduce(
+    (total, file) =>
+      !loadedFileIds || loadedFileIds.has(file.id)
+        ? total + file.deletions
+        : total,
+    0
+  );
   const hasTextualDiff =
     fileStates !== undefined
       ? files.length > 0
@@ -417,6 +443,9 @@ export function DiffViewer({
                   <span className="flex gap-1.5 font-mono text-xs">
                     <span className="text-emerald-700 dark:text-emerald-300">+{totalAdditions}</span>
                     <span className="text-rose-700 dark:text-rose-300">-{totalDeletions}</span>
+                    {totalsArePartial ? (
+                      <span className="font-sans text-slate-400 dark:text-zinc-500">so far</span>
+                    ) : null}
                   </span>
                 ) : null}
               </div>
@@ -458,6 +487,7 @@ export function DiffViewer({
               <ChangedFilesTree
                 activeId={activeId}
                 files={files}
+                loadedFileIds={loadedFileIds}
                 onSelect={selectFile}
               />
             </aside>
@@ -492,10 +522,12 @@ export function DiffViewer({
         <FilePickerSheet
           activeId={currentActiveId}
           files={files}
+          loadedFileIds={loadedFileIds}
           onClose={closeFilePicker}
           onSelectFile={selectFile}
           totalAdditions={totalAdditions}
           totalDeletions={totalDeletions}
+          totalsArePartial={totalsArePartial}
         />
       ) : null}
     </>
@@ -706,19 +738,33 @@ function UnifiedDiff({
   onExpand: ExpandFn;
   revealed: Record<string, RevealState>;
 }) {
+  const lines = useMemo(
+    () => file.lines.filter((line) => !isRedundantGitMetaLine(line)),
+    [file.lines]
+  );
   const segments = useMemo(
     () =>
       computeSegments(
-        file.lines.length,
-        (index) => file.lines[index].kind === "context",
+        lines.length,
+        (index) => lines[index].kind === "context",
         (index) =>
-          file.lines[index].kind === "add" || file.lines[index].kind === "del",
+          lines[index].kind === "add" || lines[index].kind === "del",
         CONTEXT_LINES,
         (gapIndex) =>
           revealed[gapKey(file.id, "unified", gapIndex)] ?? EMPTY_REVEAL
       ),
-    [file.id, file.lines, revealed]
+    [file.id, lines, revealed]
   );
+
+  // A pure rename has nothing left once the git headers are hidden; say so
+  // instead of rendering an empty block, like SplitDiff does.
+  if (lines.length === 0) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 px-4 py-5 text-sm text-slate-500 dark:text-zinc-400">
+        No line changes in this file.
+      </div>
+    );
+  }
 
   return (
     <pre className="overflow-x-auto bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
@@ -734,7 +780,7 @@ function UnifiedDiff({
           ) : (
             <Fragment key={`block-${segment.start}`}>
               {rangeIndexes(segment.start, segment.end).map((index) => {
-                const line = file.lines[index];
+                const line = lines[index];
                 return (
                   <span
                     className={cn(
@@ -770,7 +816,10 @@ function SplitDiff({
   onExpand: ExpandFn;
   revealed: Record<string, RevealState>;
 }) {
-  const rows = file.rows;
+  const rows = useMemo(
+    () => file.rows.filter((row) => !isRedundantGitMetaRow(row)),
+    [file.rows]
+  );
   const segments = useMemo(
     () =>
       computeSegments(
@@ -874,7 +923,7 @@ function ExpandSeparator({
   return (
     <span
       className={cn(
-        "flex w-full items-center justify-center gap-3 border-y border-slate-100 dark:border-zinc-800 bg-sky-50/70 px-4 py-1 font-mono text-xs text-sky-700 dark:text-sky-300 first:border-t-0",
+        "flex w-full items-center justify-center gap-3 border-y border-slate-100 dark:border-zinc-800 bg-sky-50/70 dark:bg-sky-950/30 px-4 py-1 font-mono text-xs text-sky-700 dark:text-sky-300 first:border-t-0",
         className
       )}
     >
@@ -1002,6 +1051,32 @@ function diffLineClass(kind: DiffLineKind) {
     case "context":
       return "text-slate-700 dark:text-zinc-300";
   }
+}
+
+const redundantGitMetaPrefixes = [
+  "diff --git ",
+  "index ",
+  "--- ",
+  "+++ ",
+  "new file mode ",
+  "deleted file mode ",
+  "similarity index ",
+  "rename from ",
+  "rename to "
+];
+
+function isRedundantGitMetaLine(line: DiffLine) {
+  return (
+    line.kind === "meta" &&
+    redundantGitMetaPrefixes.some((prefix) => line.text.startsWith(prefix))
+  );
+}
+
+function isRedundantGitMetaRow(row: DiffRow) {
+  return (
+    row.kind === "meta" &&
+    redundantGitMetaPrefixes.some((prefix) => row.hunkText?.startsWith(prefix))
+  );
 }
 
 function changeKindClass(kind: FileChangeKind) {

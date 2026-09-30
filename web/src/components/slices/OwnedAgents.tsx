@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
+import { ownedAgentsQuery } from "../../api/queries";
 import type { OwnedAgent } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { formatRelativeTime } from "./ConversationCard";
@@ -13,12 +14,7 @@ export function useOwnedAgents() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   const enabled = Boolean(isLoaded && isSignedIn);
-  const query = useQuery({
-    enabled,
-    queryKey: ["ownedAgents"],
-    queryFn: async () => (await api.listOwnedAgents({})).agents ?? [],
-    retry: false
-  });
+  const query = useQuery({ ...ownedAgentsQuery(api), enabled });
   return {
     agents: query.isError ? [] : (query.data ?? []),
     enabled,

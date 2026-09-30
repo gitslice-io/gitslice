@@ -21,6 +21,28 @@ export function sortedPatchsets(changeset?: Changeset) {
   });
 }
 
+// Above this many changed paths the changeset page stops requesting one full
+// diff and loads per-file diffs on demand instead. The SSR loader reads the same
+// limit so it only prefetches the full diff when the page will render it.
+export const FULL_DIFF_PATH_LIMIT = 20;
+
+// Every path touched by either side of a patchset comparison, sorted. A rename
+// contributes both its old and new path.
+export function changedPathsForDiff(from?: Patchset, to?: Patchset) {
+  const paths = new Set<string>();
+  [from, to].forEach((patchset) => {
+    patchset?.fileEdits?.forEach((edit) => {
+      if (edit.path) {
+        paths.add(edit.path);
+      }
+      if (edit.oldPath) {
+        paths.add(edit.oldPath);
+      }
+    });
+  });
+  return Array.from(paths).sort();
+}
+
 export function numericPatchsetNumber(patchset: Patchset) {
   const number = Number(patchset.number);
   return Number.isFinite(number) ? number : Number.MAX_SAFE_INTEGER;

@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { Conversation, Slice, SliceRef } from "../../api/types";
+import { accountSlicesQuery } from "../../api/queries";
+import type { Conversation, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { useSelection } from "../../state/selection";
@@ -25,8 +26,6 @@ interface CreateInput {
   title: string;
 }
 
-const PAGE_SIZE = 100;
-
 export function NewConversationDialog({
   onClose,
   onCreated,
@@ -48,25 +47,8 @@ export function NewConversationDialog({
   });
 
   const slicesQuery = useQuery({
-    enabled: open && account.length > 0,
-    queryKey: ["slices", account],
-    queryFn: async () => {
-      const slices: Slice[] = [];
-      let cursor = "";
-
-      do {
-        const response = await api.listSlices({
-          account,
-          cursor,
-          pageSize: PAGE_SIZE
-        });
-
-        slices.push(...(response.slices ?? []));
-        cursor = response.nextCursor ?? "";
-      } while (cursor);
-
-      return slices;
-    }
+    ...accountSlicesQuery(api, account),
+    enabled: open && account.length > 0
   });
 
   const onlineDaemons = useMemo(

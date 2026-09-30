@@ -11,28 +11,11 @@ import {
 } from "../gen/proto/core/v1/changeset_pb";
 import { RepositoryService } from "../gen/proto/core/v1/repository_pb";
 import { SliceService } from "../gen/proto/core/v1/slice_pb";
+import { RpcError } from "./errors";
 import type { ApiClient } from "./useApi";
 import type * as Api from "./types";
 
-export interface RpcErrorBody {
-  code?: string | number;
-  message?: string;
-  details?: unknown;
-}
-
-export class RpcError extends Error {
-  readonly code: string | number;
-  readonly status: number;
-  readonly details?: unknown;
-
-  constructor(status: number, body: RpcErrorBody = {}) {
-    super(body.message || `RPC failed with HTTP ${status}`);
-    this.name = "RpcError";
-    this.code = body.code ?? status;
-    this.status = status;
-    this.details = body.details;
-  }
-}
+export { RpcError, type RpcErrorBody } from "./errors";
 
 export const defaultApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 

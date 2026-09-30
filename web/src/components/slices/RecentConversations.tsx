@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 
+import { recentConversationsQuery } from "../../api/queries";
 import { useApi } from "../../api/useApi";
 import {
   ConversationCard,
@@ -16,9 +17,8 @@ export function RecentConversations() {
   const enabled = Boolean(isLoaded && isSignedIn);
 
   const conversationsQuery = useQuery({
-    enabled,
-    queryKey: ["recentConversations"],
-    queryFn: async () => (await api.listConversations({})).conversations ?? []
+    ...recentConversationsQuery(api),
+    enabled
   });
 
   const conversations = useMemo(

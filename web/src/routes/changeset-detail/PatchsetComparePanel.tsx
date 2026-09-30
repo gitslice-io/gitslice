@@ -113,7 +113,20 @@ export function PatchsetComparePanel({
           onClick={onToggleConversation}
           type="button"
         >
-          <span aria-hidden="true">💬</span>
+          {/* Same speech-bubble glyph as the top bar; an emoji renders as a
+              blank box on systems without a color emoji font. */}
+          <svg
+            aria-hidden="true"
+            className="size-3.5 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.8"
+            viewBox="0 0 24 24"
+          >
+            <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
+          </svg>
           <span className="hidden sm:inline">Conversation</span>
         </button>
       </div>

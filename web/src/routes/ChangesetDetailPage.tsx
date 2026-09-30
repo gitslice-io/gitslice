@@ -19,6 +19,7 @@ import {
   type FormEvent
 } from "react";
 
+import { dependentCandidatesQuery } from "../api/queries";
 import type { Changeset, FileEdit, Patchset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -53,9 +54,12 @@ import {
   isTerminalStatus,
   mergeErrorMessage
 } from "./changeset-detail/status";
-import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
+import {
+  FULL_DIFF_PATH_LIMIT,
+  changedPathsForDiff,
+  sortedPatchsets
+} from "./changeset-detail/patchsetUtils";
 
-const fullDiffPathLimit = 20;
 const eagerFileDiffCount = 10;
 
 export function ChangesetDetailPage() {
@@ -116,15 +120,10 @@ export function ChangesetDetailPage() {
   const authoringSlice = changeset?.authoringSlice;
 
   const sliceChangesetsQuery = useQuery({
+    ...dependentCandidatesQuery(api, authoringSlice),
     enabled: Boolean(
       changeset?.id && authoringSlice?.account && authoringSlice?.slice
-    ),
-    queryKey: [
-      "changesetsBySlice",
-      authoringSlice?.account,
-      authoringSlice?.slice
-    ],
-    queryFn: () => api.listChangesets({ authoringSlice, limit: 200 })
+    )
   });
 
   const dependentChangesets = useMemo(() => {
@@ -193,7 +192,7 @@ export function ChangesetDetailPage() {
       ),
     [changedPaths, selectedFromPatchset, selectedToPatchsetMetadata]
   );
-  const usesLazyFileDiffs = changedPaths.length > fullDiffPathLimit;
+  const usesLazyFileDiffs = changedPaths.length > FULL_DIFF_PATH_LIMIT;
   const comparisonKey = `${canonicalChangesetId}\0${fromPatchset}\0${selectedToPatchset}`;
   const [requestedFilePaths, setRequestedFilePaths] = useState<{
     comparisonKey: string;
@@ -536,23 +535,6 @@ export function ChangesetDetailPage() {
       </div>
     </section>
   );
-}
-
-export { sortedPatchsets };
-
-function changedPathsForDiff(from?: Patchset, to?: Patchset) {
-  const paths = new Set<string>();
-  [from, to].forEach((patchset) => {
-    patchset?.fileEdits?.forEach((edit) => {
-      if (edit.path) {
-        paths.add(edit.path);
-      }
-      if (edit.oldPath) {
-        paths.add(edit.oldPath);
-      }
-    });
-  });
-  return Array.from(paths).sort();
 }
 
 function fileMetadataForPath(

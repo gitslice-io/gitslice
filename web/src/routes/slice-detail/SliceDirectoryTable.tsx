@@ -78,22 +78,22 @@ export function SliceDirectoryTable({
                   <button
                     className="break-words text-left font-medium text-zinc-950 dark:text-zinc-50 underline-offset-4 hover:underline"
                     onClick={() => onSelectPath(path)}
+                    title={entry.path ?? path}
                     type="button"
                   >
                     {displayName}
                     {isDirectory ? "/" : ""}
                   </button>
-                  {entry.path ? (
-                    <div className="mt-1 max-w-96 break-all font-mono text-xs text-slate-400 dark:text-zinc-500 sm:truncate">
-                      {entry.path}
-                    </div>
-                  ) : null}
                 </td>
                 <td className="hidden px-4 py-3 text-slate-600 dark:text-zinc-400 md:table-cell">
                   {entryKindLabel(entry.kind)}
                 </td>
                 <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 dark:text-zinc-400 md:table-cell">
-                  {formatSize(entry.size)}
+                  {isDirectory ? (
+                    <span className="text-slate-400 dark:text-zinc-500">—</span>
+                  ) : (
+                    formatSize(entry.size)
+                  )}
                 </td>
                 <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-600 dark:text-zinc-400 md:table-cell">
                   {entryHash ? (

@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/tanstack-react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
+import { pendingClaimsQuery } from "../../api/queries";
 import type { PendingClaim } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { getErrorMessage } from "./SlicePageParts";
@@ -15,12 +16,7 @@ export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
   const { isLoaded, isSignedIn } = useAuth();
   const enabled = Boolean(isLoaded && isSignedIn);
 
-  const claimsQuery = useQuery({
-    enabled,
-    queryKey: ["pendingClaims"],
-    queryFn: async () => (await api.listPendingClaims({})).claims ?? [],
-    retry: false
-  });
+  const claimsQuery = useQuery({ ...pendingClaimsQuery(api), enabled });
 
   const acceptMutation = useMutation({
     mutationFn: (agentSubjectId: string) => api.acceptClaim({ agentSubjectId }),

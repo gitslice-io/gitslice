@@ -8588,3 +8588,116 @@ Causes and fixes:
 
 Note: `npm run build` runs `tsc -b`, which is stricter than `tsc --noEmit -p .`
 and caught two type errors the latter missed.
+
+## 2026-09-30 — Web performance and UI/UX pass
+
+Request: review the web app and improve performance and UI/UX overall.
+
+How it was measured:
+
+- A production build (`vite build --sourcemap`) with each chunk's bytes
+  attributed to source modules through the sourcemap.
+- The live staging site, for Clerk/PostHog third-party costs and screenshots.
+- An isolated local stack: a throwaway Postgres cluster, `gitslice-server`
+  with the filesystem object store and service-token auth, and a public
+  `demo:home` slice seeded with `gs import` of this repo plus changesets (one
+  with 26 files, over `FULL_DIFF_PATH_LIMIT`). The built Worker ran under
+  `wrangler dev`, and Playwright measured cold loads with 4x CPU and
+  ~1.6 Mbps/150 ms throttling, before and after, back to back.
+
+Findings and fixes:
+
+1. **No route code splitting.** `router.tsx` imported every page, so every
+   visitor, the landing page included, loaded one 967 kB (277 kB gzip) entry
+   chunk with all pages, the diff viewer, marked/dompurify and the protobuf
+   client.
+   - Fix: all route components use `lazyRouteComponent`; the layouts moved to
+     `routes/AppLayouts.tsx`. Entry is now 434 kB (135 kB gzip): React,
+     TanStack Router/Query, Clerk and the route table.
+   - `/` renders one of two nested lazy chunks, so `IndexPage.preload` picks
+     the one the server rendered from the dehydrated state: `authStatus` is
+     only dehydrated for signed-in requests. Signed-out visitors never load
+     the app shell or the API client. `router.options.hydrate` runs before
+     the router preloads route chunks, which is what makes this work.
+   - `RpcError` moved to `api/errors.ts` so the router's retry predicate no
+     longer pulls the Connect client into the entry chunk.
+   - Tradeoff: code-based routes get no `modulepreload` tags from the Start
+     manifest, so the route chunk costs one extra round trip before hydration
+     (SSR HTML is already painted). `router.test.ts` asserts every page route
+     stays lazy.
+2. **SSR state bloat.** `ListChangesets` returns every patchset's full file
+   edit list, and the list and the /cs dependents lookup cached the raw
+   response. It was dehydrated into the HTML: 489 KB of a 529 KB
+   /changesets document on a 5-changeset slice.
+   - Fix: `api/queries.ts` factories, shared by loaders and components, cache
+     the list without `patchsets` and the dependents lookup as
+     `{id, title, parentChangesetId}`. Measured 529 -> 72 KB, 561 -> 74 KB and
+     844 -> 102 KB.
+   - The /cs loader prefetched the full diff even past
+     `FULL_DIFF_PATH_LIMIT`, where the page switches to per-file diffs and
+     never reads it; `changedPathsForDiff` now lives in `patchsetUtils` and
+     the loader skips it.
+   - Follow-up worth doing server-side: a summary view or field mask on
+     `ListChangesets`, so the API does not build and send the edits at all.
+3. **SSR rendered base64 on every file page.** `decodeBase64File` used
+   `window.atob`, and `window` does not exist on Workers. SSR fell back to the
+   raw base64, hydration failed (React #425/#418/#422) and the whole root
+   re-rendered on the client. Measured LCP went from about 4.0s to 1.4s.
+4. **Home page waterfall.** The slice list waited for `ListOwnedAgents`, then
+   refetched under a new key. It now runs one query per account. The SSR index
+   loader prefetches owned agents, claims, recent conversations and slices
+   within a 900ms budget.
+5. Smaller performance items:
+   - The file is decoded once per response.
+   - Shiki is skipped above 200k characters or 5k lines.
+   - posthog-js loads on `requestIdleCallback`.
+   - The landing glow no longer animates.
+   - The brand mark is a 96px PNG.
+6. UX:
+   - Per-route `<title>`s.
+   - A navigation progress bar.
+   - The landing sticky header works (overflow-hidden -> overflow-x-clip),
+     with clean CTA wrapping and a grid instead of a stagger.
+   - Copy buttons on commands.
+   - Inline code instead of literal backticks.
+   - Pill navigation for docs on mobile.
+   - A single-card login that links home.
+   - `shortHash` commit labels.
+   - No 401 "missing subject" checks box for signed-out viewers.
+   - Diffs hide git header lines, show no "+0 -0" for unloaded files, and
+     show "so far" totals.
+   - Dark-mode fixes for the brand mark and the diff expander.
+   - Keyboard access for `ActionMenu` (WAI-ARIA menu button) and focus
+     return for `Popup`.
+
+Measured (throttled mobile, cold, before -> after):
+
+- Landing: JS 271 -> 139 kB transferred, TBT 970 -> 385 ms, hydrated 3.2 -> 2.3s.
+- Docs: TBT 770 -> 400 ms.
+- /changesets: HTML 517 -> 72 KB, hydrated 3.36 -> 2.88s.
+- /cs: HTML 548 -> 74 KB and 824 -> 102 KB, hydrated about 0.5s sooner.
+- No hydration errors or failed requests on any page.
+
+Not changed:
+
+- Clerk prefetches its ~800 kB UI bundle on every page, including the
+  signed-out landing page. `prefetchUI={false}` would avoid that, but Clerk
+  documents it for custom UIs, and we mount `<SignIn/>`/`<UserButton/>`. Test
+  it on staging before adopting.
+- PostHog session recording and surveys add ~300 kB decoded. That is a
+  product decision, set in PostHog's project settings.
+
+Process note: implementation was delegated to codex per `CLAUDE.md`. The
+account hit its usage limit mid-run (resets 2026-10-30) and the Z.AI/opencode
+balance was empty, so the main agent finished, reviewed and validated the
+partial work. Agents shared one `node_modules` via symlink and never built;
+this host has 2 CPUs, 3 GB RAM and runs the staging API and Postgres.
+
+Verification:
+
+```bash
+cd web
+npx tsc -b
+npx vitest run --environment jsdom --maxWorkers=1   # 30 files, 258 tests
+npm run build
+```

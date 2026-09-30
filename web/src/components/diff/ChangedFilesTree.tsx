@@ -7,6 +7,7 @@ import type { DiffFile, FileChangeKind } from "./parseDiff";
 interface ChangedFilesTreeProps {
   activeId?: string;
   files: DiffFile[];
+  loadedFileIds?: Set<string>;
   onSelect(id: string): void;
   scrollClassName?: string;
 }
@@ -37,6 +38,7 @@ interface BuildDirectory {
 export function ChangedFilesTree({
   activeId,
   files,
+  loadedFileIds,
   onSelect,
   scrollClassName
 }: ChangedFilesTreeProps) {
@@ -82,6 +84,7 @@ export function ChangedFilesTree({
             collapsedPaths={collapsedPaths}
             depth={0}
             key={node.path}
+            loadedFileIds={loadedFileIds}
             node={node}
             onSelect={onSelect}
             onToggleDirectory={toggleDirectory}
@@ -96,6 +99,7 @@ function TreeNodeRow({
   activeId,
   collapsedPaths,
   depth,
+  loadedFileIds,
   node,
   onSelect,
   onToggleDirectory
@@ -103,6 +107,7 @@ function TreeNodeRow({
   activeId?: string;
   collapsedPaths: Set<string>;
   depth: number;
+  loadedFileIds?: Set<string>;
   node: TreeNode;
   onSelect(id: string): void;
   onToggleDirectory(path: string): void;
@@ -113,6 +118,7 @@ function TreeNodeRow({
         active={node.file.id === activeId}
         depth={depth}
         file={node.file}
+        showCounts={!loadedFileIds || loadedFileIds.has(node.file.id)}
         name={node.name}
         onSelect={onSelect}
       />
@@ -149,6 +155,7 @@ function TreeNodeRow({
               collapsedPaths={collapsedPaths}
               depth={depth + 1}
               key={child.path}
+              loadedFileIds={loadedFileIds}
               node={child}
               onSelect={onSelect}
               onToggleDirectory={onToggleDirectory}
@@ -164,13 +171,15 @@ function FileRow({
   depth,
   file,
   name,
-  onSelect
+  onSelect,
+  showCounts
 }: {
   active: boolean;
   depth: number;
   file: DiffFile;
   name: string;
   onSelect(id: string): void;
+  showCounts: boolean;
 }) {
   return (
     <button
@@ -197,19 +206,21 @@ function FileRow({
         <FileTypeIcon name={name} />
         <span className="min-w-0 truncate">{name}</span>
       </span>
-      <span
-        className={cn(
-          "flex shrink-0 gap-1 text-[11px]",
-          active ? "text-slate-200" : "text-slate-500 dark:text-zinc-400"
-        )}
-      >
-        <span className={active ? "text-emerald-200" : "text-emerald-700 dark:text-emerald-300"}>
-          +{file.additions}
+      {showCounts ? (
+        <span
+          className={cn(
+            "flex shrink-0 gap-1 text-[11px]",
+            active ? "text-slate-200" : "text-slate-500 dark:text-zinc-400"
+          )}
+        >
+          <span className={active ? "text-emerald-200" : "text-emerald-700 dark:text-emerald-300"}>
+            +{file.additions}
+          </span>
+          <span className={active ? "text-rose-200" : "text-rose-700 dark:text-rose-300"}>
+            -{file.deletions}
+          </span>
         </span>
-        <span className={active ? "text-rose-200" : "text-rose-700 dark:text-rose-300"}>
-          -{file.deletions}
-        </span>
-      </span>
+      ) : null}
     </button>
   );
 }

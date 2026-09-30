@@ -63,7 +63,18 @@ export function Popup({
       return;
     }
 
+    const opener =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     closeButtonRef.current?.focus();
+
+    return () => {
+      // Hand focus back to whatever opened the dialog, if it is still there.
+      if (opener?.isConnected) {
+        opener.focus({ preventScroll: true });
+      }
+    };
   }, [open]);
 
   if (!open || typeof document === "undefined") {
@@ -79,6 +90,9 @@ export function Popup({
           entered ? "opacity-100" : "opacity-0"
         )}
         onClick={onClose}
+        // Pointer-only: keyboard users close with Escape or the close button,
+        // and Tab should not land on an invisible full-screen backdrop.
+        tabIndex={-1}
         type="button"
       />
       <div

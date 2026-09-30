@@ -6,7 +6,9 @@ import {
   useState
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@clerk/tanstack-react-start";
 
+import { RpcError } from "../../api/errors";
 import type { CheckRun, CheckRunLog } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
@@ -28,6 +30,7 @@ interface ChecksPanelProps {
 
 export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
   const api = useApi();
+  const { isLoaded, isSignedIn } = useAuth();
   const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState("");
   const checkRunsQueryKey = useMemo(
@@ -36,7 +39,7 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
   );
 
   const runsQuery = useQuery({
-    enabled: Boolean(changesetId && patchsetId),
+    enabled: Boolean(isLoaded && isSignedIn && changesetId && patchsetId),
     queryKey: checkRunsQueryKey,
     queryFn: async () =>
       (await api.listCheckRuns({ changesetId, patchsetId })).runs ?? [],
@@ -71,11 +74,15 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
     }
   }, [runs, selectedRunId]);
 
-  if (!changesetId || !patchsetId) {
+  if (!isLoaded || !isSignedIn || !changesetId || !patchsetId) {
     return null;
   }
 
   if (runsQuery.isPending && runs.length === 0) {
+    return null;
+  }
+
+  if (runsQuery.isError && isCheckAccessError(runsQuery.error)) {
     return null;
   }
 
@@ -186,6 +193,12 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
         <CheckRunLogTail api={api} run={selectedRun} />
       ) : null}
     </section>
+  );
+}
+
+function isCheckAccessError(error: unknown) {
+  return (
+    error instanceof RpcError && (error.status === 401 || error.status === 403)
   );
 }
 

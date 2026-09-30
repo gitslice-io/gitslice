@@ -4,7 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RpcError } from "../../api/client";
+import { RpcError } from "../../api/errors";
 import { SliceAccessNotice } from "./SliceAccessNotice";
 
 vi.mock("@tanstack/react-router", () => ({

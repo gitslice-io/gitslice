@@ -7,6 +7,7 @@ import {
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useMemo, useState, type FormEvent } from "react";
 
+import { sliceChangesetsQuery } from "../api/queries";
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
@@ -46,12 +47,8 @@ export function ChangesetsPage() {
     // Wait for Clerk before fetching so a signed-in user's token is attached on
     // the first request (this public page renders before auth resolves). See
     // ChangesetDetailPage for the same reasoning.
-    enabled: Boolean(isLoaded && account && slice),
-    queryKey,
-    queryFn: () =>
-      api.listChangesets({
-        authoringSlice: { account, slice }
-      })
+    ...sliceChangesetsQuery(api, account, slice),
+    enabled: Boolean(isLoaded && account && slice)
   });
 
   const changesets = useMemo(
