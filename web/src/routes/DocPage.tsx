@@ -454,7 +454,7 @@ function AgentsDoc() {
           </a>{" "}
           for the full walkthrough.
         </p>
-        <CommandBlock>{`go install github.com/gitslice-io/gitslice/cmd/gs@latest
+        <CommandBlock>{`curl -fsSL https://gitslice.io/install.sh | sh
 gs auth register-agent --username release-bot --email you@example.com
 gs auth status`}</CommandBlock>
         <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
@@ -892,11 +892,32 @@ function CliReferenceDoc() {
           <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
             gs
           </code>
-          . Installing it requires Go 1.24 or newer.
+          . Prebuilt binaries need nothing else; building it yourself requires
+          Go 1.24 or newer.
         </p>
 
         <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-          Option A — go install (quickest)
+          Option A — prebuilt binary (quickest)
+        </h3>
+        <CommandBlock>{`curl -fsSL https://gitslice.io/install.sh | sh`}</CommandBlock>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          Downloads the latest release for Linux or macOS (amd64 or arm64),
+          verifies its checksum, and installs it to{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
+            ~/.local/bin
+          </code>
+          . Windows and other builds are on the{" "}
+          <a
+            className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
+            href="https://github.com/gitslice-io/gitslice/releases/latest"
+          >
+            releases page
+          </a>
+          .
+        </p>
+
+        <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+          Option B — go install
         </h3>
         <CommandBlock>{`go install github.com/gitslice-io/gitslice/cmd/gs@latest`}</CommandBlock>
         <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
@@ -909,7 +930,7 @@ function CliReferenceDoc() {
         <CommandBlock>{`export PATH="$PATH:$(go env GOPATH)/bin"`}</CommandBlock>
 
         <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-          Option B — build from source
+          Option C — build from source
         </h3>
         <CommandBlock>{`git clone https://github.com/gitslice-io/gitslice.git
 cd gitslice
