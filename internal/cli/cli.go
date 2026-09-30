@@ -1970,7 +1970,29 @@ home slice root, for example /nic/notes.`,
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceSecretCmd, sliceDeleteCmd)
 
 	agentCmd := r.agentCommand(opts)
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd, agentCmd)
+	claimsCmd := &cobra.Command{
+		Use:   "claims",
+		Short: "Claim co-ownership of agents registered with your email",
+		RunE:  requireSubcommand("claims"),
+	}
+	claimsListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List agent accounts waiting for you to claim them",
+		Args:  noArgs("gs claims list [--json]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runClaimsList(cmd.Context(), *opts)
+		},
+	}
+	claimsAcceptCmd := &cobra.Command{
+		Use:   "accept <agent-subject-id>",
+		Short: "Become a co-owner of an agent's account",
+		Args:  exactArgs(1, "gs claims accept <agent-subject-id>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runClaimsAccept(cmd.Context(), *opts, args[0])
+		},
+	}
+	claimsCmd.AddCommand(claimsListCmd, claimsAcceptCmd)
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd)
 	return root
 }
 
@@ -2294,6 +2316,81 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, s
 	fmt.Fprintf(r.Stdout, "registered agent %s with account %s; API key saved\n", resp.SubjectId, resp.Account)
 	fmt.Fprintf(r.Stdout, "%s can claim co-ownership by signing in with that email\n", strings.ToLower(email))
 	return nil
+}
+
+type pendingClaimOutput struct {
+	AgentSubjectID   string `json:"agent_subject_id"`
+	AgentDisplayName string `json:"agent_display_name"`
+	Account          string `json:"account"`
+	OwnerEmail       string `json:"owner_email"`
+	CreatedAt        string `json:"created_at"`
+}
+
+func (r Runner) runClaimsList(ctx context.Context, opts commandOptions) error {
+	_, conn, authCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	resp, err := corev1.NewAuthServiceClient(conn).ListPendingClaims(authCtx, &corev1.ListPendingClaimsRequest{})
+	if err != nil {
+		return claimsError(err)
+	}
+	out := make([]pendingClaimOutput, 0, len(resp.Claims))
+	for _, claim := range resp.Claims {
+		out = append(out, pendingClaimOutput{
+			AgentSubjectID:   claim.AgentSubjectId,
+			AgentDisplayName: claim.AgentDisplayName,
+			Account:          claim.Account,
+			OwnerEmail:       claim.OwnerEmail,
+			CreatedAt:        claim.CreatedAt,
+		})
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if len(out) == 0 {
+		if !opts.Quiet {
+			fmt.Fprintln(r.Stdout, "no agent accounts are waiting to be claimed")
+		}
+		return nil
+	}
+	for _, claim := range out {
+		fmt.Fprintf(r.Stdout, "%s\t%s\t%s\t%s\n", claim.AgentSubjectID, claim.Account, claim.AgentDisplayName, claim.CreatedAt)
+	}
+	return nil
+}
+
+func (r Runner) runClaimsAccept(ctx context.Context, opts commandOptions, agentSubjectID string) error {
+	_, conn, authCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	resp, err := corev1.NewAuthServiceClient(conn).AcceptClaim(authCtx, &corev1.AcceptClaimRequest{AgentSubjectId: strings.TrimSpace(agentSubjectID)})
+	if err != nil {
+		return claimsError(err)
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"agent_subject_id": strings.TrimSpace(agentSubjectID),
+			"account":          resp.Account,
+		})
+	}
+	if !opts.Quiet {
+		fmt.Fprintf(r.Stdout, "you now co-own account %s\n", resp.Account)
+	}
+	return nil
+}
+
+func claimsError(err error) error {
+	switch grpcstatus.Code(err) {
+	case codes.NotFound:
+		return userError("claim_not_found", grpcstatus.Convert(err).Message(), "Run gs claims list to see agents registered with your verified email.")
+	case codes.FailedPrecondition, codes.Unavailable:
+		return userError("claim_unavailable", grpcstatus.Convert(err).Message(), "The server could not verify your email; try again later.")
+	}
+	return err
 }
 
 func (r Runner) persistAndReportLogin(opts commandOptions, cfg UserConfig) error {
@@ -6632,7 +6729,9 @@ func (r Runner) personalAccountSlug(ctx context.Context, conn *grpc.ClientConn) 
 	if err != nil {
 		return "", err
 	}
-	if len(status.Accounts) == 0 {
+	// needs_username means no personal account even when Accounts is non-empty:
+	// a claimed agent account is a membership, not the caller's own account.
+	if len(status.Accounts) == 0 || status.NeedsUsername {
 		return "", userError("no_account", "signed-in subject has no personal account yet", "Choose a username in the web app to create your account.")
 	}
 	return status.Accounts[0], nil

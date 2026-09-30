@@ -9,6 +9,7 @@ const (
 	EventAuthLogin          = "auth_login"
 	EventCLILoginCompleted  = "cli_login_completed"
 	EventAgentRegistered    = "agent_registered"
+	EventAgentClaimed       = "agent_claimed"
 )
 
 const (

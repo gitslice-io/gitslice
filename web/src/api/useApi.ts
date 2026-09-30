@@ -8,6 +8,8 @@ import type {
   ApproveChangesetResponse,
   Changeset,
   ChangesetStack,
+  AcceptClaimRequest,
+  AcceptClaimResponse,
   CheckUsernameAvailableRequest,
   CheckUsernameAvailableResponse,
   CheckRun,
@@ -34,6 +36,8 @@ import type {
   GetConversationEventsRequest,
   GetConversationEventsResponse,
   GetAuthStatusRequest,
+  ListPendingClaimsRequest,
+  ListPendingClaimsResponse,
   GetAuthStatusResponse,
   GetBlobStatusRequest,
   GetBlobStatusResponse,
@@ -101,6 +105,10 @@ export interface ApiClient {
   completeCliLogin(
     request: CompleteCliLoginRequest
   ): Promise<CompleteCliLoginResponse>;
+  listPendingClaims(
+    request: ListPendingClaimsRequest
+  ): Promise<ListPendingClaimsResponse>;
+  acceptClaim(request: AcceptClaimRequest): Promise<AcceptClaimResponse>;
   resolvePath(request: ResolvePathRequest): Promise<ResolvePathResponse>;
   listDirectory(
     request: ListDirectoryRequest

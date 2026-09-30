@@ -738,6 +738,252 @@ func (x *RegisterAgentResponse) GetApiKey() string {
 	return ""
 }
 
+type PendingClaim struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	AgentSubjectId   string                 `protobuf:"bytes,1,opt,name=agent_subject_id,json=agentSubjectId,proto3" json:"agent_subject_id,omitempty"`
+	AgentDisplayName string                 `protobuf:"bytes,2,opt,name=agent_display_name,json=agentDisplayName,proto3" json:"agent_display_name,omitempty"`
+	Account          string                 `protobuf:"bytes,3,opt,name=account,proto3" json:"account,omitempty"`
+	OwnerEmail       string                 `protobuf:"bytes,4,opt,name=owner_email,json=ownerEmail,proto3" json:"owner_email,omitempty"`
+	// RFC 3339 registration time.
+	CreatedAt     string `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PendingClaim) Reset() {
+	*x = PendingClaim{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PendingClaim) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PendingClaim) ProtoMessage() {}
+
+func (x *PendingClaim) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PendingClaim.ProtoReflect.Descriptor instead.
+func (*PendingClaim) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PendingClaim) GetAgentSubjectId() string {
+	if x != nil {
+		return x.AgentSubjectId
+	}
+	return ""
+}
+
+func (x *PendingClaim) GetAgentDisplayName() string {
+	if x != nil {
+		return x.AgentDisplayName
+	}
+	return ""
+}
+
+func (x *PendingClaim) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *PendingClaim) GetOwnerEmail() string {
+	if x != nil {
+		return x.OwnerEmail
+	}
+	return ""
+}
+
+func (x *PendingClaim) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+type ListPendingClaimsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPendingClaimsRequest) Reset() {
+	*x = ListPendingClaimsRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPendingClaimsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPendingClaimsRequest) ProtoMessage() {}
+
+func (x *ListPendingClaimsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPendingClaimsRequest.ProtoReflect.Descriptor instead.
+func (*ListPendingClaimsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{15}
+}
+
+type ListPendingClaimsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Claims        []*PendingClaim        `protobuf:"bytes,1,rep,name=claims,proto3" json:"claims,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPendingClaimsResponse) Reset() {
+	*x = ListPendingClaimsResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPendingClaimsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPendingClaimsResponse) ProtoMessage() {}
+
+func (x *ListPendingClaimsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPendingClaimsResponse.ProtoReflect.Descriptor instead.
+func (*ListPendingClaimsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListPendingClaimsResponse) GetClaims() []*PendingClaim {
+	if x != nil {
+		return x.Claims
+	}
+	return nil
+}
+
+type AcceptClaimRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AgentSubjectId string                 `protobuf:"bytes,1,opt,name=agent_subject_id,json=agentSubjectId,proto3" json:"agent_subject_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AcceptClaimRequest) Reset() {
+	*x = AcceptClaimRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptClaimRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptClaimRequest) ProtoMessage() {}
+
+func (x *AcceptClaimRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptClaimRequest.ProtoReflect.Descriptor instead.
+func (*AcceptClaimRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AcceptClaimRequest) GetAgentSubjectId() string {
+	if x != nil {
+		return x.AgentSubjectId
+	}
+	return ""
+}
+
+type AcceptClaimResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The claimed account, now co-owned by the caller.
+	Account       string `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptClaimResponse) Reset() {
+	*x = AcceptClaimResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptClaimResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptClaimResponse) ProtoMessage() {}
+
+func (x *AcceptClaimResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptClaimResponse.ProtoReflect.Descriptor instead.
+func (*AcceptClaimResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AcceptClaimResponse) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
 var File_proto_core_v1_auth_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_auth_proto_rawDesc = "" +
@@ -790,7 +1036,22 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\n" +
 	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x18\n" +
 	"\aaccount\x18\x02 \x01(\tR\aaccount\x12\x17\n" +
-	"\aapi_key\x18\x03 \x01(\tR\x06apiKey2\xdf\x05\n" +
+	"\aapi_key\x18\x03 \x01(\tR\x06apiKey\"\xc0\x01\n" +
+	"\fPendingClaim\x12(\n" +
+	"\x10agent_subject_id\x18\x01 \x01(\tR\x0eagentSubjectId\x12,\n" +
+	"\x12agent_display_name\x18\x02 \x01(\tR\x10agentDisplayName\x12\x18\n" +
+	"\aaccount\x18\x03 \x01(\tR\aaccount\x12\x1f\n" +
+	"\vowner_email\x18\x04 \x01(\tR\n" +
+	"ownerEmail\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\tR\tcreatedAt\"\x1a\n" +
+	"\x18ListPendingClaimsRequest\"S\n" +
+	"\x19ListPendingClaimsResponse\x126\n" +
+	"\x06claims\x18\x01 \x03(\v2\x1e.gitslice.core.v1.PendingClaimR\x06claims\">\n" +
+	"\x12AcceptClaimRequest\x12(\n" +
+	"\x10agent_subject_id\x18\x01 \x01(\tR\x0eagentSubjectId\"/\n" +
+	"\x13AcceptClaimResponse\x12\x18\n" +
+	"\aaccount\x18\x01 \x01(\tR\aaccount2\xa9\a\n" +
 	"\vAuthService\x12`\n" +
 	"\rStartCliLogin\x12&.gitslice.core.v1.StartCliLoginRequest\x1a'.gitslice.core.v1.StartCliLoginResponse\x12]\n" +
 	"\fPollCliLogin\x12%.gitslice.core.v1.PollCliLoginRequest\x1a&.gitslice.core.v1.PollCliLoginResponse\x12i\n" +
@@ -798,7 +1059,9 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\rGetAuthStatus\x12&.gitslice.core.v1.GetAuthStatusRequest\x1a'.gitslice.core.v1.GetAuthStatusResponse\x12{\n" +
 	"\x16CheckUsernameAvailable\x12/.gitslice.core.v1.CheckUsernameAvailableRequest\x1a0.gitslice.core.v1.CheckUsernameAvailableResponse\x12c\n" +
 	"\x0eChooseUsername\x12'.gitslice.core.v1.ChooseUsernameRequest\x1a(.gitslice.core.v1.ChooseUsernameResponse\x12`\n" +
-	"\rRegisterAgent\x12&.gitslice.core.v1.RegisterAgentRequest\x1a'.gitslice.core.v1.RegisterAgentResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\rRegisterAgent\x12&.gitslice.core.v1.RegisterAgentRequest\x1a'.gitslice.core.v1.RegisterAgentResponse\x12l\n" +
+	"\x11ListPendingClaims\x12*.gitslice.core.v1.ListPendingClaimsRequest\x1a+.gitslice.core.v1.ListPendingClaimsResponse\x12Z\n" +
+	"\vAcceptClaim\x12$.gitslice.core.v1.AcceptClaimRequest\x1a%.gitslice.core.v1.AcceptClaimResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_auth_proto_rawDescOnce sync.Once
@@ -812,7 +1075,7 @@ func file_proto_core_v1_auth_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_auth_proto_rawDescData
 }
 
-var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*StartCliLoginRequest)(nil),           // 0: gitslice.core.v1.StartCliLoginRequest
 	(*StartCliLoginResponse)(nil),          // 1: gitslice.core.v1.StartCliLoginResponse
@@ -828,27 +1091,37 @@ var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*ChooseUsernameResponse)(nil),         // 11: gitslice.core.v1.ChooseUsernameResponse
 	(*RegisterAgentRequest)(nil),           // 12: gitslice.core.v1.RegisterAgentRequest
 	(*RegisterAgentResponse)(nil),          // 13: gitslice.core.v1.RegisterAgentResponse
+	(*PendingClaim)(nil),                   // 14: gitslice.core.v1.PendingClaim
+	(*ListPendingClaimsRequest)(nil),       // 15: gitslice.core.v1.ListPendingClaimsRequest
+	(*ListPendingClaimsResponse)(nil),      // 16: gitslice.core.v1.ListPendingClaimsResponse
+	(*AcceptClaimRequest)(nil),             // 17: gitslice.core.v1.AcceptClaimRequest
+	(*AcceptClaimResponse)(nil),            // 18: gitslice.core.v1.AcceptClaimResponse
 }
 var file_proto_core_v1_auth_proto_depIdxs = []int32{
-	0,  // 0: gitslice.core.v1.AuthService.StartCliLogin:input_type -> gitslice.core.v1.StartCliLoginRequest
-	2,  // 1: gitslice.core.v1.AuthService.PollCliLogin:input_type -> gitslice.core.v1.PollCliLoginRequest
-	4,  // 2: gitslice.core.v1.AuthService.CompleteCliLogin:input_type -> gitslice.core.v1.CompleteCliLoginRequest
-	6,  // 3: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
-	8,  // 4: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
-	10, // 5: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
-	12, // 6: gitslice.core.v1.AuthService.RegisterAgent:input_type -> gitslice.core.v1.RegisterAgentRequest
-	1,  // 7: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
-	3,  // 8: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
-	5,  // 9: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
-	7,  // 10: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
-	9,  // 11: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
-	11, // 12: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
-	13, // 13: gitslice.core.v1.AuthService.RegisterAgent:output_type -> gitslice.core.v1.RegisterAgentResponse
-	7,  // [7:14] is the sub-list for method output_type
-	0,  // [0:7] is the sub-list for method input_type
-	0,  // [0:0] is the sub-list for extension type_name
-	0,  // [0:0] is the sub-list for extension extendee
-	0,  // [0:0] is the sub-list for field type_name
+	14, // 0: gitslice.core.v1.ListPendingClaimsResponse.claims:type_name -> gitslice.core.v1.PendingClaim
+	0,  // 1: gitslice.core.v1.AuthService.StartCliLogin:input_type -> gitslice.core.v1.StartCliLoginRequest
+	2,  // 2: gitslice.core.v1.AuthService.PollCliLogin:input_type -> gitslice.core.v1.PollCliLoginRequest
+	4,  // 3: gitslice.core.v1.AuthService.CompleteCliLogin:input_type -> gitslice.core.v1.CompleteCliLoginRequest
+	6,  // 4: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
+	8,  // 5: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
+	10, // 6: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
+	12, // 7: gitslice.core.v1.AuthService.RegisterAgent:input_type -> gitslice.core.v1.RegisterAgentRequest
+	15, // 8: gitslice.core.v1.AuthService.ListPendingClaims:input_type -> gitslice.core.v1.ListPendingClaimsRequest
+	17, // 9: gitslice.core.v1.AuthService.AcceptClaim:input_type -> gitslice.core.v1.AcceptClaimRequest
+	1,  // 10: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
+	3,  // 11: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
+	5,  // 12: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
+	7,  // 13: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
+	9,  // 14: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
+	11, // 15: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
+	13, // 16: gitslice.core.v1.AuthService.RegisterAgent:output_type -> gitslice.core.v1.RegisterAgentResponse
+	16, // 17: gitslice.core.v1.AuthService.ListPendingClaims:output_type -> gitslice.core.v1.ListPendingClaimsResponse
+	18, // 18: gitslice.core.v1.AuthService.AcceptClaim:output_type -> gitslice.core.v1.AcceptClaimResponse
+	10, // [10:19] is the sub-list for method output_type
+	1,  // [1:10] is the sub-list for method input_type
+	1,  // [1:1] is the sub-list for extension type_name
+	1,  // [1:1] is the sub-list for extension extendee
+	0,  // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_auth_proto_init() }
@@ -862,7 +1135,7 @@ func file_proto_core_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_auth_proto_rawDesc), len(file_proto_core_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

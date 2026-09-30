@@ -113,6 +113,14 @@ func (a connectAuthAdapter) ChooseUsername(ctx context.Context, req *connect.Req
 	return connectResponse(a.svc.ChooseUsername(ctx, req.Msg))
 }
 
+func (a connectAuthAdapter) ListPendingClaims(ctx context.Context, req *connect.Request[corev1.ListPendingClaimsRequest]) (*connect.Response[corev1.ListPendingClaimsResponse], error) {
+	return connectResponse(a.svc.ListPendingClaims(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) AcceptClaim(ctx context.Context, req *connect.Request[corev1.AcceptClaimRequest]) (*connect.Response[corev1.AcceptClaimResponse], error) {
+	return connectResponse(a.svc.AcceptClaim(ctx, req.Msg))
+}
+
 func (a connectAuthAdapter) RegisterAgent(ctx context.Context, req *connect.Request[corev1.RegisterAgentRequest]) (*connect.Response[corev1.RegisterAgentResponse], error) {
 	return connectResponse(a.svc.RegisterAgent(ctx, req.Msg))
 }

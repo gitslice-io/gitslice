@@ -54,6 +54,28 @@ export interface ChooseUsernameResponse {
   account?: string;
 }
 
+export interface PendingClaim {
+  agentSubjectId?: string;
+  agentDisplayName?: string;
+  account?: string;
+  ownerEmail?: string;
+  createdAt?: string;
+}
+
+export type ListPendingClaimsRequest = Record<string, never>;
+
+export interface ListPendingClaimsResponse {
+  claims?: PendingClaim[];
+}
+
+export interface AcceptClaimRequest {
+  agentSubjectId?: string;
+}
+
+export interface AcceptClaimResponse {
+  account?: string;
+}
+
 export interface CompleteCliLoginRequest {
   code?: string;
 }

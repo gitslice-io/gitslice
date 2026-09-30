@@ -26,6 +26,8 @@ const (
 	AuthService_CheckUsernameAvailable_FullMethodName = "/gitslice.core.v1.AuthService/CheckUsernameAvailable"
 	AuthService_ChooseUsername_FullMethodName         = "/gitslice.core.v1.AuthService/ChooseUsername"
 	AuthService_RegisterAgent_FullMethodName          = "/gitslice.core.v1.AuthService/RegisterAgent"
+	AuthService_ListPendingClaims_FullMethodName      = "/gitslice.core.v1.AuthService/ListPendingClaims"
+	AuthService_AcceptClaim_FullMethodName            = "/gitslice.core.v1.AuthService/AcceptClaim"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -42,6 +44,12 @@ type AuthServiceClient interface {
 	// returns a long-lived API key. Unauthenticated; disabled unless the server
 	// sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
 	RegisterAgent(ctx context.Context, in *RegisterAgentRequest, opts ...grpc.CallOption) (*RegisterAgentResponse, error)
+	// ListPendingClaims lists agent registrations the caller may claim: unclaimed
+	// agents whose owner email is one of the caller's verified emails.
+	ListPendingClaims(ctx context.Context, in *ListPendingClaimsRequest, opts ...grpc.CallOption) (*ListPendingClaimsResponse, error)
+	// AcceptClaim makes the caller an owner of the agent's account. The agent
+	// keeps its own access, so the account becomes co-owned.
+	AcceptClaim(ctx context.Context, in *AcceptClaimRequest, opts ...grpc.CallOption) (*AcceptClaimResponse, error)
 }
 
 type authServiceClient struct {
@@ -115,6 +123,24 @@ func (c *authServiceClient) RegisterAgent(ctx context.Context, in *RegisterAgent
 	return out, nil
 }
 
+func (c *authServiceClient) ListPendingClaims(ctx context.Context, in *ListPendingClaimsRequest, opts ...grpc.CallOption) (*ListPendingClaimsResponse, error) {
+	out := new(ListPendingClaimsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListPendingClaims_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) AcceptClaim(ctx context.Context, in *AcceptClaimRequest, opts ...grpc.CallOption) (*AcceptClaimResponse, error) {
+	out := new(AcceptClaimResponse)
+	err := c.cc.Invoke(ctx, AuthService_AcceptClaim_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
@@ -129,6 +155,12 @@ type AuthServiceServer interface {
 	// returns a long-lived API key. Unauthenticated; disabled unless the server
 	// sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
 	RegisterAgent(context.Context, *RegisterAgentRequest) (*RegisterAgentResponse, error)
+	// ListPendingClaims lists agent registrations the caller may claim: unclaimed
+	// agents whose owner email is one of the caller's verified emails.
+	ListPendingClaims(context.Context, *ListPendingClaimsRequest) (*ListPendingClaimsResponse, error)
+	// AcceptClaim makes the caller an owner of the agent's account. The agent
+	// keeps its own access, so the account becomes co-owned.
+	AcceptClaim(context.Context, *AcceptClaimRequest) (*AcceptClaimResponse, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
@@ -155,6 +187,12 @@ func (UnimplementedAuthServiceServer) ChooseUsername(context.Context, *ChooseUse
 }
 func (UnimplementedAuthServiceServer) RegisterAgent(context.Context, *RegisterAgentRequest) (*RegisterAgentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterAgent not implemented")
+}
+func (UnimplementedAuthServiceServer) ListPendingClaims(context.Context, *ListPendingClaimsRequest) (*ListPendingClaimsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPendingClaims not implemented")
+}
+func (UnimplementedAuthServiceServer) AcceptClaim(context.Context, *AcceptClaimRequest) (*AcceptClaimResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcceptClaim not implemented")
 }
 
 // UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -294,6 +332,42 @@ func _AuthService_RegisterAgent_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_ListPendingClaims_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPendingClaimsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListPendingClaims(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListPendingClaims_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListPendingClaims(ctx, req.(*ListPendingClaimsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_AcceptClaim_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptClaimRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).AcceptClaim(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_AcceptClaim_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).AcceptClaim(ctx, req.(*AcceptClaimRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -328,6 +402,14 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RegisterAgent",
 			Handler:    _AuthService_RegisterAgent_Handler,
+		},
+		{
+			MethodName: "ListPendingClaims",
+			Handler:    _AuthService_ListPendingClaims_Handler,
+		},
+		{
+			MethodName: "AcceptClaim",
+			Handler:    _AuthService_AcceptClaim_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

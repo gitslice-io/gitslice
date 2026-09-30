@@ -158,7 +158,7 @@ func (s *AuthStore) PollCliLogin(ctx context.Context, code string) (string, stri
 // for an externally authenticated identity (for example a verified Clerk user).
 // Unlike SignupUser it issues no session token: the external provider's token is
 // verified on every request, so there is no internal session to mint.
-func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error) {
+func (s *AuthStore) EnsureExternalSubject(ctx context.Context, provider, externalID, email string) (string, error) {
 	subjectID := storage.ExternalSubjectID(externalID)
 	displayName := strings.TrimSpace(email)
 	if displayName == "" {
@@ -171,11 +171,16 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 	}
 	defer tx.Rollback()
 
+	// Record the provider identity once; the conditional update keeps this a
+	// no-op write on the per-request hot path after the first sign-in.
 	if _, err := tx.ExecContext(ctx, `
-		insert into subjects(id, kind, display_name, created_at)
-		values ($1, 'user', $2, now())
-		on conflict (id) do nothing
-	`, subjectID, displayName); err != nil {
+		insert into subjects(id, kind, external_provider, external_subject, display_name, created_at)
+		values ($1, 'user', nullif($3, ''), nullif($4, ''), $2, now())
+		on conflict (id) do update
+		set external_provider = excluded.external_provider,
+		    external_subject = excluded.external_subject
+		where subjects.external_subject is null and excluded.external_subject is not null
+	`, subjectID, displayName, strings.TrimSpace(provider), strings.TrimSpace(externalID)); err != nil {
 		return "", err
 	}
 	if err := tx.Commit(); err != nil {
@@ -231,8 +236,10 @@ func (s *AuthStore) provisionAccountForSubject(ctx context.Context, tx *sql.Tx, 
 		if err := tx.QueryRowContext(ctx, `
 			select exists(
 				select 1
-				from account_memberships
-				where account_id = $1 and subject_id = $2
+				from account_memberships m
+				join accounts a on a.id = m.account_id
+				where m.account_id = $1 and m.subject_id = $2
+				  and `+notOthersAgentAccountSQL+`
 			)
 		`, existingAccountID, subjectID).Scan(&owns); err != nil {
 			return "", err
@@ -349,6 +356,7 @@ func (s *AuthStore) ChooseUsername(ctx context.Context, subjectID, username stri
 		from account_memberships m
 		join accounts a on a.id = m.account_id
 		where m.subject_id = $1 and a.kind = 'personal'
+		  and `+notOthersAgentAccountSQL+`
 		order by a.slug
 		limit 1
 	`, subjectID).Scan(&existingSlug)
@@ -391,6 +399,7 @@ func (s *AuthStore) UsernamesForSubjects(ctx context.Context, subjectIDs []strin
 		from account_memberships m
 		join accounts a on a.id = m.account_id
 		where a.kind = 'personal' and m.subject_id = any($1)
+		  and `+notOthersAgentAccountSQL+`
 	`, ids)
 	if err != nil {
 		return nil, err
@@ -661,6 +670,7 @@ func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID strin
 		order by
 			case
 				when a.kind = 'personal' and $1 = 'user_' || replace(a.slug, '-', '_') then 0
+				when not (`+notOthersAgentAccountSQL+`) then 2
 				else 1
 			end,
 			a.slug
@@ -678,6 +688,146 @@ func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID strin
 		out = append(out, slug)
 	}
 	return out, rows.Err()
+}
+
+// notOthersAgentAccountSQL is a predicate over `a` (accounts) and `m`
+// (account_memberships) that is false when the account belongs to an agent
+// other than m.subject_id. A human who claims an agent becomes an owner of the
+// agent's personal account; that account must never count as the human's own
+// personal account (username, home, ChooseUsername).
+const notOthersAgentAccountSQL = `not exists (
+	select 1 from agent_registrations r
+	where r.account_id = a.id and r.subject_id <> m.subject_id
+)`
+
+func (s *AuthStore) ExternalIdentity(ctx context.Context, subjectID string) (string, string, error) {
+	var provider, externalID string
+	err := s.db.QueryRowContext(ctx, `
+		select coalesce(external_provider, ''), coalesce(external_subject, '')
+		from subjects
+		where id = $1
+	`, strings.TrimSpace(subjectID)).Scan(&provider, &externalID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrNotFound
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return provider, externalID, nil
+}
+
+func (s *AuthStore) SetVerifiedEmails(ctx context.Context, subjectID, source string, emails []string) error {
+	subjectID = strings.TrimSpace(subjectID)
+	source = strings.TrimSpace(source)
+	if subjectID == "" || source == "" {
+		return fmt.Errorf("%w: subject and source are required", ErrInvalid)
+	}
+	normalized := storage.NormalizeEmails(emails)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		delete from subject_emails
+		where subject_id = $1 and source = $2 and not (email = any($3))
+	`, subjectID, source, normalized); err != nil {
+		return err
+	}
+	for _, email := range normalized {
+		if _, err := tx.ExecContext(ctx, `
+			insert into subject_emails(subject_id, email, source, verified_at)
+			values ($1, $2, $3, now())
+			on conflict (subject_id, email) do update
+			set source = excluded.source, verified_at = excluded.verified_at
+		`, subjectID, email, source); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *AuthStore) ListPendingClaims(ctx context.Context, subjectID string) ([]storage.PendingClaim, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select r.subject_id, agent.display_name, a.slug, r.owner_email, r.created_at
+		from agent_registrations r
+		join subjects agent on agent.id = r.subject_id
+		join accounts a on a.id = r.account_id
+		where r.claimed_at is null
+		  and r.subject_id <> $1
+		  and exists (
+			select 1 from subject_emails e
+			where e.subject_id = $1 and e.email = r.owner_email
+		  )
+		order by r.created_at, r.subject_id
+	`, strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.PendingClaim
+	for rows.Next() {
+		var claim storage.PendingClaim
+		if err := rows.Scan(&claim.AgentSubjectID, &claim.AgentDisplayName, &claim.Account, &claim.OwnerEmail, &claim.CreatedAt); err != nil {
+			return nil, err
+		}
+		claim.CreatedAt = claim.CreatedAt.UTC()
+		out = append(out, claim)
+	}
+	return out, rows.Err()
+}
+
+func (s *AuthStore) AcceptClaim(ctx context.Context, subjectID, agentSubjectID string) (string, error) {
+	subjectID = strings.TrimSpace(subjectID)
+	agentSubjectID = strings.TrimSpace(agentSubjectID)
+	if subjectID == "" || agentSubjectID == "" || subjectID == agentSubjectID {
+		return "", ErrNotFound
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	var accountID, account string
+	err = tx.QueryRowContext(ctx, `
+		select r.account_id, a.slug
+		from agent_registrations r
+		join accounts a on a.id = r.account_id
+		where r.subject_id = $2
+		  and r.claimed_at is null
+		  and exists (
+			select 1 from subject_emails e
+			where e.subject_id = $1 and e.email = r.owner_email
+		  )
+		for update of r
+	`, subjectID, agentSubjectID).Scan(&accountID, &account)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("%w: no pending claim for this agent", ErrNotFound)
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into account_memberships(account_id, subject_id, role, created_at)
+		values ($1, $2, 'owner', now())
+		on conflict do nothing
+	`, accountID, subjectID); err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update agent_registrations
+		set claimed_at = now(), claimed_by_subject_id = $2
+		where subject_id = $1
+	`, agentSubjectID, subjectID); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return account, nil
 }
 
 func newSessionWithTTL(subjectID, tokenPrefix string, ttl time.Duration) (token, sessionID, hashedToken string, expiresAt time.Time, err error) {

@@ -13,8 +13,24 @@ type AuthStore interface {
 	PollCliLogin(ctx context.Context, code string) (status, token, subjectID string, err error)
 	// EnsureExternalSubject idempotently provisions a subject only for an
 	// externally authenticated identity (for example a verified Clerk user) and
-	// returns the internal subject ID.
-	EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error)
+	// returns the internal subject ID. provider names the identity provider
+	// ("clerk", "service") and is recorded with externalID so the subject's
+	// provider profile (e.g. verified emails) can be looked up later.
+	EnsureExternalSubject(ctx context.Context, provider, externalID, email string) (string, error)
+	// ExternalIdentity returns the provider and provider user id recorded for an
+	// externally authenticated subject; both are empty for other subjects.
+	ExternalIdentity(ctx context.Context, subjectID string) (provider, externalID string, err error)
+	// SetVerifiedEmails replaces the set of verified email addresses the given
+	// source ("clerk", "service") vouches for on subjectID. Emails are normalized;
+	// malformed ones are dropped.
+	SetVerifiedEmails(ctx context.Context, subjectID, source string, emails []string) error
+	// ListPendingClaims returns unclaimed agent registrations whose owner email is
+	// one of subjectID's verified emails, oldest first.
+	ListPendingClaims(ctx context.Context, subjectID string) ([]PendingClaim, error)
+	// AcceptClaim makes subjectID an owner of the agent's account and marks the
+	// registration claimed. It returns ErrNotFound unless the registration is
+	// unclaimed and its owner email is one of subjectID's verified emails.
+	AcceptClaim(ctx context.Context, subjectID, agentSubjectID string) (account string, err error)
 	// UsernameAvailable reports whether username (after normalization) is a
 	// valid, unclaimed personal-account slug. normalized is the canonical form;
 	// reason is a short explanation when available is false (invalid or taken).
