@@ -68,7 +68,19 @@ export function LoginPage() {
             // Clerk's card is a fixed 25rem wide by default, which gets
             // clipped by AuthFrame's overflow-hidden card on narrow phones.
             rootBox: { width: "100%" },
-            cardBox: { width: "100%" }
+            cardBox: {
+              backgroundColor: "transparent",
+              border: "none",
+              boxShadow: "none",
+              width: "100%"
+            },
+            card: {
+              backgroundColor: "transparent",
+              border: "none",
+              boxShadow: "none",
+              width: "100%"
+            },
+            header: { display: "none" }
           }
         }}
         path="/login"

@@ -1,4 +1,8 @@
 import { Link, useParams } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
+
+import { CopyButton } from "../components/CopyButton";
+import { renderInlineCode } from "../lib/inlineCode";
 
 type DocSection =
   | "start"
@@ -244,9 +248,17 @@ function normalizeSection(value: string | undefined): DocSection {
 
 function CommandBlock({ children }: { children: string }) {
   return (
-    <pre className="mt-3 overflow-x-auto rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-3 py-2 font-mono text-xs leading-5 text-slate-700 dark:text-zinc-300">
-      <code className="whitespace-pre">{children}</code>
-    </pre>
+    <div className="group relative mt-3">
+      <pre className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 pr-12 font-mono text-xs leading-5 text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+        <code className="whitespace-pre">{children}</code>
+      </pre>
+      <CopyButton
+        className="absolute right-2 top-2"
+        compact
+        label="command"
+        text={children}
+      />
+    </div>
   );
 }
 
@@ -265,6 +277,7 @@ function SectionLink({
           ? "border-zinc-950 dark:border-zinc-100 bg-zinc-950 dark:bg-zinc-100 text-white dark:text-zinc-950"
           : "border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
       ].join(" ")}
+      aria-current={active ? "page" : undefined}
       to={docPath(section.id)}
     >
       <span className="block text-sm font-semibold">{section.title}</span>
@@ -274,9 +287,55 @@ function SectionLink({
           active ? "text-slate-300 dark:text-zinc-500" : "text-slate-500 dark:text-zinc-400"
         ].join(" ")}
       >
-        {section.description}
+        {renderInlineCode(
+          section.description,
+          active
+            ? "bg-white/15 text-white dark:bg-zinc-950/10 dark:text-zinc-950"
+            : undefined
+        )}
       </span>
     </Link>
+  );
+}
+
+function MobileSectionNav({ section }: { section: DocSection }) {
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const activePill = navRef.current?.querySelector<HTMLElement>(
+      '[aria-current="page"]'
+    );
+    activePill?.scrollIntoView?.({ block: "nearest", inline: "center" });
+  }, [section]);
+
+  return (
+    <nav
+      aria-label="Documentation sections"
+      className="-mx-2 overflow-x-auto px-2 sm:-mx-4 sm:px-4 md:-mx-8 md:px-8 lg:hidden"
+      ref={navRef}
+    >
+      <div className="flex w-max gap-2 py-1 pr-4">
+        {docSections.map((item) => {
+          const active = section === item.id;
+
+          return (
+            <Link
+              aria-current={active ? "page" : undefined}
+              className={[
+                "shrink-0 whitespace-nowrap rounded-full border px-3 py-2 text-sm font-semibold transition motion-safe:active:scale-[0.98]",
+                active
+                  ? "border-zinc-950 bg-zinc-950 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-zinc-950 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950 dark:hover:text-zinc-50"
+              ].join(" ")}
+              key={item.id}
+              to={docPath(item.id)}
+            >
+              {item.title}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -285,8 +344,9 @@ export function DocPage() {
   const section = normalizeSection(params.section);
 
   return (
-    <section className="mx-auto grid w-full max-w-[100rem] gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="lg:sticky lg:top-6 lg:self-start">
+    <section className="mx-auto grid w-full max-w-[100rem] gap-5 lg:gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <MobileSectionNav section={section} />
+      <aside className="hidden lg:sticky lg:top-6 lg:block lg:self-start">
         <div className="grid gap-2">
           {docSections.map((item) => (
             <SectionLink
@@ -355,7 +415,9 @@ function StartHereDoc() {
               </span>
               <div className="min-w-0 flex-1">
                 <h3 className="font-semibold text-zinc-950 dark:text-zinc-50">{step.title}</h3>
-                <p className="mt-1 text-slate-600 dark:text-zinc-400">{step.description}</p>
+                <p className="mt-1 text-slate-600 dark:text-zinc-400">
+                  {renderInlineCode(step.description)}
+                </p>
                 <CommandBlock>{step.command}</CommandBlock>
               </div>
             </li>

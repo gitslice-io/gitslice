@@ -79,6 +79,11 @@ export function TopBar() {
   const isDocActive = pathname.startsWith("/doc");
   const isBlogActive = pathname.startsWith("/blogs");
   const isConversationsActive = pathname.startsWith("/conversations");
+  // Conversations require an account; signed-out visitors would only be sent
+  // to the sign-in page. Auth state is known during SSR, so this never flashes.
+  const visibleNavItems = navItems.filter(
+    (item) => item.section !== "conversations" || !isLoaded || isSignedIn
+  );
 
   return (
     <header className="border-b border-slate-200 bg-white/95 px-3 backdrop-blur transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-4 md:px-6">
@@ -94,7 +99,7 @@ export function TopBar() {
         </div>
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <nav aria-label="Primary" className="flex items-center gap-1">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <Link
                 aria-current={
                   (item.section === "slices" && isSlicesActive) ||

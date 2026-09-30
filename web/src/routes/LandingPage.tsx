@@ -1,7 +1,9 @@
 import { Link } from "@tanstack/react-router";
 
 import { BrandMark } from "../components/BrandMark";
+import { CopyButton } from "../components/CopyButton";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { renderInlineCode } from "../lib/inlineCode";
 
 type FeatureIconName =
   | "slice"
@@ -132,7 +134,7 @@ function FeatureIcon({ name }: { name: FeatureIconName }) {
 
 export function LandingPage() {
   return (
-    <div className="relative min-h-[100dvh] overflow-hidden bg-slate-50 font-sans text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="relative min-h-[100dvh] overflow-x-clip bg-slate-50 font-sans text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100">
       <div
         aria-hidden="true"
         className="landing-grid pointer-events-none absolute inset-0 opacity-70 dark:opacity-40"
@@ -142,7 +144,7 @@ export function LandingPage() {
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute left-1/2 top-0 h-[34rem] w-[46rem] -translate-x-1/2 animate-pulse rounded-full bg-sky-500/[0.08] blur-3xl"
+        className="pointer-events-none absolute left-1/2 top-0 h-[34rem] w-[46rem] -translate-x-1/2 rounded-full bg-sky-500/[0.08] blur-3xl"
       />
 
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-slate-50/85 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/85">
@@ -161,7 +163,7 @@ export function LandingPage() {
           >
             <ThemeToggle inverted />
             <Link
-              className="hidden rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 min-[420px]:inline-flex sm:px-4"
+              className="hidden rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 motion-safe:active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 min-[420px]:inline-flex sm:px-4"
               hash="agent-signup"
               params={{ section: "agents" }}
               to="/doc/$section"
@@ -169,13 +171,13 @@ export function LandingPage() {
               For agents
             </Link>
             <Link
-              className="rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
+              className="rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 motion-safe:active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
               to="/login"
             >
               Sign in
             </Link>
             <Link
-              className="rounded-full bg-zinc-950 px-3.5 py-2 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
+              className="rounded-full bg-zinc-950 px-3.5 py-2 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 motion-safe:active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
               to="/doc"
             >
               Get started
@@ -206,9 +208,9 @@ export function LandingPage() {
               for review and submit, and Git compatibility at the boundary—built
               for humans and coding agents.
             </p>
-            <div className="mt-9 flex flex-col gap-3 min-[380px]:flex-row">
+            <div className="mt-9 flex flex-wrap gap-3">
               <Link
-                className="inline-flex min-h-11 items-center justify-center rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
+                className="inline-flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 motion-safe:active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 min-[380px]:w-auto"
                 to="/doc"
               >
                 Get started
@@ -227,13 +229,13 @@ export function LandingPage() {
                 </svg>
               </Link>
               <Link
-                className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-300 bg-white/70 px-5 py-2.5 text-sm font-semibold text-zinc-700 outline-none transition hover:border-slate-400 hover:bg-white active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:border-white/20 dark:hover:bg-white/[0.08] dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
+                className="inline-flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-full border border-slate-300 bg-white/70 px-5 py-2.5 text-sm font-semibold text-zinc-700 outline-none transition hover:border-slate-400 hover:bg-white motion-safe:active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:border-white/20 dark:hover:bg-white/[0.08] dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 min-[380px]:w-auto"
                 to="/login"
               >
                 Sign in
               </Link>
               <Link
-                className="inline-flex min-h-11 items-center justify-center rounded-full border border-sky-300 bg-sky-50 px-5 py-2.5 text-sm font-semibold text-sky-900 outline-none transition hover:border-sky-400 hover:bg-sky-100 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:border-sky-700 dark:hover:bg-sky-950/70 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
+                className="inline-flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-full border border-sky-300 bg-sky-50 px-5 py-2.5 text-sm font-semibold text-sky-900 outline-none transition hover:border-sky-400 hover:bg-sky-100 motion-safe:active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:border-sky-700 dark:hover:bg-sky-950/70 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 min-[380px]:w-auto"
                 hash="agent-signup"
                 params={{ section: "agents" }}
                 to="/doc/$section"
@@ -241,13 +243,20 @@ export function LandingPage() {
                 For agents
               </Link>
             </div>
-            <p className="mt-6 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
+            <p className="mt-6 flex max-w-2xl flex-wrap items-center gap-x-1 text-sm leading-6 text-slate-500 dark:text-zinc-400">
               <span className="font-medium text-zinc-700 dark:text-zinc-200">
                 Install the CLI:
-              </span>{" "}
-              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-zinc-800 dark:bg-white/[0.06] dark:text-zinc-200">
-                curl -fsSL https://gitslice.io/install.sh | sh
-              </code>
+              </span>
+              <span className="inline-flex max-w-full items-center gap-1">
+                <code className="min-w-0 break-all rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-zinc-800 dark:bg-white/[0.06] dark:text-zinc-200">
+                  curl -fsSL https://gitslice.io/install.sh | sh
+                </code>
+                <CopyButton
+                  className="shrink-0"
+                  label="install command"
+                  text="curl -fsSL https://gitslice.io/install.sh | sh"
+                />
+              </span>
             </p>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
               <span className="font-medium text-zinc-700 dark:text-zinc-200">
@@ -369,12 +378,10 @@ export function LandingPage() {
               </div>
             </div>
 
-            <div className="mt-12 grid gap-4 md:grid-cols-2 lg:gap-5">
-              {features.map((feature, index) => (
+            <div className="mt-12 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+              {features.map((feature) => (
                 <article
-                  className={`group rounded-2xl border border-slate-200 bg-white/75 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] transition duration-300 hover:-translate-y-1 hover:border-slate-300 hover:bg-white dark:border-white/10 dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:border-white/20 dark:hover:bg-white/[0.06] sm:p-7 ${
-                    index === 0 || index === 3 ? "md:translate-y-5" : ""
-                  }`}
+                  className="group rounded-2xl border border-slate-200 bg-white/75 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] transition duration-300 motion-safe:hover:-translate-y-1 hover:border-slate-300 hover:bg-white dark:border-white/10 dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:border-white/20 dark:hover:bg-white/[0.06] sm:p-7"
                   key={feature.title}
                 >
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-sky-300 bg-sky-50 text-sky-700 transition group-hover:border-sky-400 group-hover:bg-sky-100 dark:border-sky-400/20 dark:bg-sky-400/[0.08] dark:text-sky-300 dark:group-hover:border-sky-400/30 dark:group-hover:bg-sky-400/[0.12]">
@@ -384,7 +391,7 @@ export function LandingPage() {
                     {feature.title}
                   </h3>
                   <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-zinc-400">
-                    {feature.description}
+                    {renderInlineCode(feature.description)}
                   </p>
                 </article>
               ))}
