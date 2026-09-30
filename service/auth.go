@@ -183,6 +183,37 @@ func (s *AuthService) AcceptClaim(ctx context.Context, req *corev1.AcceptClaimRe
 	return &corev1.AcceptClaimResponse{Account: account}, nil
 }
 
+// ListOwnedAgents lists the agents whose accounts the caller owns.
+func (s *AuthService) ListOwnedAgents(ctx context.Context, req *corev1.ListOwnedAgentsRequest) (*corev1.ListOwnedAgentsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	agents, err := s.Auth.ListOwnedAgents(ctx, subjectID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	out := make([]*corev1.OwnedAgent, 0, len(agents))
+	for _, agent := range agents {
+		out = append(out, &corev1.OwnedAgent{
+			AgentSubjectId:   agent.AgentSubjectID,
+			AgentDisplayName: agent.AgentDisplayName,
+			Account:          agent.Account,
+			RegisteredAt:     formatOptionalTime(agent.RegisteredAt),
+			ClaimedAt:        formatOptionalTime(agent.ClaimedAt),
+			LastActiveAt:     formatOptionalTime(agent.LastActiveAt),
+		})
+	}
+	return &corev1.ListOwnedAgentsResponse{Agents: out}, nil
+}
+
+func formatOptionalTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 // refreshVerifiedEmails syncs the caller's verified emails from Clerk. Service
 // token subjects record theirs at sign-in; other subjects have none.
 func (s *AuthService) refreshVerifiedEmails(ctx context.Context, subjectID string) error {

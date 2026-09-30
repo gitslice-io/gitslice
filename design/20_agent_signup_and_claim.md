@@ -270,6 +270,23 @@ resolver hot path do email work on every request.
 - `gs claims list` and `gs claims accept <agent-subject-id>` for humans who
   live in the terminal.
 
+### Owned agents on the home page
+
+`AuthService.ListOwnedAgents` returns the agents whose personal accounts the
+caller holds an `owner` membership on. For each agent it gives the name,
+account, registration and claim times, and `last_active_at`, which is the
+latest `api_keys.last_used_at` and therefore stamped at most once a minute.
+
+The web home page uses it in two places:
+
+- **"Your agents" section:** one card per agent, showing its name, a link to
+  `<account>/home`, when it was last active, and when it was claimed. With no
+  agents it shows a pointer to `/llms.txt`.
+- **Slice list:** when no `?account=` is given, the list also loads each owned
+  agent's account and marks those rows "agent".
+
+If the call fails, both fall back to showing only the user's own account.
+
 ## Phase 3: Co-Owner Management
 
 `12_account_auth.md` notes there is no membership administration API. A claimed

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/auth.proto.
  */
 export const file_proto_core_v1_auth: GenFile = /*@__PURE__*/
-  fileDesc("Chhwcm90by9jb3JlL3YxL2F1dGgucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiFgoUU3RhcnRDbGlMb2dpblJlcXVlc3QiWAoVU3RhcnRDbGlMb2dpblJlc3BvbnNlEgwKBGNvZGUYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYAyABKAUiIwoTUG9sbENsaUxvZ2luUmVxdWVzdBIMCgRjb2RlGAEgASgJIkkKFFBvbGxDbGlMb2dpblJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRINCgV0b2tlbhgCIAEoCRISCgpzdWJqZWN0X2lkGAMgASgJIicKF0NvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0EgwKBGNvZGUYASABKAkiLgoYQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkiFgoUR2V0QXV0aFN0YXR1c1JlcXVlc3QiVQoVR2V0QXV0aFN0YXR1c1Jlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkSEAoIYWNjb3VudHMYAiADKAkSFgoObmVlZHNfdXNlcm5hbWUYAyABKAgiMQodQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiVwoeQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlc3BvbnNlEhEKCWF2YWlsYWJsZRgBIAEoCBISCgpub3JtYWxpemVkGAIgASgJEg4KBnJlYXNvbhgDIAEoCSIpChVDaG9vc2VVc2VybmFtZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiPQoWQ2hvb3NlVXNlcm5hbWVSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkiUwoUUmVnaXN0ZXJBZ2VudFJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEwoLb3duZXJfZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJIk0KFVJlZ2lzdGVyQWdlbnRSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDwoHYXBpX2tleRgDIAEoCSJ+CgxQZW5kaW5nQ2xhaW0SGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCRIaChJhZ2VudF9kaXNwbGF5X25hbWUYAiABKAkSDwoHYWNjb3VudBgDIAEoCRITCgtvd25lcl9lbWFpbBgEIAEoCRISCgpjcmVhdGVkX2F0GAUgASgJIhoKGExpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdCJLChlMaXN0UGVuZGluZ0NsYWltc1Jlc3BvbnNlEi4KBmNsYWltcxgBIAMoCzIeLmdpdHNsaWNlLmNvcmUudjEuUGVuZGluZ0NsYWltIi4KEkFjY2VwdENsYWltUmVxdWVzdBIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJIiYKE0FjY2VwdENsYWltUmVzcG9uc2USDwoHYWNjb3VudBgBIAEoCTKpBwoLQXV0aFNlcnZpY2USYAoNU3RhcnRDbGlMb2dpbhImLmdpdHNsaWNlLmNvcmUudjEuU3RhcnRDbGlMb2dpblJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLlN0YXJ0Q2xpTG9naW5SZXNwb25zZRJdCgxQb2xsQ2xpTG9naW4SJS5naXRzbGljZS5jb3JlLnYxLlBvbGxDbGlMb2dpblJlcXVlc3QaJi5naXRzbGljZS5jb3JlLnYxLlBvbGxDbGlMb2dpblJlc3BvbnNlEmkKEENvbXBsZXRlQ2xpTG9naW4SKS5naXRzbGljZS5jb3JlLnYxLkNvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUNsaUxvZ2luUmVzcG9uc2USYAoNR2V0QXV0aFN0YXR1cxImLmdpdHNsaWNlLmNvcmUudjEuR2V0QXV0aFN0YXR1c1JlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkdldEF1dGhTdGF0dXNSZXNwb25zZRJ7ChZDaGVja1VzZXJuYW1lQXZhaWxhYmxlEi8uZ2l0c2xpY2UuY29yZS52MS5DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVxdWVzdBowLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlc3BvbnNlEmMKDkNob29zZVVzZXJuYW1lEicuZ2l0c2xpY2UuY29yZS52MS5DaG9vc2VVc2VybmFtZVJlcXVlc3QaKC5naXRzbGljZS5jb3JlLnYxLkNob29zZVVzZXJuYW1lUmVzcG9uc2USYAoNUmVnaXN0ZXJBZ2VudBImLmdpdHNsaWNlLmNvcmUudjEuUmVnaXN0ZXJBZ2VudFJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLlJlZ2lzdGVyQWdlbnRSZXNwb25zZRJsChFMaXN0UGVuZGluZ0NsYWltcxIqLmdpdHNsaWNlLmNvcmUudjEuTGlzdFBlbmRpbmdDbGFpbXNSZXF1ZXN0GisuZ2l0c2xpY2UuY29yZS52MS5MaXN0UGVuZGluZ0NsYWltc1Jlc3BvbnNlEloKC0FjY2VwdENsYWltEiQuZ2l0c2xpY2UuY29yZS52MS5BY2NlcHRDbGFpbVJlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLkFjY2VwdENsYWltUmVzcG9uc2VCNlo0Z2l0aHViLmNvbS9naXRzbGljZS1pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z");
+  fileDesc("Chhwcm90by9jb3JlL3YxL2F1dGgucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiFgoUU3RhcnRDbGlMb2dpblJlcXVlc3QiWAoVU3RhcnRDbGlMb2dpblJlc3BvbnNlEgwKBGNvZGUYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYAyABKAUiIwoTUG9sbENsaUxvZ2luUmVxdWVzdBIMCgRjb2RlGAEgASgJIkkKFFBvbGxDbGlMb2dpblJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRINCgV0b2tlbhgCIAEoCRISCgpzdWJqZWN0X2lkGAMgASgJIicKF0NvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0EgwKBGNvZGUYASABKAkiLgoYQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkiFgoUR2V0QXV0aFN0YXR1c1JlcXVlc3QiVQoVR2V0QXV0aFN0YXR1c1Jlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkSEAoIYWNjb3VudHMYAiADKAkSFgoObmVlZHNfdXNlcm5hbWUYAyABKAgiMQodQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiVwoeQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlc3BvbnNlEhEKCWF2YWlsYWJsZRgBIAEoCBISCgpub3JtYWxpemVkGAIgASgJEg4KBnJlYXNvbhgDIAEoCSIpChVDaG9vc2VVc2VybmFtZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkiPQoWQ2hvb3NlVXNlcm5hbWVSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkiUwoUUmVnaXN0ZXJBZ2VudFJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEwoLb3duZXJfZW1haWwYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJIk0KFVJlZ2lzdGVyQWdlbnRSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDwoHYXBpX2tleRgDIAEoCSJ+CgxQZW5kaW5nQ2xhaW0SGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCRIaChJhZ2VudF9kaXNwbGF5X25hbWUYAiABKAkSDwoHYWNjb3VudBgDIAEoCRITCgtvd25lcl9lbWFpbBgEIAEoCRISCgpjcmVhdGVkX2F0GAUgASgJIhoKGExpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdCJLChlMaXN0UGVuZGluZ0NsYWltc1Jlc3BvbnNlEi4KBmNsYWltcxgBIAMoCzIeLmdpdHNsaWNlLmNvcmUudjEuUGVuZGluZ0NsYWltIi4KEkFjY2VwdENsYWltUmVxdWVzdBIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJIiYKE0FjY2VwdENsYWltUmVzcG9uc2USDwoHYWNjb3VudBgBIAEoCSKWAQoKT3duZWRBZ2VudBIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJEhoKEmFnZW50X2Rpc3BsYXlfbmFtZRgCIAEoCRIPCgdhY2NvdW50GAMgASgJEhUKDXJlZ2lzdGVyZWRfYXQYBCABKAkSEgoKY2xhaW1lZF9hdBgFIAEoCRIWCg5sYXN0X2FjdGl2ZV9hdBgGIAEoCSIYChZMaXN0T3duZWRBZ2VudHNSZXF1ZXN0IkcKF0xpc3RPd25lZEFnZW50c1Jlc3BvbnNlEiwKBmFnZW50cxgBIAMoCzIcLmdpdHNsaWNlLmNvcmUudjEuT3duZWRBZ2VudDKRCAoLQXV0aFNlcnZpY2USYAoNU3RhcnRDbGlMb2dpbhImLmdpdHNsaWNlLmNvcmUudjEuU3RhcnRDbGlMb2dpblJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLlN0YXJ0Q2xpTG9naW5SZXNwb25zZRJdCgxQb2xsQ2xpTG9naW4SJS5naXRzbGljZS5jb3JlLnYxLlBvbGxDbGlMb2dpblJlcXVlc3QaJi5naXRzbGljZS5jb3JlLnYxLlBvbGxDbGlMb2dpblJlc3BvbnNlEmkKEENvbXBsZXRlQ2xpTG9naW4SKS5naXRzbGljZS5jb3JlLnYxLkNvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUNsaUxvZ2luUmVzcG9uc2USYAoNR2V0QXV0aFN0YXR1cxImLmdpdHNsaWNlLmNvcmUudjEuR2V0QXV0aFN0YXR1c1JlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkdldEF1dGhTdGF0dXNSZXNwb25zZRJ7ChZDaGVja1VzZXJuYW1lQXZhaWxhYmxlEi8uZ2l0c2xpY2UuY29yZS52MS5DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVxdWVzdBowLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlc3BvbnNlEmMKDkNob29zZVVzZXJuYW1lEicuZ2l0c2xpY2UuY29yZS52MS5DaG9vc2VVc2VybmFtZVJlcXVlc3QaKC5naXRzbGljZS5jb3JlLnYxLkNob29zZVVzZXJuYW1lUmVzcG9uc2USYAoNUmVnaXN0ZXJBZ2VudBImLmdpdHNsaWNlLmNvcmUudjEuUmVnaXN0ZXJBZ2VudFJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLlJlZ2lzdGVyQWdlbnRSZXNwb25zZRJsChFMaXN0UGVuZGluZ0NsYWltcxIqLmdpdHNsaWNlLmNvcmUudjEuTGlzdFBlbmRpbmdDbGFpbXNSZXF1ZXN0GisuZ2l0c2xpY2UuY29yZS52MS5MaXN0UGVuZGluZ0NsYWltc1Jlc3BvbnNlEloKC0FjY2VwdENsYWltEiQuZ2l0c2xpY2UuY29yZS52MS5BY2NlcHRDbGFpbVJlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLkFjY2VwdENsYWltUmVzcG9uc2USZgoPTGlzdE93bmVkQWdlbnRzEiguZ2l0c2xpY2UuY29yZS52MS5MaXN0T3duZWRBZ2VudHNSZXF1ZXN0GikuZ2l0c2xpY2UuY29yZS52MS5MaXN0T3duZWRBZ2VudHNSZXNwb25zZUI2WjRnaXRodWIuY29tL2dpdHNsaWNlLWlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM");
 
 /**
  * @generated from message gitslice.core.v1.StartCliLoginRequest
@@ -435,6 +435,83 @@ export const AcceptClaimResponseSchema: GenMessage<AcceptClaimResponse> = /*@__P
   messageDesc(file_proto_core_v1_auth, 18);
 
 /**
+ * @generated from message gitslice.core.v1.OwnedAgent
+ */
+export type OwnedAgent = Message<"gitslice.core.v1.OwnedAgent"> & {
+  /**
+   * @generated from field: string agent_subject_id = 1;
+   */
+  agentSubjectId: string;
+
+  /**
+   * @generated from field: string agent_display_name = 2;
+   */
+  agentDisplayName: string;
+
+  /**
+   * The agent's personal account, co-owned by the caller.
+   *
+   * @generated from field: string account = 3;
+   */
+  account: string;
+
+  /**
+   * RFC 3339 times; claimed_at is empty if the caller owns it without a claim,
+   * last_active_at is empty if the agent's API keys were never used.
+   *
+   * @generated from field: string registered_at = 4;
+   */
+  registeredAt: string;
+
+  /**
+   * @generated from field: string claimed_at = 5;
+   */
+  claimedAt: string;
+
+  /**
+   * @generated from field: string last_active_at = 6;
+   */
+  lastActiveAt: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.OwnedAgent.
+ * Use `create(OwnedAgentSchema)` to create a new message.
+ */
+export const OwnedAgentSchema: GenMessage<OwnedAgent> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 19);
+
+/**
+ * @generated from message gitslice.core.v1.ListOwnedAgentsRequest
+ */
+export type ListOwnedAgentsRequest = Message<"gitslice.core.v1.ListOwnedAgentsRequest"> & {
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListOwnedAgentsRequest.
+ * Use `create(ListOwnedAgentsRequestSchema)` to create a new message.
+ */
+export const ListOwnedAgentsRequestSchema: GenMessage<ListOwnedAgentsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 20);
+
+/**
+ * @generated from message gitslice.core.v1.ListOwnedAgentsResponse
+ */
+export type ListOwnedAgentsResponse = Message<"gitslice.core.v1.ListOwnedAgentsResponse"> & {
+  /**
+   * @generated from field: repeated gitslice.core.v1.OwnedAgent agents = 1;
+   */
+  agents: OwnedAgent[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListOwnedAgentsResponse.
+ * Use `create(ListOwnedAgentsResponseSchema)` to create a new message.
+ */
+export const ListOwnedAgentsResponseSchema: GenMessage<ListOwnedAgentsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 21);
+
+/**
  * @generated from service gitslice.core.v1.AuthService
  */
 export const AuthService: GenService<{
@@ -519,6 +596,17 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof AcceptClaimRequestSchema;
     output: typeof AcceptClaimResponseSchema;
+  },
+  /**
+   * ListOwnedAgents lists the self-registered agents whose accounts the caller
+   * owns (typically after AcceptClaim), with basic activity.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.ListOwnedAgents
+   */
+  listOwnedAgents: {
+    methodKind: "unary";
+    input: typeof ListOwnedAgentsRequestSchema;
+    output: typeof ListOwnedAgentsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_auth, 0);

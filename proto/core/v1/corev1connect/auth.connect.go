@@ -59,6 +59,9 @@ const (
 	AuthServiceListPendingClaimsProcedure = "/gitslice.core.v1.AuthService/ListPendingClaims"
 	// AuthServiceAcceptClaimProcedure is the fully-qualified name of the AuthService's AcceptClaim RPC.
 	AuthServiceAcceptClaimProcedure = "/gitslice.core.v1.AuthService/AcceptClaim"
+	// AuthServiceListOwnedAgentsProcedure is the fully-qualified name of the AuthService's
+	// ListOwnedAgents RPC.
+	AuthServiceListOwnedAgentsProcedure = "/gitslice.core.v1.AuthService/ListOwnedAgents"
 )
 
 // AuthServiceClient is a client for the gitslice.core.v1.AuthService service.
@@ -79,6 +82,9 @@ type AuthServiceClient interface {
 	// AcceptClaim makes the caller an owner of the agent's account. The agent
 	// keeps its own access, so the account becomes co-owned.
 	AcceptClaim(context.Context, *connect.Request[v1.AcceptClaimRequest]) (*connect.Response[v1.AcceptClaimResponse], error)
+	// ListOwnedAgents lists the self-registered agents whose accounts the caller
+	// owns (typically after AcceptClaim), with basic activity.
+	ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the gitslice.core.v1.AuthService service. By
@@ -146,6 +152,12 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("AcceptClaim")),
 			connect.WithClientOptions(opts...),
 		),
+		listOwnedAgents: connect.NewClient[v1.ListOwnedAgentsRequest, v1.ListOwnedAgentsResponse](
+			httpClient,
+			baseURL+AuthServiceListOwnedAgentsProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ListOwnedAgents")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -160,6 +172,7 @@ type authServiceClient struct {
 	registerAgent          *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
 	listPendingClaims      *connect.Client[v1.ListPendingClaimsRequest, v1.ListPendingClaimsResponse]
 	acceptClaim            *connect.Client[v1.AcceptClaimRequest, v1.AcceptClaimResponse]
+	listOwnedAgents        *connect.Client[v1.ListOwnedAgentsRequest, v1.ListOwnedAgentsResponse]
 }
 
 // StartCliLogin calls gitslice.core.v1.AuthService.StartCliLogin.
@@ -207,6 +220,11 @@ func (c *authServiceClient) AcceptClaim(ctx context.Context, req *connect.Reques
 	return c.acceptClaim.CallUnary(ctx, req)
 }
 
+// ListOwnedAgents calls gitslice.core.v1.AuthService.ListOwnedAgents.
+func (c *authServiceClient) ListOwnedAgents(ctx context.Context, req *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error) {
+	return c.listOwnedAgents.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the gitslice.core.v1.AuthService service.
 type AuthServiceHandler interface {
 	StartCliLogin(context.Context, *connect.Request[v1.StartCliLoginRequest]) (*connect.Response[v1.StartCliLoginResponse], error)
@@ -225,6 +243,9 @@ type AuthServiceHandler interface {
 	// AcceptClaim makes the caller an owner of the agent's account. The agent
 	// keeps its own access, so the account becomes co-owned.
 	AcceptClaim(context.Context, *connect.Request[v1.AcceptClaimRequest]) (*connect.Response[v1.AcceptClaimResponse], error)
+	// ListOwnedAgents lists the self-registered agents whose accounts the caller
+	// owns (typically after AcceptClaim), with basic activity.
+	ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -288,6 +309,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("AcceptClaim")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceListOwnedAgentsHandler := connect.NewUnaryHandler(
+		AuthServiceListOwnedAgentsProcedure,
+		svc.ListOwnedAgents,
+		connect.WithSchema(authServiceMethods.ByName("ListOwnedAgents")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartCliLoginProcedure:
@@ -308,6 +335,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceListPendingClaimsHandler.ServeHTTP(w, r)
 		case AuthServiceAcceptClaimProcedure:
 			authServiceAcceptClaimHandler.ServeHTTP(w, r)
+		case AuthServiceListOwnedAgentsProcedure:
+			authServiceListOwnedAgentsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -351,4 +380,8 @@ func (UnimplementedAuthServiceHandler) ListPendingClaims(context.Context, *conne
 
 func (UnimplementedAuthServiceHandler) AcceptClaim(context.Context, *connect.Request[v1.AcceptClaimRequest]) (*connect.Response[v1.AcceptClaimResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.AcceptClaim is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListOwnedAgents is not implemented"))
 }

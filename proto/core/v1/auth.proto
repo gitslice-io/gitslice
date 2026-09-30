@@ -21,6 +21,9 @@ service AuthService {
   // AcceptClaim makes the caller an owner of the agent's account. The agent
   // keeps its own access, so the account becomes co-owned.
   rpc AcceptClaim(AcceptClaimRequest) returns (AcceptClaimResponse);
+  // ListOwnedAgents lists the self-registered agents whose accounts the caller
+  // owns (typically after AcceptClaim), with basic activity.
+  rpc ListOwnedAgents(ListOwnedAgentsRequest) returns (ListOwnedAgentsResponse);
 }
 
 message StartCliLoginRequest {}
@@ -123,4 +126,22 @@ message AcceptClaimRequest {
 message AcceptClaimResponse {
   // The claimed account, now co-owned by the caller.
   string account = 1;
+}
+
+message OwnedAgent {
+  string agent_subject_id = 1;
+  string agent_display_name = 2;
+  // The agent's personal account, co-owned by the caller.
+  string account = 3;
+  // RFC 3339 times; claimed_at is empty if the caller owns it without a claim,
+  // last_active_at is empty if the agent's API keys were never used.
+  string registered_at = 4;
+  string claimed_at = 5;
+  string last_active_at = 6;
+}
+
+message ListOwnedAgentsRequest {}
+
+message ListOwnedAgentsResponse {
+  repeated OwnedAgent agents = 1;
 }

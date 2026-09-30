@@ -36,6 +36,8 @@ import type {
   GetConversationEventsRequest,
   GetConversationEventsResponse,
   GetAuthStatusRequest,
+  ListOwnedAgentsRequest,
+  ListOwnedAgentsResponse,
   ListPendingClaimsRequest,
   ListPendingClaimsResponse,
   GetAuthStatusResponse,
@@ -109,6 +111,9 @@ export interface ApiClient {
     request: ListPendingClaimsRequest
   ): Promise<ListPendingClaimsResponse>;
   acceptClaim(request: AcceptClaimRequest): Promise<AcceptClaimResponse>;
+  listOwnedAgents(
+    request: ListOwnedAgentsRequest
+  ): Promise<ListOwnedAgentsResponse>;
   resolvePath(request: ResolvePathRequest): Promise<ResolvePathResponse>;
   listDirectory(
     request: ListDirectoryRequest

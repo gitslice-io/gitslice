@@ -690,6 +690,41 @@ func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID strin
 	return out, rows.Err()
 }
 
+func (s *AuthStore) ListOwnedAgents(ctx context.Context, subjectID string) ([]storage.OwnedAgent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select r.subject_id, agent.display_name, a.slug, r.created_at,
+		       r.claimed_at,
+		       (select max(k.last_used_at) from api_keys k where k.subject_id = r.subject_id)
+		from agent_registrations r
+		join subjects agent on agent.id = r.subject_id
+		join accounts a on a.id = r.account_id
+		join account_memberships m on m.account_id = r.account_id
+		where m.subject_id = $1 and m.role = 'owner' and r.subject_id <> $1
+		order by r.created_at, r.subject_id
+	`, strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.OwnedAgent
+	for rows.Next() {
+		var agent storage.OwnedAgent
+		var claimedAt, lastActiveAt sql.NullTime
+		if err := rows.Scan(&agent.AgentSubjectID, &agent.AgentDisplayName, &agent.Account, &agent.RegisteredAt, &claimedAt, &lastActiveAt); err != nil {
+			return nil, err
+		}
+		agent.RegisteredAt = agent.RegisteredAt.UTC()
+		if claimedAt.Valid {
+			agent.ClaimedAt = claimedAt.Time.UTC()
+		}
+		if lastActiveAt.Valid {
+			agent.LastActiveAt = lastActiveAt.Time.UTC()
+		}
+		out = append(out, agent)
+	}
+	return out, rows.Err()
+}
+
 // notOthersAgentAccountSQL is a predicate over `a` (accounts) and `m`
 // (account_memberships) that is false when the account belongs to an agent
 // other than m.subject_id. A human who claims an agent becomes an owner of the

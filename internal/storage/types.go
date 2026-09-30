@@ -44,6 +44,17 @@ type PendingClaim struct {
 	CreatedAt        time.Time
 }
 
+// OwnedAgent is a self-registered agent whose personal account a human owns.
+// ClaimedAt and LastActiveAt are zero when unknown.
+type OwnedAgent struct {
+	AgentSubjectID   string
+	AgentDisplayName string
+	Account          string
+	RegisteredAt     time.Time
+	ClaimedAt        time.Time
+	LastActiveAt     time.Time
+}
+
 // Identity providers recorded by EnsureExternalSubject and used as
 // SetVerifiedEmails sources.
 const (

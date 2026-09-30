@@ -95,6 +95,10 @@ export function createApiClient({
       unary<Api.AcceptClaimResponse>(() =>
         auth.acceptClaim(toProtoRequest(request))
       ),
+    listOwnedAgents: (request) =>
+      unary<Api.ListOwnedAgentsResponse>(() =>
+        auth.listOwnedAgents(toProtoRequest(request))
+      ),
     resolvePath: (request) =>
       unary<Api.ResolvePathResponse>(() =>
         repository.resolvePath(toProtoRequest(request))
