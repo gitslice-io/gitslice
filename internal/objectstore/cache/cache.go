@@ -1,11 +1,17 @@
-// Package cache wraps an object store with a bounded, write-through in-memory
-// cache. All objects in this store are content-addressed and immutable (blobs
-// keyed by content hash, tree nodes keyed by tree id), so serving a cached value
-// for a key is always correct. The cache is write-through only: Put populates the
-// cache, Get serves cached keys without touching the inner store, and reads that
-// miss are NOT cached (so large blob streams are never buffered on the read path).
-// This collapses the repeated cross-commit / cross-phase tree-node reads a git
-// import does against remote object storage.
+// Package cache wraps an object store with a bounded in-memory cache. All
+// objects in this store are content-addressed and immutable (blobs keyed by
+// content hash, tree nodes keyed by tree id), so serving a cached value for a
+// key is always correct.
+//
+// Put populates the cache (write-through), and Get serves cached keys without
+// touching the inner store. A full-object Get that misses also fills the cache
+// once the caller has read the object to EOF, as long as it fits within
+// maxObjectBytes. Larger objects and partial (ranged) reads stream through
+// without being cached, and nothing beyond maxObjectBytes is ever buffered.
+//
+// Read-fill matters for serving: an instance that did not write an object
+// (every instance after a restart or scale-from-zero) would otherwise fetch the
+// same tree nodes from remote object storage on every request.
 package cache
 
 import (
@@ -87,7 +93,50 @@ func (s *Store) Get(ctx context.Context, key string, offset, length int64) (io.R
 		}
 		return io.NopCloser(bytes.NewReader(data)), nil
 	}
-	return s.inner.Get(ctx, key, offset, length)
+	rc, err := s.inner.Get(ctx, key, offset, length)
+	if err != nil || offset > 0 || length > 0 {
+		return rc, err
+	}
+	return &fillingReader{store: s, key: key, inner: rc}, nil
+}
+
+// fillingReader passes a full-object read through and, if the object reaches
+// EOF within maxObjectBytes, inserts it into the cache. Once the object grows
+// past the limit it stops buffering and the read continues as a plain stream.
+type fillingReader struct {
+	store    *Store
+	key      string
+	inner    io.ReadCloser
+	buf      []byte
+	overflow bool
+	done     bool
+}
+
+func (r *fillingReader) Read(p []byte) (int, error) {
+	n, err := r.inner.Read(p)
+	if n > 0 && !r.overflow {
+		if int64(len(r.buf)+n) > r.store.maxObjectBytes {
+			r.overflow = true
+			r.buf = nil
+		} else {
+			r.buf = append(r.buf, p[:n]...)
+		}
+	}
+	if err == io.EOF && !r.overflow && !r.done {
+		r.done = true
+		data := r.buf
+		if data == nil {
+			data = []byte{}
+		}
+		r.store.insert(r.key, data)
+		r.buf = nil
+	}
+	return n, err
+}
+
+func (r *fillingReader) Close() error {
+	r.buf = nil
+	return r.inner.Close()
 }
 
 func (s *Store) Delete(ctx context.Context, key string) error {

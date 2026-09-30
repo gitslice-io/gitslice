@@ -98,15 +98,73 @@ func TestRangedGetMatchesFullSlice(t *testing.T) {
 	}
 }
 
-func TestMissReadsInnerAndIsNotCached(t *testing.T) {
+func TestFullReadMissFillsCache(t *testing.T) {
 	inner := newCountingStore()
 	_ = inner.Put(context.Background(), "k", bytes.NewReader([]byte("abc")))
 	innerGetsBefore := inner.gets
 	s := New(inner, 1<<20, 1<<20)
-	read(t, s, "k", 0, 0) // miss -> inner
-	read(t, s, "k", 0, 0) // still miss (no read population) -> inner again
+	if got := read(t, s, "k", 0, 0); string(got) != "abc" {
+		t.Fatalf("first read = %q", got)
+	}
+	if got := read(t, s, "k", 0, 0); string(got) != "abc" { // served from cache
+		t.Fatalf("second read = %q", got)
+	}
+	if got := read(t, s, "k", 1, 1); string(got) != "b" { // ranged read of a cached object
+		t.Fatalf("ranged read = %q", got)
+	}
+	if inner.gets-innerGetsBefore != 1 {
+		t.Fatalf("inner gets delta = %d, want 1 (the miss fills the cache)", inner.gets-innerGetsBefore)
+	}
+}
+
+func TestRangedMissDoesNotFillCache(t *testing.T) {
+	inner := newCountingStore()
+	_ = inner.Put(context.Background(), "k", bytes.NewReader([]byte("abcdef")))
+	innerGetsBefore := inner.gets
+	s := New(inner, 1<<20, 1<<20)
+	if got := read(t, s, "k", 2, 2); string(got) != "cd" {
+		t.Fatalf("ranged read = %q", got)
+	}
+	read(t, s, "k", 0, 0)
 	if inner.gets-innerGetsBefore != 2 {
-		t.Fatalf("inner gets delta = %d, want 2 (reads not cached)", inner.gets-innerGetsBefore)
+		t.Fatalf("inner gets delta = %d, want 2 (a ranged miss must not fill with partial data)", inner.gets-innerGetsBefore)
+	}
+}
+
+func TestOversizedMissStreamsWithoutCaching(t *testing.T) {
+	inner := newCountingStore()
+	big := bytes.Repeat([]byte("x"), 64)
+	_ = inner.Put(context.Background(), "big", bytes.NewReader(big))
+	innerGetsBefore := inner.gets
+	s := New(inner, 1<<20, 16)
+	if got := read(t, s, "big", 0, 0); !bytes.Equal(got, big) {
+		t.Fatalf("oversized read returned %d bytes, want %d", len(got), len(big))
+	}
+	read(t, s, "big", 0, 0)
+	if inner.gets-innerGetsBefore != 2 {
+		t.Fatalf("inner gets delta = %d, want 2 (objects over maxObjectBytes are not cached)", inner.gets-innerGetsBefore)
+	}
+}
+
+func TestAbandonedReadDoesNotFillCache(t *testing.T) {
+	inner := newCountingStore()
+	_ = inner.Put(context.Background(), "k", bytes.NewReader([]byte("abcdef")))
+	innerGetsBefore := inner.gets
+	s := New(inner, 1<<20, 1<<20)
+	rc, err := s.Get(context.Background(), "k", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 2)
+	if _, err := rc.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	_ = rc.Close() // closed before EOF: the object was never fully seen
+	if got := read(t, s, "k", 0, 0); string(got) != "abcdef" {
+		t.Fatalf("read after abandoned read = %q", got)
+	}
+	if inner.gets-innerGetsBefore != 2 {
+		t.Fatalf("inner gets delta = %d, want 2 (a truncated read must not be cached)", inner.gets-innerGetsBefore)
 	}
 }
 
