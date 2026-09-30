@@ -25,6 +25,7 @@ const (
 	AuthService_GetAuthStatus_FullMethodName          = "/gitslice.core.v1.AuthService/GetAuthStatus"
 	AuthService_CheckUsernameAvailable_FullMethodName = "/gitslice.core.v1.AuthService/CheckUsernameAvailable"
 	AuthService_ChooseUsername_FullMethodName         = "/gitslice.core.v1.AuthService/ChooseUsername"
+	AuthService_RegisterAgent_FullMethodName          = "/gitslice.core.v1.AuthService/RegisterAgent"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -37,6 +38,10 @@ type AuthServiceClient interface {
 	GetAuthStatus(ctx context.Context, in *GetAuthStatusRequest, opts ...grpc.CallOption) (*GetAuthStatusResponse, error)
 	CheckUsernameAvailable(ctx context.Context, in *CheckUsernameAvailableRequest, opts ...grpc.CallOption) (*CheckUsernameAvailableResponse, error)
 	ChooseUsername(ctx context.Context, in *ChooseUsernameRequest, opts ...grpc.CallOption) (*ChooseUsernameResponse, error)
+	// RegisterAgent self-registers an agent with its own personal account and
+	// returns a long-lived API key. Unauthenticated; disabled unless the server
+	// sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
+	RegisterAgent(ctx context.Context, in *RegisterAgentRequest, opts ...grpc.CallOption) (*RegisterAgentResponse, error)
 }
 
 type authServiceClient struct {
@@ -101,6 +106,15 @@ func (c *authServiceClient) ChooseUsername(ctx context.Context, in *ChooseUserna
 	return out, nil
 }
 
+func (c *authServiceClient) RegisterAgent(ctx context.Context, in *RegisterAgentRequest, opts ...grpc.CallOption) (*RegisterAgentResponse, error) {
+	out := new(RegisterAgentResponse)
+	err := c.cc.Invoke(ctx, AuthService_RegisterAgent_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
@@ -111,6 +125,10 @@ type AuthServiceServer interface {
 	GetAuthStatus(context.Context, *GetAuthStatusRequest) (*GetAuthStatusResponse, error)
 	CheckUsernameAvailable(context.Context, *CheckUsernameAvailableRequest) (*CheckUsernameAvailableResponse, error)
 	ChooseUsername(context.Context, *ChooseUsernameRequest) (*ChooseUsernameResponse, error)
+	// RegisterAgent self-registers an agent with its own personal account and
+	// returns a long-lived API key. Unauthenticated; disabled unless the server
+	// sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
+	RegisterAgent(context.Context, *RegisterAgentRequest) (*RegisterAgentResponse, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
@@ -134,6 +152,9 @@ func (UnimplementedAuthServiceServer) CheckUsernameAvailable(context.Context, *C
 }
 func (UnimplementedAuthServiceServer) ChooseUsername(context.Context, *ChooseUsernameRequest) (*ChooseUsernameResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ChooseUsername not implemented")
+}
+func (UnimplementedAuthServiceServer) RegisterAgent(context.Context, *RegisterAgentRequest) (*RegisterAgentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterAgent not implemented")
 }
 
 // UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -255,6 +276,24 @@ func _AuthService_ChooseUsername_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_RegisterAgent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterAgentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RegisterAgent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RegisterAgent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RegisterAgent(ctx, req.(*RegisterAgentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -285,6 +324,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ChooseUsername",
 			Handler:    _AuthService_ChooseUsername_Handler,
+		},
+		{
+			MethodName: "RegisterAgent",
+			Handler:    _AuthService_RegisterAgent_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

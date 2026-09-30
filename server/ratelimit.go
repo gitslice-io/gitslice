@@ -80,16 +80,65 @@ func newHTTPRateLimitMiddleware(cfg Config) func(http.Handler) http.Handler {
 	}
 }
 
-func grpcRateLimitKey(ctx context.Context) string {
-	if subjectID, ok := authctx.SubjectID(ctx); ok {
-		return "subject:" + subjectID
+// agentSignupMethod is the unauthenticated agent self-registration RPC. It gets
+// its own much tighter per-IP limit on top of the general limiters, because each
+// call creates an account. Connect serves it on the same path.
+const agentSignupMethod = "/gitslice.core.v1.AuthService/RegisterAgent"
+
+// agentSignupBucketTTL outlives the refill period so an idle IP's spent bucket
+// is not forgotten (and silently refilled) before it would have refilled anyway.
+const agentSignupBucketTTL = 2 * time.Hour
+
+func newAgentSignupLimiter(cfg Config) *ratelimit.Limiter {
+	if cfg.RateLimitDisabled || cfg.AgentSignupPerHour <= 0 {
+		return nil
 	}
+	return ratelimit.New(float64(cfg.AgentSignupPerHour)/3600, cfg.AgentSignupPerHour, agentSignupBucketTTL)
+}
+
+func agentSignupUnaryInterceptor(limiter *ratelimit.Limiter) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if limiter == nil || info.FullMethod != agentSignupMethod || limiter.Allow(grpcPeerIPKey(ctx)) {
+			return handler(ctx, req)
+		}
+		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
+		return nil, status.Error(codes.ResourceExhausted, "agent sign-up rate limit exceeded")
+	}
+}
+
+func newAgentSignupHTTPMiddleware(cfg Config) func(http.Handler) http.Handler {
+	limiter := newAgentSignupLimiter(cfg)
+	if limiter == nil {
+		return func(next http.Handler) http.Handler {
+			return next
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == agentSignupMethod && !limiter.Allow("ip:"+httpClientIP(r)) {
+				ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
+				http.Error(w, "agent sign-up rate limit exceeded", http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func grpcPeerIPKey(ctx context.Context) string {
 	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
 		if host := hostFromAddr(p.Addr.String()); host != "" {
 			return "ip:" + host
 		}
 	}
 	return "ip:unknown"
+}
+
+func grpcRateLimitKey(ctx context.Context) string {
+	if subjectID, ok := authctx.SubjectID(ctx); ok {
+		return "subject:" + subjectID
+	}
+	return grpcPeerIPKey(ctx)
 }
 
 func isHealthCheckMethod(method string) bool {

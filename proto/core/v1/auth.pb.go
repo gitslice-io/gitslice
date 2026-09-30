@@ -613,6 +613,131 @@ func (x *ChooseUsernameResponse) GetAccount() string {
 	return ""
 }
 
+type RegisterAgentRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Desired username; same rules as ChooseUsername.
+	Username string `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	// Email of the human who may later claim co-ownership. Required. Not verified
+	// at registration; a claim requires a verified sign-in with this address.
+	OwnerEmail string `protobuf:"bytes,2,opt,name=owner_email,json=ownerEmail,proto3" json:"owner_email,omitempty"`
+	// Optional human-readable name, e.g. "release-bot". Defaults to username.
+	DisplayName   string `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterAgentRequest) Reset() {
+	*x = RegisterAgentRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterAgentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterAgentRequest) ProtoMessage() {}
+
+func (x *RegisterAgentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterAgentRequest.ProtoReflect.Descriptor instead.
+func (*RegisterAgentRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RegisterAgentRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetOwnerEmail() string {
+	if x != nil {
+		return x.OwnerEmail
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+type RegisterAgentResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SubjectId string                 `protobuf:"bytes,1,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	Account   string                 `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
+	// Plaintext API key ("gsk_..."). Returned only once; the server keeps a hash.
+	ApiKey        string `protobuf:"bytes,3,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterAgentResponse) Reset() {
+	*x = RegisterAgentResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterAgentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterAgentResponse) ProtoMessage() {}
+
+func (x *RegisterAgentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterAgentResponse.ProtoReflect.Descriptor instead.
+func (*RegisterAgentResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RegisterAgentResponse) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
+func (x *RegisterAgentResponse) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *RegisterAgentResponse) GetApiKey() string {
+	if x != nil {
+		return x.ApiKey
+	}
+	return ""
+}
+
 var File_proto_core_v1_auth_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_auth_proto_rawDesc = "" +
@@ -655,14 +780,25 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\x16ChooseUsernameResponse\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x18\n" +
-	"\aaccount\x18\x02 \x01(\tR\aaccount2\xfd\x04\n" +
+	"\aaccount\x18\x02 \x01(\tR\aaccount\"v\n" +
+	"\x14RegisterAgentRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x1f\n" +
+	"\vowner_email\x18\x02 \x01(\tR\n" +
+	"ownerEmail\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\"i\n" +
+	"\x15RegisterAgentResponse\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x18\n" +
+	"\aaccount\x18\x02 \x01(\tR\aaccount\x12\x17\n" +
+	"\aapi_key\x18\x03 \x01(\tR\x06apiKey2\xdf\x05\n" +
 	"\vAuthService\x12`\n" +
 	"\rStartCliLogin\x12&.gitslice.core.v1.StartCliLoginRequest\x1a'.gitslice.core.v1.StartCliLoginResponse\x12]\n" +
 	"\fPollCliLogin\x12%.gitslice.core.v1.PollCliLoginRequest\x1a&.gitslice.core.v1.PollCliLoginResponse\x12i\n" +
 	"\x10CompleteCliLogin\x12).gitslice.core.v1.CompleteCliLoginRequest\x1a*.gitslice.core.v1.CompleteCliLoginResponse\x12`\n" +
 	"\rGetAuthStatus\x12&.gitslice.core.v1.GetAuthStatusRequest\x1a'.gitslice.core.v1.GetAuthStatusResponse\x12{\n" +
 	"\x16CheckUsernameAvailable\x12/.gitslice.core.v1.CheckUsernameAvailableRequest\x1a0.gitslice.core.v1.CheckUsernameAvailableResponse\x12c\n" +
-	"\x0eChooseUsername\x12'.gitslice.core.v1.ChooseUsernameRequest\x1a(.gitslice.core.v1.ChooseUsernameResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x0eChooseUsername\x12'.gitslice.core.v1.ChooseUsernameRequest\x1a(.gitslice.core.v1.ChooseUsernameResponse\x12`\n" +
+	"\rRegisterAgent\x12&.gitslice.core.v1.RegisterAgentRequest\x1a'.gitslice.core.v1.RegisterAgentResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_auth_proto_rawDescOnce sync.Once
@@ -676,7 +812,7 @@ func file_proto_core_v1_auth_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_auth_proto_rawDescData
 }
 
-var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*StartCliLoginRequest)(nil),           // 0: gitslice.core.v1.StartCliLoginRequest
 	(*StartCliLoginResponse)(nil),          // 1: gitslice.core.v1.StartCliLoginResponse
@@ -690,6 +826,8 @@ var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*CheckUsernameAvailableResponse)(nil), // 9: gitslice.core.v1.CheckUsernameAvailableResponse
 	(*ChooseUsernameRequest)(nil),          // 10: gitslice.core.v1.ChooseUsernameRequest
 	(*ChooseUsernameResponse)(nil),         // 11: gitslice.core.v1.ChooseUsernameResponse
+	(*RegisterAgentRequest)(nil),           // 12: gitslice.core.v1.RegisterAgentRequest
+	(*RegisterAgentResponse)(nil),          // 13: gitslice.core.v1.RegisterAgentResponse
 }
 var file_proto_core_v1_auth_proto_depIdxs = []int32{
 	0,  // 0: gitslice.core.v1.AuthService.StartCliLogin:input_type -> gitslice.core.v1.StartCliLoginRequest
@@ -698,14 +836,16 @@ var file_proto_core_v1_auth_proto_depIdxs = []int32{
 	6,  // 3: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
 	8,  // 4: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
 	10, // 5: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
-	1,  // 6: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
-	3,  // 7: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
-	5,  // 8: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
-	7,  // 9: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
-	9,  // 10: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
-	11, // 11: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
-	6,  // [6:12] is the sub-list for method output_type
-	0,  // [0:6] is the sub-list for method input_type
+	12, // 6: gitslice.core.v1.AuthService.RegisterAgent:input_type -> gitslice.core.v1.RegisterAgentRequest
+	1,  // 7: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
+	3,  // 8: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
+	5,  // 9: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
+	7,  // 10: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
+	9,  // 11: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
+	11, // 12: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
+	13, // 13: gitslice.core.v1.AuthService.RegisterAgent:output_type -> gitslice.core.v1.RegisterAgentResponse
+	7,  // [7:14] is the sub-list for method output_type
+	0,  // [0:7] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -722,7 +862,7 @@ func file_proto_core_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_auth_proto_rawDesc), len(file_proto_core_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

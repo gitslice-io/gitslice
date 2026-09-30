@@ -44,6 +44,10 @@ type backend struct {
 	personalAccounts map[string]string
 	sessions         map[string]string
 	cliLoginSessions map[string]cliLoginSession
+	// apiKeys maps a hashed API key to its owning subject.
+	apiKeys map[string]string
+	// agentRegistrations maps an agent subject id to its registration.
+	agentRegistrations map[string]agentRegistration
 
 	blobs      map[string]*corev1.BlobRecord
 	blobSlices map[string]map[string]struct{}
@@ -93,6 +97,12 @@ type cliLoginSession struct {
 	expiresAt    time.Time
 }
 
+type agentRegistration struct {
+	account    string
+	ownerEmail string
+	createdAt  time.Time
+}
+
 type AuthStore struct{ b *backend }
 type BlobStore struct{ b *backend }
 type ChangesetStore struct{ b *backend }
@@ -108,6 +118,8 @@ func New() *Stores {
 		personalAccounts:        map[string]string{},
 		sessions:                map[string]string{},
 		cliLoginSessions:        map[string]cliLoginSession{},
+		apiKeys:                 map[string]string{},
+		agentRegistrations:      map[string]agentRegistration{},
 		blobs:                   map[string]*corev1.BlobRecord{},
 		blobSlices:              map[string]map[string]struct{}{},
 		objects:                 map[string][]byte{},
@@ -629,10 +641,56 @@ func (b *backend) accountSlugTakenLocked(accountSlug string) bool {
 	return false
 }
 
+func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentInput) (*storage.RegisteredAgent, error) {
+	username, err := normalizeSignupUsername(in.Username)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", storage.ErrInvalid, err)
+	}
+	ownerEmail, err := storage.NormalizeOwnerEmail(in.OwnerEmail)
+	if err != nil {
+		return nil, err
+	}
+	displayName := strings.TrimSpace(in.DisplayName)
+	if displayName == "" {
+		displayName = username
+	}
+	subjectID, err := objectid.RandomID("agent")
+	if err != nil {
+		return nil, err
+	}
+	token, err := objectid.RandomID(strings.TrimSuffix(storage.APIKeyPrefix, "_"))
+	if err != nil {
+		return nil, err
+	}
+
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.b.accountSlugTakenLocked(username) {
+		return nil, fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
+	}
+	s.b.provisionPersonalAccountLocked(subjectID, username, displayName)
+	s.b.agentRegistrations[subjectID] = agentRegistration{
+		account:    username,
+		ownerEmail: ownerEmail,
+		createdAt:  time.Now().UTC(),
+	}
+	s.b.apiKeys[memoryTokenHash(token)] = subjectID
+	return &storage.RegisteredAgent{SubjectID: subjectID, Account: username, APIKey: token}, nil
+}
+
 func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*storage.Subject, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	subjectID := s.b.sessions[strings.TrimSpace(token)]
+	token = strings.TrimSpace(token)
+	if strings.HasPrefix(token, storage.APIKeyPrefix) {
+		subjectID := s.b.apiKeys[memoryTokenHash(token)]
+		if subjectID == "" {
+			return nil, storage.ErrUnauthenticated
+		}
+		subject := s.b.subjects[subjectID]
+		return &subject, nil
+	}
+	subjectID := s.b.sessions[token]
 	if subjectID == "" {
 		return nil, storage.ErrUnauthenticated
 	}

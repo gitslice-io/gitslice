@@ -149,6 +149,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Checks:     db.Checks(),
 	}
 	handlers := service.New(stores, objectStore, tracker)
+	handlers.Auth.AgentSignupEnabled = cfg.AgentSignupEnabled
 	if handlers.Agent != nil {
 		go handlers.Agent.RunCheckDispatchSweep(ctx)
 	}
@@ -385,6 +386,7 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 		cfg = cfgs[0]
 	}
 	grpcLimiter := newGRPCRateLimiter(cfg)
+	signupLimiter := newAgentSignupLimiter(cfg)
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
@@ -392,7 +394,7 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 			MinTime:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
-		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve), grpcRateLimitUnaryInterceptor(grpcLimiter)),
+		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve), grpcRateLimitUnaryInterceptor(grpcLimiter), agentSignupUnaryInterceptor(signupLimiter)),
 		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(resolve), grpcRateLimitStreamInterceptor(grpcLimiter)),
 	)
 	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)
@@ -451,6 +453,7 @@ func authInterceptor(resolve subjectResolver) grpc.UnaryServerInterceptor {
 func isPublicMethod(method string) bool {
 	return method == "/gitslice.core.v1.AuthService/StartCliLogin" ||
 		method == "/gitslice.core.v1.AuthService/PollCliLogin" ||
+		method == agentSignupMethod ||
 		strings.HasPrefix(method, "/grpc.health.v1.Health/")
 }
 

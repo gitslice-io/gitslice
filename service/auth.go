@@ -15,6 +15,9 @@ import (
 type AuthService struct {
 	Auth      storage.AuthStore
 	Analytics analytics.Client
+	// AgentSignupEnabled gates the unauthenticated RegisterAgent RPC. Off by
+	// default; see design/20_agent_signup_and_claim.md.
+	AgentSignupEnabled bool
 }
 
 func (s *AuthService) StartCliLogin(ctx context.Context, req *corev1.StartCliLoginRequest) (*corev1.StartCliLoginResponse, error) {
@@ -90,6 +93,30 @@ func (s *AuthService) ChooseUsername(ctx context.Context, req *corev1.ChooseUser
 		return nil, grpcError(err)
 	}
 	return &corev1.ChooseUsernameResponse{SubjectId: subjectID, Account: account}, nil
+}
+
+// RegisterAgent is unauthenticated: it creates a new agent subject rather than
+// acting as an existing one. The server applies a dedicated per-IP limit.
+func (s *AuthService) RegisterAgent(ctx context.Context, req *corev1.RegisterAgentRequest) (*corev1.RegisterAgentResponse, error) {
+	if !s.AgentSignupEnabled {
+		return nil, status.Error(codes.FailedPrecondition, "agent sign-up is disabled on this server")
+	}
+	agent, err := s.Auth.RegisterAgent(ctx, storage.RegisterAgentInput{
+		Username:    req.GetUsername(),
+		OwnerEmail:  req.GetOwnerEmail(),
+		DisplayName: req.GetDisplayName(),
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if s.Analytics != nil {
+		s.Analytics.Capture(ctx, analytics.Event{Name: analytics.EventAgentRegistered, DistinctID: agent.SubjectID})
+	}
+	return &corev1.RegisterAgentResponse{
+		SubjectId: agent.SubjectID,
+		Account:   agent.Account,
+		ApiKey:    agent.APIKey,
+	}, nil
 }
 
 func requireSubject(ctx context.Context) (string, error) {

@@ -11,6 +11,10 @@ service AuthService {
   rpc GetAuthStatus(GetAuthStatusRequest) returns (GetAuthStatusResponse);
   rpc CheckUsernameAvailable(CheckUsernameAvailableRequest) returns (CheckUsernameAvailableResponse);
   rpc ChooseUsername(ChooseUsernameRequest) returns (ChooseUsernameResponse);
+  // RegisterAgent self-registers an agent with its own personal account and
+  // returns a long-lived API key. Unauthenticated; disabled unless the server
+  // sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
+  rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
 }
 
 message StartCliLoginRequest {}
@@ -72,4 +76,21 @@ message ChooseUsernameResponse {
   string subject_id = 1;
   // The chosen personal account slug.
   string account = 2;
+}
+
+message RegisterAgentRequest {
+  // Desired username; same rules as ChooseUsername.
+  string username = 1;
+  // Email of the human who may later claim co-ownership. Required. Not verified
+  // at registration; a claim requires a verified sign-in with this address.
+  string owner_email = 2;
+  // Optional human-readable name, e.g. "release-bot". Defaults to username.
+  string display_name = 3;
+}
+
+message RegisterAgentResponse {
+  string subject_id = 1;
+  string account = 2;
+  // Plaintext API key ("gsk_..."). Returned only once; the server keeps a hash.
+  string api_key = 3;
 }

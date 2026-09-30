@@ -767,7 +767,8 @@ func (ts *testRPCServer) start(t *testing.T) {
 				PublicKeyPEM: ts.servicePub,
 				Issuer:       servicetoken.DefaultIssuer,
 			},
-			RunMigrations: true,
+			RunMigrations:      true,
+			AgentSignupEnabled: true,
 		})
 	}()
 	waitForHealth(t, ts.addr)
