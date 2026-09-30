@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent
+} from "react";
 import { createPortal } from "react-dom";
 
 export interface ActionMenuItem {
@@ -27,6 +34,77 @@ export function ActionMenu({
   const [coords, setCoords] = useState<MenuCoords>({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+
+  // The menu is portaled to <body>, so Tab from the trigger never reaches it.
+  // Follow the WAI-ARIA menu button pattern instead: focus moves into the menu
+  // when it opens, arrow keys move between items, and closing returns focus
+  // to the trigger.
+  function menuItems() {
+    return Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not(:disabled)'
+      ) ?? []
+    );
+  }
+
+  function focusItem(target: "first" | "last" | "next" | "previous") {
+    const enabled = menuItems();
+    if (enabled.length === 0) {
+      return;
+    }
+    const current = enabled.indexOf(document.activeElement as HTMLButtonElement);
+    const index =
+      target === "first"
+        ? 0
+        : target === "last"
+          ? enabled.length - 1
+          : target === "next"
+            ? (current + 1) % enabled.length
+            : (current - 1 + enabled.length) % enabled.length;
+    enabled[index]?.focus({ preventScroll: true });
+  }
+
+  function closeMenu() {
+    // Only take focus back if it was inside the menu; an outside click has
+    // already put it where the user wants it.
+    if (menuRef.current?.contains(document.activeElement)) {
+      triggerRef.current?.focus({ preventScroll: true });
+    }
+    setOpen(false);
+  }
+
+  function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        focusItem("next");
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        focusItem("previous");
+        break;
+      case "Home":
+        event.preventDefault();
+        focusItem("first");
+        break;
+      case "End":
+        event.preventDefault();
+        focusItem("last");
+        break;
+      case "Tab":
+        // Refocus the trigger and let the browser's default Tab move on from
+        // there, so focus continues in normal page order.
+        closeMenu();
+        break;
+    }
+  }
+
+  useEffect(() => {
+    if (open) {
+      focusItem("first");
+    }
+  }, [open]);
 
   // Position the menu as a viewport-fixed element anchored to the trigger, so it
   // is never clipped by an overflow:auto ancestor (e.g. the directory table's
@@ -77,16 +155,16 @@ export function ActionMenu({
       }
     }
 
-    function onKeyDown(event: KeyboardEvent) {
+    function onKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === "Escape") {
-        setOpen(false);
+        closeMenu();
       }
     }
 
     // Any scroll (incl. inner scroll panes, capture phase) or resize would leave
     // the fixed menu detached from its trigger — just close it.
     function onReflow() {
-      setOpen(false);
+      closeMenu();
     }
 
     document.addEventListener("mousedown", onMouseDown);
@@ -105,11 +183,18 @@ export function ActionMenu({
   return (
     <>
       <button
+        aria-controls={open ? menuId : undefined}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={label}
         className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-lg font-semibold leading-none text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
         onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" && !open) {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
         ref={triggerRef}
         type="button"
       >
@@ -118,7 +203,10 @@ export function ActionMenu({
       {open
         ? createPortal(
             <div
+              aria-label={label}
               className="fixed z-50 max-h-[60vh] min-w-36 max-w-[calc(100vw-1rem)] overflow-auto rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-1 shadow-lg shadow-slate-900/10"
+              id={menuId}
+              onKeyDown={onMenuKeyDown}
               ref={menuRef}
               role="menu"
               style={{ top: coords.top, left: coords.left }}
@@ -136,8 +224,10 @@ export function ActionMenu({
                     disabled={item.disabled}
                     key={item.label}
                     onClick={() => {
+                      // Close (and refocus the trigger) before onSelect, so a
+                      // dialog it opens keeps the focus it takes.
+                      closeMenu();
                       item.onSelect();
-                      setOpen(false);
                     }}
                     role="menuitem"
                     title={item.title}

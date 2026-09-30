@@ -34,6 +34,20 @@ function isPostHogEnabled() {
   );
 }
 
+// Analytics is not needed to render or to answer the first interactions, so
+// the first load waits until the browser is idle instead of competing with
+// hydration (posthog-js is ~220 kB and then pulls in its recorder and surveys
+// scripts). Calls made before then queue behind this promise; none are dropped.
+function whenIdle(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(() => resolve(), { timeout: 3000 });
+    } else {
+      setTimeout(resolve, 1500);
+    }
+  });
+}
+
 async function loadPostHog(): Promise<PostHogClient | undefined> {
   if (!isPostHogEnabled()) {
     return undefined;
@@ -45,7 +59,7 @@ async function loadPostHog(): Promise<PostHogClient | undefined> {
   }
 
   try {
-    posthogModulePromise ??= import("posthog-js");
+    posthogModulePromise ??= whenIdle().then(() => import("posthog-js"));
     const { default: posthog } = await posthogModulePromise;
 
     if (!initialized) {
