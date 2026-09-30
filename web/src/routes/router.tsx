@@ -81,7 +81,9 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
         sizes: "180x180",
         href: "/apple-touch-icon.png"
       },
-      { rel: "manifest", href: "/site.webmanifest" }
+      { rel: "manifest", href: "/site.webmanifest" },
+      // Plain-text guide for agents: install gs and sign up without a browser.
+      { rel: "alternate", type: "text/plain", title: "llms.txt", href: "/llms.txt" }
     ]
   }),
   shellComponent: RootDocument,

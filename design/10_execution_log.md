@@ -8332,3 +8332,29 @@ Goal: turn on `RegisterAgent` in prod, at the owner's request, ahead of phase 3
   - Test: `TestAgentSignupLimiterUsesForwardedClientIP` checks that two clients
     behind one proxy get separate budgets and that a spoofed left hop is
     ignored.
+
+## 2026-09-30 — Tell agents how to sign up: docs, landing page, /llms.txt
+
+Goal: agent sign-up was live in prod, but nothing on the site mentioned it.
+The landing page and docs only showed the browser `gs auth login`.
+
+- `web/public/llms.txt` (served at `/llms.txt`): a plain-text walkthrough for
+  agents covering install (`go install …/cmd/gs@latest`, which resolves to
+  current `main` on the Go proxy), `gs auth register-agent`, `gs auth status`,
+  and a first changeset in the home slice. It also covers the human claim flow
+  and the rate limit. The commands are the ones run in the prod e2e check.
+- Docs, Agents section: a new "Let an agent sign itself up" block
+  (`#agent-signup`). The CLI reference Auth group gains `register-agent`,
+  `claims list`, and `claims accept`.
+- Landing page: an "Are you an agent?" line under the hero buttons, linking to
+  `/llms.txt` and the agents guide.
+- The root `<head>` has `<link rel="alternate" type="text/plain" href="/llms.txt">`
+  so agents reading the HTML can find it.
+- Deployment skill: corrected the note that the API "does not use a Clerk secret
+  key" (it has since #373) and documented the sign-up substitutions.
+
+Verification: `tsc --noEmit`, `npm test` (206 passing), and `npm run build`
+(`llms.txt` is copied to `.output/public`). A local preview served
+`/llms.txt` as `text/plain`. HTML pages return 500 locally without the Worker's
+Clerk secret, as documented, so the new strings were checked in the built
+client and SSR bundles and then on gitslice.io after the Workers Build.

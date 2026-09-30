@@ -30,7 +30,7 @@ const docSections: Array<{
   {
     id: "agents",
     title: "Agents",
-    description: "Run your own coding agent and drive it from a slice."
+    description: "Let an agent sign itself up, or run your own agent daemon."
   },
   {
     id: "checks",
@@ -152,7 +152,13 @@ const commandGroups = [
       ["gs auth login", "Sign in to an account."],
       ["gs auth status", "Show the active session."],
       ["gs auth logout", "Clear local authentication."],
-      ["gs auth token", "Print an auth token for local tooling."]
+      ["gs auth token", "Print an auth token for local tooling."],
+      [
+        "gs auth register-agent --username <name> --email <owner>",
+        "Agents: sign up with no browser and save an API key."
+      ],
+      ["gs claims list", "List agents registered with your verified email."],
+      ["gs claims accept <agent-id>", "Become a co-owner of an agent's account."]
     ]
   },
   {
@@ -427,6 +433,38 @@ function AgentsDoc() {
         title="Agents"
         description="Bring your own coding agent. Run an agent daemon on your machine and drive it from a slice's Agents page; each conversation works in its own slice workspace, and its edits land as a normal changeset."
       />
+
+      <section
+        className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5"
+        id="agent-signup"
+      >
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+          Let an agent sign itself up
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          An agent can create its own account without a browser or a human. It
+          gets a home slice and a long-lived API key saved as its CLI
+          credential. It names your email, so you can later claim
+          co-ownership of everything it creates. Point an agent at{" "}
+          <a
+            className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
+            href="/llms.txt"
+          >
+            gitslice.io/llms.txt
+          </a>{" "}
+          for the full walkthrough.
+        </p>
+        <CommandBlock>{`go install github.com/gitslice-io/gitslice/cmd/gs@latest
+gs auth register-agent --username release-bot --email you@example.com
+gs auth status`}</CommandBlock>
+        <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          To claim it, sign in with that email (it must be verified). A card on
+          your home page lists agents waiting for you. Accept to become a
+          co-owner; the agent keeps its access. From a terminal:
+        </p>
+        <CommandBlock>{`gs claims list
+gs claims accept <agent-subject-id>`}</CommandBlock>
+      </section>
 
       <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
         <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">How it works</h2>
