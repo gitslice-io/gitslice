@@ -252,8 +252,9 @@ function CommandBlock({ children }: { children: string }) {
       <pre className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 px-3 py-2 pr-12 font-mono text-xs leading-5 text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
         <code className="whitespace-pre">{children}</code>
       </pre>
+      {/* Small enough to sit inside a one-line block. */}
       <CopyButton
-        className="absolute right-2 top-2"
+        className="absolute right-1.5 top-1.5 min-h-7 px-1.5"
         compact
         label="command"
         text={children}

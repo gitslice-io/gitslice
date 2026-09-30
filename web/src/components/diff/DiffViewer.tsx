@@ -923,7 +923,7 @@ function ExpandSeparator({
   return (
     <span
       className={cn(
-        "flex w-full items-center justify-center gap-3 border-y border-slate-100 dark:border-zinc-800 bg-sky-50/70 px-4 py-1 font-mono text-xs text-sky-700 dark:text-sky-300 first:border-t-0",
+        "flex w-full items-center justify-center gap-3 border-y border-slate-100 dark:border-zinc-800 bg-sky-50/70 dark:bg-sky-950/30 px-4 py-1 font-mono text-xs text-sky-700 dark:text-sky-300 first:border-t-0",
         className
       )}
     >
