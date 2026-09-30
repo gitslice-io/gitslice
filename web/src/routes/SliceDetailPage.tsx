@@ -18,10 +18,10 @@ import { PageHeader } from "../components/PageHeader";
 import {
   SliceLoadingBlock,
   SliceNotice,
-  SlicePageHeader,
   SlicePanel,
   sliceDisplayName,
 } from "../components/slices/SlicePageParts";
+import { imageMimeTypeFromPath } from "../components/source/ImageViewer";
 import {
   decodeBase64File,
   entryKindLabel,
@@ -198,6 +198,14 @@ export function SliceDetailPage() {
     queryFn: () =>
       api.readFile({ commitId, path: selectedPath, slice: sliceRef }),
   });
+  const fileData = fileQuery.data?.data ?? "";
+  const fileContent = useMemo(
+    () =>
+      imageMimeTypeFromPath(selectedPath)
+        ? ""
+        : decodeBase64File(fileData),
+    [fileData, selectedPath],
+  );
 
   function selectPath(path: string) {
     if (!sliceRouteParams) {
@@ -268,7 +276,16 @@ export function SliceDetailPage() {
   if (sliceQuery.isError) {
     return (
       <section className="mx-auto w-full max-w-[100rem]">
-        <SlicePageHeader title="Slice Home" />
+        <PageHeader
+          breadcrumb={
+            <Breadcrumb
+              items={[
+                { label: "Home", to: "/" },
+                { label: sliceRouteKey || "Unknown slice" },
+              ]}
+            />
+          }
+        />
         <div className="mt-8">
           <SliceAccessNotice
             error={sliceQuery.error}
@@ -283,7 +300,16 @@ export function SliceDetailPage() {
   if (!slice) {
     return (
       <section className="mx-auto w-full max-w-[100rem]">
-        <SlicePageHeader title="Slice Home" />
+        <PageHeader
+          breadcrumb={
+            <Breadcrumb
+              items={[
+                { label: "Home", to: "/" },
+                { label: sliceRouteKey || "Unknown slice" },
+              ]}
+            />
+          }
+        />
         <div className="mt-8">
           <SliceNotice title="Slice not found">
             No slice was returned for {sliceRouteKey || "unknown"}.
@@ -423,8 +449,8 @@ export function SliceDetailPage() {
               directoryEntries={currentEntries}
               directoryError={directoryQuery.error}
               entry={entry}
-              fileContent={decodeBase64File(fileQuery.data?.data)}
-              fileData={fileQuery.data?.data ?? ""}
+              fileContent={fileContent}
+              fileData={fileData}
               fileError={fileQuery.error}
               includedPaths={includedPaths}
               isDirectoryLoading={directoryQuery.isPending}

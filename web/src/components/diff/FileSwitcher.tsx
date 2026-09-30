@@ -14,10 +14,12 @@ interface MobileFileSwitcherProps {
 interface FilePickerSheetProps {
   activeId?: string;
   files: DiffFile[];
+  loadedFileIds?: Set<string>;
   onClose(): void;
   onSelectFile(id: string): void;
   totalAdditions: number;
   totalDeletions: number;
+  totalsArePartial?: boolean;
 }
 
 export function MobileFileSwitcher({
@@ -88,10 +90,12 @@ export function MobileFileSwitcher({
 export function FilePickerSheet({
   activeId,
   files,
+  loadedFileIds,
   onClose,
   onSelectFile,
   totalAdditions,
-  totalDeletions
+  totalDeletions,
+  totalsArePartial = false
 }: FilePickerSheetProps) {
   const [entered, setEntered] = useState(false);
 
@@ -171,6 +175,9 @@ export function FilePickerSheet({
               <span className="text-emerald-700 dark:text-emerald-300">+{totalAdditions}</span>
               <span className="text-slate-300 dark:text-zinc-500">/</span>
               <span className="text-rose-700 dark:text-rose-300">-{totalDeletions}</span>
+              {totalsArePartial ? (
+                <span className="font-sans text-slate-400 dark:text-zinc-500">so far</span>
+              ) : null}
             </div>
           </div>
           <button
@@ -186,6 +193,7 @@ export function FilePickerSheet({
           <ChangedFilesTree
             activeId={activeId}
             files={files}
+            loadedFileIds={loadedFileIds}
             onSelect={handleSelectFile}
             scrollClassName="max-h-none overflow-visible"
           />

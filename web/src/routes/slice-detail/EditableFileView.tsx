@@ -15,6 +15,7 @@ import {
 } from "../../components/source/ImageViewer";
 import { SourceCodeViewer } from "../../components/source/SourceCodeViewer";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
+import { shortHash } from "../../lib/objectId";
 import { canModifyPath, joinRepositoryPath } from "./DirectoryHeader";
 
 const TOP_LEVEL_SLICE_FOLDER_TITLE =
@@ -103,7 +104,7 @@ export function EditableFileView({
               <p className="mt-1 hidden text-xs text-slate-500 dark:text-zinc-400 sm:block">
                 Commit{" "}
                 <span className="font-mono text-slate-700 dark:text-zinc-300" title={commitId}>
-                  {commitId.slice(0, 8)}
+                  {shortHash(commitId)}
                 </span>
               </p>
             </div>

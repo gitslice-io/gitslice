@@ -12,18 +12,28 @@ import {
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { RpcError } from "../../api/errors";
 import { ChecksPanel } from "./ChecksPanel";
 
 const apiMock = vi.hoisted(() => ({
   current: {} as Record<string, unknown>
 }));
 
+const authMock = vi.hoisted(() => ({
+  current: { isLoaded: true, isSignedIn: true }
+}));
+
 vi.mock("../../api/useApi", () => ({
   useApi: () => apiMock.current
 }));
 
+vi.mock("@clerk/tanstack-react-start", () => ({
+  useAuth: () => authMock.current
+}));
+
 describe("ChecksPanel", () => {
   beforeEach(() => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
     apiMock.current = {
       listCheckRuns: vi.fn().mockResolvedValue({
         runs: [
@@ -116,6 +126,51 @@ describe("ChecksPanel", () => {
       expect(apiMock.current.listCheckRuns).toHaveBeenCalledTimes(2)
     );
   });
+
+  it("does not request or render checks for signed-out viewers", () => {
+    authMock.current = { isLoaded: true, isSignedIn: false };
+
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    expect(apiMock.current.listCheckRuns).not.toHaveBeenCalled();
+    expect(screen.queryByText("Checks")).not.toBeInTheDocument();
+  });
+
+  it.each([401, 403])("hides access errors with status %i", async (status) => {
+    apiMock.current = {
+      listCheckRuns: vi.fn().mockRejectedValue(
+        new RpcError(status, { message: "no access" })
+      ),
+      rerunCheck: vi.fn(),
+      streamCheckRun: vi.fn(async function* () {})
+    };
+
+    const { queryClient } = renderRoute(
+      <ChecksPanel changesetId="cs_1" patchsetId="ps_2" />
+    );
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryState(["checkRuns", "cs_1", "ps_2"])?.status
+      ).toBe("error")
+    );
+    expect(screen.queryByText("no access")).not.toBeInTheDocument();
+    expect(screen.queryByText("Checks")).not.toBeInTheDocument();
+  });
+
+  it("still shows other errors", async () => {
+    apiMock.current = {
+      listCheckRuns: vi.fn().mockRejectedValue(
+        new RpcError(500, { message: "checks backend down" })
+      ),
+      rerunCheck: vi.fn(),
+      streamCheckRun: vi.fn(async function* () {})
+    };
+
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    expect(await screen.findByText("checks backend down")).toBeInTheDocument();
+  });
 });
 
 function renderRoute(element: ReactElement) {
@@ -126,7 +181,10 @@ function renderRoute(element: ReactElement) {
     }
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>{element}</QueryClientProvider>
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>{element}</QueryClientProvider>
+    ),
+    queryClient
+  };
 }

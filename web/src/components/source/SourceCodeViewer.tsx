@@ -19,6 +19,9 @@ interface HighlightState {
 
 type MarkdownViewMode = "preview" | "raw";
 
+const largeFileCharacterLimit = 200000;
+const largeFileLineLimit = 5000;
+
 export function SourceCodeViewer({
   code,
   fill = false,
@@ -27,6 +30,8 @@ export function SourceCodeViewer({
   const language = useMemo(() => languageFromPath(path), [path]);
   const isMarkdown = language === "markdown";
   const lineCount = useMemo(() => (code ? code.split(/\r\n|\r|\n/).length : 0), [code]);
+  const isLargeFile =
+    code.length > largeFileCharacterLimit || lineCount > largeFileLineLimit;
   const [markdownViewMode, setMarkdownViewMode] =
     useState<MarkdownViewMode>("preview");
   const [highlight, setHighlight] = useState<HighlightState>({
@@ -35,12 +40,13 @@ export function SourceCodeViewer({
     error: ""
   });
   const shouldRenderRaw = !isMarkdown || markdownViewMode === "raw";
+  const shouldHighlight = shouldRenderRaw && !isLargeFile;
 
   useEffect(() => {
     let active = true;
 
     async function highlightCode() {
-      if (!shouldRenderRaw) {
+      if (!shouldHighlight) {
         setHighlight({ html: "", isLoading: false, error: "" });
         return;
       }
@@ -67,7 +73,7 @@ export function SourceCodeViewer({
     return () => {
       active = false;
     };
-  }, [code, language, shouldRenderRaw]);
+  }, [code, language, shouldHighlight]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
@@ -81,7 +87,11 @@ export function SourceCodeViewer({
             />
           ) : null}
           <div className="flex items-center gap-3">
-            {shouldRenderRaw && highlight.isLoading && code ? (
+            {shouldRenderRaw && isLargeFile ? (
+              <span className="text-slate-400 dark:text-zinc-500">
+                Highlighting off for large files
+              </span>
+            ) : shouldHighlight && highlight.isLoading && code ? (
               <span className="text-slate-400 dark:text-zinc-500">highlighting…</span>
             ) : null}
             <span>{language}</span>

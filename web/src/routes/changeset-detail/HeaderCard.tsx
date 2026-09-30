@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 
 import type { Changeset } from "../../api/types";
 import { cn } from "../../lib/cn";
-import { shortChangesetId } from "../../lib/objectId";
+import { shortChangesetId, shortHash } from "../../lib/objectId";
 import { displaySubmitBlockedReason } from "../stackPageUtils";
 import { isMergeableStatus, isPublishing } from "./status";
 import { StatusBadge } from "./StatusBadge";
@@ -139,7 +139,7 @@ export function HeaderCard({
                   className="mt-3 font-mono text-xs text-slate-500 dark:text-zinc-400 md:mt-4"
                   title={changeset.baseCommitId}
                 >
-                  base {changeset.baseCommitId.slice(0, 12)}
+                  base {shortHash(changeset.baseCommitId)}
                 </p>
               ) : null}
             </div>

@@ -205,8 +205,11 @@ export function decodeBase64File(data: string | undefined) {
   }
 
   try {
-    const binary = window.atob(data);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const binary = globalThis.atob(data);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
     return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   } catch {
     return data;
