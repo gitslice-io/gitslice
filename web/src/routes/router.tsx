@@ -5,6 +5,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   useRouter
 } from "@tanstack/react-router";
 import {
@@ -15,15 +16,19 @@ import {
   type DehydratedState
 } from "@tanstack/react-query";
 import { useAuth } from "@clerk/tanstack-react-start";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
 import appCss from "../index.css?url";
 import { PostHogProvider } from "../analytics/PostHogProvider";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
 import { RpcError } from "../api/errors";
 import {
+  accountSlicesQuery,
   authStatusQuery,
   dependentCandidatesQuery,
+  ownedAgentsQuery,
+  pendingClaimsQuery,
+  recentConversationsQuery,
   sliceChangesetsQuery
 } from "../api/queries";
 import {
@@ -35,39 +40,128 @@ import {
   isSliceProjectionDirectoryPath,
   listDirectoryAll
 } from "../components/source/sourceUtils";
+import { NavigationProgress } from "../components/NavigationProgress";
 import { initialTreeExpansion, pathSearchValue } from "./slice-detail/sourceTree";
-import { RequireAuth } from "../auth/RequireAuth";
-import { AppShell } from "../components/AppShell";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
-import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
-import { BlogListPage } from "./BlogListPage";
-import { BlogPostPage } from "./BlogPostPage";
-import { ChangesetDetailPage } from "./ChangesetDetailPage";
 import {
   FULL_DIFF_PATH_LIMIT,
   changedPathsForDiff,
   sortedPatchsets
 } from "./changeset-detail/patchsetUtils";
-import { ChangesetsPage } from "./ChangesetsPage";
-import { ChooseUsernamePage } from "./ChooseUsernamePage";
-import { CliLoginPage } from "./CliLoginPage";
-import { ClaimsPage } from "./ClaimsPage";
-import { ConversationsPage } from "./ConversationsPage";
-import { DocPage } from "./DocPage";
-import { HomePage } from "./HomePage";
-import { LandingPage } from "./LandingPage";
-import { LoginPage } from "./LoginPage";
-import { SliceCreatePage } from "./SliceCreatePage";
-import { SliceAgentsPage } from "./SliceAgentsPage";
-import { SliceDetailPage } from "./SliceDetailPage";
-import { SliceSettingsPage } from "./SliceSettingsPage";
 import { parseSliceSearch } from "./stackPageUtils";
 
 interface RouterContext {
   getDehydratedQueryState: () => DehydratedState | undefined;
   queryClient: QueryClient;
 }
+
+const BlogListPage = lazyRouteComponent(
+  () => import("./BlogListPage"),
+  "BlogListPage"
+);
+const BlogPostPage = lazyRouteComponent(
+  () => import("./BlogPostPage"),
+  "BlogPostPage"
+);
+const ChangesetDetailPage = lazyRouteComponent(
+  () => import("./ChangesetDetailPage"),
+  "ChangesetDetailPage"
+);
+const ChangesetsPage = lazyRouteComponent(
+  () => import("./ChangesetsPage"),
+  "ChangesetsPage"
+);
+const CliLoginPage = lazyRouteComponent(
+  () => import("./CliLoginPage"),
+  "CliLoginPage"
+);
+const ClaimsPage = lazyRouteComponent(() => import("./ClaimsPage"), "ClaimsPage");
+const ConversationsPage = lazyRouteComponent(
+  () => import("./ConversationsPage"),
+  "ConversationsPage"
+);
+const DocPage = lazyRouteComponent(() => import("./DocPage"), "DocPage");
+const HomePage = lazyRouteComponent(() => import("./HomePage"), "HomePage");
+const LandingPage = lazyRouteComponent(
+  () => import("./LandingPage"),
+  "LandingPage"
+);
+const LoginPage = lazyRouteComponent(() => import("./LoginPage"), "LoginPage");
+const SliceCreatePage = lazyRouteComponent(
+  () => import("./SliceCreatePage"),
+  "SliceCreatePage"
+);
+const SliceAgentsPage = lazyRouteComponent(
+  () => import("./SliceAgentsPage"),
+  "SliceAgentsPage"
+);
+const SliceDetailPage = lazyRouteComponent(
+  () => import("./SliceDetailPage"),
+  "SliceDetailPage"
+);
+const SliceSettingsPage = lazyRouteComponent(
+  () => import("./SliceSettingsPage"),
+  "SliceSettingsPage"
+);
+const AuthedAppLayout = lazyRouteComponent(
+  () => import("./AppLayouts"),
+  "AuthedAppLayout"
+);
+const PublicAppLayout = lazyRouteComponent(
+  () => import("./AppLayouts"),
+  "PublicAppLayout"
+);
+const SignedInHome = lazyRouteComponent(
+  () => import("./AppLayouts"),
+  "SignedInHome"
+);
+
+const DOC_SECTION_TITLES: Record<string, string> = {
+  start: "Start Here",
+  concepts: "Concepts",
+  agents: "Agents",
+  checks: "CI Checks",
+  "git-users": "For Git Users",
+  cli: "CLI Reference"
+};
+
+export function docSectionTitle(section?: string) {
+  const title = section ? DOC_SECTION_TITLES[section] : undefined;
+  return title ? `${title} · Docs · Gitslice` : "Docs · Gitslice";
+}
+
+export function sliceTitle(account: string, slice: string, path?: unknown) {
+  const selectedPath = pathSearchValue(path);
+  const pathName = selectedPath.split("/").filter(Boolean).pop();
+  const sliceLabel = `${account}:${slice}`;
+  return pathName
+    ? `${pathName} · ${sliceLabel} · Gitslice`
+    : `${sliceLabel} · Gitslice`;
+}
+
+export function changesetTitle(id: string, title?: string) {
+  const changesetLabel = `Changeset ${id}`;
+  return title
+    ? `${title} · ${changesetLabel} · Gitslice`
+    : `${changesetLabel} · Gitslice`;
+}
+
+export function hasDehydratedAuthStatus(state: DehydratedState | undefined) {
+  return Boolean(
+    state?.queries.some(
+      (query) =>
+        query.queryKey.length === 1 &&
+        query.queryKey[0] === "authStatus" &&
+        query.state.status === "success"
+    )
+  );
+}
+
+// Client-only: the dehydrated query state from SSR, and whether the index
+// route's first (hydration) preload has run. See IndexPage.preload.
+let clientDehydratedQueryState: DehydratedState | undefined;
+let indexChunkPreloaded = false;
 
 function createQueryClient() {
   return new QueryClient({
@@ -131,6 +225,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
       </head>
       <body>
+        <NavigationProgress />
         <PostHogProvider />
         <ClerkAuthProvider>
           <QueryClientProvider client={queryClient}>
@@ -148,6 +243,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
+  head: () => ({ meta: [{ title: "Sign in · Gitslice" }] }),
   component: LoginPage
 });
 
@@ -158,12 +254,14 @@ const loginFlowRoute = createRoute({
   // whole flow mounted on the same component instead of treating those paths
   // as application 404s.
   path: "/login/$",
+  head: () => ({ meta: [{ title: "Sign in · Gitslice" }] }),
   component: LoginPage
 });
 
 const cliLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/cli-login",
+  head: () => ({ meta: [{ title: "Authorize the CLI · Gitslice" }] }),
   component: CliLoginPage
 });
 
@@ -180,7 +278,41 @@ const indexRoute = createRoute({
         if (!authState.isAuthenticated) return;
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData(authStatusQuery(api));
+        const authStatus = await context.queryClient.ensureQueryData(
+          authStatusQuery(api)
+        );
+        const account = authStatus.accounts?.[0] ?? "";
+        if (!authStatus.needsUsername && account) {
+          const ownedAgents = context.queryClient.ensureQueryData(
+            ownedAgentsQuery(api)
+          );
+          const prefetches = [
+            ownedAgents.then((agents) => {
+              const agentAccounts = new Set(
+                agents
+                  .map((agent) => agent.account ?? "")
+                  .filter(
+                    (agentAccount) =>
+                      Boolean(agentAccount) && agentAccount !== account
+                  )
+              );
+              return Promise.allSettled(
+                Array.from(agentAccounts, (agentAccount) =>
+                  context.queryClient.ensureQueryData(
+                    accountSlicesQuery(api, agentAccount)
+                  )
+                )
+              );
+            }),
+            context.queryClient.ensureQueryData(pendingClaimsQuery(api)),
+            context.queryClient.ensureQueryData(recentConversationsQuery(api)),
+            context.queryClient.ensureQueryData(accountSlicesQuery(api, account))
+          ];
+          await Promise.race([
+            Promise.allSettled(prefetches),
+            new Promise((resolve) => setTimeout(resolve, 900))
+          ]);
+        }
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -192,22 +324,42 @@ const indexRoute = createRoute({
 function IndexPage() {
   const { isLoaded, isSignedIn } = useAuth();
 
-  if (isLoaded && isSignedIn) {
-    return (
-      <RequireAuth>
-        <SelectionProvider>
-          <UsernameGate>
-            <AppShell>
-              <HomePage />
-            </AppShell>
-          </UsernameGate>
-        </SelectionProvider>
-      </RequireAuth>
-    );
+  const Page = isLoaded && isSignedIn ? SignedInHome : LandingPage;
+
+  return (
+    <Suspense fallback={<SessionLoadingFallback />}>
+      <Page />
+    </Suspense>
+  );
+}
+
+function SessionLoadingFallback() {
+  return (
+    <main className="grid min-h-[100dvh] place-items-center bg-slate-50 dark:bg-zinc-950 p-6 text-sm text-slate-600 dark:text-zinc-400">
+      Loading session...
+    </main>
+  );
+}
+
+// "/" renders one of two lazy chunks depending on auth. They are nested inside
+// the route component, so the router only preloads them through this hook. On
+// the first client call (hydration) load just the chunk the server rendered:
+// the SSR index loader dehydrates authStatus only for signed-in requests, so
+// signed-out visitors never download the app shell or the API client. Later
+// calls (client navigations to "/") load both.
+IndexPage.preload = () => {
+  if (!import.meta.env.SSR && !indexChunkPreloaded) {
+    indexChunkPreloaded = true;
+    const page = hasDehydratedAuthStatus(clientDehydratedQueryState)
+      ? SignedInHome
+      : LandingPage;
+    return page.preload?.() ?? Promise.resolve();
   }
 
-  return <LandingPage />;
-}
+  return Promise.all([LandingPage.preload?.(), SignedInHome.preload?.()]).then(
+    () => undefined
+  );
+};
 
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -228,65 +380,26 @@ const appRoute = createRoute({
       }
     }
   },
-  component: () => (
-    <RequireAuth>
-      <SelectionProvider>
-        <UsernameGate>
-          <AppShell />
-        </UsernameGate>
-      </SelectionProvider>
-    </RequireAuth>
-  )
+  component: AuthedAppLayout
 });
 
 const publicAppRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "publicApp",
-  component: () => (
-    <SelectionProvider>
-      <AppShell />
-    </SelectionProvider>
-  )
+  component: PublicAppLayout
 });
-
-function UsernameGate({ children }: { children: ReactNode }) {
-  const { error, isLoading, needsUsername } = useSelection();
-
-  if (isLoading) {
-    return (
-      <main className="grid min-h-[100dvh] place-items-center bg-slate-50 dark:bg-zinc-950 p-6 text-sm text-slate-600 dark:text-zinc-400">
-        Loading session...
-      </main>
-    );
-  }
-
-  if (error) {
-    return (
-      <main className="grid min-h-[100dvh] place-items-center bg-slate-50 dark:bg-zinc-950 p-6 text-sm text-slate-600 dark:text-zinc-400">
-        <section className="w-full max-w-md rounded-lg border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-zinc-900 p-5 text-rose-900 dark:text-rose-200 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
-          <p className="font-semibold">Could not load session</p>
-          <p className="mt-2 leading-6">{error.message}</p>
-        </section>
-      </main>
-    );
-  }
-
-  if (needsUsername) {
-    return <ChooseUsernamePage />;
-  }
-
-  return <>{children}</>;
-}
 
 const claimsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "claims",
+  head: () => ({ meta: [{ title: "Claim agents · Gitslice" }] }),
   component: ClaimsPage
 });
 
 const conversationsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "conversations",
+  head: () => ({ meta: [{ title: "Conversations · Gitslice" }] }),
   component: ConversationsPage
 });
 
@@ -294,36 +407,48 @@ const conversationsRoute = createRoute({
 const docRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "doc",
+  head: () => ({ meta: [{ title: "Docs · Gitslice" }] }),
   component: DocPage
 });
 
 const docSectionRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "doc/$section",
+  head: ({ params }) => ({ meta: [{ title: docSectionTitle(params.section) }] }),
   component: DocPage
 });
 
 const blogsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "blogs",
+  head: () => ({ meta: [{ title: "Blog · Gitslice" }] }),
   component: BlogListPage
 });
 
 const blogPostRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "blogs/$slug",
+  loader: async ({ params }) => {
+    const { getPost } = await import("./blog/posts");
+    return { title: getPost(params.slug)?.title ?? "" };
+  },
+  head: ({ loaderData }) => ({
+    meta: [{ title: loaderData?.title || "Blog · Gitslice" }]
+  }),
   component: BlogPostPage
 });
 
 const slicesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices",
+  head: () => ({ meta: [{ title: "Slices · Gitslice" }] }),
   component: HomePage
 });
 
 const sliceCreateRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices/new",
+  head: () => ({ meta: [{ title: "New slice · Gitslice" }] }),
   component: SliceCreatePage
 });
 
@@ -337,6 +462,13 @@ const sliceDetailRoute = createRoute({
   path: "slices/$account/$slice",
   loaderDeps: ({ search }) => ({
     path: pathSearchValue((search as { path?: unknown }).path)
+  }),
+  head: ({ match, params }) => ({
+    meta: [
+      {
+        title: sliceTitle(params.account, params.slice, match.loaderDeps.path)
+      }
+    ]
   }),
   loader: async ({ context, deps, params }) => {
     if (import.meta.env.SSR && params.account && params.slice) {
@@ -430,6 +562,13 @@ const sliceDetailRoute = createRoute({
 const sliceSettingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices/$account/$slice/settings",
+  head: ({ params }) => ({
+    meta: [
+      {
+        title: `Settings · ${params.account}:${params.slice} · Gitslice`
+      }
+    ]
+  }),
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR && params.account && params.slice) {
       try {
@@ -459,12 +598,26 @@ const sliceSettingsRoute = createRoute({
 const sliceAgentsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice/agents",
+  head: ({ params }) => ({
+    meta: [
+      {
+        title: `Conversations · ${params.account}:${params.slice} · Gitslice`
+      }
+    ]
+  }),
   component: SliceAgentsPage
 });
 
 const sliceAgentConversationRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice/agents/$conversationId",
+  head: ({ params }) => ({
+    meta: [
+      {
+        title: `Conversations · ${params.account}:${params.slice} · Gitslice`
+      }
+    ]
+  }),
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR && params.conversationId) {
       try {
@@ -491,6 +644,19 @@ const changesetsRoute = createRoute({
   loaderDeps: ({ search }) => ({
     slice: (search as { slice?: unknown }).slice
   }),
+  head: ({ match }) => {
+    const slice = match.loaderDeps.slice;
+    return {
+      meta: [
+        {
+          title:
+            typeof slice === "string" && slice
+              ? `Changesets · ${slice} · Gitslice`
+              : "Changesets · Gitslice"
+        }
+      ]
+    };
+  },
   loader: async ({ context, deps }) => {
     if (import.meta.env.SSR) {
       const sliceRef = parseSliceSearch(deps.slice);
@@ -581,11 +747,15 @@ const changesetShortRoute = createRoute({
               )
             : Promise.resolve(undefined)
         ]);
+        return { title: changeset.title ?? "" };
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
     }
   },
+  head: ({ loaderData, params }) => ({
+    meta: [{ title: changesetTitle(params.id, loaderData?.title) }]
+  }),
   component: ChangesetDetailPage
 });
 
@@ -637,6 +807,9 @@ export function getRouter() {
     },
     hydrate: (dehydrated) => {
       dehydratedQueryState = dehydrated?.queryClient;
+      // Runs before the router preloads route chunks, so IndexPage.preload can
+      // fetch only the chunk the server actually rendered.
+      clientDehydratedQueryState = dehydratedQueryState;
     }
   });
 }
