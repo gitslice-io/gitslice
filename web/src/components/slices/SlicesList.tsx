@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
 
+import { accountSlicesQuery } from "../../api/queries";
 import type { Slice } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { shortHash } from "../../lib/objectId";
@@ -20,8 +21,6 @@ interface SlicesSearch {
   account?: string;
 }
 
-const PAGE_SIZE = 100;
-
 export function SlicesList() {
   const api = useApi();
   const selection = useSelection();
@@ -33,24 +32,33 @@ export function SlicesList() {
   // agents you co-own, so their slices sit next to yours.
   const agentAccounts = explicitAccount
     ? []
-    : ownedAgents.agents
-        .map((agent) => agent.account ?? "")
-        .filter((account) => account && account !== effectiveAccount);
+    : Array.from(
+        new Set(
+          ownedAgents.agents
+            .map((agent) => agent.account ?? "")
+            .filter((account) => account && account !== effectiveAccount)
+        )
+      );
   const accounts = effectiveAccount ? [effectiveAccount, ...agentAccounts] : [];
   const agentAccountSet = new Set(agentAccounts);
 
-  const slicesQuery = useQuery({
-    enabled:
-      accounts.length > 0 && (Boolean(explicitAccount) || !ownedAgents.isLoading),
-    queryKey: ["slices", ...accounts],
-    queryFn: async () => {
-      const perAccount = await Promise.all(
-        accounts.map((account) => listAllSlices(api, account))
-      );
-      return perAccount.flat();
-    }
+  const slicesQueries = useQueries({
+    queries: accounts.map((account) => ({
+      ...accountSlicesQuery(api, account),
+      enabled: Boolean(account)
+    }))
   });
-  const slices = slicesQuery.data ?? [];
+  const ownSlicesQuery = slicesQueries[0];
+  const agentSlicesQueries = slicesQueries.slice(1);
+  const slices = deduplicateSlices(
+    slicesQueries.flatMap((query) => query.data ?? [])
+  );
+  const isLoadingAgentSlices =
+    !explicitAccount &&
+    (ownedAgents.isLoading || agentSlicesQueries.some((query) => query.isPending));
+  const agentSliceErrors = agentAccounts.filter(
+    (_, index) => agentSlicesQueries[index]?.isError
+  );
 
   return (
     <section>
@@ -82,16 +90,22 @@ export function SlicesList() {
           <SliceNotice title="Select an account">
             Your signed-in session did not return a home account.
           </SliceNotice>
-        ) : slicesQuery.isLoading ? (
+        ) : ownSlicesQuery?.isPending ? (
           <SliceLoadingBlock />
-        ) : slicesQuery.isError ? (
+        ) : ownSlicesQuery?.isError ? (
           <SliceNotice title="Could not load slices" tone="error">
-            {getErrorMessage(slicesQuery.error)}
+            {getErrorMessage(ownSlicesQuery.error)}
           </SliceNotice>
         ) : slices.length === 0 ? (
-          <SliceNotice title="No slices returned">
-            The server did not return any slices for this account.
-          </SliceNotice>
+          // Nothing of your own yet: wait for your agents' slices before
+          // concluding the list is empty, rather than flashing an empty table.
+          isLoadingAgentSlices ? (
+            <SliceLoadingBlock />
+          ) : (
+            <SliceNotice title="No slices returned">
+              The server did not return any slices for this account.
+            </SliceNotice>
+          )
         ) : (
           <>
             {/* Mobile: a compact stacked list — a 5-column table collapses to a
@@ -205,6 +219,19 @@ export function SlicesList() {
                 </table>
               </div>
             </div>
+            {isLoadingAgentSlices ? (
+              <p className="mt-3 text-xs text-slate-500 dark:text-zinc-400">
+                Loading your agents&apos; slices…
+              </p>
+            ) : null}
+            {agentSliceErrors.map((account) => (
+              <p
+                className="mt-3 text-xs text-slate-500 dark:text-zinc-400"
+                key={account}
+              >
+                Could not load slices for {account}.
+              </p>
+            ))}
           </>
         )}
       </div>
@@ -212,22 +239,20 @@ export function SlicesList() {
   );
 }
 
-async function listAllSlices(api: ReturnType<typeof useApi>, account: string) {
-  const slices: Slice[] = [];
-  let cursor = "";
+function deduplicateSlices(slices: Slice[]) {
+  const seen = new Set<string>();
 
-  do {
-    const response = await api.listSlices({
-      account,
-      cursor,
-      pageSize: PAGE_SIZE
-    });
+  return slices.filter((slice) => {
+    const key =
+      slice.id ??
+      `${slice.ref?.account ?? ""}:${slice.ref?.slice ?? ""}:${sliceDisplayName(slice)}`;
+    if (seen.has(key)) {
+      return false;
+    }
 
-    slices.push(...(response.slices ?? []));
-    cursor = response.nextCursor ?? "";
-  } while (cursor);
-
-  return slices;
+    seen.add(key);
+    return true;
+  });
 }
 
 function AgentBadge() {
