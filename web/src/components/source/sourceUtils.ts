@@ -1,4 +1,4 @@
-import { RpcError } from "../../api/client";
+import { RpcError } from "../../api/errors";
 import type { ApiClient } from "../../api/useApi";
 import type {
   ListDirectoryResponse,

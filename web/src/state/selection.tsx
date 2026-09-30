@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/tanstack-react-start";
 
+import { authStatusQuery } from "../api/queries";
 import { useApi } from "../api/useApi";
 
 // The "account" is the signed-in user's own account, resolved from the session
@@ -24,9 +25,8 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   const isAuthReady = isLoaded && Boolean(isSignedIn);
   const shouldLoadAuthStatus = isAuthReady;
   const { data, error, isError, isLoading } = useQuery({
-    enabled: shouldLoadAuthStatus,
-    queryKey: ["authStatus"],
-    queryFn: () => api.getAuthStatus({})
+    ...authStatusQuery(api),
+    enabled: shouldLoadAuthStatus
   });
 
   const accounts = data?.accounts ?? [];

@@ -20,7 +20,12 @@ import type { ReactNode } from "react";
 import appCss from "../index.css?url";
 import { PostHogProvider } from "../analytics/PostHogProvider";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
-import { RpcError } from "../api/client";
+import { RpcError } from "../api/errors";
+import {
+  authStatusQuery,
+  dependentCandidatesQuery,
+  sliceChangesetsQuery
+} from "../api/queries";
 import {
   sliceDirectoryQueryKey,
   sliceFileQueryKey,
@@ -38,7 +43,12 @@ import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
 import { BlogListPage } from "./BlogListPage";
 import { BlogPostPage } from "./BlogPostPage";
-import { ChangesetDetailPage, sortedPatchsets } from "./ChangesetDetailPage";
+import { ChangesetDetailPage } from "./ChangesetDetailPage";
+import {
+  FULL_DIFF_PATH_LIMIT,
+  changedPathsForDiff,
+  sortedPatchsets
+} from "./changeset-detail/patchsetUtils";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
 import { CliLoginPage } from "./CliLoginPage";
@@ -170,10 +180,7 @@ const indexRoute = createRoute({
         if (!authState.isAuthenticated) return;
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData({
-          queryKey: ["authStatus"],
-          queryFn: () => api.getAuthStatus({})
-        });
+        await context.queryClient.ensureQueryData(authStatusQuery(api));
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -215,10 +222,7 @@ const appRoute = createRoute({
         if (!authState.isAuthenticated) return;
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData({
-          queryKey: ["authStatus"],
-          queryFn: () => api.getAuthStatus({})
-        });
+        await context.queryClient.ensureQueryData(authStatusQuery(api));
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -495,11 +499,9 @@ const changesetsRoute = createRoute({
           const { createServerApiClient } = await import("../api/serverApi");
           const api = await createServerApiClient();
           const { account, slice } = sliceRef;
-          await context.queryClient.ensureQueryData({
-            queryKey: ["changesets", account, slice],
-            queryFn: () =>
-              api.listChangesets({ authoringSlice: { account, slice } })
-          });
+          await context.queryClient.ensureQueryData(
+            sliceChangesetsQuery(api, account, slice)
+          );
         } catch {
           // The component keeps the existing client-side load/error behavior.
         }
@@ -548,31 +550,35 @@ const changesetShortRoute = createRoute({
               patchsets[patchsets.length - 1]?.id ||
               "";
         const authoringSlice = changeset.authoringSlice;
+        // Past FULL_DIFF_PATH_LIMIT paths the page switches to per-file diffs
+        // and never reads the full diff, so fetching it here would only slow
+        // the response and bloat the HTML with state nobody uses.
+        const usesFullDiff =
+          changedPathsForDiff(
+            patchsets.find((patchset) => patchset.id === fromPatchset),
+            patchsets.find((patchset) => patchset.id === toPatchset)
+          ).length <= FULL_DIFF_PATH_LIMIT;
         await Promise.all([
-          context.queryClient.ensureQueryData({
-            queryKey: [
-              "changesetDiff",
-              canonicalChangesetId,
-              fromPatchset,
-              toPatchset
-            ],
-            queryFn: () =>
-              api.diffChangeset({
-                changesetId: canonicalChangesetId,
-                fromPatchset: fromPatchset || undefined,
-                toPatchset: toPatchset || undefined
-              })
-          }),
-          authoringSlice?.account && authoringSlice?.slice
+          usesFullDiff
             ? context.queryClient.ensureQueryData({
                 queryKey: [
-                  "changesetsBySlice",
-                  authoringSlice.account,
-                  authoringSlice.slice
+                  "changesetDiff",
+                  canonicalChangesetId,
+                  fromPatchset,
+                  toPatchset
                 ],
                 queryFn: () =>
-                  api.listChangesets({ authoringSlice, limit: 200 })
+                  api.diffChangeset({
+                    changesetId: canonicalChangesetId,
+                    fromPatchset: fromPatchset || undefined,
+                    toPatchset: toPatchset || undefined
+                  })
               })
+            : Promise.resolve(undefined),
+          authoringSlice?.account && authoringSlice?.slice
+            ? context.queryClient.ensureQueryData(
+                dependentCandidatesQuery(api, authoringSlice)
+              )
             : Promise.resolve(undefined)
         ]);
       } catch {
