@@ -87,6 +87,14 @@ export function createApiClient({
       unary<Api.CompleteCliLoginResponse>(() =>
         auth.completeCliLogin(toProtoRequest(request))
       ),
+    listPendingClaims: (request) =>
+      unary<Api.ListPendingClaimsResponse>(() =>
+        auth.listPendingClaims(toProtoRequest(request))
+      ),
+    acceptClaim: (request) =>
+      unary<Api.AcceptClaimResponse>(() =>
+        auth.acceptClaim(toProtoRequest(request))
+      ),
     resolvePath: (request) =>
       unary<Api.ResolvePathResponse>(() =>
         repository.resolvePath(toProtoRequest(request))

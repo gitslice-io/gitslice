@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Conversation } from "../api/types";
 import { PageHeader } from "../components/PageHeader";
 import { NewConversationDialog } from "../components/slices/NewConversationDialog";
+import { PendingClaims } from "../components/slices/PendingClaims";
 import { RecentConversations } from "../components/slices/RecentConversations";
 import { SlicesList } from "../components/slices/SlicesList";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
@@ -49,6 +50,7 @@ export function HomePage() {
         open={isCreateOpen}
       />
       <div className="mt-2 grid gap-8">
+        <PendingClaims />
         <RecentConversations />
         <SlicesList />
       </div>

@@ -54,6 +54,11 @@ const (
 	// AuthServiceRegisterAgentProcedure is the fully-qualified name of the AuthService's RegisterAgent
 	// RPC.
 	AuthServiceRegisterAgentProcedure = "/gitslice.core.v1.AuthService/RegisterAgent"
+	// AuthServiceListPendingClaimsProcedure is the fully-qualified name of the AuthService's
+	// ListPendingClaims RPC.
+	AuthServiceListPendingClaimsProcedure = "/gitslice.core.v1.AuthService/ListPendingClaims"
+	// AuthServiceAcceptClaimProcedure is the fully-qualified name of the AuthService's AcceptClaim RPC.
+	AuthServiceAcceptClaimProcedure = "/gitslice.core.v1.AuthService/AcceptClaim"
 )
 
 // AuthServiceClient is a client for the gitslice.core.v1.AuthService service.
@@ -68,6 +73,12 @@ type AuthServiceClient interface {
 	// returns a long-lived API key. Unauthenticated; disabled unless the server
 	// sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
 	RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error)
+	// ListPendingClaims lists agent registrations the caller may claim: unclaimed
+	// agents whose owner email is one of the caller's verified emails.
+	ListPendingClaims(context.Context, *connect.Request[v1.ListPendingClaimsRequest]) (*connect.Response[v1.ListPendingClaimsResponse], error)
+	// AcceptClaim makes the caller an owner of the agent's account. The agent
+	// keeps its own access, so the account becomes co-owned.
+	AcceptClaim(context.Context, *connect.Request[v1.AcceptClaimRequest]) (*connect.Response[v1.AcceptClaimResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the gitslice.core.v1.AuthService service. By
@@ -123,6 +134,18 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("RegisterAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		listPendingClaims: connect.NewClient[v1.ListPendingClaimsRequest, v1.ListPendingClaimsResponse](
+			httpClient,
+			baseURL+AuthServiceListPendingClaimsProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ListPendingClaims")),
+			connect.WithClientOptions(opts...),
+		),
+		acceptClaim: connect.NewClient[v1.AcceptClaimRequest, v1.AcceptClaimResponse](
+			httpClient,
+			baseURL+AuthServiceAcceptClaimProcedure,
+			connect.WithSchema(authServiceMethods.ByName("AcceptClaim")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -135,6 +158,8 @@ type authServiceClient struct {
 	checkUsernameAvailable *connect.Client[v1.CheckUsernameAvailableRequest, v1.CheckUsernameAvailableResponse]
 	chooseUsername         *connect.Client[v1.ChooseUsernameRequest, v1.ChooseUsernameResponse]
 	registerAgent          *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
+	listPendingClaims      *connect.Client[v1.ListPendingClaimsRequest, v1.ListPendingClaimsResponse]
+	acceptClaim            *connect.Client[v1.AcceptClaimRequest, v1.AcceptClaimResponse]
 }
 
 // StartCliLogin calls gitslice.core.v1.AuthService.StartCliLogin.
@@ -172,6 +197,16 @@ func (c *authServiceClient) RegisterAgent(ctx context.Context, req *connect.Requ
 	return c.registerAgent.CallUnary(ctx, req)
 }
 
+// ListPendingClaims calls gitslice.core.v1.AuthService.ListPendingClaims.
+func (c *authServiceClient) ListPendingClaims(ctx context.Context, req *connect.Request[v1.ListPendingClaimsRequest]) (*connect.Response[v1.ListPendingClaimsResponse], error) {
+	return c.listPendingClaims.CallUnary(ctx, req)
+}
+
+// AcceptClaim calls gitslice.core.v1.AuthService.AcceptClaim.
+func (c *authServiceClient) AcceptClaim(ctx context.Context, req *connect.Request[v1.AcceptClaimRequest]) (*connect.Response[v1.AcceptClaimResponse], error) {
+	return c.acceptClaim.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the gitslice.core.v1.AuthService service.
 type AuthServiceHandler interface {
 	StartCliLogin(context.Context, *connect.Request[v1.StartCliLoginRequest]) (*connect.Response[v1.StartCliLoginResponse], error)
@@ -184,6 +219,12 @@ type AuthServiceHandler interface {
 	// returns a long-lived API key. Unauthenticated; disabled unless the server
 	// sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
 	RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error)
+	// ListPendingClaims lists agent registrations the caller may claim: unclaimed
+	// agents whose owner email is one of the caller's verified emails.
+	ListPendingClaims(context.Context, *connect.Request[v1.ListPendingClaimsRequest]) (*connect.Response[v1.ListPendingClaimsResponse], error)
+	// AcceptClaim makes the caller an owner of the agent's account. The agent
+	// keeps its own access, so the account becomes co-owned.
+	AcceptClaim(context.Context, *connect.Request[v1.AcceptClaimRequest]) (*connect.Response[v1.AcceptClaimResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -235,6 +276,18 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("RegisterAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceListPendingClaimsHandler := connect.NewUnaryHandler(
+		AuthServiceListPendingClaimsProcedure,
+		svc.ListPendingClaims,
+		connect.WithSchema(authServiceMethods.ByName("ListPendingClaims")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceAcceptClaimHandler := connect.NewUnaryHandler(
+		AuthServiceAcceptClaimProcedure,
+		svc.AcceptClaim,
+		connect.WithSchema(authServiceMethods.ByName("AcceptClaim")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartCliLoginProcedure:
@@ -251,6 +304,10 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceChooseUsernameHandler.ServeHTTP(w, r)
 		case AuthServiceRegisterAgentProcedure:
 			authServiceRegisterAgentHandler.ServeHTTP(w, r)
+		case AuthServiceListPendingClaimsProcedure:
+			authServiceListPendingClaimsHandler.ServeHTTP(w, r)
+		case AuthServiceAcceptClaimProcedure:
+			authServiceAcceptClaimHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -286,4 +343,12 @@ func (UnimplementedAuthServiceHandler) ChooseUsername(context.Context, *connect.
 
 func (UnimplementedAuthServiceHandler) RegisterAgent(context.Context, *connect.Request[v1.RegisterAgentRequest]) (*connect.Response[v1.RegisterAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.RegisterAgent is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListPendingClaims(context.Context, *connect.Request[v1.ListPendingClaimsRequest]) (*connect.Response[v1.ListPendingClaimsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListPendingClaims is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) AcceptClaim(context.Context, *connect.Request[v1.AcceptClaimRequest]) (*connect.Response[v1.AcceptClaimResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.AcceptClaim is not implemented"))
 }

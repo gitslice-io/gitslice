@@ -15,6 +15,12 @@ service AuthService {
   // returns a long-lived API key. Unauthenticated; disabled unless the server
   // sets GITSLICE_AGENT_SIGNUP_ENABLED. See design/20_agent_signup_and_claim.md.
   rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
+  // ListPendingClaims lists agent registrations the caller may claim: unclaimed
+  // agents whose owner email is one of the caller's verified emails.
+  rpc ListPendingClaims(ListPendingClaimsRequest) returns (ListPendingClaimsResponse);
+  // AcceptClaim makes the caller an owner of the agent's account. The agent
+  // keeps its own access, so the account becomes co-owned.
+  rpc AcceptClaim(AcceptClaimRequest) returns (AcceptClaimResponse);
 }
 
 message StartCliLoginRequest {}
@@ -93,4 +99,28 @@ message RegisterAgentResponse {
   string account = 2;
   // Plaintext API key ("gsk_..."). Returned only once; the server keeps a hash.
   string api_key = 3;
+}
+
+message PendingClaim {
+  string agent_subject_id = 1;
+  string agent_display_name = 2;
+  string account = 3;
+  string owner_email = 4;
+  // RFC 3339 registration time.
+  string created_at = 5;
+}
+
+message ListPendingClaimsRequest {}
+
+message ListPendingClaimsResponse {
+  repeated PendingClaim claims = 1;
+}
+
+message AcceptClaimRequest {
+  string agent_subject_id = 1;
+}
+
+message AcceptClaimResponse {
+  // The claimed account, now co-owned by the caller.
+  string account = 1;
 }

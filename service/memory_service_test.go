@@ -946,7 +946,7 @@ func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 
 func TestChooseUsernameCreatesHomeSliceInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
-	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nico", "nico@example.com")
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), storage.ProviderClerk, "clerk_nico", "nico@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -985,7 +985,7 @@ func TestChooseUsernameCreatesHomeSliceInMemoryStorage(t *testing.T) {
 
 func TestChangesetAuthorsResolveToPersonalUsernameInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
-	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_taylor", "taylor@example.com")
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), storage.ProviderClerk, "clerk_taylor", "taylor@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1084,7 +1084,7 @@ func TestChangesetAuthorsResolveToPersonalUsernameInMemoryStorage(t *testing.T) 
 
 func TestCommitAuthorsResolveToPersonalUsername(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
-	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_riley", "riley@example.com")
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), storage.ProviderClerk, "clerk_riley", "riley@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1114,7 +1114,7 @@ func TestCommitAuthorsResolveToPersonalUsername(t *testing.T) {
 
 func TestUpdateSliceDefinitionRejectsHomeIncludedPathChange(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
-	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_nico", "nico@example.com")
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), storage.ProviderClerk, "clerk_nico", "nico@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1611,7 +1611,7 @@ func TestChangesetUpdateValidatesAndHydratesBlobContentHash(t *testing.T) {
 
 func TestAuthChooseUsernameForExternalSubjectInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
-	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), "clerk_user_123", "Taylor.Example@example.com")
+	subjectID, err := mem.Auth.EnsureExternalSubject(context.Background(), storage.ProviderClerk, "clerk_user_123", "Taylor.Example@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -31,4 +32,24 @@ func NormalizeOwnerEmail(email string) (string, error) {
 		return "", fmt.Errorf("%w: owner email %q is not a valid address", ErrInvalid, email)
 	}
 	return email, nil
+}
+
+// NormalizeEmails normalizes each address with NormalizeOwnerEmail, dropping
+// malformed ones and duplicates, and returns them sorted.
+func NormalizeEmails(emails []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(emails))
+	for _, email := range emails {
+		normalized, err := NormalizeOwnerEmail(email)
+		if err != nil {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	sort.Strings(out)
+	return out
 }

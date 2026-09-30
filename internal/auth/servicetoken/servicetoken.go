@@ -55,8 +55,12 @@ func ConfigFromEnv() Config {
 type Claims struct {
 	Subject string
 	Email   string
-	Issuer  string
-	Expiry  time.Time
+	// EmailVerified is true only when the token carries an explicit
+	// "email_verified": true claim. It lets test harnesses act as a human with a
+	// verified email (e.g. to claim an agent) without an identity provider.
+	EmailVerified bool
+	Issuer        string
+	Expiry        time.Time
 }
 
 type Verifier struct {
@@ -108,7 +112,8 @@ func (v *Verifier) Verify(_ context.Context, token string) (*Claims, error) {
 		return nil, errors.New("service token missing sub")
 	}
 	email, _ := claims["email"].(string)
-	out := &Claims{Subject: subject, Email: email, Issuer: v.issuer}
+	emailVerified, _ := claims["email_verified"].(bool)
+	out := &Claims{Subject: subject, Email: email, EmailVerified: emailVerified && email != "", Issuer: v.issuer}
 	if exp, err := claims.GetExpirationTime(); err == nil && exp != nil {
 		out.Expiry = exp.Time
 	}
@@ -117,6 +122,19 @@ func (v *Verifier) Verify(_ context.Context, token string) (*Claims, error) {
 
 // Mint signs an EdDSA service token with the given PKCS8 Ed25519 private key.
 func Mint(privateKeyPEM, subject, email, issuer string, ttl time.Duration) (string, error) {
+	return mint(privateKeyPEM, subject, email, false, issuer, ttl)
+}
+
+// MintVerifiedEmail is Mint plus an "email_verified": true claim, so the server
+// treats email as a verified address of subject.
+func MintVerifiedEmail(privateKeyPEM, subject, email, issuer string, ttl time.Duration) (string, error) {
+	if strings.TrimSpace(email) == "" {
+		return "", errors.New("email is required")
+	}
+	return mint(privateKeyPEM, subject, email, true, issuer, ttl)
+}
+
+func mint(privateKeyPEM, subject, email string, emailVerified bool, issuer string, ttl time.Duration) (string, error) {
 	priv, err := ParsePrivateKey(privateKeyPEM)
 	if err != nil {
 		return "", err
@@ -139,6 +157,9 @@ func Mint(privateKeyPEM, subject, email, issuer string, ttl time.Duration) (stri
 	}
 	if email != "" {
 		claims["email"] = email
+	}
+	if emailVerified {
+		claims["email_verified"] = true
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims).SignedString(priv)
 }

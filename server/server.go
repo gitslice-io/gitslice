@@ -150,6 +150,9 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	handlers := service.New(stores, objectStore, tracker)
 	handlers.Auth.AgentSignupEnabled = cfg.AgentSignupEnabled
+	if users := clerk.NewUserClient(cfg.Clerk.SecretKey); users != nil {
+		handlers.Auth.ClerkUsers = users
+	}
 	if handlers.Agent != nil {
 		go handlers.Agent.RunCheckDispatchSweep(ctx)
 	}
@@ -355,7 +358,7 @@ func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, er
 			if err != nil {
 				return "", fmt.Errorf("%w: %v", storage.ErrUnauthenticated, err)
 			}
-			return auth.EnsureExternalSubject(ctx, claims.Subject, claims.Email)
+			return auth.EnsureExternalSubject(ctx, storage.ProviderClerk, claims.Subject, claims.Email)
 		}
 	} else {
 		primary = func(ctx context.Context, token string) (string, error) {
@@ -374,7 +377,15 @@ func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, er
 	// configured key simply falls through to the primary provider.
 	return func(ctx context.Context, token string) (string, error) {
 		if claims, err := serviceVerifier.Verify(ctx, token); err == nil {
-			return auth.EnsureExternalSubject(ctx, claims.Subject, claims.Email)
+			subjectID, err := auth.EnsureExternalSubject(ctx, storage.ProviderService, claims.Subject, claims.Email)
+			if err != nil || !claims.EmailVerified {
+				return subjectID, err
+			}
+			// Test-only affordance: a service token may vouch for its email.
+			if err := auth.SetVerifiedEmails(ctx, subjectID, storage.ProviderService, []string{claims.Email}); err != nil {
+				return "", err
+			}
+			return subjectID, nil
 		}
 		return primary(ctx, token)
 	}, nil

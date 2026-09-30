@@ -8202,3 +8202,63 @@ New tests: `TestNormalizeOwnerEmail`, `TestRegisterAgentProvisionsAccountAndKey`
 `TestRegisterAgentIsPublic`, `TestAgentSignupLimiter{GRPC,Disabled,HTTP}`,
 `TestAuthRegisterAgent{SavesKeyAndSignsIn,DisabledServer,RequiresFlags}`,
 `TestRegisterAgentWithPostgres`.
+
+## 2026-09-30 — Agent claims: humans co-own self-registered agents (design 20, phase 2)
+
+Goal: a human who controls an agent's owner email can sign in, see the agents
+waiting for them, and accept co-ownership. The agent keeps its access.
+
+Phase 1 (#372) was deployed to prod before this work, as revision
+`gitslice-prod-00047-d2n`. Checks there:
+
+- `RegisterAgent` returns `FailedPrecondition` (disabled).
+- A fake `gsk_` key returns `Unauthenticated`, which shows the `api_keys` lookup
+  runs, so migration 0024 applied.
+- `StartCliLogin` works and the web app returns 200.
+
+Decisions:
+
+- Verified emails are stored in `subject_emails` (migration 0025), so claims
+  match in SQL.
+  - Clerk callers are refreshed from the Clerk Backend API on each claim RPC.
+    Session JWTs carry no verification state.
+  - Service tokens vouch only with an explicit `email_verified: true` claim
+    (`servicetoken.MintVerifiedEmail`), as a test affordance.
+- `EnsureExternalSubject` now takes a provider and records
+  `external_provider` / `external_subject`. The columns already existed but were
+  never written. Its upsert only writes when `external_subject` is null, so the
+  per-request hot path stays write-free after the first sign-in.
+- Claims are explicit (`AcceptClaim`) and first-come. The claimer gets `owner`,
+  and the agent keeps `admin`.
+- Bug found while designing: every provisioned account is `kind = 'personal'`,
+  so a claimed agent account would have counted as the claimer's personal
+  account. That affected `ChooseUsername` (the existing-account shortcut and the
+  ownership check), `UsernamesForSubjects` (author names), account ordering, and
+  `needs_username`.
+  - Fixed with the `notOthersAgentAccountSQL` predicate and a sort rank that puts
+    claimed agent accounts last.
+  - `needs_username` now uses `UsernamesForSubjects`.
+  - The CLI's `personalAccountSlug` honors `needs_username`.
+- Prod needs `CLERK_SECRET_KEY`. `cloudbuild.yaml` now mounts
+  `gitslice-clerk-secret-key`, and the runtime service account needs
+  `secretAccessor` on it.
+- CLI: `gs claims list` and `gs claims accept <agent-subject-id>`.
+- Web: a `PendingClaims` card on the home page.
+
+Verification:
+
+```bash
+gofmt -l . && go vet ./... && go build ./... && go test ./...
+GITSLICE_TEST_DATABASE_URL=postgres://postgres:***@127.0.0.1:32768/gitslice_test?sslmode=disable \
+  go test -count=1 ./tests/rpc ./tests/cli ./internal/postgres/...
+cd web && npx tsc --noEmit -p . && npm test && npm run build
+```
+
+New tests:
+
+- `TestAgentClaimFlow` and `TestSetVerifiedEmailsReplacesPerSource` (memory store)
+- `TestClaimFlowVerifiesEmailWithClerk` and `TestClaimRPCsRequireSubject` (service)
+- `TestUserClientVerifiedEmails` (Clerk Backend API client)
+- `TestClaimsListAndAccept` (CLI)
+- `TestAgentClaimWithPostgres` (real Postgres; covers the personal-account fixes)
+- `PendingClaims.test.tsx` (web)

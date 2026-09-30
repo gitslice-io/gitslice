@@ -19,6 +19,14 @@ import (
 // public-method allowlist, signup limiter) over in-memory stores.
 func startAgentSignupServer(t *testing.T, enabled bool) string {
 	t.Helper()
+	addr, _ := startAgentSignupServerWithStores(t, enabled, nil)
+	return addr
+}
+
+// startAgentSignupServerWithStores also returns the stores and resolves each
+// staticTokens key to its subject id before falling back to stored tokens.
+func startAgentSignupServerWithStores(t *testing.T, enabled bool, staticTokens map[string]string) (string, *memory.Stores) {
+	t.Helper()
 	mem := memory.New()
 	handlers := service.New(service.Stores{
 		Auth:       mem.Auth,
@@ -31,6 +39,9 @@ func startAgentSignupServer(t *testing.T, enabled bool) string {
 	}, mem.Objects, nil)
 	handlers.Auth.AgentSignupEnabled = enabled
 	resolve := func(ctx context.Context, token string) (string, error) {
+		if subjectID, ok := staticTokens[token]; ok {
+			return subjectID, nil
+		}
 		subject, err := mem.Auth.SubjectForToken(ctx, token)
 		if err != nil {
 			return "", err
@@ -50,7 +61,7 @@ func startAgentSignupServer(t *testing.T, enabled bool) string {
 			t.Errorf("server failed: %v", err)
 		}
 	})
-	return lis.Addr().String()
+	return lis.Addr().String(), mem
 }
 
 func TestAuthRegisterAgentSavesKeyAndSignsIn(t *testing.T) {

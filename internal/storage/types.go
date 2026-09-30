@@ -1,6 +1,9 @@
 package storage
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 const DefaultTargetRef = "refs/global/main"
 
@@ -30,6 +33,23 @@ type RegisterAgentInput struct {
 	OwnerEmail  string
 	DisplayName string
 }
+
+// PendingClaim is an unclaimed agent registration that a signed-in human may
+// accept because its owner email is one of their verified emails.
+type PendingClaim struct {
+	AgentSubjectID   string
+	AgentDisplayName string
+	Account          string
+	OwnerEmail       string
+	CreatedAt        time.Time
+}
+
+// Identity providers recorded by EnsureExternalSubject and used as
+// SetVerifiedEmails sources.
+const (
+	ProviderClerk   = "clerk"
+	ProviderService = "service"
+)
 
 // RegisteredAgent is the result of RegisterAgent. APIKey is the plaintext key and
 // is only available here; stores keep only its hash.

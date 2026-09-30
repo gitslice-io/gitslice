@@ -1,7 +1,7 @@
 # 20. Agent Sign-Up And Human Claim
 
-Status: proposed. Phase 1 (agent registration + API keys) is being implemented;
-phases 2 and 3 are design only.
+Status: phase 1 (agent registration + API keys) shipped in #372. Phase 2
+(human claim) is implemented; phase 3 is design only.
 
 ## Goal
 
@@ -185,6 +185,29 @@ and uses only `email_addresses[]` entries with `verification.status ==
 The service-token path counts as verified only when the minted token carries
 an explicit `email_verified: true` claim. It is a test affordance.
 
+Verified addresses are stored so claims can be matched in SQL:
+
+```sql
+create table if not exists subject_emails(
+	subject_id text not null references subjects(id),
+	email text not null,               -- normalized like owner_email
+	source text not null,              -- "clerk" | "service"
+	verified_at timestamptz not null default now(),
+	primary key(subject_id, email)
+);
+```
+
+- **Clerk callers.** Both claim RPCs re-fetch the caller's verified emails from
+  the Backend API and replace that subject's `source = 'clerk'` rows, so an
+  address removed at Clerk stops matching. The provider user id comes from
+  `subjects.external_subject`, which `EnsureExternalSubject` now records (with
+  `external_provider`) on first sign-in. Without `CLERK_SECRET_KEY` the claim
+  RPCs return `FailedPrecondition`; if Clerk is unreachable they return
+  `Unavailable`.
+- **Service-token callers.** The resolver records the token's email when it
+  carries `email_verified: true`.
+- **Agents** have no verified emails, so they can never claim.
+
 ### RPCs
 
 ```proto
@@ -214,15 +237,29 @@ in one transaction:
 The agent's own `admin` membership is untouched, so both keep access. That is
 the co-ownership.
 
+### Claimed accounts are not personal accounts
+
+Every provisioned account has `kind = 'personal'`, so a claimed agent account
+would otherwise be mistaken for the claimer's own. Personal-account detection
+(`ChooseUsername`, `UsernamesForSubjects`, and the ownership check in
+`provisionAccountForSubject`) excludes accounts registered by a *different*
+agent. `ListSubjectAccountSlugs` sorts claimed agent accounts last.
+`GetAuthStatus.needs_username` is now "has no personal account" rather than "has
+no memberships", and the CLI's personal-account lookup honors it. Without this,
+a human who claimed an agent before picking a username would have been handed
+the agent's account as their own.
+
 Claims are **explicit** (an Accept click), not a side effect of signing in.
 A silent grant on login would be invisible to the human and would make the
 resolver hot path do email work on every request.
 
 ### Web and CLI
 
-- A banner or page in the web app: "2 agent accounts are waiting for you to
-  claim them". It lists the agent name, account, and creation time, with an
-  Accept button.
+- A card at the top of the signed-in home page: "2 agent accounts are waiting
+  for you". It lists the agent name, account, and registration date, with an
+  Accept button. It renders nothing when there is nothing to claim or the
+  lookup fails. Users must pick their own username before they see it, because
+  the username gate comes first.
 - `gs claims list` and `gs claims accept <agent-subject-id>` for humans who
   live in the terminal.
 
@@ -266,5 +303,6 @@ Authority rules:
    `SubjectForToken` understands `gsk_` keys.
 3. Proto + service + public-method allowlist + signup limiter + config flags.
 4. CLI `gs auth register-agent`.
-5. Phase 2 claim RPCs and the web page.
+5. Phase 2: migration `0025_subject_emails.sql`, claim RPCs, Clerk Backend API
+   lookup, personal-account fixes, `gs claims`, and the web card.
 6. Phase 3 member and key management.

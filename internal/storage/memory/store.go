@@ -48,6 +48,10 @@ type backend struct {
 	apiKeys map[string]string
 	// agentRegistrations maps an agent subject id to its registration.
 	agentRegistrations map[string]agentRegistration
+	// externalIdentities maps a subject id to its identity provider record.
+	externalIdentities map[string]externalIdentity
+	// verifiedEmails maps subject id -> email -> source.
+	verifiedEmails map[string]map[string]string
 
 	blobs      map[string]*corev1.BlobRecord
 	blobSlices map[string]map[string]struct{}
@@ -101,6 +105,12 @@ type agentRegistration struct {
 	account    string
 	ownerEmail string
 	createdAt  time.Time
+	claimedBy  string
+}
+
+type externalIdentity struct {
+	provider   string
+	externalID string
 }
 
 type AuthStore struct{ b *backend }
@@ -120,6 +130,8 @@ func New() *Stores {
 		cliLoginSessions:        map[string]cliLoginSession{},
 		apiKeys:                 map[string]string{},
 		agentRegistrations:      map[string]agentRegistration{},
+		externalIdentities:      map[string]externalIdentity{},
+		verifiedEmails:          map[string]map[string]string{},
 		blobs:                   map[string]*corev1.BlobRecord{},
 		blobSlices:              map[string]map[string]struct{}{},
 		objects:                 map[string][]byte{},
@@ -548,7 +560,7 @@ func (s *AuthStore) PollCliLogin(ctx context.Context, code string) (string, stri
 	return "expired", "", "", nil
 }
 
-func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email string) (string, error) {
+func (s *AuthStore) EnsureExternalSubject(ctx context.Context, provider, externalID, email string) (string, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	externalID = strings.TrimSpace(externalID)
@@ -563,7 +575,94 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, externalID, email
 	if _, ok := s.b.subjects[subjectID]; !ok {
 		s.b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: displayName}
 	}
+	if _, ok := s.b.externalIdentities[subjectID]; !ok {
+		s.b.externalIdentities[subjectID] = externalIdentity{provider: strings.TrimSpace(provider), externalID: externalID}
+	}
 	return subjectID, nil
+}
+
+func (s *AuthStore) ExternalIdentity(ctx context.Context, subjectID string) (string, string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	subjectID = strings.TrimSpace(subjectID)
+	if _, ok := s.b.subjects[subjectID]; !ok {
+		return "", "", storage.ErrNotFound
+	}
+	identity := s.b.externalIdentities[subjectID]
+	return identity.provider, identity.externalID, nil
+}
+
+func (s *AuthStore) SetVerifiedEmails(ctx context.Context, subjectID, source string, emails []string) error {
+	subjectID = strings.TrimSpace(subjectID)
+	source = strings.TrimSpace(source)
+	if subjectID == "" || source == "" {
+		return fmt.Errorf("%w: subject and source are required", storage.ErrInvalid)
+	}
+	normalized := storage.NormalizeEmails(emails)
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	current := s.b.verifiedEmails[subjectID]
+	if current == nil {
+		current = map[string]string{}
+		s.b.verifiedEmails[subjectID] = current
+	}
+	for email, emailSource := range current {
+		if emailSource == source {
+			delete(current, email)
+		}
+	}
+	for _, email := range normalized {
+		current[email] = source
+	}
+	return nil
+}
+
+func (s *AuthStore) ListPendingClaims(ctx context.Context, subjectID string) ([]storage.PendingClaim, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	subjectID = strings.TrimSpace(subjectID)
+	emails := s.b.verifiedEmails[subjectID]
+	var out []storage.PendingClaim
+	for agentID, reg := range s.b.agentRegistrations {
+		if reg.claimedBy != "" || agentID == subjectID {
+			continue
+		}
+		if _, ok := emails[reg.ownerEmail]; !ok {
+			continue
+		}
+		out = append(out, storage.PendingClaim{
+			AgentSubjectID:   agentID,
+			AgentDisplayName: s.b.subjects[agentID].DisplayName,
+			Account:          reg.account,
+			OwnerEmail:       reg.ownerEmail,
+			CreatedAt:        reg.createdAt,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].AgentSubjectID < out[j].AgentSubjectID
+	})
+	return out, nil
+}
+
+func (s *AuthStore) AcceptClaim(ctx context.Context, subjectID, agentSubjectID string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	subjectID = strings.TrimSpace(subjectID)
+	agentSubjectID = strings.TrimSpace(agentSubjectID)
+	reg, ok := s.b.agentRegistrations[agentSubjectID]
+	if !ok || reg.claimedBy != "" || subjectID == "" || subjectID == agentSubjectID {
+		return "", fmt.Errorf("%w: no pending claim for this agent", storage.ErrNotFound)
+	}
+	if _, verified := s.b.verifiedEmails[subjectID][reg.ownerEmail]; !verified {
+		return "", fmt.Errorf("%w: no pending claim for this agent", storage.ErrNotFound)
+	}
+	s.b.addAccountRoleLocked(subjectID, reg.account, "owner")
+	reg.claimedBy = subjectID
+	s.b.agentRegistrations[agentSubjectID] = reg
+	return reg.account, nil
 }
 
 func (s *AuthStore) UsernameAvailable(ctx context.Context, username string) (bool, string, string, error) {
