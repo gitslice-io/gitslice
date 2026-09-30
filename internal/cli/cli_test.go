@@ -71,7 +71,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [web-path]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs ci", "gs create", "gs modify", "gs submit [changeset]", "gs deps [dependency-tree]", "gs update-dependents [changeset]", "gs switch <changeset>", "gs up [changeset]", "gs down [steps]", "gs top", "gs bottom", "gs move <changeset> --onto <base|root>", "gs insert --base <changeset> --message <title>", "gs detach <changeset>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [account:slice | /account/path | workspace/path | web-page]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs ci", "gs create", "gs modify", "gs submit [changeset]", "gs deps [dependency-tree]", "gs update-dependents [changeset]", "gs switch <changeset>", "gs up [changeset]", "gs down [steps]", "gs top", "gs bottom", "gs move <changeset> --onto <base|root>", "gs insert --base <changeset> --message <title>", "gs detach <changeset>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
@@ -1504,8 +1504,8 @@ func TestBrowsePrintsWebURL(t *testing.T) {
 		},
 		{
 			name: "route",
-			args: []string{"browse", "signup", "--web-url", "http://127.0.0.1:8082", "--print"},
-			want: "http://127.0.0.1:8082/signup",
+			args: []string{"browse", "claims", "--web-url", "http://127.0.0.1:8082", "--print"},
+			want: "http://127.0.0.1:8082/claims",
 		},
 		{
 			name: "base path and query",

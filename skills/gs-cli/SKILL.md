@@ -108,6 +108,8 @@ An agent with no human available to sign in can register itself, when the server
 gs auth register-agent --username release-bot --email owner@example.com --server 127.0.0.1:50051
 ```
 
+To share a link, use `gs browse --print <account:slice | /account/path | workspace-path>` rather than hand-building URLs: it maps to the web app's real `/slices/<account>/<slice>?path=` route, checks that the slice and path exist, and warns on stderr when the slice is private.
+
 A human signed in with that verified email lists and accepts pending agents with `gs claims list` and `gs claims accept <agent-subject-id>`. Accepting makes them a co-owner; the agent keeps its access.
 
 For local tests, fixtures may write `~/.gitslice/config.json` directly with a service token; do that only inside test harnesses or when the user explicitly asks for test setup.
