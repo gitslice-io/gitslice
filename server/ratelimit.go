@@ -12,6 +12,7 @@ import (
 	"github.com/gitslice-io/gitslice/internal/ratelimit"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
@@ -125,7 +126,16 @@ func newAgentSignupHTTPMiddleware(cfg Config) func(http.Handler) http.Handler {
 	}
 }
 
+// grpcPeerIPKey keys an unauthenticated gRPC call by client IP. Behind Cloud
+// Run (and nginx on staging) the TCP peer is the proxy, so every client would
+// share one bucket; like httpClientIP it prefers the rightmost
+// x-forwarded-for hop, which our own edge appends and a client cannot forge.
 func grpcPeerIPKey(ctx context.Context) string {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if hop := rightmostForwardedHop(strings.Join(md.Get("x-forwarded-for"), ",")); hop != "" {
+			return "ip:" + hop
+		}
+	}
 	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
 		if host := hostFromAddr(p.Addr.String()); host != "" {
 			return "ip:" + host
@@ -150,18 +160,23 @@ func isHealthCheckMethod(method string) bool {
 // nginx on staging), so it is the only entry a client cannot forge. Anything to
 // its left is attacker-controlled.
 func httpClientIP(r *http.Request) string {
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		hops := strings.Split(forwarded, ",")
-		for i := len(hops) - 1; i >= 0; i-- {
-			if hop := strings.TrimSpace(hops[i]); hop != "" {
-				return hop
-			}
-		}
+	if hop := rightmostForwardedHop(r.Header.Get("X-Forwarded-For")); hop != "" {
+		return hop
 	}
 	if host := hostFromAddr(r.RemoteAddr); host != "" {
 		return host
 	}
 	return "unknown"
+}
+
+func rightmostForwardedHop(forwarded string) string {
+	hops := strings.Split(forwarded, ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		if hop := strings.TrimSpace(hops[i]); hop != "" {
+			return hop
+		}
+	}
+	return ""
 }
 
 func hostFromAddr(addr string) string {
