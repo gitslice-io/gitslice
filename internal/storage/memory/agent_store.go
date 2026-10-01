@@ -5,9 +5,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/storage"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/protobuf/proto"
 )
 

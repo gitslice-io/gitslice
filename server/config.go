@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/auth/clerk"
-	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
-	"github.com/gitslice-io/gitslice/internal/objectstore/r2"
-	"github.com/gitslice-io/gitslice/internal/secretbox"
+	"gitslice.io/gitslice/internal/auth/clerk"
+	"gitslice.io/gitslice/internal/auth/servicetoken"
+	"gitslice.io/gitslice/internal/objectstore/r2"
+	"gitslice.io/gitslice/internal/secretbox"
 )
 
 type Config struct {

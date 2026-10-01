@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/treestore"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/treestore"
+	"gitslice.io/gitslice/proto/core/v1"
 )
 
 type countingTreeObjectStore struct {

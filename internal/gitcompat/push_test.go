@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestParseReceivePackRequest(t *testing.T) {

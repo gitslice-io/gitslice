@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/storage"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/storage"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestChangesetStoreDoesNotResolveDeprecatedHandle(t *testing.T) {

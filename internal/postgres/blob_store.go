@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/proto/core/v1"
 )
 
 type BlobStore struct {

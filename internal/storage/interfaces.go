@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 type AuthStore interface {

@@ -631,7 +631,7 @@ const file_proto_core_v1_blob_proto_rawDesc = "" +
 	"\n" +
 	"UploadBlob\x12#.gitslice.core.v1.UploadBlobRequest\x1a$.gitslice.core.v1.UploadBlobResponse\x12]\n" +
 	"\x10UploadBlobStream\x12!.gitslice.core.v1.UploadBlobChunk\x1a$.gitslice.core.v1.UploadBlobResponse(\x01\x12\\\n" +
-	"\x0eReadBlobStream\x12'.gitslice.core.v1.ReadBlobStreamRequest\x1a\x1f.gitslice.core.v1.ReadBlobChunk0\x01B6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x0eReadBlobStream\x12'.gitslice.core.v1.ReadBlobStreamRequest\x1a\x1f.gitslice.core.v1.ReadBlobChunk0\x01B+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_blob_proto_rawDescOnce sync.Once

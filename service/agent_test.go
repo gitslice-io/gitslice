@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/authctx"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/internal/storage/memory"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/storage/memory"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/metadata"
 )
 

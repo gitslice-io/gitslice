@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/authctx"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/authctx"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

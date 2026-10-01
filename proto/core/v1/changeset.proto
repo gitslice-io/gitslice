@@ -4,7 +4,7 @@ package gitslice.core.v1;
 
 import "proto/core/v1/common.proto";
 
-option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
 
 service ChangesetService {
   rpc CreateChangeset(CreateChangesetRequest) returns (Changeset);

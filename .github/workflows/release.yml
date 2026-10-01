@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
           date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          pkg="github.com/gitslice-io/gitslice/internal/cli"
+          pkg="gitslice.io/gitslice/internal/cli"
           ldflags="-s -w -X ${pkg}.Version=${TAG} -X ${pkg}.BuildCommit=${commit} -X ${pkg}.BuildDate=${date}"
           mkdir -p dist
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do

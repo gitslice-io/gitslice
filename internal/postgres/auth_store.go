@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/internal/treestore"
+	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/treestore"
 )
 
 const (

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/authctx"
-	"github.com/gitslice-io/gitslice/internal/metrics"
-	"github.com/gitslice-io/gitslice/internal/ratelimit"
+	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/metrics"
+	"gitslice.io/gitslice/internal/ratelimit"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"

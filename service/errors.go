@@ -3,7 +3,7 @@ package service
 import (
 	"errors"
 
-	"github.com/gitslice-io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/storage"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

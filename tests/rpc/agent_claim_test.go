@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/auth/servicetoken"
+	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )

@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/authctx"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/storage"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestDiffChangesetPathsAndCache(t *testing.T) {

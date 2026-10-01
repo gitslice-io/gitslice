@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectid"
 )
 
 func TestObjectCacheDeduplicatesAcrossWorkspaceFiles(t *testing.T) {

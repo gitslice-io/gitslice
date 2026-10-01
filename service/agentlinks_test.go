@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestRewriteAgentFileLinks(t *testing.T) {

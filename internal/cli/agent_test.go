@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestWorkspaceGSUserErrorOmitsCaptureDiagnostics(t *testing.T) {

@@ -3,7 +3,7 @@ package service
 import (
 	"sync"
 
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 // agentHub is the in-memory relay between connected agent daemons and live web

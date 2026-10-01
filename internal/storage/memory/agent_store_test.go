@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/storage"
 )
 
 func TestAgentStoreUnansweredUserEvents(t *testing.T) {

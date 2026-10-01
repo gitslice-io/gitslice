@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/metrics"
+	"gitslice.io/gitslice/internal/metrics"
 )
 
 const (

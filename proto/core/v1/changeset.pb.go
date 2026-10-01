@@ -3450,7 +3450,7 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x12ReparentStackEntry\x12+.gitslice.core.v1.ReparentStackEntryRequest\x1a .gitslice.core.v1.ChangesetStack\x12i\n" +
 	"\x10DetachStackEntry\x12).gitslice.core.v1.DetachStackEntryRequest\x1a*.gitslice.core.v1.DetachStackEntryResponse\x12N\n" +
 	"\aRestack\x12 .gitslice.core.v1.RestackRequest\x1a!.gitslice.core.v1.RestackResponse\x12Z\n" +
-	"\vSubmitStack\x12$.gitslice.core.v1.SubmitStackRequest\x1a%.gitslice.core.v1.SubmitStackResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\vSubmitStack\x12$.gitslice.core.v1.SubmitStackRequest\x1a%.gitslice.core.v1.SubmitStackResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_changeset_proto_rawDescOnce sync.Once

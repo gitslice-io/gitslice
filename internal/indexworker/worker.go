@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/storage"
 )
 
 const (

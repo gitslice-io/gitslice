@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectid"
 	"golang.org/x/sync/errgroup"
 )
 

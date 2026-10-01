@@ -1411,7 +1411,7 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\vListCommits\x12$.gitslice.core.v1.ListCommitsRequest\x1a%.gitslice.core.v1.ListCommitsResponse\x12@\n" +
 	"\x06GetRef\x12\x1f.gitslice.core.v1.GetRefRequest\x1a\x15.gitslice.core.v1.Ref\x12r\n" +
 	"\x13ImportGitRepository\x12,.gitslice.core.v1.ImportGitRepositoryRequest\x1a-.gitslice.core.v1.ImportGitRepositoryResponse\x12z\n" +
-	"\x19ImportGitRepositoryStream\x12,.gitslice.core.v1.ImportGitRepositoryRequest\x1a-.gitslice.core.v1.ImportGitRepositoryProgress0\x01B6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x19ImportGitRepositoryStream\x12,.gitslice.core.v1.ImportGitRepositoryRequest\x1a-.gitslice.core.v1.ImportGitRepositoryProgress0\x01B+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_repository_proto_rawDescOnce sync.Once

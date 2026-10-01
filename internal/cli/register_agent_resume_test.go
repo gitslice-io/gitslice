@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/storage/memory"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
-	"github.com/gitslice-io/gitslice/service"
+	"gitslice.io/gitslice/internal/storage/memory"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

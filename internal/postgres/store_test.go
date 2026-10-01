@@ -16,10 +16,10 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
-	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
-	"github.com/gitslice-io/gitslice/internal/treestore"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/treestore"
+	"gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestSliceDefinitionValidation(t *testing.T) {

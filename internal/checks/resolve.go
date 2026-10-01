@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
-	gspaths "github.com/gitslice-io/gitslice/internal/paths"
+	gspaths "gitslice.io/gitslice/internal/paths"
 )
 
 // ErrNotFound may be returned by TreeReader when a path is absent.

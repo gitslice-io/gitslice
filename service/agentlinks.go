@@ -5,8 +5,8 @@ import (
 	"path"
 	"strings"
 
-	gspaths "github.com/gitslice-io/gitslice/internal/paths"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	gspaths "gitslice.io/gitslice/internal/paths"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 type linkRewriteContext struct {

@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/checks"
+	"gitslice.io/gitslice/internal/checks"
 )
 
 const (

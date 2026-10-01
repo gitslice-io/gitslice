@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectid"
 )
 
 type Object struct {

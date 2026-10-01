@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gitslice-io/gitslice/internal/metrics"
-	"github.com/gitslice-io/gitslice/internal/rpclimits"
+	"gitslice.io/gitslice/internal/metrics"
+	"gitslice.io/gitslice/internal/rpclimits"
 )
 
 var openMetricsWarningOnce sync.Once

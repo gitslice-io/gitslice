@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/checks"
-	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/checks"
+	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/storage"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

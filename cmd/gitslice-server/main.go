@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gitslice-io/gitslice/server"
+	"gitslice.io/gitslice/server"
 )
 
 func main() {

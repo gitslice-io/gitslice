@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectid"
 )
 
 // seedBootstrap inserts the minimum state a fresh database needs to function: the

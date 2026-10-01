@@ -2654,7 +2654,7 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x10SendAgentMessage\x12).gitslice.core.v1.SendAgentMessageRequest\x1a*.gitslice.core.v1.SendAgentMessageResponse\x12h\n" +
 	"\x12StreamConversation\x12+.gitslice.core.v1.StreamConversationRequest\x1a#.gitslice.core.v1.ConversationEvent0\x01\x12x\n" +
 	"\x15GetConversationEvents\x12..gitslice.core.v1.GetConversationEventsRequest\x1a/.gitslice.core.v1.GetConversationEventsResponse\x12_\n" +
-	"\x11CloseConversation\x12*.gitslice.core.v1.CloseConversationRequest\x1a\x1e.gitslice.core.v1.ConversationB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x11CloseConversation\x12*.gitslice.core.v1.CloseConversationRequest\x1a\x1e.gitslice.core.v1.ConversationB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_agent_proto_rawDescOnce sync.Once

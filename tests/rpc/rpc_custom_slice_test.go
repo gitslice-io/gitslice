@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
-	"github.com/gitslice-io/gitslice/internal/postgres"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/postgres"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )

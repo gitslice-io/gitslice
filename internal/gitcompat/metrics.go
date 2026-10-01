@@ -3,7 +3,7 @@ package gitcompat
 import (
 	"strconv"
 
-	"github.com/gitslice-io/gitslice/internal/metrics"
+	"gitslice.io/gitslice/internal/metrics"
 )
 
 var gitHTTPRequestsTotal = metrics.NewCounter(

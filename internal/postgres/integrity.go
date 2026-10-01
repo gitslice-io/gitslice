@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectid"
 )
 
 type ObjectReader interface {

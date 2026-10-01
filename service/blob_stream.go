@@ -6,10 +6,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/gitslice-io/gitslice/internal/authz"
-	"github.com/gitslice-io/gitslice/internal/objectid"
-	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

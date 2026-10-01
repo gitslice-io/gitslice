@@ -787,7 +787,7 @@ package gitslice.storage.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/gitslice/gitslice/proto/storage/v1;storagev1";
+option go_package = "gitslice.io/gitslice/proto/storage/v1;storagev1";
 
 service StorageService {
   // Source-of-truth reads.
