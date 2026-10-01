@@ -61,8 +61,15 @@ Non-goals:
 | Import keeps original authors, dates, messages (`Commit.git_import`) | `service/repository.go` | #390 |
 | CI daemon runs in-slice checks nobody bundled | `service/check_dispatch.go` | #391 |
 | Immutable slice tags (`gs tag`), published in the projection | `service/tags.go`, `history.go` | #392 |
-| Projection uses imported authors and adds a `Git-Commit` trailer | `history.go` | follow-up |
-| Checks files, mirror workflows, exporter (`ops/mirror`) | `.gitslice/`, `.github/workflows/mirror-*.yml` | this change |
+| Checks files, mirror workflows, exporter (`ops/mirror`) | `.gitslice/`, `.github/workflows/mirror-*.yml` | #393 |
+| Projection keeps imported authorship (`Git-Commit` trailer) | `history.go` | #394 |
+| Projection keeps symlinks (mode 120000) | `history.go` | #396 |
+| Faster cold projection builds; no body deadlines for Git | `history.go`, `http.go` | #397 |
+| Gzipped fetch negotiations reach http-backend | `http.go` | #398 |
+| Workspaces keep symlinks | `internal/cli/cli.go` | #399 |
+| Phase 1 script, operator subject in `cloudbuild.yaml` | `ops/selfhost/phase1.sh` | this change |
+| Phase 1 docs (source links, build from source) | `web/` | #395 (draft until Phase 1 is live) |
+| Phase 2 workflow docs (CLAUDE.md, AGENTS.md, README) | — | #400 (applied at cutover in Gitslice) |
 
 ## Go Install
 
@@ -112,12 +119,66 @@ Exit check (passed 2026-10-01):
 - `go install gitslice.io/gitslice/cmd/gs@latest` prints `gs version v0.2.0`.
 - `curl -fsSL https://gitslice.io/install.sh | sh` installs v0.2.0.
 
+## Staging Rehearsal (2026-10-01)
+
+Every phase was rehearsed on staging (agenttools.dev, R2-backed) against the
+real GitHub history.
+
+Phase 1:
+
+- **Organization and slice.** Created the reserved `gitslice` organization
+  through an operator, plus the member, the folder and the public slice.
+- **Import.** A `--deep` import of all 446 commits took 8 minutes, about one
+  commit per second.
+- **Cold clone.** An anonymous clone that builds the whole projection took
+  26 s with an empty object cache: 427 native commits, 2,868 blob versions,
+  108 MB. A warm fetch took 0.5 s.
+- **Drift check.** The projected `gitslice/gitslice` tree is identical to
+  GitHub `main`.
+
+Phase 3:
+
+- A native `v0.2.0` tag on the commit imported from GitHub's `v0.2.0` projects
+  as both `v0.2.0` and `gitslice/gitslice/v0.2.0`.
+- The module tree at that tag is identical to GitHub's (`c0f593c…`), so the Go
+  checksums will match.
+
+Phase 2:
+
+- **Exporter.** A native change exported to a scratch copy of the GitHub
+  repository. `ops/mirror` found the sync point through the `Git-Commit`
+  trailer and replayed one commit with an identical tree. A second run was a
+  no-op.
+- **Workspace layout.** `gs init gitslice/gitslice` materializes the module
+  under `gitslice/gitslice/`.
+
+The rehearsal found four bugs, all fixed before production:
+
+| Bug | Fix |
+|---|---|
+| Symlinks projected as regular files | #396 |
+| Gzipped fetch negotiations failed with HTTP 500 | #398 |
+| Workspaces turned symlinks into regular files on the next changeset | #399 |
+| Cold projection builds outran the gateway write deadline and Cloudflare's proxy timeout | #397 |
+
+Production preparation:
+
+- **Operator:** agent `gitslice-operator` (`agent_0644c3a2c20a390ca6142f0973dbdcf4`).
+  Its key is kept by the maintainer, not in CI, and it is the default
+  `_OPERATOR_SUBJECTS`.
+- **Mirror bot:** agent `gitslice-mirror` (`agent_16a3fb4d536b2042ffa9b3f02b695674`).
+  Its key is the `GITSLICE_MIRROR_TOKEN` repository secret.
+- **Ownership:** both agents were registered with the maintainer's email, so
+  the maintainer can claim them at https://gitslice.io/claims.
+
 ## Phase 1: Read-Only Copy In Gitslice
 
-Runbook, after the Phase 1 code is deployed:
+Runbook, after the Phase 1 code is deployed. `ops/selfhost/phase1.sh`
+automates steps 3–4 and the exit check, and is safe to re-run.
 
-1. **Operator.** Put the operator's subject id (`gs auth status --json`) in
-   the `_OPERATOR_SUBJECTS` Cloud Build substitution, and deploy.
+1. **Operator.** `_OPERATOR_SUBJECTS` in `cloudbuild.yaml` names the
+   `gitslice-operator` agent. Replace it with a human's subject id
+   (`gs auth status --json`) once one is set up.
 2. **Mirror bot.** Register it with an isolated home, so your own CLI config
    is untouched:
 
