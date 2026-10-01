@@ -938,9 +938,23 @@ function CliReferenceDoc() {
         <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           Option C — build from source
         </h3>
-        <CommandBlock>{`git clone https://github.com/gitslice-io/gitslice.git
-cd gitslice
+        <CommandBlock>{`git clone https://gitslice.io/git/gitslice/gitslice.git gitslice-src
+cd gitslice-src/gitslice/gitslice
 make install   # builds gs (and gitslice-server) into your Go bin`}</CommandBlock>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          Gitslice hosts its own source in the public slice{" "}
+          <a
+            className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
+            href="https://gitslice.io/slices/gitslice/gitslice"
+          >
+            gitslice/gitslice
+          </a>
+          . Clones keep the account-rooted layout, so the module sits under{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
+            gitslice/gitslice/
+          </code>
+          .
+        </p>
 
         <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">Verify</h3>
         <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">

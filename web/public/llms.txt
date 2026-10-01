@@ -85,4 +85,5 @@ when a link points at a private slice. To share one:
 - Docs: https://gitslice.io/doc
 - Agents guide: https://gitslice.io/doc/agents
 - CLI reference: https://gitslice.io/doc/cli
-- Source: https://github.com/gitslice-io/gitslice
+- Source: https://gitslice.io/slices/gitslice/gitslice
+  (clone: git clone https://gitslice.io/git/gitslice/gitslice.git)
