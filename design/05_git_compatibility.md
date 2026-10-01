@@ -206,6 +206,44 @@ Git clients must treat a slice definition change as a projection epoch change.
 A slice's projected Git history may gain or lose commits when `included_paths`
 change.
 
+### 6.1 Implemented Projection (2026-10)
+
+The Git HTTP layer (`internal/gitcompat`) implements this as an append-only,
+deterministic history for each slice.
+
+- **One Git commit per qualifying native commit.** A native commit on
+  `refs/global/main` qualifies when its changed paths touch the slice's
+  included paths and the projected tree actually changes. Directory-only
+  changes such as `mkdir` produce nothing, because Git cannot store empty
+  directories. Each projected commit is parented on the previous one.
+- **Metadata comes only from that native commit.**
+  - Author and committer are the native author's username with the email
+    `<username>@users.noreply.gitslice.io`, falling back to `Gitslice`.
+  - Both dates are the native commit time.
+  - The message is the native message plus a
+    `Gitslice-Commit: <native commit id>` trailer.
+  - Commits that did not change the slice never contribute metadata.
+- **Deterministic ids.** Commit ids are a pure function of (slice definition,
+  native history): no wall-clock time, randomness or map order. Server
+  instances with empty caches compute identical ids, so published ids (Go
+  pseudo-versions, CI checkouts) stay valid. A slice definition change starts
+  a new projection epoch (§6).
+- **Built from the source of truth.** The native first-parent chain is read
+  with one recursive query over `commits` rows (`ListCommitChain`), never from
+  the asynchronously derived path indexes. For each new qualifying commit the
+  projector refreshes only the paths it changed. It fetches blobs concurrently
+  and writes objects with `git fast-import`.
+- **Incremental per instance.** A state file next to the bare repository
+  records the native head processed, the projected head, the
+  projected-to-native commit map and the projected tree, so later requests
+  only process new commits. Any mismatch between the state and the repository
+  causes a rebuild from scratch, which is safe because the result is
+  deterministic.
+- **Fetch by commit id works.** Repositories set
+  `uploadpack.allowReachableSHA1InWant`, which Go uses for pseudo-versions.
+- **An empty history is an empty repository.** A slice with no qualifying
+  commits projects to a repository with no `main` ref.
+
 ## 7. Path Projection
 
 Git repositories expose a slice projection of canonical global paths.
@@ -264,6 +302,29 @@ follows the same submit validation as native writes. The Git gateway must never
 allow a direct ref update to bypass the changeset pipeline. The server should
 return a message informing the user that their push was converted to a changeset
 and is awaiting validation and submit.
+
+### 8.1 Implemented Push Rules (2026-10)
+
+- **Any projected commit can be the base, not only the head.** The base is
+  the nearest first-parent ancestor of the pushed commit that belongs to the
+  projected history, and the pushed commits above it must form one linear
+  chain.
+- **The base decides the changeset's native base commit.**
+  - A push on top of the projected head uses the current native head.
+  - A push on an older projected commit keeps that commit's native base.
+    Changeset validation then rejects overlapping changes made since then at
+    submit ("path base conflict") instead of silently overwriting them, and
+    disjoint changes land.
+- **A slice with no history accepts a root commit,** diffed against the empty
+  tree. `git push <url> HEAD:refs/changes/new` can therefore seed a new slice.
+- **Pushes based on something outside the projected history** (another epoch,
+  an unrelated repository) still fail with `NEEDS_REBASE`.
+
+### 8.2 Anonymous Reads
+
+A request without credentials may clone or fetch a public slice. Pushes always
+need credentials, and credentials that are present but invalid are rejected.
+Anonymous callers get the same 401 challenge for missing and private slices.
 
 ## 9. Changeset Refs
 

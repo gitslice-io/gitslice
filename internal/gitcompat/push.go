@@ -65,7 +65,12 @@ func writeReceivePackAdvertisement(w http.ResponseWriter, projection *Projection
 	var out bytes.Buffer
 	appendPktLine(&out, []byte("# service=git-receive-pack\n"))
 	appendFlush(&out)
-	line := fmt.Sprintf("%s refs/heads/main\x00report-status side-band-64k agent=gitslice\n", projection.GitCommitID)
+	head, ref := projection.GitCommitID, "refs/heads/main"
+	if head == "" {
+		// An empty repository advertises its capabilities on a placeholder ref.
+		head, ref = zeroGitOID, "capabilities^{}"
+	}
+	line := fmt.Sprintf("%s %s\x00report-status side-band-64k agent=gitslice\n", head, ref)
 	appendPktLine(&out, []byte(line))
 	appendFlush(&out)
 	_, _ = w.Write(out.Bytes())
@@ -169,12 +174,29 @@ func (h *Handler) applyReceivePack(ctx, serviceCtx context.Context, repoPath str
 	defer cleanup()
 
 	sliceRef := &corev1.SliceRef{Account: account, Slice: slice}
-	edits, title, err := pushedCommitFileEdits(ctx, serviceCtx, pushRepo, projection.GitCommitID, cmd.NewOID, sliceRef, h.blobs)
+	if ok, err := gitObjectExists(ctx, pushRepo, cmd.NewOID+"^{commit}"); err != nil {
+		return rejectedReceivePack(cmd.Ref, userFacingError(err))
+	} else if !ok {
+		return rejectedReceivePack(cmd.Ref, fmt.Sprintf("pushed object %s is not a commit", shortGitOID(cmd.NewOID)))
+	}
+	base, err := resolvePushBase(ctx, pushRepo, projection, cmd.NewOID)
+	if err != nil {
+		return rejectedReceivePack(cmd.Ref, userFacingError(err))
+	}
+	// A push on top of the projected head is based on the current native
+	// head. A push on an older projected commit keeps that commit's native
+	// base, so changeset validation sees what changed since and reports
+	// conflicts instead of silently overwriting them.
+	baseNative := projection.NativeCommitID
+	if base != "" && base != projection.GitCommitID {
+		baseNative, _ = projection.NativeCommitFor(base)
+	}
+	edits, title, err := pushedCommitFileEdits(ctx, serviceCtx, pushRepo, base, cmd.NewOID, sliceRef, h.blobs)
 	if err != nil {
 		return rejectedReceivePack(cmd.Ref, userFacingError(err))
 	}
 	if len(edits) == 0 {
-		return rejectedReceivePack(cmd.Ref, "push does not change any files relative to the current projected head")
+		return rejectedReceivePack(cmd.Ref, "push does not change any files relative to the projected commit it is based on")
 	}
 	if err := h.ensurePushEditsContained(ctx, sliceRef, edits); err != nil {
 		return rejectedReceivePack(cmd.Ref, userFacingError(err))
@@ -184,7 +206,7 @@ func (h *Handler) applyReceivePack(ctx, serviceCtx context.Context, repoPath str
 		cs, err := h.changesets.CreateChangeset(serviceCtx, &corev1.CreateChangesetRequest{
 			AuthoringSlice: sliceRef,
 			TargetRef:      storage.DefaultTargetRef,
-			BaseCommitId:   projection.NativeCommitID,
+			BaseCommitId:   baseNative,
 			Title:          title,
 			Description:    "Created from git push to refs/changes/new.",
 		})
@@ -193,7 +215,7 @@ func (h *Handler) applyReceivePack(ctx, serviceCtx context.Context, repoPath str
 		}
 		patchset, err := h.changesets.UpdateChangeset(serviceCtx, &corev1.UpdateChangesetRequest{
 			ChangesetId:  cs.Id,
-			BaseCommitId: projection.NativeCommitID,
+			BaseCommitId: baseNative,
 			FileEdits:    edits,
 		})
 		if err != nil {
@@ -214,7 +236,7 @@ func (h *Handler) applyReceivePack(ctx, serviceCtx context.Context, repoPath str
 	patchset, err := h.changesets.UpdateChangeset(serviceCtx, &corev1.UpdateChangesetRequest{
 		ChangesetId:               cs.Id,
 		ExpectedCurrentPatchsetId: cs.CurrentPatchsetId,
-		BaseCommitId:              projection.NativeCommitID,
+		BaseCommitId:              baseNative,
 		FileEdits:                 edits,
 	})
 	if err != nil {
@@ -300,14 +322,6 @@ func indexPushPack(ctx context.Context, projectedRepoPath string, packfile []byt
 }
 
 func pushedCommitFileEdits(ctx, serviceCtx context.Context, repoDir, baseCommitID, newCommitID string, sliceRef *corev1.SliceRef, blobs BlobAPI) ([]*corev1.FileEdit, string, error) {
-	if ok, err := gitObjectExists(ctx, repoDir, newCommitID+"^{commit}"); err != nil {
-		return nil, "", err
-	} else if !ok {
-		return nil, "", fmt.Errorf("pushed object %s is not a commit", shortGitOID(newCommitID))
-	}
-	if err := validateLinearPushHistory(ctx, repoDir, baseCommitID, newCommitID); err != nil {
-		return nil, "", err
-	}
 	title, err := gitOutput(ctx, repoDir, nil, "log", "-1", "--format=%s", newCommitID)
 	if err != nil {
 		return nil, "", err
@@ -316,7 +330,7 @@ func pushedCommitFileEdits(ctx, serviceCtx context.Context, repoDir, baseCommitI
 	if title == "" {
 		title = "Git push " + shortGitOID(newCommitID)
 	}
-	raw, err := gitOutputBytes(ctx, repoDir, nil, "diff-tree", "-r", "-z", "--no-commit-id", "--name-status", "--find-renames", baseCommitID, newCommitID)
+	raw, err := gitOutputBytes(ctx, repoDir, nil, "diff-tree", "-r", "-z", "--no-commit-id", "--name-status", "--find-renames", firstNonEmpty(baseCommitID, emptyGitTree), newCommitID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -377,42 +391,38 @@ func pushedCommitFileEdits(ctx, serviceCtx context.Context, repoDir, baseCommitI
 	return edits, title, nil
 }
 
-func validateLinearPushHistory(ctx context.Context, repoDir, baseCommitID, newCommitID string) error {
-	if baseCommitID == newCommitID {
-		return fmt.Errorf("push contains no commits beyond the current projected head")
-	}
-	ancestor, err := gitMergeBaseIsAncestor(ctx, repoDir, baseCommitID, newCommitID)
+// resolvePushBase returns the projected commit a push builds on: the nearest
+// first-parent ancestor of newCommitID that belongs to the projected history.
+// The pushed commits above it must form one linear chain. Any projected commit
+// may be the base, not only the head, so a client that has not fetched the
+// latest history can still push. When the slice has no history yet the chain
+// starts at a root commit instead, and the base is "".
+func resolvePushBase(ctx context.Context, repoDir string, projection *Projection, newCommitID string) (string, error) {
+	raw, err := gitOutput(ctx, repoDir, nil, "rev-list", "--first-parent", "--parents", newCommitID)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if !ancestor {
-		return fmt.Errorf("NEEDS_REBASE: pushed commits are not based on the current projected main; run git fetch origin main and rebase before pushing to refs/changes/new")
-	}
-	raw, err := gitOutput(ctx, repoDir, nil, "rev-list", "--parents", "--reverse", baseCommitID+".."+newCommitID)
-	if err != nil {
-		return err
-	}
-	prev := baseCommitID
-	count := 0
+	pushed := 0
 	for _, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
 			continue
 		}
-		fields := strings.Fields(line)
-		count++
+		if _, ok := projection.NativeCommitFor(fields[0]); ok {
+			if pushed == 0 {
+				return "", fmt.Errorf("push contains no commits beyond the projected history")
+			}
+			return fields[0], nil
+		}
 		if len(fields) > 2 {
-			return fmt.Errorf("merge commits are not supported by Git push into changesets; rebase to a single linear commit chain")
+			return "", fmt.Errorf("merge commits are not supported by Git push into changesets; rebase to a single linear commit chain")
 		}
-		if len(fields) != 2 || fields[1] != prev {
-			return fmt.Errorf("only single linear commit chains based on the current projected head are supported")
-		}
-		prev = fields[0]
+		pushed++
 	}
-	if count == 0 {
-		return fmt.Errorf("push contains no commits beyond the current projected head")
+	if projection.GitCommitID != "" {
+		return "", fmt.Errorf("NEEDS_REBASE: pushed commits are not based on this slice's projected history; run git fetch origin main and rebase before pushing to refs/changes/new")
 	}
-	return nil
+	return "", nil
 }
 
 func gitFilesAtPaths(ctx context.Context, repoDir, commitID string, gitPaths []string) (map[string]pushedGitFile, error) {
@@ -689,19 +699,6 @@ func gitObjectExists(ctx context.Context, dir, rev string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("git cat-file -e failed: %w\n%s", err, string(out))
-}
-
-func gitMergeBaseIsAncestor(ctx context.Context, dir, base, head string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", base, head)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		return true, nil
-	}
-	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-		return false, nil
-	}
-	return false, fmt.Errorf("git merge-base --is-ancestor failed: %w\n%s", err, string(out))
 }
 
 func writeReceivePackResult(w http.ResponseWriter, caps map[string]struct{}, result receivePackResult) {

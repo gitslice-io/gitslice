@@ -109,6 +109,21 @@ type CommitListPage struct {
 	NextPageToken string
 }
 
+// CommitChain is a segment of a ref's first-parent history, read in one
+// consistent snapshot. It is built from the commit rows themselves, not from
+// asynchronously derived indexes, so it never lags the ref.
+type CommitChain struct {
+	// HeadCommitID is the ref's head when the chain was read.
+	HeadCommitID string
+	// FoundStop reports whether the walk reached the requested stop commit.
+	// When a stop was requested but not found, Commits run back to the root.
+	FoundStop bool
+	// Commits are the commits after the stop (exclusive) whose changed paths
+	// overlap the requested prefixes, oldest first. A changed path overlaps a
+	// prefix when either one contains the other.
+	Commits []*corev1.Commit
+}
+
 type CommitResolveFilter struct {
 	RefName                     string
 	IDPrefix                    string
@@ -134,6 +149,10 @@ type RepositoryStore interface {
 	ListCommits(ctx context.Context, refName string, limit int) ([]*corev1.Commit, error)
 	ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*CommitListPage, error)
 	ListCommitsByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int) ([]*corev1.Commit, error)
+	// ListCommitChain walks refName's first-parent history from its head back
+	// to stopCommitID (or the root when stopCommitID is empty or never
+	// reached) and returns the commits that touch prefixes, oldest first.
+	ListCommitChain(ctx context.Context, refName, stopCommitID string, prefixes []string) (*CommitChain, error)
 	ListCommitPageByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int, pageToken string) (*CommitListPage, error)
 	ListCommitPageByEntityRefs(ctx context.Context, refName string, refs []HistoryEntityRef, limit int, pageToken string) (*CommitListPage, error)
 	ListCommitPageByEntityRefsOrPathPrefixes(ctx context.Context, refName string, refs []HistoryEntityRef, prefixes []string, limit int, pageToken string) (*CommitListPage, error)
