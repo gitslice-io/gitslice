@@ -252,7 +252,7 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		if s.dispatcher != nil {
 			s.dispatcher.cancelOpenCheckRunsBeforePatchset(ctx, cs.Id, patchset.Id)
 		}
-		s.dispatchOutOfSliceChecks(ctx, cs, slice, patchset)
+		s.dispatchCIChecks(ctx, cs, slice, patchset, req.BundledCheckRuns)
 	}
 	if patchset.Author != "" {
 		usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{patchset.Author})

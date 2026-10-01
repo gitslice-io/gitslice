@@ -100,7 +100,13 @@ func (d *checkDispatcher) resolveCheckPlan(ctx context.Context, slice *corev1.Sl
 	)
 }
 
-func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset) {
+// dispatchCIChecks sends a new patchset's checks to the slice's full-tree CI
+// runner. Out-of-slice checks always go there, because the authoring agent
+// cannot materialize them. In-slice checks normally arrive bundled with the
+// patchset from the authoring agent (gs cs capture). When the slice has a CI
+// daemon, it also runs the in-slice checks nobody bundled, so changesets made
+// with gs create, gs modify or git push still get results for required checks.
+func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, bundled map[string]struct{}) {
 	if d == nil || d.Checks == nil || cs == nil || slice == nil || patchset == nil {
 		return
 	}
@@ -109,16 +115,20 @@ func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *core
 		slog.Warn("failed to resolve check plan for dispatch", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "error", err)
 		return
 	}
+	daemonID := strings.TrimSpace(slice.CiDaemonId)
 	var runnable []checks.CheckSpec
 	for _, spec := range plan.Runnable {
 		if spec.OutOfSlice {
+			runnable = append(runnable, spec)
+			continue
+		}
+		if _, ok := bundled[spec.Name]; !ok && daemonID != "" {
 			runnable = append(runnable, spec)
 		}
 	}
 	if len(runnable) == 0 {
 		return
 	}
-	daemonID := strings.TrimSpace(slice.CiDaemonId)
 	var secrets map[string]string
 	if daemonID != "" {
 		var err error
@@ -171,11 +181,17 @@ func (d *checkDispatcher) dispatchOutOfSliceChecks(ctx context.Context, cs *core
 	}}})
 }
 
-func (s *ChangesetService) dispatchOutOfSliceChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset) {
+func (s *ChangesetService) dispatchCIChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, bundled []*corev1.BundledCheckRun) {
 	if s == nil || s.dispatcher == nil {
 		return
 	}
-	s.dispatcher.dispatchOutOfSliceChecks(ctx, cs, slice, patchset)
+	names := make(map[string]struct{}, len(bundled))
+	for _, run := range bundled {
+		if run != nil {
+			names[strings.TrimSpace(run.Name)] = struct{}{}
+		}
+	}
+	s.dispatcher.dispatchCIChecks(ctx, cs, slice, patchset, names)
 }
 
 func (d *checkDispatcher) cancelOpenCheckRunsBeforePatchset(ctx context.Context, changesetID, currentPatchsetID string) {
@@ -232,7 +248,7 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "check plan could not be resolved: %v", err)
 	}
-	spec, ok := runnableOutOfSliceCheck(plan, checkName)
+	spec, ok := runnableCICheck(plan, checkName)
 	if !ok {
 		if reason := erroredCheckReason(plan, checkName); reason != "" {
 			return nil, status.Errorf(codes.FailedPrecondition, "check %q has no resolvable definition in this revision: %s", checkName, reason)
@@ -476,9 +492,7 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 	}
 	byName := map[string]checks.CheckSpec{}
 	for _, spec := range plan.Runnable {
-		if spec.OutOfSlice {
-			byName[spec.Name] = spec
-		}
+		byName[spec.Name] = spec
 	}
 	specs := make([]*corev1.CheckRunSpec, 0, len(runs))
 	for _, run := range runs {
@@ -650,12 +664,14 @@ func patchsetByID(cs *corev1.Changeset, patchsetID string) *corev1.Patchset {
 	return nil
 }
 
-func runnableOutOfSliceCheck(plan *checks.Plan, checkName string) (checks.CheckSpec, bool) {
+// runnableCICheck finds a runnable check, in-slice or out-of-slice, that the
+// slice's CI daemon can run for the patchset.
+func runnableCICheck(plan *checks.Plan, checkName string) (checks.CheckSpec, bool) {
 	if plan == nil {
 		return checks.CheckSpec{}, false
 	}
 	for _, spec := range plan.Runnable {
-		if spec.Name == checkName && spec.OutOfSlice {
+		if spec.Name == checkName {
 			return spec, true
 		}
 	}
