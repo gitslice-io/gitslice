@@ -57,10 +57,10 @@ func TestGitProjectionKeepsImportedAuthorship(t *testing.T) {
 
 	cloneDir := filepath.Join(t.TempDir(), "payment")
 	gitWithAuth(t, token, "", "clone", "http://"+ts.gitAddr+"/git/acme/payment.git", cloneDir)
-	log := runGit(t, cloneDir, "log", "--format=%an <%ae> %aI|%cn%n%B%n--")
+	log := runGit(t, cloneDir, "log", "--format=%an <%ae> %at|%cn%n%B%n--")
 	for _, want := range []string{
-		"Grace Hopper <grace@example.invalid> 2026-01-02T23:04:05+00:00|acme",
-		"Ada Lovelace <ada@example.invalid> 2025-12-10T08:30:00+00:00|acme",
+		"Grace Hopper <grace@example.invalid> 1767395045|acme",
+		"Ada Lovelace <ada@example.invalid> 1765355400|acme",
 		"Add a\n\nWhy a exists.\n\nGit-Commit: " + first + "\nGitslice-Commit: ",
 		"Add b\n\nGit-Commit: " + second + "\nGitslice-Commit: ",
 	} {
