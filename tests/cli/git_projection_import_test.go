@@ -46,17 +46,32 @@ func TestGitProjectionKeepsImportedAuthorship(t *testing.T) {
 	}
 	first := commit("Ada Lovelace", "ada@example.invalid", "2025-12-10T09:30:00+01:00", "a.txt", "Add a\n\nWhy a exists.")
 	second := commit("Grace Hopper", "grace@example.invalid", "2026-01-02T15:04:05-08:00", "b.txt", "Add b")
+	if err := os.Symlink("b.txt", filepath.Join(repo, "link-to-b")); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(nil, "add", "link-to-b")
+	gitIn([]string{
+		"GIT_AUTHOR_NAME=Grace Hopper", "GIT_AUTHOR_EMAIL=grace@example.invalid",
+		"GIT_COMMITTER_NAME=C", "GIT_COMMITTER_EMAIL=c@example.invalid",
+	}, "commit", "-q", "-m", "Link b")
 
 	raw := runCLI(t, home, workspace, "import", repo, "--mount", "/acme/payment/vendor/lib", "--slice", "acme/payment", "--mode", "deep", "--json")
 	var imported struct {
 		Commits []json.RawMessage `json:"commits"`
 	}
-	if err := json.Unmarshal([]byte(raw), &imported); err != nil || len(imported.Commits) != 2 {
+	if err := json.Unmarshal([]byte(raw), &imported); err != nil || len(imported.Commits) != 3 {
 		t.Fatalf("import output %q: %v", raw, err)
 	}
 
 	cloneDir := filepath.Join(t.TempDir(), "payment")
 	gitWithAuth(t, token, "", "clone", "http://"+ts.gitAddr+"/git/acme/payment.git", cloneDir)
+	// Symlinks keep their Git mode, so the projected tree matches the original.
+	if entry := runGit(t, cloneDir, "ls-tree", "HEAD", "acme/payment/vendor/lib/link-to-b"); !strings.HasPrefix(entry, "120000 blob") {
+		t.Fatalf("projected symlink entry = %q, want mode 120000", entry)
+	}
+	if got, want := strings.TrimSpace(runGit(t, cloneDir, "rev-parse", "HEAD:acme/payment/vendor/lib")), gitIn(nil, "rev-parse", "HEAD^{tree}"); got != want {
+		t.Fatalf("projected tree %s differs from the original tree %s", got, want)
+	}
 	log := runGit(t, cloneDir, "log", "--format=%an <%ae> %at|%cn%n%B%n--")
 	for _, want := range []string{
 		"Grace Hopper <grace@example.invalid> 1767395045|acme",

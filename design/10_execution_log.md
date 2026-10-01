@@ -8974,3 +8974,22 @@ doc, which records the runbooks.
 Verification: `go test ./ops/mirror/` covers replay, authorship, tree
 equality, tags, idempotence, a late tag on an exported commit, refusal on a
 foreign commit, and refusal on tree drift. `go test ./internal/checks/` passes.
+
+## 2026-10-01 — Projection keeps symlinks
+
+Found while rehearsing the self-hosting import on staging
+(`design/21_self_hosting.md`). The projected tree of `gitslice/gitslice` did
+not match GitHub `main`. Exactly one entry differed:
+`.claude/skills/deployment/SKILL.md`, a symlink with mode 120000. The native
+store kept the mode (`current_path_entities.mode = 40960`, i.e. 0o120000), but
+`gitFileMode` only told executable files from other files, so the projection
+wrote a regular file with the same blob. The old snapshot projector had the
+same loss.
+
+- **Fix.** `gitFileMode` now maps `mode & 0o170000 == 0o120000` to `120000`.
+- **Cache rebuild.** `projectionVersion` is 4, so cached projections rebuild.
+  This matters because published Go versions need the Gitslice and GitHub
+  trees to be byte-identical.
+- **Tests.** `TestGitProjectionKeepsImportedAuthorship` imports a repository
+  with a symlink and asserts both the 120000 mode and full tree identity with
+  the original. A new unit test, `TestGitFileMode`, covers the mapping.
