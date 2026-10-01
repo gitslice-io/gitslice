@@ -57,6 +57,54 @@ type AuthStore interface {
 	EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error
 	AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error)
 	ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error)
+	// SubjectIDForUsername returns the subject whose personal account has the
+	// given slug, or ErrNotFound.
+	SubjectIDForUsername(ctx context.Context, username string) (string, error)
+	// AccountKind returns "personal" or "organization", or ErrNotFound.
+	AccountKind(ctx context.Context, accountSlug string) (string, error)
+	// CreateOrganization creates an organization account with owner
+	// memberships, a private home slice covering /<slug>, and the account root
+	// directory. It returns ErrConflict when the slug is taken. Callers
+	// validate the slug; this does not consult the reserved-name list.
+	CreateOrganization(ctx context.Context, slug string, ownerSubjectIDs []string, createdBy string) error
+	// ListAccountMembers lists an account's members, owners first, with each
+	// member's highest role.
+	ListAccountMembers(ctx context.Context, accountSlug string) ([]AccountMember, error)
+	// SetAccountMemberRole makes role the subject's only role on an
+	// organization account. It returns ErrConflict for personal accounts and
+	// when it would demote the last owner.
+	SetAccountMemberRole(ctx context.Context, accountSlug, subjectID, role string) error
+	// RemoveAccountMember removes every membership of the subject on an
+	// organization account. It returns ErrConflict for personal accounts and
+	// for the last owner, and ErrNotFound when the subject is not a member.
+	RemoveAccountMember(ctx context.Context, accountSlug, subjectID string) error
+}
+
+// AccountMember is one member of an account and their highest role.
+type AccountMember struct {
+	SubjectID string
+	Username  string
+	Role      string
+}
+
+// Account kinds.
+const (
+	AccountKindPersonal     = "personal"
+	AccountKindOrganization = "organization"
+)
+
+// AccountRoles lists membership roles from most to least privileged.
+var AccountRoles = []string{"owner", "admin", "writer", "member", "reader"}
+
+// AccountRoleRank orders roles (lower is more privileged); unknown roles rank
+// after every known one.
+func AccountRoleRank(role string) int {
+	for i, known := range AccountRoles {
+		if role == known {
+			return i
+		}
+	}
+	return len(AccountRoles)
 }
 
 type BlobStore interface {

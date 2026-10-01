@@ -2135,6 +2135,7 @@ type testServer struct {
 	defaultToken     string
 	defaultSubjectID string
 	memberTokens     map[string]string
+	operatorSubjects []string
 }
 
 func startTestServer(t *testing.T) *testServer {
@@ -2208,7 +2209,8 @@ func (ts *testServer) launch(t *testing.T, migrate bool) error {
 				PublicKeyPEM: ts.servicePub,
 				Issuer:       servicetoken.DefaultIssuer,
 			},
-			RunMigrations: migrate,
+			RunMigrations:    migrate,
+			OperatorSubjects: ts.operatorSubjects,
 		})
 	}()
 	return waitForHealth(ts.addr, ts.errCh)
@@ -2225,6 +2227,14 @@ func (ts *testServer) stop(t *testing.T) {
 		t.Fatalf("server exited with error: %v", err)
 	}
 	ts.cancel = nil
+}
+
+// setOperators restarts the server with the given operator subjects (allowed
+// to create organizations), keeping the database.
+func (ts *testServer) setOperators(t *testing.T, subjects ...string) {
+	t.Helper()
+	ts.operatorSubjects = subjects
+	ts.restart(t)
 }
 
 func (ts *testServer) restart(t *testing.T) {

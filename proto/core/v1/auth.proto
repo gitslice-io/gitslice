@@ -24,6 +24,19 @@ service AuthService {
   // ListOwnedAgents lists the self-registered agents whose accounts the caller
   // owns (typically after AcceptClaim), with basic activity.
   rpc ListOwnedAgents(ListOwnedAgentsRequest) returns (ListOwnedAgentsResponse);
+  // CreateOrganization creates an organization account (with a private home
+  // slice) owned by the given users. Operator-only: the caller's subject must
+  // be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
+  // names reserved for self-service sign-up.
+  rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse);
+  // ListAccountMembers lists an account's members. Any member may call it.
+  rpc ListAccountMembers(ListAccountMembersRequest) returns (ListAccountMembersResponse);
+  // SetAccountMember adds a user to an organization or changes their role.
+  // Owners and admins may call it; only owners grant or revoke owner.
+  rpc SetAccountMember(SetAccountMemberRequest) returns (SetAccountMemberResponse);
+  // RemoveAccountMember removes a user from an organization. The last owner
+  // cannot be removed.
+  rpc RemoveAccountMember(RemoveAccountMemberRequest) returns (RemoveAccountMemberResponse);
 }
 
 message StartCliLoginRequest {}
@@ -151,3 +164,51 @@ message ListOwnedAgentsRequest {}
 message ListOwnedAgentsResponse {
   repeated OwnedAgent agents = 1;
 }
+
+message CreateOrganizationRequest {
+  // Account slug, e.g. "gitslice". Same syntax rules as usernames.
+  string slug = 1;
+  // Usernames of the initial owners; defaults to the caller.
+  repeated string owner_usernames = 2;
+}
+
+message CreateOrganizationResponse {
+  string account = 1;
+  repeated AccountMember members = 2;
+}
+
+message AccountMember {
+  // The member's username (personal account slug); empty if they have none.
+  string username = 1;
+  string subject_id = 2;
+  // owner, admin, writer, member or reader.
+  string role = 3;
+}
+
+message ListAccountMembersRequest {
+  string account = 1;
+}
+
+message ListAccountMembersResponse {
+  string account = 1;
+  // personal or organization.
+  string kind = 2;
+  repeated AccountMember members = 3;
+}
+
+message SetAccountMemberRequest {
+  string account = 1;
+  string username = 2;
+  string role = 3;
+}
+
+message SetAccountMemberResponse {
+  AccountMember member = 1;
+}
+
+message RemoveAccountMemberRequest {
+  string account = 1;
+  string username = 2;
+}
+
+message RemoveAccountMemberResponse {}

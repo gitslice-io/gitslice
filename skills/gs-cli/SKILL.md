@@ -253,6 +253,22 @@ gs slice delete nic/tools --yes --json
 
 If a command accepts a slice reference, prefer canonical `<account>/<slice>` in scripts. Bare slice slugs are CLI sugar and require a signed-in account. The reserved `home` slice covers `/account`, not `/account/home`.
 
+## Organizations
+
+Organization accounts hold shared slices, such as `/gitslice/...`. Server
+operators create them; owners and admins manage members:
+
+```bash
+gs account create-org acme-corp --owner alice --json      # operators only
+gs account members acme-corp --json
+gs account set-member acme-corp bob --role writer --json   # owner|admin|writer|member|reader
+gs account remove-member acme-corp bob --yes --json
+```
+
+Only owners grant the `owner` role, and the last owner cannot be removed or
+demoted. Writers can create and submit changesets in the organization's
+slices; readers can only read them.
+
 ## History And Diff
 
 Use native commit inspection commands, not removed `gs commit ...` compatibility forms:

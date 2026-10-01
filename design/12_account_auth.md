@@ -255,12 +255,18 @@ Accepted credentials:
 - Basic auth where the password is the token
 
 The Git handler resolves the subject by token hash through the same
-`AuthStore.SubjectForToken` path used by gRPC authentication. Missing or invalid
-credentials return `401` with a Basic challenge.
+`AuthStore.SubjectForToken` path used by gRPC authentication.
 
-The current Git layer supports clone and fetch through projected repositories.
-Push is explicitly rejected by the MVP Git layer after authentication and slice
-authorization.
+- **Credentials are optional for clone and fetch.** A request without them
+  reads as anonymous, which slice authorization admits only for public
+  slices.
+- **Credentials that are present but invalid** return `401` with a Basic
+  challenge, as does any push without credentials.
+- **Anonymous callers cannot probe for private slices:** they get the same
+  challenge for a missing slice as for a private one.
+- **Pushes** to `refs/changes/new` or `refs/changes/<changeset>` create or
+  update changesets after write authorization
+  (`05_git_compatibility.md` §8).
 
 ## 9. Authorization Today
 
@@ -293,6 +299,47 @@ visible through the caller's target ref, account memberships, path filter, and
 slice projection. Ambiguity and not-found errors must not reveal candidate ids
 or commit existence outside that visible scope. Possession of a full native
 commit id is not authorization to read that commit's metadata or changed paths.
+
+## 9.1 Organization Accounts (2026-10)
+
+An organization is an account (`accounts.kind = 'organization'`) that belongs
+to its members rather than to one subject. It has a private `home` slice
+covering `/<slug>` and an account root directory, like a personal account.
+
+**Creation is operator-only.** The caller's subject id must be listed in
+`GITSLICE_OPERATOR_SUBJECTS`, separated by commas, semicolons or spaces. In
+production that is the `_OPERATOR_SUBJECTS` Cloud Build substitution.
+Operators may use names reserved for self-service sign-up, such as
+`gitslice`, because organization slugs are checked with
+`usernames.NormalizeSyntax` rather than `Normalize`. The initial owners
+default to the caller.
+
+```text
+gs account create-org gitslice [--owner <username>]...
+```
+
+**Membership** is managed through `AuthService` RPCs and `gs account`:
+
+| RPC | Who may call it | Effect |
+|---|---|---|
+| `ListAccountMembers` | members, operators | lists members, owners first; for anyone else the account does not exist (NotFound) |
+| `SetAccountMember` | owners, admins, operators | makes a role the member's only role on the organization |
+| `RemoveAccountMember` | owners, admins, operators | removes every membership of the member |
+
+Rules:
+
+- Only owners or operators grant, revoke or change the `owner` role.
+- An organization always keeps at least one owner. The account row is locked
+  during membership changes so concurrent requests cannot both remove the
+  last owner.
+- Personal accounts reject membership changes (FailedPrecondition). Their
+  memberships come from sign-up and agent claims.
+- Users are named by username: the slug of their personal account, which for
+  agents is the agent's own account (`SubjectIDForUsername`).
+
+Authorization is unchanged. Slices under an organization authorize through
+`AccountRole`: owner, admin, writer and member can write; reader can only
+read.
 
 ## 10. Subject Propagation And Audit Fields
 

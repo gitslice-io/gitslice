@@ -42,6 +42,8 @@ type backend struct {
 	subjects         map[string]storage.Subject
 	accountMembers   map[string]map[string]string
 	personalAccounts map[string]string
+	// orgAccounts records which account slugs are organizations.
+	orgAccounts      map[string]bool
 	sessions         map[string]string
 	cliLoginSessions map[string]cliLoginSession
 	// apiKeys maps a hashed API key to its owning subject.
@@ -130,6 +132,7 @@ func New() *Stores {
 		subjects:                map[string]storage.Subject{},
 		accountMembers:          map[string]map[string]string{},
 		personalAccounts:        map[string]string{},
+		orgAccounts:             map[string]bool{},
 		sessions:                map[string]string{},
 		cliLoginSessions:        map[string]cliLoginSession{},
 		apiKeys:                 map[string]string{},
@@ -705,6 +708,134 @@ func (s *AuthStore) ChooseUsername(ctx context.Context, subjectID, username stri
 	}
 	s.b.provisionPersonalAccountLocked(subjectID, username, username)
 	return username, nil
+}
+
+func (s *AuthStore) SubjectIDForUsername(ctx context.Context, username string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	username = strings.TrimSpace(username)
+	var found []string
+	for subjectID, slug := range s.b.personalAccounts {
+		if slug == username {
+			found = append(found, subjectID)
+		}
+	}
+	if len(found) == 0 {
+		return "", storage.ErrNotFound
+	}
+	sort.Strings(found)
+	return found[0], nil
+}
+
+func (s *AuthStore) AccountKind(ctx context.Context, accountSlug string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	accountSlug = strings.TrimSpace(accountSlug)
+	if s.b.orgAccounts[accountSlug] {
+		return storage.AccountKindOrganization, nil
+	}
+	if s.b.accountSlugTakenLocked(accountSlug) {
+		return storage.AccountKindPersonal, nil
+	}
+	return "", storage.ErrNotFound
+}
+
+func (s *AuthStore) CreateOrganization(ctx context.Context, slug string, ownerSubjectIDs []string, createdBy string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	slug = strings.TrimSpace(slug)
+	if slug == "" || len(ownerSubjectIDs) == 0 {
+		return storage.ErrInvalid
+	}
+	if s.b.orgAccounts[slug] || s.b.accountSlugTakenLocked(slug) {
+		return fmt.Errorf("%w: account %q already exists", storage.ErrConflict, slug)
+	}
+	s.b.orgAccounts[slug] = true
+	for _, owner := range ownerSubjectIDs {
+		s.b.addAccountRoleLocked(owner, slug, "owner")
+	}
+	return nil
+}
+
+func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) ([]storage.AccountMember, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	accountSlug = strings.TrimSpace(accountSlug)
+	var members []storage.AccountMember
+	for subjectID, memberships := range s.b.accountMembers {
+		role, ok := memberships[accountSlug]
+		if !ok {
+			continue
+		}
+		members = append(members, storage.AccountMember{SubjectID: subjectID, Username: s.b.personalAccounts[subjectID], Role: role})
+	}
+	sort.SliceStable(members, func(i, j int) bool {
+		a, b := members[i], members[j]
+		if ra, rb := storage.AccountRoleRank(a.Role), storage.AccountRoleRank(b.Role); ra != rb {
+			return ra < rb
+		}
+		if a.Username != b.Username {
+			return a.Username < b.Username
+		}
+		return a.SubjectID < b.SubjectID
+	})
+	return members, nil
+}
+
+func (s *AuthStore) SetAccountMemberRole(ctx context.Context, accountSlug, subjectID, role string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if err := s.b.requireOrgLocked(accountSlug); err != nil {
+		return err
+	}
+	previous, wasMember := s.b.accountMembers[subjectID][accountSlug]
+	s.b.addAccountRoleLocked(subjectID, accountSlug, role)
+	if s.b.ownerCountLocked(accountSlug) == 0 {
+		if wasMember {
+			s.b.accountMembers[subjectID][accountSlug] = previous
+		}
+		return fmt.Errorf("%w: %q must keep at least one owner", storage.ErrConflict, accountSlug)
+	}
+	return nil
+}
+
+func (s *AuthStore) RemoveAccountMember(ctx context.Context, accountSlug, subjectID string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if err := s.b.requireOrgLocked(accountSlug); err != nil {
+		return err
+	}
+	role, ok := s.b.accountMembers[subjectID][accountSlug]
+	if !ok {
+		return fmt.Errorf("%w: subject is not a member of %q", storage.ErrNotFound, accountSlug)
+	}
+	delete(s.b.accountMembers[subjectID], accountSlug)
+	if s.b.ownerCountLocked(accountSlug) == 0 {
+		s.b.accountMembers[subjectID][accountSlug] = role
+		return fmt.Errorf("%w: %q must keep at least one owner", storage.ErrConflict, accountSlug)
+	}
+	return nil
+}
+
+func (b *backend) requireOrgLocked(accountSlug string) error {
+	accountSlug = strings.TrimSpace(accountSlug)
+	if b.orgAccounts[accountSlug] {
+		return nil
+	}
+	if b.accountSlugTakenLocked(accountSlug) {
+		return fmt.Errorf("%w: members can only be managed on organization accounts", storage.ErrConflict)
+	}
+	return storage.ErrNotFound
+}
+
+func (b *backend) ownerCountLocked(accountSlug string) int {
+	owners := 0
+	for _, memberships := range b.accountMembers {
+		if memberships[accountSlug] == "owner" {
+			owners++
+		}
+	}
+	return owners
 }
 
 func (s *AuthStore) UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error) {

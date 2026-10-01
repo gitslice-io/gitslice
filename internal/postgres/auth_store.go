@@ -258,45 +258,7 @@ func (s *AuthStore) provisionAccountForSubject(ctx context.Context, tx *sql.Tx, 
 		return "", err
 	}
 
-	homeSliceID := signupHomeSliceID(username)
-	homeIncludedPaths := []string{"/" + username}
-	homeIncludedJSON, err := encodeJSON(homeIncludedPaths)
-	if err != nil {
-		return "", err
-	}
-	emptyChecksJSON, err := encodeJSON([]string{})
-	if err != nil {
-		return "", err
-	}
-	homeDefinitionHash := definitionHash(homeSliceID, 1, homeIncludedPaths, "private", 0, nil)
-	if _, err := tx.ExecContext(ctx, `
-		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
-		values ($1, $2, 'home', 1, $3, 'private', $4, now(), now())
-		on conflict (account_id, slug) do nothing
-	`, homeSliceID, accountID, homeDefinitionHash, homeIncludedJSON); err != nil {
-		return "", err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		insert into slice_definition_versions(
-			slice_id,
-			version,
-			definition_hash,
-			visibility,
-			included_paths,
-			required_approvals,
-			required_checks,
-			created_at,
-			created_by
-		)
-		values ($1, 1, $2, 'private', $3, 0, $4, now(), $5)
-		on conflict do nothing
-	`, homeSliceID, homeDefinitionHash, homeIncludedJSON, emptyChecksJSON, subjectID); err != nil {
-		return "", err
-	}
-	if err := syncSliceIncludedPathsTx(ctx, tx, homeSliceID, homeIncludedPaths); err != nil {
-		return "", err
-	}
-	if err := ensureAccountRootDirectoryTx(ctx, tx, username, subjectID, s.trees); err != nil {
+	if err := s.provisionHomeTx(ctx, tx, accountID, username, subjectID); err != nil {
 		return "", err
 	}
 
@@ -415,6 +377,54 @@ func (s *AuthStore) UsernamesForSubjects(ctx context.Context, subjectIDs []strin
 		out[subjectID] = slug
 	}
 	return out, rows.Err()
+}
+
+// provisionHomeTx creates an account's private home slice covering /<slug>
+// (with its first definition version) and the account root directory. It is
+// idempotent, and shared by personal and organization provisioning.
+func (s *AuthStore) provisionHomeTx(ctx context.Context, tx *sql.Tx, accountID, slug, createdBy string) error {
+	homeSliceID := signupHomeSliceID(slug)
+	homeIncludedPaths := []string{"/" + slug}
+	homeIncludedJSON, err := encodeJSON(homeIncludedPaths)
+	if err != nil {
+		return err
+	}
+	emptyChecksJSON, err := encodeJSON([]string{})
+	if err != nil {
+		return err
+	}
+	homeDefinitionHash := definitionHash(homeSliceID, 1, homeIncludedPaths, "private", 0, nil)
+	if _, err := tx.ExecContext(ctx, `
+		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
+		values ($1, $2, 'home', 1, $3, 'private', $4, now(), now())
+		on conflict (account_id, slug) do nothing
+	`, homeSliceID, accountID, homeDefinitionHash, homeIncludedJSON); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into slice_definition_versions(
+			slice_id,
+			version,
+			definition_hash,
+			visibility,
+			included_paths,
+			required_approvals,
+			required_checks,
+			created_at,
+			created_by
+		)
+		values ($1, 1, $2, 'private', $3, 0, $4, now(), $5)
+		on conflict do nothing
+	`, homeSliceID, homeDefinitionHash, homeIncludedJSON, emptyChecksJSON, createdBy); err != nil {
+		return err
+	}
+	if err := syncSliceIncludedPathsTx(ctx, tx, homeSliceID, homeIncludedPaths); err != nil {
+		return err
+	}
+	if err := ensureAccountRootDirectoryTx(ctx, tx, slug, createdBy, s.trees); err != nil {
+		return err
+	}
+	return nil
 }
 
 func ensureAccountRootDirectoryTx(ctx context.Context, tx *sql.Tx, accountSlug, subjectID string, trees *treestore.Store) error {

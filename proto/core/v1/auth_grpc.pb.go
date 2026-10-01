@@ -29,6 +29,10 @@ const (
 	AuthService_ListPendingClaims_FullMethodName      = "/gitslice.core.v1.AuthService/ListPendingClaims"
 	AuthService_AcceptClaim_FullMethodName            = "/gitslice.core.v1.AuthService/AcceptClaim"
 	AuthService_ListOwnedAgents_FullMethodName        = "/gitslice.core.v1.AuthService/ListOwnedAgents"
+	AuthService_CreateOrganization_FullMethodName     = "/gitslice.core.v1.AuthService/CreateOrganization"
+	AuthService_ListAccountMembers_FullMethodName     = "/gitslice.core.v1.AuthService/ListAccountMembers"
+	AuthService_SetAccountMember_FullMethodName       = "/gitslice.core.v1.AuthService/SetAccountMember"
+	AuthService_RemoveAccountMember_FullMethodName    = "/gitslice.core.v1.AuthService/RemoveAccountMember"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -54,6 +58,19 @@ type AuthServiceClient interface {
 	// ListOwnedAgents lists the self-registered agents whose accounts the caller
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(ctx context.Context, in *ListOwnedAgentsRequest, opts ...grpc.CallOption) (*ListOwnedAgentsResponse, error)
+	// CreateOrganization creates an organization account (with a private home
+	// slice) owned by the given users. Operator-only: the caller's subject must
+	// be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
+	// names reserved for self-service sign-up.
+	CreateOrganization(ctx context.Context, in *CreateOrganizationRequest, opts ...grpc.CallOption) (*CreateOrganizationResponse, error)
+	// ListAccountMembers lists an account's members. Any member may call it.
+	ListAccountMembers(ctx context.Context, in *ListAccountMembersRequest, opts ...grpc.CallOption) (*ListAccountMembersResponse, error)
+	// SetAccountMember adds a user to an organization or changes their role.
+	// Owners and admins may call it; only owners grant or revoke owner.
+	SetAccountMember(ctx context.Context, in *SetAccountMemberRequest, opts ...grpc.CallOption) (*SetAccountMemberResponse, error)
+	// RemoveAccountMember removes a user from an organization. The last owner
+	// cannot be removed.
+	RemoveAccountMember(ctx context.Context, in *RemoveAccountMemberRequest, opts ...grpc.CallOption) (*RemoveAccountMemberResponse, error)
 }
 
 type authServiceClient struct {
@@ -154,6 +171,42 @@ func (c *authServiceClient) ListOwnedAgents(ctx context.Context, in *ListOwnedAg
 	return out, nil
 }
 
+func (c *authServiceClient) CreateOrganization(ctx context.Context, in *CreateOrganizationRequest, opts ...grpc.CallOption) (*CreateOrganizationResponse, error) {
+	out := new(CreateOrganizationResponse)
+	err := c.cc.Invoke(ctx, AuthService_CreateOrganization_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ListAccountMembers(ctx context.Context, in *ListAccountMembersRequest, opts ...grpc.CallOption) (*ListAccountMembersResponse, error) {
+	out := new(ListAccountMembersResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListAccountMembers_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) SetAccountMember(ctx context.Context, in *SetAccountMemberRequest, opts ...grpc.CallOption) (*SetAccountMemberResponse, error) {
+	out := new(SetAccountMemberResponse)
+	err := c.cc.Invoke(ctx, AuthService_SetAccountMember_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) RemoveAccountMember(ctx context.Context, in *RemoveAccountMemberRequest, opts ...grpc.CallOption) (*RemoveAccountMemberResponse, error) {
+	out := new(RemoveAccountMemberResponse)
+	err := c.cc.Invoke(ctx, AuthService_RemoveAccountMember_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
@@ -177,6 +230,19 @@ type AuthServiceServer interface {
 	// ListOwnedAgents lists the self-registered agents whose accounts the caller
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *ListOwnedAgentsRequest) (*ListOwnedAgentsResponse, error)
+	// CreateOrganization creates an organization account (with a private home
+	// slice) owned by the given users. Operator-only: the caller's subject must
+	// be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
+	// names reserved for self-service sign-up.
+	CreateOrganization(context.Context, *CreateOrganizationRequest) (*CreateOrganizationResponse, error)
+	// ListAccountMembers lists an account's members. Any member may call it.
+	ListAccountMembers(context.Context, *ListAccountMembersRequest) (*ListAccountMembersResponse, error)
+	// SetAccountMember adds a user to an organization or changes their role.
+	// Owners and admins may call it; only owners grant or revoke owner.
+	SetAccountMember(context.Context, *SetAccountMemberRequest) (*SetAccountMemberResponse, error)
+	// RemoveAccountMember removes a user from an organization. The last owner
+	// cannot be removed.
+	RemoveAccountMember(context.Context, *RemoveAccountMemberRequest) (*RemoveAccountMemberResponse, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
@@ -212,6 +278,18 @@ func (UnimplementedAuthServiceServer) AcceptClaim(context.Context, *AcceptClaimR
 }
 func (UnimplementedAuthServiceServer) ListOwnedAgents(context.Context, *ListOwnedAgentsRequest) (*ListOwnedAgentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListOwnedAgents not implemented")
+}
+func (UnimplementedAuthServiceServer) CreateOrganization(context.Context, *CreateOrganizationRequest) (*CreateOrganizationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateOrganization not implemented")
+}
+func (UnimplementedAuthServiceServer) ListAccountMembers(context.Context, *ListAccountMembersRequest) (*ListAccountMembersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAccountMembers not implemented")
+}
+func (UnimplementedAuthServiceServer) SetAccountMember(context.Context, *SetAccountMemberRequest) (*SetAccountMemberResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAccountMember not implemented")
+}
+func (UnimplementedAuthServiceServer) RemoveAccountMember(context.Context, *RemoveAccountMemberRequest) (*RemoveAccountMemberResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveAccountMember not implemented")
 }
 
 // UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -405,6 +483,78 @@ func _AuthService_ListOwnedAgents_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_CreateOrganization_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateOrganizationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).CreateOrganization(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_CreateOrganization_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).CreateOrganization(ctx, req.(*CreateOrganizationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ListAccountMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAccountMembersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListAccountMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListAccountMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListAccountMembers(ctx, req.(*ListAccountMembersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_SetAccountMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAccountMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).SetAccountMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_SetAccountMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).SetAccountMember(ctx, req.(*SetAccountMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_RemoveAccountMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveAccountMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RemoveAccountMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RemoveAccountMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RemoveAccountMember(ctx, req.(*RemoveAccountMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -451,6 +601,22 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListOwnedAgents",
 			Handler:    _AuthService_ListOwnedAgents_Handler,
+		},
+		{
+			MethodName: "CreateOrganization",
+			Handler:    _AuthService_CreateOrganization_Handler,
+		},
+		{
+			MethodName: "ListAccountMembers",
+			Handler:    _AuthService_ListAccountMembers_Handler,
+		},
+		{
+			MethodName: "SetAccountMember",
+			Handler:    _AuthService_SetAccountMember_Handler,
+		},
+		{
+			MethodName: "RemoveAccountMember",
+			Handler:    _AuthService_RemoveAccountMember_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

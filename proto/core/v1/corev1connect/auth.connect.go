@@ -62,6 +62,18 @@ const (
 	// AuthServiceListOwnedAgentsProcedure is the fully-qualified name of the AuthService's
 	// ListOwnedAgents RPC.
 	AuthServiceListOwnedAgentsProcedure = "/gitslice.core.v1.AuthService/ListOwnedAgents"
+	// AuthServiceCreateOrganizationProcedure is the fully-qualified name of the AuthService's
+	// CreateOrganization RPC.
+	AuthServiceCreateOrganizationProcedure = "/gitslice.core.v1.AuthService/CreateOrganization"
+	// AuthServiceListAccountMembersProcedure is the fully-qualified name of the AuthService's
+	// ListAccountMembers RPC.
+	AuthServiceListAccountMembersProcedure = "/gitslice.core.v1.AuthService/ListAccountMembers"
+	// AuthServiceSetAccountMemberProcedure is the fully-qualified name of the AuthService's
+	// SetAccountMember RPC.
+	AuthServiceSetAccountMemberProcedure = "/gitslice.core.v1.AuthService/SetAccountMember"
+	// AuthServiceRemoveAccountMemberProcedure is the fully-qualified name of the AuthService's
+	// RemoveAccountMember RPC.
+	AuthServiceRemoveAccountMemberProcedure = "/gitslice.core.v1.AuthService/RemoveAccountMember"
 )
 
 // AuthServiceClient is a client for the gitslice.core.v1.AuthService service.
@@ -85,6 +97,19 @@ type AuthServiceClient interface {
 	// ListOwnedAgents lists the self-registered agents whose accounts the caller
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error)
+	// CreateOrganization creates an organization account (with a private home
+	// slice) owned by the given users. Operator-only: the caller's subject must
+	// be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
+	// names reserved for self-service sign-up.
+	CreateOrganization(context.Context, *connect.Request[v1.CreateOrganizationRequest]) (*connect.Response[v1.CreateOrganizationResponse], error)
+	// ListAccountMembers lists an account's members. Any member may call it.
+	ListAccountMembers(context.Context, *connect.Request[v1.ListAccountMembersRequest]) (*connect.Response[v1.ListAccountMembersResponse], error)
+	// SetAccountMember adds a user to an organization or changes their role.
+	// Owners and admins may call it; only owners grant or revoke owner.
+	SetAccountMember(context.Context, *connect.Request[v1.SetAccountMemberRequest]) (*connect.Response[v1.SetAccountMemberResponse], error)
+	// RemoveAccountMember removes a user from an organization. The last owner
+	// cannot be removed.
+	RemoveAccountMember(context.Context, *connect.Request[v1.RemoveAccountMemberRequest]) (*connect.Response[v1.RemoveAccountMemberResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the gitslice.core.v1.AuthService service. By
@@ -158,6 +183,30 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("ListOwnedAgents")),
 			connect.WithClientOptions(opts...),
 		),
+		createOrganization: connect.NewClient[v1.CreateOrganizationRequest, v1.CreateOrganizationResponse](
+			httpClient,
+			baseURL+AuthServiceCreateOrganizationProcedure,
+			connect.WithSchema(authServiceMethods.ByName("CreateOrganization")),
+			connect.WithClientOptions(opts...),
+		),
+		listAccountMembers: connect.NewClient[v1.ListAccountMembersRequest, v1.ListAccountMembersResponse](
+			httpClient,
+			baseURL+AuthServiceListAccountMembersProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ListAccountMembers")),
+			connect.WithClientOptions(opts...),
+		),
+		setAccountMember: connect.NewClient[v1.SetAccountMemberRequest, v1.SetAccountMemberResponse](
+			httpClient,
+			baseURL+AuthServiceSetAccountMemberProcedure,
+			connect.WithSchema(authServiceMethods.ByName("SetAccountMember")),
+			connect.WithClientOptions(opts...),
+		),
+		removeAccountMember: connect.NewClient[v1.RemoveAccountMemberRequest, v1.RemoveAccountMemberResponse](
+			httpClient,
+			baseURL+AuthServiceRemoveAccountMemberProcedure,
+			connect.WithSchema(authServiceMethods.ByName("RemoveAccountMember")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -173,6 +222,10 @@ type authServiceClient struct {
 	listPendingClaims      *connect.Client[v1.ListPendingClaimsRequest, v1.ListPendingClaimsResponse]
 	acceptClaim            *connect.Client[v1.AcceptClaimRequest, v1.AcceptClaimResponse]
 	listOwnedAgents        *connect.Client[v1.ListOwnedAgentsRequest, v1.ListOwnedAgentsResponse]
+	createOrganization     *connect.Client[v1.CreateOrganizationRequest, v1.CreateOrganizationResponse]
+	listAccountMembers     *connect.Client[v1.ListAccountMembersRequest, v1.ListAccountMembersResponse]
+	setAccountMember       *connect.Client[v1.SetAccountMemberRequest, v1.SetAccountMemberResponse]
+	removeAccountMember    *connect.Client[v1.RemoveAccountMemberRequest, v1.RemoveAccountMemberResponse]
 }
 
 // StartCliLogin calls gitslice.core.v1.AuthService.StartCliLogin.
@@ -225,6 +278,26 @@ func (c *authServiceClient) ListOwnedAgents(ctx context.Context, req *connect.Re
 	return c.listOwnedAgents.CallUnary(ctx, req)
 }
 
+// CreateOrganization calls gitslice.core.v1.AuthService.CreateOrganization.
+func (c *authServiceClient) CreateOrganization(ctx context.Context, req *connect.Request[v1.CreateOrganizationRequest]) (*connect.Response[v1.CreateOrganizationResponse], error) {
+	return c.createOrganization.CallUnary(ctx, req)
+}
+
+// ListAccountMembers calls gitslice.core.v1.AuthService.ListAccountMembers.
+func (c *authServiceClient) ListAccountMembers(ctx context.Context, req *connect.Request[v1.ListAccountMembersRequest]) (*connect.Response[v1.ListAccountMembersResponse], error) {
+	return c.listAccountMembers.CallUnary(ctx, req)
+}
+
+// SetAccountMember calls gitslice.core.v1.AuthService.SetAccountMember.
+func (c *authServiceClient) SetAccountMember(ctx context.Context, req *connect.Request[v1.SetAccountMemberRequest]) (*connect.Response[v1.SetAccountMemberResponse], error) {
+	return c.setAccountMember.CallUnary(ctx, req)
+}
+
+// RemoveAccountMember calls gitslice.core.v1.AuthService.RemoveAccountMember.
+func (c *authServiceClient) RemoveAccountMember(ctx context.Context, req *connect.Request[v1.RemoveAccountMemberRequest]) (*connect.Response[v1.RemoveAccountMemberResponse], error) {
+	return c.removeAccountMember.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the gitslice.core.v1.AuthService service.
 type AuthServiceHandler interface {
 	StartCliLogin(context.Context, *connect.Request[v1.StartCliLoginRequest]) (*connect.Response[v1.StartCliLoginResponse], error)
@@ -246,6 +319,19 @@ type AuthServiceHandler interface {
 	// ListOwnedAgents lists the self-registered agents whose accounts the caller
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error)
+	// CreateOrganization creates an organization account (with a private home
+	// slice) owned by the given users. Operator-only: the caller's subject must
+	// be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
+	// names reserved for self-service sign-up.
+	CreateOrganization(context.Context, *connect.Request[v1.CreateOrganizationRequest]) (*connect.Response[v1.CreateOrganizationResponse], error)
+	// ListAccountMembers lists an account's members. Any member may call it.
+	ListAccountMembers(context.Context, *connect.Request[v1.ListAccountMembersRequest]) (*connect.Response[v1.ListAccountMembersResponse], error)
+	// SetAccountMember adds a user to an organization or changes their role.
+	// Owners and admins may call it; only owners grant or revoke owner.
+	SetAccountMember(context.Context, *connect.Request[v1.SetAccountMemberRequest]) (*connect.Response[v1.SetAccountMemberResponse], error)
+	// RemoveAccountMember removes a user from an organization. The last owner
+	// cannot be removed.
+	RemoveAccountMember(context.Context, *connect.Request[v1.RemoveAccountMemberRequest]) (*connect.Response[v1.RemoveAccountMemberResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -315,6 +401,30 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("ListOwnedAgents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceCreateOrganizationHandler := connect.NewUnaryHandler(
+		AuthServiceCreateOrganizationProcedure,
+		svc.CreateOrganization,
+		connect.WithSchema(authServiceMethods.ByName("CreateOrganization")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceListAccountMembersHandler := connect.NewUnaryHandler(
+		AuthServiceListAccountMembersProcedure,
+		svc.ListAccountMembers,
+		connect.WithSchema(authServiceMethods.ByName("ListAccountMembers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceSetAccountMemberHandler := connect.NewUnaryHandler(
+		AuthServiceSetAccountMemberProcedure,
+		svc.SetAccountMember,
+		connect.WithSchema(authServiceMethods.ByName("SetAccountMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceRemoveAccountMemberHandler := connect.NewUnaryHandler(
+		AuthServiceRemoveAccountMemberProcedure,
+		svc.RemoveAccountMember,
+		connect.WithSchema(authServiceMethods.ByName("RemoveAccountMember")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartCliLoginProcedure:
@@ -337,6 +447,14 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceAcceptClaimHandler.ServeHTTP(w, r)
 		case AuthServiceListOwnedAgentsProcedure:
 			authServiceListOwnedAgentsHandler.ServeHTTP(w, r)
+		case AuthServiceCreateOrganizationProcedure:
+			authServiceCreateOrganizationHandler.ServeHTTP(w, r)
+		case AuthServiceListAccountMembersProcedure:
+			authServiceListAccountMembersHandler.ServeHTTP(w, r)
+		case AuthServiceSetAccountMemberProcedure:
+			authServiceSetAccountMemberHandler.ServeHTTP(w, r)
+		case AuthServiceRemoveAccountMemberProcedure:
+			authServiceRemoveAccountMemberHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -384,4 +502,20 @@ func (UnimplementedAuthServiceHandler) AcceptClaim(context.Context, *connect.Req
 
 func (UnimplementedAuthServiceHandler) ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListOwnedAgents is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CreateOrganization(context.Context, *connect.Request[v1.CreateOrganizationRequest]) (*connect.Response[v1.CreateOrganizationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.CreateOrganization is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListAccountMembers(context.Context, *connect.Request[v1.ListAccountMembersRequest]) (*connect.Response[v1.ListAccountMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListAccountMembers is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) SetAccountMember(context.Context, *connect.Request[v1.SetAccountMemberRequest]) (*connect.Response[v1.SetAccountMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.SetAccountMember is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) RemoveAccountMember(context.Context, *connect.Request[v1.RemoveAccountMemberRequest]) (*connect.Response[v1.RemoveAccountMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.RemoveAccountMember is not implemented"))
 }

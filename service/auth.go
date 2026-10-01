@@ -22,6 +22,9 @@ type AuthService struct {
 	// ClerkUsers reads verified emails for Clerk-authenticated callers during
 	// agent claims. Nil when the server has no Clerk secret key.
 	ClerkUsers ClerkUserDirectory
+	// OperatorSubjects may create organization accounts
+	// (GITSLICE_OPERATOR_SUBJECTS).
+	OperatorSubjects []string
 }
 
 // ClerkUserDirectory looks up a Clerk user's verified email addresses.
