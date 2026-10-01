@@ -218,6 +218,83 @@ checks:
 			},
 		},
 		{
+			name: "required check outside the changed directories is skipped",
+			files: fakeTreeReader{
+				"/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  lint:
+    run: go vet ./...
+`),
+				"web/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  build:
+    run: npm run build
+`),
+			},
+			changedPaths:   []string{"README.md"},
+			includedPaths:  []string{"/"},
+			requiredChecks: []string{"web/build"},
+			assert: func(t *testing.T, plan *Plan) {
+				if got := runnableNames(plan); !reflect.DeepEqual(got, []string{"lint"}) {
+					t.Fatalf("runnable names = %#v, want [lint]", got)
+				}
+				if got := skippedNames(plan); !reflect.DeepEqual(got, []string{"web/build"}) {
+					t.Fatalf("skipped names = %#v, want [web/build]", got)
+				}
+				if plan.Skipped[0].Reason != "no changed paths under web" {
+					t.Fatalf("skipped reason = %q", plan.Skipped[0].Reason)
+				}
+				if len(plan.Errored) != 0 {
+					t.Fatalf("errored = %#v, want none", plan.Errored)
+				}
+			},
+		},
+		{
+			name: "required check outside the changed directories runs on an absolute paths match",
+			files: fakeTreeReader{
+				"web/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  build:
+    run: npm run build
+    paths: ["/go.mod"]
+`),
+			},
+			changedPaths:   []string{"go.mod"},
+			includedPaths:  []string{"/"},
+			requiredChecks: []string{"/web/build"},
+			assert: func(t *testing.T, plan *Plan) {
+				if got := runnableNames(plan); !reflect.DeepEqual(got, []string{"web/build"}) {
+					t.Fatalf("runnable names = %#v, want [web/build]", got)
+				}
+			},
+		},
+		{
+			name: "required check in an undiscovered file that does not parse",
+			files: fakeTreeReader{
+				"web/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  build:
+    run: npm run build
+    timeout: nope
+`),
+			},
+			changedPaths:   []string{"README.md"},
+			includedPaths:  []string{"/"},
+			requiredChecks: []string{"web/build"},
+			assert: func(t *testing.T, plan *Plan) {
+				if got := erroredNames(plan); !reflect.DeepEqual(got, []string{"web/build"}) {
+					t.Fatalf("errored names = %#v, want [web/build]", got)
+				}
+				if !strings.Contains(plan.Errored[0].Reason, "timeout") {
+					t.Fatalf("errored reason = %q, want timeout", plan.Errored[0].Reason)
+				}
+			},
+		},
+		{
 			name: "parse error isolates one file",
 			files: fakeTreeReader{
 				"/.gitslice/checks.yaml": []byte(`

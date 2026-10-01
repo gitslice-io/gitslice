@@ -9085,3 +9085,30 @@ Verification: new e2e `TestWorkspacePreservesSymlinks` covers a relative link
 materialized as a symlink, an absolute link materialized as a file, and a
 changeset that only touches the new file. It fails without the fix. The full
 `./tests/cli` suite passes.
+
+## 2026-10-01 — Required checks outside the changed directories
+
+Found while setting the required checks for `gitslice/gitslice`
+(design/21, Phase 2).
+
+**The bug.** Check discovery reads only the checks files on the changed paths'
+ancestor directories. A required check defined in a subdirectory's file, such
+as `gitslice/gitslice/web/build` from `web/.gitslice/checks.yaml`, was
+therefore never discovered for a change outside `web/`. `ResolvePlan` then
+reported it as errored ("required check has no definition in this revision"),
+so requiring the web build would have blocked every changeset that does not
+touch `web/`.
+
+**The fix.**
+- `ResolvePlan` now reads the checks file of each required check that
+  discovery missed, and evaluates the check like a discovered one.
+- A change outside its directory skips it, and a skipped required check
+  counts as passing. An absolute `paths` glob can still select it.
+- A missing file or definition still errors.
+- design/17 describes the rule.
+
+Verification:
+- Three new `TestResolvePlan` cases cover the skip, the absolute-glob run and
+  a parse error in an undiscovered file. All three fail without the fix.
+- `go test ./tests/rpc -run 'Check|Required|Dispatch'` passes against
+  Postgres.

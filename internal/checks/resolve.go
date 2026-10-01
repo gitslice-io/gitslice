@@ -108,47 +108,86 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 		}
 
 		for _, localName := range sortedCheckNames(found.file.Checks) {
-			check := found.file.Checks[localName]
 			name := qualifiedID(found.dir, localName)
 			if _, ok := produced[name]; ok {
 				continue
 			}
 			produced[name] = struct{}{}
-
-			matches, err := checkMatchesChangedPaths(found.dir, check.Paths, cleanChanged)
-			if err != nil {
-				plan.Errored = append(plan.Errored, ErroredCheck{Name: name, Reason: err.Error()})
-				continue
-			}
-			if !matches {
-				plan.Skipped = append(plan.Skipped, SkippedCheck{
-					Name:   name,
-					Reason: "paths filter did not match changed paths",
-				})
-				continue
-			}
-
-			spec, err := buildCheckSpec(found.dir, localName, check, cleanIncluded)
-			if err != nil {
-				plan.Errored = append(plan.Errored, ErroredCheck{Name: name, Reason: err.Error()})
-				continue
-			}
-			plan.Runnable = append(plan.Runnable, spec)
+			plan.addCheck(found.dir, localName, found.file.Checks[localName], cleanChanged, cleanIncluded)
 		}
 	}
 
+	// Discovery reads only the checks files on the changed paths' ancestor
+	// directories. A required check defined anywhere else in the revision is
+	// evaluated from its own file: a change outside its directory skips it
+	// rather than leaving it without a result, and an absolute paths filter
+	// can still select it.
 	for _, required := range normalizeRequiredChecks(requiredChecks) {
 		if _, ok := produced[required]; ok {
 			continue
 		}
-		plan.Errored = append(plan.Errored, ErroredCheck{
-			Name:   required,
-			Reason: "required check has no definition in this revision",
-		})
 		produced[required] = struct{}{}
+		dir, localName := splitQualifiedID(required)
+		checksPath := checksFilePath(dir)
+		data, err := tree.ReadFile(ctx, rootTreeID, checksPath)
+		if err != nil && !isNotFound(err) {
+			return nil, fmt.Errorf("read checks file %s: %w", checksPath, err)
+		}
+		var check Check
+		defined := false
+		if err == nil {
+			file, parseErr := Parse(data)
+			if parseErr != nil {
+				plan.Errored = append(plan.Errored, ErroredCheck{Name: required, Reason: parseErr.Error()})
+				continue
+			}
+			check, defined = file.Checks[localName]
+		}
+		if !defined {
+			plan.Errored = append(plan.Errored, ErroredCheck{
+				Name:   required,
+				Reason: "required check has no definition in this revision",
+			})
+			continue
+		}
+		plan.addCheck(dir, localName, check, cleanChanged, cleanIncluded)
 	}
 
 	return plan, nil
+}
+
+// addCheck sorts one defined check into Runnable, Skipped or Errored for the
+// changed paths.
+func (plan *Plan) addCheck(dir, localName string, check Check, changedPaths, includedPaths []string) {
+	name := qualifiedID(dir, localName)
+	matches, err := checkMatchesChangedPaths(dir, check.Paths, changedPaths)
+	if err != nil {
+		plan.Errored = append(plan.Errored, ErroredCheck{Name: name, Reason: err.Error()})
+		return
+	}
+	if !matches {
+		reason := "paths filter did not match changed paths"
+		if len(check.Paths) == 0 {
+			reason = "no changed paths under " + dirPrefix(dir)
+		}
+		plan.Skipped = append(plan.Skipped, SkippedCheck{Name: name, Reason: reason})
+		return
+	}
+	spec, err := buildCheckSpec(dir, localName, check, includedPaths)
+	if err != nil {
+		plan.Errored = append(plan.Errored, ErroredCheck{Name: name, Reason: err.Error()})
+		return
+	}
+	plan.Runnable = append(plan.Runnable, spec)
+}
+
+// splitQualifiedID splits "<dir>/<name>" into the checks file's directory and
+// the check's local name. Local names never contain "/".
+func splitQualifiedID(id string) (string, string) {
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		return id[:i], id[i+1:]
+	}
+	return "", id
 }
 
 func buildCheckSpec(definingDir, localName string, check Check, includedPaths []string) (CheckSpec, error) {
