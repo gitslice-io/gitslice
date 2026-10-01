@@ -30,6 +30,21 @@ awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' .env.staging | sort
 
 Record material deploys and surprising deployment findings in `design/10_execution_log.md`: request, actions, decisions, verification commands, and results. Do not record secrets.
 
+## Source Of Truth
+
+The canonical source is the slice `gitslice/gitslice` on Gitslice
+(`design/21_self_hosting.md`). GitHub `main` is written only by the
+`Mirror from Gitslice` workflow (`.github/workflows/mirror-export.yml`).
+
+- **Shipping a change:** submit it in Gitslice. The export reaches GitHub
+  `main` within about 10 minutes, and the deploy paths below build from
+  there. Never push to GitHub `main` directly; the branch ruleset blocks it.
+- **Break-glass:** if Gitslice is down and a fix must ship, a repository
+  admin may bypass the ruleset to land the fix on the mirror and deploy it.
+  Re-apply the fix as a Gitslice changeset afterwards. The exporter refuses to
+  run while the mirror holds commits that did not come from Gitslice, so
+  reconcile before re-enabling it.
+
 ## Current Topology
 
 Backend staging is a Go `gitslice-server` process behind nginx. `ops/nginx.conf` routes `api.agenttools.dev` gRPC services to `127.0.0.1:50052` and `/v1/` plus `/git/` HTTP traffic to `127.0.0.1:8081`.
