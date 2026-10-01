@@ -3,8 +3,8 @@ name: Mirror from Gitslice
 # Phase 2 of design/21_self_hosting.md: Gitslice is the source of truth and
 # main on GitHub is a read-only mirror. ops/mirror replays every new projected
 # commit of gitslice/gitslice onto main and pushes new tags. Version tags then
-# start release.yml: tag pushes made with GITHUB_TOKEN do not trigger
-# workflows, but workflow_dispatch does.
+# start release.yml, and new commits start ci.yml: pushes made with
+# GITHUB_TOKEN do not trigger workflows, but workflow_dispatch does.
 #
 # Enable with the repository variable GITSLICE_EXPORT_ENABLED=true (and turn
 # GITSLICE_IMPORT_ENABLED off). main must allow pushes from GitHub Actions
@@ -40,12 +40,25 @@ jobs:
           cache: true
 
       - name: Export Gitslice history to main
+        id: export
         env:
           GITSLICE_MIRROR_TOKEN: ${{ secrets.GITSLICE_MIRROR_TOKEN }}
           SOURCE: ${{ vars.GITSLICE_SOURCE_URL || 'https://gitslice.io/git/gitslice/gitslice.git' }}
         run: |
+          set -euo pipefail
+          before=$(git rev-parse HEAD)
           go run ./ops/mirror -repo . -source "$SOURCE" -subdir gitslice/gitslice \
             -push -new-tags-out "$RUNNER_TEMP/new-tags"
+          after=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$after" != "$before" ]; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run CI on the exported commits
+        if: steps.export.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref main
 
       - name: Build releases for new version tags
         env:
