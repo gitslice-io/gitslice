@@ -915,7 +915,7 @@ function CliReferenceDoc() {
           . Windows and other builds are on the{" "}
           <a
             className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
-            href="https://github.com/gitslice-io/gitslice/releases/latest"
+            href="https://gitslice.io/releases/latest"
           >
             releases page
           </a>
@@ -925,7 +925,7 @@ function CliReferenceDoc() {
         <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           Option B — go install
         </h3>
-        <CommandBlock>{`go install github.com/gitslice-io/gitslice/cmd/gs@latest`}</CommandBlock>
+        <CommandBlock>{`go install gitslice.io/gitslice/cmd/gs@latest`}</CommandBlock>
         <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           Make sure your Go bin directory is on{" "}
           <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">

@@ -13,9 +13,9 @@
        curl -fsSL https://gitslice.io/install.sh | sh
 
    It installs to ~/.local/bin (override with GS_INSTALL_DIR). Windows and
-   other builds: https://github.com/gitslice-io/gitslice/releases/latest
+   other builds: https://gitslice.io/releases/latest
    With Go 1.24+ you can instead run:
-   `go install github.com/gitslice-io/gitslice/cmd/gs@latest`
+   `go install gitslice.io/gitslice/cmd/gs@latest`
 
 2. Register yourself. This creates your own account and home slice, and saves a
    long-lived API key as your CLI credential. Use the email of the human you

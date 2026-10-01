@@ -8646,3 +8646,40 @@ Verification: `go test ./internal/gitcompat/ ./server/`, plus a new e2e test,
 401 for private and missing slices, 401 for anonymous push discovery, and 401
 for an invalid token on a public slice. It ran with `TestGitHTTPAuth...Matrix`,
 `TestGitCloneProjection` and `TestGitPushIntoChangesets` against PostgreSQL.
+## 2026-10-01 — Vanity Go import path and stable release URLs
+
+Request: `go install` must keep working while the Gitslice source moves onto
+Gitslice, and public docs should name only `gitslice.io`
+(`design/21_self_hosting.md`, Phase 0).
+
+- **The web Worker answers `?go-get=1`** for `/gitslice` and every path below
+  it (`web/src/lib/goImport.ts`, wired in `web/src/server.ts` ahead of the git
+  proxy and the app). The response carries
+  `<meta name="go-import" content="gitslice.io/gitslice git https://github.com/gitslice-io/gitslice">`
+  and a `go-source` tag. This is stage 1: modules resolve through the GitHub
+  mirror. Stage 2 changes only the `goModules` entry: the repository becomes
+  `https://gitslice.io/git/gitslice/gitslice.git`, plus the `gitslice/gitslice`
+  subdirectory field, which needs Go 1.25+ under `GOPROXY=direct`.
+- **`/releases` redirects** (`web/src/lib/releases.ts`) map `/releases`,
+  `/releases/latest`, `/releases/latest/download/<asset>`,
+  `/releases/download/<tag>/<asset>` and `/releases/tag/<tag>` to the GitHub
+  mirror's releases with a 302.
+  - Tags and asset names must match `[A-Za-z0-9][A-Za-z0-9._+-]*`, so a
+    redirect can never leave the releases tree.
+  - The redirect is temporary so the assets can move (for example to R2)
+    without editing `install.sh` again.
+- **Docs and installer use the new names:**
+  - `install.sh` downloads from `https://gitslice.io/releases/...`; `curl -L`
+    and `wget` follow the redirect.
+  - `llms.txt` and the CLI install docs use
+    `go install gitslice.io/gitslice/cmd/gs@latest` and the gitslice.io
+    releases link.
+  - The "Source" link and the build-from-source clone URL stay on GitHub until
+    Gitslice hosts the source (Phase 1).
+- **The first release under the new module path is `v0.2.0`.** `v0.1.x`
+  declares `github.com/gitslice-io/gitslice`, so `@latest` under the new path
+  only works once `v0.2.0` is tagged.
+
+Verification: `npx vitest run src/lib/goImport.test.ts src/lib/releases.test.ts
+src/server.test.ts` (12 tests), `sh -n web/public/install.sh`, and
+`npm run build`.
