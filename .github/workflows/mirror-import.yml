@@ -1,0 +1,58 @@
+name: Mirror into Gitslice
+
+# Phase 1 of design/21_self_hosting.md: GitHub is the source of truth and the
+# slice gitslice/gitslice on Gitslice keeps an incremental copy of main.
+# `gs import --deep` skips commits it already imported, so every run only
+# replays new ones.
+#
+# Enable with the repository variable GITSLICE_IMPORT_ENABLED=true and the
+# secret GITSLICE_MIRROR_TOKEN (an API key with writer access to the
+# gitslice organization). Turn it off at cutover. It never runs while
+# GITSLICE_EXPORT_ENABLED is set: the two directions must not run together.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitslice-mirror
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: vars.GITSLICE_IMPORT_ENABLED == 'true' && vars.GITSLICE_EXPORT_ENABLED != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build gs
+        run: go build -o "$RUNNER_TEMP/gs" ./cmd/gs
+
+      - name: Configure Gitslice credentials
+        env:
+          GITSLICE_MIRROR_TOKEN: ${{ secrets.GITSLICE_MIRROR_TOKEN }}
+          GITSLICE_SERVER: ${{ vars.GITSLICE_SERVER || 'api.gitslice.io:443' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.gitslice"
+          jq -n --arg server "$GITSLICE_SERVER" --arg token "$GITSLICE_MIRROR_TOKEN" \
+            '{server_addr: $server, token: $token}' > "$HOME/.gitslice/config.json"
+
+      - name: Import new commits
+        run: |
+          "$RUNNER_TEMP/gs" import "${{ github.repository }}" --deep \
+            --mount /gitslice/gitslice --slice gitslice/gitslice --non-interactive
