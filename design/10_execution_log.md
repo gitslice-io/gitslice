@@ -8843,3 +8843,36 @@ importing subject, and only the subject line survived.
 Verification: new e2e `TestGitImportPreservesOriginalMetadata` (authors with
 time zones, a multi-line message with trailers), plus the existing
 `TestGitImport*` tests against PostgreSQL.
+## 2026-10-01 — CI daemon runs in-slice checks nobody bundled
+
+Request: `gitslice/gitslice` will require checks on every changeset, including
+ones made with `gs create`, `gs modify` and `git push`
+(`design/21_self_hosting.md`, gap 2). Previously:
+
+- only `gs cs capture` (the agent path) bundled in-slice results;
+- the server sent only out-of-slice checks to the slice's CI daemon;
+- `gs ci` ran checks without reporting them.
+
+Other changesets never got in-slice results, so a required in-slice check
+blocked them forever.
+
+Changes:
+
+- **Dispatch.** `dispatchCIChecks` (formerly `dispatchOutOfSliceChecks`) also
+  sends in-slice runnable checks to the CI daemon, when the slice has one and
+  the patchset's `UpdateChangeset` call did not bundle a result under that
+  check's name. Bundled checks are never re-run.
+- **Slices without a daemon** keep the old behavior. In-slice checks without
+  bundled results create no runs; out-of-slice ones still error with "no
+  full-tree CI runner".
+- **`RerunCheck`** (`runnableCICheck`) and the queued-run re-push sweep
+  (`rebuildRunChecksMessage`) accept in-slice checks too, so runs created by
+  the new path can be rerun and re-delivered.
+- **No daemon change was needed.** The daemon already materializes each spec's
+  `MaterializePaths` from `result_tree_id`, whether in-slice or not.
+
+Verification: new e2e `TestRPCCIDaemonRunsUnbundledInSliceChecks` checks that
+an unbundled patchset dispatches the in-slice check, and that a bundled
+patchset produces no `RunChecks` (messages are ordered, so the next one
+belongs to a later unbundled patchset). Existing check tests pass:
+`go test ./tests/rpc -run Check`, `./tests/cli -run 'Check|Capture|CI'`.

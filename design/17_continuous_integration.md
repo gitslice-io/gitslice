@@ -80,12 +80,18 @@ Ancestor and out-of-slice `include` checks need files beyond the slice that the
 authoring agent does not have checked out. Those route to a **full-tree runner**
 — a daemon designated on the slice (`slices.ci_daemon_id`) that materializes the
 wider tree from `result_tree_id`. This is a **capability** role (it has the
-files), not a trust boundary. A slice only needs one if its plan contains checks
-that escape the slice; a slice whose checks are all in-slice never uses it.
+files), not a trust boundary.
+
+The full-tree runner also covers **patchsets no agent captured**. A changeset
+made with `gs create`, `gs modify` or `git push` arrives without bundled
+results. When the slice has a runner, the server dispatches every in-slice
+check the patchset did not bundle to it, so required checks still get results.
+A slice without a runner keeps the earlier behavior: in-slice checks only come
+from agent captures. (2026-10, `dispatchCIChecks`.)
 
 | check kind | who runs it | gates submit if required |
 |---|---|---|
-| **in-slice** | authoring agent, bundled at capture | yes |
+| **in-slice** | authoring agent, bundled at capture. Otherwise the slice's full-tree runner, when it has one | yes |
 | **ancestor / out-of-slice `include`** | the slice's full-tree runner (`ci_daemon_id`) | yes (requires a runner to exist) |
 | **advisory (non-required)** | whichever runner has the files | shown, never blocks |
 
