@@ -8616,3 +8616,33 @@ module path stops naming the host.
 
 Verification: `go build ./...`, `go vet ./...`, `go build ./cmd/...`,
 `go test ./...`, and a `gofmt -l` check.
+
+## 2026-10-01 — Anonymous Git reads of public slices
+
+Request: let anyone (and `proxy.golang.org`) clone a public slice over Git
+HTTP. Part of hosting the Gitslice source on Gitslice
+(`design/21_self_hosting.md`, gap 4).
+
+- **Credentials are optional for reads.** `internal/gitcompat/http.go` no
+  longer requires a token for upload-pack. A request without credentials
+  reaches the projector with an empty subject. `authz.Authorize` already lets
+  anyone read a public slice, and private slices still fail with
+  `ErrUnauthenticated`.
+- **Pushes, and credentials that are present but invalid, still get 401.** An
+  invalid token is never downgraded to anonymous, so a typo in a credential
+  helper fails loudly instead of silently reading as nobody.
+- **Anonymous callers cannot probe private slices.** For them, a missing slice
+  and a private one both return 401 with the `Basic realm="gitslice"`
+  challenge. A 404 only reaches authenticated callers, which preserves the
+  existing behavior. Git prompts for credentials on 401, so cloning a private
+  slice still works.
+- **Every 401 now carries the challenge header,** including ones produced from
+  `ErrUnauthenticated` in `writeGitError`.
+- **Abuse protection is unchanged:** the existing per-IP HTTP rate limiter
+  already wraps the Git handler.
+
+Verification: `go test ./internal/gitcompat/ ./server/`, plus a new e2e test,
+`TestGitAnonymousPublicReads`. It covers an anonymous clone of a public slice,
+401 for private and missing slices, 401 for anonymous push discovery, and 401
+for an invalid token on a public slice. It ran with `TestGitHTTPAuth...Matrix`,
+`TestGitCloneProjection` and `TestGitPushIntoChangesets` against PostgreSQL.

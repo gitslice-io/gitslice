@@ -61,10 +61,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	subjectID, err := h.authenticate(r.Context(), r)
-	if err != nil {
-		w.Header().Set("WWW-Authenticate", `Basic realm="gitslice"`)
-		http.Error(w, "authentication required", http.StatusUnauthorized)
+	// Reads may be anonymous: the projector's slice authorization lets anyone
+	// read a public slice. Pushes always need credentials, and credentials that
+	// are present but invalid are rejected rather than downgraded to anonymous.
+	subjectID := ""
+	if token := requestToken(r); token != "" {
+		subjectID, err = h.resolve(r.Context(), token)
+		if err != nil {
+			writeAuthChallenge(w)
+			return
+		}
+	} else if isReceivePack(r) {
+		writeAuthChallenge(w)
 		return
 	}
 	if isReceivePack(r) {
@@ -72,6 +80,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, _, err := h.projector.EnsureProjectedRepo(r.Context(), subjectID, account, slice); err != nil {
+		if subjectID == "" && isAccessError(err) {
+			// Answer a missing slice and a private one alike, so anonymous
+			// callers cannot probe which private slices exist. Git then asks
+			// for credentials.
+			writeAuthChallenge(w)
+			return
+		}
 		writeGitError(w, err)
 		return
 	}
@@ -97,15 +112,24 @@ func (w *statusRecorder) Write(data []byte) (int, error) {
 	return w.ResponseWriter.Write(data)
 }
 
-func (h *Handler) authenticate(ctx context.Context, r *http.Request) (string, error) {
-	token := bearerToken(r.Header.Get("Authorization"))
-	if token == "" {
-		token = basicPassword(r.Header.Get("Authorization"))
+// requestToken returns the bearer token or HTTP basic-auth password, or "" when
+// the request carries no credentials.
+func requestToken(r *http.Request) string {
+	if token := bearerToken(r.Header.Get("Authorization")); token != "" {
+		return token
 	}
-	if token == "" {
-		return "", storage.ErrUnauthenticated
-	}
-	return h.resolve(ctx, token)
+	return basicPassword(r.Header.Get("Authorization"))
+}
+
+func isAccessError(err error) bool {
+	return errors.Is(err, storage.ErrUnauthenticated) ||
+		errors.Is(err, storage.ErrUnauthorized) ||
+		errors.Is(err, storage.ErrNotFound)
+}
+
+func writeAuthChallenge(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Basic realm="gitslice"`)
+	http.Error(w, "authentication required", http.StatusUnauthorized)
 }
 
 func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo string) error {
@@ -284,7 +308,7 @@ func splitCGIResponse(out []byte) (string, []byte, bool) {
 func writeGitError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, storage.ErrUnauthenticated):
-		http.Error(w, "authentication required", http.StatusUnauthorized)
+		writeAuthChallenge(w)
 	case errors.Is(err, storage.ErrUnauthorized):
 		http.Error(w, "permission denied", http.StatusForbidden)
 	case errors.Is(err, storage.ErrNotFound):
