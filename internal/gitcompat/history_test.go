@@ -2,6 +2,7 @@ package gitcompat
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -132,18 +133,25 @@ func TestRunFastImportDeterministic(t *testing.T) {
 		return repo
 	}
 
+	fetch := func(_ context.Context, hash string) ([]byte, error) {
+		return contents[hash], nil
+	}
+
 	oneBatch := newRepo()
-	shas, _, err := runFastImport(ctx, oneBatch, "", []pendingCommit{first, second}, contents, map[string]string{}, usernames)
+	shas, _, stats, err := runFastImport(ctx, oneBatch, "", []pendingCommit{first, second}, []string{"h1", "h2"}, fetch, map[string]string{}, usernames)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if stats.blobs != 2 || stats.bytes != 4 {
+		t.Fatalf("stats = %+v, want 2 blobs of 4 bytes", stats)
 	}
 
 	twoBatches := newRepo()
-	firstShas, blobs, err := runFastImport(ctx, twoBatches, "", []pendingCommit{first}, map[string][]byte{"h1": contents["h1"]}, map[string]string{}, usernames)
+	firstShas, blobs, _, err := runFastImport(ctx, twoBatches, "", []pendingCommit{first}, []string{"h1"}, fetch, map[string]string{}, usernames)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondShas, _, err := runFastImport(ctx, twoBatches, firstShas[0], []pendingCommit{second}, map[string][]byte{"h2": contents["h2"]}, blobs, usernames)
+	secondShas, _, _, err := runFastImport(ctx, twoBatches, firstShas[0], []pendingCommit{second}, []string{"h2"}, fetch, blobs, usernames)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,5 +188,24 @@ func TestGitFileMode(t *testing.T) {
 		if got := gitFileMode(mode); got != want {
 			t.Fatalf("gitFileMode(%o) = %s, want %s", mode, got, want)
 		}
+	}
+}
+
+func TestRunFastImportReportsFetchErrors(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	if err := runGit(ctx, "", nil, "init", "--bare", "--quiet", repo); err != nil {
+		t.Fatal(err)
+	}
+	commit := pendingCommit{
+		native:  &corev1.Commit{Id: "commit_1", Message: "one", CreatedAt: "2026-10-01T10:00:00Z"},
+		changes: []fileChange{{Path: "acme/p/a.txt", Mode: "100644", ContentHash: "missing", Size: 1}},
+	}
+	fetch := func(context.Context, string) ([]byte, error) { return nil, errors.New("object store unavailable") }
+	if _, _, _, err := runFastImport(ctx, repo, "", []pendingCommit{commit}, []string{"missing"}, fetch, map[string]string{}, nil); err == nil || !strings.Contains(err.Error(), "object store unavailable") {
+		t.Fatalf("expected the fetch error, got %v", err)
+	}
+	if out, err := gitOutput(ctx, repo, nil, "rev-parse", "--verify", "-q", projectedBranch); err == nil {
+		t.Fatalf("a failed import must not create the branch, got %s", out)
 	}
 }
