@@ -6,6 +6,12 @@ version: 1
 
 defaults:
   timeout: "20m"
+  env:
+    # A check runs on a copy of the tree without any VCS metadata. Without
+    # -buildvcs=false, go build (also inside the e2e tests) stamps from
+    # whatever .git it finds above that copy, and fails when that is not a
+    # real repository (a stray /tmp/.git broke every build on the CI host).
+    GOFLAGS: "-mod=readonly -buildvcs=false"
 
 checks:
   gofmt:
