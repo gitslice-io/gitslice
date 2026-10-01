@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
@@ -50,6 +51,13 @@ func NewHandler(resolve SubjectResolver, projector *Projector, blobs BlobAPI, ch
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Clones, pushes and the first build of a slice's history can outlast the
+	// API gateway's body deadlines, which share this handler on some
+	// deployments. Lift them for Git requests. Headers have already been read,
+	// and idle keep-alive connections stay bounded by the server.
+	controller := http.NewResponseController(w)
+	_ = controller.SetReadDeadline(time.Time{})
+	_ = controller.SetWriteDeadline(time.Time{})
 	operation := gitHTTPOperation(r)
 	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	defer func() {

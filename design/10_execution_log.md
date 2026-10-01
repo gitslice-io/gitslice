@@ -8993,3 +8993,46 @@ same loss.
 - **Tests.** `TestGitProjectionKeepsImportedAuthorship` imports a repository
   with a symlink and asserts both the 120000 mode and full tree identity with
   the original. A new unit test, `TestGitFileMode`, covers the mapping.
+
+## 2026-10-01 — Faster cold projection builds
+
+Found while rehearsing the self-hosting import on staging, which is backed by
+R2. With an empty object cache, building the projected history of
+`gitslice/gitslice` (427 native commits, 2,868 blob versions, 108 MB) failed:
+
+- **The build took 72 s:** 45 s listing changed paths per commit through tree
+  walks, 18 s fetching blobs, 9 s in fast-import.
+- **The response was cut off.** Staging serves Git through the API gateway,
+  whose 60 s write deadline killed it ("Empty reply from server"). Through the
+  Cloudflare Worker the clone failed with a 502 near 100 s.
+- **The fast first build was misleading.** It took 13.8 s only because the
+  import had just written every object into the read cache.
+
+Changes:
+
+- **More parallelism.** Listing and blob fetching run 48-way instead of 8- and
+  16-way. Both are latency-bound object-store reads.
+- **Streaming.** Blobs stream into a single `git fast-import` run as they
+  arrive, so fetching overlaps object writing and memory stays bounded. This
+  replaces fetch-everything-then-write batches. Marks are local to the stream,
+  so arrival order does not affect object ids; the determinism test still
+  passes. A fetch error aborts the run before any ref moves
+  (`TestRunFastImportReportsFetchErrors`).
+- **No body deadlines for Git requests.** The Git handler lifts the read and
+  write deadlines with `http.ResponseController`, because some deployments
+  share the gateway server. Header-read and idle limits remain.
+- **Logging.** Each update logs an INFO line (`git projection updated`) with
+  the commit count, list, fetch and import milliseconds, and blob count and
+  bytes.
+
+Result on staging, cold cache:
+
+- `git clone https://agenttools.dev/git/gitslice/gitslice.git` takes 26 s:
+  9.1 s listing, then 13.6 s of fetch overlapped with fast-import, 22.8 s in
+  total.
+- The tree matches GitHub `main` exactly, including the symlink fixed in the
+  previous entry.
+
+Cold-build time still grows with history. The follow-up is to share
+projection checkpoints (bundles) through object storage, which the
+deterministic ids make safe.
