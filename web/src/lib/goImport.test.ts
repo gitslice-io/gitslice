@@ -10,7 +10,7 @@ describe("goImportResponse", () => {
       expect(response?.headers.get("Content-Type")).toContain("text/html");
       const body = await response!.text();
       expect(body).toContain(
-        '<meta name="go-import" content="gitslice.io/gitslice git https://github.com/gitslice-io/gitslice">'
+        '<meta name="go-import" content="gitslice.io/gitslice git https://gitslice.io/git/gitslice/gitslice.git gitslice/gitslice">'
       );
       expect(body).toContain('<meta name="go-source" content="gitslice.io/gitslice ');
     }

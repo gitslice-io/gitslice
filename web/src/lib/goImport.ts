@@ -25,14 +25,16 @@ export const goModules: GoModule[] = [
   {
     importPrefix: "gitslice.io/gitslice",
     vcs: "git",
-    // Stage 1: resolve through the GitHub mirror. Stage 2 points this at
-    // https://gitslice.io/git/gitslice/gitslice.git with subdir
-    // "gitslice/gitslice" once that endpoint serves stable history and tags.
-    repoURL: "https://github.com/gitslice-io/gitslice",
+    // Stage 2 of design/21_self_hosting.md: Gitslice serves its own module.
+    // The projected repository keeps the account-rooted layout, so the module
+    // root is the gitslice/gitslice subdirectory, and the projection publishes
+    // gitslice/gitslice/vX.Y.Z tags for it.
+    repoURL: "https://gitslice.io/git/gitslice/gitslice.git",
+    subdir: "gitslice/gitslice",
     source: {
-      home: "https://github.com/gitslice-io/gitslice",
-      directory: "https://github.com/gitslice-io/gitslice/tree/main{/dir}",
-      file: "https://github.com/gitslice-io/gitslice/blob/main{/dir}/{file}#L{line}"
+      home: "https://gitslice.io/slices/gitslice/gitslice",
+      directory: "https://gitslice.io/slices/gitslice/gitslice?path=/gitslice/gitslice{/dir}",
+      file: "https://gitslice.io/slices/gitslice/gitslice?path=/gitslice/gitslice{/dir}/{file}"
     }
   }
 ];
