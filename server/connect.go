@@ -125,6 +125,22 @@ func (a connectAuthAdapter) ListOwnedAgents(ctx context.Context, req *connect.Re
 	return connectResponse(a.svc.ListOwnedAgents(ctx, req.Msg))
 }
 
+func (a connectAuthAdapter) CreateOrganization(ctx context.Context, req *connect.Request[corev1.CreateOrganizationRequest]) (*connect.Response[corev1.CreateOrganizationResponse], error) {
+	return connectResponse(a.svc.CreateOrganization(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) ListAccountMembers(ctx context.Context, req *connect.Request[corev1.ListAccountMembersRequest]) (*connect.Response[corev1.ListAccountMembersResponse], error) {
+	return connectResponse(a.svc.ListAccountMembers(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) SetAccountMember(ctx context.Context, req *connect.Request[corev1.SetAccountMemberRequest]) (*connect.Response[corev1.SetAccountMemberResponse], error) {
+	return connectResponse(a.svc.SetAccountMember(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) RemoveAccountMember(ctx context.Context, req *connect.Request[corev1.RemoveAccountMemberRequest]) (*connect.Response[corev1.RemoveAccountMemberResponse], error) {
+	return connectResponse(a.svc.RemoveAccountMember(ctx, req.Msg))
+}
+
 func (a connectAuthAdapter) RegisterAgent(ctx context.Context, req *connect.Request[corev1.RegisterAgentRequest]) (*connect.Response[corev1.RegisterAgentResponse], error) {
 	return connectResponse(a.svc.RegisterAgent(ctx, req.Msg))
 }

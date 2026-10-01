@@ -1164,6 +1164,471 @@ func (x *ListOwnedAgentsResponse) GetAgents() []*OwnedAgent {
 	return nil
 }
 
+type CreateOrganizationRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Account slug, e.g. "gitslice". Same syntax rules as usernames.
+	Slug string `protobuf:"bytes,1,opt,name=slug,proto3" json:"slug,omitempty"`
+	// Usernames of the initial owners; defaults to the caller.
+	OwnerUsernames []string `protobuf:"bytes,2,rep,name=owner_usernames,json=ownerUsernames,proto3" json:"owner_usernames,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *CreateOrganizationRequest) Reset() {
+	*x = CreateOrganizationRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateOrganizationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateOrganizationRequest) ProtoMessage() {}
+
+func (x *CreateOrganizationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateOrganizationRequest.ProtoReflect.Descriptor instead.
+func (*CreateOrganizationRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *CreateOrganizationRequest) GetSlug() string {
+	if x != nil {
+		return x.Slug
+	}
+	return ""
+}
+
+func (x *CreateOrganizationRequest) GetOwnerUsernames() []string {
+	if x != nil {
+		return x.OwnerUsernames
+	}
+	return nil
+}
+
+type CreateOrganizationResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Account       string                 `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	Members       []*AccountMember       `protobuf:"bytes,2,rep,name=members,proto3" json:"members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateOrganizationResponse) Reset() {
+	*x = CreateOrganizationResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateOrganizationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateOrganizationResponse) ProtoMessage() {}
+
+func (x *CreateOrganizationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateOrganizationResponse.ProtoReflect.Descriptor instead.
+func (*CreateOrganizationResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *CreateOrganizationResponse) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *CreateOrganizationResponse) GetMembers() []*AccountMember {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+type AccountMember struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The member's username (personal account slug); empty if they have none.
+	Username  string `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	SubjectId string `protobuf:"bytes,2,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
+	// owner, admin, writer, member or reader.
+	Role          string `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountMember) Reset() {
+	*x = AccountMember{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountMember) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountMember) ProtoMessage() {}
+
+func (x *AccountMember) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountMember.ProtoReflect.Descriptor instead.
+func (*AccountMember) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *AccountMember) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *AccountMember) GetSubjectId() string {
+	if x != nil {
+		return x.SubjectId
+	}
+	return ""
+}
+
+func (x *AccountMember) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type ListAccountMembersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Account       string                 `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAccountMembersRequest) Reset() {
+	*x = ListAccountMembersRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAccountMembersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAccountMembersRequest) ProtoMessage() {}
+
+func (x *ListAccountMembersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAccountMembersRequest.ProtoReflect.Descriptor instead.
+func (*ListAccountMembersRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ListAccountMembersRequest) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+type ListAccountMembersResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Account string                 `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	// personal or organization.
+	Kind          string           `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Members       []*AccountMember `protobuf:"bytes,3,rep,name=members,proto3" json:"members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAccountMembersResponse) Reset() {
+	*x = ListAccountMembersResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAccountMembersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAccountMembersResponse) ProtoMessage() {}
+
+func (x *ListAccountMembersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAccountMembersResponse.ProtoReflect.Descriptor instead.
+func (*ListAccountMembersResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ListAccountMembersResponse) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *ListAccountMembersResponse) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ListAccountMembersResponse) GetMembers() []*AccountMember {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+type SetAccountMemberRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Account       string                 `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetAccountMemberRequest) Reset() {
+	*x = SetAccountMemberRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetAccountMemberRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetAccountMemberRequest) ProtoMessage() {}
+
+func (x *SetAccountMemberRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetAccountMemberRequest.ProtoReflect.Descriptor instead.
+func (*SetAccountMemberRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *SetAccountMemberRequest) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *SetAccountMemberRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *SetAccountMemberRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type SetAccountMemberResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Member        *AccountMember         `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetAccountMemberResponse) Reset() {
+	*x = SetAccountMemberResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetAccountMemberResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetAccountMemberResponse) ProtoMessage() {}
+
+func (x *SetAccountMemberResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetAccountMemberResponse.ProtoReflect.Descriptor instead.
+func (*SetAccountMemberResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *SetAccountMemberResponse) GetMember() *AccountMember {
+	if x != nil {
+		return x.Member
+	}
+	return nil
+}
+
+type RemoveAccountMemberRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Account       string                 `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveAccountMemberRequest) Reset() {
+	*x = RemoveAccountMemberRequest{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveAccountMemberRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveAccountMemberRequest) ProtoMessage() {}
+
+func (x *RemoveAccountMemberRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveAccountMemberRequest.ProtoReflect.Descriptor instead.
+func (*RemoveAccountMemberRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *RemoveAccountMemberRequest) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *RemoveAccountMemberRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+type RemoveAccountMemberResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveAccountMemberResponse) Reset() {
+	*x = RemoveAccountMemberResponse{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveAccountMemberResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveAccountMemberResponse) ProtoMessage() {}
+
+func (x *RemoveAccountMemberResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveAccountMemberResponse.ProtoReflect.Descriptor instead.
+func (*RemoveAccountMemberResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{30}
+}
+
 var File_proto_core_v1_auth_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_auth_proto_rawDesc = "" +
@@ -1244,7 +1709,34 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\x0elast_active_at\x18\x06 \x01(\tR\flastActiveAt\"\x18\n" +
 	"\x16ListOwnedAgentsRequest\"O\n" +
 	"\x17ListOwnedAgentsResponse\x124\n" +
-	"\x06agents\x18\x01 \x03(\v2\x1c.gitslice.core.v1.OwnedAgentR\x06agents2\x91\b\n" +
+	"\x06agents\x18\x01 \x03(\v2\x1c.gitslice.core.v1.OwnedAgentR\x06agents\"X\n" +
+	"\x19CreateOrganizationRequest\x12\x12\n" +
+	"\x04slug\x18\x01 \x01(\tR\x04slug\x12'\n" +
+	"\x0fowner_usernames\x18\x02 \x03(\tR\x0eownerUsernames\"q\n" +
+	"\x1aCreateOrganizationResponse\x12\x18\n" +
+	"\aaccount\x18\x01 \x01(\tR\aaccount\x129\n" +
+	"\amembers\x18\x02 \x03(\v2\x1f.gitslice.core.v1.AccountMemberR\amembers\"^\n" +
+	"\rAccountMember\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x1d\n" +
+	"\n" +
+	"subject_id\x18\x02 \x01(\tR\tsubjectId\x12\x12\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\"5\n" +
+	"\x19ListAccountMembersRequest\x12\x18\n" +
+	"\aaccount\x18\x01 \x01(\tR\aaccount\"\x85\x01\n" +
+	"\x1aListAccountMembersResponse\x12\x18\n" +
+	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x129\n" +
+	"\amembers\x18\x03 \x03(\v2\x1f.gitslice.core.v1.AccountMemberR\amembers\"c\n" +
+	"\x17SetAccountMemberRequest\x12\x18\n" +
+	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\"S\n" +
+	"\x18SetAccountMemberResponse\x127\n" +
+	"\x06member\x18\x01 \x01(\v2\x1f.gitslice.core.v1.AccountMemberR\x06member\"R\n" +
+	"\x1aRemoveAccountMemberRequest\x12\x18\n" +
+	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\x1d\n" +
+	"\x1bRemoveAccountMemberResponse2\xd2\v\n" +
 	"\vAuthService\x12`\n" +
 	"\rStartCliLogin\x12&.gitslice.core.v1.StartCliLoginRequest\x1a'.gitslice.core.v1.StartCliLoginResponse\x12]\n" +
 	"\fPollCliLogin\x12%.gitslice.core.v1.PollCliLoginRequest\x1a&.gitslice.core.v1.PollCliLoginResponse\x12i\n" +
@@ -1255,7 +1747,11 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\rRegisterAgent\x12&.gitslice.core.v1.RegisterAgentRequest\x1a'.gitslice.core.v1.RegisterAgentResponse\x12l\n" +
 	"\x11ListPendingClaims\x12*.gitslice.core.v1.ListPendingClaimsRequest\x1a+.gitslice.core.v1.ListPendingClaimsResponse\x12Z\n" +
 	"\vAcceptClaim\x12$.gitslice.core.v1.AcceptClaimRequest\x1a%.gitslice.core.v1.AcceptClaimResponse\x12f\n" +
-	"\x0fListOwnedAgents\x12(.gitslice.core.v1.ListOwnedAgentsRequest\x1a).gitslice.core.v1.ListOwnedAgentsResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x0fListOwnedAgents\x12(.gitslice.core.v1.ListOwnedAgentsRequest\x1a).gitslice.core.v1.ListOwnedAgentsResponse\x12o\n" +
+	"\x12CreateOrganization\x12+.gitslice.core.v1.CreateOrganizationRequest\x1a,.gitslice.core.v1.CreateOrganizationResponse\x12o\n" +
+	"\x12ListAccountMembers\x12+.gitslice.core.v1.ListAccountMembersRequest\x1a,.gitslice.core.v1.ListAccountMembersResponse\x12i\n" +
+	"\x10SetAccountMember\x12).gitslice.core.v1.SetAccountMemberRequest\x1a*.gitslice.core.v1.SetAccountMemberResponse\x12r\n" +
+	"\x13RemoveAccountMember\x12,.gitslice.core.v1.RemoveAccountMemberRequest\x1a-.gitslice.core.v1.RemoveAccountMemberResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_auth_proto_rawDescOnce sync.Once
@@ -1269,7 +1765,7 @@ func file_proto_core_v1_auth_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_auth_proto_rawDescData
 }
 
-var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*StartCliLoginRequest)(nil),           // 0: gitslice.core.v1.StartCliLoginRequest
 	(*StartCliLoginResponse)(nil),          // 1: gitslice.core.v1.StartCliLoginResponse
@@ -1293,35 +1789,55 @@ var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*OwnedAgent)(nil),                     // 19: gitslice.core.v1.OwnedAgent
 	(*ListOwnedAgentsRequest)(nil),         // 20: gitslice.core.v1.ListOwnedAgentsRequest
 	(*ListOwnedAgentsResponse)(nil),        // 21: gitslice.core.v1.ListOwnedAgentsResponse
+	(*CreateOrganizationRequest)(nil),      // 22: gitslice.core.v1.CreateOrganizationRequest
+	(*CreateOrganizationResponse)(nil),     // 23: gitslice.core.v1.CreateOrganizationResponse
+	(*AccountMember)(nil),                  // 24: gitslice.core.v1.AccountMember
+	(*ListAccountMembersRequest)(nil),      // 25: gitslice.core.v1.ListAccountMembersRequest
+	(*ListAccountMembersResponse)(nil),     // 26: gitslice.core.v1.ListAccountMembersResponse
+	(*SetAccountMemberRequest)(nil),        // 27: gitslice.core.v1.SetAccountMemberRequest
+	(*SetAccountMemberResponse)(nil),       // 28: gitslice.core.v1.SetAccountMemberResponse
+	(*RemoveAccountMemberRequest)(nil),     // 29: gitslice.core.v1.RemoveAccountMemberRequest
+	(*RemoveAccountMemberResponse)(nil),    // 30: gitslice.core.v1.RemoveAccountMemberResponse
 }
 var file_proto_core_v1_auth_proto_depIdxs = []int32{
 	14, // 0: gitslice.core.v1.ListPendingClaimsResponse.claims:type_name -> gitslice.core.v1.PendingClaim
 	19, // 1: gitslice.core.v1.ListOwnedAgentsResponse.agents:type_name -> gitslice.core.v1.OwnedAgent
-	0,  // 2: gitslice.core.v1.AuthService.StartCliLogin:input_type -> gitslice.core.v1.StartCliLoginRequest
-	2,  // 3: gitslice.core.v1.AuthService.PollCliLogin:input_type -> gitslice.core.v1.PollCliLoginRequest
-	4,  // 4: gitslice.core.v1.AuthService.CompleteCliLogin:input_type -> gitslice.core.v1.CompleteCliLoginRequest
-	6,  // 5: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
-	8,  // 6: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
-	10, // 7: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
-	12, // 8: gitslice.core.v1.AuthService.RegisterAgent:input_type -> gitslice.core.v1.RegisterAgentRequest
-	15, // 9: gitslice.core.v1.AuthService.ListPendingClaims:input_type -> gitslice.core.v1.ListPendingClaimsRequest
-	17, // 10: gitslice.core.v1.AuthService.AcceptClaim:input_type -> gitslice.core.v1.AcceptClaimRequest
-	20, // 11: gitslice.core.v1.AuthService.ListOwnedAgents:input_type -> gitslice.core.v1.ListOwnedAgentsRequest
-	1,  // 12: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
-	3,  // 13: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
-	5,  // 14: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
-	7,  // 15: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
-	9,  // 16: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
-	11, // 17: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
-	13, // 18: gitslice.core.v1.AuthService.RegisterAgent:output_type -> gitslice.core.v1.RegisterAgentResponse
-	16, // 19: gitslice.core.v1.AuthService.ListPendingClaims:output_type -> gitslice.core.v1.ListPendingClaimsResponse
-	18, // 20: gitslice.core.v1.AuthService.AcceptClaim:output_type -> gitslice.core.v1.AcceptClaimResponse
-	21, // 21: gitslice.core.v1.AuthService.ListOwnedAgents:output_type -> gitslice.core.v1.ListOwnedAgentsResponse
-	12, // [12:22] is the sub-list for method output_type
-	2,  // [2:12] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	24, // 2: gitslice.core.v1.CreateOrganizationResponse.members:type_name -> gitslice.core.v1.AccountMember
+	24, // 3: gitslice.core.v1.ListAccountMembersResponse.members:type_name -> gitslice.core.v1.AccountMember
+	24, // 4: gitslice.core.v1.SetAccountMemberResponse.member:type_name -> gitslice.core.v1.AccountMember
+	0,  // 5: gitslice.core.v1.AuthService.StartCliLogin:input_type -> gitslice.core.v1.StartCliLoginRequest
+	2,  // 6: gitslice.core.v1.AuthService.PollCliLogin:input_type -> gitslice.core.v1.PollCliLoginRequest
+	4,  // 7: gitslice.core.v1.AuthService.CompleteCliLogin:input_type -> gitslice.core.v1.CompleteCliLoginRequest
+	6,  // 8: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
+	8,  // 9: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
+	10, // 10: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
+	12, // 11: gitslice.core.v1.AuthService.RegisterAgent:input_type -> gitslice.core.v1.RegisterAgentRequest
+	15, // 12: gitslice.core.v1.AuthService.ListPendingClaims:input_type -> gitslice.core.v1.ListPendingClaimsRequest
+	17, // 13: gitslice.core.v1.AuthService.AcceptClaim:input_type -> gitslice.core.v1.AcceptClaimRequest
+	20, // 14: gitslice.core.v1.AuthService.ListOwnedAgents:input_type -> gitslice.core.v1.ListOwnedAgentsRequest
+	22, // 15: gitslice.core.v1.AuthService.CreateOrganization:input_type -> gitslice.core.v1.CreateOrganizationRequest
+	25, // 16: gitslice.core.v1.AuthService.ListAccountMembers:input_type -> gitslice.core.v1.ListAccountMembersRequest
+	27, // 17: gitslice.core.v1.AuthService.SetAccountMember:input_type -> gitslice.core.v1.SetAccountMemberRequest
+	29, // 18: gitslice.core.v1.AuthService.RemoveAccountMember:input_type -> gitslice.core.v1.RemoveAccountMemberRequest
+	1,  // 19: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
+	3,  // 20: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
+	5,  // 21: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
+	7,  // 22: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
+	9,  // 23: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
+	11, // 24: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
+	13, // 25: gitslice.core.v1.AuthService.RegisterAgent:output_type -> gitslice.core.v1.RegisterAgentResponse
+	16, // 26: gitslice.core.v1.AuthService.ListPendingClaims:output_type -> gitslice.core.v1.ListPendingClaimsResponse
+	18, // 27: gitslice.core.v1.AuthService.AcceptClaim:output_type -> gitslice.core.v1.AcceptClaimResponse
+	21, // 28: gitslice.core.v1.AuthService.ListOwnedAgents:output_type -> gitslice.core.v1.ListOwnedAgentsResponse
+	23, // 29: gitslice.core.v1.AuthService.CreateOrganization:output_type -> gitslice.core.v1.CreateOrganizationResponse
+	26, // 30: gitslice.core.v1.AuthService.ListAccountMembers:output_type -> gitslice.core.v1.ListAccountMembersResponse
+	28, // 31: gitslice.core.v1.AuthService.SetAccountMember:output_type -> gitslice.core.v1.SetAccountMemberResponse
+	30, // 32: gitslice.core.v1.AuthService.RemoveAccountMember:output_type -> gitslice.core.v1.RemoveAccountMemberResponse
+	19, // [19:33] is the sub-list for method output_type
+	5,  // [5:19] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_auth_proto_init() }
@@ -1335,7 +1851,7 @@ func file_proto_core_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_auth_proto_rawDesc), len(file_proto_core_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

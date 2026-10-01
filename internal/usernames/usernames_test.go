@@ -61,3 +61,16 @@ func TestReservedNamesAreCanonicalAndUnique(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeSyntaxAllowsReservedNames(t *testing.T) {
+	if _, err := Normalize("gitslice"); err == nil {
+		t.Fatal("Normalize accepted a reserved name")
+	}
+	got, err := NormalizeSyntax(" GitSlice ")
+	if err != nil || got != "gitslice" {
+		t.Fatalf("NormalizeSyntax = %q, %v", got, err)
+	}
+	if _, err := NormalizeSyntax("-bad"); err == nil {
+		t.Fatal("NormalizeSyntax accepted invalid syntax")
+	}
+}

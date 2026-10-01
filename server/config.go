@@ -49,8 +49,12 @@ type Config struct {
 	RateLimitHTTPPerIPBurst  int
 	// AgentSignupEnabled turns on the unauthenticated AuthService/RegisterAgent
 	// RPC; AgentSignupPerHour caps registrations per client IP.
-	AgentSignupEnabled  bool
-	AgentSignupPerHour  int
+	AgentSignupEnabled bool
+	AgentSignupPerHour int
+	// OperatorSubjects may create organization accounts
+	// (GITSLICE_OPERATOR_SUBJECTS: subject ids separated by commas,
+	// semicolons or spaces).
+	OperatorSubjects    []string
 	MetricsToken        string
 	RequireMetricsToken bool
 	PostHogAPIKey       string
@@ -99,6 +103,7 @@ func ConfigFromEnv() Config {
 		RateLimitHTTPPerIPBurst:  intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_BURST"), 60),
 		AgentSignupEnabled:       envEnabled(os.Getenv("GITSLICE_AGENT_SIGNUP_ENABLED")),
 		AgentSignupPerHour:       intValueOrDefault(os.Getenv("GITSLICE_AGENT_SIGNUP_PER_HOUR"), 5),
+		OperatorSubjects:         splitList(os.Getenv("GITSLICE_OPERATOR_SUBJECTS")),
 		MetricsToken:             os.Getenv("GITSLICE_METRICS_TOKEN"),
 		RequireMetricsToken:      os.Getenv("GITSLICE_REQUIRE_METRICS_TOKEN") == "1",
 		PostHogAPIKey:            os.Getenv("GITSLICE_POSTHOG_API_KEY"),
@@ -218,4 +223,13 @@ func millisecondsDuration(value string) time.Duration {
 		return 0
 	}
 	return time.Duration(parsed) * time.Millisecond
+}
+
+// splitList splits a list separated by commas, semicolons or whitespace,
+// dropping empty entries. Semicolons let Cloud Build pass a list inside its
+// comma-delimited --set-env-vars value.
+func splitList(value string) []string {
+	return strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
+	})
 }

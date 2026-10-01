@@ -81,6 +81,20 @@ var reserved = func() map[string]struct{} {
 
 // Normalize returns the canonical personal-account slug for a username.
 func Normalize(username string) (string, error) {
+	username, err := NormalizeSyntax(username)
+	if err != nil {
+		return "", err
+	}
+	if IsReserved(username) {
+		return "", fmt.Errorf("username is reserved")
+	}
+	return username, nil
+}
+
+// NormalizeSyntax applies Normalize's syntax rules without the reserved-name
+// check. Operators use it to provision reserved names, such as organization
+// accounts.
+func NormalizeSyntax(username string) (string, error) {
 	username = strings.ToLower(strings.TrimSpace(username))
 	username = strings.ReplaceAll(username, "_", "-")
 	if username == "" {
@@ -100,9 +114,6 @@ func Normalize(username string) (string, error) {
 	}
 	if len(username) < MinLength {
 		return "", fmt.Errorf("username must be at least %d characters", MinLength)
-	}
-	if IsReserved(username) {
-		return "", fmt.Errorf("username is reserved")
 	}
 	return username, nil
 }

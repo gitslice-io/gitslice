@@ -156,6 +156,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	handlers := service.New(stores, objectStore, tracker)
 	handlers.Auth.AgentSignupEnabled = cfg.AgentSignupEnabled
+	handlers.Auth.OperatorSubjects = cfg.OperatorSubjects
 	if users := clerk.NewUserClient(cfg.Clerk.SecretKey); users != nil {
 		handlers.Auth.ClerkUsers = users
 	}

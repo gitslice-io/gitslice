@@ -8757,3 +8757,58 @@ GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/cli ./tests/rpc -run 'Gi
 ```
 
 All 14 Git, projection and import e2e tests pass.
+
+## 2026-10-01 — Organization accounts and membership management
+
+Request: the Gitslice source moves to an organization account named
+`gitslice` (`design/21_self_hosting.md`, gap 1). `gitslice` is reserved for
+self-service sign-up, and nothing could create an organization or manage
+members, although `accounts.kind` and `account_memberships(role)` already
+existed.
+
+- **Operator-only creation.** New `AuthService.CreateOrganization` is open to
+  subject ids in `GITSLICE_OPERATOR_SUBJECTS`. The list accepts commas,
+  semicolons or spaces, because Cloud Build passes env vars as one
+  comma-delimited `--set-env-vars` string: use `;` in the `_OPERATOR_SUBJECTS`
+  substitution.
+  - Operators may take reserved names: slugs go through the new
+    `usernames.NormalizeSyntax`, which is `Normalize` without the reservation
+    check.
+  - A taken slug returns AlreadyExists.
+- **Shared provisioning.** The home slice, its first definition version,
+  included-path sync and the account root directory come from
+  `provisionHomeTx`, factored out of personal sign-up so both kinds of account
+  provision identically.
+- **Membership RPCs.**
+  - `ListAccountMembers`: members only. Anyone else gets NotFound, so the RPC
+    does not reveal private memberships.
+  - `SetAccountMember`: one role per (account, subject), replacing any
+    previous rows.
+  - `RemoveAccountMember`.
+  - Owners and admins (and operators) manage members. Only owners grant or
+    revoke `owner`.
+  - The account row is locked `for update` during changes, and the
+    transaction fails if no owner would remain.
+  - Personal accounts reject membership changes.
+- **Users are named by username,** resolved with
+  `SubjectIDForUsername`. For agent accounts that excludes the humans who
+  claimed co-ownership, using the same `notOthersAgentAccountSQL` rule as
+  `UsernamesForSubjects`.
+- **No migration was needed.** The memory store gained an explicit `orgAccounts`
+  set, because it derives accounts from memberships.
+- **CLI:** `gs account create-org | members | set-member | remove-member`, in
+  the new file `internal/cli/account.go`.
+- **Test harness:** `testServer.setOperators` restarts the server with an
+  operator list. Service-token subjects map to internal `user_ext_*` ids, so
+  the operator id is only known after provisioning.
+
+Verification:
+
+- `go test ./internal/storage/memory/ ./internal/usernames/ ./server/ ./internal/cli/`
+- new e2e test `TestOrganizationAccounts`, which covers:
+  - operator gating and reserved names;
+  - AlreadyExists;
+  - roles driving slice writes (a writer submits, a reader cannot);
+  - the admin and owner rules;
+  - last-owner protection;
+  - NotFound for outsiders.
