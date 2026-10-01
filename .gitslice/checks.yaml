@@ -1,0 +1,37 @@
+# Checks for the Gitslice source when it is hosted on Gitslice
+# (design/17_continuous_integration.md, design/21_self_hosting.md). They mirror
+# .github/workflows/ci.yml and run on the host of the slice's CI daemon, or
+# locally with `gs ci`, so Go and Node toolchains are expected there.
+version: 1
+
+defaults:
+  timeout: "20m"
+
+checks:
+  gofmt:
+    description: "gofmt reports no unformatted Go files"
+    run: 'files="$(gofmt -l $(find . -name "*.go" -not -path "./web/*"))"; if [ -n "$files" ]; then echo "$files"; exit 1; fi'
+    paths: ["**/*.go"]
+
+  vet:
+    description: "go vet ./..."
+    run: "go vet ./..."
+    paths: ["**/*.go", "go.mod", "go.sum"]
+
+  test:
+    description: "Go unit tests"
+    run: "go test ./..."
+    paths: ["**/*.go", "go.mod", "go.sum", "internal/postgres/migrations/**"]
+
+  build:
+    description: "Build the gs CLI and server"
+    run: "go build ./cmd/..."
+    paths: ["**/*.go", "go.mod", "go.sum"]
+
+  e2e:
+    description: "PostgreSQL storage, CLI and RPC end-to-end tests"
+    # GITSLICE_TEST_DATABASE_URL comes from a slice secret
+    # (gs slice secret set ...). Fail loudly instead of letting the tests skip.
+    run: 'test -n "$GITSLICE_TEST_DATABASE_URL" || { echo "set the GITSLICE_TEST_DATABASE_URL slice secret" >&2; exit 1; }; go test -count=1 ./internal/postgres ./tests/cli ./tests/rpc'
+    paths: ["**/*.go", "go.mod", "go.sum", "internal/postgres/migrations/**"]
+    timeout: "30m"

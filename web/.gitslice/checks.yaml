@@ -1,0 +1,10 @@
+# Web checks for the Gitslice source hosted on Gitslice; mirrors the "web" job
+# in .github/workflows/ci.yml. Runs in web/ on the CI daemon host or via gs ci.
+version: 1
+
+checks:
+  build:
+    description: "Install, type-check, build and test the web app"
+    run: "npm ci && npm run build && npm test"
+    timeout: "20m"
+    network: true

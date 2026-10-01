@@ -8935,3 +8935,42 @@ sync point (`design/21_self_hosting.md`).
 Verification: new e2e `TestGitProjectionKeepsImportedAuthorship` and unit
 tests for the message and author helpers. Git, tag, projection and import e2e
 tests pass.
+## 2026-10-01 — Checks files, mirror workflows and the GitHub exporter
+
+Request: the operational pieces for hosting the Gitslice source on Gitslice
+(`design/21_self_hosting.md`, Phases 1–2). This change also lands the design
+doc, which records the runbooks.
+
+- **Checks files.** `.gitslice/checks.yaml` (gofmt, vet, test, build,
+  PostgreSQL e2e) and `web/.gitslice/checks.yaml` (npm ci, build, test)
+  mirror `.github/workflows/ci.yml`.
+  - They run on the CI daemon's host or through `gs ci`.
+  - e2e fails loudly when the `GITSLICE_TEST_DATABASE_URL` slice secret is
+    missing, instead of letting the tests skip.
+  - `internal/checks/repo_checks_test.go` keeps both files parseable.
+- **`mirror-import.yml` (Phase 1)** runs `gs import <repo> --deep` into
+  `/gitslice/gitslice` on every push to `main`, every 30 minutes, and on
+  demand. Re-runs only import new commits.
+- **`mirror-export.yml` (Phase 2)** runs `ops/mirror` every 10 minutes. It
+  dispatches `release.yml` for new `v*` tags, because tag pushes made with
+  `GITHUB_TOKEN` do not trigger workflows but `workflow_dispatch` does.
+- **One direction at a time.** Each workflow is gated by a repository variable
+  (`GITSLICE_IMPORT_ENABLED` / `GITSLICE_EXPORT_ENABLED`) and refuses to run
+  while the other is enabled. Both share the `gitslice-mirror` concurrency
+  group.
+- **`ops/mirror`** finds the newest mirror commit that maps to a projected
+  commit, through the `Gitslice-Commit` trailer on exported commits or the
+  `Git-Commit` trailer on imported ones.
+  - **It refuses to export** when `main` has later commits that did not come
+    from Gitslice, or when its tree differs from that projected commit's
+    subdirectory tree.
+  - **It replays** each later projected commit as a commit of the
+    subdirectory tree with the projected author, committer and message, then
+    pushes fast-forward.
+  - **Tags.** It pushes tags the mirror lacks. Tags are immutable, and Go's
+    `<subdir>/vX` copies are skipped. Older tags map through the trailers to
+    exported or original commits.
+
+Verification: `go test ./ops/mirror/` covers replay, authorship, tree
+equality, tags, idempotence, a late tag on an exported commit, refusal on a
+foreign commit, and refusal on tree drift. `go test ./internal/checks/` passes.

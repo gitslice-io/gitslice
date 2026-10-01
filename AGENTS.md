@@ -24,6 +24,8 @@ The current MVP prototype is Go-based and uses:
 - `tests/cli`: real server plus CLI e2e tests.
 - `tests/rpc`: real server plus direct RPC e2e tests.
 - `tests/load`: opt-in load and contention tests behind the `load` build tag.
+- `ops/mirror`: exporter that mirrors the Gitslice-hosted source to GitHub
+  (`design/21_self_hosting.md`).
 
 The design source of truth is under `design/`, especially:
 
@@ -40,6 +42,7 @@ The design source of truth is under `design/`, especially:
 - `design/11_web_interface_design.md`
 - `design/16_bring_your_own_agent.md`
 - `design/17_continuous_integration.md`
+- `design/21_self_hosting.md`
 
 ## Architecture Rules
 

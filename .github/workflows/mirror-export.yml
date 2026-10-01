@@ -1,0 +1,59 @@
+name: Mirror from Gitslice
+
+# Phase 2 of design/21_self_hosting.md: Gitslice is the source of truth and
+# main on GitHub is a read-only mirror. ops/mirror replays every new projected
+# commit of gitslice/gitslice onto main and pushes new tags. Version tags then
+# start release.yml: tag pushes made with GITHUB_TOKEN do not trigger
+# workflows, but workflow_dispatch does.
+#
+# Enable with the repository variable GITSLICE_EXPORT_ENABLED=true (and turn
+# GITSLICE_IMPORT_ENABLED off). main must allow pushes from GitHub Actions
+# only. GITSLICE_MIRROR_TOKEN is optional while the slice is public.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: gitslice-mirror
+  cancel-in-progress: false
+
+jobs:
+  export:
+    if: vars.GITSLICE_EXPORT_ENABLED == 'true' && vars.GITSLICE_IMPORT_ENABLED != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Export Gitslice history to main
+        env:
+          GITSLICE_MIRROR_TOKEN: ${{ secrets.GITSLICE_MIRROR_TOKEN }}
+          SOURCE: ${{ vars.GITSLICE_SOURCE_URL || 'https://gitslice.io/git/gitslice/gitslice.git' }}
+        run: |
+          go run ./ops/mirror -repo . -source "$SOURCE" -subdir gitslice/gitslice \
+            -push -new-tags-out "$RUNNER_TEMP/new-tags"
+
+      - name: Build releases for new version tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          while read -r tag; do
+            case "$tag" in
+              v*) gh workflow run release.yml --ref main -f tag="$tag" ;;
+            esac
+          done < "$RUNNER_TEMP/new-tags"
