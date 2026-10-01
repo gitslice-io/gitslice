@@ -34,7 +34,7 @@ import (
 
 // projectionVersion identifies the projection algorithm and the state file
 // layout. Bumping it makes every cached projection rebuild from scratch.
-const projectionVersion = 2
+const projectionVersion = 3
 
 const (
 	projectionStateFile = "gitslice_projection.json"
@@ -42,6 +42,7 @@ const (
 	emptyGitTree        = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 	noreplyDomain       = "users.noreply.gitslice.io"
 	commitTrailer       = "Gitslice-Commit"
+	gitCommitTrailer    = "Git-Commit"
 
 	projectionListConcurrency = 8
 	projectionBlobConcurrency = 16
@@ -91,6 +92,8 @@ type fileChange struct {
 type pendingCommit struct {
 	native  *corev1.Commit
 	changes []fileChange
+	// imported is set when the native commit was published by a Git import.
+	imported *storage.GitImportedCommitRecord
 }
 
 func newProjectionState(account, sliceSlug string, slice *corev1.Slice) *projectionState {
@@ -356,6 +359,20 @@ func (p *Projector) appendHistory(ctx context.Context, repoPath string, state *p
 	if len(pending) == 0 {
 		return nil
 	}
+	nativeIDs := make([]string, 0, len(pending))
+	for _, commit := range pending {
+		nativeIDs = append(nativeIDs, commit.native.Id)
+	}
+	imports, err := p.repository.GitImportsForCommits(ctx, nativeIDs)
+	if err != nil {
+		return err
+	}
+	for i := range pending {
+		if record, ok := imports[pending[i].native.Id]; ok {
+			record := record
+			pending[i].imported = &record
+		}
+	}
 
 	subjects := make([]string, 0, len(pending))
 	seen := map[string]struct{}{}
@@ -578,9 +595,10 @@ func runFastImport(ctx context.Context, repoPath, parent string, commits []pendi
 		commitMarks[i] = mark
 		name, email := projectedIdentity(commit.native.Author, usernames)
 		when := projectedTime(commit.native.CreatedAt)
-		message := projectedCommitMessage(commit.native)
+		authorName, authorEmail, authored := importedAuthor(commit.imported, name, email, when)
+		message := projectedCommitMessage(commit.native, commit.imported)
 		fmt.Fprintf(&stream, "commit %s\nmark :%d\n", projectedBranch, mark)
-		fmt.Fprintf(&stream, "author %s <%s> %d +0000\n", name, email, when)
+		fmt.Fprintf(&stream, "author %s <%s> %d +0000\n", authorName, authorEmail, authored)
 		fmt.Fprintf(&stream, "committer %s <%s> %d +0000\n", name, email, when)
 		fmt.Fprintf(&stream, "data %d\n%s", len(message), message)
 		if i == 0 && parent != "" {
@@ -770,15 +788,41 @@ func projectedTime(createdAt string) int64 {
 	return t.UTC().Unix()
 }
 
-// projectedCommitMessage is the native message followed by a trailer naming
+// projectedCommitMessage is the commit message followed by a trailer naming
 // the native commit, which lets clients and the GitHub exporter map a projected
-// commit back to Gitslice.
-func projectedCommitMessage(commit *corev1.Commit) string {
-	message := strings.TrimRight(strings.ReplaceAll(commit.Message, "\r\n", "\n"), " \t\n")
+// commit back to Gitslice. A commit published by a Git import keeps its
+// original full message and gains a Git-Commit trailer naming the original
+// commit.
+func projectedCommitMessage(commit *corev1.Commit, imported *storage.GitImportedCommitRecord) string {
+	source := commit.Message
+	if imported != nil && strings.TrimSpace(imported.FullMessage) != "" {
+		source = imported.FullMessage
+	}
+	message := strings.TrimRight(strings.ReplaceAll(source, "\r\n", "\n"), " \t\n")
 	if strings.TrimSpace(message) == "" {
 		message = "Gitslice commit " + shortNativeID(commit.Id)
 	}
-	return message + "\n\n" + commitTrailer + ": " + commit.Id + "\n"
+	trailers := ""
+	if imported != nil && imported.GitCommitID != "" {
+		trailers = gitCommitTrailer + ": " + imported.GitCommitID + "\n"
+	}
+	return message + "\n\n" + trailers + commitTrailer + ": " + commit.Id + "\n"
+}
+
+// importedAuthor returns the original Git author of an imported commit, or
+// the native identity when there is no usable record. The committer stays the
+// native identity, which records who published the import and when.
+func importedAuthor(imported *storage.GitImportedCommitRecord, name, email string, when int64) (string, string, int64) {
+	if imported == nil || imported.AuthorName == "" || strings.ContainsAny(imported.AuthorName+imported.AuthorEmail, "<>\n\r\x00") {
+		return name, email, when
+	}
+	authored := when
+	if imported.AuthoredAt != "" {
+		if t, err := time.Parse(time.RFC3339Nano, imported.AuthoredAt); err == nil {
+			authored = t.UTC().Unix()
+		}
+	}
+	return imported.AuthorName, imported.AuthorEmail, authored
 }
 
 func shortNativeID(id string) string {
