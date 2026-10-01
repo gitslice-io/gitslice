@@ -8812,3 +8812,34 @@ Verification:
   - the admin and owner rules;
   - last-owner protection;
   - NotFound for outsiders.
+
+## 2026-10-01 — Git import keeps original authors, dates and messages
+
+Request: importing the Gitslice history from GitHub must not lose authorship
+(`design/21_self_hosting.md`, gap 6). Each imported commit is published by the
+importing subject, and only the subject line survived.
+
+- **Storage.** Migration `0027_git_import_commit_metadata.sql` adds
+  `author_name`, `author_email`, `authored_at` and `full_message` to
+  `git_import_commits`, plus an index on `native_commit_id`.
+  `RecordGitImportCommit` now takes a `GitImportedCommitRecord`. The new
+  `GitImportsForCommits` returns the records for a set of native commits.
+- **Import.** One `git log -1 --format=%an%x00%ae%x00%aI%x00%s%x00%B` reads
+  the metadata. The changeset title stays git's `%s` subject, the changeset
+  description is the body, and the full message plus author fields go into the
+  import record. Author dates are normalized to UTC RFC 3339.
+- **API.** `Commit.git_import` (`GitImportInfo`: git commit id, author name and
+  email, authored at, full message) is attached in `resolveCommitAuthors`, so
+  `GetCommit`, `ResolveCommit` and `ListCommits` all carry it. `Commit.author`
+  and `created_at` still describe the import.
+- **CLI.** `gs log` and `gs show` include `git_import` in JSON.
+  - `gs show` text prints `Imported: git <sha> by Name <email> on <date>`.
+  - It shows the full original message.
+- **Not yet in the Git projection.** Using these fields for projected author
+  and message follows separately.
+- **Old records.** Commits imported before this change have empty metadata
+  fields.
+
+Verification: new e2e `TestGitImportPreservesOriginalMetadata` (authors with
+time zones, a multi-line message with trailers), plus the existing
+`TestGitImport*` tests against PostgreSQL.

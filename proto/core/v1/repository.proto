@@ -33,6 +33,19 @@ message Commit {
   string message = 5;
   string created_at = 6;
   repeated string changed_paths = 7;
+  // Set when the commit was published by a Git import: the original Git
+  // commit's identity and metadata. author and created_at describe the import.
+  GitImportInfo git_import = 8;
+}
+
+message GitImportInfo {
+  string git_commit_id = 1;
+  string author_name = 2;
+  string author_email = 3;
+  // RFC 3339; empty for commits imported before it was recorded.
+  string authored_at = 4;
+  // The full original commit message (subject and body).
+  string message = 5;
 }
 
 message ResolvePathRequest {

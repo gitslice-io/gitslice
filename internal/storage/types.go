@@ -133,6 +133,12 @@ type GitImportedCommitRecord struct {
 	Message          string
 	Position         int
 	ChangedPathCount int
+	// Original Git metadata. Commits imported before it was recorded have
+	// empty values.
+	AuthorName  string
+	AuthorEmail string
+	AuthoredAt  string // RFC 3339; empty when unknown
+	FullMessage string
 }
 
 type HistoryEntityRef struct {
