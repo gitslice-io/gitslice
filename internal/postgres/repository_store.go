@@ -426,6 +426,106 @@ func (s *RepositoryStore) ListCommitPageByPathPrefixes(ctx context.Context, refN
 	return &CommitListPage{Commits: commits, NextPageToken: nextToken}, nil
 }
 
+// ListCommitChain walks the first-parent chain of refName inside one query, so
+// the head and the commits come from a single snapshot. It reads only commit
+// rows (written in the publish transaction), never the derived path indexes,
+// which may lag the ref.
+func (s *RepositoryStore) ListCommitChain(ctx context.Context, refName, stopCommitID string, prefixes []string) (*storage.CommitChain, error) {
+	if refName == "" {
+		refName = DefaultTargetRef
+	}
+	prefixes = normalizeCommitPathPrefixes(prefixes)
+	prefixJSON, err := encodeJSON(prefixes)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		with recursive chain(id, depth) as (
+			select r.commit_id, 0
+			from refs r
+			where r.name = $1
+			union all
+			select c.parent_ids->>0, chain.depth + 1
+			from chain
+			join commits c on c.id = chain.id
+			where chain.id <> $2
+			  and jsonb_array_length(c.parent_ids) > 0
+		)
+		select c.id, c.parent_ids, c.root_tree_id, coalesce(c.author_subject_id, ''),
+		       c.message, c.created_at, c.changed_paths,
+		       chain.depth = 0 as is_head,
+		       chain.id = $2 as is_stop
+		from chain
+		join commits c on c.id = chain.id
+		where chain.depth = 0
+		   or chain.id = $2
+		   or exists (
+			select 1
+			from jsonb_array_elements_text(c.changed_paths) changed(path)
+			cross join jsonb_array_elements_text($3::jsonb) prefix(path)
+			where changed.path = prefix.path
+			   or prefix.path = '/'
+			   or starts_with(changed.path, prefix.path || '/')
+			   or starts_with(prefix.path, changed.path || '/')
+		   )
+		order by chain.depth desc
+	`, refName, stopCommitID, string(prefixJSON))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	chain := &storage.CommitChain{}
+	var touching []*corev1.Commit
+	for rows.Next() {
+		var commit corev1.Commit
+		var parentJSON, changedJSON []byte
+		var createdAt time.Time
+		var isHead, isStop bool
+		if err := rows.Scan(&commit.Id, &parentJSON, &commit.RootTreeId, &commit.Author, &commit.Message, &createdAt, &changedJSON, &isHead, &isStop); err != nil {
+			return nil, err
+		}
+		commit.CreatedAt = formatTime(createdAt)
+		if err := decodeJSON(parentJSON, &commit.ParentIds); err != nil {
+			return nil, err
+		}
+		if err := decodeJSON(changedJSON, &commit.ChangedPaths); err != nil {
+			return nil, err
+		}
+		if isHead {
+			chain.HeadCommitID = commit.Id
+		}
+		if isStop && stopCommitID != "" {
+			chain.FoundStop = true
+			continue
+		}
+		if commitTouchesPrefixes(commit.ChangedPaths, prefixes) {
+			touching = append(touching, &commit)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if chain.HeadCommitID == "" {
+		return nil, ErrNotFound
+	}
+	chain.Commits = touching
+	return chain, nil
+}
+
+// commitTouchesPrefixes reports whether any changed path lies inside a prefix
+// or is an ancestor directory of one (for example an account root change).
+func commitTouchesPrefixes(changed, prefixes []string) bool {
+	for _, p := range changed {
+		for _, prefix := range prefixes {
+			if prefix == "/" || p == prefix ||
+				strings.HasPrefix(p, prefix+"/") || strings.HasPrefix(prefix, p+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *RepositoryStore) ListCommitPageByEntityRefs(ctx context.Context, refName string, refs []HistoryEntityRef, limit int, pageToken string) (*CommitListPage, error) {
 	if refName == "" {
 		refName = DefaultTargetRef

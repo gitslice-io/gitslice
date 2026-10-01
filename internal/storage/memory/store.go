@@ -2132,6 +2132,56 @@ func (s *RepositoryStore) ListCommitPage(ctx context.Context, refName string, li
 	return s.b.listCommitPageLocked(limit, func(commit *corev1.Commit) bool { return commit.Id != "mem_root" }), nil
 }
 
+func (s *RepositoryStore) ListCommitChain(ctx context.Context, refName, stopCommitID string, prefixes []string) (*storage.CommitChain, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if refName == "" {
+		refName = storage.DefaultTargetRef
+	}
+	ref := s.b.refs[refName]
+	if ref == nil || ref.CommitId == "" {
+		return nil, storage.ErrNotFound
+	}
+	chain := &storage.CommitChain{HeadCommitID: ref.CommitId}
+	var newestFirst []*corev1.Commit
+	for id := ref.CommitId; id != ""; {
+		if stopCommitID != "" && id == stopCommitID {
+			chain.FoundStop = true
+			break
+		}
+		commit := s.b.commits[id]
+		if commit == nil {
+			break
+		}
+		if commitTouchesPrefixes(commit.ChangedPaths, prefixes) {
+			newestFirst = append(newestFirst, cloneCommit(commit))
+		}
+		if len(commit.ParentIds) == 0 {
+			break
+		}
+		id = commit.ParentIds[0]
+	}
+	for i := len(newestFirst) - 1; i >= 0; i-- {
+		chain.Commits = append(chain.Commits, newestFirst[i])
+	}
+	return chain, nil
+}
+
+// commitTouchesPrefixes reports whether any changed path lies inside a prefix
+// or is an ancestor directory of one (for example an account root change).
+func commitTouchesPrefixes(changed, prefixes []string) bool {
+	for _, p := range changed {
+		for _, prefix := range prefixes {
+			prefix = strings.TrimRight(prefix, "/")
+			if prefix == "" || p == prefix ||
+				strings.HasPrefix(p, prefix+"/") || strings.HasPrefix(prefix, p+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *RepositoryStore) ListCommitsByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int) ([]*corev1.Commit, error) {
 	page, err := s.ListCommitPageByPathPrefixes(ctx, refName, prefixes, limit, "")
 	if err != nil {

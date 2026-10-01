@@ -8683,3 +8683,77 @@ Gitslice, and public docs should name only `gitslice.io`
 Verification: `npx vitest run src/lib/goImport.test.ts src/lib/releases.test.ts
 src/server.test.ts` (12 tests), `sh -n web/public/install.sh`, and
 `npm run build`.
+## 2026-10-01 — Stable per-slice Git history for the Git projection
+
+Request: make Git clones of a slice behave like a real repository, as part of
+hosting the Gitslice source on Gitslice (`design/21_self_hosting.md`, gap 3).
+`go install` from the Gitslice endpoint needs stable commit ids and tags, and
+`git pull` needs real parents.
+
+Problem with the old projector:
+
+- **One parentless commit.** It built one snapshot commit of the slice and
+  replaced it whenever the global head moved, so any submit anywhere made
+  every clone stale.
+- **Pushes and pulls broke.** Pushes then failed with `NEEDS_REBASE`, and
+  `git pull` saw unrelated histories.
+- **Old ids vanished.** Superseded commits disappeared, so Go pseudo-versions
+  could not be fetched again.
+- **Foreign metadata.** The commit message and time came from the global head
+  commit, which could belong to another account.
+
+What changed (`internal/gitcompat/history.go`):
+
+- **History.** One projected commit per native commit that changes the
+  slice's projected tree, parented on the previous one.
+- **Metadata from that commit only:**
+  - author and committer are `<username> <username>@users.noreply.gitslice.io`
+    (`Gitslice` when there is no username);
+  - dates are the native commit time;
+  - the message is the native message plus a
+    `Gitslice-Commit: <native id>` trailer.
+- **Determinism.** Ids are a pure function of the slice definition and native
+  history, so Cloud Run instances with empty caches agree.
+  `TestGitProjectionHistory` deletes the cache and checks the cold rebuild
+  yields the same head. `TestRunFastImportDeterministic` checks one batch
+  against two.
+- **Freshness strategy: read the source of truth.** The new
+  `RepositoryStore.ListCommitChain` walks the first-parent chain in one
+  recursive query over `commits` rows. Those rows are written in the publish
+  transaction, so the walk never lags the ref. The derived
+  `commit_changed_paths` index is filled asynchronously and orders by
+  `committed_at`, which can tie inside a publish batch, so it could neither
+  guarantee completeness nor exact chain order.
+- **Changes come from each commit's recorded `changed_paths`.**
+  - A changed path inside an included prefix is refreshed with
+    `ListFiles(commit, path)`.
+  - A changed ancestor (an account root, a moved parent) refreshes the whole
+    prefix.
+  - Diffing tree node ids was rejected: the memory store reports path-derived
+    directory ids (`mem_tree_<path>`) that stay equal while contents change.
+- **Writing objects.** Commits are listed concurrently (8 workers) and blobs
+  fetched concurrently (16 workers). Everything is written with one
+  `git fast-import` stream per batch of at most 64 MiB of new blob data.
+- **Incremental cache.** A state file records the native head, projected
+  head, projected-to-native map and projected tree. Later requests only
+  process new commits. If the state does not match the branch (for example
+  after a crash between fast-import and the state write), the projection is
+  rebuilt from scratch.
+- **Fetch by id.** Bare repos set `uploadpack.allowReachableSHA1InWant`.
+- **Push base.** The base may be any projected commit, not just the head.
+  - A push on an older commit keeps that commit's native base, so changeset
+    validation rejects overlapping edits made since then at submit ("path
+    base conflict") and lets disjoint ones land (`TestGitPushStaleBase`).
+  - An empty projected history accepts a root commit diffed against the empty
+    tree, so `git push` can seed a new slice (`TestGitPushIntoEmptySlice`).
+- **Not done here.** Native tags, and original authors for imported commits,
+  come in follow-ups.
+
+Verification:
+
+```bash
+go test ./internal/gitcompat/ ./internal/storage/... ./internal/postgres/
+GITSLICE_TEST_DATABASE_URL=... go test -count=1 ./tests/cli ./tests/rpc -run 'Git|Projection|Import' -v
+```
+
+All 14 Git, projection and import e2e tests pass.

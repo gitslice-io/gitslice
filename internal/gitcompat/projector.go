@@ -2,21 +2,15 @@ package gitcompat
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"gitslice.io/gitslice/internal/authz"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
-	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 )
@@ -42,13 +36,24 @@ type ProjectorStores struct {
 	Slices     storage.SliceStore
 }
 
+// Projection describes a slice's projected repository after an update.
 type Projection struct {
-	Account        string `json:"account"`
-	Slice          string `json:"slice"`
-	SliceID        string `json:"slice_id"`
-	DefinitionHash string `json:"definition_hash"`
-	NativeCommitID string `json:"native_commit_id"`
-	GitCommitID    string `json:"git_commit_id"`
+	Account        string
+	Slice          string
+	SliceID        string
+	DefinitionHash string
+	// NativeCommitID is the head of refs/global/main the projection reflects.
+	NativeCommitID string
+	// GitCommitID is the projected head, or "" when the slice has no history.
+	GitCommitID string
+	// history maps every projected commit to its native commit.
+	history map[string]string
+}
+
+// NativeCommitFor returns the native commit a projected commit was built from.
+func (p *Projection) NativeCommitFor(gitCommitID string) (string, bool) {
+	native, ok := p.history[gitCommitID]
+	return native, ok
 }
 
 func NewProjector(stores ProjectorStores, objectStore ObjectStore, cacheRoot string) (*Projector, error) {
@@ -88,149 +93,19 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	if err := authz.New(p.auth).Authorize(ctx, subjectID, slice, authz.ActionRead); err != nil {
 		return "", nil, err
 	}
-	ref, err := p.repository.GetRef(ctx, storage.DefaultTargetRef)
-	if err != nil {
-		return "", nil, err
-	}
-	commit, err := p.repository.GetCommit(ctx, ref.CommitId)
-	if err != nil {
-		return "", nil, err
-	}
 	repoPath := filepath.Join(p.cacheRoot, account, sliceSlug+".git")
-	projection := &Projection{
-		Account:        account,
-		Slice:          sliceSlug,
-		SliceID:        slice.Id,
-		DefinitionHash: slice.DefinitionHash,
-		NativeCommitID: ref.CommitId,
-	}
 	lock := p.lockFor(repoPath)
 	lock.Lock()
 	defer lock.Unlock()
 
-	existing, err := readProjection(repoPath)
-	if err == nil && projectionMatches(existing, projection) {
-		return repoPath, existing, nil
-	}
-	if err := p.rebuild(ctx, repoPath, slice, commit, projection); err != nil {
+	if err := ensureProjectedRepo(ctx, repoPath); err != nil {
 		return "", nil, err
 	}
-	return repoPath, projection, nil
-}
-
-func (p *Projector) rebuild(ctx context.Context, repoPath string, slice *corev1.Slice, commit *corev1.Commit, projection *Projection) error {
-	if _, err := os.Stat(repoPath); errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
-			return err
-		}
-		if err := runGit(ctx, "", nil, "init", "--bare", repoPath); err != nil {
-			return err
-		}
-		if err := runGit(ctx, repoPath, nil, "config", "http.receivepack", "false"); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-	if err := runGit(ctx, repoPath, nil, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
-		return err
-	}
-	worktree, err := os.MkdirTemp(filepath.Dir(repoPath), ".projection-*")
+	state, err := p.updateHistory(ctx, repoPath, account, sliceSlug, slice)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
-	defer os.RemoveAll(worktree)
-	if err := runGit(ctx, "", nil, "init", worktree); err != nil {
-		return err
-	}
-	if err := runGit(ctx, worktree, nil, "checkout", "-B", "main"); err != nil {
-		return err
-	}
-	files, err := p.projectedFiles(ctx, slice, commit.Id)
-	if err != nil {
-		return err
-	}
-	for _, file := range files {
-		if err := p.writeFile(ctx, worktree, file); err != nil {
-			return err
-		}
-	}
-	if err := runGit(ctx, worktree, nil, "add", "-A"); err != nil {
-		return err
-	}
-	commitTime := parseCommitTime(commit.CreatedAt)
-	env := []string{
-		"GIT_AUTHOR_NAME=Gitslice",
-		"GIT_AUTHOR_EMAIL=gitslice@example.invalid",
-		"GIT_COMMITTER_NAME=Gitslice",
-		"GIT_COMMITTER_EMAIL=gitslice@example.invalid",
-		"GIT_AUTHOR_DATE=" + commitTime,
-		"GIT_COMMITTER_DATE=" + commitTime,
-	}
-	message := commit.Message
-	if message == "" {
-		message = "Project " + commit.Id
-	}
-	if err := runGit(ctx, worktree, env, "commit", "--allow-empty", "-m", message); err != nil {
-		return err
-	}
-	gitCommitID, err := gitOutput(ctx, worktree, nil, "rev-parse", "HEAD")
-	if err != nil {
-		return err
-	}
-	projection.GitCommitID = strings.TrimSpace(gitCommitID)
-	if err := runGit(ctx, worktree, nil, "push", "--force", repoPath, "HEAD:refs/heads/main"); err != nil {
-		return err
-	}
-	return writeProjection(repoPath, projection)
-}
-
-func (p *Projector) projectedFiles(ctx context.Context, slice *corev1.Slice, commitID string) ([]storage.FileEntry, error) {
-	byPath := map[string]storage.FileEntry{}
-	for _, prefix := range slice.Definition.IncludedPaths {
-		// Included paths may be account-root prefixes (a single segment) for
-		// home slices, so use CanonicalPrefix rather than Canonical, which
-		// requires an account/slice pair and would reject e.g. "/acme".
-		canonical, err := paths.CanonicalPrefix(prefix)
-		if err != nil {
-			return nil, err
-		}
-		files, err := p.repository.ListFiles(ctx, commitID, canonical)
-		if err != nil {
-			return nil, err
-		}
-		for _, file := range files {
-			byPath[file.Path] = file
-		}
-	}
-	out := make([]storage.FileEntry, 0, len(byPath))
-	for _, file := range byPath {
-		out = append(out, file)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
-}
-
-func (p *Projector) writeFile(ctx context.Context, worktree string, file storage.FileEntry) error {
-	rel := strings.TrimPrefix(file.Path, "/")
-	target := filepath.Join(worktree, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return err
-	}
-	rc, err := p.objectStore.Get(ctx, filesystem.BlobKey(file.ContentHash), 0, 0)
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(file.Mode&0o777))
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, rc); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
+	return repoPath, state.projection(), nil
 }
 
 func (p *Projector) lockFor(key string) *sync.Mutex {
@@ -242,42 +117,6 @@ func (p *Projector) lockFor(key string) *sync.Mutex {
 		p.locks[key] = lock
 	}
 	return lock
-}
-
-func readProjection(repoPath string) (*Projection, error) {
-	data, err := os.ReadFile(filepath.Join(repoPath, "gitslice_projection.json"))
-	if err != nil {
-		return nil, err
-	}
-	var projection Projection
-	if err := json.Unmarshal(data, &projection); err != nil {
-		return nil, err
-	}
-	return &projection, nil
-}
-
-func writeProjection(repoPath string, projection *Projection) error {
-	data, err := json.MarshalIndent(projection, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return os.WriteFile(filepath.Join(repoPath, "gitslice_projection.json"), data, 0o644)
-}
-
-func projectionMatches(existing, wanted *Projection) bool {
-	return existing.Account == wanted.Account &&
-		existing.Slice == wanted.Slice &&
-		existing.SliceID == wanted.SliceID &&
-		existing.DefinitionHash == wanted.DefinitionHash &&
-		existing.NativeCommitID == wanted.NativeCommitID
-}
-
-func parseCommitTime(value string) string {
-	if t, err := time.Parse(time.RFC3339Nano, value); err == nil {
-		return t.UTC().Format(time.RFC3339)
-	}
-	return time.Unix(0, 0).UTC().Format(time.RFC3339)
 }
 
 func runGit(ctx context.Context, dir string, env []string, args ...string) error {
