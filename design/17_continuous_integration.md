@@ -285,10 +285,17 @@ On a new patchset the (server) plan is computed as:
 4. Resolve each remaining check's `image`/`env`/`timeout`/`working_dir` (per-check
    over `defaults`) and its **materialization set** — the defining folder ∪ the
    resolved `include` prefixes (deduped; nested prefixes collapsed).
-5. For every id in `slice.required_checks` that the plan did **not** produce a
-   runnable definition for, emit a synthetic `errored` run ("required check %q
-   has no definition in this revision") so the gate fails loudly rather than
-   silently passing.
+5. For every id in `slice.required_checks` that discovery did not reach, read
+   the checks file of the directory the id names (`web/build` →
+   `web/.gitslice/checks.yaml`) and evaluate that check like a discovered one.
+   - A change outside that directory skips it, unless an absolute `paths`
+     glob selects it. A skipped required check counts as passing.
+   - If the file is missing or does not define the check, emit a synthetic
+     `errored` run ("required check %q has no definition in this revision").
+     The gate then fails loudly rather than silently passing.
+   - Without this step, requiring a check from a subdirectory's file such as
+     `web/.gitslice/checks.yaml` would block every changeset that does not
+     touch `web/`.
 
 The plan is a list of `{ qualified_name, command, image, working_dir, env,
 network, timeout, materialize_paths }` to execute, each backed by a `check_runs`
