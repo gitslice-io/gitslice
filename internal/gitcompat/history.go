@@ -34,7 +34,7 @@ import (
 
 // projectionVersion identifies the projection algorithm and the state file
 // layout. Bumping it makes every cached projection rebuild from scratch.
-const projectionVersion = 3
+const projectionVersion = 4
 
 const (
 	projectionStateFile = "gitslice_projection.json"
@@ -765,11 +765,17 @@ func projectablePath(path string) bool {
 	return true
 }
 
+// gitFileMode maps a native file mode to a Git tree mode. Symlinks keep their
+// type; their content is the link target, as in Git.
 func gitFileMode(mode uint32) string {
-	if mode&0o111 != 0 {
+	switch {
+	case mode&0o170000 == 0o120000:
+		return "120000"
+	case mode&0o111 != 0:
 		return "100755"
+	default:
+		return "100644"
 	}
-	return "100644"
 }
 
 func projectedIdentity(subjectID string, usernames map[string]string) (string, string) {

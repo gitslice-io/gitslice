@@ -167,3 +167,18 @@ func TestRunFastImportDeterministic(t *testing.T) {
 		t.Fatalf("unexpected projected tree:\n%s", tree)
 	}
 }
+
+func TestGitFileMode(t *testing.T) {
+	for mode, want := range map[uint32]string{
+		0o100644: "100644",
+		0o644:    "100644",
+		0o100755: "100755",
+		0o755:    "100755",
+		0o120000: "120000",
+		0o120777: "120000",
+	} {
+		if got := gitFileMode(mode); got != want {
+			t.Fatalf("gitFileMode(%o) = %s, want %s", mode, got, want)
+		}
+	}
+}
