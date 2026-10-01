@@ -567,6 +567,42 @@ func (s *RepositoryStore) ListCommitChain(ctx context.Context, refName, stopComm
 	return chain, nil
 }
 
+func (s *RepositoryStore) CommitAncestry(ctx context.Context, startCommitID string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 1 << 30
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		with recursive chain(id, depth) as (
+			select c.id, 0 from commits c where c.id = $1
+			union all
+			select c.parent_ids->>0, chain.depth + 1
+			from chain
+			join commits c on c.id = chain.id
+			where jsonb_array_length(c.parent_ids) > 0 and chain.depth + 1 < $2
+		)
+		select id from chain order by depth
+	`, startCommitID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, ErrNotFound
+	}
+	return out, nil
+}
+
 // commitTouchesPrefixes reports whether any changed path lies inside a prefix
 // or is an ancestor directory of one (for example an account root change).
 func commitTouchesPrefixes(changed, prefixes []string) bool {

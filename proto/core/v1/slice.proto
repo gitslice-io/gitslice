@@ -18,6 +18,43 @@ service SliceService {
   rpc DeleteSliceSecret(DeleteSliceSecretRequest) returns (Empty);
   rpc ListSliceSecrets(ListSliceSecretsRequest) returns (ListSliceSecretsResponse);
   rpc DeleteSlice(DeleteSliceRequest) returns (DeleteSliceResponse);
+  // CreateTag names a native commit for this slice, for releases. Tags are
+  // immutable: creating an existing name again succeeds only for the same
+  // commit. Requires write access. The Git projection publishes each tag as
+  // refs/tags/<name>.
+  rpc CreateTag(CreateTagRequest) returns (Tag);
+  // ListTags lists a slice's tags, newest first. Readable like the slice.
+  rpc ListTags(ListTagsRequest) returns (ListTagsResponse);
+}
+
+message Tag {
+  SliceRef slice = 1;
+  string name = 2;
+  // Native commit on refs/global/main.
+  string commit_id = 3;
+  // The slice definition version the tag was created under.
+  int64 definition_version = 4;
+  string message = 5;
+  // Username of the creator, or their subject id when they have none.
+  string created_by = 6;
+  string created_at = 7;
+}
+
+message CreateTagRequest {
+  SliceRef slice = 1;
+  // Git ref syntax, for example v1.2.0 or release/2026-10.
+  string name = 2;
+  // Defaults to the current head of refs/global/main.
+  string commit_id = 3;
+  string message = 4;
+}
+
+message ListTagsRequest {
+  SliceRef slice = 1;
+}
+
+message ListTagsResponse {
+  repeated Tag tags = 1;
 }
 
 message Slice {

@@ -8876,3 +8876,41 @@ an unbundled patchset dispatches the in-slice check, and that a bundled
 patchset produces no `RunChecks` (messages are ordered, so the next one
 belongs to a later unbundled patchset). Existing check tests pass:
 `go test ./tests/rpc -run Check`, `./tests/cli -run 'Check|Capture|CI'`.
+## 2026-10-01 — Immutable slice tags, published in the Git projection
+
+Request: releases must be created in Gitslice once it is the source of truth,
+and `go install` from the Gitslice Git endpoint needs version tags
+(`design/21_self_hosting.md`, gap 5). Only `refs/global/main` existed.
+
+- **Storage.** `slice_tags` (migration `0028`) holds the slice, name, native
+  commit, definition version, message, creator and time.
+  `SliceStore.CreateTag` is insert-only. Creating an existing name again
+  returns the stored tag when the commit matches, and `ErrConflict`
+  (AlreadyExists) otherwise. Deleting a slice deletes its tags.
+- **API.** `SliceService.CreateTag` requires write access and defaults to the
+  current head. `ListTags` follows the slice's read rules, so anonymous
+  callers may list a public slice's tags.
+  - Names follow a subset of `git check-ref-format`: letters, digits and
+    `._-+/`; no `..` or `//`; no part starting with `.` or ending with `.lock`;
+    at most 200 characters.
+- **CLI.** `gs tag create <name> [--slice] [--commit] [-m]` and
+  `gs tag list`, in `internal/cli/tag.go`.
+- **Projection** (`syncTags`). After each history update, every tag becomes a
+  lightweight `refs/tags/<name>` on the projected commit for the newest
+  qualifying native commit at or before the tagged one. The lookup uses the
+  new `RepositoryStore.CommitAncestry`, a recursive first-parent query.
+  - For single-prefix slices, semver tags are also published as
+    `<prefix>/<name>`. Go needs that form for a module rooted in a repository
+    subdirectory, which is how `gitslice.io/gitslice` will resolve from
+    `https://gitslice.io/git/gitslice/gitslice.git` (subdir
+    `gitslice/gitslice`).
+  - A tag newer than the processed head is deferred to the next request rather
+    than mapped early.
+  - Results are cached in the projection state. Refs are reconciled with one
+    `git update-ref --stdin` transaction.
+
+Verification: new e2e `TestSliceTagsInGitProjection`. It covers a
+default-head tag mapping back to the last commit that touched the slice, an
+explicit commit, idempotent re-creation, rejected moves, invalid names and
+unknown commits, listing, and the projected refs, including the Go subdirectory
+copy. The Git and projection e2e tests also pass.

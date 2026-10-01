@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,6 +64,8 @@ type projectionState struct {
 	Commits []projectedCommit `json:"commits"`
 	// Files is the projected tree at GitHead, keyed by Git path.
 	Files map[string]projectedFile `json:"files"`
+	// Tags caches each native tag's projected commit by tag name.
+	Tags map[string]projectedCommit `json:"tags,omitempty"`
 }
 
 type projectedCommit struct {
@@ -146,17 +149,165 @@ func (p *Projector) updateHistory(ctx context.Context, repoPath, account, sliceS
 			return nil, err
 		}
 	}
-	if chain.HeadCommitID == state.NativeHeadID {
-		return state, nil
+	changed := false
+	if chain.HeadCommitID != state.NativeHeadID {
+		if err := p.appendHistory(ctx, repoPath, state, prefixes, chain.Commits); err != nil {
+			return nil, err
+		}
+		state.NativeHeadID = chain.HeadCommitID
+		changed = true
 	}
-	if err := p.appendHistory(ctx, repoPath, state, prefixes, chain.Commits); err != nil {
+	tagsChanged, err := p.syncTags(ctx, repoPath, state, slice, prefixes)
+	if err != nil {
 		return nil, err
 	}
-	state.NativeHeadID = chain.HeadCommitID
-	if err := writeProjectionState(repoPath, state); err != nil {
-		return nil, err
+	if changed || tagsChanged {
+		if err := writeProjectionState(repoPath, state); err != nil {
+			return nil, err
+		}
 	}
 	return state, nil
+}
+
+// goSemverTag matches the version tags Go understands.
+var goSemverTag = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
+
+// syncTags publishes the slice's native tags as lightweight tags on the
+// projected commit at or before each tagged native commit. For a slice with a
+// single included path, a semver tag is also published under that path (for
+// example acme/payment/v1.2.0): that is how Go names versions of a module
+// whose root is a repository subdirectory, which the canonical layout puts
+// every slice's files in. It reports whether the cached mapping changed.
+func (p *Projector) syncTags(ctx context.Context, repoPath string, state *projectionState, slice *corev1.Slice, prefixes []string) (bool, error) {
+	if p.slices == nil {
+		return false, nil
+	}
+	tags, err := p.slices.ListTags(ctx, slice.Id)
+	if err != nil {
+		return false, err
+	}
+	history := make(map[string]string, len(state.Commits))
+	for _, commit := range state.Commits {
+		history[commit.Native] = commit.Git
+	}
+	if state.Tags == nil {
+		state.Tags = map[string]projectedCommit{}
+	}
+	changed := false
+	resolved := map[string]projectedCommit{}
+	for _, tag := range tags {
+		if cached, ok := state.Tags[tag.Name]; ok && cached.Native == tag.CommitID {
+			// The cached projected commit must still be part of this history.
+			if _, known := projectedIndex(state, cached.Git); known {
+				resolved[tag.Name] = cached
+				continue
+			}
+		}
+		target, ok, err := p.projectedCommitAt(ctx, state, history, tag.CommitID)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			continue
+		}
+		resolved[tag.Name] = projectedCommit{Native: tag.CommitID, Git: target}
+		changed = true
+	}
+	if len(resolved) != len(state.Tags) {
+		changed = true
+	}
+	state.Tags = resolved
+
+	want := map[string]string{}
+	subdir := ""
+	if len(prefixes) == 1 && prefixes[0] != "/" {
+		subdir = strings.Trim(prefixes[0], "/")
+	}
+	for name, target := range resolved {
+		want["refs/tags/"+name] = target.Git
+		if subdir != "" && goSemverTag.MatchString(name) {
+			want["refs/tags/"+subdir+"/"+name] = target.Git
+		}
+	}
+	return changed, applyTagRefs(ctx, repoPath, want)
+}
+
+func projectedIndex(state *projectionState, gitCommit string) (int, bool) {
+	for i, commit := range state.Commits {
+		if commit.Git == gitCommit {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// projectedCommitAt returns the projected commit for the newest qualifying
+// native commit at or before nativeID. A tag on a commit newer than the
+// processed head is deferred: commits between the head and the tag may still
+// qualify, so mapping it now could point it at the wrong commit.
+func (p *Projector) projectedCommitAt(ctx context.Context, state *projectionState, history map[string]string, nativeID string) (string, bool, error) {
+	ancestry, err := p.repository.CommitAncestry(ctx, nativeID, 0)
+	if errors.Is(err, storage.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	for i, id := range ancestry {
+		if id == state.NativeHeadID && i > 0 {
+			return "", false, nil
+		}
+		if git := history[id]; git != "" {
+			return git, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// applyTagRefs makes refs/tags/* in the projected repository exactly want.
+func applyTagRefs(ctx context.Context, repoPath string, want map[string]string) error {
+	raw, err := gitOutput(ctx, repoPath, nil, "for-each-ref", "--format=%(refname) %(objectname)", "refs/tags/")
+	if err != nil {
+		return err
+	}
+	have := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		if ref, oid, ok := strings.Cut(strings.TrimSpace(line), " "); ok {
+			have[ref] = oid
+		}
+	}
+	var commands strings.Builder
+	refs := make([]string, 0, len(want))
+	for ref := range want {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	for _, ref := range refs {
+		if have[ref] != want[ref] {
+			fmt.Fprintf(&commands, "update %s %s\n", ref, want[ref])
+		}
+	}
+	stale := make([]string, 0)
+	for ref := range have {
+		if _, ok := want[ref]; !ok {
+			stale = append(stale, ref)
+		}
+	}
+	sort.Strings(stale)
+	for _, ref := range stale {
+		fmt.Fprintf(&commands, "delete %s\n", ref)
+	}
+	if commands.Len() == 0 {
+		return nil
+	}
+	cmd := exec.CommandContext(ctx, "git", "update-ref", "--stdin")
+	cmd.Dir = repoPath
+	cmd.Env = append(os.Environ(), "GIT_DIR="+repoPath)
+	cmd.Stdin = strings.NewReader(commands.String())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git update-ref failed: %w\n%s", err, string(out))
+	}
+	return nil
 }
 
 // stateUsable reports whether a loaded state matches this slice definition and
