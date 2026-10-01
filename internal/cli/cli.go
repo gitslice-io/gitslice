@@ -433,14 +433,25 @@ type commitLogScopeOutput struct {
 }
 
 type commitOutput struct {
-	ID           string   `json:"id"`
-	ShortID      string   `json:"short_id"`
-	ParentIDs    []string `json:"parent_ids,omitempty"`
-	RootTreeID   string   `json:"root_tree_id,omitempty"`
-	Author       string   `json:"author,omitempty"`
-	CreatedAt    string   `json:"created_at,omitempty"`
-	Message      string   `json:"message"`
-	ChangedPaths []string `json:"changed_paths,omitempty"`
+	ID           string                 `json:"id"`
+	ShortID      string                 `json:"short_id"`
+	ParentIDs    []string               `json:"parent_ids,omitempty"`
+	RootTreeID   string                 `json:"root_tree_id,omitempty"`
+	Author       string                 `json:"author,omitempty"`
+	CreatedAt    string                 `json:"created_at,omitempty"`
+	Message      string                 `json:"message"`
+	ChangedPaths []string               `json:"changed_paths,omitempty"`
+	GitImport    *commitGitImportOutput `json:"git_import,omitempty"`
+}
+
+// commitGitImportOutput describes the original Git commit behind an imported
+// native commit.
+type commitGitImportOutput struct {
+	GitCommitID string `json:"git_commit_id"`
+	AuthorName  string `json:"author_name,omitempty"`
+	AuthorEmail string `json:"author_email,omitempty"`
+	AuthoredAt  string `json:"authored_at,omitempty"`
+	Message     string `json:"message,omitempty"`
 }
 
 type fsListOutput struct {
@@ -9757,7 +9768,7 @@ func commitToOutput(commit *corev1.Commit) commitOutput {
 	if commit == nil {
 		return commitOutput{}
 	}
-	return commitOutput{
+	out := commitOutput{
 		ID:           commit.Id,
 		ShortID:      shortID(commit.Id),
 		ParentIDs:    append([]string(nil), commit.ParentIds...),
@@ -9767,6 +9778,16 @@ func commitToOutput(commit *corev1.Commit) commitOutput {
 		Message:      commit.Message,
 		ChangedPaths: append([]string(nil), commit.ChangedPaths...),
 	}
+	if imported := commit.GetGitImport(); imported != nil {
+		out.GitImport = &commitGitImportOutput{
+			GitCommitID: imported.GitCommitId,
+			AuthorName:  imported.AuthorName,
+			AuthorEmail: imported.AuthorEmail,
+			AuthoredAt:  imported.AuthoredAt,
+			Message:     imported.Message,
+		}
+	}
+	return out
 }
 
 func printCommitLogOneline(w io.Writer, commits []*corev1.Commit, full, nameOnly, color bool) {
@@ -9811,9 +9832,23 @@ func printCommitDetails(w io.Writer, commit *corev1.Commit, full, color bool) {
 	if commit.CreatedAt != "" {
 		fmt.Fprintf(w, "%s   %s\n", colorize(color, ansiDim, "Date:"), commit.CreatedAt)
 	}
-	if strings.TrimSpace(commit.Message) != "" {
+	message := commit.Message
+	if imported := commit.GetGitImport(); imported != nil {
+		origin := "git " + displayCommitID(imported.GitCommitId, full)
+		if imported.AuthorName != "" {
+			origin += fmt.Sprintf(" by %s <%s>", imported.AuthorName, imported.AuthorEmail)
+		}
+		if imported.AuthoredAt != "" {
+			origin += " on " + imported.AuthoredAt
+		}
+		fmt.Fprintf(w, "%s %s\n", colorize(color, ansiDim, "Imported:"), origin)
+		if strings.TrimSpace(imported.Message) != "" {
+			message = imported.Message
+		}
+	}
+	if strings.TrimSpace(message) != "" {
 		fmt.Fprintln(w)
-		for _, line := range strings.Split(commit.Message, "\n") {
+		for _, line := range strings.Split(message, "\n") {
 			fmt.Fprintf(w, "    %s\n", line)
 		}
 	}

@@ -108,9 +108,25 @@ func (s *RepositoryStore) GetGitImport(ctx context.Context, source, mountPath, s
 	return &out, nil
 }
 
+const gitImportCommitColumns = `import_id, git_commit_id, native_commit_id, message, position, changed_path_count,
+		author_name, author_email, authored_at, full_message`
+
+func scanGitImportCommit(rows *sql.Rows) (GitImportedCommitRecord, error) {
+	var row GitImportedCommitRecord
+	var authoredAt sql.NullTime
+	if err := rows.Scan(&row.ImportID, &row.GitCommitID, &row.NativeCommitID, &row.Message, &row.Position, &row.ChangedPathCount,
+		&row.AuthorName, &row.AuthorEmail, &authoredAt, &row.FullMessage); err != nil {
+		return row, err
+	}
+	if authoredAt.Valid {
+		row.AuthoredAt = formatTime(authoredAt.Time)
+	}
+	return row, nil
+}
+
 func (s *RepositoryStore) ListGitImportCommits(ctx context.Context, importID string) ([]GitImportedCommitRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select import_id, git_commit_id, native_commit_id, message, position, changed_path_count
+		select `+gitImportCommitColumns+`
 		from git_import_commits
 		where import_id = $1
 		order by position
@@ -121,8 +137,8 @@ func (s *RepositoryStore) ListGitImportCommits(ctx context.Context, importID str
 	defer rows.Close()
 	var out []GitImportedCommitRecord
 	for rows.Next() {
-		var row GitImportedCommitRecord
-		if err := rows.Scan(&row.ImportID, &row.GitCommitID, &row.NativeCommitID, &row.Message, &row.Position, &row.ChangedPathCount); err != nil {
+		row, err := scanGitImportCommit(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -130,16 +146,55 @@ func (s *RepositoryStore) ListGitImportCommits(ctx context.Context, importID str
 	return out, rows.Err()
 }
 
-func (s *RepositoryStore) RecordGitImportCommit(ctx context.Context, importID, gitCommitID, nativeCommitID, message string, position, changedPathCount int) error {
+func (s *RepositoryStore) GitImportsForCommits(ctx context.Context, nativeCommitIDs []string) (map[string]GitImportedCommitRecord, error) {
+	out := map[string]GitImportedCommitRecord{}
+	if len(nativeCommitIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select `+gitImportCommitColumns+`
+		from git_import_commits
+		where native_commit_id = any($1)
+		order by created_at
+	`, nativeCommitIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		row, err := scanGitImportCommit(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[row.NativeCommitID] = row
+	}
+	return out, rows.Err()
+}
+
+func (s *RepositoryStore) RecordGitImportCommit(ctx context.Context, record GitImportedCommitRecord) error {
+	var authoredAt any
+	if record.AuthoredAt != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, record.AuthoredAt)
+		if err != nil {
+			return fmt.Errorf("%w: authored_at %q: %v", ErrInvalid, record.AuthoredAt, err)
+		}
+		authoredAt = parsed
+	}
 	_, err := s.db.ExecContext(ctx, `
-		insert into git_import_commits(import_id, git_commit_id, native_commit_id, message, position, changed_path_count)
-		values ($1, $2, $3, $4, $5, $6)
+		insert into git_import_commits(import_id, git_commit_id, native_commit_id, message, position, changed_path_count,
+			author_name, author_email, authored_at, full_message)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		on conflict (import_id, git_commit_id) do update
 		set native_commit_id = excluded.native_commit_id,
 		    message = excluded.message,
 		    position = excluded.position,
-		    changed_path_count = excluded.changed_path_count
-	`, importID, gitCommitID, nativeCommitID, message, position, changedPathCount)
+		    changed_path_count = excluded.changed_path_count,
+		    author_name = excluded.author_name,
+		    author_email = excluded.author_email,
+		    authored_at = excluded.authored_at,
+		    full_message = excluded.full_message
+	`, record.ImportID, record.GitCommitID, record.NativeCommitID, record.Message, record.Position, record.ChangedPathCount,
+		record.AuthorName, record.AuthorEmail, authoredAt, record.FullMessage)
 	if err != nil {
 		return err
 	}
@@ -152,7 +207,7 @@ func (s *RepositoryStore) RecordGitImportCommit(ctx context.Context, importID, g
 			final_native_commit_id = $3,
 			updated_at = now()
 		where id = $1
-	`, importID, gitCommitID, nativeCommitID)
+	`, record.ImportID, record.GitCommitID, record.NativeCommitID)
 	return err
 }
 

@@ -525,11 +525,51 @@ func (s *RepositoryService) GetCommit(ctx context.Context, req *corev1.GetCommit
 	return commit, nil
 }
 
+// attachGitImports sets Commit.git_import on commits published by a Git
+// import, so clients can show the original author, date and message.
+func (s *RepositoryService) attachGitImports(ctx context.Context, commits ...*corev1.Commit) error {
+	ids := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		if commit != nil && commit.Id != "" {
+			ids = append(ids, commit.Id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	imports, err := s.Repository.GitImportsForCommits(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, commit := range commits {
+		if commit == nil {
+			continue
+		}
+		if record, ok := imports[commit.Id]; ok {
+			commit.GitImport = gitImportInfo(record)
+		}
+	}
+	return nil
+}
+
+func gitImportInfo(record storage.GitImportedCommitRecord) *corev1.GitImportInfo {
+	return &corev1.GitImportInfo{
+		GitCommitId: record.GitCommitID,
+		AuthorName:  record.AuthorName,
+		AuthorEmail: record.AuthorEmail,
+		AuthoredAt:  record.AuthoredAt,
+		Message:     record.FullMessage,
+	}
+}
+
 // resolveCommitAuthors rewrites each Commit.Author from the internal subject id
 // to the author's username (personal account slug). Authors that don't resolve
 // to a personal account (e.g. imported git authors, system commits) are left
 // unchanged so the response still carries a stable identifier.
 func (s *RepositoryService) resolveCommitAuthors(ctx context.Context, commits ...*corev1.Commit) error {
+	if err := s.attachGitImports(ctx, commits...); err != nil {
+		return err
+	}
 	seen := map[string]struct{}{}
 	var subjectIDs []string
 	for _, commit := range commits {
@@ -964,10 +1004,11 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			}
 			continue
 		}
-		message, err := gitCommitSubject(ctx, repoDir, gitCommitID)
+		meta, err := gitCommitMetadata(ctx, repoDir, gitCommitID)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "read git commit message %s: %v", gitCommitID, err)
 		}
+		message := meta.Subject
 		if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
 			Phase:       "reading_commit",
 			Message:     message,
@@ -1018,7 +1059,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 		}); err != nil {
 			return nil, err
 		}
-		patchset, err := s.createImportPatchset(ctx, subjectID, slice, targetRef, ref.CommitId, message, edits)
+		patchset, err := s.createImportPatchset(ctx, subjectID, slice, targetRef, ref.CommitId, message, meta.Body, edits)
 		if err != nil {
 			return nil, err
 		}
@@ -1047,7 +1088,18 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 		})
 		response.FinalCommitId = nativeCommitID
 		if importID != "" {
-			if err := s.Repository.RecordGitImportCommit(ctx, importID, gitCommitID, nativeCommitID, message, i+1, len(edits)); err != nil {
+			if err := s.Repository.RecordGitImportCommit(ctx, storage.GitImportedCommitRecord{
+				ImportID:         importID,
+				GitCommitID:      gitCommitID,
+				NativeCommitID:   nativeCommitID,
+				Message:          message,
+				Position:         i + 1,
+				ChangedPathCount: len(edits),
+				AuthorName:       meta.AuthorName,
+				AuthorEmail:      meta.AuthorEmail,
+				AuthoredAt:       meta.AuthoredAt,
+				FullMessage:      meta.FullMessage,
+			}); err != nil {
 				return nil, grpcError(err)
 			}
 		}
@@ -1994,7 +2046,7 @@ func (s *RepositoryService) putImportBlob(ctx context.Context, key string, data 
 	return err
 }
 
-func (s *RepositoryService) createImportPatchset(ctx context.Context, subjectID string, slice *corev1.Slice, targetRef, baseCommitID, message string, edits []*corev1.FileEdit) (*corev1.Patchset, error) {
+func (s *RepositoryService) createImportPatchset(ctx context.Context, subjectID string, slice *corev1.Slice, targetRef, baseCommitID, message, description string, edits []*corev1.FileEdit) (*corev1.Patchset, error) {
 	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, "", edits, true)
 	if err != nil {
 		return nil, err
@@ -2004,6 +2056,7 @@ func (s *RepositoryService) createImportPatchset(ctx context.Context, subjectID 
 		TargetRef:      targetRef,
 		BaseCommitId:   baseCommitID,
 		Title:          message,
+		Description:    description,
 	})
 	if err != nil {
 		return nil, grpcError(err)
@@ -2072,16 +2125,42 @@ func importPublishTimeout(changedFileCount int) time.Duration {
 	return timeout
 }
 
-func gitCommitSubject(ctx context.Context, repoDir, commitID string) (string, error) {
-	out, err := gitOutputImport(ctx, repoDir, "log", "-1", "--format=%s", commitID)
+type gitCommitMeta struct {
+	Subject     string
+	Body        string
+	FullMessage string
+	AuthorName  string
+	AuthorEmail string
+	AuthoredAt  string // RFC 3339 in UTC
+}
+
+// gitCommitMetadata reads an imported commit's subject (git's %s, the first
+// paragraph joined into one line), body, full message and original author.
+func gitCommitMetadata(ctx context.Context, repoDir, commitID string) (gitCommitMeta, error) {
+	out, err := gitOutputImport(ctx, repoDir, "log", "-1", "--format=%an%x00%ae%x00%aI%x00%s%x00%B", commitID)
 	if err != nil {
-		return "", err
+		return gitCommitMeta{}, err
 	}
-	message := strings.TrimSpace(out)
-	if message == "" {
-		message = "Import git commit " + shortCommit(commitID)
+	parts := strings.SplitN(out, "\x00", 5)
+	if len(parts) != 5 {
+		return gitCommitMeta{}, fmt.Errorf("unexpected git log output for %s", shortCommit(commitID))
 	}
-	return message, nil
+	meta := gitCommitMeta{
+		AuthorName:  strings.TrimSpace(parts[0]),
+		AuthorEmail: strings.TrimSpace(parts[1]),
+		Subject:     strings.TrimSpace(parts[3]),
+		FullMessage: strings.TrimRight(parts[4], " \t\r\n"),
+	}
+	if authored, err := time.Parse(time.RFC3339, strings.TrimSpace(parts[2])); err == nil {
+		meta.AuthoredAt = authored.UTC().Format(time.RFC3339)
+	}
+	if _, body, ok := strings.Cut(meta.FullMessage, "\n"); ok {
+		meta.Body = strings.TrimSpace(body)
+	}
+	if meta.Subject == "" {
+		meta.Subject = "Import git commit " + shortCommit(commitID)
+	}
+	return meta, nil
 }
 
 func shortCommit(commitID string) string {

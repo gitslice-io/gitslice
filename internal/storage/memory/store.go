@@ -2175,17 +2175,32 @@ func (s *RepositoryStore) ListGitImportCommits(ctx context.Context, importID str
 	return append([]storage.GitImportedCommitRecord(nil), s.b.importedCommits[importID]...), nil
 }
 
-func (s *RepositoryStore) RecordGitImportCommit(ctx context.Context, importID, gitCommitID, nativeCommitID, message string, position, changedPathCount int) error {
+func (s *RepositoryStore) RecordGitImportCommit(ctx context.Context, record storage.GitImportedCommitRecord) error {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	if s.b.imports[importID] == nil {
+	if s.b.imports[record.ImportID] == nil {
 		return storage.ErrNotFound
 	}
-	s.b.importedCommits[importID] = append(s.b.importedCommits[importID], storage.GitImportedCommitRecord{
-		ImportID: importID, GitCommitID: gitCommitID, NativeCommitID: nativeCommitID,
-		Message: message, Position: position, ChangedPathCount: changedPathCount,
-	})
+	s.b.importedCommits[record.ImportID] = append(s.b.importedCommits[record.ImportID], record)
 	return nil
+}
+
+func (s *RepositoryStore) GitImportsForCommits(ctx context.Context, nativeCommitIDs []string) (map[string]storage.GitImportedCommitRecord, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	wanted := map[string]bool{}
+	for _, id := range nativeCommitIDs {
+		wanted[id] = true
+	}
+	out := map[string]storage.GitImportedCommitRecord{}
+	for _, records := range s.b.importedCommits {
+		for _, record := range records {
+			if wanted[record.NativeCommitID] {
+				out[record.NativeCommitID] = record
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *RepositoryStore) CompleteGitImport(ctx context.Context, importID, finalNativeCommitID string) error {
