@@ -220,6 +220,14 @@ func (a connectSliceAdapter) CreateSlice(ctx context.Context, req *connect.Reque
 	return connectResponse(a.svc.CreateSlice(ctx, req.Msg))
 }
 
+func (a connectSliceAdapter) CreateTag(ctx context.Context, req *connect.Request[corev1.CreateTagRequest]) (*connect.Response[corev1.Tag], error) {
+	return connectResponse(a.svc.CreateTag(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) ListTags(ctx context.Context, req *connect.Request[corev1.ListTagsRequest]) (*connect.Response[corev1.ListTagsResponse], error) {
+	return connectResponse(a.svc.ListTags(ctx, req.Msg))
+}
+
 func (a connectSliceAdapter) ResolveSlice(ctx context.Context, req *connect.Request[corev1.ResolveSliceRequest]) (*connect.Response[corev1.Slice], error) {
 	return connectResponse(a.svc.ResolveSlice(ctx, req.Msg))
 }

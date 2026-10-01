@@ -67,6 +67,7 @@ type backend struct {
 	slices                  map[string]*corev1.Slice
 	sliceRefs               map[string]string
 	sliceDefinitionVersions map[string][]*corev1.SliceDefinitionVersion
+	sliceTags               map[string]map[string]storage.SliceTag
 	sliceSecrets            map[string]map[string]string
 
 	changesets        map[string]*corev1.Changeset
@@ -149,6 +150,7 @@ func New() *Stores {
 		slices:                  map[string]*corev1.Slice{},
 		sliceRefs:               map[string]string{},
 		sliceDefinitionVersions: map[string][]*corev1.SliceDefinitionVersion{},
+		sliceTags:               map[string]map[string]storage.SliceTag{},
 		sliceSecrets:            map[string]map[string]string{},
 		changesets:              map[string]*corev1.Changeset{},
 		stacks:                  map[string]*corev1.ChangesetStack{},
@@ -3686,4 +3688,58 @@ func sortCommits(commits []*corev1.Commit) {
 		}
 		return commits[i].CreatedAt > commits[j].CreatedAt
 	})
+}
+
+func (s *SliceStore) CreateTag(ctx context.Context, tag storage.SliceTag) (*storage.SliceTag, bool, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.b.sliceTags[tag.SliceID] == nil {
+		s.b.sliceTags[tag.SliceID] = map[string]storage.SliceTag{}
+	}
+	if existing, ok := s.b.sliceTags[tag.SliceID][tag.Name]; ok {
+		if existing.CommitID != tag.CommitID {
+			return &existing, false, fmt.Errorf("%w: tag %q already names commit %s", storage.ErrConflict, tag.Name, existing.CommitID)
+		}
+		return &existing, false, nil
+	}
+	tag.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	s.b.sliceTags[tag.SliceID][tag.Name] = tag
+	return &tag, true, nil
+}
+
+func (s *SliceStore) ListTags(ctx context.Context, sliceID string) ([]storage.SliceTag, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := make([]storage.SliceTag, 0, len(s.b.sliceTags[sliceID]))
+	for _, tag := range s.b.sliceTags[sliceID] {
+		out = append(out, tag)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt > out[j].CreatedAt
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+func (s *RepositoryStore) CommitAncestry(ctx context.Context, startCommitID string, limit int) ([]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []string
+	for id := startCommitID; id != "" && (limit <= 0 || len(out) < limit); {
+		commit := s.b.commits[id]
+		if commit == nil {
+			if len(out) == 0 {
+				return nil, storage.ErrNotFound
+			}
+			break
+		}
+		out = append(out, id)
+		if len(commit.ParentIds) == 0 {
+			break
+		}
+		id = commit.ParentIds[0]
+	}
+	return out, nil
 }

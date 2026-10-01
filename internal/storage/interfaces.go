@@ -204,6 +204,9 @@ type RepositoryStore interface {
 	// to stopCommitID (or the root when stopCommitID is empty or never
 	// reached) and returns the commits that touch prefixes, oldest first.
 	ListCommitChain(ctx context.Context, refName, stopCommitID string, prefixes []string) (*CommitChain, error)
+	// CommitAncestry returns startCommitID and its first-parent ancestors,
+	// newest first, at most limit ids (no limit when limit <= 0).
+	CommitAncestry(ctx context.Context, startCommitID string, limit int) ([]string, error)
 	ListCommitPageByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int, pageToken string) (*CommitListPage, error)
 	ListCommitPageByEntityRefs(ctx context.Context, refName string, refs []HistoryEntityRef, limit int, pageToken string) (*CommitListPage, error)
 	ListCommitPageByEntityRefsOrPathPrefixes(ctx context.Context, refName string, refs []HistoryEntityRef, prefixes []string, limit int, pageToken string) (*CommitListPage, error)
@@ -230,6 +233,23 @@ type SliceStore interface {
 	GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error)
 	Delete(ctx context.Context, sliceID string) error
 	CoveringIDsByPath(ctx context.Context, paths []string) (map[string][]string, error)
+	// CreateTag records an immutable tag. It returns the stored tag and whether
+	// it was created; an existing tag with the same commit is returned as is,
+	// and one with a different commit fails with ErrConflict.
+	CreateTag(ctx context.Context, tag SliceTag) (*SliceTag, bool, error)
+	// ListTags returns a slice's tags, newest first.
+	ListTags(ctx context.Context, sliceID string) ([]SliceTag, error)
+}
+
+// SliceTag is an immutable name for a native commit, scoped to a slice.
+type SliceTag struct {
+	SliceID           string
+	Name              string
+	CommitID          string
+	DefinitionVersion int64
+	Message           string
+	CreatedBy         string // subject id
+	CreatedAt         string // RFC 3339
 }
 
 // ValidSliceSecretName reports whether name matches ^[A-Z_][A-Z0-9_]*$.

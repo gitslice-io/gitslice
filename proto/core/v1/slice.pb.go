@@ -21,6 +21,259 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Tag struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Slice *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Native commit on refs/global/main.
+	CommitId string `protobuf:"bytes,3,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
+	// The slice definition version the tag was created under.
+	DefinitionVersion int64  `protobuf:"varint,4,opt,name=definition_version,json=definitionVersion,proto3" json:"definition_version,omitempty"`
+	Message           string `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
+	// Username of the creator, or their subject id when they have none.
+	CreatedBy     string `protobuf:"bytes,6,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	CreatedAt     string `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Tag) Reset() {
+	*x = Tag{}
+	mi := &file_proto_core_v1_slice_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Tag) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Tag) ProtoMessage() {}
+
+func (x *Tag) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_slice_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Tag.ProtoReflect.Descriptor instead.
+func (*Tag) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Tag) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
+	}
+	return nil
+}
+
+func (x *Tag) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Tag) GetCommitId() string {
+	if x != nil {
+		return x.CommitId
+	}
+	return ""
+}
+
+func (x *Tag) GetDefinitionVersion() int64 {
+	if x != nil {
+		return x.DefinitionVersion
+	}
+	return 0
+}
+
+func (x *Tag) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *Tag) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+func (x *Tag) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+type CreateTagRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Slice *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
+	// Git ref syntax, for example v1.2.0 or release/2026-10.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Defaults to the current head of refs/global/main.
+	CommitId      string `protobuf:"bytes,3,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
+	Message       string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateTagRequest) Reset() {
+	*x = CreateTagRequest{}
+	mi := &file_proto_core_v1_slice_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateTagRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateTagRequest) ProtoMessage() {}
+
+func (x *CreateTagRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_slice_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateTagRequest.ProtoReflect.Descriptor instead.
+func (*CreateTagRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateTagRequest) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
+	}
+	return nil
+}
+
+func (x *CreateTagRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateTagRequest) GetCommitId() string {
+	if x != nil {
+		return x.CommitId
+	}
+	return ""
+}
+
+func (x *CreateTagRequest) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type ListTagsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slice         *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTagsRequest) Reset() {
+	*x = ListTagsRequest{}
+	mi := &file_proto_core_v1_slice_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTagsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTagsRequest) ProtoMessage() {}
+
+func (x *ListTagsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_slice_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTagsRequest.ProtoReflect.Descriptor instead.
+func (*ListTagsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListTagsRequest) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
+	}
+	return nil
+}
+
+type ListTagsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tags          []*Tag                 `protobuf:"bytes,1,rep,name=tags,proto3" json:"tags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListTagsResponse) Reset() {
+	*x = ListTagsResponse{}
+	mi := &file_proto_core_v1_slice_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListTagsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListTagsResponse) ProtoMessage() {}
+
+func (x *ListTagsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_slice_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListTagsResponse.ProtoReflect.Descriptor instead.
+func (*ListTagsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListTagsResponse) GetTags() []*Tag {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
 type Slice struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -34,7 +287,7 @@ type Slice struct {
 
 func (x *Slice) Reset() {
 	*x = Slice{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[0]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -46,7 +299,7 @@ func (x *Slice) String() string {
 func (*Slice) ProtoMessage() {}
 
 func (x *Slice) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[0]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59,7 +312,7 @@ func (x *Slice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Slice.ProtoReflect.Descriptor instead.
 func (*Slice) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{0}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Slice) GetId() string {
@@ -111,7 +364,7 @@ type SliceDefinition struct {
 
 func (x *SliceDefinition) Reset() {
 	*x = SliceDefinition{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[1]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -123,7 +376,7 @@ func (x *SliceDefinition) String() string {
 func (*SliceDefinition) ProtoMessage() {}
 
 func (x *SliceDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[1]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -136,7 +389,7 @@ func (x *SliceDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SliceDefinition.ProtoReflect.Descriptor instead.
 func (*SliceDefinition) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{1}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SliceDefinition) GetSliceId() string {
@@ -198,7 +451,7 @@ type SliceDefinitionVersion struct {
 
 func (x *SliceDefinitionVersion) Reset() {
 	*x = SliceDefinitionVersion{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[2]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -210,7 +463,7 @@ func (x *SliceDefinitionVersion) String() string {
 func (*SliceDefinitionVersion) ProtoMessage() {}
 
 func (x *SliceDefinitionVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[2]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -223,7 +476,7 @@ func (x *SliceDefinitionVersion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SliceDefinitionVersion.ProtoReflect.Descriptor instead.
 func (*SliceDefinitionVersion) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{2}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SliceDefinitionVersion) GetSliceId() string {
@@ -302,7 +555,7 @@ type CreateSliceRequest struct {
 
 func (x *CreateSliceRequest) Reset() {
 	*x = CreateSliceRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[3]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -314,7 +567,7 @@ func (x *CreateSliceRequest) String() string {
 func (*CreateSliceRequest) ProtoMessage() {}
 
 func (x *CreateSliceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[3]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -327,7 +580,7 @@ func (x *CreateSliceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSliceRequest.ProtoReflect.Descriptor instead.
 func (*CreateSliceRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{3}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateSliceRequest) GetRef() *SliceRef {
@@ -374,7 +627,7 @@ type ResolveSliceRequest struct {
 
 func (x *ResolveSliceRequest) Reset() {
 	*x = ResolveSliceRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[4]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -386,7 +639,7 @@ func (x *ResolveSliceRequest) String() string {
 func (*ResolveSliceRequest) ProtoMessage() {}
 
 func (x *ResolveSliceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[4]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -399,7 +652,7 @@ func (x *ResolveSliceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveSliceRequest.ProtoReflect.Descriptor instead.
 func (*ResolveSliceRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{4}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ResolveSliceRequest) GetRef() *SliceRef {
@@ -418,7 +671,7 @@ type GetSliceRequest struct {
 
 func (x *GetSliceRequest) Reset() {
 	*x = GetSliceRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[5]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -430,7 +683,7 @@ func (x *GetSliceRequest) String() string {
 func (*GetSliceRequest) ProtoMessage() {}
 
 func (x *GetSliceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[5]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -443,7 +696,7 @@ func (x *GetSliceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSliceRequest.ProtoReflect.Descriptor instead.
 func (*GetSliceRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{5}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetSliceRequest) GetSliceId() string {
@@ -464,7 +717,7 @@ type ListSlicesRequest struct {
 
 func (x *ListSlicesRequest) Reset() {
 	*x = ListSlicesRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[6]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -476,7 +729,7 @@ func (x *ListSlicesRequest) String() string {
 func (*ListSlicesRequest) ProtoMessage() {}
 
 func (x *ListSlicesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[6]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -489,7 +742,7 @@ func (x *ListSlicesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSlicesRequest.ProtoReflect.Descriptor instead.
 func (*ListSlicesRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{6}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListSlicesRequest) GetAccount() string {
@@ -523,7 +776,7 @@ type ListSlicesResponse struct {
 
 func (x *ListSlicesResponse) Reset() {
 	*x = ListSlicesResponse{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[7]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -535,7 +788,7 @@ func (x *ListSlicesResponse) String() string {
 func (*ListSlicesResponse) ProtoMessage() {}
 
 func (x *ListSlicesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[7]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -548,7 +801,7 @@ func (x *ListSlicesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSlicesResponse.ProtoReflect.Descriptor instead.
 func (*ListSlicesResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{7}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListSlicesResponse) GetSlices() []*Slice {
@@ -575,7 +828,7 @@ type ListSliceDefinitionVersionsRequest struct {
 
 func (x *ListSliceDefinitionVersionsRequest) Reset() {
 	*x = ListSliceDefinitionVersionsRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[8]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -587,7 +840,7 @@ func (x *ListSliceDefinitionVersionsRequest) String() string {
 func (*ListSliceDefinitionVersionsRequest) ProtoMessage() {}
 
 func (x *ListSliceDefinitionVersionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[8]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -600,7 +853,7 @@ func (x *ListSliceDefinitionVersionsRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use ListSliceDefinitionVersionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSliceDefinitionVersionsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListSliceDefinitionVersionsRequest) GetSliceId() string {
@@ -626,7 +879,7 @@ type ListSliceDefinitionVersionsResponse struct {
 
 func (x *ListSliceDefinitionVersionsResponse) Reset() {
 	*x = ListSliceDefinitionVersionsResponse{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[9]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +891,7 @@ func (x *ListSliceDefinitionVersionsResponse) String() string {
 func (*ListSliceDefinitionVersionsResponse) ProtoMessage() {}
 
 func (x *ListSliceDefinitionVersionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[9]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +904,7 @@ func (x *ListSliceDefinitionVersionsResponse) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use ListSliceDefinitionVersionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSliceDefinitionVersionsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListSliceDefinitionVersionsResponse) GetVersions() []*SliceDefinitionVersion {
@@ -672,7 +925,7 @@ type UpdateSliceDefinitionRequest struct {
 
 func (x *UpdateSliceDefinitionRequest) Reset() {
 	*x = UpdateSliceDefinitionRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[10]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -684,7 +937,7 @@ func (x *UpdateSliceDefinitionRequest) String() string {
 func (*UpdateSliceDefinitionRequest) ProtoMessage() {}
 
 func (x *UpdateSliceDefinitionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[10]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -697,7 +950,7 @@ func (x *UpdateSliceDefinitionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSliceDefinitionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSliceDefinitionRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{10}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UpdateSliceDefinitionRequest) GetSliceId() string {
@@ -731,7 +984,7 @@ type SetSliceCIDaemonRequest struct {
 
 func (x *SetSliceCIDaemonRequest) Reset() {
 	*x = SetSliceCIDaemonRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[11]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -743,7 +996,7 @@ func (x *SetSliceCIDaemonRequest) String() string {
 func (*SetSliceCIDaemonRequest) ProtoMessage() {}
 
 func (x *SetSliceCIDaemonRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[11]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -756,7 +1009,7 @@ func (x *SetSliceCIDaemonRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSliceCIDaemonRequest.ProtoReflect.Descriptor instead.
 func (*SetSliceCIDaemonRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{11}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SetSliceCIDaemonRequest) GetSlice() *SliceRef {
@@ -784,7 +1037,7 @@ type SetSliceSecretRequest struct {
 
 func (x *SetSliceSecretRequest) Reset() {
 	*x = SetSliceSecretRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[12]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -796,7 +1049,7 @@ func (x *SetSliceSecretRequest) String() string {
 func (*SetSliceSecretRequest) ProtoMessage() {}
 
 func (x *SetSliceSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[12]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -809,7 +1062,7 @@ func (x *SetSliceSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSliceSecretRequest.ProtoReflect.Descriptor instead.
 func (*SetSliceSecretRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{12}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SetSliceSecretRequest) GetSlice() *SliceRef {
@@ -843,7 +1096,7 @@ type DeleteSliceSecretRequest struct {
 
 func (x *DeleteSliceSecretRequest) Reset() {
 	*x = DeleteSliceSecretRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[13]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -855,7 +1108,7 @@ func (x *DeleteSliceSecretRequest) String() string {
 func (*DeleteSliceSecretRequest) ProtoMessage() {}
 
 func (x *DeleteSliceSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[13]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -868,7 +1121,7 @@ func (x *DeleteSliceSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSliceSecretRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSliceSecretRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{13}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DeleteSliceSecretRequest) GetSlice() *SliceRef {
@@ -894,7 +1147,7 @@ type ListSliceSecretsRequest struct {
 
 func (x *ListSliceSecretsRequest) Reset() {
 	*x = ListSliceSecretsRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[14]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -906,7 +1159,7 @@ func (x *ListSliceSecretsRequest) String() string {
 func (*ListSliceSecretsRequest) ProtoMessage() {}
 
 func (x *ListSliceSecretsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[14]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -919,7 +1172,7 @@ func (x *ListSliceSecretsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSliceSecretsRequest.ProtoReflect.Descriptor instead.
 func (*ListSliceSecretsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{14}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListSliceSecretsRequest) GetSlice() *SliceRef {
@@ -938,7 +1191,7 @@ type ListSliceSecretsResponse struct {
 
 func (x *ListSliceSecretsResponse) Reset() {
 	*x = ListSliceSecretsResponse{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[15]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +1203,7 @@ func (x *ListSliceSecretsResponse) String() string {
 func (*ListSliceSecretsResponse) ProtoMessage() {}
 
 func (x *ListSliceSecretsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[15]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +1216,7 @@ func (x *ListSliceSecretsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSliceSecretsResponse.ProtoReflect.Descriptor instead.
 func (*ListSliceSecretsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{15}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListSliceSecretsResponse) GetNames() []string {
@@ -982,7 +1235,7 @@ type DeleteSliceRequest struct {
 
 func (x *DeleteSliceRequest) Reset() {
 	*x = DeleteSliceRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[16]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -994,7 +1247,7 @@ func (x *DeleteSliceRequest) String() string {
 func (*DeleteSliceRequest) ProtoMessage() {}
 
 func (x *DeleteSliceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[16]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1007,7 +1260,7 @@ func (x *DeleteSliceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSliceRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSliceRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{16}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DeleteSliceRequest) GetSliceId() string {
@@ -1026,7 +1279,7 @@ type DeleteSliceResponse struct {
 
 func (x *DeleteSliceResponse) Reset() {
 	*x = DeleteSliceResponse{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[17]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1038,7 +1291,7 @@ func (x *DeleteSliceResponse) String() string {
 func (*DeleteSliceResponse) ProtoMessage() {}
 
 func (x *DeleteSliceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[17]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1051,7 +1304,7 @@ func (x *DeleteSliceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSliceResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSliceResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{17}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *DeleteSliceResponse) GetSliceId() string {
@@ -1065,7 +1318,26 @@ var File_proto_core_v1_slice_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/core/v1/slice.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xd3\x01\n" +
+	"\x19proto/core/v1/slice.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xef\x01\n" +
+	"\x03Tag\x120\n" +
+	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
+	"\tcommit_id\x18\x03 \x01(\tR\bcommitId\x12-\n" +
+	"\x12definition_version\x18\x04 \x01(\x03R\x11definitionVersion\x12\x18\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\x06 \x01(\tR\tcreatedBy\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\a \x01(\tR\tcreatedAt\"\x8f\x01\n" +
+	"\x10CreateTagRequest\x120\n" +
+	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
+	"\tcommit_id\x18\x03 \x01(\tR\bcommitId\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"C\n" +
+	"\x0fListTagsRequest\x120\n" +
+	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"=\n" +
+	"\x10ListTagsResponse\x12)\n" +
+	"\x04tags\x18\x01 \x03(\v2\x15.gitslice.core.v1.TagR\x04tags\"\xd3\x01\n" +
 	"\x05Slice\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
 	"\x03ref\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\x12A\n" +
@@ -1146,7 +1418,7 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x12DeleteSliceRequest\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\"0\n" +
 	"\x13DeleteSliceResponse\x12\x19\n" +
-	"\bslice_id\x18\x01 \x01(\tR\asliceId2\x93\b\n" +
+	"\bslice_id\x18\x01 \x01(\tR\asliceId2\xae\t\n" +
 	"\fSliceService\x12L\n" +
 	"\vCreateSlice\x12$.gitslice.core.v1.CreateSliceRequest\x1a\x17.gitslice.core.v1.Slice\x12N\n" +
 	"\fResolveSlice\x12%.gitslice.core.v1.ResolveSliceRequest\x1a\x17.gitslice.core.v1.Slice\x12F\n" +
@@ -1159,7 +1431,9 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x0eSetSliceSecret\x12'.gitslice.core.v1.SetSliceSecretRequest\x1a\x17.gitslice.core.v1.Empty\x12X\n" +
 	"\x11DeleteSliceSecret\x12*.gitslice.core.v1.DeleteSliceSecretRequest\x1a\x17.gitslice.core.v1.Empty\x12i\n" +
 	"\x10ListSliceSecrets\x12).gitslice.core.v1.ListSliceSecretsRequest\x1a*.gitslice.core.v1.ListSliceSecretsResponse\x12Z\n" +
-	"\vDeleteSlice\x12$.gitslice.core.v1.DeleteSliceRequest\x1a%.gitslice.core.v1.DeleteSliceResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\vDeleteSlice\x12$.gitslice.core.v1.DeleteSliceRequest\x1a%.gitslice.core.v1.DeleteSliceResponse\x12F\n" +
+	"\tCreateTag\x12\".gitslice.core.v1.CreateTagRequest\x1a\x15.gitslice.core.v1.Tag\x12Q\n" +
+	"\bListTags\x12!.gitslice.core.v1.ListTagsRequest\x1a\".gitslice.core.v1.ListTagsResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_slice_proto_rawDescOnce sync.Once
@@ -1173,68 +1447,80 @@ func file_proto_core_v1_slice_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_slice_proto_rawDescData
 }
 
-var file_proto_core_v1_slice_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_proto_core_v1_slice_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_proto_core_v1_slice_proto_goTypes = []any{
-	(*Slice)(nil),                               // 0: gitslice.core.v1.Slice
-	(*SliceDefinition)(nil),                     // 1: gitslice.core.v1.SliceDefinition
-	(*SliceDefinitionVersion)(nil),              // 2: gitslice.core.v1.SliceDefinitionVersion
-	(*CreateSliceRequest)(nil),                  // 3: gitslice.core.v1.CreateSliceRequest
-	(*ResolveSliceRequest)(nil),                 // 4: gitslice.core.v1.ResolveSliceRequest
-	(*GetSliceRequest)(nil),                     // 5: gitslice.core.v1.GetSliceRequest
-	(*ListSlicesRequest)(nil),                   // 6: gitslice.core.v1.ListSlicesRequest
-	(*ListSlicesResponse)(nil),                  // 7: gitslice.core.v1.ListSlicesResponse
-	(*ListSliceDefinitionVersionsRequest)(nil),  // 8: gitslice.core.v1.ListSliceDefinitionVersionsRequest
-	(*ListSliceDefinitionVersionsResponse)(nil), // 9: gitslice.core.v1.ListSliceDefinitionVersionsResponse
-	(*UpdateSliceDefinitionRequest)(nil),        // 10: gitslice.core.v1.UpdateSliceDefinitionRequest
-	(*SetSliceCIDaemonRequest)(nil),             // 11: gitslice.core.v1.SetSliceCIDaemonRequest
-	(*SetSliceSecretRequest)(nil),               // 12: gitslice.core.v1.SetSliceSecretRequest
-	(*DeleteSliceSecretRequest)(nil),            // 13: gitslice.core.v1.DeleteSliceSecretRequest
-	(*ListSliceSecretsRequest)(nil),             // 14: gitslice.core.v1.ListSliceSecretsRequest
-	(*ListSliceSecretsResponse)(nil),            // 15: gitslice.core.v1.ListSliceSecretsResponse
-	(*DeleteSliceRequest)(nil),                  // 16: gitslice.core.v1.DeleteSliceRequest
-	(*DeleteSliceResponse)(nil),                 // 17: gitslice.core.v1.DeleteSliceResponse
-	(*SliceRef)(nil),                            // 18: gitslice.core.v1.SliceRef
-	(*Empty)(nil),                               // 19: gitslice.core.v1.Empty
+	(*Tag)(nil),                                 // 0: gitslice.core.v1.Tag
+	(*CreateTagRequest)(nil),                    // 1: gitslice.core.v1.CreateTagRequest
+	(*ListTagsRequest)(nil),                     // 2: gitslice.core.v1.ListTagsRequest
+	(*ListTagsResponse)(nil),                    // 3: gitslice.core.v1.ListTagsResponse
+	(*Slice)(nil),                               // 4: gitslice.core.v1.Slice
+	(*SliceDefinition)(nil),                     // 5: gitslice.core.v1.SliceDefinition
+	(*SliceDefinitionVersion)(nil),              // 6: gitslice.core.v1.SliceDefinitionVersion
+	(*CreateSliceRequest)(nil),                  // 7: gitslice.core.v1.CreateSliceRequest
+	(*ResolveSliceRequest)(nil),                 // 8: gitslice.core.v1.ResolveSliceRequest
+	(*GetSliceRequest)(nil),                     // 9: gitslice.core.v1.GetSliceRequest
+	(*ListSlicesRequest)(nil),                   // 10: gitslice.core.v1.ListSlicesRequest
+	(*ListSlicesResponse)(nil),                  // 11: gitslice.core.v1.ListSlicesResponse
+	(*ListSliceDefinitionVersionsRequest)(nil),  // 12: gitslice.core.v1.ListSliceDefinitionVersionsRequest
+	(*ListSliceDefinitionVersionsResponse)(nil), // 13: gitslice.core.v1.ListSliceDefinitionVersionsResponse
+	(*UpdateSliceDefinitionRequest)(nil),        // 14: gitslice.core.v1.UpdateSliceDefinitionRequest
+	(*SetSliceCIDaemonRequest)(nil),             // 15: gitslice.core.v1.SetSliceCIDaemonRequest
+	(*SetSliceSecretRequest)(nil),               // 16: gitslice.core.v1.SetSliceSecretRequest
+	(*DeleteSliceSecretRequest)(nil),            // 17: gitslice.core.v1.DeleteSliceSecretRequest
+	(*ListSliceSecretsRequest)(nil),             // 18: gitslice.core.v1.ListSliceSecretsRequest
+	(*ListSliceSecretsResponse)(nil),            // 19: gitslice.core.v1.ListSliceSecretsResponse
+	(*DeleteSliceRequest)(nil),                  // 20: gitslice.core.v1.DeleteSliceRequest
+	(*DeleteSliceResponse)(nil),                 // 21: gitslice.core.v1.DeleteSliceResponse
+	(*SliceRef)(nil),                            // 22: gitslice.core.v1.SliceRef
+	(*Empty)(nil),                               // 23: gitslice.core.v1.Empty
 }
 var file_proto_core_v1_slice_proto_depIdxs = []int32{
-	18, // 0: gitslice.core.v1.Slice.ref:type_name -> gitslice.core.v1.SliceRef
-	1,  // 1: gitslice.core.v1.Slice.definition:type_name -> gitslice.core.v1.SliceDefinition
-	18, // 2: gitslice.core.v1.CreateSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
-	18, // 3: gitslice.core.v1.ResolveSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
-	0,  // 4: gitslice.core.v1.ListSlicesResponse.slices:type_name -> gitslice.core.v1.Slice
-	2,  // 5: gitslice.core.v1.ListSliceDefinitionVersionsResponse.versions:type_name -> gitslice.core.v1.SliceDefinitionVersion
-	1,  // 6: gitslice.core.v1.UpdateSliceDefinitionRequest.definition:type_name -> gitslice.core.v1.SliceDefinition
-	18, // 7: gitslice.core.v1.SetSliceCIDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	18, // 8: gitslice.core.v1.SetSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	18, // 9: gitslice.core.v1.DeleteSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	18, // 10: gitslice.core.v1.ListSliceSecretsRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	3,  // 11: gitslice.core.v1.SliceService.CreateSlice:input_type -> gitslice.core.v1.CreateSliceRequest
-	4,  // 12: gitslice.core.v1.SliceService.ResolveSlice:input_type -> gitslice.core.v1.ResolveSliceRequest
-	5,  // 13: gitslice.core.v1.SliceService.GetSlice:input_type -> gitslice.core.v1.GetSliceRequest
-	6,  // 14: gitslice.core.v1.SliceService.ListSlices:input_type -> gitslice.core.v1.ListSlicesRequest
-	8,  // 15: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:input_type -> gitslice.core.v1.ListSliceDefinitionVersionsRequest
-	10, // 16: gitslice.core.v1.SliceService.UpdateSliceDefinition:input_type -> gitslice.core.v1.UpdateSliceDefinitionRequest
-	11, // 17: gitslice.core.v1.SliceService.SetSliceCIDaemon:input_type -> gitslice.core.v1.SetSliceCIDaemonRequest
-	12, // 18: gitslice.core.v1.SliceService.SetSliceSecret:input_type -> gitslice.core.v1.SetSliceSecretRequest
-	13, // 19: gitslice.core.v1.SliceService.DeleteSliceSecret:input_type -> gitslice.core.v1.DeleteSliceSecretRequest
-	14, // 20: gitslice.core.v1.SliceService.ListSliceSecrets:input_type -> gitslice.core.v1.ListSliceSecretsRequest
-	16, // 21: gitslice.core.v1.SliceService.DeleteSlice:input_type -> gitslice.core.v1.DeleteSliceRequest
-	0,  // 22: gitslice.core.v1.SliceService.CreateSlice:output_type -> gitslice.core.v1.Slice
-	0,  // 23: gitslice.core.v1.SliceService.ResolveSlice:output_type -> gitslice.core.v1.Slice
-	0,  // 24: gitslice.core.v1.SliceService.GetSlice:output_type -> gitslice.core.v1.Slice
-	7,  // 25: gitslice.core.v1.SliceService.ListSlices:output_type -> gitslice.core.v1.ListSlicesResponse
-	9,  // 26: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:output_type -> gitslice.core.v1.ListSliceDefinitionVersionsResponse
-	1,  // 27: gitslice.core.v1.SliceService.UpdateSliceDefinition:output_type -> gitslice.core.v1.SliceDefinition
-	0,  // 28: gitslice.core.v1.SliceService.SetSliceCIDaemon:output_type -> gitslice.core.v1.Slice
-	19, // 29: gitslice.core.v1.SliceService.SetSliceSecret:output_type -> gitslice.core.v1.Empty
-	19, // 30: gitslice.core.v1.SliceService.DeleteSliceSecret:output_type -> gitslice.core.v1.Empty
-	15, // 31: gitslice.core.v1.SliceService.ListSliceSecrets:output_type -> gitslice.core.v1.ListSliceSecretsResponse
-	17, // 32: gitslice.core.v1.SliceService.DeleteSlice:output_type -> gitslice.core.v1.DeleteSliceResponse
-	22, // [22:33] is the sub-list for method output_type
-	11, // [11:22] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	22, // 0: gitslice.core.v1.Tag.slice:type_name -> gitslice.core.v1.SliceRef
+	22, // 1: gitslice.core.v1.CreateTagRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	22, // 2: gitslice.core.v1.ListTagsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	0,  // 3: gitslice.core.v1.ListTagsResponse.tags:type_name -> gitslice.core.v1.Tag
+	22, // 4: gitslice.core.v1.Slice.ref:type_name -> gitslice.core.v1.SliceRef
+	5,  // 5: gitslice.core.v1.Slice.definition:type_name -> gitslice.core.v1.SliceDefinition
+	22, // 6: gitslice.core.v1.CreateSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
+	22, // 7: gitslice.core.v1.ResolveSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
+	4,  // 8: gitslice.core.v1.ListSlicesResponse.slices:type_name -> gitslice.core.v1.Slice
+	6,  // 9: gitslice.core.v1.ListSliceDefinitionVersionsResponse.versions:type_name -> gitslice.core.v1.SliceDefinitionVersion
+	5,  // 10: gitslice.core.v1.UpdateSliceDefinitionRequest.definition:type_name -> gitslice.core.v1.SliceDefinition
+	22, // 11: gitslice.core.v1.SetSliceCIDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	22, // 12: gitslice.core.v1.SetSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	22, // 13: gitslice.core.v1.DeleteSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	22, // 14: gitslice.core.v1.ListSliceSecretsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	7,  // 15: gitslice.core.v1.SliceService.CreateSlice:input_type -> gitslice.core.v1.CreateSliceRequest
+	8,  // 16: gitslice.core.v1.SliceService.ResolveSlice:input_type -> gitslice.core.v1.ResolveSliceRequest
+	9,  // 17: gitslice.core.v1.SliceService.GetSlice:input_type -> gitslice.core.v1.GetSliceRequest
+	10, // 18: gitslice.core.v1.SliceService.ListSlices:input_type -> gitslice.core.v1.ListSlicesRequest
+	12, // 19: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:input_type -> gitslice.core.v1.ListSliceDefinitionVersionsRequest
+	14, // 20: gitslice.core.v1.SliceService.UpdateSliceDefinition:input_type -> gitslice.core.v1.UpdateSliceDefinitionRequest
+	15, // 21: gitslice.core.v1.SliceService.SetSliceCIDaemon:input_type -> gitslice.core.v1.SetSliceCIDaemonRequest
+	16, // 22: gitslice.core.v1.SliceService.SetSliceSecret:input_type -> gitslice.core.v1.SetSliceSecretRequest
+	17, // 23: gitslice.core.v1.SliceService.DeleteSliceSecret:input_type -> gitslice.core.v1.DeleteSliceSecretRequest
+	18, // 24: gitslice.core.v1.SliceService.ListSliceSecrets:input_type -> gitslice.core.v1.ListSliceSecretsRequest
+	20, // 25: gitslice.core.v1.SliceService.DeleteSlice:input_type -> gitslice.core.v1.DeleteSliceRequest
+	1,  // 26: gitslice.core.v1.SliceService.CreateTag:input_type -> gitslice.core.v1.CreateTagRequest
+	2,  // 27: gitslice.core.v1.SliceService.ListTags:input_type -> gitslice.core.v1.ListTagsRequest
+	4,  // 28: gitslice.core.v1.SliceService.CreateSlice:output_type -> gitslice.core.v1.Slice
+	4,  // 29: gitslice.core.v1.SliceService.ResolveSlice:output_type -> gitslice.core.v1.Slice
+	4,  // 30: gitslice.core.v1.SliceService.GetSlice:output_type -> gitslice.core.v1.Slice
+	11, // 31: gitslice.core.v1.SliceService.ListSlices:output_type -> gitslice.core.v1.ListSlicesResponse
+	13, // 32: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:output_type -> gitslice.core.v1.ListSliceDefinitionVersionsResponse
+	5,  // 33: gitslice.core.v1.SliceService.UpdateSliceDefinition:output_type -> gitslice.core.v1.SliceDefinition
+	4,  // 34: gitslice.core.v1.SliceService.SetSliceCIDaemon:output_type -> gitslice.core.v1.Slice
+	23, // 35: gitslice.core.v1.SliceService.SetSliceSecret:output_type -> gitslice.core.v1.Empty
+	23, // 36: gitslice.core.v1.SliceService.DeleteSliceSecret:output_type -> gitslice.core.v1.Empty
+	19, // 37: gitslice.core.v1.SliceService.ListSliceSecrets:output_type -> gitslice.core.v1.ListSliceSecretsResponse
+	21, // 38: gitslice.core.v1.SliceService.DeleteSlice:output_type -> gitslice.core.v1.DeleteSliceResponse
+	0,  // 39: gitslice.core.v1.SliceService.CreateTag:output_type -> gitslice.core.v1.Tag
+	3,  // 40: gitslice.core.v1.SliceService.ListTags:output_type -> gitslice.core.v1.ListTagsResponse
+	28, // [28:41] is the sub-list for method output_type
+	15, // [15:28] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_slice_proto_init() }
@@ -1249,7 +1535,7 @@ func file_proto_core_v1_slice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_slice_proto_rawDesc), len(file_proto_core_v1_slice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

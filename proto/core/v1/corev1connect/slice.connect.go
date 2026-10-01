@@ -64,6 +64,10 @@ const (
 	// SliceServiceDeleteSliceProcedure is the fully-qualified name of the SliceService's DeleteSlice
 	// RPC.
 	SliceServiceDeleteSliceProcedure = "/gitslice.core.v1.SliceService/DeleteSlice"
+	// SliceServiceCreateTagProcedure is the fully-qualified name of the SliceService's CreateTag RPC.
+	SliceServiceCreateTagProcedure = "/gitslice.core.v1.SliceService/CreateTag"
+	// SliceServiceListTagsProcedure is the fully-qualified name of the SliceService's ListTags RPC.
+	SliceServiceListTagsProcedure = "/gitslice.core.v1.SliceService/ListTags"
 )
 
 // SliceServiceClient is a client for the gitslice.core.v1.SliceService service.
@@ -79,6 +83,13 @@ type SliceServiceClient interface {
 	DeleteSliceSecret(context.Context, *connect.Request[v1.DeleteSliceSecretRequest]) (*connect.Response[v1.Empty], error)
 	ListSliceSecrets(context.Context, *connect.Request[v1.ListSliceSecretsRequest]) (*connect.Response[v1.ListSliceSecretsResponse], error)
 	DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error)
+	// CreateTag names a native commit for this slice, for releases. Tags are
+	// immutable: creating an existing name again succeeds only for the same
+	// commit. Requires write access. The Git projection publishes each tag as
+	// refs/tags/<name>.
+	CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error)
+	// ListTags lists a slice's tags, newest first. Readable like the slice.
+	ListTags(context.Context, *connect.Request[v1.ListTagsRequest]) (*connect.Response[v1.ListTagsResponse], error)
 }
 
 // NewSliceServiceClient constructs a client for the gitslice.core.v1.SliceService service. By
@@ -158,6 +169,18 @@ func NewSliceServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(sliceServiceMethods.ByName("DeleteSlice")),
 			connect.WithClientOptions(opts...),
 		),
+		createTag: connect.NewClient[v1.CreateTagRequest, v1.Tag](
+			httpClient,
+			baseURL+SliceServiceCreateTagProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("CreateTag")),
+			connect.WithClientOptions(opts...),
+		),
+		listTags: connect.NewClient[v1.ListTagsRequest, v1.ListTagsResponse](
+			httpClient,
+			baseURL+SliceServiceListTagsProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("ListTags")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -174,6 +197,8 @@ type sliceServiceClient struct {
 	deleteSliceSecret           *connect.Client[v1.DeleteSliceSecretRequest, v1.Empty]
 	listSliceSecrets            *connect.Client[v1.ListSliceSecretsRequest, v1.ListSliceSecretsResponse]
 	deleteSlice                 *connect.Client[v1.DeleteSliceRequest, v1.DeleteSliceResponse]
+	createTag                   *connect.Client[v1.CreateTagRequest, v1.Tag]
+	listTags                    *connect.Client[v1.ListTagsRequest, v1.ListTagsResponse]
 }
 
 // CreateSlice calls gitslice.core.v1.SliceService.CreateSlice.
@@ -231,6 +256,16 @@ func (c *sliceServiceClient) DeleteSlice(ctx context.Context, req *connect.Reque
 	return c.deleteSlice.CallUnary(ctx, req)
 }
 
+// CreateTag calls gitslice.core.v1.SliceService.CreateTag.
+func (c *sliceServiceClient) CreateTag(ctx context.Context, req *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {
+	return c.createTag.CallUnary(ctx, req)
+}
+
+// ListTags calls gitslice.core.v1.SliceService.ListTags.
+func (c *sliceServiceClient) ListTags(ctx context.Context, req *connect.Request[v1.ListTagsRequest]) (*connect.Response[v1.ListTagsResponse], error) {
+	return c.listTags.CallUnary(ctx, req)
+}
+
 // SliceServiceHandler is an implementation of the gitslice.core.v1.SliceService service.
 type SliceServiceHandler interface {
 	CreateSlice(context.Context, *connect.Request[v1.CreateSliceRequest]) (*connect.Response[v1.Slice], error)
@@ -244,6 +279,13 @@ type SliceServiceHandler interface {
 	DeleteSliceSecret(context.Context, *connect.Request[v1.DeleteSliceSecretRequest]) (*connect.Response[v1.Empty], error)
 	ListSliceSecrets(context.Context, *connect.Request[v1.ListSliceSecretsRequest]) (*connect.Response[v1.ListSliceSecretsResponse], error)
 	DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error)
+	// CreateTag names a native commit for this slice, for releases. Tags are
+	// immutable: creating an existing name again succeeds only for the same
+	// commit. Requires write access. The Git projection publishes each tag as
+	// refs/tags/<name>.
+	CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error)
+	// ListTags lists a slice's tags, newest first. Readable like the slice.
+	ListTags(context.Context, *connect.Request[v1.ListTagsRequest]) (*connect.Response[v1.ListTagsResponse], error)
 }
 
 // NewSliceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -319,6 +361,18 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(sliceServiceMethods.ByName("DeleteSlice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sliceServiceCreateTagHandler := connect.NewUnaryHandler(
+		SliceServiceCreateTagProcedure,
+		svc.CreateTag,
+		connect.WithSchema(sliceServiceMethods.ByName("CreateTag")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceListTagsHandler := connect.NewUnaryHandler(
+		SliceServiceListTagsProcedure,
+		svc.ListTags,
+		connect.WithSchema(sliceServiceMethods.ByName("ListTags")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.SliceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SliceServiceCreateSliceProcedure:
@@ -343,6 +397,10 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 			sliceServiceListSliceSecretsHandler.ServeHTTP(w, r)
 		case SliceServiceDeleteSliceProcedure:
 			sliceServiceDeleteSliceHandler.ServeHTTP(w, r)
+		case SliceServiceCreateTagProcedure:
+			sliceServiceCreateTagHandler.ServeHTTP(w, r)
+		case SliceServiceListTagsProcedure:
+			sliceServiceListTagsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -394,4 +452,12 @@ func (UnimplementedSliceServiceHandler) ListSliceSecrets(context.Context, *conne
 
 func (UnimplementedSliceServiceHandler) DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.DeleteSlice is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.CreateTag is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) ListTags(context.Context, *connect.Request[v1.ListTagsRequest]) (*connect.Response[v1.ListTagsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.ListTags is not implemented"))
 }

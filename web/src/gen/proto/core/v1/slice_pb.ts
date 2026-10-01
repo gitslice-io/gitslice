@@ -12,7 +12,130 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/slice.proto.
  */
 export const file_proto_core_v1_slice: GenFile = /*@__PURE__*/
-  fileDesc("Chlwcm90by9jb3JlL3YxL3NsaWNlLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIqIBCgVTbGljZRIKCgJpZBgBIAEoCRInCgNyZWYYAiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEjUKCmRlZmluaXRpb24YAyABKAsyIS5naXRzbGljZS5jb3JlLnYxLlNsaWNlRGVmaW5pdGlvbhIXCg9kZWZpbml0aW9uX2hhc2gYBCABKAkSFAoMY2lfZGFlbW9uX2lkGAUgASgJIpUBCg9TbGljZURlZmluaXRpb24SEAoIc2xpY2VfaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoAxIWCg5pbmNsdWRlZF9wYXRocxgDIAMoCRISCgp2aXNpYmlsaXR5GAQgASgJEhoKEnJlcXVpcmVkX2FwcHJvdmFscxgFIAEoBRIXCg9yZXF1aXJlZF9jaGVja3MYBiADKAki3QEKFlNsaWNlRGVmaW5pdGlvblZlcnNpb24SEAoIc2xpY2VfaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoAxIXCg9kZWZpbml0aW9uX2hhc2gYAyABKAkSEgoKdmlzaWJpbGl0eRgEIAEoCRIWCg5pbmNsdWRlZF9wYXRocxgFIAMoCRIaChJyZXF1aXJlZF9hcHByb3ZhbHMYBiABKAUSFwoPcmVxdWlyZWRfY2hlY2tzGAcgAygJEhIKCmNyZWF0ZWRfYXQYCCABKAkSEgoKY3JlYXRlZF9ieRgJIAEoCSKeAQoSQ3JlYXRlU2xpY2VSZXF1ZXN0EicKA3JlZhgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSFgoOaW5jbHVkZWRfcGF0aHMYAiADKAkSEgoKdmlzaWJpbGl0eRgDIAEoCRIaChJyZXF1aXJlZF9hcHByb3ZhbHMYBCABKAUSFwoPcmVxdWlyZWRfY2hlY2tzGAUgAygJIj4KE1Jlc29sdmVTbGljZVJlcXVlc3QSJwoDcmVmGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiIjCg9HZXRTbGljZVJlcXVlc3QSEAoIc2xpY2VfaWQYASABKAkiRwoRTGlzdFNsaWNlc1JlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIOCgZjdXJzb3IYAiABKAkSEQoJcGFnZV9zaXplGAMgASgFIlIKEkxpc3RTbGljZXNSZXNwb25zZRInCgZzbGljZXMYASADKAsyFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlEhMKC25leHRfY3Vyc29yGAIgASgJIkkKIkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1JlcXVlc3QSEAoIc2xpY2VfaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgFImEKI0xpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1Jlc3BvbnNlEjoKCHZlcnNpb25zGAEgAygLMiguZ2l0c2xpY2UuY29yZS52MS5TbGljZURlZmluaXRpb25WZXJzaW9uIokBChxVcGRhdGVTbGljZURlZmluaXRpb25SZXF1ZXN0EhAKCHNsaWNlX2lkGAEgASgJEiAKGGV4cGVjdGVkX2RlZmluaXRpb25faGFzaBgCIAEoCRI1CgpkZWZpbml0aW9uGAMgASgLMiEuZ2l0c2xpY2UuY29yZS52MS5TbGljZURlZmluaXRpb24iVwoXU2V0U2xpY2VDSURhZW1vblJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhEKCWRhZW1vbl9pZBgCIAEoCSJfChVTZXRTbGljZVNlY3JldFJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSDQoFdmFsdWUYAyABKAkiUwoYRGVsZXRlU2xpY2VTZWNyZXRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJIkQKF0xpc3RTbGljZVNlY3JldHNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiIpChhMaXN0U2xpY2VTZWNyZXRzUmVzcG9uc2USDQoFbmFtZXMYASADKAkiJgoSRGVsZXRlU2xpY2VSZXF1ZXN0EhAKCHNsaWNlX2lkGAEgASgJIicKE0RlbGV0ZVNsaWNlUmVzcG9uc2USEAoIc2xpY2VfaWQYASABKAkykwgKDFNsaWNlU2VydmljZRJMCgtDcmVhdGVTbGljZRIkLmdpdHNsaWNlLmNvcmUudjEuQ3JlYXRlU2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJOCgxSZXNvbHZlU2xpY2USJS5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVTbGljZVJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlEkYKCEdldFNsaWNlEiEuZ2l0c2xpY2UuY29yZS52MS5HZXRTbGljZVJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlElcKCkxpc3RTbGljZXMSIy5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZXNSZXF1ZXN0GiQuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VzUmVzcG9uc2USigEKG0xpc3RTbGljZURlZmluaXRpb25WZXJzaW9ucxI0LmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlRGVmaW5pdGlvblZlcnNpb25zUmVxdWVzdBo1LmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlRGVmaW5pdGlvblZlcnNpb25zUmVzcG9uc2USagoVVXBkYXRlU2xpY2VEZWZpbml0aW9uEi4uZ2l0c2xpY2UuY29yZS52MS5VcGRhdGVTbGljZURlZmluaXRpb25SZXF1ZXN0GiEuZ2l0c2xpY2UuY29yZS52MS5TbGljZURlZmluaXRpb24SVgoQU2V0U2xpY2VDSURhZW1vbhIpLmdpdHNsaWNlLmNvcmUudjEuU2V0U2xpY2VDSURhZW1vblJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlElIKDlNldFNsaWNlU2VjcmV0EicuZ2l0c2xpY2UuY29yZS52MS5TZXRTbGljZVNlY3JldFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5ElgKEURlbGV0ZVNsaWNlU2VjcmV0EiouZ2l0c2xpY2UuY29yZS52MS5EZWxldGVTbGljZVNlY3JldFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5EmkKEExpc3RTbGljZVNlY3JldHMSKS5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZVNlY3JldHNSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VTZWNyZXRzUmVzcG9uc2USWgoLRGVsZXRlU2xpY2USJC5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNsaWNlUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuRGVsZXRlU2xpY2VSZXNwb25zZUIrWilnaXRzbGljZS5pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z", [file_proto_core_v1_common]);
+  fileDesc("Chlwcm90by9jb3JlL3YxL3NsaWNlLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIqYBCgNUYWcSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSEQoJY29tbWl0X2lkGAMgASgJEhoKEmRlZmluaXRpb25fdmVyc2lvbhgEIAEoAxIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYnkYBiABKAkSEgoKY3JlYXRlZF9hdBgHIAEoCSJvChBDcmVhdGVUYWdSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJEhEKCWNvbW1pdF9pZBgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIjwKD0xpc3RUYWdzUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiNwoQTGlzdFRhZ3NSZXNwb25zZRIjCgR0YWdzGAEgAygLMhUuZ2l0c2xpY2UuY29yZS52MS5UYWciogEKBVNsaWNlEgoKAmlkGAEgASgJEicKA3JlZhgCIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSNQoKZGVmaW5pdGlvbhgDIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uEhcKD2RlZmluaXRpb25faGFzaBgEIAEoCRIUCgxjaV9kYWVtb25faWQYBSABKAkilQEKD1NsaWNlRGVmaW5pdGlvbhIQCghzbGljZV9pZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEhYKDmluY2x1ZGVkX3BhdGhzGAMgAygJEhIKCnZpc2liaWxpdHkYBCABKAkSGgoScmVxdWlyZWRfYXBwcm92YWxzGAUgASgFEhcKD3JlcXVpcmVkX2NoZWNrcxgGIAMoCSLdAQoWU2xpY2VEZWZpbml0aW9uVmVyc2lvbhIQCghzbGljZV9pZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEhcKD2RlZmluaXRpb25faGFzaBgDIAEoCRISCgp2aXNpYmlsaXR5GAQgASgJEhYKDmluY2x1ZGVkX3BhdGhzGAUgAygJEhoKEnJlcXVpcmVkX2FwcHJvdmFscxgGIAEoBRIXCg9yZXF1aXJlZF9jaGVja3MYByADKAkSEgoKY3JlYXRlZF9hdBgIIAEoCRISCgpjcmVhdGVkX2J5GAkgASgJIp4BChJDcmVhdGVTbGljZVJlcXVlc3QSJwoDcmVmGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIWCg5pbmNsdWRlZF9wYXRocxgCIAMoCRISCgp2aXNpYmlsaXR5GAMgASgJEhoKEnJlcXVpcmVkX2FwcHJvdmFscxgEIAEoBRIXCg9yZXF1aXJlZF9jaGVja3MYBSADKAkiPgoTUmVzb2x2ZVNsaWNlUmVxdWVzdBInCgNyZWYYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIiMKD0dldFNsaWNlUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCSJHChFMaXN0U2xpY2VzUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEg4KBmN1cnNvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUiUgoSTGlzdFNsaWNlc1Jlc3BvbnNlEicKBnNsaWNlcxgBIAMoCzIXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USEwoLbmV4dF9jdXJzb3IYAiABKAkiSQoiTGlzdFNsaWNlRGVmaW5pdGlvblZlcnNpb25zUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCRIRCglwYWdlX3NpemUYAiABKAUiYQojTGlzdFNsaWNlRGVmaW5pdGlvblZlcnNpb25zUmVzcG9uc2USOgoIdmVyc2lvbnMYASADKAsyKC5naXRzbGljZS5jb3JlLnYxLlNsaWNlRGVmaW5pdGlvblZlcnNpb24iiQEKHFVwZGF0ZVNsaWNlRGVmaW5pdGlvblJlcXVlc3QSEAoIc2xpY2VfaWQYASABKAkSIAoYZXhwZWN0ZWRfZGVmaW5pdGlvbl9oYXNoGAIgASgJEjUKCmRlZmluaXRpb24YAyABKAsyIS5naXRzbGljZS5jb3JlLnYxLlNsaWNlRGVmaW5pdGlvbiJXChdTZXRTbGljZUNJRGFlbW9uUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSEQoJZGFlbW9uX2lkGAIgASgJIl8KFVNldFNsaWNlU2VjcmV0UmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSDAoEbmFtZRgCIAEoCRINCgV2YWx1ZRgDIAEoCSJTChhEZWxldGVTbGljZVNlY3JldFJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkiRAoXTGlzdFNsaWNlU2VjcmV0c1JlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIikKGExpc3RTbGljZVNlY3JldHNSZXNwb25zZRINCgVuYW1lcxgBIAMoCSImChJEZWxldGVTbGljZVJlcXVlc3QSEAoIc2xpY2VfaWQYASABKAkiJwoTRGVsZXRlU2xpY2VSZXNwb25zZRIQCghzbGljZV9pZBgBIAEoCTKuCQoMU2xpY2VTZXJ2aWNlEkwKC0NyZWF0ZVNsaWNlEiQuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVTbGljZVJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlEk4KDFJlc29sdmVTbGljZRIlLmdpdHNsaWNlLmNvcmUudjEuUmVzb2x2ZVNsaWNlUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USRgoIR2V0U2xpY2USIS5naXRzbGljZS5jb3JlLnYxLkdldFNsaWNlUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USVwoKTGlzdFNsaWNlcxIjLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlc1JlcXVlc3QaJC5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZXNSZXNwb25zZRKKAQobTGlzdFNsaWNlRGVmaW5pdGlvblZlcnNpb25zEjQuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnNSZXF1ZXN0GjUuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnNSZXNwb25zZRJqChVVcGRhdGVTbGljZURlZmluaXRpb24SLi5naXRzbGljZS5jb3JlLnYxLlVwZGF0ZVNsaWNlRGVmaW5pdGlvblJlcXVlc3QaIS5naXRzbGljZS5jb3JlLnYxLlNsaWNlRGVmaW5pdGlvbhJWChBTZXRTbGljZUNJRGFlbW9uEikuZ2l0c2xpY2UuY29yZS52MS5TZXRTbGljZUNJRGFlbW9uUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USUgoOU2V0U2xpY2VTZWNyZXQSJy5naXRzbGljZS5jb3JlLnYxLlNldFNsaWNlU2VjcmV0UmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSWAoRRGVsZXRlU2xpY2VTZWNyZXQSKi5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNsaWNlU2VjcmV0UmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSaQoQTGlzdFNsaWNlU2VjcmV0cxIpLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlU2VjcmV0c1JlcXVlc3QaKi5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZVNlY3JldHNSZXNwb25zZRJaCgtEZWxldGVTbGljZRIkLmdpdHNsaWNlLmNvcmUudjEuRGVsZXRlU2xpY2VSZXF1ZXN0GiUuZ2l0c2xpY2UuY29yZS52MS5EZWxldGVTbGljZVJlc3BvbnNlEkYKCUNyZWF0ZVRhZxIiLmdpdHNsaWNlLmNvcmUudjEuQ3JlYXRlVGFnUmVxdWVzdBoVLmdpdHNsaWNlLmNvcmUudjEuVGFnElEKCExpc3RUYWdzEiEuZ2l0c2xpY2UuY29yZS52MS5MaXN0VGFnc1JlcXVlc3QaIi5naXRzbGljZS5jb3JlLnYxLkxpc3RUYWdzUmVzcG9uc2VCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
+
+/**
+ * @generated from message gitslice.core.v1.Tag
+ */
+export type Tag = Message<"gitslice.core.v1.Tag"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * Native commit on refs/global/main.
+   *
+   * @generated from field: string commit_id = 3;
+   */
+  commitId: string;
+
+  /**
+   * The slice definition version the tag was created under.
+   *
+   * @generated from field: int64 definition_version = 4;
+   */
+  definitionVersion: bigint;
+
+  /**
+   * @generated from field: string message = 5;
+   */
+  message: string;
+
+  /**
+   * Username of the creator, or their subject id when they have none.
+   *
+   * @generated from field: string created_by = 6;
+   */
+  createdBy: string;
+
+  /**
+   * @generated from field: string created_at = 7;
+   */
+  createdAt: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.Tag.
+ * Use `create(TagSchema)` to create a new message.
+ */
+export const TagSchema: GenMessage<Tag> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 0);
+
+/**
+ * @generated from message gitslice.core.v1.CreateTagRequest
+ */
+export type CreateTagRequest = Message<"gitslice.core.v1.CreateTagRequest"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * Git ref syntax, for example v1.2.0 or release/2026-10.
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * Defaults to the current head of refs/global/main.
+   *
+   * @generated from field: string commit_id = 3;
+   */
+  commitId: string;
+
+  /**
+   * @generated from field: string message = 4;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CreateTagRequest.
+ * Use `create(CreateTagRequestSchema)` to create a new message.
+ */
+export const CreateTagRequestSchema: GenMessage<CreateTagRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 1);
+
+/**
+ * @generated from message gitslice.core.v1.ListTagsRequest
+ */
+export type ListTagsRequest = Message<"gitslice.core.v1.ListTagsRequest"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListTagsRequest.
+ * Use `create(ListTagsRequestSchema)` to create a new message.
+ */
+export const ListTagsRequestSchema: GenMessage<ListTagsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 2);
+
+/**
+ * @generated from message gitslice.core.v1.ListTagsResponse
+ */
+export type ListTagsResponse = Message<"gitslice.core.v1.ListTagsResponse"> & {
+  /**
+   * @generated from field: repeated gitslice.core.v1.Tag tags = 1;
+   */
+  tags: Tag[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListTagsResponse.
+ * Use `create(ListTagsResponseSchema)` to create a new message.
+ */
+export const ListTagsResponseSchema: GenMessage<ListTagsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 3);
 
 /**
  * @generated from message gitslice.core.v1.Slice
@@ -49,7 +172,7 @@ export type Slice = Message<"gitslice.core.v1.Slice"> & {
  * Use `create(SliceSchema)` to create a new message.
  */
 export const SliceSchema: GenMessage<Slice> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 0);
+  messageDesc(file_proto_core_v1_slice, 4);
 
 /**
  * @generated from message gitslice.core.v1.SliceDefinition
@@ -91,7 +214,7 @@ export type SliceDefinition = Message<"gitslice.core.v1.SliceDefinition"> & {
  * Use `create(SliceDefinitionSchema)` to create a new message.
  */
 export const SliceDefinitionSchema: GenMessage<SliceDefinition> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 1);
+  messageDesc(file_proto_core_v1_slice, 5);
 
 /**
  * @generated from message gitslice.core.v1.SliceDefinitionVersion
@@ -148,7 +271,7 @@ export type SliceDefinitionVersion = Message<"gitslice.core.v1.SliceDefinitionVe
  * Use `create(SliceDefinitionVersionSchema)` to create a new message.
  */
 export const SliceDefinitionVersionSchema: GenMessage<SliceDefinitionVersion> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 2);
+  messageDesc(file_proto_core_v1_slice, 6);
 
 /**
  * @generated from message gitslice.core.v1.CreateSliceRequest
@@ -185,7 +308,7 @@ export type CreateSliceRequest = Message<"gitslice.core.v1.CreateSliceRequest"> 
  * Use `create(CreateSliceRequestSchema)` to create a new message.
  */
 export const CreateSliceRequestSchema: GenMessage<CreateSliceRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 3);
+  messageDesc(file_proto_core_v1_slice, 7);
 
 /**
  * @generated from message gitslice.core.v1.ResolveSliceRequest
@@ -202,7 +325,7 @@ export type ResolveSliceRequest = Message<"gitslice.core.v1.ResolveSliceRequest"
  * Use `create(ResolveSliceRequestSchema)` to create a new message.
  */
 export const ResolveSliceRequestSchema: GenMessage<ResolveSliceRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 4);
+  messageDesc(file_proto_core_v1_slice, 8);
 
 /**
  * @generated from message gitslice.core.v1.GetSliceRequest
@@ -219,7 +342,7 @@ export type GetSliceRequest = Message<"gitslice.core.v1.GetSliceRequest"> & {
  * Use `create(GetSliceRequestSchema)` to create a new message.
  */
 export const GetSliceRequestSchema: GenMessage<GetSliceRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 5);
+  messageDesc(file_proto_core_v1_slice, 9);
 
 /**
  * @generated from message gitslice.core.v1.ListSlicesRequest
@@ -246,7 +369,7 @@ export type ListSlicesRequest = Message<"gitslice.core.v1.ListSlicesRequest"> & 
  * Use `create(ListSlicesRequestSchema)` to create a new message.
  */
 export const ListSlicesRequestSchema: GenMessage<ListSlicesRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 6);
+  messageDesc(file_proto_core_v1_slice, 10);
 
 /**
  * @generated from message gitslice.core.v1.ListSlicesResponse
@@ -268,7 +391,7 @@ export type ListSlicesResponse = Message<"gitslice.core.v1.ListSlicesResponse"> 
  * Use `create(ListSlicesResponseSchema)` to create a new message.
  */
 export const ListSlicesResponseSchema: GenMessage<ListSlicesResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 7);
+  messageDesc(file_proto_core_v1_slice, 11);
 
 /**
  * @generated from message gitslice.core.v1.ListSliceDefinitionVersionsRequest
@@ -290,7 +413,7 @@ export type ListSliceDefinitionVersionsRequest = Message<"gitslice.core.v1.ListS
  * Use `create(ListSliceDefinitionVersionsRequestSchema)` to create a new message.
  */
 export const ListSliceDefinitionVersionsRequestSchema: GenMessage<ListSliceDefinitionVersionsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 8);
+  messageDesc(file_proto_core_v1_slice, 12);
 
 /**
  * @generated from message gitslice.core.v1.ListSliceDefinitionVersionsResponse
@@ -307,7 +430,7 @@ export type ListSliceDefinitionVersionsResponse = Message<"gitslice.core.v1.List
  * Use `create(ListSliceDefinitionVersionsResponseSchema)` to create a new message.
  */
 export const ListSliceDefinitionVersionsResponseSchema: GenMessage<ListSliceDefinitionVersionsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 9);
+  messageDesc(file_proto_core_v1_slice, 13);
 
 /**
  * @generated from message gitslice.core.v1.UpdateSliceDefinitionRequest
@@ -334,7 +457,7 @@ export type UpdateSliceDefinitionRequest = Message<"gitslice.core.v1.UpdateSlice
  * Use `create(UpdateSliceDefinitionRequestSchema)` to create a new message.
  */
 export const UpdateSliceDefinitionRequestSchema: GenMessage<UpdateSliceDefinitionRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 10);
+  messageDesc(file_proto_core_v1_slice, 14);
 
 /**
  * @generated from message gitslice.core.v1.SetSliceCIDaemonRequest
@@ -356,7 +479,7 @@ export type SetSliceCIDaemonRequest = Message<"gitslice.core.v1.SetSliceCIDaemon
  * Use `create(SetSliceCIDaemonRequestSchema)` to create a new message.
  */
 export const SetSliceCIDaemonRequestSchema: GenMessage<SetSliceCIDaemonRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 11);
+  messageDesc(file_proto_core_v1_slice, 15);
 
 /**
  * @generated from message gitslice.core.v1.SetSliceSecretRequest
@@ -383,7 +506,7 @@ export type SetSliceSecretRequest = Message<"gitslice.core.v1.SetSliceSecretRequ
  * Use `create(SetSliceSecretRequestSchema)` to create a new message.
  */
 export const SetSliceSecretRequestSchema: GenMessage<SetSliceSecretRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 12);
+  messageDesc(file_proto_core_v1_slice, 16);
 
 /**
  * @generated from message gitslice.core.v1.DeleteSliceSecretRequest
@@ -405,7 +528,7 @@ export type DeleteSliceSecretRequest = Message<"gitslice.core.v1.DeleteSliceSecr
  * Use `create(DeleteSliceSecretRequestSchema)` to create a new message.
  */
 export const DeleteSliceSecretRequestSchema: GenMessage<DeleteSliceSecretRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 13);
+  messageDesc(file_proto_core_v1_slice, 17);
 
 /**
  * @generated from message gitslice.core.v1.ListSliceSecretsRequest
@@ -422,7 +545,7 @@ export type ListSliceSecretsRequest = Message<"gitslice.core.v1.ListSliceSecrets
  * Use `create(ListSliceSecretsRequestSchema)` to create a new message.
  */
 export const ListSliceSecretsRequestSchema: GenMessage<ListSliceSecretsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 14);
+  messageDesc(file_proto_core_v1_slice, 18);
 
 /**
  * @generated from message gitslice.core.v1.ListSliceSecretsResponse
@@ -439,7 +562,7 @@ export type ListSliceSecretsResponse = Message<"gitslice.core.v1.ListSliceSecret
  * Use `create(ListSliceSecretsResponseSchema)` to create a new message.
  */
 export const ListSliceSecretsResponseSchema: GenMessage<ListSliceSecretsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 15);
+  messageDesc(file_proto_core_v1_slice, 19);
 
 /**
  * @generated from message gitslice.core.v1.DeleteSliceRequest
@@ -456,7 +579,7 @@ export type DeleteSliceRequest = Message<"gitslice.core.v1.DeleteSliceRequest"> 
  * Use `create(DeleteSliceRequestSchema)` to create a new message.
  */
 export const DeleteSliceRequestSchema: GenMessage<DeleteSliceRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 16);
+  messageDesc(file_proto_core_v1_slice, 20);
 
 /**
  * @generated from message gitslice.core.v1.DeleteSliceResponse
@@ -473,7 +596,7 @@ export type DeleteSliceResponse = Message<"gitslice.core.v1.DeleteSliceResponse"
  * Use `create(DeleteSliceResponseSchema)` to create a new message.
  */
 export const DeleteSliceResponseSchema: GenMessage<DeleteSliceResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_slice, 17);
+  messageDesc(file_proto_core_v1_slice, 21);
 
 /**
  * @generated from service gitslice.core.v1.SliceService
@@ -566,6 +689,29 @@ export const SliceService: GenService<{
     methodKind: "unary";
     input: typeof DeleteSliceRequestSchema;
     output: typeof DeleteSliceResponseSchema;
+  },
+  /**
+   * CreateTag names a native commit for this slice, for releases. Tags are
+   * immutable: creating an existing name again succeeds only for the same
+   * commit. Requires write access. The Git projection publishes each tag as
+   * refs/tags/<name>.
+   *
+   * @generated from rpc gitslice.core.v1.SliceService.CreateTag
+   */
+  createTag: {
+    methodKind: "unary";
+    input: typeof CreateTagRequestSchema;
+    output: typeof TagSchema;
+  },
+  /**
+   * ListTags lists a slice's tags, newest first. Readable like the slice.
+   *
+   * @generated from rpc gitslice.core.v1.SliceService.ListTags
+   */
+  listTags: {
+    methodKind: "unary";
+    input: typeof ListTagsRequestSchema;
+    output: typeof ListTagsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_slice, 0);

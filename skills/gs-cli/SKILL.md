@@ -285,6 +285,19 @@ gs diff <old-commit> <new-commit> --stat
 
 Commit prefixes are acceptable for interactive inspection, but scripts should keep full ids from JSON output when available.
 
+## Tags
+
+Tags are immutable release names for a slice. Git clones of the slice see
+them as `refs/tags/<name>`:
+
+```bash
+gs tag create v1.2.0 -m "release notes" --json         # tags the current head
+gs tag create v1.2.1 --commit <commit-id> --slice acme/payment --json
+gs tag list --json
+```
+
+Creating an existing tag again succeeds only for the same commit.
+
 ## RPC Diagnostics
 
 Use `gs rpc` as an escape hatch when there is no first-class CLI command:

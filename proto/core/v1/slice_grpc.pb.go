@@ -30,6 +30,8 @@ const (
 	SliceService_DeleteSliceSecret_FullMethodName           = "/gitslice.core.v1.SliceService/DeleteSliceSecret"
 	SliceService_ListSliceSecrets_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceSecrets"
 	SliceService_DeleteSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/DeleteSlice"
+	SliceService_CreateTag_FullMethodName                   = "/gitslice.core.v1.SliceService/CreateTag"
+	SliceService_ListTags_FullMethodName                    = "/gitslice.core.v1.SliceService/ListTags"
 )
 
 // SliceServiceClient is the client API for SliceService service.
@@ -47,6 +49,13 @@ type SliceServiceClient interface {
 	DeleteSliceSecret(ctx context.Context, in *DeleteSliceSecretRequest, opts ...grpc.CallOption) (*Empty, error)
 	ListSliceSecrets(ctx context.Context, in *ListSliceSecretsRequest, opts ...grpc.CallOption) (*ListSliceSecretsResponse, error)
 	DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error)
+	// CreateTag names a native commit for this slice, for releases. Tags are
+	// immutable: creating an existing name again succeeds only for the same
+	// commit. Requires write access. The Git projection publishes each tag as
+	// refs/tags/<name>.
+	CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*Tag, error)
+	// ListTags lists a slice's tags, newest first. Readable like the slice.
+	ListTags(ctx context.Context, in *ListTagsRequest, opts ...grpc.CallOption) (*ListTagsResponse, error)
 }
 
 type sliceServiceClient struct {
@@ -156,6 +165,24 @@ func (c *sliceServiceClient) DeleteSlice(ctx context.Context, in *DeleteSliceReq
 	return out, nil
 }
 
+func (c *sliceServiceClient) CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*Tag, error) {
+	out := new(Tag)
+	err := c.cc.Invoke(ctx, SliceService_CreateTag_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) ListTags(ctx context.Context, in *ListTagsRequest, opts ...grpc.CallOption) (*ListTagsResponse, error) {
+	out := new(ListTagsResponse)
+	err := c.cc.Invoke(ctx, SliceService_ListTags_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SliceServiceServer is the server API for SliceService service.
 // All implementations should embed UnimplementedSliceServiceServer
 // for forward compatibility
@@ -171,6 +198,13 @@ type SliceServiceServer interface {
 	DeleteSliceSecret(context.Context, *DeleteSliceSecretRequest) (*Empty, error)
 	ListSliceSecrets(context.Context, *ListSliceSecretsRequest) (*ListSliceSecretsResponse, error)
 	DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error)
+	// CreateTag names a native commit for this slice, for releases. Tags are
+	// immutable: creating an existing name again succeeds only for the same
+	// commit. Requires write access. The Git projection publishes each tag as
+	// refs/tags/<name>.
+	CreateTag(context.Context, *CreateTagRequest) (*Tag, error)
+	// ListTags lists a slice's tags, newest first. Readable like the slice.
+	ListTags(context.Context, *ListTagsRequest) (*ListTagsResponse, error)
 }
 
 // UnimplementedSliceServiceServer should be embedded to have forward compatible implementations.
@@ -209,6 +243,12 @@ func (UnimplementedSliceServiceServer) ListSliceSecrets(context.Context, *ListSl
 }
 func (UnimplementedSliceServiceServer) DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteSlice not implemented")
+}
+func (UnimplementedSliceServiceServer) CreateTag(context.Context, *CreateTagRequest) (*Tag, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateTag not implemented")
+}
+func (UnimplementedSliceServiceServer) ListTags(context.Context, *ListTagsRequest) (*ListTagsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTags not implemented")
 }
 
 // UnsafeSliceServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -420,6 +460,42 @@ func _SliceService_DeleteSlice_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_CreateTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateTagRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).CreateTag(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_CreateTag_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).CreateTag(ctx, req.(*CreateTagRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_ListTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListTagsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).ListTags(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_ListTags_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).ListTags(ctx, req.(*ListTagsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SliceService_ServiceDesc is the grpc.ServiceDesc for SliceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -470,6 +546,14 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSlice",
 			Handler:    _SliceService_DeleteSlice_Handler,
+		},
+		{
+			MethodName: "CreateTag",
+			Handler:    _SliceService_CreateTag_Handler,
+		},
+		{
+			MethodName: "ListTags",
+			Handler:    _SliceService_ListTags_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

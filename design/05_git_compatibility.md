@@ -244,6 +244,27 @@ deterministic history for each slice.
 - **An empty history is an empty repository.** A slice with no qualifying
   commits projects to a repository with no `main` ref.
 
+### 6.2 Tags (2026-10)
+
+Slices have immutable tags: `SliceService.CreateTag` / `ListTags` and
+`gs tag create | list`, stored in `slice_tags`.
+
+- **What a tag records.** A tag names a native commit (by default the current
+  head) and records the slice definition version it was created under.
+  Creating an existing name again succeeds only for the same commit.
+- **Where it points in Git.** The projection publishes each tag as a
+  lightweight `refs/tags/<name>` on the projected commit for the newest
+  qualifying native commit at or before the tagged one. That is the commit
+  whose tree the tag describes.
+- **Go subdirectory copy.** For a slice with a single included path, semver
+  tags (`vX.Y.Z...`) are also published as `refs/tags/<path>/<name>`, for
+  example `acme/payment/v1.2.0`. Go uses that form to version a module whose
+  root is a repository subdirectory, which is where the canonical layout
+  (§7) puts every slice's files.
+- **Newer than the processed head.** A tag on a commit newer than the
+  projection's processed head is published on a later request, so it never
+  points at the wrong commit.
+
 ## 7. Path Projection
 
 Git repositories expose a slice projection of canonical global paths.
