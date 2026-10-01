@@ -8914,3 +8914,24 @@ default-head tag mapping back to the last commit that touched the slice, an
 explicit commit, idempotent re-creation, rejected moves, invalid names and
 unknown commits, listing, and the projected refs, including the Go subdirectory
 copy. The Git and projection e2e tests also pass.
+
+## 2026-10-01 — Projection keeps imported authorship
+
+Request: projected history should look like the original for commits that
+came from a Git import, and the GitHub exporter needs a way to find its first
+sync point (`design/21_self_hosting.md`).
+
+- **Author.** For commits with a `git_import_commits` record (looked up with
+  `GitImportsForCommits`), the projected author is the original Git author and
+  author date.
+- **Committer.** It stays the native identity and publish time, which records
+  who published the import and when.
+- **Message.** The original full message, then `Git-Commit: <original sha>`,
+  then the usual `Gitslice-Commit:` trailer. `ops/mirror` finds the GitHub
+  commit that matches the projected history through `Git-Commit`.
+- **Cache rebuild.** `projectionVersion` is 3, so cached projections rebuild.
+  No production clone depends on the old ids yet.
+
+Verification: new e2e `TestGitProjectionKeepsImportedAuthorship` and unit
+tests for the message and author helpers. Git, tag, projection and import e2e
+tests pass.

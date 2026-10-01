@@ -69,12 +69,22 @@ func TestApplyListing(t *testing.T) {
 }
 
 func TestProjectedCommitMessage(t *testing.T) {
-	got := projectedCommitMessage(&corev1.Commit{Id: "commit_123", Message: "Add thing\r\n\n"})
+	got := projectedCommitMessage(&corev1.Commit{Id: "commit_123", Message: "Add thing\r\n\n"}, nil)
 	if got != "Add thing\n\nGitslice-Commit: commit_123\n" {
 		t.Fatalf("message = %q", got)
 	}
-	if got := projectedCommitMessage(&corev1.Commit{Id: "commit_abcdefghijklmnop"}); !strings.HasPrefix(got, "Gitslice commit commit_abcde\n") {
+	if got := projectedCommitMessage(&corev1.Commit{Id: "commit_abcdefghijklmnop"}, nil); !strings.HasPrefix(got, "Gitslice commit commit_abcde\n") {
 		t.Fatalf("empty message fallback = %q", got)
+	}
+	imported := &storage.GitImportedCommitRecord{GitCommitID: "abc123", FullMessage: "Add a\n\nWhy a.\n"}
+	if got := projectedCommitMessage(&corev1.Commit{Id: "commit_9", Message: "Add a"}, imported); got != "Add a\n\nWhy a.\n\nGit-Commit: abc123\nGitslice-Commit: commit_9\n" {
+		t.Fatalf("imported message = %q", got)
+	}
+	if name, email, when := importedAuthor(&storage.GitImportedCommitRecord{AuthorName: "Ada", AuthorEmail: "ada@example.invalid", AuthoredAt: "2025-12-10T08:30:00Z"}, "nic", "nic@x", 5); name != "Ada" || email != "ada@example.invalid" || when != 1765355400 {
+		t.Fatalf("importedAuthor = %q %q %d", name, email, when)
+	}
+	if name, _, when := importedAuthor(nil, "nic", "nic@x", 5); name != "nic" || when != 5 {
+		t.Fatalf("importedAuthor without a record = %q %d", name, when)
 	}
 }
 
