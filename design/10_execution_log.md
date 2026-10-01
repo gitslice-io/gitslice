@@ -9036,3 +9036,23 @@ Result on staging, cold cache:
 Cold-build time still grows with history. The follow-up is to share
 projection checkpoints (bundles) through object storage, which the
 deterministic ids make safe.
+## 2026-10-01 — Gzipped fetch negotiations reach git http-backend
+
+Found while rehearsing the GitHub exporter on staging. Fetching the projection
+into a repository with unrelated history failed with HTTP 500 and
+"git http-backend failed ... fatal: protocol error: bad line length".
+
+- **Cause.** For a large negotiation (many `have` lines), git sends the
+  upload-pack request with `Content-Encoding: gzip`. `serveBackend` passed the
+  compressed body to `git http-backend` without `HTTP_CONTENT_ENCODING`, so
+  http-backend parsed gzip bytes as pkt-lines.
+  - Fresh clones and small fetches were unaffected, which is why existing
+    tests passed.
+  - Long-lived clones and `ops/mirror` hit it.
+  - The bug predates the projection changes.
+- **Fix.** Forward `Content-Encoding` as `HTTP_CONTENT_ENCODING`;
+  http-backend inflates the body itself. Pushes are unaffected: git does not
+  gzip receive-pack bodies.
+- **Test.** New e2e `TestGitFetchWithLargeNegotiation` fetches into a
+  repository with 120 unrelated commits. It fails without the fix and passes
+  with it.
