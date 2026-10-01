@@ -1,6 +1,6 @@
 package service
 
-import "github.com/gitslice-io/gitslice/internal/metrics"
+import "gitslice.io/gitslice/internal/metrics"
 
 var (
 	blobUploadsTotal = metrics.NewCounter(

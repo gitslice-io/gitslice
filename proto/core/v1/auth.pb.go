@@ -1255,7 +1255,7 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\rRegisterAgent\x12&.gitslice.core.v1.RegisterAgentRequest\x1a'.gitslice.core.v1.RegisterAgentResponse\x12l\n" +
 	"\x11ListPendingClaims\x12*.gitslice.core.v1.ListPendingClaimsRequest\x1a+.gitslice.core.v1.ListPendingClaimsResponse\x12Z\n" +
 	"\vAcceptClaim\x12$.gitslice.core.v1.AcceptClaimRequest\x1a%.gitslice.core.v1.AcceptClaimResponse\x12f\n" +
-	"\x0fListOwnedAgents\x12(.gitslice.core.v1.ListOwnedAgentsRequest\x1a).gitslice.core.v1.ListOwnedAgentsResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x0fListOwnedAgents\x12(.gitslice.core.v1.ListOwnedAgentsRequest\x1a).gitslice.core.v1.ListOwnedAgentsResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_auth_proto_rawDescOnce sync.Once

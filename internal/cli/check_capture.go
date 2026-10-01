@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/checkexec"
-	"github.com/gitslice-io/gitslice/internal/checks"
-	gspaths "github.com/gitslice-io/gitslice/internal/paths"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/checkexec"
+	"gitslice.io/gitslice/internal/checks"
+	gspaths "gitslice.io/gitslice/internal/paths"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 type WorkspaceCheckResult struct {

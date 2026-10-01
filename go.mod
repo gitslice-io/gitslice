@@ -1,4 +1,4 @@
-module github.com/gitslice-io/gitslice
+module gitslice.io/gitslice
 
 go 1.24
 

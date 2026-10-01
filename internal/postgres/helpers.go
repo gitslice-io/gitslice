@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/treestore"
-	"github.com/gitslice-io/gitslice/internal/usernames"
+	"gitslice.io/gitslice/internal/treestore"
+	"gitslice.io/gitslice/internal/usernames"
 )
 
 func FileEntryFingerprint(entry FileEntry) string {

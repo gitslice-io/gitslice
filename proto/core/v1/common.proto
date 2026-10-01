@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package gitslice.core.v1;
 
-option go_package = "github.com/gitslice-io/gitslice/proto/core/v1;corev1";
+option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
 
 message Empty {}
 

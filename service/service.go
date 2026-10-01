@@ -4,9 +4,9 @@ import (
 	"context"
 	"io"
 
-	"github.com/gitslice-io/gitslice/internal/analytics"
-	"github.com/gitslice-io/gitslice/internal/authctx"
-	"github.com/gitslice-io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/analytics"
+	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/storage"
 )
 
 type ObjectStore interface {

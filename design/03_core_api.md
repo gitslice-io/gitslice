@@ -52,7 +52,7 @@ package gitslice.core.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/gitslice/gitslice/proto/core/v1;corev1";
+option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
 
 service RepositoryService {
   rpc ResolvePath(ResolvePathRequest) returns (ResolvePathResponse);

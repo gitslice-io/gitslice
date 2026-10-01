@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/authctx"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestGitSnapshotReadsTreeWithBatchBlobContents(t *testing.T) {

@@ -17,12 +17,12 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/gitslice-io/gitslice/internal/auth/servicetoken"
-	"github.com/gitslice-io/gitslice/internal/objectstore/filesystem"
-	"github.com/gitslice-io/gitslice/internal/postgres"
-	"github.com/gitslice-io/gitslice/internal/treestore"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
-	"github.com/gitslice-io/gitslice/server"
+	"gitslice.io/gitslice/internal/auth/servicetoken"
+	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/postgres"
+	"gitslice.io/gitslice/internal/treestore"
+	"gitslice.io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"

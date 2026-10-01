@@ -1159,7 +1159,7 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x0eSetSliceSecret\x12'.gitslice.core.v1.SetSliceSecretRequest\x1a\x17.gitslice.core.v1.Empty\x12X\n" +
 	"\x11DeleteSliceSecret\x12*.gitslice.core.v1.DeleteSliceSecretRequest\x1a\x17.gitslice.core.v1.Empty\x12i\n" +
 	"\x10ListSliceSecrets\x12).gitslice.core.v1.ListSliceSecretsRequest\x1a*.gitslice.core.v1.ListSliceSecretsResponse\x12Z\n" +
-	"\vDeleteSlice\x12$.gitslice.core.v1.DeleteSliceRequest\x1a%.gitslice.core.v1.DeleteSliceResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\vDeleteSlice\x12$.gitslice.core.v1.DeleteSliceRequest\x1a%.gitslice.core.v1.DeleteSliceResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_slice_proto_rawDescOnce sync.Once

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestEvaluateSubmitRequirementsApprovals(t *testing.T) {

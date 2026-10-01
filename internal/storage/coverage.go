@@ -3,7 +3,7 @@ package storage
 import (
 	"sort"
 
-	"github.com/gitslice-io/gitslice/internal/paths"
+	"gitslice.io/gitslice/internal/paths"
 )
 
 func CoverageAncestorPrefixes(p string) []string {

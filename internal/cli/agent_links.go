@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func normalizeAgentWorkspaceEventLinks(event *corev1.AgentEvent, workdir string) {

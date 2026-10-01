@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/storage/memory"
-	"github.com/gitslice-io/gitslice/server"
-	"github.com/gitslice-io/gitslice/service"
+	"gitslice.io/gitslice/internal/storage/memory"
+	"gitslice.io/gitslice/server"
+	"gitslice.io/gitslice/service"
 	"google.golang.org/grpc"
 )
 

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/internal/storage/memory"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/storage/memory"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestAuthorizeReadVisibility(t *testing.T) {

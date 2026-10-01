@@ -1,6 +1,6 @@
 package memory
 
-import "github.com/gitslice-io/gitslice/internal/storage"
+import "gitslice.io/gitslice/internal/storage"
 
 var (
 	_ storage.AuthStore       = (*AuthStore)(nil)

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/storage"
 )
 
 type outboxRowError struct {

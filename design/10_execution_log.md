@@ -8588,3 +8588,31 @@ Causes and fixes:
 
 Note: `npm run build` runs `tsc -b`, which is stricter than `tsc --noEmit -p .`
 and caught two type errors the latter missed.
+
+## 2026-10-01 — Rename the Go module to gitslice.io/gitslice
+
+Request: host the Gitslice source on Gitslice, and keep `go install` working
+while that happens (plan in `design/21_self_hosting.md`). As a first step, the
+module path stops naming the host.
+
+- `go.mod` declares `gitslice.io/gitslice`. That covers every import in 135 Go
+  files, the `go_package` option in `proto/core/v1/*.proto`, and the release
+  ldflags (`gitslice.io/gitslice/internal/cli.Version`). The stale
+  `go_package` examples in design docs 02 and 03 now use the new path too.
+- Generated stubs were regenerated with `make proto`, not edited with sed.
+  Each `.pb.go` file embeds its serialized file descriptor, and the
+  `go_package` string inside it is length-prefixed, so a text substitution
+  would corrupt it. The generator versions are unchanged (protoc 27.5,
+  protoc-gen-go 1.36.11, protoc-gen-go-grpc 1.3.0, grpc-gateway 2.29.0,
+  connect-go 1.18.1, protoc-gen-es 2.12.1), so the regenerated diff contains
+  only the path change. That includes the base64 descriptors in `web/src/gen`.
+- `gofmt -w` re-sorted the import groups, because `gitslice.io/...` sorts
+  after `github.com/...`.
+- The old path keeps resolving `v0.1.0` and `v0.1.1`. The first release
+  under the new path must be `v0.2.0` or higher, so that `@latest` selects
+  it. Until the vanity `go-import` handler ships, the install docs keep the old
+  path. With no newer tag, `@latest` still resolves to `v0.1.1` under that
+  path.
+
+Verification: `go build ./...`, `go vet ./...`, `go build ./cmd/...`,
+`go test ./...`, and a `gofmt -l` check.

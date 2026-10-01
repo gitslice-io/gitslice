@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/gitslice-io/gitslice/internal/authz"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/storage"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func authorize(ctx context.Context, auth storage.AuthStore, subjectID string, slice *corev1.Slice, action authz.Action) error {

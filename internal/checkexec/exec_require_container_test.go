@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/checks"
+	"gitslice.io/gitslice/internal/checks"
 )
 
 func TestRunRequiresContainerWhenConfigured(t *testing.T) {

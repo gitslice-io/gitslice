@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/clientcache"
-	"github.com/gitslice-io/gitslice/internal/objectid"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/clientcache"
+	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"

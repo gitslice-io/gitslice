@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/checkexec"
-	"github.com/gitslice-io/gitslice/internal/checks"
-	"github.com/gitslice-io/gitslice/internal/clientcache"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/checkexec"
+	"gitslice.io/gitslice/internal/checks"
+	"gitslice.io/gitslice/internal/clientcache"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )

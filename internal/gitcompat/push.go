@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gitslice-io/gitslice/internal/paths"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/paths"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/status"
 )
 

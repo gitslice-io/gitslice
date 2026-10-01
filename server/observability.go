@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/metrics"
-	"github.com/gitslice-io/gitslice/internal/requestid"
+	"gitslice.io/gitslice/internal/metrics"
+	"gitslice.io/gitslice/internal/requestid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/gitslice-io/gitslice/internal/analytics"
-	"github.com/gitslice-io/gitslice/internal/authz"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/analytics"
+	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

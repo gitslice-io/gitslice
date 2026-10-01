@@ -8,7 +8,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	v1 "gitslice.io/gitslice/proto/core/v1"
 	http "net/http"
 	strings "strings"
 )

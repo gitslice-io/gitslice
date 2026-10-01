@@ -17,8 +17,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
 	"github.com/spf13/cobra"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 const (

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/paths"
-	"github.com/gitslice-io/gitslice/internal/secretbox"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/paths"
+	"gitslice.io/gitslice/internal/secretbox"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/proto/core/v1"
 )
 
 type SliceStore struct {

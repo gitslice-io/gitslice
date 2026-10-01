@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/checkexec"
-	"github.com/gitslice-io/gitslice/internal/objectid"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/checkexec"
+	"gitslice.io/gitslice/internal/objectid"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

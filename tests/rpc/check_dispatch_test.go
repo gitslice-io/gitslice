@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/postgres"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/postgres"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestRPCFullTreeRunnerDispatchSatisfiesSubmitGate(t *testing.T) {

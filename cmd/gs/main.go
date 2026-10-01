@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/gitslice-io/gitslice/internal/cli"
+	"gitslice.io/gitslice/internal/cli"
 )
 
 func main() {

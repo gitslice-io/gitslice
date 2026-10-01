@@ -535,7 +535,7 @@ const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\vGetCheckRun\x12$.gitslice.core.v1.GetCheckRunRequest\x1a\x1a.gitslice.core.v1.CheckRun\x12M\n" +
 	"\n" +
 	"RerunCheck\x12#.gitslice.core.v1.RerunCheckRequest\x1a\x1a.gitslice.core.v1.CheckRun\x12Z\n" +
-	"\x0eStreamCheckRun\x12'.gitslice.core.v1.StreamCheckRunRequest\x1a\x1d.gitslice.core.v1.CheckRunLog0\x01B6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x0eStreamCheckRun\x12'.gitslice.core.v1.StreamCheckRunRequest\x1a\x1d.gitslice.core.v1.CheckRunLog0\x01B+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_check_proto_rawDescOnce sync.Once

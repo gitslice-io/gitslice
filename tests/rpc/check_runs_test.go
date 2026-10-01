@@ -5,9 +5,9 @@ import (
 	"io"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/postgres"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/postgres"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestRPCCheckRunPassingResultSatisfiesSubmitGate(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gitslice-io/gitslice/internal/secretbox"
+	"gitslice.io/gitslice/internal/secretbox"
 )
 
 func TestSliceSecretsEncryptionAtRest(t *testing.T) {

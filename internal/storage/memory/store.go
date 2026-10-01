@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/objectid"
-	"github.com/gitslice-io/gitslice/internal/paths"
-	"github.com/gitslice-io/gitslice/internal/storage"
-	"github.com/gitslice-io/gitslice/internal/usernames"
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/paths"
+	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/usernames"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/protobuf/proto"
 )
 

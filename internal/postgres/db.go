@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/gitslice-io/gitslice/internal/treestore"
+	"gitslice.io/gitslice/internal/treestore"
 )
 
 type DB struct {

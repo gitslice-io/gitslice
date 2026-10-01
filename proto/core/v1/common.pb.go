@@ -292,7 +292,7 @@ const file_proto_core_v1_common_proto_rawDesc = "" +
 	"\x16ENTRY_KIND_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fENTRY_KIND_FILE\x10\x01\x12\x18\n" +
 	"\x14ENTRY_KIND_DIRECTORY\x10\x02\x12\x16\n" +
-	"\x12ENTRY_KIND_SYMLINK\x10\x03B6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x12ENTRY_KIND_SYMLINK\x10\x03B+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_common_proto_rawDescOnce sync.Once

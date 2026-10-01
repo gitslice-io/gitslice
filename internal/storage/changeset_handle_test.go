@@ -3,7 +3,7 @@ package storage
 import (
 	"testing"
 
-	corev1 "github.com/gitslice-io/gitslice/proto/core/v1"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestShortChangesetID(t *testing.T) {

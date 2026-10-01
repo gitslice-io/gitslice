@@ -811,7 +811,7 @@ const file_proto_core_v1_workspace_proto_rawDesc = "" +
 	"\x11GetWorkspaceState\x12*.gitslice.core.v1.GetWorkspaceStateRequest\x1a .gitslice.core.v1.WorkspaceState\x12]\n" +
 	"\fHydratePaths\x12%.gitslice.core.v1.HydratePathsRequest\x1a&.gitslice.core.v1.HydratePathsResponse\x12x\n" +
 	"\x15ValidateWorkspaceDiff\x12..gitslice.core.v1.ValidateWorkspaceDiffRequest\x1a/.gitslice.core.v1.ValidateWorkspaceDiffResponse\x12\x81\x01\n" +
-	"\x18RecordWorkspaceOperation\x121.gitslice.core.v1.RecordWorkspaceOperationRequest\x1a2.gitslice.core.v1.RecordWorkspaceOperationResponseB6Z4github.com/gitslice-io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\x18RecordWorkspaceOperation\x121.gitslice.core.v1.RecordWorkspaceOperationRequest\x1a2.gitslice.core.v1.RecordWorkspaceOperationResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_workspace_proto_rawDescOnce sync.Once

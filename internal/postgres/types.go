@@ -3,7 +3,7 @@ package postgres
 import (
 	"time"
 
-	"github.com/gitslice-io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/storage"
 )
 
 const DefaultTargetRef = storage.DefaultTargetRef
