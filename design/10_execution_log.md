@@ -9056,3 +9056,32 @@ into a repository with unrelated history failed with HTTP 500 and
 - **Test.** New e2e `TestGitFetchWithLargeNegotiation` fetches into a
   repository with 120 unrelated commits. It fails without the fix and passes
   with it.
+## 2026-10-01 — Workspaces keep symlinks
+
+Found while rehearsing a Gitslice-native change on staging. The change touched
+only `REHEARSAL.md`, but its commit also turned
+`.claude/skills/deployment/SKILL.md` from a symlink (120000) into a regular
+file. The exported GitHub commit would have carried that conversion.
+
+- **Cause.**
+  - `writeWorkspaceFile` always wrote regular files, so `gs init` and
+    `gs sync` materialized each symlink as a file containing its target.
+  - The workspace scan then saw mode 100644 against the base's 120000 and
+    reported the path as edited.
+  - Hashing would also have followed real symlinks to the files they point
+    to.
+- **Materialization.** A symlink whose target is relative becomes a real
+  symlink. An absolute target, or a filesystem that cannot create symlinks,
+  falls back to a regular file holding the target.
+- **No writing through links.** Writing a regular file first removes any
+  symlink at that path, so content never lands in the link's target.
+- **Scan.** Symlinks are recorded with mode 120000, and their link target is
+  hashed as their content (`os.Readlink` plus `PutBytes`), so uploads send the
+  link, not the file it points to.
+- **Edit diff.** `sameWorkspaceMode` treats the regular-file fallback as
+  unchanged against a symlink base.
+
+Verification: new e2e `TestWorkspacePreservesSymlinks` covers a relative link
+materialized as a symlink, an absolute link materialized as a file, and a
+changeset that only touches the new file. It fails without the fix. The full
+`./tests/cli` suite passes.

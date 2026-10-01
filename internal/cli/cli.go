@@ -11116,7 +11116,39 @@ func (h *workspaceHydrator) copyCachedFileToWorkspace(contentHash, target string
 	return writeWorkspaceFile(target, mode, f)
 }
 
+// isSymlinkMode reports whether a native file mode is a symbolic link.
+func isSymlinkMode(mode uint32) bool {
+	return mode&0o170000 == 0o120000
+}
+
+// writeWorkspaceFile materializes one file. A symlink whose target is a
+// relative path becomes a real symlink (its content is the link target, as in
+// Git). Other symlinks are written as regular files containing the target; the
+// workspace scan treats that fallback as unchanged. A regular file never writes
+// through an existing symlink at the same path.
 func writeWorkspaceFile(target string, mode uint32, r io.Reader) (int64, error) {
+	if info, err := os.Lstat(target); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		if err := os.Remove(target); err != nil {
+			return 0, err
+		}
+	}
+	if isSymlinkMode(mode) {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return 0, err
+		}
+		link := string(data)
+		if link != "" && !filepath.IsAbs(link) && !strings.ContainsRune(link, 0) {
+			if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return 0, err
+			}
+			if err := os.Symlink(link, target); err == nil {
+				return int64(len(data)), nil
+			}
+		}
+		r = bytes.NewReader(data)
+		mode = 0o100644
+	}
 	fileMode := fs.FileMode(0o644)
 	if mode&0o111 != 0 {
 		fileMode = 0o755
@@ -11204,7 +11236,7 @@ func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grp
 	var edits []*corev1.FileEdit
 	for p, file := range current {
 		baseFile, ok := base.Files[p]
-		if ok && baseFile.ContentHash == file.ContentHash && baseFile.Mode == file.Mode {
+		if ok && baseFile.ContentHash == file.ContentHash && sameWorkspaceMode(baseFile.Mode, file.Mode) {
 			continue
 		}
 		edit := &corev1.FileEdit{Op: "upsert", Path: p, ContentHash: file.ContentHash, Mode: file.Mode}
@@ -11225,6 +11257,16 @@ func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grp
 	}
 	sortFileEdits(edits)
 	return edits, current, stats, nil
+}
+
+// sameWorkspaceMode compares a base mode with a scanned one. A symlink the
+// workspace had to materialize as a regular file (an absolute target, or a
+// filesystem without symlinks) still counts as unchanged.
+func sameWorkspaceMode(base, local uint32) bool {
+	if base == local {
+		return true
+	}
+	return isSymlinkMode(base) && local == 0o100644
 }
 
 func (r Runner) stackBaseSnapshotThroughChangeset(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, stack *corev1.ChangesetStack, throughChangesetID string) (BaseSnapshot, error) {
@@ -11373,6 +11415,7 @@ type workspaceScanCandidate struct {
 	relPath    string
 	mode       uint32
 	size       int64
+	linkTarget *string // set for symlinks; hashed instead of the file they point to
 }
 
 func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, error) {
@@ -11427,6 +11470,22 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 		if err != nil {
 			return err
 		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			link, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			candidates = append(candidates, workspaceScanCandidate{
+				absPath:    p,
+				globalPath: globalPath,
+				relPath:    rel,
+				mode:       0o120000,
+				size:       int64(len(link)),
+				linkTarget: &link,
+			})
+			stats.ByteCount += int64(len(link))
+			return nil
+		}
 		mode := uint32(0o100644)
 		if info.Mode()&0o111 != 0 {
 			mode = 0o100755
@@ -11448,12 +11507,25 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	}
 
 	paths := make([]string, len(candidates))
+	links := map[string]string{}
 	for i := range candidates {
 		paths[i] = candidates[i].absPath
+		if candidates[i].linkTarget != nil {
+			links[candidates[i].absPath] = *candidates[i].linkTarget
+		}
+	}
+	hashFile := cache.PutFile
+	if len(links) > 0 {
+		hashFile = func(path string) (clientcache.Object, error) {
+			if link, ok := links[path]; ok {
+				return cache.PutBytes([]byte(link))
+			}
+			return cache.PutFile(path)
+		}
 	}
 	stats.HashWorkers = boundedCaptureHashConcurrency(concurrency, len(paths))
 	hashStarted := time.Now()
-	objects, err := hashWorkspaceFiles(ctx, paths, stats.HashWorkers, cache.PutFile)
+	objects, err := hashWorkspaceFiles(ctx, paths, stats.HashWorkers, hashFile)
 	stats.HashDuration = time.Since(hashStarted)
 	if err != nil {
 		return nil, stats, err
