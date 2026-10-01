@@ -160,6 +160,11 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo 
 	if protocol := r.Header.Get("Git-Protocol"); protocol != "" {
 		cmd.Env = append(cmd.Env, "HTTP_GIT_PROTOCOL="+protocol)
 	}
+	// Git gzips large fetch negotiations (many "have" lines). http-backend
+	// inflates the body itself, but only when it is told the encoding.
+	if encoding := r.Header.Get("Content-Encoding"); encoding != "" {
+		cmd.Env = append(cmd.Env, "HTTP_CONTENT_ENCODING="+encoding)
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git http-backend failed: %w\n%s", err, string(out))
