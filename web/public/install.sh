@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the Gitslice CLI (gs) from the latest GitHub release.
+# Install the Gitslice CLI (gs) from the latest release.
 #
 #   curl -fsSL https://gitslice.io/install.sh | sh
 #
@@ -9,7 +9,7 @@
 #   GS_DOWNLOAD_BASE  alternative download base URL (mirrors, testing)
 set -eu
 
-repo="gitslice-io/gitslice"
+releases="https://gitslice.io/releases"
 install_dir="${GS_INSTALL_DIR:-$HOME/.local/bin}"
 version="${GS_VERSION:-latest}"
 
@@ -21,20 +21,20 @@ fail() {
 case "$(uname -s)" in
   Linux) os=linux ;;
   Darwin) os=darwin ;;
-  *) fail "unsupported OS $(uname -s); download a build from https://github.com/$repo/releases" ;;
+  *) fail "unsupported OS $(uname -s); download a build from $releases" ;;
 esac
 case "$(uname -m)" in
   x86_64 | amd64) arch=amd64 ;;
   arm64 | aarch64) arch=arm64 ;;
-  *) fail "unsupported CPU $(uname -m); download a build from https://github.com/$repo/releases" ;;
+  *) fail "unsupported CPU $(uname -m); download a build from $releases" ;;
 esac
 
 if [ -n "${GS_DOWNLOAD_BASE:-}" ]; then
   base="$GS_DOWNLOAD_BASE"
 elif [ "$version" = latest ]; then
-  base="https://github.com/$repo/releases/latest/download"
+  base="$releases/latest/download"
 else
-  base="https://github.com/$repo/releases/download/$version"
+  base="$releases/download/$version"
 fi
 asset="gs_${os}_${arch}.tar.gz"
 
