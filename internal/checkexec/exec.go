@@ -463,29 +463,60 @@ func containerRuntime() (string, bool) {
 	return "", false
 }
 
+// logHeadBytes is how much of a check's output is kept from the start; the
+// rest of MaxLogBytes holds the most recent output.
+const logHeadBytes = 32 * 1024
+
+// cappedBuffer bounds a check's output to MaxLogBytes, keeping the first
+// logHeadBytes and the latest remainder. Test failures and summaries print
+// last, so a log that only kept its start lost exactly what a failed check
+// needs to show. Stdout and stderr share one buffer, so os/exec never calls
+// Write concurrently.
 type cappedBuffer struct {
-	buf       bytes.Buffer
-	truncated bool
+	head        bytes.Buffer
+	tail        []byte // ring holding the latest output once head is full
+	next        int    // ring write position
+	tailWritten int64  // bytes ever written past head
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
-	if b.buf.Len() < MaxLogBytes {
-		remaining := MaxLogBytes - b.buf.Len()
-		if len(p) <= remaining {
-			_, _ = b.buf.Write(p)
-		} else {
-			_, _ = b.buf.Write(p[:remaining])
-			b.truncated = true
-		}
-	} else if len(p) > 0 {
-		b.truncated = true
+	n := len(p)
+	if room := logHeadBytes - b.head.Len(); room > 0 {
+		take := min(room, len(p))
+		_, _ = b.head.Write(p[:take])
+		p = p[take:]
 	}
-	return len(p), nil
+	if len(p) == 0 {
+		return n, nil
+	}
+	if b.tail == nil {
+		b.tail = make([]byte, MaxLogBytes-logHeadBytes)
+	}
+	b.tailWritten += int64(len(p))
+	if len(p) > len(b.tail) {
+		p = p[len(p)-len(b.tail):]
+	}
+	for len(p) > 0 {
+		c := copy(b.tail[b.next:], p)
+		b.next = (b.next + c) % len(b.tail)
+		p = p[c:]
+	}
+	return n, nil
 }
 
 func (b *cappedBuffer) String() string {
-	if !b.truncated {
-		return b.buf.String()
+	if b.tailWritten == 0 {
+		return b.head.String()
 	}
-	return b.buf.String() + "\n[check log truncated]\n"
+	var out strings.Builder
+	out.WriteString(b.head.String())
+	size := int64(len(b.tail))
+	if b.tailWritten <= size {
+		out.Write(b.tail[:b.tailWritten])
+		return out.String()
+	}
+	fmt.Fprintf(&out, "\n[check log truncated: %d bytes omitted]\n", b.tailWritten-size)
+	out.Write(b.tail[b.next:])
+	out.Write(b.tail[:b.next])
+	return out.String()
 }
