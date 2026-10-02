@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { RpcError } from "../../api/client";
 import type { CheckRun, CheckRunLog } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
@@ -40,6 +41,7 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
     queryKey: checkRunsQueryKey,
     queryFn: async () =>
       (await api.listCheckRuns({ changesetId, patchsetId })).runs ?? [],
+    retry: (failures, error) => !isUnauthenticated(error) && failures < 3,
     refetchInterval: (query) =>
       query.state.data?.some((run) => !isTerminalCheckStatus(run.status))
         ? CHECK_POLL_INTERVAL_MS
@@ -77,6 +79,20 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
 
   if (runsQuery.isPending && runs.length === 0) {
     return null;
+  }
+
+  // Check runs need a signed-in viewer, even on a public slice.
+  if (runsQuery.isError && isUnauthenticated(runsQuery.error)) {
+    return (
+      <section className="mt-3 rounded-lg border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3 md:px-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
+            Checks
+          </h2>
+          <span className="text-xs text-slate-500 dark:text-zinc-400">Sign in to see checks</span>
+        </div>
+      </section>
+    );
   }
 
   if (runsQuery.isError) {
@@ -416,4 +432,8 @@ function checkStatusDotClass(status: string) {
     default:
       return "bg-slate-300 dark:bg-zinc-600";
   }
+}
+
+function isUnauthenticated(error: unknown) {
+  return error instanceof RpcError && error.status === 401;
 }

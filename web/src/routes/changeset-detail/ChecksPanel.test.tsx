@@ -12,6 +12,7 @@ import {
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { RpcError } from "../../api/client";
 import { ChecksPanel } from "./ChecksPanel";
 
 const apiMock = vi.hoisted(() => ({
@@ -57,6 +58,16 @@ describe("ChecksPanel", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("asks signed-out viewers to sign in instead of showing an error", async () => {
+    apiMock.current.listCheckRuns = vi
+      .fn()
+      .mockRejectedValue(new RpcError(401, { code: 16, message: "missing subject" }));
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    expect(await screen.findByText("Sign in to see checks")).toBeInTheDocument();
+    expect(screen.queryByText("missing subject")).not.toBeInTheDocument();
   });
 
   it("renders passed and failed check runs with status and provenance", async () => {
