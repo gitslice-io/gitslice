@@ -97,8 +97,10 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			Changesets:  stores.Changesets,
 			Repository:  stores.Repository,
 			Slices:      stores.Slices,
+			Checks:      stores.Checks,
 			ObjectStore: objectStore,
 			validator:   validator,
+			dispatcher:  checkDispatcher,
 		},
 		Agent: &AgentService{
 			Auth:        stores.Auth,

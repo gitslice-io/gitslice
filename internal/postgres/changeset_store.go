@@ -262,6 +262,31 @@ func (s *ChangesetStore) ListStacks(ctx context.Context, req *corev1.ListStacksR
 	return out, nil
 }
 
+func (s *ChangesetStore) SetStackBaseCommit(ctx context.Context, stackID, baseCommitID string) error {
+	stackID = strings.TrimSpace(stackID)
+	baseCommitID = strings.TrimSpace(baseCommitID)
+	if stackID == "" || baseCommitID == "" {
+		return ErrInvalid
+	}
+	res, err := s.db.ExecContext(ctx, `
+		update changeset_stacks
+		set base_commit_id = $2,
+		    updated_at = now()
+		where id = $1
+	`, stackID, baseCommitID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *ChangesetStore) SetStackStatus(ctx context.Context, stackID, stackStatus string) error {
 	stackID = strings.TrimSpace(stackID)
 	stackStatus = strings.TrimSpace(stackStatus)

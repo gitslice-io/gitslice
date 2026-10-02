@@ -19,8 +19,12 @@ type ChangesetStackService struct {
 	Changesets  storage.ChangesetStore
 	Repository  storage.RepositoryStore
 	Slices      storage.SliceStore
+	Checks      storage.CheckStore
 	ObjectStore ObjectStore
 	validator   diffValidator
+	// dispatcher sends restacked patchsets to the slice's CI daemon, like
+	// patchsets made through ChangesetService.
+	dispatcher *checkDispatcher
 }
 
 func (s *ChangesetStackService) CreateStack(ctx context.Context, req *corev1.CreateStackRequest) (*corev1.ChangesetStack, error) {
@@ -198,10 +202,13 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 		Changesets:  s.Changesets,
 		Repository:  s.Repository,
 		Slices:      s.Slices,
+		Checks:      s.Checks,
 		ObjectStore: s.ObjectStore,
 		validator:   s.validator,
+		dispatcher:  s.dispatcher,
 	}
 	response := &corev1.RestackResponse{StackId: stack.Id, Status: "clean"}
+	movedRoot := false
 	for _, entry := range entries {
 		cs, err := s.Changesets.Get(ctx, entry.ChangesetId)
 		if err != nil {
@@ -233,6 +240,7 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 				response.Status = "conflicts"
 			}
 			response.Entries = append(response.Entries, refreshed)
+			movedRoot = true
 			continue
 		}
 		parent, err := s.Changesets.Get(ctx, entry.ParentChangesetId)
@@ -266,6 +274,13 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 	}
 	if err := s.resolveChangesetAuthors(ctx, response.Entries...); err != nil {
 		return nil, grpcError(err)
+	}
+	// The tree now starts at the target commit; workspaces compare their base
+	// against it before the next sync or modify.
+	if target := strings.TrimSpace(req.TargetBaseCommitId); movedRoot && target != stack.BaseCommitId {
+		if err := s.Changesets.SetStackBaseCommit(ctx, stack.Id, target); err != nil {
+			return nil, grpcError(err)
+		}
 	}
 	if stack.Status == "partial" {
 		if err := s.Changesets.SetStackStatus(ctx, stack.Id, "open"); err != nil {

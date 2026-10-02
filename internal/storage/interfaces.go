@@ -121,6 +121,9 @@ type ChangesetStore interface {
 	GetStack(ctx context.Context, stackID string) (*corev1.ChangesetStack, error)
 	ListStacks(ctx context.Context, req *corev1.ListStacksRequest) ([]*corev1.ChangesetStack, error)
 	SetStackStatus(ctx context.Context, stackID, stackStatus string) error
+	// SetStackBaseCommit records the commit a restack moved the tree's root
+	// changesets onto.
+	SetStackBaseCommit(ctx context.Context, stackID, baseCommitID string) error
 	MoveStackEntry(ctx context.Context, req *corev1.MoveStackEntryRequest) (*corev1.ChangesetStack, error)
 	ReparentStackEntry(ctx context.Context, req *corev1.ReparentStackEntryRequest) (*corev1.ChangesetStack, error)
 	DetachStackEntry(ctx context.Context, subjectID string, req *corev1.DetachStackEntryRequest) (*corev1.DetachStackEntryResponse, error)
