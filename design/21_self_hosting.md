@@ -171,6 +171,105 @@ Production preparation:
 - **Ownership:** both agents were registered with the maintainer's email, so
   the maintainer can claim them at https://gitslice.io/claims.
 
+## Production Run (2026-10-01 – 2026-10-02)
+
+Phase 1:
+
+- **Deploys.** Merged code shipped through the Cloud Build trigger, ahead of
+  the daily schedule:
+  - `14061ca`: Phase 1 code;
+  - `c9b4a74`: #404;
+  - `ec79b88`: #408;
+  - `c38a1b3`: #410.
+- **Organization and slice.** `ops/selfhost/phase1.sh` created:
+  - the `gitslice` organization, owned by `gitslice-operator`;
+  - `gitslice-mirror` as a writer;
+  - the public slice `gitslice/gitslice`.
+- **Import.** A `--deep` import of all 451 commits took about 45 minutes,
+  3–7 s per commit, versus 1 s on staging. Each commit is a sequence of
+  database round trips from Cloud Run to Neon, and staging's Postgres is
+  local. Native submits pay the same per-commit cost.
+- **Drift check.** GitHub `main` moved twice during the import. A re-run took
+  19 s, including a cold projection build on a fresh revision. It imported
+  the two new commits, and the trees then matched.
+- **Tags.** A native `v0.2.0` was created on the commit imported from
+  `b00271e`. It projects as both `v0.2.0` and `gitslice/gitslice/v0.2.0`, and
+  its module tree is `c0f593c…` on both hosts.
+- **Scheduled import.** `GITSLICE_IMPORT_ENABLED` is on. The first run, on
+  the #395 merge, imported that commit in 4 s.
+- **Docs.** #395 went live through Workers Builds; `llms.txt` and the CLI
+  docs now point at the slice.
+- **Workspace.** `gs init gitslice/gitslice` hydrated 503 files in 2.5
+  minutes from a cold cache, and the file list matches the Git tree exactly.
+- **CI host.**
+  - The daemon `gitslice-ci` runs as a PM2 process on the staging host, under
+    the agent `gitslice-checks` (`agent_c4c59942329c74d3303cfacac41154d2`).
+    `gitslice-ci` itself is a reserved username.
+  - The Docker container `gitslice-ci-pg` provides the e2e database.
+  - Runbook: "CI daemon" in the deployment skill.
+
+Exit-check and CI dry run:
+
+- `gs ci` ran in a workspace with a Go edit and a web edit, so that all six
+  checks applied.
+- A draft changeset then went to the CI daemon and was never submitted.
+- Every issue below was fixed before the cutover:
+
+| Finding | Fix |
+|---|---|
+| A required check from a subdirectory's checks file (`gitslice/web/build`) errored for every change outside that directory | #404 |
+| `gs ci` failed `test` inside a workspace: `TestBrowsePrintsWebURL` found the enclosing workspace | #405 |
+| The daemon's Go builds failed on VCS stamping, from a stray empty `/tmp/.git` on the CI host | #406 |
+| Workspaces ignored `.gitignore`. After `gs ci`, `gs status` hashed 600 MB of `node_modules` for minutes, and `gs create --all` would have committed it | #407 |
+| The CI daemon re-registered under a new id once its agent joined the `gitslice` org, so the slice's `ci_daemon_id` went stale | #408 |
+| `TestCLISliceCRUD` flaked under load on the 2-CPU CI host | #409 |
+| After one `gs sync` of a `gs create` draft, the next sync or modify failed with a base mismatch, and restacked patchsets were never checked | #410 |
+| The e2e database filled its tmpfs, because default WAL settings let WAL grow toward 1 GB | `gitslice-ci-pg` now runs with bounded WAL and no fsync |
+| Check logs kept only their first 256 KiB, which dropped test failures and summaries | #411 |
+| Concurrent checks on 2 CPUs made the e2e tests flake | #412, plus `GITSLICE_CHECK_CONCURRENCY=1` on the daemon |
+| #393 committed a 2.8 MB build of `ops/mirror` at the repository root | removed by a Gitslice changeset |
+
+After the fixes, all six checks passed on the daemon for the dry-run
+patchset. `e2e` needed one rerun, before #412.
+
+Measured on the CI host, which has 2 CPUs and 3.3 GiB of memory:
+
+| Operation | Time |
+|---|---|
+| `gs ci`, all six checks | 8.5 min |
+| `web/build` on the daemon | 8 min |
+| e2e | 2–5 min |
+| `gs init` | 2.5 min |
+| `gs sync` of two paths | 3 min |
+
+Phase 2 (cutover at 05:51 UTC on 2026-10-02):
+
+- **Required checks.**
+  - `gitslice/gofmt`
+  - `gitslice/vet`
+  - `gitslice/test`
+  - `gitslice/build`
+  - `gitslice/e2e`
+  - `gitslice/web/build`
+
+  These are the server's account-relative check names.
+- **GitHub `main`.** The ruleset blocks deletion and force pushes. Updates
+  stay open; see step 2 of the runbook.
+- **Final import.** It covered 462 commits.
+- **Flip.** `GITSLICE_IMPORT_ENABLED=false`, `GITSLICE_EXPORT_ENABLED=true`.
+- **First export.** "mirror head 6f125a7cb7a6, 0 new commit(s), 0 new tag(s)".
+- **First native changeset.** This one: the workflow docs from #400 and this
+  record.
+
+Follow-ups:
+
+- `gs ci` names checks from global paths (`gitslice/gitslice/gofmt`), and the
+  server from account-relative ones (`gitslice/gofmt`). Results bundled with
+  `gs cs capture` therefore never satisfy required checks, and the daemon
+  runs them again.
+- `TestSliceTagsInGitProjection` flaked once under load.
+- Cold `gs init` and `gs sync` are slow. Both fetch objects one at a time.
+
 ## Phase 1: Read-Only Copy In Gitslice
 
 Runbook, after the Phase 1 code is deployed. `ops/selfhost/phase1.sh`
@@ -246,9 +345,17 @@ Runbook:
    gs slice update gitslice/gitslice --required-check <id> ...   # ids from gs ci --json
    ```
 
-2. **Protect GitHub `main`.** Add a ruleset that restricts updates, with
-   GitHub Actions as the only bypass actor, so only the export workflow can
-   push.
+2. **Protect GitHub `main`.** Add the ruleset "main is a Gitslice mirror":
+   no deletion, no force pushes.
+   - Restricting ordinary updates needs a bypass actor for the export job.
+     GitHub refuses the Actions app as one, and the organization disables
+     deploy keys.
+   - Two ways to enforce it:
+     - Enable deploy keys for the organization, then push the export with a
+       write deploy key (the approach in closed #413).
+     - Create an organization GitHub App for the export job.
+   - Until one of those exists, the exporter is the guard. It refuses to run
+     over commits that did not come from Gitslice.
 3. **Final import.** Dispatch `mirror-import.yml`, wait for it to finish, then:
 
    ```bash
@@ -307,7 +414,7 @@ resolves against `https://gitslice.io/git/gitslice/gitslice.git`.
   2. Once Gitslice is back, re-apply the fix as a changeset.
   3. Reset `main` to the exporter's output.
 - **Rolling back the flip.**
-  1. Set `GITSLICE_EXPORT_ENABLED=false` and remove the ruleset.
+  1. Set `GITSLICE_EXPORT_ENABLED=false`.
   2. GitHub is current as of the last export. Re-apply by hand any changesets
      submitted after it.
 - **Cold projection builds.** Each Cloud Run instance builds a slice's history

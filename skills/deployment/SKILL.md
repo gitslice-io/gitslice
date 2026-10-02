@@ -30,6 +30,68 @@ awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' .env.staging | sort
 
 Record material deploys and surprising deployment findings in `design/10_execution_log.md`: request, actions, decisions, verification commands, and results. Do not record secrets.
 
+## Source Of Truth
+
+The canonical source is the slice `gitslice/gitslice` on Gitslice
+(`design/21_self_hosting.md`). GitHub `main` is written only by the
+`Mirror from Gitslice` workflow (`.github/workflows/mirror-export.yml`).
+
+- **Shipping a change:** submit it in Gitslice. The export reaches GitHub
+  `main` within about 10 minutes, and the deploy paths below build from there.
+- **What guards the mirror.**
+  - Never push or merge to GitHub `main` directly.
+  - The ruleset `main is a Gitslice mirror` blocks deletion and force pushes.
+  - It cannot restrict ordinary pushes: the organization disables deploy
+    keys, and GitHub refuses the Actions app as a ruleset bypass actor.
+  - A stray commit stops the exporter, which refuses to run over commits that
+    did not come from Gitslice.
+- **Break-glass:** use this only when Gitslice is down and a fix must ship.
+  1. Set `GITSLICE_EXPORT_ENABLED=false`.
+  2. Land the fix on the mirror and deploy it.
+  3. Once Gitslice is back, re-apply the fix as a changeset.
+  4. A repository admin disables the ruleset and resets `main` to the last
+     exported commit. That reset is a force push.
+  5. Re-enable the ruleset and the export.
+
+### CI daemon
+
+The slice's required checks run on the daemon `gitslice-ci`. It is the PM2
+process of that name on the staging host.
+
+- **Identity.** It runs as the agent account `gitslice-checks`, a `reader` of
+  the `gitslice` organization.
+- **Files.** Its HOME is `~/.config/gitslice-ci`. That directory holds:
+  - the CLI config;
+  - the daemon binary `bin/gs`;
+  - the PM2 file `ecosystem.config.js`;
+  - the env file `test-db.env`.
+- **Execution.**
+  - Checks run directly on the host, not in containers.
+  - They use the shared Go and npm caches.
+  - They run one at a time (`GITSLICE_CHECK_CONCURRENCY=1`). On 2 CPUs,
+    concurrent runs made the timing-sensitive e2e tests flake.
+- **Logs.** A check's log streams to the changeset page. It keeps the first
+  32 KiB and the last 224 KiB of output.
+- **e2e database.** The Docker container `gitslice-ci-pg` (postgres:16, data in
+  memory, `127.0.0.1:55433`) serves the e2e check. Its URL is the slice secret
+  `GITSLICE_TEST_DATABASE_URL`.
+- **Restart.** `npx pm2 restart gitslice-ci`.
+- **Upgrade.** From a `gs init gitslice/gitslice` workspace:
+
+  ```bash
+  cd gitslice/gitslice
+  go build -o ~/.config/gitslice-ci/bin/gs.new ./cmd/gs
+  mv -f ~/.config/gitslice-ci/bin/gs.new ~/.config/gitslice-ci/bin/gs
+  npx pm2 restart gitslice-ci
+  ```
+
+  The daemon keeps its id across restarts. Its row is keyed by the agent's
+  account and the daemon name.
+- **If the daemon is down.** Required checks never finish and submits wait.
+  Restart it. If that is impossible, an owner of `gitslice` can drop the gate
+  with `gs slice update gitslice/gitslice --clear-required-checks`. Restore it
+  afterwards with `--required-check`.
+
 ## Current Topology
 
 Backend staging is a Go `gitslice-server` process behind nginx. `ops/nginx.conf` routes `api.agenttools.dev` gRPC services to `127.0.0.1:50052` and `/v1/` plus `/git/` HTTP traffic to `127.0.0.1:8081`.

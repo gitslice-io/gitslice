@@ -44,6 +44,19 @@ The design source of truth is under `design/`, especially:
 - `design/17_continuous_integration.md`
 - `design/21_self_hosting.md`
 
+## Source Of Truth
+
+The canonical source is the public slice `gitslice/gitslice` on Gitslice
+(`design/21_self_hosting.md`). GitHub is a read-only mirror, so do not push to
+it or open pull requests there.
+
+1. Work in a workspace: `gs init gitslice/gitslice` in an empty directory. The
+   module root is `gitslice/gitslice/` inside it.
+2. Run the slice's checks with `gs ci`. The slice's CI daemon also runs the
+   required checks on every patchset.
+3. Land changes as changesets with `gs create` and `gs submit`.
+4. Run `gs sync` before submitting when the base may have moved.
+
 ## Architecture Rules
 
 - Preserve the native storage model. Git is a compatibility layer, not the

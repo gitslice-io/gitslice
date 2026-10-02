@@ -9112,3 +9112,44 @@ Verification:
   a parse error in an undiscovered file. All three fail without the fix.
 - `go test ./tests/rpc -run 'Check|Required|Dispatch'` passes against
   Postgres.
+
+## 2026-10-02 — Gitslice hosts its own source (design/21 in production)
+
+Request: implement everything in design/21_self_hosting.md, in production.
+
+**Production deploys.** Merged code was shipped through the Cloud Build
+trigger, ahead of the daily schedule, because the plan's production steps
+depended on it:
+
+| Commit | Contents | Revision |
+|---|---|---|
+| `14061ca` | Phase 1 code | `gitslice-prod-00055` |
+| `c9b4a74` | #404 | `00056` |
+| `ec79b88` | #408 | `00057` |
+| `c38a1b3` | #410 | `00058` |
+
+Each deploy passed the `StartCliLogin` and web checks and logged no errors.
+None needed a rollback.
+
+**Phase 1.** `ops/selfhost/phase1.sh`:
+- created the `gitslice` organization, owned by `gitslice-operator`, with
+  `gitslice-mirror` as a writer;
+- created the public slice `gitslice/gitslice`;
+- imported all 451 GitHub commits in about 45 minutes, at 3–7 s per commit
+  against Neon.
+
+Then:
+- The only drift was GitHub moving during the import, and a 19 s re-run
+  closed it.
+- A native `v0.2.0` projects with module tree `c0f593c…`, identical to
+  GitHub's.
+- The scheduled import has run on every merge since, and the trees still
+  match.
+
+**Phase 2 preparation.** The CI daemon runs:
+- as the `gitslice-ci` PM2 process on the staging host;
+- under the agent `gitslice-checks`, a reader of `gitslice`;
+- against the e2e database container `gitslice-ci-pg`.
+
+The `gs ci` exit check and a daemon dry run found the bugs fixed in #404–#410.
+design/21 "Production Run" lists them.
