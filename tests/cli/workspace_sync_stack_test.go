@@ -43,6 +43,19 @@ func TestWorkspaceSyncsDependencyTreeRepeatedly(t *testing.T) {
 	runCLI(t, home, verify, "workspace", "init", "acme/payment")
 	assertWorkspaceFile(t, verify, "acme/payment/draft.go", "package payment\nconst Draft = 2\n")
 	assertWorkspaceFile(t, verify, "acme/payment/second.go", "package payment\n")
+
+	// With every changeset in the tree submitted, the workspace keeps working
+	// after the next sync. The tree's base used to stay behind, so status
+	// failed with the base mismatch.
+	writeWorkspaceFile(t, workspaceB, "acme/payment/third.go", "package payment\n")
+	runCLI(t, home, workspaceB, "cs", "create", "--title", "remote third.go")
+	runCLI(t, home, workspaceB, "cs", "submit")
+	runCLI(t, home, workspaceA, "sync")
+	assertWorkspaceFile(t, workspaceA, "acme/payment/third.go", "package payment\n")
+	runCLI(t, home, workspaceA, "status")
+	writeWorkspaceFile(t, workspaceA, "acme/payment/next.go", "package payment\n")
+	runCLI(t, home, workspaceA, "create", "--message", "next change", "--all")
+	runCLI(t, home, workspaceA, "submit")
 }
 
 // TestSyncRestackDispatchesChecks checks that the patchset a sync restack

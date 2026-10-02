@@ -9153,3 +9153,26 @@ Then:
 
 The `gs ci` exit check and a daemon dry run found the bugs fixed in #404–#410.
 design/21 "Production Run" lists them.
+
+## 2026-10-02 — A fully submitted dependency tree keeps following sync
+
+This is the first code change developed and landed through Gitslice itself
+(design/21, Phase 2).
+
+**The bug.** After both cutover changesets in one `gs create` tree were
+submitted, `gs sync` moved the workspace to the new head, but `Restack`
+skipped the submitted entries. It moved the tree's base only when it had
+restacked a root (#410). The next `gs status` or `gs create` in that workspace
+failed with "workspace base does not match the active dependency tree base".
+
+**The fix.** `Restack` records the target as the tree's base whenever its
+selection includes a root, including a submitted one, because a submitted root
+is part of the target's history.
+
+**Verification.** `TestWorkspaceSyncsDependencyTreeRepeatedly` now also:
+- submits the whole tree;
+- syncs after head moves again;
+- runs `status`;
+- creates and submits another change.
+
+Without the fix it fails at that `gs create`.

@@ -208,8 +208,11 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 		dispatcher:  s.dispatcher,
 	}
 	response := &corev1.RestackResponse{StackId: stack.Id, Status: "clean"}
-	movedRoot := false
+	selectedRoot := false
 	for _, entry := range entries {
+		if entry.ParentChangesetId == "" {
+			selectedRoot = true
+		}
 		cs, err := s.Changesets.Get(ctx, entry.ChangesetId)
 		if err != nil {
 			return nil, grpcError(err)
@@ -240,7 +243,6 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 				response.Status = "conflicts"
 			}
 			response.Entries = append(response.Entries, refreshed)
-			movedRoot = true
 			continue
 		}
 		parent, err := s.Changesets.Get(ctx, entry.ParentChangesetId)
@@ -275,9 +277,10 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 	if err := s.resolveChangesetAuthors(ctx, response.Entries...); err != nil {
 		return nil, grpcError(err)
 	}
-	// The tree now starts at the target commit; workspaces compare their base
-	// against it before the next sync or modify.
-	if target := strings.TrimSpace(req.TargetBaseCommitId); movedRoot && target != stack.BaseCommitId {
+	// The tree now starts at the target commit: its roots moved there, or were
+	// submitted and are part of its history. Workspaces compare their base
+	// against it before the next sync, status or modify.
+	if target := strings.TrimSpace(req.TargetBaseCommitId); selectedRoot && target != "" && target != stack.BaseCommitId {
 		if err := s.Changesets.SetStackBaseCommit(ctx, stack.Id, target); err != nil {
 			return nil, grpcError(err)
 		}
