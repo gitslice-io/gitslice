@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -148,6 +149,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		conversations:   map[string]*agentConversation{},
 		checkRuns:       map[string]context.CancelFunc{},
 		recentCheckRuns: map[string]struct{}{},
+		checkSlots:      checkSlotsFromEnv(),
 	}
 	daemon.loadExistingConversations()
 	daemon.lastActivity = time.Now()
@@ -337,6 +339,10 @@ type agentDaemon struct {
 	lastActivity time.Time
 	activeWork   int
 	idleShutdown bool
+
+	// checkSlots bounds how many checks run at once
+	// (GITSLICE_CHECK_CONCURRENCY); nil runs every dispatched check at once.
+	checkSlots chan struct{}
 
 	mu                  sync.Mutex
 	conversations       map[string]*agentConversation
@@ -1581,6 +1587,17 @@ func agentRuntimeForName(name string) (agentRuntime, error) {
 	default:
 		return nil, userError("invalid_agent_runtime", "unsupported agent runtime: "+name, "Only codex is supported in this version.")
 	}
+}
+
+// checkSlotsFromEnv reads GITSLICE_CHECK_CONCURRENCY, the most checks the
+// daemon runs at once. Unset or not a positive number means no limit; a small
+// CI host sets 1 so timing-sensitive test suites do not compete for CPU.
+func checkSlotsFromEnv() chan struct{} {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("GITSLICE_CHECK_CONCURRENCY")))
+	if err != nil || n <= 0 {
+		return nil
+	}
+	return make(chan struct{}, n)
 }
 
 func defaultAgentName() string {
