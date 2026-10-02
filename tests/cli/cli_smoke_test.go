@@ -460,7 +460,15 @@ func TestCLISliceCRUD(t *testing.T) {
 			t.Fatalf("created slice output missing %q:\n%s", want, created)
 		}
 	}
-	docsHistory := runCLI(t, home, workspace, "log", "--slice", "acme/docs")
+	// Slice history comes from an index the server updates after the submit
+	// returns, so a loaded machine can briefly show it without the commit.
+	var docsHistory string
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		docsHistory = runCLI(t, home, workspace, "log", "--slice", "acme/docs")
+		if strings.Contains(docsHistory, "slice crud seed") || time.Now().After(deadline) {
+			break
+		}
+	}
 	if !strings.Contains(docsHistory, "slice crud seed") {
 		t.Fatalf("docs slice commit history missing seed commit:\n%s", docsHistory)
 	}
