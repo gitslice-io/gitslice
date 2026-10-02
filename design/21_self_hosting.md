@@ -1,10 +1,16 @@
 # 21. Self-Hosting: Gitslice Source On Gitslice
 
-Status (2026-10-01):
+Status (2026-10-02):
 
-- Phase 0 is live.
-- The code for Phases 1–3 is merged or in review (see "Work Items").
-- Each operational step below is a runbook, and each phase has an exit check.
+- **Phases 0–3 are live.** Gitslice hosts its own source in the slice
+  `gitslice/gitslice`.
+  - GitHub `gitslice-io/gitslice` is a mirror written by the export workflow.
+  - `go install gitslice.io/gitslice/cmd/gs` resolves through Gitslice's own
+    Git endpoint.
+- **Still running:** Phase 2's exit check, "a week of changes lands only
+  through `gs submit`", started at the cutover.
+- **Open items:** "Production Run" lists them under "Follow-ups", including two
+  decisions for an organization admin.
 
 ## Goal
 
@@ -262,14 +268,72 @@ Phase 2 (cutover at 05:51 UTC on 2026-10-02):
 - **First native changeset.** This one: the workflow docs from #400 and this
   record.
 
+Phase 3 (2026-10-02):
+
+- **Native changesets since the cutover.** All were checked by the CI daemon
+  and exported to `main`.
+
+  | Native commit | Change | Checks |
+  |---|---|---|
+  | `221a1af` | `Restack` also moves the tree's base for submitted roots | Five Go checks. `test` needed a rerun for the tag-test flake fixed below |
+  | `9d3c874` | go-import stage 2 (#401) | `web/build`, rerun after the CI host's disk filled |
+  | `c2b4f17` | The tag test takes its commit from the submit, the `test` check drops the database URL, and Go checks build with `-trimpath` | All five. `test` now takes 37 s instead of about 5 min |
+
+- **Deploys from the mirror.** Cloud Build deployed `7b2161e`, the mirror
+  commit of `221a1af`, as revision `gitslice-prod-00059`. Workers Builds
+  deployed `2c677dd`. Both completed Phase 2's deploy exit check.
+- **Release.**
+  - `v0.3.0` was tagged natively at `c2b4f17`.
+  - The exporter pushed it with mirror commit `8b87078`.
+  - `release.yml` published gs v0.3.0 for six platforms.
+- **Tree equality.** v0.2.0 is `c0f593c…` and v0.3.0 is `c899787…` on both
+  hosts.
+- **Exit check.** With `GOPROXY=direct GOTOOLCHAIN=go1.25.11`, `go install
+  gitslice.io/gitslice/cmd/gs@v0.3.0` printed `gs version v0.3.0`. Its origin
+  was `https://gitslice.io/git/gitslice/gitslice.git`, subdir
+  `gitslice/gitslice`, ref `refs/tags/gitslice/gitslice/v0.3.0`, and the sum
+  verified against sum.golang.org. `go install …@latest` through the default
+  proxy and `install.sh` also gave v0.3.0.
+
+More findings in Phase 3:
+
+- **Disk.** The CI host's disk filled: 63 GB, at 100%.
+  - The cause: Go builds in a fresh `/tmp/gitslice-check-*` copy recorded
+    that path, so every run added a new set of entries to the shared build
+    cache, 4.8 GB in one day.
+  - `-trimpath` in the checks' `GOFLAGS` (`c2b4f17`) keeps the cache keys
+    stable.
+- **Duplicate e2e.** The `test` check saw the slice secret and ran the
+  Postgres suites a second time.
+
 Follow-ups:
 
-- `gs ci` names checks from global paths (`gitslice/gitslice/gofmt`), and the
-  server from account-relative ones (`gitslice/gofmt`). Results bundled with
-  `gs cs capture` therefore never satisfy required checks, and the daemon
-  runs them again.
-- `TestSliceTagsInGitProjection` flaked once under load.
-- Cold `gs init` and `gs sync` are slow. Both fetch objects one at a time.
+- **Export credential (organization admin).**
+  - `GITHUB_TOKEN` cannot push changes to `.github/workflows/`. A native
+    changeset that touches workflows would stall the exporter on that
+    commit, so until this is fixed, change workflows only through the
+    break-glass path.
+  - Fix: give the export job a credential with workflow write, either a
+    fine-grained token or an organization GitHub App.
+  - Pushes with that credential trigger workflows, so drop the export's
+    dispatch steps in the same change.
+  - An App could also be the ruleset's bypass actor, which would let the
+    ruleset restrict updates on `main`.
+- **Load-test noise.** The export dispatches `ci.yml`, and dispatched runs
+  include the opt-in load tests. Those exceed their p95 budget on GitHub
+  runners, so every mirror commit shows a failing "Load tests" job. This goes
+  away with the credential above, because push-triggered CI skips the job.
+- **Check naming.** `gs ci` names checks from global paths
+  (`gitslice/gitslice/gofmt`), and the server from account-relative ones
+  (`gitslice/gofmt`). Results bundled with `gs cs capture` therefore never
+  satisfy required checks, and the daemon runs them again.
+- **Slow workspace commands.** Cold `gs init` (25 s–2.5 min) and `gs sync`
+  (about 3 min) fetch objects one at a time.
+- **Workspace base after stacked submits.** After stacked changesets are
+  submitted, `gs status` keeps diffing against the workspace's old base until
+  `gs sync`.
+- **CI host capacity.** 2 CPUs and 3.3 GiB of memory: one check at a time,
+  and a full check run takes about 15 minutes.
 
 ## Phase 1: Read-Only Copy In Gitslice
 

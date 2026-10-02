@@ -9176,3 +9176,35 @@ is part of the target's history.
 - creates and submits another change.
 
 Without the fix it fails at that `gs create`.
+
+## 2026-10-02 — Cutover and Phase 3 of design/21
+
+**Phase 2.** At 05:51 UTC:
+- the final import covered 462 commits;
+- `GITSLICE_IMPORT_ENABLED` went false and `GITSLICE_EXPORT_ENABLED` true;
+- the first export reported 0 new commits.
+
+Before the flip, the slice got its six required checks, and GitHub `main` got
+the ruleset "main is a Gitslice mirror".
+- The ruleset blocks deletion and force pushes only.
+- GitHub rejected the Actions app as a bypass actor, and the organization
+  disables deploy keys, so restricting updates waits on an export credential.
+
+The first native changesets were:
+- the workflow docs (#400 content);
+- the removal of the stray `mirror` binary.
+
+**Phase 3.** Three code changes went through the dogfood loop:
+- the stack-base fix;
+- the go-import stage 2;
+- the test and checks fixes.
+
+The CI daemon ran their required checks, and Cloud Build and Workers Builds
+deployed them from the mirror. `v0.3.0` was tagged natively, exported, and
+released. `GOPROXY=direct go install gitslice.io/gitslice/cmd/gs@v0.3.0`
+resolves through `https://gitslice.io/git/gitslice/gitslice.git`.
+
+The CI host's disk filled, and the cause was per-path Go build-cache churn.
+The fix was trimming today's entries and adding `-trimpath`.
+
+design/21 "Production Run" has the details and the follow-ups.
