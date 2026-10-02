@@ -8326,7 +8326,7 @@ func (r Runner) materializeWorkspaceSnapshot(ctx context.Context, conn *grpc.Cli
 	if err != nil {
 		return err
 	}
-	current, err := r.scanWorkspaceFiles(ws)
+	current, err := r.scanWorkspaceFiles(ws, snapshot.Files)
 	if err != nil {
 		return err
 	}
@@ -11214,7 +11214,7 @@ func (r Runner) snapshotEditsAgainstBase(ctx context.Context, conn *grpc.ClientC
 
 func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool, hashConcurrency, uploadConcurrency int) ([]*corev1.FileEdit, map[string]workingFile, snapshotEditsStats, error) {
 	var stats snapshotEditsStats
-	current, scanStats, err := r.scanWorkspaceFilesWithStats(ctx, ws, hashConcurrency)
+	current, scanStats, err := r.scanWorkspaceFilesWithStats(ctx, ws, hashConcurrency, base.Files)
 	stats.Scan = scanStats
 	if err != nil {
 		return nil, nil, stats, err
@@ -11418,12 +11418,15 @@ type workspaceScanCandidate struct {
 	linkTarget *string // set for symlinks; hashed instead of the file they point to
 }
 
-func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig) (map[string]workingFile, error) {
-	files, _, err := r.scanWorkspaceFilesWithStats(context.Background(), ws, defaultCaptureHashConcurrency())
+// scanWorkspaceFiles hashes the workspace's files. Untracked paths matched by
+// .gitignore files are skipped; tracked adds snapshots whose files count as
+// tracked besides the workspace base.
+func (r Runner) scanWorkspaceFiles(ws WorkspaceConfig, tracked ...map[string]BaseSnapshotFile) (map[string]workingFile, error) {
+	files, _, err := r.scanWorkspaceFilesWithStats(context.Background(), ws, defaultCaptureHashConcurrency(), tracked...)
 	return files, err
 }
 
-func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceConfig, concurrency int) (map[string]workingFile, workspaceScanStats, error) {
+func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceConfig, concurrency int, tracked ...map[string]BaseSnapshotFile) (map[string]workingFile, workspaceScanStats, error) {
 	var stats workspaceScanStats
 	cache, err := r.objectCache()
 	if err != nil {
@@ -11436,6 +11439,11 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	if len(ws.IncludedPaths) == 0 {
 		return nil, stats, fmt.Errorf("workspace has no included paths")
 	}
+	base, err := r.readBaseSnapshot()
+	if err != nil {
+		return nil, stats, err
+	}
+	ignore := newWorkspaceIgnore(root, ws, append([]map[string]BaseSnapshotFile{base.Files}, tracked...)...)
 	candidates := []workspaceScanCandidate{}
 	walkStarted := time.Now()
 	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
@@ -11453,7 +11461,7 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if shouldSkip(rel, entry) {
+		if shouldSkip(rel, entry) || ignore.skip(rel, entry.IsDir()) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
