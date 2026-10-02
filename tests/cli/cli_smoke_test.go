@@ -2136,6 +2136,7 @@ type testServer struct {
 	defaultSubjectID string
 	memberTokens     map[string]string
 	operatorSubjects []string
+	agentSignup      bool
 }
 
 func startTestServer(t *testing.T) *testServer {
@@ -2209,8 +2210,10 @@ func (ts *testServer) launch(t *testing.T, migrate bool) error {
 				PublicKeyPEM: ts.servicePub,
 				Issuer:       servicetoken.DefaultIssuer,
 			},
-			RunMigrations:    migrate,
-			OperatorSubjects: ts.operatorSubjects,
+			RunMigrations:      migrate,
+			OperatorSubjects:   ts.operatorSubjects,
+			AgentSignupEnabled: ts.agentSignup,
+			AgentSignupPerHour: 100,
 		})
 	}()
 	return waitForHealth(ts.addr, ts.errCh)

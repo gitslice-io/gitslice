@@ -749,8 +749,12 @@ func (s *AuthStore) ListSubjectAccountSlugs(ctx context.Context, subjectID strin
 		join accounts a on a.id = m.account_id
 		where m.subject_id = $1
 		order by
+			-- The caller's own personal account comes first, whether the
+			-- subject is a seeded user, an external login or an agent;
+			-- callers such as daemon registration key off it. Agent accounts
+			-- the caller claimed come last.
 			case
-				when a.kind = 'personal' and $1 = 'user_' || replace(a.slug, '-', '_') then 0
+				when a.kind = 'personal' and `+notOthersAgentAccountSQL+` then 0
 				when not (`+notOthersAgentAccountSQL+`) then 2
 				else 1
 			end,
