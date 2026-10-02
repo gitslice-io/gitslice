@@ -79,13 +79,14 @@ The module path is `gitslice.io/gitslice`, so the command is:
 
 - **v0.2.0** is the first release under this path. `v0.1.x` declare the old
   path.
-- **Stage 1 (live).** The Worker answers `GET /gitslice/…?go-get=1` with:
+- **Stage 1 (2026-10-01 to 2026-10-02).** The Worker answered
+  `GET /gitslice/…?go-get=1` with:
 
       <meta name="go-import" content="gitslice.io/gitslice git https://github.com/gitslice-io/gitslice">
 
   Verified on 2026-10-01 through `proxy.golang.org` and with
   `GOPROXY=direct`.
-- **Stage 2.** Change the `goModules` entry to:
+- **Stage 2 (live since 2026-10-02).** The `goModules` entry serves:
 
       <meta name="go-import" content="gitslice.io/gitslice git https://gitslice.io/git/gitslice/gitslice.git gitslice/gitslice">
 
