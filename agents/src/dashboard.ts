@@ -181,7 +181,10 @@ function connect() {
     if (msg.type === "snapshot") {
       sessions.clear();
       for (const s of msg.sessions) sessions.set(s.id, s);
-      events = msg.events || [];
+      // Merge rather than replace: a reconnect must not blank the feed.
+      const seen = new Set(events.map((e) => e.at + "|" + e.message));
+      events = events.concat((msg.events || []).filter((e) => !seen.has(e.at + "|" + e.message))).sort((a, b) => a.at - b.at).slice(-200);
+      if (!msg.sessions.length) events = msg.events || [];
       stats = msg.stats;
       baseline = msg.baseline;
     } else if (msg.type === "session") {

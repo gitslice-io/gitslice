@@ -154,6 +154,7 @@ the slice. The Hub notices and lands it.
 
 ```bash
 npm install
+npm run check                                     # generates the binding types and type-checks
 npx wrangler queues create gitslice-agents-events
 npx wrangler queues subscription create gitslice-agents-events --source artifacts --events repo.pushed
 # Edit wrangler.jsonc: route, namespace, GITSLICE_* URLs, SLICES, PROTECTED_PATHS.
