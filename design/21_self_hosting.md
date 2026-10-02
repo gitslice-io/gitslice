@@ -246,9 +246,13 @@ Runbook:
    gs slice update gitslice/gitslice --required-check <id> ...   # ids from gs ci --json
    ```
 
-2. **Protect GitHub `main`.** Add a ruleset that restricts updates, with
-   GitHub Actions as the only bypass actor, so only the export workflow can
-   push.
+2. **Protect GitHub `main`.**
+   - Add a ruleset, "main is a Gitslice mirror", that restricts updates,
+     deletion and force pushes, with deploy keys as the only bypass actor.
+   - Rulesets do not accept the GitHub Actions app as a bypass actor in this
+     organization.
+   - The export workflow pushes with the write deploy key whose private half
+     is the `GITSLICE_EXPORT_DEPLOY_KEY` secret.
 3. **Final import.** Dispatch `mirror-import.yml`, wait for it to finish, then:
 
    ```bash
@@ -270,8 +274,11 @@ How the exporter works (`ops/mirror`):
   message.
 - It refuses to run when `main` has commits that did not come from Gitslice,
   or when its tree differs from the matching projected commit.
-- It pushes new tags. Version tags start `release.yml` through
-  `workflow_dispatch`.
+- It pushes new tags.
+- Its pushes use the deploy key, so they trigger workflows like any other
+  push:
+  - exported commits start `ci.yml`;
+  - version tags start `release.yml`.
 
 Exit check:
 
