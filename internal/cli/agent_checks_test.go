@@ -835,3 +835,53 @@ func (s *fakeCheckRepoServer) ListDirectory(ctx context.Context, req *corev1.Lis
 func (s *fakeCheckRepoServer) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
 	return s.repo.ReadFile(ctx, req)
 }
+
+func TestHandleRunChecksHonorsCheckConcurrency(t *testing.T) {
+	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{"/": nil}, nil)
+	addr, stop := startFakeCheckRepoServer(t, repo)
+	defer stop()
+
+	sendQueue := &agentSendQueue{
+		ch:   make(chan *corev1.DaemonMessage, 64),
+		done: make(chan struct{}),
+	}
+	d := newTestCheckDaemon(t)
+	d.cfg = UserConfig{ServerAddr: addr}
+	d.baseCtx = context.Background()
+	d.sendQueue = sendQueue
+	d.checkRuns = map[string]context.CancelFunc{}
+	d.checkSlots = make(chan struct{}, 1)
+
+	marks := t.TempDir()
+	request := func(name string) *corev1.RunChecks {
+		// Each check appends start and end marks; with one slot they must
+		// never interleave.
+		return &corev1.RunChecks{
+			ResultTreeId: "tree-1",
+			ServerAddr:   addr,
+			Checks: []*corev1.CheckRunSpec{{
+				RunId:            "run-" + name,
+				Name:             name,
+				Command:          fmt.Sprintf("echo start >> %[1]s/log; sleep 0.3; echo end >> %[1]s/log", marks),
+				MaterializePaths: []string{"/"},
+			}},
+		}
+	}
+	var wg sync.WaitGroup
+	for _, name := range []string{"one", "two"} {
+		wg.Add(1)
+		go func(req *corev1.RunChecks) {
+			defer wg.Done()
+			d.handleRunChecks(req)
+		}(request(name))
+	}
+	wg.Wait()
+
+	data, err := os.ReadFile(filepath.Join(marks, "log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Fields(string(data)); strings.Join(got, " ") != "start end start end" {
+		t.Fatalf("checks overlapped: %v", got)
+	}
+}

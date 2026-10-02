@@ -545,6 +545,16 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 	defer cancel()
 
 	seq := int64(0)
+	if d.checkSlots != nil {
+		// The run stays queued until a slot frees up.
+		select {
+		case d.checkSlots <- struct{}{}:
+			defer func() { <-d.checkSlots }()
+		case <-runCtx.Done():
+			d.emitCheckRunTerminal(spec.GetRunId(), &seq, "canceled", -1, "canceled")
+			return
+		}
+	}
 	d.emitCheckRunRunning(spec.GetRunId(), &seq)
 
 	tempDir, err := os.MkdirTemp("", "gitslice-check-*")
