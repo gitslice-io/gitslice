@@ -16,6 +16,10 @@ There are no branches to rebase and no merge queue to wait in.
 **Live:** https://agents.gitslice.io is the dashboard for the demo slice
 `demo/store`.
 
+**Demo video** (6:48): a hundred agents land a hundred changesets in one
+codebase. Download it, with captions, from the
+[release](https://github.com/gitslice-io/gitslice/releases/tag/agents-demo-2026-10-02).
+
 ## Why
 
 Coding agents need two things that pull in opposite directions:

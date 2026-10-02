@@ -30,8 +30,9 @@ codebase:
 - validated path by path;
 - merged line by line when two agents touched the same file.
 
-Live dashboard: https://agents.gitslice.io. Design:
-[design/22_agents_on_artifacts.md](design/22_agents_on_artifacts.md).
+Live dashboard: https://agents.gitslice.io. Demo video:
+[release `agents-demo-2026-10-02`](https://github.com/gitslice-io/gitslice/releases/tag/agents-demo-2026-10-02).
+Design: [design/22_agents_on_artifacts.md](design/22_agents_on_artifacts.md).
 
 ## Install
 
