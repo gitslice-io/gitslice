@@ -7,11 +7,14 @@ version: 1
 defaults:
   timeout: "20m"
   env:
-    # A check runs on a copy of the tree without any VCS metadata. Without
-    # -buildvcs=false, go build (also inside the e2e tests) stamps from
-    # whatever .git it finds above that copy, and fails when that is not a
-    # real repository (a stray /tmp/.git broke every build on the CI host).
-    GOFLAGS: "-mod=readonly -buildvcs=false"
+    # A check runs on a fresh copy of the tree without any VCS metadata.
+    # -buildvcs=false: go build (also inside the e2e tests) would otherwise
+    # stamp from whatever .git sits above that copy, and fail when that is not
+    # a real repository (a stray /tmp/.git broke every build on the CI host).
+    # -trimpath: compiled files would otherwise record the copy's random path,
+    # so every run filled the shared Go build cache with new entries (4.8 GB
+    # in a day on the CI host).
+    GOFLAGS: "-mod=readonly -buildvcs=false -trimpath"
 
 checks:
   gofmt:
@@ -26,7 +29,9 @@ checks:
 
   test:
     description: "Go unit tests"
-    run: "go test ./..."
+    # The e2e check runs the Postgres suites; without the database URL they
+    # skip here, as in GitHub's unit job, instead of running twice.
+    run: "env -u GITSLICE_TEST_DATABASE_URL go test ./..."
     paths: ["**/*.go", "go.mod", "go.sum", "internal/postgres/migrations/**"]
 
   build:

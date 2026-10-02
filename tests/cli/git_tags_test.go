@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,17 +20,12 @@ func TestSliceTagsInGitProjection(t *testing.T) {
 	runCLI(t, home, payment, "workspace", "init", "acme/payment")
 	runCLI(t, home, backend, "workspace", "init", "acme/backend")
 
-	submitWorkspaceFile(t, home, payment, "one.go", "package payment\nconst One = 1\n", "payment one")
-	logRaw := runCLI(t, home, payment, "log", "--slice", "acme/payment", "--limit", "1", "--json")
-	var history struct {
-		Commits []struct {
-			ID string `json:"id"`
-		} `json:"commits"`
-	}
-	if err := json.Unmarshal([]byte(logRaw), &history); err != nil || len(history.Commits) != 1 {
-		t.Fatalf("slice log %q: %v", logRaw, err)
-	}
-	paymentOne := history.Commits[0].ID
+	writeWorkspaceFile(t, payment, "one.go", "package payment\nconst One = 1\n")
+	runCLI(t, home, payment, "cs", "create", "--title", "payment one")
+	// Take the commit from the submit response. Slice history is indexed after
+	// submit returns, so on a busy host `gs log` could still name the previous
+	// commit; the tag then pointed outside the projection and was left out.
+	paymentOne := submittedRefCommitID(t, runCLI(t, home, payment, "cs", "submit", "--json"))
 	// The global head moves past the payment commit without touching the slice.
 	submitWorkspaceFile(t, home, backend, "acme/backend/b.go", "package backend\n", "backend change")
 
