@@ -8,6 +8,7 @@ node_modules/
 
 # build artifacts and local deploy helpers
 /bin/
+/mirror
 /deploy/
 /.tmp/
 
