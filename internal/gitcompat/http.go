@@ -165,10 +165,17 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo 
 	if encoding := r.Header.Get("Content-Encoding"); encoding != "" {
 		cmd.Env = append(cmd.Env, "HTTP_CONTENT_ENCODING="+encoding)
 	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("git http-backend failed: %w\n%s", err, string(out))
+	// Only stdout is the CGI response. Git writes pack progress to stderr
+	// when a client negotiates neither side-band nor no-progress (minimal
+	// clients such as the importer behind Cloudflare Artifacts); mixed into
+	// the body, it corrupts the packfile those clients read.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git http-backend failed: %w\n%s", err, stderr.String())
 	}
+	out := stdout.Bytes()
 	headers, payload, ok := splitCGIResponse(out)
 	if !ok {
 		return errors.New("git http-backend returned malformed CGI response")

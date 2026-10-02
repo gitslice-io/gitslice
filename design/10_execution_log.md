@@ -9208,3 +9208,26 @@ The CI host's disk filled, and the cause was per-path Go build-cache churn.
 The fix was trimming today's entries and adding `-trimpath`.
 
 design/21 "Production Run" has the details and the follow-ups.
+
+## 2026-10-02 — Git fetches without side-band get a clean packfile
+
+Cloudflare Artifacts could import a GitHub repository but not a Gitslice
+slice: every `import()` from `https://gitslice.io/git/...` failed with "An
+internal error occurred."
+
+**Diagnosis.** A logging proxy showed the importer's requests:
+
+- The fetch asks for `want <head> ofs-delta` and negotiates neither
+  `side-band-64k` nor `no-progress`.
+- Git then writes pack progress ("Enumerating objects…") to stderr.
+- `serveBackend` read `git http-backend` with `CombinedOutput()`, so that text
+  landed in the response between `NAK` and `PACK` and corrupted the packfile.
+- Git clients never noticed, because they negotiate side-band, which carries
+  progress inside the protocol.
+
+**Fix.** Only stdout becomes the CGI response. stderr is kept for the error
+message.
+
+**Verification.** `TestGitFetchWithoutSideBand` sends the importer's exact
+request and requires `NAK` followed directly by `PACK`. It fails without the
+fix with "NAK\nEnumerating objects: 5, done.".
