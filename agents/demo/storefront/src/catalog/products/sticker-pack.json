@@ -1,0 +1,10 @@
+{
+  "sku": "sticker-pack",
+  "name": "Sticker Pack",
+  "priceCents": 600,
+  "currency": "USD",
+  "tags": [
+    "stationery"
+  ],
+  "stock": 25
+}

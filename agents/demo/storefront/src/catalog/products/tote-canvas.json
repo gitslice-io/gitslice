@@ -1,0 +1,10 @@
+{
+  "sku": "tote-canvas",
+  "name": "Canvas Tote",
+  "priceCents": 1600,
+  "currency": "USD",
+  "tags": [
+    "bags"
+  ],
+  "stock": 25
+}

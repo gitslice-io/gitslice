@@ -1,0 +1,10 @@
+{
+  "sku": "notebook-dot",
+  "name": "Dot Notebook",
+  "priceCents": 1200,
+  "currency": "USD",
+  "tags": [
+    "stationery"
+  ],
+  "stock": 25
+}

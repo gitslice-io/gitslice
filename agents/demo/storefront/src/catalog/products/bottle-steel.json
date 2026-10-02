@@ -1,0 +1,11 @@
+{
+  "sku": "bottle-steel",
+  "name": "Steel Bottle",
+  "priceCents": 2900,
+  "currency": "USD",
+  "tags": [
+    "outdoor",
+    "kitchen"
+  ],
+  "stock": 25
+}

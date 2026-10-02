@@ -1,0 +1,11 @@
+{
+  "sku": "tee-classic",
+  "name": "Classic Tee",
+  "priceCents": 2400,
+  "currency": "USD",
+  "tags": [
+    "apparel",
+    "cotton"
+  ],
+  "stock": 25
+}

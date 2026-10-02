@@ -1,0 +1,10 @@
+{
+  "sku": "mug-stoneware",
+  "name": "Stoneware Mug",
+  "priceCents": 1800,
+  "currency": "USD",
+  "tags": [
+    "kitchen"
+  ],
+  "stock": 25
+}

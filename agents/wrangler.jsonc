@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "gitslice-agents",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "routes": [{ "pattern": "agents.gitslice.io", "custom_domain": true }],
+  // Every agent session is a fork in this Artifacts namespace.
+  "artifacts": [{ "binding": "ARTIFACTS", "namespace": "gitslice-agents" }],
+  // The review agent runs on Workers AI.
+  "ai": { "binding": "AI" },
+  // One Hub per slice: sessions, baselines, coordination, live stream.
+  "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }],
+  // Artifacts repo.pushed events arrive on this queue (event subscription
+  // "gitslice-agents-pushes"); the Worker also enqueues explicit nudges.
+  "queues": {
+    "producers": [{ "binding": "EVENTS", "queue": "gitslice-agents-events" }],
+    "consumers": [{ "queue": "gitslice-agents-events", "max_batch_size": 10, "max_batch_timeout": 1, "max_concurrency": 25, "max_retries": 5 }]
+  },
+  "vars": {
+    "GITSLICE_API": "https://api.gitslice.io",
+    "GITSLICE_GIT": "https://gitslice.io/git",
+    "GITSLICE_WEB": "https://gitslice.io",
+    "ARTIFACTS_NAMESPACE": "gitslice-agents",
+    "SLICES": "demo/store,demo/storefront",
+    "PROTECTED_PATHS": "/src/checkout/payments*",
+    "BASELINE_DEPTH": ""
+  },
+  "observability": { "enabled": true }
+}

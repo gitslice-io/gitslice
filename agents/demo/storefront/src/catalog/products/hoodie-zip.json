@@ -1,0 +1,11 @@
+{
+  "sku": "hoodie-zip",
+  "name": "Zip Hoodie",
+  "priceCents": 5900,
+  "currency": "USD",
+  "tags": [
+    "apparel",
+    "warm"
+  ],
+  "stock": 25
+}

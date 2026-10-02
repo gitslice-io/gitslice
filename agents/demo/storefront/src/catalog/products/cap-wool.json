@@ -1,0 +1,11 @@
+{
+  "sku": "cap-wool",
+  "name": "Wool Cap",
+  "priceCents": 2200,
+  "currency": "USD",
+  "tags": [
+    "apparel",
+    "winter"
+  ],
+  "stock": 25
+}

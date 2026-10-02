@@ -1,0 +1,12 @@
+{
+  "nav.home": "Home",
+  "nav.search": "Search",
+  "nav.cart": "Cart",
+  "cart.empty": "Your cart is empty",
+  "cart.add": "Add to cart",
+  "cart.remove": "Remove",
+  "cart.items": "{count} items",
+  "checkout.title": "Checkout",
+  "checkout.pay": "Pay {amount}",
+  "checkout.success": "Thank you! Your order is confirmed."
+}

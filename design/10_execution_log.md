@@ -9209,25 +9209,39 @@ The fix was trimming today's entries and adding `-trimpath`.
 
 design/21 "Production Run" has the details and the follow-ups.
 
-## 2026-10-02 — Git fetches without side-band get a clean packfile
+## 2026-10-02 — Agents on Cloudflare Artifacts (design/22)
 
-Cloudflare Artifacts could import a GitHub repository but not a Gitslice
-slice: every `import()` from `https://gitslice.io/git/...` failed with "An
-internal error occurred."
+`agents/` is a Cloudflare Worker that gives every agent its own Artifacts
+repository and lands what they push in one Gitslice codebase. It is live at
+https://agents.gitslice.io and was built for Cloudflare's "Build the next
+GitHub" competition.
 
-**Diagnosis.** A logging proxy showed the importer's requests:
+**The recorded run** on `demo/store`: one agent by hand, then 99 from the
+swarm.
+- 100 of 100 changesets landed, the swarm in 126 s.
+- The median from push to landed was 12 s.
+- 3 changes were merged line by line.
+- 1 same-line conflict was reworked by its agent on a fresh baseline.
+- 1 payments change waited for a human, who approved it with `gs cs approve`.
+- Artifacts imported each new baseline straight from
+  `https://gitslice.io/git/demo/store.git`.
 
-- The fetch asks for `want <head> ofs-delta` and negotiates neither
-  `side-band-64k` nor `no-progress`.
-- Git then writes pack progress ("Enumerating objects…") to stderr.
-- `serveBackend` read `git http-backend` with `CombinedOutput()`, so that text
-  landed in the response between `NAK` and `PACK` and corrupted the packfile.
-- Git clients never noticed, because they negotiate side-band, which carries
-  progress inside the protocol.
+**What the run found:**
+- **Artifacts could not import a slice.** Its importer fetches without
+  side-band, and `git http-backend` output was mixed with progress messages.
+  The side-band fix went to production in today's build.
+- **Submits lost a race to in-flight publishes.** When a submit lost to a
+  publish that had not reached the ref yet, the bridge saw nothing to merge
+  and failed the agent. It now waits and resubmits.
+- **Burst reviews hit Workers AI capacity.** A burst of reviews made both
+  models fail once, which escalated a harmless change to a human. Reviews now
+  retry, alternating models, before escalating.
+- **The tax collision depended on who pushed first.** The scenario's
+  `tax-region` now pushes after `tax-2026` lands, so the conflict always goes
+  the same way. Its rework now uses the regional rate in `tax()`. The review
+  agent had rightly rejected a version that declared the rate and never used
+  it.
 
-**Fix.** Only stdout becomes the CGI response. stderr is kept for the error
-message.
-
-**Verification.** `TestGitFetchWithoutSideBand` sends the importer's exact
-request and requires `NAK` followed directly by `PACK`. It fails without the
-fix with "NAK\nEnumerating objects: 5, done.".
+**Also changed:**
+- Signed-out viewers of a change page now see "Sign in to see checks"
+  instead of a red `ListCheckRuns` error.
