@@ -1202,6 +1202,22 @@ func (s *ChangesetStore) ListStacks(ctx context.Context, req *corev1.ListStacksR
 	return out, nil
 }
 
+func (s *ChangesetStore) SetStackBaseCommit(ctx context.Context, stackID, baseCommitID string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	stack := s.b.stacks[strings.TrimSpace(stackID)]
+	if stack == nil {
+		return storage.ErrNotFound
+	}
+	baseCommitID = strings.TrimSpace(baseCommitID)
+	if baseCommitID == "" {
+		return storage.ErrInvalid
+	}
+	stack.BaseCommitId = baseCommitID
+	stack.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return nil
+}
+
 func (s *ChangesetStore) SetStackStatus(ctx context.Context, stackID, stackStatus string) error {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
