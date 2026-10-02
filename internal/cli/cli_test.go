@@ -1515,7 +1515,9 @@ func TestBrowsePrintsWebURL(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			r := Runner{Home: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
+			// Dir keeps browse from finding a workspace around the test's own
+			// working directory, as when the source is checked out with gs init.
+			r := Runner{Home: t.TempDir(), Dir: t.TempDir(), Stdout: &stdout, Stderr: &stderr}
 			if err := r.Run(context.Background(), tc.args); err != nil {
 				t.Fatalf("browse failed: %v\nstderr:\n%s", err, stderr.String())
 			}
