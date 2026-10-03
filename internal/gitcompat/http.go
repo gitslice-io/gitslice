@@ -156,6 +156,13 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo 
 		"CONTENT_TYPE="+r.Header.Get("Content-Type"),
 		"CONTENT_LENGTH="+strconv.Itoa(len(body)),
 		"REMOTE_USER=gitslice",
+		// Partial clones (--filter=blob:none, --filter=tree:0): a client on a
+		// large slice can start with history and fetch file contents as it
+		// reads them. Set here, not in each repository's config, so caches
+		// built before this change get it too.
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=uploadpack.allowFilter",
+		"GIT_CONFIG_VALUE_0=true",
 	)
 	if protocol := r.Header.Get("Git-Protocol"); protocol != "" {
 		cmd.Env = append(cmd.Env, "HTTP_GIT_PROTOCOL="+protocol)
