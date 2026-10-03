@@ -16,6 +16,9 @@ export interface Env {
   PROTECTED_PATHS: string;
   // Optional shallow depth for baseline imports; empty imports full history.
   BASELINE_DEPTH?: string;
+  // Slices whose agents push straight to Gitslice (refs/changes/new); the
+  // Worker reviews those changesets and runs fixers for them too.
+  NATIVE_SLICES?: string;
   // "off" stops fixer agents from taking over rejected changes.
   FIXER?: string;
   // Secrets.

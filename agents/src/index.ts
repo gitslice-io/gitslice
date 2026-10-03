@@ -15,13 +15,16 @@ import { dashboardHtml } from "./dashboard";
 import type { Env } from "./env";
 import { Hub, type OpenSessionInput } from "./hub";
 import { landPush, type HubPort } from "./land";
+import { findChange, reviewNativeChange, type NativeHub } from "./native";
 import { restoreSeed } from "./restore";
 import { extractText, withTimeout } from "./review";
 import type { Baseline, Session, Stats } from "./types";
 
 // HubApi is the Hub's RPC surface as the Worker uses it. Typing the stub
 // through it keeps TypeScript from expanding the recursive RPC types.
-interface HubApi extends HubPort {
+interface HubApi extends HubPort, NativeHub {
+  watchNative(account: string, slice: string): Promise<void>;
+  sessionForChange(idOrHandle: string): Promise<Session | null>;
   fetch(request: Request): Promise<Response>;
   openSession(input: OpenSessionInput): Promise<{ session: Session; token: string }>;
   getSession(id: string): Promise<Session | null>;
@@ -64,6 +67,19 @@ export default {
           message.ack();
           return;
         }
+        const native = message.body as { kind?: string; account?: string; slice?: string; changeset?: string; force?: boolean };
+        if (native?.kind === "review-native" && native.account && native.slice && native.changeset) {
+          // A changeset an agent pushed straight to Gitslice.
+          if (isAllowed(env, native.account, native.slice)) {
+            try {
+              await reviewNativeChange(env, hubStub(env, native.account, native.slice), { account: native.account, slice: native.slice }, native.changeset, Boolean(native.force));
+            } catch (err) {
+              console.error(JSON.stringify({ msg: "native review crashed", changeset: native.changeset, error: String(err) }));
+            }
+          }
+          message.ack();
+          return;
+        }
         const target = landingTarget(message.body, env);
         if (!target) {
           message.ack();
@@ -99,6 +115,23 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     const [account, slice] = [parts[2], parts[3]];
     if (!isAllowed(env, account, slice)) return json({ error: "unknown slice" }, 404);
     const hub = hubStub(env, account, slice);
+    if (nativeOn(env, account, slice)) ctx.waitUntil(hub.watchNative(account, slice).catch(() => {}));
+    // Agents that push straight to Gitslice (refs/changes/new) ask here how
+    // their change fared, and nudge when they have pushed a new patchset.
+    if (parts[4] === "changes" && parts[5]) {
+      if (request.method === "GET" && parts.length === 6) {
+        const found = await hub.sessionForChange(parts[5]);
+        if (!found) return json({ status: "pending", message: "not reviewed yet" }, 202);
+        return json({ id: found.id, agent: found.agent, status: found.status, patchsetId: found.patchsetId, review: found.review ?? null, signals: found.signals.slice(-6), fixer: found.fixedBy ?? null });
+      }
+      if (request.method === "POST" && parts[6] === "pushed") {
+        if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
+        ctx.waitUntil(
+          reviewNativeChange(env, hub, { account, slice }, parts[5]).catch((err) => console.error(JSON.stringify({ msg: "native nudge failed", changeset: parts[5], error: String(err) }))),
+        );
+        return json({ reviewing: parts[5] }, 202);
+      }
+    }
     if (parts[4] === "stream") return hub.fetch(request);
     if (parts[4] === "baseline" && request.method === "POST") {
       if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
@@ -269,6 +302,10 @@ function hubStub(env: Env, account: string, slice: string): HubApi {
 
 function hubPort(env: Env, account: string, slice: string): HubPort {
   return hubStub(env, account, slice);
+}
+
+function nativeOn(env: Env, account: string, slice: string): boolean {
+  return (env.NATIVE_SLICES || "").split(",").map((s) => s.trim()).includes(`${account}/${slice}`);
 }
 
 function allowedSlices(env: Env): string[] {

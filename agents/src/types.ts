@@ -64,6 +64,7 @@ export interface Session {
   fixedBy?: string; // the fixer session assigned to this one ("pending" until it forks)
   fixAt?: number; // when a fixer is sent if the agent has not pushed again
   retries?: number; // times a stalled landing was queued again
+  native?: boolean; // the agent pushed straight to Gitslice (no Artifacts repo)
   createdAt: number;
   updatedAt: number;
   pushedAt?: number;

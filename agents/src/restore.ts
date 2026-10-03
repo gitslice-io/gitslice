@@ -5,7 +5,7 @@
 
 import type { Env } from "./env";
 import { Gitslice, GitsliceError, type Commit, type FileEdit, type SliceRef, type TreeEntry } from "./gitslice";
-import { waitPublished } from "./land";
+import { mapLimit, waitPublished } from "./land";
 
 export interface RestoreResult {
   seed: string;
@@ -19,6 +19,10 @@ export async function restoreSeed(env: Env, slice: SliceRef): Promise<RestoreRes
   const reviewer = new Gitslice(env.GITSLICE_API, env.GITSLICE_REVIEWER_TOKEN);
   const root = `/${slice.account}/${slice.slice}`;
   const { seed, want } = await findSeed(bridge, slice, root);
+  // Changes agents left open in an earlier run (a payments change nobody
+  // approved, a rejected draft) would be reviewed again by the next run.
+  const open = await bridge.listChangesets(slice, "draft", 200).catch(() => []);
+  await mapLimit(open, 8, (cs) => bridge.abandon(cs.id).catch(() => {}));
 
   for (let attempt = 0; ; attempt++) {
     const head = await bridge.headCommit();

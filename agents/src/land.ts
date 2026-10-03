@@ -308,7 +308,7 @@ function agentNotes(message: string): string {
   return message.split("\n").slice(1).join("\n").trim();
 }
 
-function protectedPatterns(env: Env): RegExp[] {
+export function protectedPatterns(env: Env): RegExp[] {
   return (env.PROTECTED_PATHS || "")
     .split(",")
     .map((p) => p.trim())

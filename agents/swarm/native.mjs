@@ -11,7 +11,13 @@
 //   a real conflict: start again from the new head and redo the task
 //
 //   node swarm/native.mjs [--slice demo/storefront] [--concurrency 24] [--reset]
-//       [--only i18n,…|agent,…] [--skip agent,…] [--quiet]
+//       [--worker] [--only i18n,…|agent,…] [--skip agent,…] [--quiet]
+//
+// With --worker the agents still talk only to Gitslice for their code, but the
+// agents Worker reviews every changeset (Workers AI, protected paths), tells
+// the dashboard about it, and sends a fixer agent when an author goes quiet
+// after a rejection. The agent nudges the Worker after each push and follows
+// its verdict at /v1/slices/<slice>/changes/<id>. Needs AGENTS_API_KEY.
 //
 // Identities: the agents author changesets as the bridge identity; a different
 // identity approves them, because Gitslice does not let an author approve its
@@ -37,12 +43,14 @@ const STAGGER_MS = Number(args.stagger ?? 120);
 const ONLY = args.only ? new Set(String(args.only).split(",")) : null;
 const SKIP = new Set(String(args.skip ?? "").split(",").filter(Boolean));
 const QUIET = Boolean(args.quiet);
+const WORKER = Boolean(args.worker);
 const HUMAN_WAIT_MS = Number(args["human-wait"] ?? 15 * 60_000);
 const AGENT_HOME = process.env.GITSLICE_AGENT_HOME ?? join(homedir(), ".config/gitslice-agents-bridge");
 const REVIEWER_HOME = process.env.GITSLICE_REVIEWER_HOME ?? join(homedir(), ".config/gitslice-operator");
 const GS = process.env.GS_BIN ?? "gs";
 const AGENTS_URL = args.url ?? process.env.AGENTS_URL ?? "https://agents.gitslice.io";
 const AGENTS_KEY = process.env.AGENTS_API_KEY ?? "";
+if (WORKER && !AGENTS_KEY) fail("--worker needs AGENTS_API_KEY");
 const TOKEN = JSON.parse(await readFile(join(AGENT_HOME, ".gitslice/config.json"), "utf8")).token;
 
 const COLOR = { reset: "\x1b[0m", dim: "\x1b[2m", bold: "\x1b[1m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m", magenta: "\x1b[35m", cyan: "\x1b[36m", blue: "\x1b[34m", gray: "\x1b[90m" };
@@ -57,7 +65,7 @@ if (args.reset) {
 const results = [];
 const started = Date.now();
 const tasks = interleave(
-  storefrontTasks(SLICE).filter((t) => (!ONLY || ONLY.has(t.kind) || ONLY.has(t.agent)) && !SKIP.has(t.agent) && t.kind !== "fixer" && (AGENTS_KEY || !t.model)),
+  storefrontTasks(SLICE).filter((t) => (!ONLY || ONLY.has(t.kind) || ONLY.has(t.agent)) && !SKIP.has(t.agent) && (t.kind !== "fixer" || WORKER) && (AGENTS_KEY || !t.model)),
 );
 banner(`${tasks.length} agents → ${GIT_URL} (concurrency ${CONCURRENCY}, no Artifacts)`);
 await pool(tasks, CONCURRENCY, async (task, i) => {
@@ -80,7 +88,9 @@ async function runAgent(task) {
     const clone = await run("git", ["-c", `http.extraHeader=Authorization: Bearer ${TOKEN}`, "clone", "-q", GIT_URL, dir]);
     if (clone.code) return { agent: task.agent, outcome: "failed", error: `clone: ${clone.err.trim().slice(0, 160)}` };
     log(task.agent, "cloned");
-    const message = (change) => [change.subject, "", change.body, "", `Agent: ${task.agent}`, `Task: ${task.task}`].join("\n");
+    // The commit subject names the agent ("<agent>: …"): all agents here share
+    // one Gitslice identity, so this is how the dashboard tells them apart.
+    const message = (change) => [`${task.agent}: ${change.subject}`, "", change.body, "", `Agent: ${task.agent}`, `Task: ${task.task}`].join("\n");
     let change = await task.apply(dir, { assist });
     if (!change) return { agent: task.agent, outcome: "noop" };
     await git("add", "-A");
@@ -108,6 +118,7 @@ async function runAgent(task) {
     if (!id) return { agent: task.agent, outcome: "failed", error: "push never produced a changeset" };
     log(task.agent, "pushed", `${id}  ${change.subject}`);
     target = `HEAD:refs/changes/${id}`;
+    if (WORKER) return await followWorker();
 
     // Review, then submit, until it lands. A stale base is rebased.
     const deadline = Date.now() + HUMAN_WAIT_MS;
@@ -123,7 +134,7 @@ async function runAgent(task) {
           fixed = true;
           const fix = await task.fix(dir);
           await git("add", "-A");
-          await git("commit", "-q", "-F", "-", { input: [fix.subject, "", fix.body, "", `Agent: ${task.agent}`, `Task: ${task.task}`].join("\n") });
+          await git("commit", "-q", "-F", "-", { input: [`${task.agent}: ${fix.subject}`, "", fix.body, "", `Agent: ${task.agent}`, `Task: ${task.task}`].join("\n") });
           const update = await git("push", "origin", target);
           if (update.code) return { agent: task.agent, outcome: "failed", error: `fix push: ${update.err.trim().slice(-200)}` };
           log(task.agent, "pushed", `${id}  ${fix.subject}`);
@@ -163,6 +174,71 @@ async function runAgent(task) {
       await sleep(1200);
     }
     return { agent: task.agent, outcome: "timeout" };
+
+    // followWorker: the Worker reviews; this agent submits what it approves.
+    async function followWorker() {
+      const nudge = () => agentsApi("POST", `/v1/slices/${SLICE}/changes/${id}/pushed`, {}).catch(() => {});
+      nudge();
+      let avoid = null; // the patchset whose verdict this agent has already acted on
+      let fixed = false;
+      let announced = "";
+      const give = Date.now() + HUMAN_WAIT_MS;
+      while (Date.now() < give) {
+        const s = await agentsApi("GET", `/v1/slices/${SLICE}/changes/${id}`).catch(() => null);
+        if (!s || s.status === "pending" || !s.patchsetId || s.patchsetId === avoid || ["pushed", "reviewing", "forked"].includes(s.status)) {
+          await sleep(700);
+          continue;
+        }
+        if (s.status !== announced) {
+          announced = s.status;
+          if (s.status !== "approved") log(task.agent, s.status === "changes-requested" ? "rejected" : "waiting", s.signals?.at(-1)?.message ?? s.status, s.status === "changes-requested" ? "red" : "yellow");
+        }
+        if (s.status === "landed") return landedResult();
+        if (s.status === "failed") return { agent: task.agent, outcome: "failed", error: s.signals?.at(-1)?.message };
+        if (s.status === "changes-requested") {
+          avoid = s.patchsetId;
+          if (task.fix && !fixed) {
+            fixed = true;
+            const fix = await task.fix(dir);
+            await git("add", "-A");
+            await git("commit", "-q", "-F", "-", { input: [`${task.agent}: ${fix.subject}`, "", fix.body, "", `Agent: ${task.agent}`, `Task: ${task.task}`].join("\n") });
+            const update = await git("push", "origin", target);
+            if (update.code) return { agent: task.agent, outcome: "failed", error: `fix push: ${update.err.trim().slice(-200)}` };
+            log(task.agent, "pushed", `${id}  ${fix.subject}`);
+            nudge();
+          }
+          // Otherwise nobody answers the review here, and a fixer agent will.
+          continue;
+        }
+        // Approved (or waiting for a person to approve): submit until it lands.
+        const submit = await run(GS, ["cs", "submit", id], tmpdir(), { env: { HOME: AGENT_HOME } });
+        const text = submit.err + submit.out;
+        if (submit.code === 0 && /submitted/.test(text)) return landedResult();
+        if (/path base conflict|stale|rebase/i.test(text)) {
+          const how = await syncOnto(git, dir, task, () => change);
+          if (how === "rebased") rebases++;
+          else {
+            reworks++;
+            change = how.change;
+          }
+          log(task.agent, how === "rebased" ? "rebased" : "reworked", how === "rebased" ? "onto the latest main" : "on the latest main after a conflict", "yellow");
+          const push = await git("push", "origin", target);
+          if (push.code) return { agent: task.agent, outcome: "failed", error: `update push: ${push.err.trim().slice(-200)}` };
+          // Wait for a new verdict only if the push made a new patchset.
+          if (/patchset/i.test(push.err + push.out)) avoid = s.patchsetId;
+          else await sleep(1500);
+          nudge();
+          continue;
+        }
+        await sleep(s.status === "needs-human" ? 3000 : 1000);
+      }
+      return { agent: task.agent, outcome: "timeout" };
+    }
+
+    function landedResult() {
+      log(task.agent, "landed", `${id}  +${((Date.now() - t0) / 1000).toFixed(1)}s${rebases ? "  rebased" : ""}${reworks ? "  reworked" : ""}`);
+      return { agent: task.agent, outcome: "landed", ms: Date.now() - t0, pushToLandedMs: Date.now() - tPush, rebases, reworks, fixed: Boolean(task.stall) };
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -180,7 +256,7 @@ async function syncOnto(git, dir, task, currentChange) {
   const change = await task.apply(dir, { assist });
   if (!change) throw new Error("nothing left to change after the rework: the change is already in main");
   await git("add", "-A");
-  await git("commit", "-q", "-F", "-", { input: [change.subject, "", change.body, "", `Agent: ${task.agent}`, `Task: ${task.task}`].join("\n") });
+  await git("commit", "-q", "-F", "-", { input: [`${task.agent}: ${change.subject}`, "", change.body, "", `Agent: ${task.agent}`, `Task: ${task.task}`].join("\n") });
   return { change };
 }
 

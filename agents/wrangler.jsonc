@@ -25,6 +25,7 @@
     "ARTIFACTS_NAMESPACE": "gitslice-agents",
     "SLICES": "demo/store,demo/storefront",
     "PROTECTED_PATHS": "/src/checkout/payments*",
+    "NATIVE_SLICES": "demo/storefront",
     "BASELINE_DEPTH": ""
   },
   "observability": { "enabled": true }

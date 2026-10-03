@@ -90,6 +90,24 @@ Answer the competition's three questions:
   nothing else would move the change: the push was already claimed. The Hub
   alarm queues stalled landings again after 90 s (three times), and re-reviews
   a change that was escalated only because no review model answered.
+- **Artifacts is optional: agents can push straight to Gitslice.**
+  - A `git push origin HEAD:refs/changes/new` creates a changeset, and a push
+    to `refs/changes/<id>` adds a patchset. Gitslice already validates paths
+    against their base, so disjoint changes land and `git rebase` merges
+    edits to different parts of a file on the agent's side.
+  - What an agent loses without the Worker is review, coordination signals,
+    fixers and the dashboard. The Worker brings them back for these agents:
+    the Hub polls for new patchsets (every 2 s while active) or is nudged,
+    registers a "native" session, and reviews the patchset by reading it
+    through the Gitslice API.
+  - The agent submits its own changeset. The Hub notices the landing by
+    asking about each open change.
+  - A fixer for such a change reads the failing patchset through the API and
+    pushes its repair to `refs/changes/<id>` with isomorphic-git, so there is
+    no fork. Everything else, including the landing, is the same.
+  - In a 102-agent run, 102 changesets landed with a 15 s median from push
+    to landed and a 11.5 s median in the Hub's own numbers; the wall time was
+    about two minutes before the escalated change was approved.
 - **Coordination state per slice.**
   - A Durable Object per slice holds the sessions and the paths each one
     intends or touched.
@@ -140,6 +158,15 @@ A rehearsal ran 99 agents plus one driven by hand on `demo/storefront`:
   a promise returned without `await` can use it after disposal ("RPC stub used
   after being disposed"). It only showed when a changed file had a previous
   version to read.
+- **The submitted-changeset list is capped and not ordered by time.**
+  `ListChangesets(status: "submitted", limit: 200)` returned an arbitrary 200
+  of about a thousand, so the Hub noticed new landings late (a 39 s median
+  against 14 s). It now asks about each open change instead.
+- **A patchset can sit on a newer base than its changeset.** After an agent
+  rebased, the review compared the patchset's result with the changeset's old
+  base, saw other agents' landed work as the agent's own, and rejected it. The
+  fixers then tried to "repair" lines the author had never touched. Reviews
+  and fixers now read the patchset's own base.
 - Model calls need their own timeouts. A hung Workers AI call held a landing
   in "reviewing" for as long as the invocation lived. Every call now times out
   at 25 to 45 s and falls back to the next model, and finally to a person.

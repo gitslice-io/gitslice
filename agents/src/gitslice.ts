@@ -21,11 +21,25 @@ export interface Changeset {
   status?: string;
   title?: string;
   description?: string;
+  author?: string;
+  baseCommitId?: string;
   currentPatchsetId?: string;
   currentPatchsetNumber?: string;
   commitId?: string;
   submitBlockedReason?: string;
   affectedPaths?: string[];
+  patchsets?: PatchsetInfo[];
+}
+
+// What a review needs to know about one patchset.
+export interface PatchsetInfo {
+  id: string;
+  number?: string;
+  createdAt?: string;
+  baseCommitId?: string;
+  baseTreeId?: string;
+  resultTreeId?: string;
+  changedPaths?: string[];
 }
 
 export interface Patchset {
@@ -159,6 +173,24 @@ export class Gitslice {
     return this.call<{ changeset?: Changeset } & Changeset>("ChangesetService", "GetChangeset", { changesetId }).then(
       (res) => res.changeset ?? res,
     );
+  }
+
+  // listChangesets returns a slice's changesets with their patchsets.
+  async listChangesets(slice: SliceRef, status: string, limit = 200): Promise<Changeset[]> {
+    const res = await this.call<{ changesets?: Changeset[] }>("ChangesetService", "ListChangesets", { authoringSlice: slice, status, limit });
+    return res.changesets ?? [];
+  }
+
+  // readFileInTree reads a file from a patchset's result tree (a preview of
+  // what the slice would look like), or null when the patchset deletes it.
+  async readFileInTree(rootTreeId: string, commitId: string, path: string, slice: SliceRef): Promise<Uint8Array | null> {
+    try {
+      const res = await this.call<{ data?: string }>("RepositoryService", "ReadFile", { commitId, rootTreeId, path, slice });
+      return fromBase64(res.data ?? "");
+    } catch (err) {
+      if (err instanceof GitsliceError && (err.code === "not_found" || err.httpStatus === 404)) return null;
+      throw err;
+    }
   }
 
   async headCommit(): Promise<string> {

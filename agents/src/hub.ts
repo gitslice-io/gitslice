@@ -3,7 +3,8 @@
 // the live stream the dashboard renders.
 
 import { DurableObject } from "cloudflare:workers";
-import { nativeCommitOf, sessionRepoName } from "./artifacts";
+import { nativeCommitOf, sessionRepoName, slugify } from "./artifacts";
+import { Gitslice, type Changeset, type PatchsetInfo } from "./gitslice";
 import type { Env } from "./env";
 import { mapLimit, retryEscalated } from "./land";
 import type { Baseline, HubEvent, Session, Signal, Stats } from "./types";
@@ -21,6 +22,11 @@ const PROCESSING: ReadonlySet<string> = new Set(["pushed", "reviewing", "approve
 // An escalation only because no review model answered is reviewed again
 // after this long, before it bothers a person.
 const REREVIEW_AFTER_MS = 20_000;
+// How often the Hub looks for changesets agents pushed straight to Gitslice:
+// quickly while they are active, rarely while the slice is quiet.
+const NATIVE_POLL_BUSY_MS = 2_000;
+const NATIVE_POLL_IDLE_MS = 20_000;
+const NATIVE_BUSY_WINDOW_MS = 90_000;
 
 // unreviewed: the review agent escalated only because no model answered.
 const unreviewed = (s: Session): boolean => s.status === "needs-human" && s.review?.model === "none";
@@ -45,6 +51,11 @@ export class Hub extends DurableObject<Env> {
   private refreshing: Promise<Baseline> | null = null;
   private lastImportAt = 0;
   private floor = 0; // baselines imported before this may not be forked (set on reset)
+  private ident: { account: string; slice: string } | null = null;
+  private nativeActiveAt = 0;
+  private nativeQueued = new Map<string, number>(); // changeset:patchset → when its review was queued
+  private nativePollAt = 0;
+  private nativeSince = 0; // patchsets pushed before this are left alone (old drafts)
   private retired: string[] = []; // replaced baselines, deleted on reset
   private counters = { forks: 0, baselines: 0, pushes: 0 };
   private loaded: Promise<void> | null = null;
@@ -60,6 +71,8 @@ export class Hub extends DurableObject<Env> {
         this.baselineFor = (await this.ctx.storage.get<number>("baselineFor")) ?? -1;
         this.retired = (await this.ctx.storage.get<string[]>("retired")) ?? [];
         this.floor = (await this.ctx.storage.get<number>("floor")) ?? 0;
+        this.ident = (await this.ctx.storage.get<{ account: string; slice: string }>("ident")) ?? null;
+        this.nativeSince = (await this.ctx.storage.get<number>("nativeSince")) ?? 0;
         this.counters = (await this.ctx.storage.get<typeof this.counters>("counters")) ?? this.counters;
       })();
     }
@@ -244,17 +257,24 @@ export class Hub extends DurableObject<Env> {
     await this.load();
     const failing = this.sessions.get(failingId);
     if (!failing || failing.status !== "changes-requested" || failing.supersededBy) return null;
-    const name = sessionRepoName(failing.account, failing.slice, `fixer-${failing.agent}`, nonce());
-    using source = await this.env.ARTIFACTS.get(failing.id);
-    const forked = await source.fork(name, {
-      defaultBranchOnly: true,
-      readOnly: false,
-      description: `Fixer for ${failing.agent}`.slice(0, 200),
-    });
-    let token = forked.token;
-    if (!token) {
-      using repo = await this.env.ARTIFACTS.get(name);
-      token = (await repo.createToken("write", 3600)).plaintext;
+    // A change pushed straight to Gitslice has no Artifacts repository to
+    // fork: the fixer works on the changeset itself, with the bridge identity.
+    const name = sessionRepoName(failing.account, failing.slice, `fixer-${failing.agent}`, failing.native ? `n${nonce()}` : nonce());
+    let remote = failing.remote;
+    let token = this.env.GITSLICE_TOKEN;
+    if (!failing.native) {
+      using source = await this.env.ARTIFACTS.get(failing.id);
+      const forked = await source.fork(name, {
+        defaultBranchOnly: true,
+        readOnly: false,
+        description: `Fixer for ${failing.agent}`.slice(0, 200),
+      });
+      remote = forked.remote;
+      token = forked.token ?? "";
+      if (!token) {
+        using repo = await this.env.ARTIFACTS.get(name);
+        token = (await repo.createToken("write", 3600)).plaintext;
+      }
     }
     const now = Date.now();
     const session: Session = {
@@ -263,8 +283,9 @@ export class Hub extends DurableObject<Env> {
       task: `Fix: ${failing.task}`.slice(0, 300),
       account: failing.account,
       slice: failing.slice,
-      remote: forked.remote,
+      remote,
       baseline: failing.baseline,
+      native: failing.native,
       intent: failing.touched.length ? failing.touched : failing.intent,
       touched: [],
       status: "forked",
@@ -281,7 +302,9 @@ export class Hub extends DurableObject<Env> {
     delete failing.fixAt;
     pushSignal(failing, {
       kind: "info",
-      message: `No answer to the review after ${FIX_AFTER_MS / 1000} s, so ${session.agent} forked your repository to repair the change. You need not act.`,
+      message: failing.native
+        ? `No answer to the review after ${FIX_AFTER_MS / 1000} s, so ${session.agent} took over your changeset to repair it. You need not act.`
+        : `No answer to the review after ${FIX_AFTER_MS / 1000} s, so ${session.agent} forked your repository to repair the change. You need not act.`,
     });
     this.counters.forks++;
     await this.save(failing);
@@ -330,7 +353,10 @@ export class Hub extends DurableObject<Env> {
     // baseline imported after now.
     this.floor = Date.now();
     this.lastImportAt = 0;
-    await this.ctx.storage.put({ baselineGen: this.baselineGen, floor: this.floor });
+    this.nativeSince = this.floor;
+    this.nativeQueued.clear();
+    await this.ctx.storage.put({ baselineGen: this.baselineGen, floor: this.floor, nativeSince: this.nativeSince });
+    if (this.ident) await this.ctx.storage.put("ident", this.ident);
     if (this.baseline) await this.ctx.storage.put({ baseline: this.baseline, baselineFor: this.baselineFor });
     this.broadcast({ type: "snapshot", ...this.snapshot() });
     const deleted = await mapLimit(repos, 8, (name) => this.env.ARTIFACTS.delete(name).catch(() => false));
@@ -454,7 +480,7 @@ export class Hub extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     await this.load();
-    const waiting = [...this.sessions.values()].filter((s) => s.status === "needs-human" && !s.supersededBy);
+    const waiting = [...this.sessions.values()].filter((s) => s.status === "needs-human" && !s.supersededBy && !s.native);
     for (const session of waiting) {
       try {
         await retryEscalated(this.env, this, session);
@@ -483,13 +509,172 @@ export class Hub extends DurableObject<Env> {
       } else {
         session.retries = (session.retries ?? 0) + 1;
         session.updatedAt = now;
-        await this.env.EVENTS.send({ kind: "land", session: session.id, commit: session.lastCommit, retry: true });
+        if (session.native && this.ident) {
+          await this.env.EVENTS.send({ kind: "review-native", account: this.ident.account, slice: this.ident.slice, changeset: session.changesetId, force: true });
+        } else {
+          await this.env.EVENTS.send({ kind: "land", session: session.id, commit: session.lastCommit, retry: true });
+        }
         this.event({ kind: "retry", session: session.id, agent: session.agent, message: `landing stalled in ${session.status}; trying again (${session.retries}/${RETRY_LIMIT})` });
       }
       await this.save(session);
       this.broadcast({ type: "session", session });
     }
+    try {
+      await this.pollNative();
+    } catch (err) {
+      console.warn(JSON.stringify({ msg: "native poll failed", error: String(err) }));
+    }
     await this.scheduleAlarm();
+  }
+
+  // ---- changesets agents pushed straight to Gitslice -----------------------
+
+  private nativeEnabled(): boolean {
+    if (!this.ident) return false;
+    const slices = (this.env.NATIVE_SLICES || "").split(",").map((s) => s.trim());
+    return slices.includes(`${this.ident.account}/${this.ident.slice}`);
+  }
+
+  // watchNative tells the Hub which slice it serves, so it can look for
+  // changesets pushed to Gitslice without an Artifacts repo.
+  async watchNative(account: string, slice: string): Promise<void> {
+    await this.load();
+    if (!this.ident) {
+      this.ident = { account, slice };
+      this.nativeSince = Date.now();
+      await this.ctx.storage.put({ ident: this.ident, nativeSince: this.nativeSince });
+    }
+    if (this.nativeEnabled()) await this.scheduleAlarm();
+  }
+
+  async sessionForChange(idOrHandle: string): Promise<Session | null> {
+    await this.load();
+    const matches = [...this.sessions.values()].filter(
+      (s) => s.changesetId && (s.changesetId === idOrHandle || s.handle === idOrHandle || s.changesetId.startsWith(`cs_${idOrHandle}`)),
+    );
+    // The fixer's session is the live one while a fix is under way.
+    return matches.find((s) => s.fixerFor && s.status !== "landed") ?? matches.find((s) => !s.fixerFor) ?? null;
+  }
+
+  // registerNative records a patchset an agent pushed to Gitslice. It returns
+  // the session to review, or null when this patchset is already known.
+  async registerNative(input: {
+    account: string;
+    slice: string;
+    changeset: { id: string; handle?: string; title: string; author?: string; baseCommitId: string };
+    patchset: { id: string; number?: string; createdAtMs: number; changedPaths: string[]; baseTreeId?: string };
+    force?: boolean;
+  }): Promise<Session | null> {
+    await this.load();
+    const { changeset: cs, patchset: ps } = input;
+    const related = [...this.sessions.values()].filter((s) => s.changesetId === cs.id);
+    const known = related.find((s) => s.patchsetId === ps.id);
+    if (known) return input.force ? known : null;
+    const now = Date.now();
+    const author = related.find((s) => !s.fixerFor);
+    const fixer = related.find((s) => s.fixerFor && s.status === "forked");
+    const target = fixer ?? author;
+    this.nativeActiveAt = now;
+    if (target) {
+      target.patchsetId = ps.id;
+      target.lastCommit = ps.id;
+      target.pushes++;
+      target.pushedAt = ps.createdAtMs || now;
+      target.status = "pushed";
+      target.touched = ps.changedPaths;
+      target.updatedAt = now;
+      delete target.fixAt;
+      this.counters.pushes++;
+      pushSignal(target, { kind: "info", message: `Patchset ${ps.number ?? "?"} pushed to ${cs.handle ?? cs.id}.` });
+      await this.save(target);
+      await this.ctx.storage.put("counters", this.counters);
+      this.event({ kind: "pushed", session: target.id, agent: target.agent, message: `pushed patchset ${ps.number ?? "?"} of ${cs.handle ?? cs.id}` });
+      this.broadcast({ type: "session", session: target });
+      this.broadcastStats();
+      return target;
+    }
+    // The first patchset of a change nobody has seen: a new native session.
+    const { agent, task } = parseTitle(cs.title, cs.author);
+    const id = sessionRepoName(input.account, input.slice, agent, `n${cs.id.slice(-8)}`);
+    const session: Session = {
+      id,
+      agent,
+      task,
+      account: input.account,
+      slice: input.slice,
+      remote: `${this.env.GITSLICE_GIT}/${input.account}/${input.slice}.git`,
+      baseline: { repo: "gitslice", gitCommit: "", nativeCommit: cs.baseCommitId, tree: ps.baseTreeId ?? "", createdAt: now },
+      intent: ps.changedPaths,
+      touched: ps.changedPaths,
+      status: "pushed",
+      changesetId: cs.id,
+      handle: cs.handle || cs.id,
+      patchsetId: ps.id,
+      native: true,
+      pushes: 1,
+      lastCommit: ps.id,
+      signals: [],
+      createdAt: now,
+      updatedAt: now,
+      pushedAt: ps.createdAtMs || now,
+    };
+    for (const other of this.overlapping(session, session.touched)) {
+      pushSignal(session, overlapSignal(other, intersect(session.touched, pathsOf(other))));
+      if (!hasOverlapSignal(other, session.id)) {
+        pushSignal(other, overlapSignal(session, intersect(session.touched, pathsOf(other))));
+        await this.save(other);
+        this.broadcast({ type: "session", session: other });
+      }
+    }
+    this.counters.forks++;
+    this.counters.pushes++;
+    await this.save(session);
+    await this.ctx.storage.put("counters", this.counters);
+    this.event({ kind: "pushed", session: id, agent, message: `pushed ${cs.handle ?? cs.id} straight to Gitslice` });
+    this.broadcast({ type: "session", session });
+    this.broadcastStats();
+    return session;
+  }
+
+  // pollNative looks for patchsets agents pushed straight to Gitslice and for
+  // those that have landed. The Worker is not told about these pushes, so it
+  // asks. Agents that nudge the Worker skip the wait.
+  private async pollNative(): Promise<void> {
+    if (!this.ident || !this.nativeEnabled()) return;
+    const now = Date.now();
+    if (now - this.nativePollAt < 1000) return;
+    this.nativePollAt = now;
+    const slice = { account: this.ident.account, slice: this.ident.slice };
+    const gitslice = new Gitslice(this.env.GITSLICE_API, this.env.GITSLICE_TOKEN);
+    const open = await gitslice.listChangesets(slice, "draft", 200);
+    for (const cs of open) {
+      if (cs.description?.includes("Artifacts session:")) continue; // landed through an Artifacts session
+      const ps = cs.patchsets?.find((p) => p.id === cs.currentPatchsetId) ?? cs.patchsets?.at(-1);
+      if (!ps) continue;
+      if ((Date.parse(ps.createdAt ?? "") || now) < this.nativeSince - 5000) continue; // from before this run
+      const key = `${cs.id}:${ps.id}`;
+      const queued = this.nativeQueued.get(key);
+      if (queued && now - queued < 30_000) continue;
+      if ([...this.sessions.values()].some((s) => s.changesetId === cs.id && s.patchsetId === ps.id)) continue;
+      this.nativeQueued.set(key, now);
+      this.nativeActiveAt = now;
+      await this.env.EVENTS.send({ kind: "review-native", account: slice.account, slice: slice.slice, changeset: cs.id });
+    }
+    const waiting = [...this.sessions.values()].filter((s) => s.native && s.status !== "landed" && !s.supersededBy);
+    if (waiting.length === 0) return;
+    // Ask about each open change, not for a list of submitted ones: the list
+    // is capped and not ordered by time, so new landings would go unnoticed.
+    const ids = [...new Set(waiting.map((s) => s.changesetId!))];
+    const current = await mapLimit(ids, 8, (id) => gitslice.getChangeset(id).catch(() => null));
+    for (const done of current) {
+      if (!done || done.status !== "submitted" || !done.commitId) continue;
+      for (const session of waiting.filter((s) => s.changesetId === done.id && !s.fixerFor)) {
+        // A fixer's session lands the change; it carries the author's with it.
+        const fixer = [...this.sessions.values()].find((s) => s.fixerFor === session.id && s.status !== "landed");
+        await this.landed(fixer ? fixer.id : session.id, done.commitId);
+      }
+      this.nativeActiveAt = now;
+    }
   }
 
   // scheduleAlarm wakes the Hub for the next thing that needs a timer:
@@ -502,6 +687,10 @@ export class Hub extends DurableObject<Env> {
       if (s.status === "needs-human") next = Math.min(next, now + (unreviewed(s) ? REREVIEW_AFTER_MS : 3000));
       if (PROCESSING.has(s.status)) next = Math.min(next, now + WATCHDOG_EVERY_MS);
       if (s.fixAt && !s.fixedBy) next = Math.min(next, s.fixAt);
+    }
+    if (this.nativeEnabled()) {
+      const busy = now - this.nativeActiveAt < NATIVE_BUSY_WINDOW_MS || [...this.sessions.values()].some((s) => s.native && s.status !== "landed" && s.status !== "failed" && !s.supersededBy);
+      next = Math.min(next, now + (busy ? NATIVE_POLL_BUSY_MS : NATIVE_POLL_IDLE_MS));
     }
     if (next === Infinity) return;
     const target = Math.max(next, now + 250);
@@ -516,6 +705,8 @@ export class Hub extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
     await this.load();
+    const where = /\/v1\/slices\/([^/]+)\/([^/]+)\/stream/.exec(new URL(request.url).pathname);
+    if (where) await this.watchNative(where[1], where[2]);
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
     pair[1].send(JSON.stringify({ type: "snapshot", ...this.snapshot() }));
@@ -671,4 +862,12 @@ function shortRepo(name: string): string {
 function nonce(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(4));
   return [...bytes].map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 6);
+}
+
+// parseTitle reads "<agent>: <task>" from a changeset title, the convention for
+// naming an agent whose changeset is authored by a shared identity.
+function parseTitle(title: string, author?: string): { agent: string; task: string } {
+  const m = /^([A-Za-z0-9][A-Za-z0-9-]{2,39}): (.+)$/.exec(title);
+  if (m) return { agent: slugify(m[1]), task: m[2].slice(0, 300) };
+  return { agent: slugify(author || "agent"), task: title.slice(0, 300) };
 }

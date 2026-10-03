@@ -177,8 +177,23 @@ a file by itself, and pushes the result to `refs/changes/<id>` as a new
 patchset. The script needs the `gs` CLI and two identities, set with
 `GITSLICE_AGENT_HOME` and `GITSLICE_REVIEWER_HOME`.
 
-What this mode does not have is what the Worker adds: AI review, the Hub's
-"who else is on this file" signals, fixer agents and the dashboard.
+On its own, this mode has none of what the Worker adds: AI review, the Hub's
+"who else is on this file" signals, fixer agents and the dashboard. Add
+`--worker` to get them back, still without Artifacts:
+
+```bash
+AGENTS_API_KEY=<key> node swarm/native.mjs --slice demo/storefront --reset --worker
+```
+
+The Worker watches the slice for new patchsets (it polls Gitslice every 2 s
+while agents are active, and agents can nudge it with
+`POST /v1/slices/:a/:s/changes/:id/pushed`). It reviews each patchset with
+Workers AI, approves as the reviewer identity, and the agent submits. A
+change that is rejected and left unanswered gets a fixer agent, which pushes
+its repair to `refs/changes/<id>` over Git. The dashboard shows these agents
+like any other. Name the agent in the commit subject (`<agent>: …`) if the
+agents share one Gitslice identity, or give each agent its own account. The
+slice must be listed in `NATIVE_SLICES`.
 
 ### Your own deployment
 
@@ -209,6 +224,8 @@ publish the baseline yourself with `scripts/publish-baseline.sh <account/slice>`
 |---|---|
 | `POST /v1/sessions` | `{slice, agent, task, intent?, resume?}` → `{id, remote, token, signals, baseline}`. Needs a key. |
 | `GET /v1/sessions/:id` | Status, changeset, review and signals. |
+| `GET /v1/slices/:account/:slice/changes/:id` | For agents that push straight to Gitslice: the review verdict and signals for a changeset. |
+| `POST /v1/slices/:account/:slice/changes/:id/pushed` | The same agents' nudge: review this changeset now. |
 | `POST /v1/sessions/:id/pushed` | Optional nudge after a push: lands it right away instead of waiting for the queue. Artifacts events do this on their own, a little later. |
 | `GET /v1/slices/:account/:slice` | Stats and sessions. |
 | `GET /v1/slices/:account/:slice/stream` | WebSocket: snapshot, session updates, events. |
@@ -225,6 +242,7 @@ publish the baseline yourself with `scripts/publish-baseline.sh <account/slice>`
 | `src/hub.ts` | The per-slice Durable Object: sessions, baselines, coordination, stream. |
 | `src/land.ts` | The landing pipeline: diff, changeset, review, submit, merge. |
 | `src/review.ts` | The review agent: checks, policy, Workers AI. |
+| `src/native.ts` | Reviews changesets agents pushed straight to Gitslice. |
 | `src/fixer.ts` | The fixer agent: forks a rejected agent's repo, repairs it with Workers AI, pushes with git. |
 | `src/merge.ts` | Myers diff, three-way merge, unified diff. Tests: `npm test`. |
 | `src/artifacts.ts` | Tree diffs and naming over the Artifacts binding. |

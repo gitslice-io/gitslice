@@ -5,13 +5,19 @@
 //
 // Artifacts has no write API, so the fixer pushes with real git protocol
 // (isomorphic-git over an in-memory filesystem), exactly like any other agent.
+//
+// The same fixer repairs changesets agents pushed straight to Gitslice. It then
+// reads the patchset through the Gitslice API and pushes its repair to
+// refs/changes/<changeset> on Gitslice's own Git endpoint, with no fork.
 
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 import { createFsFromVolume, Volume } from "memfs";
 import { diffTrees, readBlob } from "./artifacts";
 import type { Env } from "./env";
+import { Gitslice } from "./gitslice";
 import { errorMessage, mapLimit } from "./land";
+import { findChange, readNativeFiles, reviewNativeChange, type NativeHub } from "./native";
 import { parseFix, type FileContext } from "./fixparse";
 import { extractText, withTimeout } from "./review";
 import type { Session } from "./types";
@@ -19,7 +25,7 @@ import type { Session } from "./types";
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_FILE_CHARS = 6000;
 
-export interface FixerHub {
+export interface FixerHub extends NativeHub {
   getSession(id: string): Promise<Session | null>;
   openFix(failingId: string): Promise<{ session: Session; token: string } | null>;
   patch(id: string, partial: Partial<Session>, signal?: Omit<Session["signals"][number], "at">, eventMessage?: string): Promise<Session | null>;
@@ -35,7 +41,7 @@ export async function fixSession(env: Env, hub: FixerHub, failingId: string): Pr
   try {
     log("forked");
     // What the author pushed, against the baseline it started from.
-    const files = await readChanges(env, failing);
+    const files = failing.native ? await readNativeChanges(env, failing) : await readChanges(env, failing);
     log("read", { files: files.map((f) => f.path) });
     const feedback = [failing.review?.summary, ...(failing.review?.concerns ?? [])].filter(Boolean).join("\n- ");
     const started = Date.now();
@@ -54,6 +60,13 @@ export async function fixSession(env: Env, hub: FixerHub, failingId: string): Pr
       `Agent: ${session.agent}`,
       `Task: ${session.task}`,
     ].join("\n");
+    if (failing.native) {
+      // Update the author's changeset on Gitslice, then review the new patchset.
+      await pushFix(session.remote, token, fix.files, message, session.agent, `refs/changes/${failing.changesetId}`);
+      log("pushed");
+      await reviewNativeChange(env, hub, { account: failing.account, slice: failing.slice }, failing.changesetId!);
+      return;
+    }
     await pushFix(session.remote, token, fix.files, message, session.agent);
     log("pushed");
 
@@ -65,6 +78,16 @@ export async function fixSession(env: Env, hub: FixerHub, failingId: string): Pr
     console.error(JSON.stringify({ msg: "fixer failed", session: failingId, error: errorMessage(err) }));
     await hub.patch(session.id, { status: "failed" }, { kind: "error", message: errorMessage(err) }, `fixer failed: ${errorMessage(err).slice(0, 100)}`);
   }
+}
+
+// readNativeChanges reads the failing patchset of a change pushed to Gitslice.
+async function readNativeChanges(env: Env, failing: Session): Promise<FileContext[]> {
+  const gitslice = new Gitslice(env.GITSLICE_API, env.GITSLICE_TOKEN);
+  const slice = { account: failing.account, slice: failing.slice };
+  const found = await findChange(gitslice, slice, failing.changesetId!);
+  if (!found) throw new Error(`changeset ${failing.changesetId} not found`);
+  const files = await readNativeFiles(gitslice, slice, found.cs, found.ps);
+  return files.filter((f) => f.after !== null).map((f) => ({ path: f.path.replace(/^\//, ""), before: f.before, after: f.after! }));
 }
 
 async function readChanges(env: Env, failing: Session): Promise<FileContext[]> {
@@ -109,7 +132,7 @@ async function askModel(ai: Ai, failing: Session, files: FileContext[], feedback
 
 // pushFix clones the fork (just its last commit), writes the repaired files,
 // commits and pushes, over git smart HTTP.
-async function pushFix(remote: string, token: string, files: Array<{ path: string; content: string }>, message: string, name: string): Promise<void> {
+async function pushFix(remote: string, token: string, files: Array<{ path: string; content: string }>, message: string, name: string, remoteRef = "main"): Promise<void> {
   const fs = createFsFromVolume(new Volume());
   const headers = { Authorization: `Bearer ${token}` };
   const dir = "/work";
@@ -119,7 +142,7 @@ async function pushFix(remote: string, token: string, files: Array<{ path: strin
     await git.add({ fs, dir, filepath: f.path });
   }
   await git.commit({ fs, dir, message, author: { name, email: `${name}@agents.gitslice.io` } });
-  const result = await git.push({ fs, http, dir, remote: "origin", ref: "main", headers });
+  const result = await git.push({ fs, http, dir, remote: "origin", ref: "main", remoteRef, headers });
   if (!result.ok) throw new Error(`push rejected: ${result.error ?? JSON.stringify(result.refs)}`);
 }
 
