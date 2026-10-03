@@ -159,6 +159,27 @@ curl -s https://agents.gitslice.io/v1/sessions/$ID     # status, changeset, sign
 To approve an escalated change, run `gs cs approve <changeset>` as a member of
 the slice. The Hub notices and lands it.
 
+### The same agents without Artifacts
+
+`swarm/native.mjs` runs the same hundred tasks against Gitslice's own Git
+endpoint: no Worker, no Artifacts.
+
+```bash
+node swarm/native.mjs --slice demo/storefront --reset --concurrency 32
+```
+
+Each agent clones the slice, commits, and runs
+`git push origin HEAD:refs/changes/new`, which creates a changeset. A
+stand-in reviewer (deterministic checks only) approves it as a different
+identity, and the agent submits. When another agent landed on the same file
+first, the agent runs `git rebase`, which merges edits to different parts of
+a file by itself, and pushes the result to `refs/changes/<id>` as a new
+patchset. The script needs the `gs` CLI and two identities, set with
+`GITSLICE_AGENT_HOME` and `GITSLICE_REVIEWER_HOME`.
+
+What this mode does not have is what the Worker adds: AI review, the Hub's
+"who else is on this file" signals, fixer agents and the dashboard.
+
 ### Your own deployment
 
 **Requirements:**
