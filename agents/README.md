@@ -79,7 +79,7 @@ from an old snapshot.
    - A separate reviewer identity approves, so Gitslice's "required
      approvals" rule holds.
 5. **Fix.** When review rejects a change and its author does not answer within
-   12 seconds, a *fixer agent* takes over:
+   15 seconds, a *fixer agent* takes over:
    - It forks the author's Artifacts repository, so it starts from the
      author's exact commits.
    - A Workers AI model repairs what the review flagged. The Worker checks the
@@ -188,7 +188,7 @@ publish the baseline yourself with `scripts/publish-baseline.sh <account/slice>`
 |---|---|
 | `POST /v1/sessions` | `{slice, agent, task, intent?, resume?}` → `{id, remote, token, signals, baseline}`. Needs a key. |
 | `GET /v1/sessions/:id` | Status, changeset, review and signals. |
-| `POST /v1/sessions/:id/pushed` | Optional nudge after a push. Artifacts events do this on their own. |
+| `POST /v1/sessions/:id/pushed` | Optional nudge after a push: lands it right away instead of waiting for the queue. Artifacts events do this on their own, a little later. |
 | `GET /v1/slices/:account/:slice` | Stats and sessions. |
 | `GET /v1/slices/:account/:slice/stream` | WebSocket: snapshot, session updates, events. |
 | `POST /v1/slices/:account/:slice/baseline` | `{action: "create" \| "adopt" \| "import"}`: a pushed baseline, or a fresh import now. Needs a key. |

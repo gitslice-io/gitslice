@@ -74,7 +74,8 @@ async function readChanges(env: Env, failing: Session): Promise<FileContext[]> {
   if (!commit) throw new Error(`commit ${failing.lastCommit} is not in ${failing.id}`);
   const changes = (await diffTrees(repo, failing.baseline.tree, commit.treeHash)).filter((c) => c.path.startsWith(prefix) && c.op === "upsert");
   const decoder = new TextDecoder();
-  return mapLimit(changes, 4, async (c) => ({
+  // Awaited here: the repo handle is disposed when this function returns.
+  return await mapLimit(changes, 4, async (c) => ({
     path: c.path,
     before: c.baseHash ? decoder.decode(await readBlob(repo, c.baseHash)) : null,
     after: decoder.decode(await readBlob(repo, c.hash!)),

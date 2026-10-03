@@ -31,14 +31,15 @@ interface HubApi extends HubPort {
   adoptBaseline(repo: string): Promise<Baseline>;
   importNow(account: string, slice: string): Promise<Baseline>;
   openFix(failingId: string): Promise<{ session: Session; token: string } | null>;
+  expectPush(id: string): Promise<void>;
 }
 
 export { Hub };
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
-      return await route(request, env);
+      return await route(request, env, ctx);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return json({ error: message }, 500);
@@ -80,7 +81,7 @@ export default {
   },
 } satisfies ExportedHandler<Env, unknown>;
 
-async function route(request: Request, env: Env): Promise<Response> {
+async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
   const defaultSlice = allowedSlices(env)[0] ?? "demo/storefront";
@@ -211,8 +212,17 @@ async function route(request: Request, env: Env): Promise<Response> {
       using repo = await env.ARTIFACTS.get(id);
       const [head] = await repo.log({ limit: 1 });
       if (!head) return json({ error: "nothing pushed yet" }, 409);
-      await env.EVENTS.send({ kind: "land", session: id, commit: head.hash });
-      return json({ queued: head.hash }, 202);
+      await hub.expectPush(id);
+      // Land it right here instead of waiting for a queue consumer: the queue
+      // scales its consumers up gradually, and a burst of pushes waited up to
+      // a minute. The repo.pushed event still arrives as a safety net, and the
+      // Hub's claim makes the second arrival a no-op.
+      ctx.waitUntil(
+        landPush(env, hubPort(env, where.account, where.slice), id, head.hash).catch((err) =>
+          console.error(JSON.stringify({ msg: "direct landing failed", session: id, error: String(err) })),
+        ),
+      );
+      return json({ landing: head.hash }, 202);
     }
   }
   return json({ error: "not found" }, 404);

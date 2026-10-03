@@ -74,7 +74,7 @@ Answer the competition's three questions:
     clean store.
 - **Fixer agents repair rejected changes.**
   - If review requests changes and the author does not push again within
-    12 seconds, the Hub queues a fixer.
+    15 seconds, the Hub queues a fixer.
   - The fixer forks the author's repository, which Artifacts does in constant
     time without touching the original. It gets the task, the review feedback
     and the pushed files, asks gpt-oss-120b for corrected files, validates
@@ -123,6 +123,23 @@ A rehearsal ran 99 agents plus one driven by hand on `demo/storefront`:
   Gitslice (`TestGitFetchWithoutSideBand`); see the execution log.
 - Durable Object RPC types collapse to `never` for values typed `unknown`.
   Signal payloads are typed as JSON.
+- **Queue consumers scale up gradually, which delayed bursts.** A burst of 30
+  pushes in 10 seconds waited a median of 26 s (up to a minute) to be claimed,
+  while the Hub itself answered in 0.1 to 0.5 s throughout. The nudge
+  (`POST …/pushed`) now lands the push in its own request with
+  `ctx.waitUntil`. The Artifacts event still arrives through the queue as a
+  safety net, and the Hub's claim makes the second arrival a no-op. The median
+  push-to-landed time under the 100-agent burst fell from about 25 s to 14 s.
+- The fixer's timer is extended by the nudge, not just by the claim. Before
+  that, an author that answered in 1.5 s was still preempted, because its push
+  sat in the queue for 27 s.
+- A protected path always goes to a person, even when the model asks for
+  changes. Before that, a model rejection of the payments change started a
+  fixer on a path that policy reserves for people.
+- A repo handle opened with `using` is disposed when the function returns, so
+  a promise returned without `await` can use it after disposal ("RPC stub used
+  after being disposed"). It only showed when a changed file had a previous
+  version to read.
 - Model calls need their own timeouts. A hung Workers AI call held a landing
   in "reviewing" for as long as the invocation lived. Every call now times out
   at 25 to 45 s and falls back to the next model, and finally to a person.

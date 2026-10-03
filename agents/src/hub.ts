@@ -11,7 +11,7 @@ import type { Baseline, HubEvent, Session, Signal, Stats } from "./types";
 const MAX_EVENTS = 300;
 const MIN_IMPORT_INTERVAL_MS = 4000;
 // How long an agent has to answer a review before a fixer agent takes over.
-const FIX_AFTER_MS = 12_000;
+const FIX_AFTER_MS = 15_000;
 // A landing that has not moved for this long probably died with its Worker
 // invocation: it is queued again, up to RETRY_LIMIT times.
 const STALL_MS = 90_000;
@@ -224,6 +224,17 @@ export class Hub extends DurableObject<Env> {
       this.broadcast({ type: "session", session: original });
     }
     this.broadcastStats();
+  }
+
+  // expectPush is the author saying "I pushed an answer" before the push has
+  // made its way through the landing queue: the fixer waits for it.
+  async expectPush(id: string): Promise<void> {
+    await this.load();
+    const session = this.sessions.get(id);
+    if (!session?.fixAt) return;
+    session.fixAt = Date.now() + FIX_AFTER_MS;
+    await this.save(session);
+    await this.scheduleAlarm();
   }
 
   // openFix forks the failing session's repository for a fixer agent. The

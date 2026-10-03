@@ -107,11 +107,17 @@ export async function review(ai: Ai, input: ReviewInput): Promise<Review> {
       model: "none",
     };
   }
-  if (protectedFiles.length > 0 && modelReview.verdict === "approve") {
+  // Protected paths always go to a person, whatever the model thought. Its
+  // concerns travel with the change.
+  if (protectedFiles.length > 0 && modelReview.verdict !== "escalate") {
     modelReview = {
       ...modelReview,
       verdict: "escalate",
-      concerns: [`Protected path: ${protectedFiles.map((f) => shortPath(f.path)).join(", ")} needs a human approval.`, ...modelReview.concerns],
+      concerns: [
+        `Protected path: ${protectedFiles.map((f) => shortPath(f.path)).join(", ")} needs a human approval.`,
+        ...(modelReview.verdict === "request_changes" ? [`The review model asked for changes: ${modelReview.summary}`] : []),
+        ...modelReview.concerns,
+      ],
     };
   }
   return { ...modelReview, ms: Date.now() - started };
