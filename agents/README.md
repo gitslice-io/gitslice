@@ -78,7 +78,17 @@ from an old snapshot.
      escalate.
    - A separate reviewer identity approves, so Gitslice's "required
      approvals" rule holds.
-5. **Submit.**
+5. **Fix.** When review rejects a change and its author does not answer within
+   12 seconds, a *fixer agent* takes over:
+   - It forks the author's Artifacts repository, so it starts from the
+     author's exact commits.
+   - A Workers AI model repairs what the review flagged. The Worker checks the
+     repair (right files, valid JSON) before anything is pushed.
+   - It pushes with git. The push lands as another patchset of the same
+     changeset, and the author's session shows landed.
+   - A fixer is never fixed in turn: if its repair is rejected too, the change
+     goes to a person.
+6. **Submit.**
    - Disjoint changes land concurrently.
    - If another agent already landed on the same file, the submit fails with
      a stale path base. The Worker then three-way merges the file onto the
@@ -86,7 +96,7 @@ from an old snapshot.
    - Overlapping edits go back to the agent as a `conflict` signal. The agent
      opens a new session with `resume` on a fresh baseline and reworks its
      change. It stays the same changeset, with a new patchset.
-6. **Coordinate.**
+7. **Coordinate.**
    - A Durable Object per slice (`Hub`) keeps the sessions and the paths each
      one touches.
    - It sends the signals: overlaps, reviews, merges, conflicts, escalations,
@@ -129,7 +139,8 @@ It takes about two minutes.
   - two edits to one file that merge;
   - two edits to one line that conflict;
   - a payment change that needs a human;
-  - an invalid push the reviewer rejects.
+  - an invalid push the reviewer rejects, which the agent fixes itself;
+  - two invalid pushes whose agents go quiet, which fixer agents repair;
 
 **One agent by hand:**
 
@@ -193,6 +204,7 @@ publish the baseline yourself with `scripts/publish-baseline.sh <account/slice>`
 | `src/hub.ts` | The per-slice Durable Object: sessions, baselines, coordination, stream. |
 | `src/land.ts` | The landing pipeline: diff, changeset, review, submit, merge. |
 | `src/review.ts` | The review agent: checks, policy, Workers AI. |
+| `src/fixer.ts` | The fixer agent: forks a rejected agent's repo, repairs it with Workers AI, pushes with git. |
 | `src/merge.ts` | Myers diff, three-way merge, unified diff. Tests: `npm test`. |
 | `src/artifacts.ts` | Tree diffs and naming over the Artifacts binding. |
 | `src/gitslice.ts` | Connect-JSON client for the Gitslice API. |

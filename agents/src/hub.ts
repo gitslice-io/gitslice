@@ -10,6 +10,20 @@ import type { Baseline, HubEvent, Session, Signal, Stats } from "./types";
 
 const MAX_EVENTS = 300;
 const MIN_IMPORT_INTERVAL_MS = 4000;
+// How long an agent has to answer a review before a fixer agent takes over.
+const FIX_AFTER_MS = 12_000;
+// A landing that has not moved for this long probably died with its Worker
+// invocation: it is queued again, up to RETRY_LIMIT times.
+const STALL_MS = 90_000;
+const WATCHDOG_EVERY_MS = 30_000;
+const RETRY_LIMIT = 3;
+const PROCESSING: ReadonlySet<string> = new Set(["pushed", "reviewing", "approved", "landing", "merging"]);
+// An escalation only because no review model answered is reviewed again
+// after this long, before it bothers a person.
+const REREVIEW_AFTER_MS = 20_000;
+
+// unreviewed: the review agent escalated only because no model answered.
+const unreviewed = (s: Session): boolean => s.status === "needs-human" && s.review?.model === "none";
 const MAX_SIGNALS = 40;
 const ACTIVE: ReadonlySet<string> = new Set(["forked", "pushed", "reviewing", "approved", "landing", "merging", "needs-human", "changes-requested"]);
 
@@ -128,6 +142,7 @@ export class Hub extends DurableObject<Env> {
     const session = this.sessions.get(id);
     if (!session || session.lastCommit === commit || session.supersededBy) return null;
     session.lastCommit = commit;
+    delete session.fixAt;
     session.pushes++;
     session.pushedAt = Date.now();
     session.status = "pushed";
@@ -147,11 +162,19 @@ export class Hub extends DurableObject<Env> {
     if (!session) return null;
     Object.assign(session, partial, { updatedAt: Date.now() });
     if (signal) pushSignal(session, signal);
+    // A rejected change gets a fixer agent if its author stays quiet. Fixers
+    // do not get fixers: when one is rejected too, a person takes over.
+    if (session.status === "changes-requested" && !session.fixerFor && !session.fixedBy && !session.fixAt && this.env.FIXER !== "off") {
+      session.fixAt = Date.now() + FIX_AFTER_MS;
+    } else if (session.status !== "changes-requested") {
+      delete session.fixAt;
+    }
     await this.save(session);
     if (eventMessage) this.event({ kind: partial.status ?? "update", session: id, agent: session.agent, message: eventMessage });
     this.broadcast({ type: "session", session });
     this.broadcastStats();
-    if (session.status === "needs-human") await this.ctx.storage.setAlarm(Date.now() + 3000);
+    if (session.fixerFor) await this.followFixer(session, partial);
+    await this.scheduleAlarm();
     return session;
   }
 
@@ -190,7 +213,90 @@ export class Hub extends DurableObject<Env> {
     await this.save(session);
     this.event({ kind: "landed", session: id, agent: session.agent, message: `landed ${session.handle ?? ""}${session.autoMerged ? " (auto-merged)" : ""}` });
     this.broadcast({ type: "session", session });
+    const original = session.fixerFor ? this.sessions.get(session.fixerFor) : undefined;
+    if (original && original.status !== "landed") {
+      original.status = "landed";
+      original.landedCommit = commit;
+      original.landedAt = session.landedAt;
+      original.updatedAt = Date.now();
+      pushSignal(original, { kind: "landed", message: `Landed by ${session.agent} as ${commit.slice(0, 19)}.` });
+      await this.save(original);
+      this.broadcast({ type: "session", session: original });
+    }
     this.broadcastStats();
+  }
+
+  // openFix forks the failing session's repository for a fixer agent. The
+  // fork starts from the author's exact commits and shares its changeset, so
+  // the fix lands as another patchset of the same change.
+  async openFix(failingId: string): Promise<{ session: Session; token: string } | null> {
+    await this.load();
+    const failing = this.sessions.get(failingId);
+    if (!failing || failing.status !== "changes-requested" || failing.supersededBy) return null;
+    const name = sessionRepoName(failing.account, failing.slice, `fixer-${failing.agent}`, nonce());
+    using source = await this.env.ARTIFACTS.get(failing.id);
+    const forked = await source.fork(name, {
+      defaultBranchOnly: true,
+      readOnly: false,
+      description: `Fixer for ${failing.agent}`.slice(0, 200),
+    });
+    let token = forked.token;
+    if (!token) {
+      using repo = await this.env.ARTIFACTS.get(name);
+      token = (await repo.createToken("write", 3600)).plaintext;
+    }
+    const now = Date.now();
+    const session: Session = {
+      id: name,
+      agent: `fixer-${failing.agent}`,
+      task: `Fix: ${failing.task}`.slice(0, 300),
+      account: failing.account,
+      slice: failing.slice,
+      remote: forked.remote,
+      baseline: failing.baseline,
+      intent: failing.touched.length ? failing.touched : failing.intent,
+      touched: [],
+      status: "forked",
+      changesetId: failing.changesetId,
+      handle: failing.handle,
+      patchsetId: failing.patchsetId,
+      fixerFor: failing.id,
+      pushes: 0,
+      signals: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    failing.fixedBy = name;
+    delete failing.fixAt;
+    pushSignal(failing, {
+      kind: "info",
+      message: `No answer to the review after ${FIX_AFTER_MS / 1000} s, so ${session.agent} forked your repository to repair the change. You need not act.`,
+    });
+    this.counters.forks++;
+    await this.save(failing);
+    await this.save(session);
+    await this.ctx.storage.put("counters", this.counters);
+    this.event({ kind: "forked", session: name, agent: session.agent, message: `fixer forked ${shortRepo(failing.id)} → ${shortRepo(name)}` });
+    this.broadcast({ type: "session", session: failing });
+    this.broadcast({ type: "session", session });
+    this.broadcastStats();
+    return { session, token };
+  }
+
+  // followFixer carries a fixer's progress back to the session it repairs.
+  private async followFixer(fixer: Session, partial: Partial<Session>): Promise<void> {
+    const original = this.sessions.get(fixer.fixerFor!);
+    if (!original) return;
+    if (partial.patchsetId) original.patchsetId = partial.patchsetId;
+    if (fixer.status === "changes-requested" || fixer.status === "failed") {
+      original.status = "needs-human";
+      pushSignal(original, {
+        kind: "escalated",
+        message: `${fixer.agent} could not repair the change either: ${fixer.signals.at(-1)?.message ?? "see its session"}. A person needs to look.`,
+      });
+    }
+    await this.save(original);
+    this.broadcast({ type: "session", session: original });
   }
 
   async stats(): Promise<Stats> {
@@ -345,9 +451,53 @@ export class Hub extends DurableObject<Env> {
         console.warn(JSON.stringify({ msg: "escalation retry failed", session: session.id, error: String(err) }));
       }
     }
-    if ([...this.sessions.values()].some((s) => s.status === "needs-human" && !s.supersededBy)) {
-      await this.ctx.storage.setAlarm(Date.now() + 3000);
+    const now = Date.now();
+    for (const session of this.sessions.values()) {
+      if (session.status !== "changes-requested" || !session.fixAt || session.fixAt > now || session.fixedBy || session.supersededBy) continue;
+      session.fixedBy = "pending";
+      delete session.fixAt;
+      await this.save(session);
+      await this.env.EVENTS.send({ kind: "fix", session: session.id });
+      this.event({ kind: "fix", session: session.id, agent: session.agent, message: "no answer to the review; sending a fixer agent" });
+      this.broadcast({ type: "session", session });
     }
+    for (const session of this.sessions.values()) {
+      const stalled = PROCESSING.has(session.status) && now - session.updatedAt >= STALL_MS;
+      const rereview = unreviewed(session) && now - session.updatedAt >= REREVIEW_AFTER_MS;
+      if (!(stalled || rereview) || session.supersededBy || !session.lastCommit) continue;
+      if ((session.retries ?? 0) >= RETRY_LIMIT) {
+        if (!stalled) continue; // still unreviewed: it stays with a person
+        session.status = "failed";
+        pushSignal(session, { kind: "error", message: "The landing stalled and did not recover after several attempts." });
+      } else {
+        session.retries = (session.retries ?? 0) + 1;
+        session.updatedAt = now;
+        await this.env.EVENTS.send({ kind: "land", session: session.id, commit: session.lastCommit, retry: true });
+        this.event({ kind: "retry", session: session.id, agent: session.agent, message: `landing stalled in ${session.status}; trying again (${session.retries}/${RETRY_LIMIT})` });
+      }
+      await this.save(session);
+      this.broadcast({ type: "session", session });
+    }
+    await this.scheduleAlarm();
+  }
+
+  // scheduleAlarm wakes the Hub for the next thing that needs a timer:
+  // escalations a person may have approved, and fixers that are due.
+  private async scheduleAlarm(): Promise<void> {
+    const now = Date.now();
+    let next = Infinity;
+    for (const s of this.sessions.values()) {
+      if (s.supersededBy) continue;
+      if (s.status === "needs-human") next = Math.min(next, now + (unreviewed(s) ? REREVIEW_AFTER_MS : 3000));
+      if (PROCESSING.has(s.status)) next = Math.min(next, now + WATCHDOG_EVERY_MS);
+      if (s.fixAt && !s.fixedBy) next = Math.min(next, s.fixAt);
+    }
+    if (next === Infinity) return;
+    const target = Math.max(next, now + 250);
+    // Keep an alarm that is already due sooner: patches arrive constantly and
+    // must not push it back.
+    const existing = await this.ctx.storage.getAlarm();
+    if (existing === null || existing <= now || existing > target) await this.ctx.storage.setAlarm(target);
   }
 
   // ---- dashboard stream ---------------------------------------------------
@@ -391,6 +541,7 @@ export class Hub extends DurableObject<Env> {
     const all = [...this.sessions.values()];
     const live = all.filter((s) => !s.supersededBy);
     const landed = all.filter((s) => s.status === "landed");
+    const landedChangesets = new Set(landed.map((s) => s.changesetId ?? s.id)).size;
     const times = landed
       .map((s) => (s.landedAt ?? 0) - (s.pushedAt ?? s.createdAt))
       .filter((ms) => ms > 0)
@@ -403,11 +554,12 @@ export class Hub extends DurableObject<Env> {
       pushes: this.counters.pushes,
       changesets: new Set(all.map((s) => s.changesetId).filter(Boolean)).size,
       reviewed: all.filter((s) => s.review).length,
-      landed: landed.length,
+      landed: landedChangesets,
       autoMerged: landed.filter((s) => s.autoMerged).length,
       conflicts: all.filter((s) => s.status === "conflict" || s.resumedFrom).length,
       escalated: all.filter((s) => s.signals.some((sig) => sig.kind === "escalated")).length,
-      inFlight: live.filter((s) => ACTIVE.has(s.status)).length,
+      fixes: all.filter((s) => s.fixerFor && s.status === "landed").length,
+      inFlight: live.filter((s) => ACTIVE.has(s.status) && !s.fixedBy).length,
       medianLandMs: times.length ? times[Math.floor(times.length / 2)] : null,
     };
   }
@@ -419,6 +571,8 @@ export class Hub extends DurableObject<Env> {
         other.id !== session.id &&
         !other.supersededBy &&
         other.id !== session.resumedFrom &&
+        other.id !== session.fixerFor &&
+        other.fixerFor !== session.id &&
         ACTIVE.has(other.status) &&
         intersect(paths, pathsOf(other)).length > 0,
     );

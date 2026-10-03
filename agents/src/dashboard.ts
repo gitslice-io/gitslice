@@ -262,6 +262,8 @@ function card(x) {
   if (x.handle) tags.push('<span class="tag">' + esc(x.handle.slice(0, 10)) + "</span>");
   if (x.autoMerged) tags.push('<span class="tag" style="color:var(--merging)">merged</span>');
   if (x.resumedFrom) tags.push('<span class="tag" style="color:var(--conflict)">reworked</span>');
+  if (x.fixerFor) tags.push('<span class="tag" style="color:var(--human)">fixes ' + esc(x.fixerFor.split(".")[3] || "") + "</span>");
+  else if (x.fixedBy) tags.push('<span class="tag" style="color:var(--human)">fixer assigned</span>');
   if (x.review) tags.push('<span class="tag" style="color:var(--reviewing)">AI ' + esc(x.review.verdict.replace("_", " ")) + "</span>");
   return '<div class="card" data-id="' + esc(x.id) + '" style="border-left-color:' + st.color + '" onclick="openDrawer(\\'' + esc(x.id) + '\\')">' +
     '<div class="top"><span class="agent" style="color:' + agentColor(x.agent) + '">' + esc(x.agent) + '</span><span class="pill" style="background:' + st.color + '22;color:' + st.color + '">' + st.label + "</span></div>" +
@@ -290,6 +292,8 @@ function renderDrawer() {
     "<div>Paths</div><div class=\\"mono\\">" + (x.touched.length ? x.touched : x.intent).map((p) => esc(short(p))).join("<br>") + "</div>" +
     (x.landedCommit ? "<div>Landed as</div><div class=\\"mono\\">" + esc(x.landedCommit.slice(0, 23)) + "…</div>" : "") +
     (x.resumedFrom ? "<div>Reworks</div><div class=\\"mono\\">" + esc(x.resumedFrom) + "</div>" : "") +
+    (x.fixerFor ? "<div>Repairs</div><div class=\\"mono\\">" + esc(x.fixerFor) + "<br>(forked from its repository)</div>" : "") +
+    (x.fixedBy && x.fixedBy !== "pending" ? "<div>Fixer</div><div class=\\"mono\\">" + esc(x.fixedBy) + "</div>" : "") +
     "</div>" +
     (r ? '<div class="review"><div class="verdict" style="color:' + (r.verdict === "approve" ? "var(--landed)" : r.verdict === "escalate" ? "var(--human)" : "var(--changes)") + '">Review agent · ' + esc(r.verdict.replace("_", " ")) + " · " + esc(r.model) + " · " + fmtMs(r.ms) + "</div><div style=\\"margin-top:6px\\">" + esc(r.summary) + "</div>" +
       (r.concerns && r.concerns.length ? '<ul style="margin:8px 0 0 18px;padding:0;color:var(--muted)">' + r.concerns.map((c) => "<li>" + esc(c) + "</li>").join("") + "</ul>" : "") + "</div>" : "") +

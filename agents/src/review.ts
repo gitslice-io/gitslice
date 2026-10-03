@@ -35,6 +35,7 @@ const INSTRUCTIONS = `You review changes that autonomous coding agents push to a
 Approve a change when it does what the task says, stays within that scope, and is syntactically valid.
 Request changes when it breaks syntax, edits unrelated code, deletes functionality without reason, adds secrets, or contradicts the task.
 Escalate to a human when the change touches payments, authentication, or anything security sensitive.
+Deterministic checks already ran before you: every .json file parses, and every catalog product has exactly the fields sku, name, priceCents (whole cents), currency (USD, EUR, GBP or JPY), tags and stock. Do not ask for other fields or formats; judge only whether the change does what its task says and stays in scope.
 Reply with JSON only: {"verdict":"approve"|"request_changes"|"escalate","summary":"one sentence","concerns":["..."]}`;
 
 export async function review(ai: Ai, input: ReviewInput): Promise<Review> {
@@ -50,6 +51,21 @@ export async function review(ai: Ai, input: ReviewInput): Promise<Review> {
           verdict: "request_changes",
           summary: `${shortPath(file.path)} is not valid JSON.`,
           concerns: [String(err)],
+          model: "policy",
+          ms: Date.now() - started,
+        };
+      }
+    }
+  }
+  // Catalog products must match the store's Product type.
+  for (const file of input.files) {
+    if (file.after !== null && /\/src\/catalog\/products\/[^/]+\.json$/.test(file.path)) {
+      const problems = productProblems(JSON.parse(file.after));
+      if (problems.length > 0) {
+        return {
+          verdict: "request_changes",
+          summary: `${shortPath(file.path)} does not match the Product type.`,
+          concerns: problems,
           model: "policy",
           ms: Date.now() - started,
         };
@@ -101,22 +117,50 @@ export async function review(ai: Ai, input: ReviewInput): Promise<Review> {
   return { ...modelReview, ms: Date.now() - started };
 }
 
+function productProblems(p: Record<string, unknown>): string[] {
+  const problems: string[] = [];
+  if (typeof p.sku !== "string" || !p.sku) problems.push('"sku" must be a non-empty string');
+  if (typeof p.name !== "string" || !p.name) problems.push('"name" must be a non-empty string');
+  if (!Number.isInteger(p.priceCents) || (p.priceCents as number) < 0) problems.push('"priceCents" must be a whole number of cents');
+  if (!["USD", "EUR", "GBP", "JPY"].includes(p.currency as string)) problems.push('"currency" must be USD, EUR, GBP or JPY');
+  if (!Array.isArray(p.tags)) problems.push('"tags" must be an array of strings');
+  if (!Number.isInteger(p.stock) || (p.stock as number) < 0) problems.push('"stock" must be a whole number');
+  return problems;
+}
+
+// withTimeout stops a hung model call from holding a landing forever.
+export function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function askModel(ai: Ai, model: string, prompt: string): Promise<Omit<Review, "ms">> {
   let raw: unknown;
   if (model.startsWith("@cf/openai/gpt-oss")) {
-    raw = await ai.run(model as keyof AiModels, {
-      instructions: INSTRUCTIONS,
-      input: prompt,
-      reasoning: { effort: "low" },
-    } as never);
+    raw = await withTimeout(
+      ai.run(model as keyof AiModels, {
+        instructions: INSTRUCTIONS,
+        input: prompt,
+        reasoning: { effort: "low" },
+      } as never),
+      25_000,
+      "review model",
+    );
   } else {
-    raw = await ai.run(model as keyof AiModels, {
-      messages: [
-        { role: "system", content: INSTRUCTIONS },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 400,
-    } as never);
+    raw = await withTimeout(
+      ai.run(model as keyof AiModels, {
+        messages: [
+          { role: "system", content: INSTRUCTIONS },
+          { role: "user", content: prompt },
+        ],
+        max_tokens: 400,
+      } as never),
+      25_000,
+      "review model",
+    );
   }
   const text = extractText(raw);
   const json = text.match(/\{[\s\S]*\}/);

@@ -16,6 +16,8 @@ export interface Env {
   PROTECTED_PATHS: string;
   // Optional shallow depth for baseline imports; empty imports full history.
   BASELINE_DEPTH?: string;
+  // "off" stops fixer agents from taking over rejected changes.
+  FIXER?: string;
   // Secrets.
   GITSLICE_TOKEN: string; // bridge identity: authors changesets
   GITSLICE_REVIEWER_TOKEN: string; // review identity: approves them

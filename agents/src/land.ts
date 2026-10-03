@@ -11,14 +11,32 @@ import { review, type ReviewFile } from "./review";
 import type { Session, Signal } from "./types";
 
 export interface HubPort {
+  getSession(id: string): Promise<Session | null>;
   claimPush(id: string, commit: string): Promise<Session | null>;
   patch(id: string, partial: Partial<Session>, signal?: Omit<Signal, "at">, eventMessage?: string): Promise<Session | null>;
   touch(id: string, paths: string[]): Promise<void>;
   landed(id: string, commit: string): Promise<void>;
 }
 
-export async function landPush(env: Env, hub: HubPort, sessionId: string, commit: string): Promise<void> {
-  const session = await hub.claimPush(sessionId, commit);
+export async function landPush(env: Env, hub: HubPort, sessionId: string, commit: string, retry = false): Promise<void> {
+  let session: Session | null;
+  if (retry) {
+    // The Hub saw a landing stall, probably with a Worker invocation that
+    // died. Pick it up where the record says it stopped.
+    session = await hub.getSession(sessionId);
+    if (!session || session.lastCommit !== commit || session.supersededBy || ["landed", "failed", "changes-requested", "conflict"].includes(session.status)) return;
+    // A person's escalations stay with the person; a review nobody could do does not.
+    if (session.status === "needs-human" && session.review?.model !== "none") return;
+    if (session.changesetId) {
+      const done = await new Gitslice(env.GITSLICE_API, env.GITSLICE_TOKEN).getChangeset(session.changesetId).catch(() => null);
+      if (done?.status === "submitted" && done.commitId) {
+        await hub.landed(sessionId, done.commitId);
+        return;
+      }
+    }
+  } else {
+    session = await hub.claimPush(sessionId, commit);
+  }
   if (!session) return; // already handled, or superseded by a newer session
   try {
     await landClaimed(env, hub, session, commit);

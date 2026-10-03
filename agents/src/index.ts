@@ -16,7 +16,7 @@ import type { Env } from "./env";
 import { Hub, type OpenSessionInput } from "./hub";
 import { landPush, type HubPort } from "./land";
 import { restoreSeed } from "./restore";
-import { extractText } from "./review";
+import { extractText, withTimeout } from "./review";
 import type { Baseline, Session, Stats } from "./types";
 
 // HubApi is the Hub's RPC surface as the Worker uses it. Typing the stub
@@ -30,6 +30,7 @@ interface HubApi extends HubPort {
   reset(): Promise<{ deleted: number }>;
   adoptBaseline(repo: string): Promise<Baseline>;
   importNow(account: string, slice: string): Promise<Baseline>;
+  openFix(failingId: string): Promise<{ session: Session; token: string } | null>;
 }
 
 export { Hub };
@@ -47,13 +48,28 @@ export default {
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     await Promise.all(
       batch.messages.map(async (message) => {
+        const fix = message.body as { kind?: string; session?: string };
+        if (fix?.kind === "fix" && fix.session) {
+          // A rejected change whose author went quiet: send a fixer agent.
+          const where = parseSessionRepo(fix.session);
+          if (where && isAllowed(env, where.account, where.slice)) {
+            try {
+              const { fixSession } = await import("./fixer");
+              await fixSession(env, hubStub(env, where.account, where.slice), fix.session);
+            } catch (err) {
+              console.error(JSON.stringify({ msg: "fixer crashed", session: fix.session, error: String(err) }));
+            }
+          }
+          message.ack();
+          return;
+        }
         const target = landingTarget(message.body, env);
         if (!target) {
           message.ack();
           return;
         }
         try {
-          await landPush(env, hubPort(env, target.account, target.slice), target.session, target.commit);
+          await landPush(env, hubPort(env, target.account, target.slice), target.session, target.commit, target.retry);
           message.ack();
         } catch (err) {
           console.error(JSON.stringify({ msg: "landing crashed", target, error: String(err) }));
@@ -126,11 +142,15 @@ async function route(request: Request, env: Env): Promise<Response> {
     const body = (await request.json().catch(() => ({}))) as { instructions?: string; input?: string };
     if (!body.input) return json({ error: "input is required" }, 400);
     const started = Date.now();
-    const raw = await env.AI.run("@cf/openai/gpt-oss-120b" as keyof AiModels, {
-      instructions: String(body.instructions ?? "").slice(0, 4000),
-      input: String(body.input).slice(0, 24000),
-      reasoning: { effort: "low" },
-    } as never);
+    const raw = await withTimeout(
+      env.AI.run("@cf/openai/gpt-oss-120b" as keyof AiModels, {
+        instructions: String(body.instructions ?? "").slice(0, 4000),
+        input: String(body.input).slice(0, 24000),
+        reasoning: { effort: "low" },
+      } as never),
+      45_000,
+      "model",
+    );
     return json({ text: extractText(raw), model: "openai/gpt-oss-120b", ms: Date.now() - started });
   }
 
@@ -199,6 +219,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 }
 
 interface LandingTarget {
+  retry: boolean;
   session: string;
   commit: string;
   account: string;
@@ -209,6 +230,7 @@ function landingTarget(body: unknown, env: Env): LandingTarget | null {
   const b = body as {
     type?: string;
     kind?: string;
+    retry?: boolean;
     session?: string;
     commit?: string;
     source?: { namespace?: string; repoName?: string };
@@ -228,7 +250,7 @@ function landingTarget(body: unknown, env: Env): LandingTarget | null {
   if (!session || !commit || /^0+$/.test(commit)) return null;
   const where = parseSessionRepo(session);
   if (!where || !isAllowed(env, where.account, where.slice)) return null;
-  return { session, commit, ...where };
+  return { session, commit, retry: Boolean(b?.retry), ...where };
 }
 
 function hubStub(env: Env, account: string, slice: string): HubApi {

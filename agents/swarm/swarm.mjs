@@ -87,6 +87,11 @@ async function runAgent(task) {
         await commitAndPush(dir, task, session, fix);
         state = await follow(task.agent, session.id, t0, state.pushes);
       }
+      if (state.status === "changes-requested" && task.stall) {
+        // This agent never answers its review: a fixer agent has to.
+        log(task.agent, "waiting", "does not answer the review; a fixer agent should take over", "yellow");
+        state = await untilLanded(session.id, 4 * 60_000);
+      }
       if (state.status === "needs-human") {
         log(task.agent, "waiting", "for a human to approve in Gitslice", "yellow");
         state = await follow(task.agent, session.id, t0, undefined, HUMAN_WAIT_MS);
@@ -96,7 +101,7 @@ async function runAgent(task) {
         resume = session.id;
         continue;
       }
-      return { agent: task.agent, outcome: state.status, autoMerged: Boolean(state.autoMerged), reworked, ms: Date.now() - t0, handle: state.handle };
+      return { agent: task.agent, outcome: state.status, autoMerged: Boolean(state.autoMerged), reworked, fixed: Boolean(task.stall && state.status === "landed"), ms: Date.now() - t0, handle: state.handle };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -151,6 +156,17 @@ async function follow(agent, id, t0, afterPushes, maxMs = 5 * 60_000) {
   return { status: "timeout" };
 }
 
+// untilLanded polls a session until it lands or ends in something else.
+async function untilLanded(id, maxMs) {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const s = await api("GET", `/v1/sessions/${id}`);
+    if (s.status === "landed" || s.status === "failed" || s.status === "needs-human") return s;
+    await sleep(700);
+  }
+  return { status: "timeout" };
+}
+
 function lastSignal(s) {
   const sig = s.signals?.[s.signals.length - 1];
   return sig ? sig.message : "";
@@ -184,6 +200,7 @@ function git(argv, stdin) {
     let err = "";
     child.stderr.on("data", (d) => (err += d));
     child.on("error", reject);
+    child.stdin.on("error", () => {}); // git may exit before reading stdin; its exit code says why
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`git ${argv.find((a) => !a.startsWith("-") && !a.includes("=")) ?? ""} failed: ${err.trim().slice(0, 300)}`))));
     child.stdin.end(stdin ?? "");
   });
@@ -213,6 +230,7 @@ function summary() {
     `\n${COLOR.bold}${landed.length}/${results.length} landed in ${wall.toFixed(0)}s${COLOR.reset}` +
       `  ·  auto-merged ${count((r) => r.autoMerged)}  ·  reworked after conflicts ${count((r) => r.reworked)}` +
       `  ·  human-approved ${count((r) => r.outcome === "landed" && r.agent.startsWith("payments"))}` +
+      `  ·  fixed by a fixer agent ${count((r) => r.fixed)}` +
       `  ·  failed ${count((r) => !["landed", "noop"].includes(r.outcome))}` +
       (times.length ? `  ·  median ${(times[Math.floor(times.length / 2)] / 1000).toFixed(1)}s per agent` : "") +
       "\n",

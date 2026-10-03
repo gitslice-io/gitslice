@@ -459,6 +459,34 @@ function capture(orderId: string, amountCents: number, method: PaymentMethod): P
     },
   });
 
+  // Two agents push invalid changes and then go quiet (stall). The review
+  // agent rejects them, and after a few seconds a fixer agent forks each
+  // one's repository and repairs it.
+  tasks.push({
+    agent: "translator-gd",
+    kind: "fixer",
+    stall: true,
+    task: "Add a Scottish Gaelic locale",
+    intent: [p("src/i18n/messages.gd.json")],
+    apply: async (root) => {
+      await writeFile(join(root, p("src/i18n/messages.gd.json")), '{\n  "nav.home": "Dachaigh",\n  "nav.search": "Lorg"\n  "nav.cart": "Cairt",\n}\n');
+      return { subject: "i18n(gd): add a Scottish Gaelic locale", body: "Started the Scottish Gaelic locale with the navigation strings." };
+    },
+  });
+  tasks.push({
+    agent: "catalog-teapot",
+    kind: "fixer",
+    stall: true,
+    task: "Add the Cast Iron Teapot to the catalog",
+    intent: [p("src/catalog/products/teapot-cast.json")],
+    apply: async (root) => {
+      const path = join(root, p("src/catalog/products/teapot-cast.json"));
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, '{\n  "sku": "teapot-cast",\n  "name": "Cast Iron Teapot",\n  "priceCents": "5400",\n  "tags": ["kitchen", "tea"],\n  "stock": 12\n}\n');
+      return { subject: "catalog: add the Cast Iron Teapot", body: "Merchandising asked for the teapot at $54.00 in the kitchen range, 12 in stock." };
+    },
+  });
+
   return tasks;
 }
 

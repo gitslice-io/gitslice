@@ -3,6 +3,7 @@
   "name": "gitslice-agents",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
   "routes": [{ "pattern": "agents.gitslice.io", "custom_domain": true }],
   // Every agent session is a fork in this Artifacts namespace.
   "artifacts": [{ "binding": "ARTIFACTS", "namespace": "gitslice-agents" }],

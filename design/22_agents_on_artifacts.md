@@ -72,6 +72,24 @@ Answer the competition's three questions:
     retired baselines.
   - The swarm runs it with `--reset`, so judges can rerun the demo on a
     clean store.
+- **Fixer agents repair rejected changes.**
+  - If review requests changes and the author does not push again within
+    12 seconds, the Hub queues a fixer.
+  - The fixer forks the author's repository, which Artifacts does in constant
+    time without touching the original. It gets the task, the review feedback
+    and the pushed files, asks gpt-oss-120b for corrected files, validates
+    them, and pushes.
+  - The fix lands as a new patchset on the same changeset. The author's
+    session is marked landed by the fixer.
+  - Artifacts has no write API, so the fixer pushes with isomorphic-git over an
+    in-memory filesystem, inside the Worker. No container is needed for this.
+    Repairs that need a build or tests would need a sandbox with a real
+    toolchain.
+  - A fixer's own rejection goes to a person.
+- **Landings that stall are retried.** If a Worker invocation dies mid-landing,
+  nothing else would move the change: the push was already claimed. The Hub
+  alarm queues stalled landings again after 90 s (three times), and re-reviews
+  a change that was escalated only because no review model answered.
 - **Coordination state per slice.**
   - A Durable Object per slice holds the sessions and the paths each one
     intends or touched.
@@ -105,6 +123,12 @@ A rehearsal ran 99 agents plus one driven by hand on `demo/storefront`:
   Gitslice (`TestGitFetchWithoutSideBand`); see the execution log.
 - Durable Object RPC types collapse to `never` for values typed `unknown`.
   Signal payloads are typed as JSON.
+- Model calls need their own timeouts. A hung Workers AI call held a landing
+  in "reviewing" for as long as the invocation lived. Every call now times out
+  at 25 to 45 s and falls back to the next model, and finally to a person.
+- A reviewer that never saw the Product type invented required fields
+  (`description`, `price`) and rejected a correct fix. The deterministic
+  checks now say what they cover, and the model only judges scope and intent.
 - Change pages showed signed-out viewers a red "missing subject" error from
   `ListCheckRuns`. That RPC needs a signed-in caller, even on a public slice.
   The checks panel now asks them to sign in instead.

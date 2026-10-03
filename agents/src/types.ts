@@ -60,6 +60,10 @@ export interface Session {
   signals: Signal[];
   resumedFrom?: string; // the conflicted session this one reworks
   supersededBy?: string;
+  fixerFor?: string; // the session this fixer agent repairs (it forks that session's repo)
+  fixedBy?: string; // the fixer session assigned to this one ("pending" until it forks)
+  fixAt?: number; // when a fixer is sent if the agent has not pushed again
+  retries?: number; // times a stalled landing was queued again
   createdAt: number;
   updatedAt: number;
   pushedAt?: number;
@@ -78,6 +82,7 @@ export interface Stats {
   autoMerged: number;
   conflicts: number;
   escalated: number;
+  fixes: number;
   inFlight: number;
   medianLandMs: number | null;
 }
