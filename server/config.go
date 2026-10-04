@@ -21,16 +21,17 @@ type Config struct {
 	RequireStrictCORS bool
 	GitHTTPAddr       string
 	GitCacheRoot      string
+	// GitBlobBackfill turns on the background job that computes Git blob ids
+	// for files uploaded before ids were recorded. It reads every such file
+	// once, so it is off until asked for.
+	GitBlobBackfill bool
 	// GitMirrorSlices ("account/slice", comma separated) lists the slices whose
 	// Git projection is mirrored outside the instance, so a new instance
 	// restores it instead of replaying the whole history. Mirroring copies the
 	// slice's contents to the mirror, so it is opt-in. The mirror is a
-	// directory (GitMirrorDir) or a broker that hands out an Artifacts
-	// repository (GitMirrorURL and GitMirrorKey).
+	// directory of bare repositories (GitMirrorDir).
 	GitMirrorSlices          string
 	GitMirrorDir             string
-	GitMirrorURL             string
-	GitMirrorKey             string
 	DatabaseURL              string
 	ObjectStoreType          string
 	ObjectStoreRoot          string
@@ -80,6 +81,7 @@ func ConfigFromEnv() Config {
 		RequireStrictCORS:     os.Getenv("GITSLICE_REQUIRE_STRICT_CORS") == "1",
 		GitHTTPAddr:           os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
 		GitCacheRoot:          os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
+		GitBlobBackfill:       os.Getenv("GITSLICE_GIT_BLOB_BACKFILL") == "1",
 		GitMirrorSlices:       os.Getenv("GITSLICE_GIT_MIRROR_SLICES"),
 		GitMirrorDir:          os.Getenv("GITSLICE_GIT_MIRROR_DIR"),
 		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),

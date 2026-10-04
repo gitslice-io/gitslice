@@ -149,3 +149,58 @@ func getBlobTx(ctx context.Context, tx *sql.Tx, blobID string) (*corev1.BlobReco
 	}
 	return &blob, nil
 }
+
+func (s *BlobStore) SetGitBlobIDs(ctx context.Context, ids map[string]string) error {
+	for contentHash, gitID := range ids {
+		if _, err := s.db.ExecContext(ctx, `update blobs set git_blob_id = $2 where content_hash = $1`, contentHash, gitID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *BlobStore) GitBlobIDs(ctx context.Context, contentHashes []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(contentHashes) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select content_hash, git_blob_id from blobs
+		where content_hash = any($1) and git_blob_id is not null
+	`, contentHashes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var contentHash, gitID string
+		if err := rows.Scan(&contentHash, &gitID); err != nil {
+			return nil, err
+		}
+		out[contentHash] = gitID
+	}
+	return out, rows.Err()
+}
+
+func (s *BlobStore) ListMissingGitBlobIDs(ctx context.Context, limit int) ([]*corev1.BlobRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select id, content_hash, size, storage_location, state
+		from blobs
+		where git_blob_id is null and state = 'available'
+		order by created_at, id
+		limit $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.BlobRecord
+	for rows.Next() {
+		var blob corev1.BlobRecord
+		if err := rows.Scan(&blob.Id, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State); err != nil {
+			return nil, err
+		}
+		out = append(out, &blob)
+	}
+	return out, rows.Err()
+}

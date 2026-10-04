@@ -57,6 +57,7 @@ type backend struct {
 
 	blobs      map[string]*corev1.BlobRecord
 	blobSlices map[string]map[string]struct{}
+	gitBlobIDs map[string]string // content hash → Git blob id
 	objects    map[string][]byte
 
 	refs        map[string]*corev1.Ref
@@ -142,6 +143,7 @@ func New() *Stores {
 		verifiedEmails:          map[string]map[string]string{},
 		blobs:                   map[string]*corev1.BlobRecord{},
 		blobSlices:              map[string]map[string]struct{}{},
+		gitBlobIDs:              map[string]string{},
 		objects:                 map[string][]byte{},
 		refs:                    map[string]*corev1.Ref{},
 		commits:                 map[string]*corev1.Commit{},
@@ -1067,6 +1069,43 @@ func (s *BlobStore) GetByContentHash(ctx context.Context, hashes []string) ([]*c
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ContentHash < out[j].ContentHash })
+	return out, nil
+}
+
+func (s *BlobStore) SetGitBlobIDs(ctx context.Context, ids map[string]string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	for contentHash, gitID := range ids {
+		s.b.gitBlobIDs[contentHash] = gitID
+	}
+	return nil
+}
+
+func (s *BlobStore) GitBlobIDs(ctx context.Context, contentHashes []string) (map[string]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := map[string]string{}
+	for _, contentHash := range contentHashes {
+		if id, ok := s.b.gitBlobIDs[contentHash]; ok {
+			out[contentHash] = id
+		}
+	}
+	return out, nil
+}
+
+func (s *BlobStore) ListMissingGitBlobIDs(ctx context.Context, limit int) ([]*corev1.BlobRecord, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []*corev1.BlobRecord
+	for _, blob := range s.b.blobs {
+		if _, ok := s.b.gitBlobIDs[blob.ContentHash]; !ok && blob.State == "available" {
+			out = append(out, cloneBlob(blob))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ContentHash < out[j].ContentHash })
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	return out, nil
 }
 

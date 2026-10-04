@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"log/slog"
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/objectid"
@@ -86,11 +87,24 @@ func (s *BlobService) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequ
 	if err := s.Blobs.Upsert(ctx, blobID, contentHash, int64(len(req.Data)), key); err != nil {
 		return nil, grpcError(err)
 	}
+	s.recordGitBlobID(ctx, contentHash, objectid.GitBlobID(req.Data))
 	if err := s.Blobs.AssociateSlices(ctx, slice.Id, []string{contentHash}); err != nil {
 		return nil, grpcError(err)
 	}
 	recordBlobUpload(int64(len(req.Data)))
 	return &corev1.UploadBlobResponse{BlobId: blobID, ContentHash: contentHash, Size: int64(len(req.Data))}, nil
+}
+
+// recordGitBlobID stores a blob's Git id. The id is metadata that can be
+// recomputed, so a failure here must not fail the upload: the backfill picks
+// the blob up later.
+func (s *BlobService) recordGitBlobID(ctx context.Context, contentHash, gitID string) {
+	if gitID == "" {
+		return
+	}
+	if err := s.Blobs.SetGitBlobIDs(ctx, map[string]string{contentHash: gitID}); err != nil {
+		slog.Warn("could not record a blob's git id; the backfill will", "content_hash", contentHash, "error", err)
+	}
 }
 
 // accessibleBlobHashes filters hashes to those readable through the

@@ -114,6 +114,14 @@ type BlobStore interface {
 	AssociateSlices(ctx context.Context, sliceID string, contentHashes []string) error
 	SliceAssociations(ctx context.Context, sliceID string, contentHashes []string) (map[string]bool, error)
 	PathsByContentHash(ctx context.Context, contentHashes []string) (map[string][]string, error)
+	// SetGitBlobIDs records Git blob ids (SHA-1 of "blob <size>\0" and the
+	// bytes), keyed by content hash. It is idempotent.
+	SetGitBlobIDs(ctx context.Context, ids map[string]string) error
+	// GitBlobIDs returns the Git blob ids known for the content hashes.
+	GitBlobIDs(ctx context.Context, contentHashes []string) (map[string]string, error)
+	// ListMissingGitBlobIDs returns up to limit blobs that have no Git blob id
+	// yet, with the size and storage location needed to compute it.
+	ListMissingGitBlobIDs(ctx context.Context, limit int) ([]*corev1.BlobRecord, error)
 }
 
 type ChangesetStore interface {

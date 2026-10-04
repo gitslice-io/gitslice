@@ -107,6 +107,7 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 	if err := s.Blobs.Upsert(ctx, blobID, contentHash, size, finalKey); err != nil {
 		return grpcError(err)
 	}
+	s.recordGitBlobID(ctx, contentHash, writer.GitBlobID())
 	if err := s.Blobs.AssociateSlices(ctx, slice.Id, []string{contentHash}); err != nil {
 		return grpcError(err)
 	}
@@ -186,16 +187,23 @@ type hashVerifyingWriteCloser struct {
 	hasher       *objectid.BlobHasher
 	expectedHash string
 	expectedSize *int64
+	git          *objectid.GitBlobHasher
 	closed       bool
 }
 
 func newHashVerifyingWriteCloser(w io.WriteCloser, expectedHash string, expectedSize *int64) *hashVerifyingWriteCloser {
-	return &hashVerifyingWriteCloser{
+	writer := &hashVerifyingWriteCloser{
 		w:            w,
 		hasher:       objectid.NewBlobHasher(),
 		expectedHash: strings.TrimSpace(expectedHash),
 		expectedSize: expectedSize,
 	}
+	// Git's id starts with the size, so it can be hashed on the way through
+	// only when the client declared it. Otherwise the backfill computes it.
+	if expectedSize != nil {
+		writer.git = objectid.NewGitBlobHasher(*expectedSize)
+	}
+	return writer
 }
 
 func (w *hashVerifyingWriteCloser) Write(p []byte) (int, error) {
@@ -205,6 +213,9 @@ func (w *hashVerifyingWriteCloser) Write(p []byte) (int, error) {
 	n, err := w.w.Write(p)
 	if n > 0 {
 		_, _ = w.hasher.Write(p[:n])
+		if w.git != nil {
+			_, _ = w.git.Write(p[:n])
+		}
 	}
 	return n, err
 }
@@ -225,6 +236,14 @@ func (w *hashVerifyingWriteCloser) Close() error {
 		return status.Error(codes.InvalidArgument, "content hash does not match blob bytes")
 	}
 	return nil
+}
+
+// GitBlobID returns the Git blob id, or "" when the size was not declared.
+func (w *hashVerifyingWriteCloser) GitBlobID() string {
+	if w.git == nil || !w.git.Complete() {
+		return ""
+	}
+	return w.git.ID()
 }
 
 func (w *hashVerifyingWriteCloser) ContentHash() string {

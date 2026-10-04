@@ -108,6 +108,30 @@ blob id stored when it is uploaded, so trees can be built without reading
 contents. It is a larger project and is only worth it if the work above leaves
 cold starts or disk costs too high.
 
+### Git blob ids, recorded at upload
+
+Git's id for a file is the SHA-1 of `blob <size>` and a NUL byte followed by the
+bytes, so it cannot be known without reading the file. Gitslice's own ids stay
+SHA-256, and are still the identity of the data. Next to them, each upload now
+records the Git id in `blobs.git_blob_id`:
+
+- the unary upload hashes the bytes it already holds;
+- the streaming upload hashes on the way through when the client declared the
+  size (Git's id starts with it); otherwise the backfill does it;
+- `GITSLICE_GIT_BLOB_BACKFILL=1` turns on a background job that reads each older
+  file once and records its id. It is off by default because it reads every
+  file, and Cloud Run only gives a background job CPU while a request is being
+  served (CPU throttling), so in production it needs that setting changed or a
+  separate runner.
+
+This separates the two jobs of the projection. Building commits and trees needs
+ids and paths, not contents. Serving file contents is needed only when a client
+asks for them. A test checks that the id stored for an upload equals both what
+`git hash-object` prints and the id of the file in a cloned projection.
+
+Nothing uses the ids yet; they are the prerequisite for building a projection
+from metadata and for serving blobs on demand.
+
 ## Done
 
 - The Git response is streamed (item 1).
@@ -116,6 +140,7 @@ cold starts or disk costs too high.
   restores the projection and extends it instead of replaying the history. Its
   test starts a second server with an empty cache and checks that it restored.
 - Partial clone is enabled (`uploadpack.allowFilter`).
+- Git blob ids are recorded at upload, with a backfill for older files.
 
 ## Not done, and not measured
 

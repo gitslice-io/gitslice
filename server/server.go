@@ -163,6 +163,9 @@ func Run(ctx context.Context, cfg Config) error {
 	if handlers.Agent != nil {
 		go handlers.Agent.RunCheckDispatchSweep(ctx)
 	}
+	if cfg.GitBlobBackfill && handlers.Blob != nil {
+		go handlers.Blob.RunGitBlobBackfill(ctx)
+	}
 	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg)
 	apiHandler := NewConnectHandler(resolveSubject, handlers)
 	gitCacheRoot := cfg.GitCacheRoot
