@@ -2145,6 +2145,9 @@ type testServer struct {
 	memberTokens     map[string]string
 	operatorSubjects []string
 	agentSignup      bool
+	// mirrorDir and mirrorSlices turn on the Git projection mirror.
+	mirrorDir    string
+	mirrorSlices string
 }
 
 func startTestServer(t *testing.T) *testServer {
@@ -2212,6 +2215,8 @@ func (ts *testServer) launch(t *testing.T, migrate bool) error {
 			HTTPAllowedOrigin: "http://web.test",
 			GitHTTPAddr:       ts.gitAddr,
 			GitCacheRoot:      filepath.Join(ts.objectRoot, "git-cache"),
+			GitMirrorDir:      ts.mirrorDir,
+			GitMirrorSlices:   ts.mirrorSlices,
 			DatabaseURL:       databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
 			ObjectStoreRoot:   ts.objectRoot,
 			ServiceToken: servicetoken.Config{

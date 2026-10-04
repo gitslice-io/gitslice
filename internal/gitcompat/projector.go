@@ -2,8 +2,10 @@ package gitcompat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +30,22 @@ type Projector struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
+
+	// mirror, when set, keeps a copy of mirrored slices' projections outside
+	// this instance. published records the native head last handed to it.
+	mirror    *Mirror
+	published map[string]string
+}
+
+// SetMirror makes the projector restore from, and publish to, a mirror for
+// the slices it is enabled for.
+func (p *Projector) SetMirror(m *Mirror) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.mirror = m
+	if p.published == nil {
+		p.published = map[string]string{}
+	}
 }
 
 type ProjectorStores struct {
@@ -98,6 +116,22 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	lock.Lock()
 	defer lock.Unlock()
 
+	mirrored := p.mirror.Enabled(account, sliceSlug)
+	if mirrored {
+		if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); errors.Is(err, os.ErrNotExist) {
+			// A cold instance: restore what an earlier one mirrored before
+			// replaying the whole history. The restore outlives this request.
+			restored, err := p.mirror.Restore(context.WithoutCancel(ctx), account, sliceSlug, repoPath)
+			switch {
+			case err != nil:
+				slog.Warn("git mirror restore failed; building from scratch", "repo", account+"/"+sliceSlug+".git", "error", err)
+			case restored:
+				if state := loadProjectionState(repoPath); state != nil {
+					p.setPublished(repoPath, state.NativeHeadID)
+				}
+			}
+		}
+	}
 	if err := ensureProjectedRepo(ctx, repoPath); err != nil {
 		return "", nil, err
 	}
@@ -105,7 +139,26 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	if err != nil {
 		return "", nil, err
 	}
+	if mirrored && state.GitHead != "" && p.publishedHead(repoPath) != state.NativeHeadID {
+		p.setPublished(repoPath, state.NativeHeadID)
+		p.mirror.Publish(ctx, account, sliceSlug, repoPath, state)
+	}
 	return repoPath, state.projection(), nil
+}
+
+func (p *Projector) setPublished(repoPath, head string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.published == nil {
+		p.published = map[string]string{}
+	}
+	p.published[repoPath] = head
+}
+
+func (p *Projector) publishedHead(repoPath string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.published[repoPath]
 }
 
 func (p *Projector) lockFor(key string) *sync.Mutex {

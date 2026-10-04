@@ -15,12 +15,22 @@ import (
 )
 
 type Config struct {
-	GRPCAddr                 string
-	HTTPAddr                 string
-	HTTPAllowedOrigin        string
-	RequireStrictCORS        bool
-	GitHTTPAddr              string
-	GitCacheRoot             string
+	GRPCAddr          string
+	HTTPAddr          string
+	HTTPAllowedOrigin string
+	RequireStrictCORS bool
+	GitHTTPAddr       string
+	GitCacheRoot      string
+	// GitMirrorSlices ("account/slice", comma separated) lists the slices whose
+	// Git projection is mirrored outside the instance, so a new instance
+	// restores it instead of replaying the whole history. Mirroring copies the
+	// slice's contents to the mirror, so it is opt-in. The mirror is a
+	// directory (GitMirrorDir) or a broker that hands out an Artifacts
+	// repository (GitMirrorURL and GitMirrorKey).
+	GitMirrorSlices          string
+	GitMirrorDir             string
+	GitMirrorURL             string
+	GitMirrorKey             string
 	DatabaseURL              string
 	ObjectStoreType          string
 	ObjectStoreRoot          string
@@ -70,6 +80,8 @@ func ConfigFromEnv() Config {
 		RequireStrictCORS:     os.Getenv("GITSLICE_REQUIRE_STRICT_CORS") == "1",
 		GitHTTPAddr:           os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
 		GitCacheRoot:          os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
+		GitMirrorSlices:       os.Getenv("GITSLICE_GIT_MIRROR_SLICES"),
+		GitMirrorDir:          os.Getenv("GITSLICE_GIT_MIRROR_DIR"),
 		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),
 		ObjectStoreType:       os.Getenv("OBJECT_STORE_TYPE"),
 		ObjectStoreRoot:       os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),

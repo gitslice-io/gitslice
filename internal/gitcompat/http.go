@@ -1,12 +1,14 @@
 package gitcompat
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -176,22 +178,79 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo 
 	// when a client negotiates neither side-band nor no-progress (minimal
 	// clients such as the importer behind Cloudflare Artifacts); mixed into
 	// the body, it corrupts the packfile those clients read.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	//
+	// The response is streamed: a clone of a large slice is gigabytes, and
+	// holding it in memory first would exhaust the instance.
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr limitedBuffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git http-backend failed: %w\n%s", err, stderr.String())
+	if err := cmd.Start(); err != nil {
+		return err
 	}
-	out := stdout.Bytes()
-	headers, payload, ok := splitCGIResponse(out)
-	if !ok {
-		return errors.New("git http-backend returned malformed CGI response")
+	reader := bufio.NewReaderSize(stdout, 64<<10)
+	statusCode, header, err := readCGIHeader(reader)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("git http-backend: %w\n%s", err, stderr.String())
 	}
+	for name, values := range header {
+		for _, value := range values {
+			w.Header().Add(name, value)
+		}
+	}
+	w.WriteHeader(statusCode)
+	_, copyErr := io.Copy(w, reader)
+	waitErr := cmd.Wait()
+	switch {
+	case copyErr != nil:
+		// The client went away; git stops on SIGPIPE or context cancel.
+		return nil
+	case waitErr != nil:
+		// The status line is already sent, so the only way to tell the client
+		// the pack is incomplete is to cut the connection (it fails its
+		// checksum either way); record why.
+		slog.Warn("git http-backend failed after streaming started", "error", waitErr, "stderr", stderr.String())
+	}
+	return nil
+}
+
+// limitedBuffer keeps the first bytes written to it: enough of git's stderr to
+// explain a failure.
+type limitedBuffer struct{ buf bytes.Buffer }
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if room := 64<<10 - b.buf.Len(); room > 0 {
+		if len(p) > room {
+			b.buf.Write(p[:room])
+		} else {
+			b.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (b *limitedBuffer) String() string { return b.buf.String() }
+
+// readCGIHeader reads the header block of a CGI response and returns the
+// status it asks for and the headers to pass on.
+func readCGIHeader(r *bufio.Reader) (int, http.Header, error) {
 	statusCode := http.StatusOK
-	for _, line := range strings.Split(headers, "\n") {
-		line = strings.TrimRight(line, "\r")
+	header := http.Header{}
+	for lines := 0; ; lines++ {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return 0, nil, errors.New("malformed CGI response")
+		}
+		line = strings.TrimRight(line, "\r\n")
 		if line == "" {
-			continue
+			if lines == 0 {
+				return 0, nil, errors.New("malformed CGI response")
+			}
+			return statusCode, header, nil
 		}
 		name, value, found := strings.Cut(line, ":")
 		if !found {
@@ -200,19 +259,15 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo 
 		name = strings.TrimSpace(name)
 		value = strings.TrimSpace(value)
 		if strings.EqualFold(name, "Status") {
-			fields := strings.Fields(value)
-			if len(fields) > 0 {
+			if fields := strings.Fields(value); len(fields) > 0 {
 				if code, err := strconv.Atoi(fields[0]); err == nil {
 					statusCode = code
 				}
 			}
 			continue
 		}
-		w.Header().Add(name, value)
+		header.Add(name, value)
 	}
-	w.WriteHeader(statusCode)
-	_, err = w.Write(payload)
-	return err
 }
 
 func (h *Handler) handleReceivePack(w http.ResponseWriter, r *http.Request, subjectID, account, slice string) {
@@ -320,16 +375,6 @@ func basicPassword(header string) string {
 		return ""
 	}
 	return password
-}
-
-func splitCGIResponse(out []byte) (string, []byte, bool) {
-	if idx := bytes.Index(out, []byte("\r\n\r\n")); idx >= 0 {
-		return string(out[:idx]), out[idx+4:], true
-	}
-	if idx := bytes.Index(out, []byte("\n\n")); idx >= 0 {
-		return string(out[:idx]), out[idx+2:], true
-	}
-	return "", nil, false
 }
 
 func writeGitError(w http.ResponseWriter, err error) {
