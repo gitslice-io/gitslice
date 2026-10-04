@@ -18,6 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+
+	"gitslice.io/gitslice/internal/storage"
 )
 
 type Config struct {
@@ -134,6 +136,9 @@ func (s *Store) Get(ctx context.Context, key string, offset, length int64) (io.R
 	}
 	out, err := s.client.GetObject(ctx, input)
 	if err != nil {
+		if isNotFound(err) {
+			return nil, fmt.Errorf("%w: %w", storage.ErrNotFound, err)
+		}
 		return nil, err
 	}
 	return out.Body, nil

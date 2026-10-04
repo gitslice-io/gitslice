@@ -27,19 +27,32 @@ type Projector struct {
 	slices      storage.SliceStore
 	objectStore ObjectStore
 	cacheRoot   string
+	blobs       storage.BlobStore
+	lazy        bool
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
 
 	// mirror, when set, keeps a copy of mirrored slices' projections outside
 	// this instance. published records the native head last handed to it.
-	mirror    *Mirror
+	mirror    Mirror
 	published map[string]string
+	// complete records, per repository, a head at which every file's contents
+	// are present, so a full clone need not search for missing ones again.
+	complete map[string]string
+}
+
+// SetLazy makes the projector build history from recorded Git blob ids and
+// leave file contents out of the repository until a fetch needs them.
+func (p *Projector) SetLazy(lazy bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lazy = lazy
 }
 
 // SetMirror makes the projector restore from, and publish to, a mirror for
 // the slices it is enabled for.
-func (p *Projector) SetMirror(m *Mirror) {
+func (p *Projector) SetMirror(m Mirror) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.mirror = m
@@ -52,6 +65,8 @@ type ProjectorStores struct {
 	Auth       storage.AuthStore
 	Repository storage.RepositoryStore
 	Slices     storage.SliceStore
+	// Blobs supplies the Git blob ids the lazy projection builds trees from.
+	Blobs storage.BlobStore
 }
 
 // Projection describes a slice's projected repository after an update.
@@ -85,6 +100,7 @@ func NewProjector(stores ProjectorStores, objectStore ObjectStore, cacheRoot str
 		auth:        stores.Auth,
 		repository:  stores.Repository,
 		slices:      stores.Slices,
+		blobs:       stores.Blobs,
 		objectStore: objectStore,
 		cacheRoot:   cacheRoot,
 		locks:       map[string]*sync.Mutex{},
@@ -116,7 +132,7 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	lock.Lock()
 	defer lock.Unlock()
 
-	mirrored := p.mirror.Enabled(account, sliceSlug)
+	mirrored := p.mirror != nil && p.mirror.Enabled(account, sliceSlug)
 	if mirrored {
 		if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); errors.Is(err, os.ErrNotExist) {
 			// A cold instance: restore what an earlier one mirrored before
@@ -164,6 +180,9 @@ func (p *Projector) publishedHead(repoPath string) string {
 func (p *Projector) lockFor(key string) *sync.Mutex {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.locks == nil {
+		p.locks = map[string]*sync.Mutex{}
+	}
 	lock := p.locks[key]
 	if lock == nil {
 		lock = &sync.Mutex{}

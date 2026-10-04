@@ -3,6 +3,7 @@ package gitcompat
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -89,7 +90,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleReceivePack(w, r, subjectID, account, slice)
 		return
 	}
-	if _, _, err := h.projector.EnsureProjectedRepo(r.Context(), subjectID, account, slice); err != nil {
+	repoPath, _, err := h.projector.EnsureProjectedRepo(r.Context(), subjectID, account, slice)
+	if err != nil {
 		if subjectID == "" && isAccessError(err) {
 			// Answer a missing slice and a private one alike, so anonymous
 			// callers cannot probe which private slices exist. Git then asks
@@ -100,7 +102,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err)
 		return
 	}
-	if err := h.serveBackend(w, r, pathInfo); err != nil {
+	if err := h.serveBackend(w, r, repoPath, pathInfo); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -142,10 +144,17 @@ func writeAuthChallenge(w http.ResponseWriter) {
 	http.Error(w, "authentication required", http.StatusUnauthorized)
 }
 
-func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo string) error {
+func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, repoPath, pathInfo string) error {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGitRequestBytes))
 	if err != nil {
 		return err
+	}
+	if r.Method == http.MethodPost && strings.HasSuffix(pathInfo, "/git-upload-pack") {
+		// On a lazily built projection the repository may lack the files this
+		// fetch would send; put them there first.
+		if err := h.projector.HydrateFor(r.Context(), repoPath, decodedBody(r, body)); err != nil {
+			return fmt.Errorf("hydrating file contents: %w", err)
+		}
 	}
 	cmd := exec.CommandContext(r.Context(), "git", "http-backend")
 	cmd.Stdin = bytes.NewReader(body)
@@ -162,9 +171,12 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo 
 		// large slice can start with history and fetch file contents as it
 		// reads them. Set here, not in each repository's config, so caches
 		// built before this change get it too.
-		"GIT_CONFIG_COUNT=1",
+		// A lazy checkout asks for single files by id.
+		"GIT_CONFIG_COUNT=2",
 		"GIT_CONFIG_KEY_0=uploadpack.allowFilter",
 		"GIT_CONFIG_VALUE_0=true",
+		"GIT_CONFIG_KEY_1=uploadpack.allowAnySHA1InWant",
+		"GIT_CONFIG_VALUE_1=true",
 	)
 	if protocol := r.Header.Get("Git-Protocol"); protocol != "" {
 		cmd.Env = append(cmd.Env, "HTTP_GIT_PROTOCOL="+protocol)
@@ -216,6 +228,25 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, pathInfo 
 		slog.Warn("git http-backend failed after streaming started", "error", waitErr, "stderr", stderr.String())
 	}
 	return nil
+}
+
+// decodedBody returns the request body with any content encoding removed, for
+// reading what a client asked for. On failure it returns the bytes as they are,
+// and the caller plans for a request it does not understand.
+func decodedBody(r *http.Request, body []byte) []byte {
+	if !strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
+		return body
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return body
+	}
+	defer zr.Close()
+	out, err := io.ReadAll(io.LimitReader(zr, maxGitRequestBytes))
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // limitedBuffer keeps the first bytes written to it: enough of git's stderr to

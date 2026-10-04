@@ -1093,6 +1093,22 @@ func (s *BlobStore) GitBlobIDs(ctx context.Context, contentHashes []string) (map
 	return out, nil
 }
 
+func (s *BlobStore) BlobsByGitIDs(ctx context.Context, gitBlobIDs []string) (map[string]*corev1.BlobRecord, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	wanted := map[string]bool{}
+	for _, id := range gitBlobIDs {
+		wanted[id] = true
+	}
+	out := map[string]*corev1.BlobRecord{}
+	for _, blob := range s.b.blobs {
+		if id := s.b.gitBlobIDs[blob.ContentHash]; id != "" && wanted[id] {
+			out[id] = cloneBlob(blob)
+		}
+	}
+	return out, nil
+}
+
 func (s *BlobStore) ListMissingGitBlobIDs(ctx context.Context, limit int) ([]*corev1.BlobRecord, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

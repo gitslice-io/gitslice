@@ -204,3 +204,28 @@ func (s *BlobStore) ListMissingGitBlobIDs(ctx context.Context, limit int) ([]*co
 	}
 	return out, rows.Err()
 }
+
+func (s *BlobStore) BlobsByGitIDs(ctx context.Context, gitBlobIDs []string) (map[string]*corev1.BlobRecord, error) {
+	out := map[string]*corev1.BlobRecord{}
+	if len(gitBlobIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select git_blob_id, id, content_hash, size, storage_location, state
+		from blobs
+		where git_blob_id = any($1)
+	`, gitBlobIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var gitID string
+		var blob corev1.BlobRecord
+		if err := rows.Scan(&gitID, &blob.Id, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State); err != nil {
+			return nil, err
+		}
+		out[gitID] = &blob
+	}
+	return out, rows.Err()
+}

@@ -2148,6 +2148,10 @@ type testServer struct {
 	// mirrorDir and mirrorSlices turn on the Git projection mirror.
 	mirrorDir    string
 	mirrorSlices string
+	// lazy builds Git history without file contents.
+	lazy bool
+	// mirrorPacks keeps the mirror in the object store as Git packs.
+	mirrorPacks bool
 }
 
 func startTestServer(t *testing.T) *testServer {
@@ -2217,6 +2221,8 @@ func (ts *testServer) launch(t *testing.T, migrate bool) error {
 			GitCacheRoot:      filepath.Join(ts.objectRoot, "git-cache"),
 			GitMirrorDir:      ts.mirrorDir,
 			GitMirrorSlices:   ts.mirrorSlices,
+			GitLazyBlobs:      ts.lazy,
+			GitMirrorPacks:    ts.mirrorPacks,
 			DatabaseURL:       databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
 			ObjectStoreRoot:   ts.objectRoot,
 			ServiceToken: servicetoken.Config{

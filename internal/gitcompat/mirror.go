@@ -45,6 +45,97 @@ const (
 	mirrorRestoreLimit = 3 * time.Minute
 )
 
+// Mirror keeps a copy of slices' projections where a new instance can find it.
+// Two kinds exist: GitMirror pushes to a Git remote, which suits slices that fit
+// one repository, and PackMirror stores the repository's packs in the object
+// store, which has no size limit.
+type Mirror interface {
+	// Enabled reports whether the slice is mirrored.
+	Enabled(account, slice string) bool
+	// Restore builds repoPath from the mirror. It reports false when there is
+	// nothing usable to restore from; the caller then builds from scratch.
+	Restore(ctx context.Context, account, slice, repoPath string) (bool, error)
+	// Publish copies the projection at repoPath to the mirror in the
+	// background. The caller holds the repository lock, which makes the
+	// snapshot consistent; the copy runs without it.
+	Publish(ctx context.Context, account, slice, repoPath string, state *projectionState)
+}
+
+// enabledSlices reads a comma separated list of "account/slice" names; "*"
+// means every slice.
+func enabledSlices(slices []string) (set map[string]bool, all bool) {
+	set = map[string]bool{}
+	for _, s := range slices {
+		switch s = strings.TrimSpace(s); s {
+		case "":
+		case "*":
+			all = true
+		default:
+			set[s] = true
+		}
+	}
+	return set, all
+}
+
+// publisher runs one background publish per slice at a time. While one is
+// running, later snapshots replace each other, so a burst of landings becomes
+// at most one more run.
+type publisher[T any] struct {
+	mu       sync.Mutex
+	jobs     map[string]*publishJob[T]
+	interval time.Duration
+	run      func(ctx context.Context, key string, snapshot T) error
+	label    string
+}
+
+type publishJob[T any] struct {
+	pending *T
+	running bool
+}
+
+func newPublisher[T any](label string, run func(ctx context.Context, key string, snapshot T) error) *publisher[T] {
+	return &publisher[T]{jobs: map[string]*publishJob[T]{}, interval: mirrorPushInterval, run: run, label: label}
+}
+
+func (p *publisher[T]) submit(key string, snapshot T) {
+	p.mu.Lock()
+	job := p.jobs[key]
+	if job == nil {
+		job = &publishJob[T]{}
+		p.jobs[key] = job
+	}
+	job.pending = &snapshot
+	start := !job.running
+	job.running = true
+	p.mu.Unlock()
+	if start {
+		go p.loop(key, job)
+	}
+}
+
+func (p *publisher[T]) loop(key string, job *publishJob[T]) {
+	for {
+		p.mu.Lock()
+		snapshot := job.pending
+		job.pending = nil
+		if snapshot == nil {
+			job.running = false
+			p.mu.Unlock()
+			return
+		}
+		p.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), mirrorPushTimeout)
+		started := time.Now()
+		if err := p.run(ctx, key, *snapshot); err != nil {
+			slog.Warn(p.label+" failed", "repo", key+".git", "error", err)
+		} else {
+			slog.Info(p.label, "repo", key+".git", "total_ms", time.Since(started).Milliseconds())
+		}
+		cancel()
+		time.Sleep(p.interval)
+	}
+}
+
 // MirrorRemote is where a slice's mirror lives and how to authenticate.
 type MirrorRemote struct {
 	URL string
@@ -58,17 +149,12 @@ type MirrorBackend interface {
 	Remote(ctx context.Context, account, slice string) (MirrorRemote, error)
 }
 
-type Mirror struct {
+// GitMirror mirrors to a Git remote.
+type GitMirror struct {
 	backend MirrorBackend
 	slices  map[string]bool
-
-	mu   sync.Mutex
-	jobs map[string]*mirrorJob
-}
-
-type mirrorJob struct {
-	pending *mirrorSnapshot
-	running bool
+	all     bool
+	pub     *publisher[mirrorSnapshot]
 }
 
 // mirrorSnapshot is what one push sends: the projected head and the commit
@@ -79,24 +165,19 @@ type mirrorSnapshot struct {
 	nativeHead               string
 }
 
-// NewMirror mirrors the given "account/slice" names to backend.
-func NewMirror(backend MirrorBackend, slices []string) *Mirror {
-	enabled := map[string]bool{}
-	for _, s := range slices {
-		if s = strings.TrimSpace(s); s != "" {
-			enabled[s] = true
-		}
-	}
-	return &Mirror{backend: backend, slices: enabled, jobs: map[string]*mirrorJob{}}
+// NewGitMirror mirrors the given "account/slice" names to backend.
+func NewGitMirror(backend MirrorBackend, slices []string) *GitMirror {
+	set, all := enabledSlices(slices)
+	m := &GitMirror{backend: backend, slices: set, all: all}
+	m.pub = newPublisher("git projection mirrored", func(ctx context.Context, _ string, s mirrorSnapshot) error { return m.push(ctx, &s) })
+	return m
 }
 
-func (m *Mirror) Enabled(account, slice string) bool {
-	return m != nil && m.slices[account+"/"+slice]
+func (m *GitMirror) Enabled(account, slice string) bool {
+	return m != nil && (m.all || m.slices[account+"/"+slice])
 }
 
-// Restore builds repoPath from the mirror. It reports false when there is
-// nothing usable to restore from; the caller then builds from scratch.
-func (m *Mirror) Restore(ctx context.Context, account, slice, repoPath string) (bool, error) {
+func (m *GitMirror) Restore(ctx context.Context, account, slice, repoPath string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, mirrorRestoreLimit)
 	defer cancel()
 	started := time.Now()
@@ -155,55 +236,16 @@ func (m *Mirror) Restore(ctx context.Context, account, slice, repoPath string) (
 	return true, nil
 }
 
-// Publish pushes the projection at repoPath to the mirror in the background.
-// The caller holds the repository lock, which makes the snapshot consistent;
-// the push itself runs without it.
-func (m *Mirror) Publish(ctx context.Context, account, slice, repoPath string, state *projectionState) {
+func (m *GitMirror) Publish(ctx context.Context, account, slice, repoPath string, state *projectionState) {
 	snapshot, err := snapshotProjection(ctx, account, slice, repoPath, state)
 	if err != nil {
 		slog.Warn("git mirror snapshot failed", "repo", account+"/"+slice+".git", "error", err)
 		return
 	}
-	key := account + "/" + slice
-	m.mu.Lock()
-	job := m.jobs[key]
-	if job == nil {
-		job = &mirrorJob{}
-		m.jobs[key] = job
-	}
-	job.pending = snapshot
-	start := !job.running
-	job.running = true
-	m.mu.Unlock()
-	if start {
-		go m.pushLoop(key, job)
-	}
+	m.pub.submit(account+"/"+slice, *snapshot)
 }
 
-func (m *Mirror) pushLoop(key string, job *mirrorJob) {
-	for {
-		m.mu.Lock()
-		snapshot := job.pending
-		job.pending = nil
-		if snapshot == nil {
-			job.running = false
-			m.mu.Unlock()
-			return
-		}
-		m.mu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), mirrorPushTimeout)
-		started := time.Now()
-		if err := m.push(ctx, snapshot); err != nil {
-			slog.Warn("git mirror push failed", "repo", key+".git", "error", err)
-		} else {
-			slog.Info("git projection mirrored", "repo", key+".git", "native_head", snapshot.nativeHead, "total_ms", time.Since(started).Milliseconds())
-		}
-		cancel()
-		time.Sleep(mirrorPushInterval)
-	}
-}
-
-func (m *Mirror) push(ctx context.Context, s *mirrorSnapshot) error {
+func (m *GitMirror) push(ctx context.Context, s *mirrorSnapshot) error {
 	remote, err := m.backend.Remote(ctx, s.account, s.slice)
 	if err != nil {
 		return fmt.Errorf("mirror remote: %w", err)

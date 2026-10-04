@@ -25,13 +25,21 @@ type Config struct {
 	// for files uploaded before ids were recorded. It reads every such file
 	// once, so it is off until asked for.
 	GitBlobBackfill bool
+	// GitLazyBlobs builds each slice's Git history from recorded Git blob ids
+	// and leaves file contents out of the repository until a fetch needs
+	// them. Files without a recorded id are still read.
+	GitLazyBlobs bool
 	// GitMirrorSlices ("account/slice", comma separated) lists the slices whose
 	// Git projection is mirrored outside the instance, so a new instance
 	// restores it instead of replaying the whole history. Mirroring copies the
 	// slice's contents to the mirror, so it is opt-in. The mirror is a
 	// directory of bare repositories (GitMirrorDir).
-	GitMirrorSlices          string
-	GitMirrorDir             string
+	GitMirrorSlices string
+	GitMirrorDir    string
+	// GitMirrorPacks keeps the mirrored slices' Git packs in the object store
+	// (R2 in production) instead of a Git remote. There is no size limit, and
+	// "*" in GitMirrorSlices mirrors every slice.
+	GitMirrorPacks           bool
 	DatabaseURL              string
 	ObjectStoreType          string
 	ObjectStoreRoot          string
@@ -82,8 +90,10 @@ func ConfigFromEnv() Config {
 		GitHTTPAddr:           os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
 		GitCacheRoot:          os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
 		GitBlobBackfill:       os.Getenv("GITSLICE_GIT_BLOB_BACKFILL") == "1",
+		GitLazyBlobs:          os.Getenv("GITSLICE_GIT_LAZY_BLOBS") == "1",
 		GitMirrorSlices:       os.Getenv("GITSLICE_GIT_MIRROR_SLICES"),
 		GitMirrorDir:          os.Getenv("GITSLICE_GIT_MIRROR_DIR"),
+		GitMirrorPacks:        os.Getenv("GITSLICE_GIT_MIRROR_PACKS") == "1",
 		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),
 		ObjectStoreType:       os.Getenv("OBJECT_STORE_TYPE"),
 		ObjectStoreRoot:       os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),

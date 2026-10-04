@@ -122,6 +122,9 @@ type BlobStore interface {
 	// ListMissingGitBlobIDs returns up to limit blobs that have no Git blob id
 	// yet, with the size and storage location needed to compute it.
 	ListMissingGitBlobIDs(ctx context.Context, limit int) ([]*corev1.BlobRecord, error)
+	// BlobsByGitIDs returns the blobs that have the given Git blob ids, keyed
+	// by id. Ids no blob has are left out.
+	BlobsByGitIDs(ctx context.Context, gitBlobIDs []string) (map[string]*corev1.BlobRecord, error)
 }
 
 type ChangesetStore interface {

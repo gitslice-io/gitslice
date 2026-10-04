@@ -68,6 +68,11 @@ type projectionState struct {
 	Files map[string]projectedFile `json:"files"`
 	// Tags caches each native tag's projected commit by tag name.
 	Tags map[string]projectedCommit `json:"tags,omitempty"`
+	// HistoryPacks names the packs holding the projected history (commits and
+	// trees, plus any files written with them), in the order they were built.
+	// A mirror copies exactly these; packs of hydrated file contents are
+	// excluded because the native store already holds those files.
+	HistoryPacks []string `json:"history_packs,omitempty"`
 }
 
 type projectedCommit struct {
@@ -430,12 +435,25 @@ func (p *Projector) appendHistory(ctx context.Context, repoPath string, state *p
 	}
 	sort.Strings(need)
 	importStart := time.Now()
+	if p.lazy && p.blobs != nil {
+		stats, err := p.appendLazy(ctx, repoPath, state, files, pending, usernames, known, need)
+		if err != nil {
+			return err
+		}
+		importTime = time.Since(importStart)
+		blobCount, blobBytes, fetchTime = stats.blobs, stats.bytes, stats.fetch
+		return nil
+	}
+	packsBefore, _ := listPacks(repoPath)
 	shas, blobs, stats, err := runFastImport(ctx, repoPath, state.GitHead, pending, need, p.readBlob, known, usernames)
 	if err != nil {
 		return err
 	}
 	importTime = time.Since(importStart)
 	blobCount, blobBytes, fetchTime = stats.blobs, stats.bytes, stats.fetch
+	if packsAfter, err := listPacks(repoPath); err == nil {
+		state.HistoryPacks = append(state.HistoryPacks, newPackNames(packsBefore, packsAfter)...)
+	}
 	for hash, sha := range blobs {
 		known[hash] = sha
 	}
@@ -972,6 +990,9 @@ func configureProjectedRepo(ctx context.Context, repoPath string) error {
 		{"config", "http.receivepack", "false"},
 		// Go fetches pseudo-versions by commit id.
 		{"config", "uploadpack.allowReachableSHA1InWant", "true"},
+		// The history packs are what a mirror copies; a repack would replace
+		// them with packs it has not seen.
+		{"config", "gc.auto", "0"},
 		{"symbolic-ref", "HEAD", projectedBranch},
 	}
 	for _, args := range settings {
@@ -980,4 +1001,19 @@ func configureProjectedRepo(ctx context.Context, repoPath string) error {
 		}
 	}
 	return nil
+}
+
+// newPackNames returns the names in after that are not in before.
+func newPackNames(before, after []string) []string {
+	had := make(map[string]bool, len(before))
+	for _, name := range before {
+		had[name] = true
+	}
+	var out []string
+	for _, name := range after {
+		if !had[name] {
+			out = append(out, name)
+		}
+	}
+	return out
 }
