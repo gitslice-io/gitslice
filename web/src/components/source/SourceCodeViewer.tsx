@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/cn";
-import { languageFromPath, previewKindFromPath } from "./sourceUtils";
+import { languageFromPath, previewKindFromPath, type PreviewKind } from "./sourceUtils";
 import { highlightToHtml } from "./highlight";
+import { DiagramViewer } from "./DiagramViewer";
+import { JsonLinesViewer } from "./JsonLinesViewer";
+import { JsonViewer } from "./JsonViewer";
+import { LogViewer } from "./LogViewer";
 import { MarkdownViewer } from "./MarkdownViewer";
+import { NotebookViewer } from "./NotebookViewer";
+import { StructuredViewer } from "./StructuredViewer";
 import { TableViewer } from "./TableViewer";
 
 interface SourceCodeViewerProps {
@@ -87,10 +93,8 @@ export function SourceCodeViewer({
         </div>
       </div>
       <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
-        {previewKind === "markdown" && viewMode === "preview" ? (
-          <MarkdownViewer source={code} />
-        ) : previewKind === "table" && viewMode === "preview" ? (
-          <TableViewer path={path} source={code} />
+        {previewKind && viewMode === "preview" ? (
+          <Preview code={code} kind={previewKind} path={path} />
         ) : highlight.html ? (
           <div
             className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white dark:bg-zinc-900 [&_pre]:text-sm [&_pre]:leading-6"
@@ -113,6 +117,27 @@ export function SourceCodeViewer({
       ) : null}
     </div>
   );
+}
+
+function Preview({ code, kind, path }: { code: string; kind: PreviewKind; path: string }) {
+  switch (kind) {
+    case "markdown":
+      return <MarkdownViewer source={code} />;
+    case "table":
+      return <TableViewer path={path} source={code} />;
+    case "json":
+      return <JsonViewer source={code} />;
+    case "jsonl":
+      return <JsonLinesViewer source={code} />;
+    case "structured":
+      return <StructuredViewer format={path.toLowerCase().endsWith(".toml") ? "toml" : "yaml"} source={code} />;
+    case "notebook":
+      return <NotebookViewer source={code} />;
+    case "diagram":
+      return <DiagramViewer path={path} source={code} />;
+    case "log":
+      return <LogViewer source={code} />;
+  }
 }
 
 function ViewModeToggle({

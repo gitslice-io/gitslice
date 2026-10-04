@@ -197,23 +197,81 @@ export function languageFromPath(path: string) {
   if (lower.endsWith(".xml")) return "xml";
   if (lower.endsWith(".csv")) return "csv";
   if (lower.endsWith(".tsv")) return "tsv";
+  if (lower.endsWith(".jsonl") || lower.endsWith(".ndjson")) return "jsonl";
+  if (lower.endsWith(".ipynb") || lower.endsWith(".geojson") || lower.endsWith(".har")) return "json";
+  if (lower.endsWith(".mmd") || lower.endsWith(".mermaid")) return "mermaid";
+  if (lower.endsWith(".log")) return "log";
 
   return "text";
 }
 
-// A file kind with a rendered preview to show instead of its source.
-export type PreviewKind = "markdown" | "table";
+// A file kind with a rendered preview to show instead of its source. The
+// source stays one click away (Raw).
+export type PreviewKind =
+  | "diagram"
+  | "json"
+  | "jsonl"
+  | "log"
+  | "markdown"
+  | "notebook"
+  | "structured"
+  | "table";
+
+// A file kind that is shown from its bytes rather than its text.
+export type BinaryKind = "audio" | "parquet" | "pdf" | "spreadsheet" | "video";
+
+const PREVIEW_EXTENSIONS: Record<string, PreviewKind> = {
+  csv: "table",
+  dot: "diagram",
+  geojson: "json",
+  gv: "diagram",
+  har: "json",
+  ipynb: "notebook",
+  json: "json",
+  jsonl: "jsonl",
+  log: "log",
+  markdown: "markdown",
+  md: "markdown",
+  mermaid: "diagram",
+  mmd: "diagram",
+  ndjson: "jsonl",
+  toml: "structured",
+  tsv: "table",
+  yaml: "structured",
+  yml: "structured"
+};
+
+const BINARY_EXTENSIONS: Record<string, BinaryKind> = {
+  aac: "audio",
+  flac: "audio",
+  m4a: "audio",
+  m4v: "video",
+  mov: "video",
+  mp3: "audio",
+  mp4: "video",
+  oga: "audio",
+  ogg: "audio",
+  ogv: "video",
+  opus: "audio",
+  parquet: "parquet",
+  pdf: "pdf",
+  wav: "audio",
+  webm: "video",
+  xlsm: "spreadsheet",
+  xlsx: "spreadsheet"
+};
+
+export function extensionOf(path: string) {
+  const basename = path.replace(/\\/g, "/").split("/").pop() ?? "";
+  return basename.includes(".") ? basename.slice(basename.lastIndexOf(".") + 1).toLowerCase() : "";
+}
 
 export function previewKindFromPath(path: string): PreviewKind | null {
-  switch (languageFromPath(path)) {
-    case "markdown":
-      return "markdown";
-    case "csv":
-    case "tsv":
-      return "table";
-    default:
-      return null;
-  }
+  return PREVIEW_EXTENSIONS[extensionOf(path)] ?? null;
+}
+
+export function binaryKindFromPath(path: string): BinaryKind | null {
+  return BINARY_EXTENSIONS[extensionOf(path)] ?? null;
 }
 
 export function decodeBase64File(data: string | undefined) {

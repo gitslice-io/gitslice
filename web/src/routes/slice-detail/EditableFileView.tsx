@@ -13,7 +13,9 @@ import {
   ImageViewer,
   imageMimeTypeFromPath
 } from "../../components/source/ImageViewer";
+import { BinaryViewer } from "../../components/source/BinaryViewer";
 import { SourceCodeViewer } from "../../components/source/SourceCodeViewer";
+import { binaryKindFromPath } from "../../components/source/sourceUtils";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import { canModifyPath, joinRepositoryPath } from "./DirectoryHeader";
 
@@ -44,6 +46,9 @@ export function EditableFileView({
   const pendingWrite = pendingWriteForPath(pendingEdits, selectedPath);
   const displayedContent = pendingWrite?.content ?? fileContent;
   const isImage = Boolean(imageMimeTypeFromPath(selectedPath));
+  const binaryKind = binaryKindFromPath(selectedPath);
+  // Files shown from their bytes cannot be edited as text.
+  const isBinary = isImage || binaryKind !== null;
   const [isEditing, setIsEditing] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [draft, setDraft] = useState(displayedContent);
@@ -120,7 +125,7 @@ export function EditableFileView({
               {onStageEdit ? (
                 <ActionMenu
                   items={[
-                    ...(isImage
+                    ...(isBinary
                       ? []
                       : [
                           {
@@ -203,6 +208,8 @@ export function EditableFileView({
       {!isEditing ? (
         isImage ? (
           <ImageViewer data={fileData} path={selectedPath} />
+        ) : binaryKind ? (
+          <BinaryViewer data={fileData} kind={binaryKind} path={selectedPath} />
         ) : (
           <SourceCodeViewer code={displayedContent} fill path={selectedPath} />
         )

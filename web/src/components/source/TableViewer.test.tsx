@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SourceCodeViewer } from "./SourceCodeViewer";
-import { TableViewer, looksLikeHeader, numericColumns } from "./TableViewer";
+import { looksLikeHeader, numericColumns } from "./DataTable";
+import { TableViewer } from "./TableViewer";
 
 afterEach(cleanup);
 

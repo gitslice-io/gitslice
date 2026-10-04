@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { isDarkTheme, renderMermaid, svgDataUrl } from "../../lib/diagram";
+import { sanitizeHtml } from "../../lib/sanitize";
 
 interface MarkdownRenderState {
   error: boolean;
@@ -18,21 +21,9 @@ export function MarkdownViewer({ source }: { source: string }): JSX.Element {
       setRendered({ error: false, html: null });
 
       try {
-        const [{ marked }, { default: createDOMPurify }] = await Promise.all([
-          import("marked"),
-          import("dompurify")
-        ]);
-        const purifier = createDOMPurify(window);
-
-        purifier.addHook("afterSanitizeAttributes", (node) => {
-          if (node.tagName === "A" && node.hasAttribute("href")) {
-            node.setAttribute("target", "_blank");
-            node.setAttribute("rel", "noopener noreferrer");
-          }
-        });
-
+        const { marked } = await import("marked");
         const parsed = marked(source, { async: false });
-        const html = purifier.sanitize(parsed, { USE_PROFILES: { html: true } });
+        const html = await sanitizeHtml(parsed);
 
         if (active) {
           setRendered({ error: false, html });
@@ -51,9 +42,47 @@ export function MarkdownViewer({ source }: { source: string }): JSX.Element {
     };
   }, [source]);
 
+  const container = useRef<HTMLDivElement>(null);
+
+  // Fenced ```mermaid blocks become diagrams. The diagram is shown as an image
+  // (see lib/diagram), so the block's text is never trusted as markup.
+  useEffect(() => {
+    const root = container.current;
+    if (!root || rendered.html === null) {
+      return;
+    }
+    const blocks = Array.from(root.querySelectorAll<HTMLElement>("pre > code.language-mermaid"));
+    let active = true;
+    for (const block of blocks) {
+      const pre = block.parentElement;
+      renderMermaid(block.textContent ?? "", isDarkTheme()).then(
+        (svg) => {
+          if (!active || !pre?.isConnected) {
+            return;
+          }
+          const image = document.createElement("img");
+          image.alt = "Mermaid diagram";
+          image.className = "h-auto max-w-full bg-white p-2";
+          // Sized to the diagram, not to the page (see DiagramViewer).
+          image.addEventListener("load", () => {
+            if (image.naturalWidth > 0) {
+              image.style.width = `${image.naturalWidth}px`;
+            }
+          });
+          image.src = svgDataUrl(svg);
+          pre.replaceWith(image);
+        },
+        () => undefined // the block stays as source
+      );
+    }
+    return () => {
+      active = false;
+    };
+  }, [rendered.html]);
+
   if (rendered.html !== null) {
     return (
-      <div className="p-4">
+      <div className="p-4" ref={container}>
         <div
           className="prose prose-slate prose-sm max-w-none prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline prose-code:text-zinc-900 dark:prose-code:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100"
           dangerouslySetInnerHTML={{ __html: rendered.html }}
