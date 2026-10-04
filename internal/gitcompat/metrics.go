@@ -22,3 +22,14 @@ func recordGitHTTPRequest(operation string, status int) {
 		"status":    strconv.Itoa(status),
 	})
 }
+
+var gitMirrorOperationsTotal = metrics.NewCounter(
+	"gitslice_git_mirror_operations_total",
+	"Git projection mirror operations by operation (publish, restore) and result.",
+	"operation",
+	"result",
+)
+
+func recordGitMirror(operation, result string) {
+	gitMirrorOperationsTotal.Inc(metrics.Labels{"operation": operation, "result": result})
+}

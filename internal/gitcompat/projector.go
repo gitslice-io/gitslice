@@ -128,6 +128,19 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 		return "", nil, err
 	}
 	repoPath := filepath.Join(p.cacheRoot, account, sliceSlug+".git")
+	// Registered first, so it runs after the lock is released: a request that
+	// changed the head stays open while the mirror catches up, because Cloud Run
+	// only gives CPU to a container that is serving one.
+	settle := false
+	defer func() {
+		if !settle {
+			return
+		}
+		if err := p.mirror.Settle(ctx, account, sliceSlug); err != nil {
+			// Publish again on the next request.
+			p.setPublished(repoPath, "")
+		}
+	}()
 	lock := p.lockFor(repoPath)
 	lock.Lock()
 	defer lock.Unlock()
@@ -140,8 +153,12 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 			restored, err := p.mirror.Restore(context.WithoutCancel(ctx), account, sliceSlug, repoPath)
 			switch {
 			case err != nil:
+				recordGitMirror("restore", "error")
 				slog.Warn("git mirror restore failed; building from scratch", "repo", account+"/"+sliceSlug+".git", "error", err)
+			case !restored:
+				recordGitMirror("restore", "empty")
 			case restored:
+				recordGitMirror("restore", "ok")
 				if state := loadProjectionState(repoPath); state != nil {
 					p.setPublished(repoPath, state.NativeHeadID)
 				}
@@ -158,6 +175,7 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	if mirrored && state.GitHead != "" && p.publishedHead(repoPath) != state.NativeHeadID {
 		p.setPublished(repoPath, state.NativeHeadID)
 		p.mirror.Publish(ctx, account, sliceSlug, repoPath, state)
+		settle = true
 	}
 	return repoPath, state.projection(), nil
 }

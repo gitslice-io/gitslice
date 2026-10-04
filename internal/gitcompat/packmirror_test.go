@@ -148,20 +148,123 @@ func TestPackMirrorRoundTrip(t *testing.T) {
 	// repo2 does not have the first pack on disk, but the manifest already has it.
 	waitForManifest(t, store, state2.GitHead)
 
-	// A rebuild replaces the packs, and the old ones are deleted.
+	// A rebuild replaces the packs. The old ones are not deleted by the push
+	// that drops them, since another instance may be restoring from the manifest
+	// that names them, but by the one after.
+	oldPack := mirrorPrefix("acme", "payment") + "packs/" + state.HistoryPacks[0] + ".pack.0"
 	repo3, state3 := historyRepo(t, 3, "three")
 	mirror.Publish(ctx, "acme", "payment", repo3, state3)
 	waitForManifest(t, store, state3.GitHead)
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		_, err := store.Get(ctx, mirrorPrefix("acme", "payment")+"packs/"+state.HistoryPacks[0]+".pack.0", 0, 0)
-		if err != nil {
-			break
+	if err := mirror.Settle(ctx, "acme", "payment"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(ctx, oldPack, 0, 0); err != nil {
+		t.Fatalf("the dropped pack must outlive the push that dropped it: %v", err)
+	}
+	repo4, state4 := historyRepo(t, 2, "four")
+	mirror.Publish(ctx, "acme", "payment", repo4, state4)
+	waitForManifest(t, store, state4.GitHead)
+	if err := mirror.Settle(ctx, "acme", "payment"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(ctx, oldPack, 0, 0); err == nil {
+		t.Fatal("the dropped pack was not deleted by the next push")
+	}
+}
+
+// A manifest names each object's part size, so changing the size for new
+// uploads must not break restoring what was uploaded with the old one.
+func TestPackMirrorRestoresWhateverPartSizeItWasWrittenWith(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	mirror := NewPackMirror(store, []string{"*"})
+	old := packPartBytes
+	t.Cleanup(func() { packPartBytes = old })
+	packPartBytes = 101
+	repo, state := historyRepo(t, 4, "sizes")
+	mirror.Publish(ctx, "acme", "payment", repo, state)
+	if err := mirror.Settle(ctx, "acme", "payment"); err != nil {
+		t.Fatal(err)
+	}
+	packPartBytes = 37
+	restoredPath := filepath.Join(t.TempDir(), "acme", "payment.git")
+	if ok, err := NewPackMirror(store, []string{"*"}).Restore(ctx, "acme", "payment", restoredPath); err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	if got := gitIn(t, restoredPath, nil, "rev-list", "--count", "main"); got != "4" {
+		t.Fatalf("restored %s commits, want 4", got)
+	}
+}
+
+// Settle holds a request open until the publish it started is done, which is
+// how it gets CPU on an instance that is only given CPU while serving.
+func TestPackMirrorSettleWaitsForThePublish(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	mirror := NewPackMirror(store, []string{"*"})
+	repo, state := historyRepo(t, 3, "settle")
+	mirror.Publish(ctx, "acme", "payment", repo, state)
+	if err := mirror.Settle(ctx, "acme", "payment"); err != nil {
+		t.Fatal(err)
+	}
+	// No polling: the mirror must already be complete.
+	restoredPath := filepath.Join(t.TempDir(), "acme", "payment.git")
+	if ok, err := NewPackMirror(store, []string{"*"}).Restore(ctx, "acme", "payment", restoredPath); err != nil || !ok {
+		t.Fatalf("restore right after Settle: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestPublisherRetriesAndReportsFailure(t *testing.T) {
+	attempts := 0
+	pub := newPublisher("test publish", func(context.Context, string, int) error {
+		attempts++
+		if attempts < 3 {
+			return io.ErrUnexpectedEOF
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("the old pack was not deleted after a rebuild")
+		return nil
+	})
+	pub.interval = time.Millisecond
+	pub.submit("a/b", 1)
+	if err := pub.wait(context.Background(), "a/b", 5*time.Second); err != nil || attempts != 3 {
+		t.Fatalf("a failed publish is tried again: attempts=%d err=%v", attempts, err)
+	}
+
+	always := newPublisher("test publish", func(context.Context, string, int) error { return io.ErrUnexpectedEOF })
+	always.interval = time.Millisecond
+	always.submit("a/b", 1)
+	if err := always.wait(context.Background(), "a/b", 5*time.Second); err == nil {
+		t.Fatal("a publish that keeps failing must be reported to the waiter")
+	}
+
+	// A newer snapshot replaces a failing one rather than retrying it.
+	var seen []int
+	release := make(chan struct{})
+	latest := newPublisher("test publish", func(_ context.Context, _ string, n int) error {
+		seen = append(seen, n)
+		if n == 1 {
+			<-release
+			return io.ErrUnexpectedEOF
 		}
-		time.Sleep(50 * time.Millisecond)
+		return nil
+	})
+	latest.interval = time.Millisecond
+	latest.submit("a/b", 1)
+	time.Sleep(20 * time.Millisecond)
+	latest.submit("a/b", 2)
+	close(release)
+	if err := latest.wait(context.Background(), "a/b", 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 || seen[0] != 1 || seen[1] != 2 {
+		t.Fatalf("snapshots run: %v, want [1 2]", seen)
+	}
+
+	// Waiting does not outlast its limit.
+	stuck := newPublisher("test publish", func(ctx context.Context, _ string, _ int) error { <-ctx.Done(); return ctx.Err() })
+	stuck.submit("a/b", 1)
+	started := time.Now()
+	if err := stuck.wait(context.Background(), "a/b", 50*time.Millisecond); err != nil || time.Since(started) > 2*time.Second {
+		t.Fatalf("wait must give up quietly at its limit: err=%v after %s", err, time.Since(started))
 	}
 }
 

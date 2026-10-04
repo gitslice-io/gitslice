@@ -2,6 +2,7 @@ package gitcompat
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,7 +37,9 @@ import (
 //	state/<git head>.json.<part>  the projection state that goes with the head
 //
 // Objects are split into parts because the object store holds a whole object
-// in memory to upload it.
+// in memory to upload it. Memory is what a Cloud Run instance has least of (its
+// disk is memory too), so an upload holds at most packUploadConcurrency parts
+// of packPartBytes, 32 MiB, whatever the size of the pack.
 
 // PackStore is the part of the object store a PackMirror uses.
 type PackStore interface {
@@ -47,12 +50,16 @@ type PackStore interface {
 
 const (
 	packManifestVersion = 1
-	packPartConcurrency = 4
+	// Parts are buffered whole to upload, but only streamed to disk to download.
+	packUploadConcurrency   = 2
+	packDownloadConcurrency = 4
+	// Parts written before the manifest recorded their size were this big.
+	legacyPartBytes = 32 << 20
 )
 
 // packPartBytes is the size of one uploaded part. It is a variable so tests can
 // make small objects span several parts.
-var packPartBytes int64 = 32 << 20
+var packPartBytes int64 = 16 << 20
 
 type packManifest struct {
 	Version    int         `json:"version"`
@@ -62,6 +69,10 @@ type packManifest struct {
 	GitHead    string      `json:"git_head"`
 	State      packObject  `json:"state"`
 	Packs      []packEntry `json:"packs"`
+	// Garbage is what this manifest stopped using. It is deleted by the push
+	// after next, not this one: an instance that read the previous manifest may
+	// still be downloading from it.
+	Garbage []packObject `json:"garbage,omitempty"`
 }
 
 type packEntry struct {
@@ -72,9 +83,17 @@ type packEntry struct {
 
 // packObject is an object stored in parts: Key.0, Key.1, ...
 type packObject struct {
-	Key   string `json:"key"`
-	Size  int64  `json:"size"`
-	Parts int    `json:"parts"`
+	Key      string `json:"key"`
+	Size     int64  `json:"size"`
+	Parts    int    `json:"parts"`
+	PartSize int64  `json:"part_size,omitempty"`
+}
+
+func (o packObject) partSize() int64 {
+	if o.PartSize > 0 {
+		return o.PartSize
+	}
+	return legacyPartBytes
 }
 
 type PackMirror struct {
@@ -82,22 +101,19 @@ type PackMirror struct {
 	slices map[string]bool
 	all    bool
 	pub    *publisher[packSnapshot]
-
-	mu        sync.Mutex
-	manifests map[string]*packManifest // the last manifest this instance wrote or read, by slice
 }
 
 type packSnapshot struct {
 	account, slice, repoPath string
 	nativeHead, gitHead      string
 	packs                    []string
-	state                    []byte
+	state                    []byte // the projection state, gzipped JSON
 }
 
 // NewPackMirror mirrors the given "account/slice" names ("*" for all) into store.
 func NewPackMirror(store PackStore, slices []string) *PackMirror {
 	set, all := enabledSlices(slices)
-	m := &PackMirror{store: store, slices: set, all: all, manifests: map[string]*packManifest{}}
+	m := &PackMirror{store: store, slices: set, all: all}
 	m.pub = newPublisher("git projection packs mirrored", func(ctx context.Context, _ string, s packSnapshot) error { return m.push(ctx, &s) })
 	return m
 }
@@ -114,7 +130,7 @@ func (m *PackMirror) Publish(_ context.Context, account, slice, repoPath string,
 	if state.GitHead == "" {
 		return
 	}
-	raw, err := json.Marshal(state)
+	raw, err := encodeState(state)
 	if err != nil {
 		slog.Warn("pack mirror snapshot failed", "repo", account+"/"+slice+".git", "error", err)
 		return
@@ -126,9 +142,43 @@ func (m *PackMirror) Publish(_ context.Context, account, slice, repoPath string,
 	})
 }
 
+// Settle waits for the publish that Publish started; see Mirror.
+func (m *PackMirror) Settle(ctx context.Context, account, slice string) error {
+	return m.pub.wait(ctx, account+"/"+slice, mirrorSettleWait)
+}
+
+// encodeState compresses a projection state. It is a map entry per file, about
+// 200 bytes each as JSON, and compresses ten to one; a snapshot waits in memory
+// until it is uploaded.
+func encodeState(state *projectionState) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if err := json.NewEncoder(zw).Encode(state); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func decodeState(r io.Reader) (*projectionState, error) {
+	zr, err := gzip.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+	var state projectionState
+	if err := json.NewDecoder(zr).Decode(&state); err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
 func (m *PackMirror) push(ctx context.Context, s *packSnapshot) error {
-	key := s.account + "/" + s.slice
 	prefix := mirrorPrefix(s.account, s.slice)
+	// Read, not remembered: another instance may have published since, and
+	// what it uploaded is reusable.
 	previous, err := m.readManifest(ctx, s.account, s.slice)
 	if err != nil {
 		return fmt.Errorf("read manifest: %w", err)
@@ -161,47 +211,87 @@ func (m *PackMirror) push(ctx context.Context, s *packSnapshot) error {
 		return fmt.Errorf("upload state: %w", err)
 	}
 	next.State = state
+	next.Garbage = dropped(previous, &next)
 	raw, err := json.Marshal(&next)
 	if err != nil {
 		return err
 	}
-	// The manifest goes last: until it is replaced, a restore sees the previous
-	// complete set of objects. It is the one key that changes. Some stores keep
-	// the first object written under a key (the filesystem store is
-	// content-addressed), so the old one is deleted first. In the instant
-	// between, a restore finds no manifest and builds the projection instead.
-	manifestKey := prefix + "manifest.json"
-	if err := m.store.Delete(ctx, manifestKey); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, storage.ErrNotFound) {
-		return fmt.Errorf("replace manifest: %w", err)
+	if err := m.putManifest(ctx, prefix+"manifest.json", raw); err != nil {
+		return err
 	}
-	if err := m.store.Put(ctx, manifestKey, bytes.NewReader(raw)); err != nil {
-		return fmt.Errorf("write manifest: %w", err)
-	}
-	m.mu.Lock()
-	m.manifests[key] = &next
-	m.mu.Unlock()
 	if previous != nil {
 		m.cleanup(ctx, previous, &next)
 	}
 	return nil
 }
 
-// cleanup deletes what the previous manifest used and the new one does not
-// (after a rebuild, or when a newer head replaced the state). Failures only
-// leave garbage behind.
-func (m *PackMirror) cleanup(ctx context.Context, previous, next *packManifest) {
-	keep := map[string]bool{}
-	for _, e := range next.Packs {
-		keep[e.Name] = true
+// dropped lists what previous used and next does not.
+func dropped(previous *packManifest, next *packManifest) []packObject {
+	if previous == nil {
+		return nil
 	}
+	keep := map[string]bool{next.State.Key: true}
+	for _, e := range next.Packs {
+		keep[e.Pack.Key], keep[e.Idx.Key] = true, true
+	}
+	var out []packObject
 	for _, e := range previous.Packs {
-		if !keep[e.Name] {
-			m.deleteParts(ctx, e.Pack)
-			m.deleteParts(ctx, e.Idx)
+		for _, obj := range []packObject{e.Pack, e.Idx} {
+			if !keep[obj.Key] {
+				out = append(out, obj)
+			}
 		}
 	}
-	if previous.State.Key != next.State.Key {
-		m.deleteParts(ctx, previous.State)
+	if !keep[previous.State.Key] {
+		out = append(out, previous.State)
+	}
+	return out
+}
+
+// putManifest replaces the manifest. It goes last: until it is replaced, a
+// restore sees the previous complete set of objects. It is the one key that
+// changes. Object stores overwrite, but some keep the first object written
+// under a key (the filesystem store is content-addressed), so what was stored is
+// checked, and the old manifest deleted first if it is still there. Only on such
+// a store is there an instant when a restore finds no manifest.
+func (m *PackMirror) putManifest(ctx context.Context, key string, raw []byte) error {
+	if err := m.store.Put(ctx, key, bytes.NewReader(raw)); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
+	}
+	if stored, err := m.readObject(ctx, key); err == nil && bytes.Equal(stored, raw) {
+		return nil
+	}
+	if err := m.store.Delete(ctx, key); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, storage.ErrNotFound) {
+		return fmt.Errorf("replace manifest: %w", err)
+	}
+	if err := m.store.Put(ctx, key, bytes.NewReader(raw)); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
+	}
+	return nil
+}
+
+func (m *PackMirror) readObject(ctx context.Context, key string) ([]byte, error) {
+	rc, err := m.store.Get(ctx, key, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return io.ReadAll(io.LimitReader(rc, 64<<20))
+}
+
+// cleanup deletes what the manifest before this one stopped using. The
+// objects the new manifest stopped using are only recorded (in its Garbage) and
+// go on the next push, once nobody can still be reading the manifest that named
+// them. Failures only leave garbage behind.
+func (m *PackMirror) cleanup(ctx context.Context, previous, next *packManifest) {
+	keep := map[string]bool{next.State.Key: true}
+	for _, e := range next.Packs {
+		keep[e.Pack.Key], keep[e.Idx.Key] = true, true
+	}
+	for _, obj := range previous.Garbage {
+		if !keep[obj.Key] { // an identical pack can come back after a rebuild
+			m.deleteParts(ctx, obj)
+		}
 	}
 }
 
@@ -215,13 +305,6 @@ func (m *PackMirror) deleteParts(ctx context.Context, obj packObject) {
 
 // readManifest returns the slice's manifest, or nil when none exists.
 func (m *PackMirror) readManifest(ctx context.Context, account, slice string) (*packManifest, error) {
-	key := account + "/" + slice
-	m.mu.Lock()
-	cached := m.manifests[key]
-	m.mu.Unlock()
-	if cached != nil {
-		return cached, nil
-	}
 	rc, err := m.store.Get(ctx, mirrorPrefix(account, slice)+"manifest.json", 0, 0)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
@@ -256,16 +339,17 @@ func (m *PackMirror) putBytes(ctx context.Context, key string, data []byte) (pac
 }
 
 func (m *PackMirror) putParts(ctx context.Context, key string, r io.ReaderAt, size int64) (packObject, error) {
-	parts := int((size + packPartBytes - 1) / packPartBytes)
+	partSize := packPartBytes
+	parts := int((size + partSize - 1) / partSize)
 	if parts == 0 {
 		parts = 1
 	}
-	err := forEachPart(ctx, parts, func(i int) error {
-		offset := int64(i) * packPartBytes
-		length := min(packPartBytes, size-offset)
+	err := forEachPart(ctx, parts, packUploadConcurrency, func(i int) error {
+		offset := int64(i) * partSize
+		length := min(partSize, size-offset)
 		return m.store.Put(ctx, key+"."+strconv.Itoa(i), io.NewSectionReader(r, offset, max(length, 0)))
 	})
-	return packObject{Key: key, Size: size, Parts: parts}, err
+	return packObject{Key: key, Size: size, Parts: parts, PartSize: partSize}, err
 }
 
 // getFile downloads an object's parts into path.
@@ -275,13 +359,13 @@ func (m *PackMirror) getFile(ctx context.Context, obj packObject, path string) e
 		return err
 	}
 	defer f.Close()
-	err = forEachPart(ctx, obj.Parts, func(i int) error {
+	err = forEachPart(ctx, obj.Parts, packDownloadConcurrency, func(i int) error {
 		rc, err := m.store.Get(ctx, obj.Key+"."+strconv.Itoa(i), 0, 0)
 		if err != nil {
 			return err
 		}
 		defer rc.Close()
-		_, err = io.Copy(io.NewOffsetWriter(f, int64(i)*packPartBytes), rc)
+		_, err = io.Copy(io.NewOffsetWriter(f, int64(i)*obj.partSize()), rc)
 		return err
 	})
 	if err != nil {
@@ -294,10 +378,10 @@ func (m *PackMirror) getFile(ctx context.Context, obj packObject, path string) e
 }
 
 // forEachPart runs fn for 0..n-1, a few at a time, and returns the first error.
-func forEachPart(ctx context.Context, n int, fn func(int) error) error {
+func forEachPart(ctx context.Context, n, concurrency int, fn func(int) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	sem := make(chan struct{}, packPartConcurrency)
+	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	var once sync.Once
 	var first error
@@ -367,13 +451,14 @@ func (m *PackMirror) Restore(ctx context.Context, account, slice, repoPath strin
 	if err := m.getFile(ctx, manifest.State, statePath); err != nil {
 		return false, err
 	}
-	raw, err := os.ReadFile(statePath)
+	stateFile, err := os.Open(statePath)
 	if err != nil {
 		return false, err
 	}
+	state, err := decodeState(stateFile)
+	_ = stateFile.Close()
 	_ = os.Remove(statePath)
-	var state projectionState
-	if err := json.Unmarshal(raw, &state); err != nil {
+	if err != nil {
 		return false, fmt.Errorf("mirror state: %w", err)
 	}
 	if state.Version != projectionVersion || state.Account != account || state.Slice != slice || state.GitHead != manifest.GitHead {
@@ -385,7 +470,7 @@ func (m *PackMirror) Restore(ctx context.Context, account, slice, repoPath strin
 	if err := runGit(ctx, tmp, []string{"GIT_DIR=" + tmp}, "cat-file", "-e", manifest.GitHead+"^{commit}"); err != nil {
 		return false, fmt.Errorf("restored packs do not hold the head: %w", err)
 	}
-	if err := writeProjectionState(tmp, &state); err != nil {
+	if err := writeProjectionState(tmp, state); err != nil {
 		return false, err
 	}
 	if err := os.RemoveAll(repoPath); err != nil {
@@ -394,9 +479,6 @@ func (m *PackMirror) Restore(ctx context.Context, account, slice, repoPath strin
 	if err := os.Rename(tmp, repoPath); err != nil {
 		return false, err
 	}
-	m.mu.Lock()
-	m.manifests[account+"/"+slice] = manifest
-	m.mu.Unlock()
 	slog.Info("git projection restored from mirror", "repo", account+"/"+slice+".git", "native_commits", len(state.Commits), "packs", len(manifest.Packs), "bytes", total, "total_ms", time.Since(started).Milliseconds())
 	return true, nil
 }

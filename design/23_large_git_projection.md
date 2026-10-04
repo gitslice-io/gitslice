@@ -163,8 +163,24 @@ Each piece is off by default and tested end to end against Postgres.
   manifest are kept in the object store (R2), in parts of 32 MiB because R2
   holds a whole object in memory to upload it. A new instance downloads the
   packs in parallel and points the branch at the head; nothing is replayed.
-  Packs the server no longer uses are deleted. On a lazy projection these packs
-  hold only commits and trees, since the files are already in R2.
+  On a lazy projection these packs hold only commits and trees, since the files
+  are already in R2. Sized for a 1 GiB Cloud Run instance:
+  - an upload holds at most two 16 MiB parts, however big the pack; the part
+    size is recorded per object, so it can change without breaking a restore;
+  - the state is held gzipped (about a tenth of its JSON) while it waits to be
+    uploaded, and restored by streaming it;
+  - a request that moved the head stays open (up to 20 s) until the mirror has
+    caught up, because Cloud Run only gives CPU to a container that is serving
+    a request. If the wait runs out the upload continues as CPU allows;
+  - a failed upload is tried again (three times, backing off) unless a newer
+    snapshot replaced it, and a publish that keeps failing is attempted again
+    on the next request;
+  - the manifest is read fresh before every push, so what another instance
+    uploaded is reused, and packs a push drops are deleted by the push after
+    next, not at once, so an instance that is still restoring from the old
+    manifest finds them (a restore that fails builds from scratch instead);
+  - `gitslice_git_mirror_operations_total{operation,result}` counts publishes
+    and restores.
 - **Pack merging**: a landing adds a handful of objects, so history packs are
   merged in size tiers (16 at a time) rather than collecting one per commit.
 - A mirror to a **Git remote** (`GITSLICE_GIT_MIRROR_DIR`) for slices that fit a
@@ -194,10 +210,17 @@ run against a slice of tens of gigabytes.
   repository. On Cloud Run that is memory, so a 10 GB slice still needs a larger
   instance or a disk, and nothing evicts hydrated packs when space runs short.
   The Git tier on a persistent disk (see Design) is still the plan.
-- **Background work on Cloud Run.** The mirror upload and the blob id backfill
-  run in the background, and Cloud Run only gives CPU to a container while it
-  serves a request (CPU throttling is on). They need that setting off, or a
-  separate runner.
+- **Background work on Cloud Run.** The mirror upload is held inside the request
+  that caused it (see above), but the blob id backfill is a free-running job, and
+  Cloud Run only gives CPU to a container while it serves a request (CPU
+  throttling is on). It makes progress only while traffic arrives; it needs that
+  setting off, or a separate runner (a Cloud Run job, which can be rerun until
+  `ListMissingGitBlobIDs` is empty).
+- **A mirror restore must fit in memory on Cloud Run.** The downloaded packs
+  land on the instance's memory-backed disk. For a lazy projection that is about
+  6 MB of commits and trees per 1,000 commits, so tens of thousands of commits
+  fit; an eager projection does not, so enable the mirror together with lazy
+  for large slices.
 - **The state file is still parsed on every request,** and pushes are still read
   into memory (up to 128 MB).
 - **Files uploaded without a size** get their Git id from the backfill, not at
@@ -213,7 +236,11 @@ run against a slice of tens of gigabytes.
 2. Turn on `GITSLICE_GIT_BLOB_BACKFILL=1` and let it reach every file. Watch the
    "git id backfill progress" log; uploads record their own ids from now on.
 3. Turn on `GITSLICE_GIT_MIRROR_PACKS=1` with `GITSLICE_GIT_MIRROR_SLICES=*`. The
-   next request for each slice builds as before and publishes its packs.
+   next request for each slice builds as before and publishes its packs. Check
+   `gitslice_git_mirror_operations_total` and the "git projection packs
+   mirrored" log; then restart a revision and look for "git projection restored
+   from mirror" instead of a build. Start with one slice
+   (`GITSLICE_GIT_MIRROR_SLICES=gitslice/gitslice`) if that is preferred.
 4. Turn on `GITSLICE_GIT_LAZY_BLOBS=1`. Existing caches are extended, not
    rebuilt, and new builds skip the file reads.
 
