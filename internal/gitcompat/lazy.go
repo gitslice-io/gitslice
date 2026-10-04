@@ -3,6 +3,7 @@ package gitcompat
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -173,6 +174,47 @@ func chunkHashes(commits []pendingCommit, unrecorded []string, known map[string]
 	return out
 }
 
+type fetchedBlob struct {
+	rc  io.ReadCloser
+	err error
+}
+
+// prefetchWindow is how many files one worker has requested ahead.
+const prefetchWindow = 8
+
+// prefetch starts reading the files, at most prefetchWindow ahead of the
+// consumer, and returns their readers in order, one channel per file. The
+// consumer closes each reader it takes; stop releases the rest.
+func (p *Projector) prefetch(ctx context.Context, hashes []string) (next func() fetchedBlob, stop func()) {
+	queue := make(chan chan fetchedBlob, prefetchWindow)
+	done := make(chan struct{})
+	go func() {
+		defer close(queue)
+		for _, h := range hashes {
+			ch := make(chan fetchedBlob, 1)
+			select {
+			case queue <- ch:
+			case <-done:
+				return
+			}
+			go func() {
+				rc, err := p.objectStore.Get(ctx, filesystem.BlobKey(h), 0, 0)
+				ch <- fetchedBlob{rc: rc, err: err}
+			}()
+		}
+	}()
+	next = func() fetchedBlob { return <-<-queue }
+	stop = func() {
+		close(done)
+		for ch := range queue {
+			if f := <-ch; f.rc != nil {
+				_ = f.rc.Close()
+			}
+		}
+	}
+	return next, stop
+}
+
 // readUnrecorded reads the files that have no recorded Git id from the object
 // store, a few at a time, each worker streaming into a pack of its own, and
 // records the ids it computed in known and in the database, so the next build
@@ -193,15 +235,22 @@ func (p *Projector) readUnrecorded(ctx context.Context, repoPath string, hashes 
 		}
 		var bytes int64
 		local := map[string]string{}
+		mine := make([]string, 0, len(hashes)/workers+1)
 		for i := w; i < len(hashes); i += workers {
-			hash := hashes[i]
-			rc, err := p.objectStore.Get(ctx, filesystem.BlobKey(hash), 0, 0)
-			if err != nil {
+			mine = append(mine, hashes[i])
+		}
+		// The store answers each request after a delay, so the next few files
+		// are requested while the current one is written.
+		next, stop := p.prefetch(ctx, mine)
+		defer stop()
+		for _, hash := range mine {
+			f := next()
+			if f.err != nil {
 				pack.discard()
-				return fmt.Errorf("read blob %s: %w", hash, err)
+				return fmt.Errorf("read blob %s: %w", hash, f.err)
 			}
-			id, err := pack.addBlob(sizes[hash], rc)
-			_ = rc.Close()
+			id, err := pack.addBlob(sizes[hash], f.rc)
+			_ = f.rc.Close()
 			if err != nil {
 				pack.discard()
 				return fmt.Errorf("add blob %s: %w", hash, err)
