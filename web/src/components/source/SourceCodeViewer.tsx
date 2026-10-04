@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/cn";
-import { languageFromPath } from "./sourceUtils";
+import { languageFromPath, previewKindFromPath } from "./sourceUtils";
 import { highlightToHtml } from "./highlight";
 import { MarkdownViewer } from "./MarkdownViewer";
+import { TableViewer } from "./TableViewer";
 
 interface SourceCodeViewerProps {
   code: string;
@@ -17,7 +18,7 @@ interface HighlightState {
   error: string;
 }
 
-type MarkdownViewMode = "preview" | "raw";
+type ViewMode = "preview" | "raw";
 
 export function SourceCodeViewer({
   code,
@@ -25,16 +26,15 @@ export function SourceCodeViewer({
   path
 }: SourceCodeViewerProps) {
   const language = useMemo(() => languageFromPath(path), [path]);
-  const isMarkdown = language === "markdown";
+  const previewKind = useMemo(() => previewKindFromPath(path), [path]);
   const lineCount = useMemo(() => (code ? code.split(/\r\n|\r|\n/).length : 0), [code]);
-  const [markdownViewMode, setMarkdownViewMode] =
-    useState<MarkdownViewMode>("preview");
+  const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [highlight, setHighlight] = useState<HighlightState>({
     html: "",
     isLoading: true,
     error: ""
   });
-  const shouldRenderRaw = !isMarkdown || markdownViewMode === "raw";
+  const shouldRenderRaw = !previewKind || viewMode === "raw";
 
   useEffect(() => {
     let active = true;
@@ -74,11 +74,8 @@ export function SourceCodeViewer({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-4 py-3 text-xs text-slate-500 dark:text-zinc-400">
         <div className="min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400">{path}</div>
         <div className="flex flex-wrap items-center justify-end gap-3">
-          {isMarkdown ? (
-            <MarkdownViewToggle
-              onChange={setMarkdownViewMode}
-              value={markdownViewMode}
-            />
+          {previewKind ? (
+            <ViewModeToggle onChange={setViewMode} value={viewMode} />
           ) : null}
           <div className="flex items-center gap-3">
             {shouldRenderRaw && highlight.isLoading && code ? (
@@ -90,8 +87,10 @@ export function SourceCodeViewer({
         </div>
       </div>
       <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
-        {isMarkdown && markdownViewMode === "preview" ? (
+        {previewKind === "markdown" && viewMode === "preview" ? (
           <MarkdownViewer source={code} />
+        ) : previewKind === "table" && viewMode === "preview" ? (
+          <TableViewer path={path} source={code} />
         ) : highlight.html ? (
           <div
             className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white dark:bg-zinc-900 [&_pre]:text-sm [&_pre]:leading-6"
@@ -116,12 +115,12 @@ export function SourceCodeViewer({
   );
 }
 
-function MarkdownViewToggle({
+function ViewModeToggle({
   onChange,
   value
 }: {
-  onChange(value: MarkdownViewMode): void;
-  value: MarkdownViewMode;
+  onChange(value: ViewMode): void;
+  value: ViewMode;
 }) {
   return (
     <div className="inline-flex h-8 w-fit overflow-hidden rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 p-0.5">

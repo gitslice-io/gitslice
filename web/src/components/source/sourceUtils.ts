@@ -195,8 +195,25 @@ export function languageFromPath(path: string) {
   if (lower.endsWith(".proto")) return "proto";
   if (lower.endsWith(".toml")) return "toml";
   if (lower.endsWith(".xml")) return "xml";
+  if (lower.endsWith(".csv")) return "csv";
+  if (lower.endsWith(".tsv")) return "tsv";
 
   return "text";
+}
+
+// A file kind with a rendered preview to show instead of its source.
+export type PreviewKind = "markdown" | "table";
+
+export function previewKindFromPath(path: string): PreviewKind | null {
+  switch (languageFromPath(path)) {
+    case "markdown":
+      return "markdown";
+    case "csv":
+    case "tsv":
+      return "table";
+    default:
+      return null;
+  }
 }
 
 export function decodeBase64File(data: string | undefined) {

@@ -52,6 +52,7 @@ const extensionIcons: Partial<Record<string, IconSpec>> = {
 const languageIcons: Partial<Record<string, IconSpec>> = {
   bash: { classes: toneClasses.emerald, label: ">_" },
   css: { classes: toneClasses.sky, label: "CSS" },
+  csv: { classes: toneClasses.emerald, label: "CSV" },
   go: { classes: toneClasses.cyan, label: "GO" },
   html: { classes: toneClasses.orange, label: "<>" },
   java: { classes: toneClasses.rose, label: "JV" },
@@ -67,6 +68,7 @@ const languageIcons: Partial<Record<string, IconSpec>> = {
   sql: { classes: toneClasses.teal, label: "SQL" },
   toml: { classes: toneClasses.violet, label: "TOML" },
   ts: { classes: toneClasses.blue, label: "TS" },
+  tsv: { classes: toneClasses.emerald, label: "TSV" },
   tsx: { classes: toneClasses.blue, label: "TSX" },
   xml: { classes: toneClasses.orange, label: "XML" },
   yaml: { classes: toneClasses.violet, label: "YML" }
