@@ -65,18 +65,15 @@ func (p *Projector) appendLazy(ctx context.Context, repoPath string, state *proj
 
 	for start := 0; start < len(pending); start += lazyChunkCommits {
 		end := min(start+lazyChunkCommits, len(pending))
-		pack, err := newPackBuilder(repoPath)
+		// Files this chunk introduces without an id are read now, in parallel,
+		// each worker writing its own pack.
+		filePacks, err := p.readUnrecorded(ctx, repoPath, chunkHashes(pending[start:end], read, known), sizes, known, &stats)
 		if err != nil {
 			return stats, err
 		}
-		// Files this chunk introduces without an id are read now.
-		for _, hash := range chunkHashes(pending[start:end], read, known) {
-			if err := p.addBlobToPack(ctx, pack, hash, sizes[hash], known); err != nil {
-				pack.discard()
-				return stats, err
-			}
-			stats.blobs++
-			stats.bytes += int(sizes[hash])
+		pack, err := newPackBuilder(repoPath)
+		if err != nil {
+			return stats, err
 		}
 		var shas []string
 		for _, commit := range pending[start:end] {
@@ -129,6 +126,7 @@ func (p *Projector) appendLazy(ctx context.Context, repoPath string, state *proj
 		state.Files = copyFiles(saved)
 		state.GitHead = parent
 		state.NativeHeadID = pending[end-1].native.Id
+		state.HistoryPacks = append(state.HistoryPacks, filePacks...)
 		if packName != "" {
 			state.HistoryPacks = append(state.HistoryPacks, packName)
 		}
@@ -175,20 +173,69 @@ func chunkHashes(commits []pendingCommit, unrecorded []string, known map[string]
 	return out
 }
 
-// addBlobToPack streams a file from the object store into the pack and records
-// its Git id.
-func (p *Projector) addBlobToPack(ctx context.Context, pack *packBuilder, contentHash string, size int64, known map[string]string) error {
-	rc, err := p.objectStore.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
-	if err != nil {
-		return fmt.Errorf("read blob %s: %w", contentHash, err)
+// readUnrecorded reads the files that have no recorded Git id from the object
+// store, a few at a time, each worker streaming into a pack of its own, and
+// records the ids it computed in known and in the database, so the next build
+// does not read them again. It returns the packs it wrote. One at a time, a cold
+// build of a slice with no recorded ids spent its time waiting on the store.
+func (p *Projector) readUnrecorded(ctx context.Context, repoPath string, hashes []string, sizes map[string]int64, known map[string]string, stats *importStats) ([]string, error) {
+	if len(hashes) == 0 {
+		return nil, nil
 	}
-	defer rc.Close()
-	id, err := pack.addBlob(size, rc)
+	workers := min(hydrateShards, len(hashes))
+	var mu sync.Mutex
+	var names []string
+	computed := map[string]string{}
+	err := forEachPart(ctx, workers, workers, func(w int) error {
+		pack, err := newPackBuilder(repoPath)
+		if err != nil {
+			return err
+		}
+		var bytes int64
+		local := map[string]string{}
+		for i := w; i < len(hashes); i += workers {
+			hash := hashes[i]
+			rc, err := p.objectStore.Get(ctx, filesystem.BlobKey(hash), 0, 0)
+			if err != nil {
+				pack.discard()
+				return fmt.Errorf("read blob %s: %w", hash, err)
+			}
+			id, err := pack.addBlob(sizes[hash], rc)
+			_ = rc.Close()
+			if err != nil {
+				pack.discard()
+				return fmt.Errorf("add blob %s: %w", hash, err)
+			}
+			local[hash] = id
+			bytes += sizes[hash]
+		}
+		name, err := pack.finish(ctx, repoPath)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if name != "" {
+			names = append(names, name)
+		}
+		for hash, id := range local {
+			computed[hash] = id
+		}
+		stats.blobs += len(local)
+		stats.bytes += int(bytes)
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("add blob %s: %w", contentHash, err)
+		return nil, err
 	}
-	known[contentHash] = id
-	return nil
+	for hash, id := range computed {
+		known[hash] = id
+	}
+	if err := p.blobs.SetGitBlobIDs(ctx, computed); err != nil {
+		slog.Warn("could not record git blob ids", "error", err)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 func copyFiles(files map[string]projectedFile) map[string]projectedFile {

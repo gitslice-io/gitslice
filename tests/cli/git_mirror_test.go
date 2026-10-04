@@ -188,3 +188,47 @@ func TestGitPackMirrorColdStart(t *testing.T) {
 		t.Fatalf("expected a lazy build of just the new commit after the restore:\n%s", out)
 	}
 }
+
+// A small eager import used to be written as loose objects, which belong to no
+// pack, so a mirror made after the second change lacked the new head and a
+// restore failed. Every change must reach the packs the mirror copies.
+func TestGitPackMirrorCoversEagerIncrementalUpdates(t *testing.T) {
+	logs := &logBuffer{}
+	t.Cleanup(captureLogs(logs))
+	ts := startTestServer(t)
+	ts.mirrorPacks = true
+	ts.mirrorSlices = "acme/payment"
+	ts.restart(t)
+
+	home := t.TempDir()
+	workspace := t.TempDir()
+	loginTestCLI(t, ts, home, workspace)
+	token := readToken(t, home)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	submitWorkspaceFile(t, home, workspace, "one.go", "package payment\nconst One = 1\n", "add one.go")
+	gitURL := "http://" + ts.gitAddr + "/git/acme/payment.git"
+	header := "http.extraHeader=Authorization: Bearer " + token
+	runGit(t, "", "-c", header, "clone", gitURL, filepath.Join(t.TempDir(), "first"))
+	// One small change on top of a built cache.
+	submitWorkspaceFile(t, home, workspace, "two.go", "package payment\nconst Two = 2\n", "add two.go")
+	runGit(t, "", "-c", header, "clone", gitURL, filepath.Join(t.TempDir(), "second"))
+	head := strings.Fields(runGit(t, "", "-c", header, "ls-remote", gitURL, "refs/heads/main"))[0]
+	manifest := filepath.Join(ts.objectRoot, "git-mirror", "acme", "payment", "manifest.json")
+	waitFor(t, "the pack copy of the second change", func() bool {
+		raw, err := os.ReadFile(manifest)
+		return err == nil && strings.Contains(string(raw), head)
+	})
+
+	ts.stop(t)
+	if err := os.RemoveAll(filepath.Join(ts.objectRoot, "git-cache")); err != nil {
+		t.Fatal(err)
+	}
+	ts.start(t, false)
+	cold := filepath.Join(t.TempDir(), "cold")
+	runGit(t, "", "-c", header, "clone", gitURL, cold)
+	runGit(t, "", "-C", cold, "fsck", "--full")
+	out := logs.String()
+	if !strings.Contains(out, "git projection restored from mirror") || strings.Contains(out, "git mirror restore failed") {
+		t.Fatalf("the new instance did not restore from the pack copy:\n%s", out)
+	}
+}

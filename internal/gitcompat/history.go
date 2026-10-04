@@ -557,7 +557,9 @@ func runFastImport(ctx context.Context, repoPath, parent string, commits []pendi
 	_ = marksFile.Close()
 	defer os.Remove(marksPath)
 
-	cmd := exec.CommandContext(ctx, "git", "fast-import", "--quiet", "--done", "--export-marks="+marksPath)
+	// A small import would otherwise be written as loose objects, which are in no
+	// pack, so the mirror would miss them.
+	cmd := exec.CommandContext(ctx, "git", "-c", "fastimport.unpackLimit=0", "fast-import", "--quiet", "--done", "--export-marks="+marksPath)
 	cmd.Dir = repoPath
 	cmd.Env = append(os.Environ(), "GIT_DIR="+repoPath)
 	stdin, err := cmd.StdinPipe()

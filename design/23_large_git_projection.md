@@ -243,6 +243,13 @@ run against a slice of tens of gigabytes.
    (`GITSLICE_GIT_MIRROR_SLICES=gitslice/gitslice`) if that is preferred.
 4. Turn on `GITSLICE_GIT_LAZY_BLOBS=1`. Existing caches are extended, not
    rebuilt, and new builds skip the file reads.
+   Without the backfill, a lazy build still reads each file that has no
+   recorded id, six at a time, and records the id it computed, so a slice's
+   first lazy build costs about what an eager one does and the next costs none.
+   (Read one at a time, it took over 100 s for the Gitslice source slice and
+   Cloudflare timed the request out.) A history imported by `git fast-import`
+   is always written as packs (`fastimport.unpackLimit=0`); small imports were
+   loose objects, which no pack mirror copies.
 
 ## Decisions needed
 
