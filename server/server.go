@@ -185,10 +185,6 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	projector.SetLazy(cfg.GitLazyBlobs)
-	if mirror := gitMirror(cfg, objectStore); mirror != nil {
-		projector.SetMirror(mirror)
-	}
 	var gitHandler http.Handler = gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset)
 	gitHandler = newHTTPRateLimitMiddleware(cfg)(gitHandler)
 	combinedServer := &http.Server{
@@ -542,21 +538,4 @@ func grpcAuthError(err error) error {
 		return status.Error(codes.Unauthenticated, err.Error())
 	}
 	return status.Error(codes.Internal, fmt.Sprintf("auth lookup failed: %v", err))
-}
-
-// gitMirror builds the Git projection mirror the configuration asks for, or
-// nil when no slice is mirrored.
-func gitMirror(cfg Config, objectStore gitcompat.PackStore) gitcompat.Mirror {
-	slices := strings.Split(cfg.GitMirrorSlices, ",")
-	switch {
-	case strings.TrimSpace(cfg.GitMirrorSlices) == "":
-		return nil
-	case cfg.GitMirrorPacks:
-		return gitcompat.NewPackMirror(objectStore, slices)
-	case cfg.GitMirrorDir != "":
-		return gitcompat.NewGitMirror(gitcompat.NewDirMirror(cfg.GitMirrorDir), slices)
-	default:
-		slog.Warn("GITSLICE_GIT_MIRROR_SLICES is set but no mirror is configured; set GITSLICE_GIT_MIRROR_PACKS=1 or GITSLICE_GIT_MIRROR_DIR")
-		return nil
-	}
 }

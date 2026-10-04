@@ -36,7 +36,7 @@ func TestLazyBuildScale(t *testing.T) {
 	if err := ensureProjectedRepo(ctx, repo); err != nil {
 		t.Fatal(err)
 	}
-	p := &Projector{blobs: mem.Blobs, lazy: true}
+	p := &Projector{blobs: mem.Blobs}
 	state := &projectionState{Version: projectionVersion, Account: "acme", Slice: "big", Files: map[string]projectedFile{}}
 	files := map[string]projectedFile{}
 	known := map[string]string{}
@@ -124,7 +124,7 @@ func TestHydrateScale(t *testing.T) {
 		t.Fatal(err)
 	}
 	mem := memory.New()
-	p := &Projector{blobs: mem.Blobs, objectStore: store, lazy: true}
+	p := &Projector{blobs: mem.Blobs, objectStore: store}
 	repo := filepath.Join(t.TempDir(), "acme", "h.git")
 	if err := os.MkdirAll(filepath.Dir(repo), 0o755); err != nil {
 		t.Fatal(err)

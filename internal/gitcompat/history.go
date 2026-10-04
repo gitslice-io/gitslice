@@ -435,7 +435,7 @@ func (p *Projector) appendHistory(ctx context.Context, repoPath string, state *p
 	}
 	sort.Strings(need)
 	importStart := time.Now()
-	if p.lazy && p.blobs != nil {
+	if p.blobs != nil {
 		stats, err := p.appendLazy(ctx, repoPath, state, files, pending, usernames, known, need)
 		if err != nil {
 			return err

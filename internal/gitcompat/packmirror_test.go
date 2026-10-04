@@ -75,7 +75,7 @@ func newTestStore(t *testing.T) *filesystem.Store {
 	return store
 }
 
-func waitForManifest(t *testing.T, store PackStore, head string) {
+func waitForManifest(t *testing.T, store ObjectStore, head string) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
@@ -101,15 +101,12 @@ func waitForManifest(t *testing.T, store PackStore, head string) {
 func TestPackMirrorRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
-	mirror := NewPackMirror(store, []string{"acme/payment"})
+	mirror := NewPackMirror(store)
 	mirror.pub.interval = 5 * time.Millisecond
 	old := packPartBytes
 	packPartBytes = 100 // spread every object over several parts
 	t.Cleanup(func() { packPartBytes = old })
 
-	if !mirror.Enabled("acme", "payment") || mirror.Enabled("acme", "other") {
-		t.Fatal("only acme/payment is mirrored")
-	}
 	if restored, err := mirror.Restore(ctx, "acme", "payment", filepath.Join(t.TempDir(), "x.git")); restored || err != nil {
 		t.Fatalf("nothing is mirrored yet: restored=%v err=%v", restored, err)
 	}
@@ -120,7 +117,7 @@ func TestPackMirrorRoundTrip(t *testing.T) {
 
 	restoredPath := filepath.Join(t.TempDir(), "acme", "payment.git")
 	// A fresh instance has not seen the manifest: it must read it from the store.
-	fresh := NewPackMirror(store, []string{"acme/payment"})
+	fresh := NewPackMirror(store)
 	ok, err := fresh.Restore(ctx, "acme", "payment", restoredPath)
 	if err != nil || !ok {
 		t.Fatalf("restore: ok=%v err=%v", ok, err)
@@ -177,7 +174,7 @@ func TestPackMirrorRoundTrip(t *testing.T) {
 func TestPackMirrorRestoresWhateverPartSizeItWasWrittenWith(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
-	mirror := NewPackMirror(store, []string{"*"})
+	mirror := NewPackMirror(store)
 	old := packPartBytes
 	t.Cleanup(func() { packPartBytes = old })
 	packPartBytes = 101
@@ -188,7 +185,7 @@ func TestPackMirrorRestoresWhateverPartSizeItWasWrittenWith(t *testing.T) {
 	}
 	packPartBytes = 37
 	restoredPath := filepath.Join(t.TempDir(), "acme", "payment.git")
-	if ok, err := NewPackMirror(store, []string{"*"}).Restore(ctx, "acme", "payment", restoredPath); err != nil || !ok {
+	if ok, err := NewPackMirror(store).Restore(ctx, "acme", "payment", restoredPath); err != nil || !ok {
 		t.Fatalf("restore: ok=%v err=%v", ok, err)
 	}
 	if got := gitIn(t, restoredPath, nil, "rev-list", "--count", "main"); got != "4" {
@@ -201,7 +198,7 @@ func TestPackMirrorRestoresWhateverPartSizeItWasWrittenWith(t *testing.T) {
 func TestPackMirrorSettleWaitsForThePublish(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
-	mirror := NewPackMirror(store, []string{"*"})
+	mirror := NewPackMirror(store)
 	repo, state := historyRepo(t, 3, "settle")
 	mirror.Publish(ctx, "acme", "payment", repo, state)
 	if err := mirror.Settle(ctx, "acme", "payment"); err != nil {
@@ -209,7 +206,7 @@ func TestPackMirrorSettleWaitsForThePublish(t *testing.T) {
 	}
 	// No polling: the mirror must already be complete.
 	restoredPath := filepath.Join(t.TempDir(), "acme", "payment.git")
-	if ok, err := NewPackMirror(store, []string{"*"}).Restore(ctx, "acme", "payment", restoredPath); err != nil || !ok {
+	if ok, err := NewPackMirror(store).Restore(ctx, "acme", "payment", restoredPath); err != nil || !ok {
 		t.Fatalf("restore right after Settle: ok=%v err=%v", ok, err)
 	}
 }
@@ -271,13 +268,13 @@ func TestPublisherRetriesAndReportsFailure(t *testing.T) {
 func TestPackMirrorRefusesAStateThatDoesNotMatch(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
-	mirror := NewPackMirror(store, []string{"*"})
+	mirror := NewPackMirror(store)
 	mirror.pub.interval = 5 * time.Millisecond
 	repo, state := historyRepo(t, 2, "x")
 	state.GitHead = "0000000000000000000000000000000000000001" // not the branch's head
 	mirror.Publish(ctx, "acme", "payment", repo, state)
 	waitForManifest(t, store, state.GitHead)
-	if ok, err := NewPackMirror(store, []string{"*"}).Restore(ctx, "acme", "payment", filepath.Join(t.TempDir(), "r.git")); ok || err == nil {
+	if ok, err := NewPackMirror(store).Restore(ctx, "acme", "payment", filepath.Join(t.TempDir(), "r.git")); ok || err == nil {
 		t.Fatalf("a state that names a commit the packs lack must not restore: ok=%v err=%v", ok, err)
 	}
 }

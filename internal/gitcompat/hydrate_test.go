@@ -36,7 +36,7 @@ func newLazyFixture(t *testing.T) *lazyFixture {
 		t.Fatal(err)
 	}
 	mem := memory.New()
-	p := &Projector{blobs: mem.Blobs, objectStore: store, lazy: true}
+	p := &Projector{blobs: mem.Blobs, objectStore: store}
 	repo := filepath.Join(t.TempDir(), "acme", "p.git")
 	if err := os.MkdirAll(filepath.Dir(repo), 0o755); err != nil {
 		t.Fatal(err)

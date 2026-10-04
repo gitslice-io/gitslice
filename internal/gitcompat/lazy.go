@@ -320,7 +320,7 @@ const (
 // reads them from the object store, and writes them into the repository. A
 // blobless clone needs none; a full clone needs all of them, once.
 func (p *Projector) HydrateFor(ctx context.Context, repoPath string, body []byte) error {
-	if !p.lazy || p.blobs == nil {
+	if p.blobs == nil {
 		return nil
 	}
 	req, understood := parseUploadRequest(body)
@@ -611,7 +611,7 @@ func mergePacks(ctx context.Context, repoPath string, names []string) (string, e
 	for _, n := range names {
 		list.WriteString(n + ".pack\n")
 	}
-	out, err := gitStdin(ctx, repoPath, []string{"GIT_DIR=" + repoPath}, []byte(list.String()), "pack-objects", "--quiet", "--stdin-packs", filepath.Join(repoPath, "objects", "pack", "pack"))
+	out, err := gitOutputInput(ctx, repoPath, []string{"GIT_DIR=" + repoPath}, []byte(list.String()), "pack-objects", "--quiet", "--stdin-packs", filepath.Join(repoPath, "objects", "pack", "pack"))
 	if err != nil {
 		return "", err
 	}

@@ -32,34 +32,35 @@ func TestGitLazyProjection(t *testing.T) {
 	gitURL := "http://" + ts.gitAddr + "/git/acme/payment.git"
 	header := "http.extraHeader=Authorization: Bearer " + token
 
-	// What the current projection serves.
-	eagerClone := filepath.Join(t.TempDir(), "eager")
-	runGit(t, "", "-c", header, "clone", gitURL, eagerClone)
-	eagerHead := strings.TrimSpace(runGit(t, "", "-C", eagerClone, "rev-parse", "HEAD"))
-	eagerLog := runGit(t, "", "-C", eagerClone, "log", "--format=%H %T")
+	// What the first instance serves.
+	firstClone := filepath.Join(t.TempDir(), "first")
+	runGit(t, "", "-c", header, "clone", gitURL, firstClone)
+	firstHead := strings.TrimSpace(runGit(t, "", "-C", firstClone, "rev-parse", "HEAD"))
+	firstLog := runGit(t, "", "-C", firstClone, "log", "--format=%H %T")
 
-	// A new instance that builds lazily, from nothing.
+	// A new instance with neither a cache nor a mirror to restore builds the
+	// history again from nothing, and must arrive at the same commits.
 	ts.stop(t)
-	if err := os.RemoveAll(filepath.Join(ts.objectRoot, "git-cache")); err != nil {
+	forgetProjection(t, ts)
+	if err := os.RemoveAll(filepath.Join(ts.objectRoot, "git-mirror")); err != nil {
 		t.Fatal(err)
 	}
 	logs := &logBuffer{}
 	restore := captureLogs(logs)
 	defer restore()
-	ts.lazy = true
 	ts.start(t, false)
 
 	// 1. A blobless clone needs no file contents, so the server writes none.
 	blobless := filepath.Join(t.TempDir(), "blobless")
 	runGit(t, "", "-c", header, "clone", "--filter=blob:none", "--no-checkout", gitURL, blobless)
-	if got := strings.TrimSpace(runGit(t, "", "-C", blobless, "rev-parse", "HEAD")); got != eagerHead {
-		t.Fatalf("lazy head %s, eager head %s: the projections diverged", got, eagerHead)
+	if got := strings.TrimSpace(runGit(t, "", "-C", blobless, "rev-parse", "HEAD")); got != firstHead {
+		t.Fatalf("lazy head %s, eager head %s: the projections diverged", got, firstHead)
 	}
-	if got := runGit(t, "", "-C", blobless, "log", "--format=%H %T"); got != eagerLog {
-		t.Fatalf("lazy history differs from eager:\n%s\nvs\n%s", got, eagerLog)
+	if got := runGit(t, "", "-C", blobless, "log", "--format=%H %T"); got != firstLog {
+		t.Fatalf("lazy history differs from eager:\n%s\nvs\n%s", got, firstLog)
 	}
 	cache := filepath.Join(ts.objectRoot, "git-cache", "acme", "payment.git")
-	mainID := strings.TrimSpace(runGitDir(t, cache, "rev-parse", eagerHead+":acme/payment/main.go"))
+	mainID := strings.TrimSpace(runGitDir(t, cache, "rev-parse", firstHead+":acme/payment/main.go"))
 	if err := exec.Command("git", "-C", cache, "cat-file", "-e", mainID).Run(); err == nil {
 		t.Fatal("the server wrote a file's contents although nothing asked for them")
 	}
@@ -125,55 +126,10 @@ func runGitDir(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
-// TestGitLazyExtendsAnEagerCache covers turning the lazy projection on for a
-// server that already holds a cache built the old way: new commits must extend
-// it, with the same ids a fresh build would give.
-func TestGitLazyExtendsAnEagerCache(t *testing.T) {
-	ts := startTestServer(t)
-	home := t.TempDir()
-	workspace := t.TempDir()
-	loginTestCLI(t, ts, home, workspace)
-	token := readToken(t, home)
-	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
-	submitWorkspaceFile(t, home, workspace, "old.go", "package payment\n\nconst Old = 1\n", "built the old way")
-	gitURL := "http://" + ts.gitAddr + "/git/acme/payment.git"
-	header := "http.extraHeader=Authorization: Bearer " + token
-	runGit(t, "", "-c", header, "clone", gitURL, filepath.Join(t.TempDir(), "warm"))
-
-	ts.stop(t)
-	ts.lazy = true
-	ts.start(t, false) // the cache stays
-
-	submitWorkspaceFile(t, home, workspace, "new.go", "package payment\n\nconst New = 2\n", "built lazily")
-	lazy := filepath.Join(t.TempDir(), "lazy")
-	runGit(t, "", "-c", header, "clone", gitURL, lazy)
-	lazyLog := runGit(t, "", "-C", lazy, "log", "--format=%H %T")
-	for name, want := range map[string]string{"old.go": "package payment\n\nconst Old = 1\n", "new.go": "package payment\n\nconst New = 2\n"} {
-		if got, _ := os.ReadFile(filepath.Join(lazy, "acme", "payment", name)); string(got) != want {
-			t.Fatalf("%s = %q", name, got)
-		}
-	}
-
-	// The same history built from nothing, the old way, must have the same ids.
-	ts.stop(t)
-	if err := os.RemoveAll(filepath.Join(ts.objectRoot, "git-cache")); err != nil {
-		t.Fatal(err)
-	}
-	ts.lazy = false
-	ts.start(t, false)
-	eager := filepath.Join(t.TempDir(), "eager")
-	runGit(t, "", "-c", header, "clone", gitURL, eager)
-	if got := runGit(t, "", "-C", eager, "log", "--format=%H %T"); got != lazyLog {
-		t.Fatalf("extending an eager cache lazily gave other ids than building eagerly:\n%s\nvs\n%s", lazyLog, got)
-	}
-}
-
 // TestGitLazyMergesHistoryPacks lands many commits one at a time, as a busy
 // slice does, and checks that the server does not keep a pack per commit.
 func TestGitLazyMergesHistoryPacks(t *testing.T) {
 	ts := startTestServer(t)
-	ts.lazy = true
-	ts.restart(t)
 	home := t.TempDir()
 	workspace := t.TempDir()
 	loginTestCLI(t, ts, home, workspace)

@@ -41,13 +41,6 @@ import (
 // disk is memory too), so an upload holds at most packUploadConcurrency parts
 // of packPartBytes, 32 MiB, whatever the size of the pack.
 
-// PackStore is the part of the object store a PackMirror uses.
-type PackStore interface {
-	Put(ctx context.Context, key string, r io.Reader) error
-	Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error)
-	Delete(ctx context.Context, key string) error
-}
-
 const (
 	packManifestVersion = 1
 	// Parts are buffered whole to upload, but only streamed to disk to download.
@@ -97,10 +90,8 @@ func (o packObject) partSize() int64 {
 }
 
 type PackMirror struct {
-	store  PackStore
-	slices map[string]bool
-	all    bool
-	pub    *publisher[packSnapshot]
+	store ObjectStore
+	pub   *publisher[packSnapshot]
 }
 
 type packSnapshot struct {
@@ -110,16 +101,11 @@ type packSnapshot struct {
 	state                    []byte // the projection state, gzipped JSON
 }
 
-// NewPackMirror mirrors the given "account/slice" names ("*" for all) into store.
-func NewPackMirror(store PackStore, slices []string) *PackMirror {
-	set, all := enabledSlices(slices)
-	m := &PackMirror{store: store, slices: set, all: all}
+// NewPackMirror mirrors every slice's projection into store.
+func NewPackMirror(store ObjectStore) *PackMirror {
+	m := &PackMirror{store: store}
 	m.pub = newPublisher("git projection packs mirrored", func(ctx context.Context, _ string, s packSnapshot) error { return m.push(ctx, &s) })
 	return m
-}
-
-func (m *PackMirror) Enabled(account, slice string) bool {
-	return m != nil && (m.all || m.slices[account+"/"+slice])
 }
 
 func mirrorPrefix(account, slice string) string {

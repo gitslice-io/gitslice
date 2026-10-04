@@ -17,8 +17,12 @@ import (
 	"gitslice.io/gitslice/proto/core/v1"
 )
 
+// ObjectStore is the object store that holds file contents and, under
+// git-mirror/, the mirror of each slice's projection.
 type ObjectStore interface {
-	Get(context.Context, string, int64, int64) (io.ReadCloser, error)
+	Put(ctx context.Context, key string, r io.Reader) error
+	Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error)
+	Delete(ctx context.Context, key string) error
 }
 
 type Projector struct {
@@ -28,44 +32,25 @@ type Projector struct {
 	objectStore ObjectStore
 	cacheRoot   string
 	blobs       storage.BlobStore
-	lazy        bool
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
 
-	// mirror, when set, keeps a copy of mirrored slices' projections outside
-	// this instance. published records the native head last handed to it.
-	mirror    Mirror
+	// mirror keeps a copy of every slice's projection outside this instance.
+	// published records the native head last handed to it.
+	mirror    *PackMirror
 	published map[string]string
 	// complete records, per repository, a head at which every file's contents
 	// are present, so a full clone need not search for missing ones again.
 	complete map[string]string
 }
 
-// SetLazy makes the projector build history from recorded Git blob ids and
-// leave file contents out of the repository until a fetch needs them.
-func (p *Projector) SetLazy(lazy bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lazy = lazy
-}
-
-// SetMirror makes the projector restore from, and publish to, a mirror for
-// the slices it is enabled for.
-func (p *Projector) SetMirror(m Mirror) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.mirror = m
-	if p.published == nil {
-		p.published = map[string]string{}
-	}
-}
-
 type ProjectorStores struct {
 	Auth       storage.AuthStore
 	Repository storage.RepositoryStore
 	Slices     storage.SliceStore
-	// Blobs supplies the Git blob ids the lazy projection builds trees from.
+	// Blobs supplies the Git blob ids the projection builds trees from. Without
+	// it history is imported with git fast-import, reading every file.
 	Blobs storage.BlobStore
 }
 
@@ -104,6 +89,8 @@ func NewProjector(stores ProjectorStores, objectStore ObjectStore, cacheRoot str
 		objectStore: objectStore,
 		cacheRoot:   cacheRoot,
 		locks:       map[string]*sync.Mutex{},
+		mirror:      NewPackMirror(objectStore),
+		published:   map[string]string{},
 	}, nil
 }
 
@@ -145,23 +132,24 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	lock.Lock()
 	defer lock.Unlock()
 
-	mirrored := p.mirror != nil && p.mirror.Enabled(account, sliceSlug)
-	if mirrored {
-		if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); errors.Is(err, os.ErrNotExist) {
-			// A cold instance: restore what an earlier one mirrored before
-			// replaying the whole history. The restore outlives this request.
-			restored, err := p.mirror.Restore(context.WithoutCancel(ctx), account, sliceSlug, repoPath)
-			switch {
-			case err != nil:
-				recordGitMirror("restore", "error")
-				slog.Warn("git mirror restore failed; building from scratch", "repo", account+"/"+sliceSlug+".git", "error", err)
-			case !restored:
-				recordGitMirror("restore", "empty")
-			case restored:
-				recordGitMirror("restore", "ok")
-				if state := loadProjectionState(repoPath); state != nil {
-					p.setPublished(repoPath, state.NativeHeadID)
-				}
+	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); errors.Is(err, os.ErrNotExist) {
+		// A cold instance: restore what an earlier one mirrored before
+		// replaying the whole history. The restore outlives this request.
+		// Whatever this process remembers about the repository is about files it
+		// no longer has.
+		p.setComplete(repoPath, "")
+		p.setPublished(repoPath, "")
+		restored, err := p.mirror.Restore(context.WithoutCancel(ctx), account, sliceSlug, repoPath)
+		switch {
+		case err != nil:
+			recordGitMirror("restore", "error")
+			slog.Warn("git mirror restore failed; building from scratch", "repo", account+"/"+sliceSlug+".git", "error", err)
+		case !restored:
+			recordGitMirror("restore", "empty")
+		default:
+			recordGitMirror("restore", "ok")
+			if state := loadProjectionState(repoPath); state != nil {
+				p.setPublished(repoPath, state.NativeHeadID)
 			}
 		}
 	}
@@ -172,7 +160,7 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	if err != nil {
 		return "", nil, err
 	}
-	if mirrored && state.GitHead != "" && p.publishedHead(repoPath) != state.NativeHeadID {
+	if state.GitHead != "" && p.publishedHead(repoPath) != state.NativeHeadID {
 		p.setPublished(repoPath, state.NativeHeadID)
 		p.mirror.Publish(ctx, account, sliceSlug, repoPath, state)
 		settle = true

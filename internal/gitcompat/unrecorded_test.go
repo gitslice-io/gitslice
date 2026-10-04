@@ -36,7 +36,7 @@ func buildLazy(t *testing.T, n int, record, dropOne bool) lazyBuild {
 		t.Fatal(err)
 	}
 	b := lazyBuild{mem: memory.New(), repo: filepath.Join(t.TempDir(), "acme", "p.git")}
-	p := &Projector{blobs: b.mem.Blobs, objectStore: store, lazy: true}
+	p := &Projector{blobs: b.mem.Blobs, objectStore: store}
 	if err := os.MkdirAll(filepath.Dir(b.repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
