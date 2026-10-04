@@ -24,13 +24,10 @@ func TestGitLazyProjection(t *testing.T) {
 		"util/deep/nested.txt": "nested file\n",
 		"docs/README.md":       "# Payment\n",
 	}
-	i := 0
 	for path, content := range files {
-		i++
 		writeWorkspaceFile(t, workspace, path, content)
 		runCLI(t, home, workspace, "cs", "create", "--title", "add "+path)
 		runCLI(t, home, workspace, "cs", "submit")
-		_ = i
 	}
 	gitURL := "http://" + ts.gitAddr + "/git/acme/payment.git"
 	header := "http.extraHeader=Authorization: Bearer " + token

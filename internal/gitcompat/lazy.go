@@ -233,7 +233,7 @@ func (p *Projector) readUnrecorded(ctx context.Context, repoPath string, hashes 
 		if err != nil {
 			return err
 		}
-		var bytes int64
+		var written int64
 		local := map[string]string{}
 		mine := make([]string, 0, len(hashes)/workers+1)
 		for i := w; i < len(hashes); i += workers {
@@ -256,7 +256,7 @@ func (p *Projector) readUnrecorded(ctx context.Context, repoPath string, hashes 
 				return fmt.Errorf("add blob %s: %w", hash, err)
 			}
 			local[hash] = id
-			bytes += sizes[hash]
+			written += sizes[hash]
 		}
 		name, err := pack.finish(ctx, repoPath)
 		if err != nil {
@@ -271,7 +271,7 @@ func (p *Projector) readUnrecorded(ctx context.Context, repoPath string, hashes 
 			computed[hash] = id
 		}
 		stats.blobs += len(local)
-		stats.bytes += int(bytes)
+		stats.bytes += int(written)
 		return nil
 	})
 	if err != nil {
@@ -304,7 +304,9 @@ func updateProjectedBranch(ctx context.Context, repoPath, head, old string) erro
 	return runGit(ctx, repoPath, []string{"GIT_DIR=" + repoPath}, "update-ref", projectedBranch, head, old)
 }
 
-// hydrateShards is how many packs are written at once when contents are fetched.
+// Hydration and the lazy build's file reads write hydrateShards packs at once. A
+// pack is closed at hydratePackBytes or hydratePackObjects. A hydration of at
+// least hydrateLogThreshold files is logged.
 const (
 	hydrateShards       = 6
 	hydratePackBytes    = 512 << 20
