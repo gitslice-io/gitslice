@@ -118,6 +118,14 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 }
 
 func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
+	return s.list(ctx, account, limit, false)
+}
+
+func (s *SliceStore) ListPublic(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
+	return s.list(ctx, account, limit, true)
+}
+
+func (s *SliceStore) list(ctx context.Context, account string, limit int, publicOnly bool) ([]*corev1.Slice, error) {
 	account, err := normalizeSlug(account, "account")
 	if err != nil {
 		return nil, err
@@ -130,10 +138,10 @@ func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*co
 		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
-		where accounts.slug = $1
+		where accounts.slug = $1 and (not $3 or slices.visibility = 'public')
 		order by slices.slug
 		limit $2
-	`, account, limit)
+	`, account, limit, publicOnly)
 	if err != nil {
 		return nil, err
 	}

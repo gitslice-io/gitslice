@@ -869,6 +869,53 @@ func TestChangesetDiffListAndAbandonUseInMemoryStorage(t *testing.T) {
 	}
 }
 
+// An account page lists a person's public slices for anyone; the account's own
+// members also see the private ones.
+func TestListSlicesShowsNonMembersOnlyPublicSlices(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	alice := authctx.WithSubjectID(context.Background(), "user_alice")
+
+	data := []byte("package api\n")
+	hash := objectid.RawContentHash(data)
+	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutCommitWithFiles("commit_api", []storage.FileEntry{{
+		Path:        "/acme/payment/api/main.go",
+		BlobID:      objectid.BlobID(data),
+		ContentHash: hash,
+		Mode:        0o100644,
+		Size:        int64(len(data)),
+	}}, []string{"/acme/payment/api/main.go"})
+	for name, visibility := range map[string]string{"secret": "private", "open": "public"} {
+		if _, err := handlers.Slice.CreateSlice(alice, &corev1.CreateSliceRequest{
+			Ref:           &corev1.SliceRef{Account: "acme", Slice: name},
+			IncludedPaths: []string{"/acme/payment"},
+			Visibility:    visibility,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for who, ctx := range map[string]context.Context{
+		"a signed-in outsider": authctx.WithSubjectID(context.Background(), "user_bob"),
+		"an anonymous visitor": context.Background(),
+	} {
+		listed, err := handlers.Slice.ListSlices(ctx, &corev1.ListSlicesRequest{Account: "acme"})
+		if err != nil {
+			t.Fatalf("%s: %v", who, err)
+		}
+		if !sliceListContains(listed.Slices, "open") || sliceListContains(listed.Slices, "secret") {
+			t.Fatalf("%s should see only the public slice: %#v", who, listed.Slices)
+		}
+	}
+	listed, err := handlers.Slice.ListSlices(alice, &corev1.ListSlicesRequest{Account: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sliceListContains(listed.Slices, "open") || !sliceListContains(listed.Slices, "secret") {
+		t.Fatalf("a member should see every slice: %#v", listed.Slices)
+	}
+}
+
 func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")

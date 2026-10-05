@@ -72,19 +72,26 @@ func (s *SliceService) GetSlice(ctx context.Context, req *corev1.GetSliceRequest
 	return slice, nil
 }
 
+// ListSlices lists an account's slices. A member of the account sees all of
+// them; anyone else, signed in or not, sees the public ones, which they could
+// open anyway (an account page lists them).
 func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesRequest) (*corev1.ListSlicesResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
+	subjectID := optionalSubject(ctx)
 	account, err := normalizeServiceSlug(req.Account, "account")
 	if err != nil {
 		return nil, err
 	}
-	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
-		return nil, err
+	member := false
+	if subjectID != "" {
+		if member, err = canAuthorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+			return nil, err
+		}
 	}
-	slices, err := s.Slices.List(ctx, account, int(req.PageSize))
+	list := s.Slices.ListPublic
+	if member {
+		list = s.Slices.List
+	}
+	slices, err := list(ctx, account, int(req.PageSize))
 	if err != nil {
 		return nil, grpcError(err)
 	}

@@ -396,6 +396,9 @@ message GetSliceRequest {
   string slice_id = 1;
 }
 
+// ListSlices lists an account's slices. Members of the account see all of them;
+// everyone else, signed in or not, sees only the public ones (the account page
+// at /accounts/<account> uses this).
 message ListSlicesRequest {
   string account = 1;
   string cursor = 2;

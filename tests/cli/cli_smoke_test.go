@@ -397,11 +397,15 @@ func TestConnectHTTPLoginAndListSlices(t *testing.T) {
 	ts := startTestServer(t)
 	slicesClient := corev1connect.NewSliceServiceClient(http.DefaultClient, connectBaseURL(ts.httpAddr))
 
-	_, err := slicesClient.ListSlices(context.Background(), connect.NewRequest(&corev1.ListSlicesRequest{
+	// Without a token only public slices are listed; acme's are private.
+	anonymous, err := slicesClient.ListSlices(context.Background(), connect.NewRequest(&corev1.ListSlicesRequest{
 		Account: "acme",
 	}))
-	if connect.CodeOf(err) != connect.CodeUnauthenticated {
-		t.Fatalf("expected unauthenticated ListSlices to return unauthenticated, got %v", err)
+	if err != nil {
+		t.Fatalf("anonymous ListSlices: %v", err)
+	}
+	if len(anonymous.Msg.Slices) != 0 {
+		t.Fatalf("anonymous ListSlices returned private slices: %#v", anonymous.Msg.Slices)
 	}
 	_, err = slicesClient.ListSlices(context.Background(), connectRequest("not-a-token", &corev1.ListSlicesRequest{
 		Account: "acme",

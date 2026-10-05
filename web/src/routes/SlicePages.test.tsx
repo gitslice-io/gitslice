@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AccountPage } from "./AccountPage";
 import { HomePage } from "./HomePage";
 import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceDetailPage } from "./SliceDetailPage";
@@ -133,8 +134,38 @@ describe("slice route pages (render smoke)", () => {
     await flushAsync();
     const other = screen.getByRole("navigation", { name: "Breadcrumb" });
     expect(other).toHaveTextContent("Home");
-    expect(within(other).getByText("@gitslice")).toHaveAttribute("title", "Owned by gitslice");
+    // The owner links to the owner's page.
+    expect(within(other).getByRole("link", { name: "@gitslice" })).toBeInTheDocument();
     expect(within(other).getByText("gitslice")).toBeInTheDocument();
+  });
+
+  it("lists an account's slices on its page", async () => {
+    routerMock.params = { account: "gitslice" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockResolvedValue({
+      slices: [
+        { id: "s1", ref: { account: "gitslice", slice: "gitslice" }, definition: { includedPaths: ["/gitslice/gitslice"], visibility: "public" } },
+        { id: "s2", ref: { account: "gitslice", slice: "docs" }, definition: { includedPaths: ["/gitslice/docs"], visibility: "public" } }
+      ]
+    });
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    expect(await screen.findByText("docs")).toBeInTheDocument();
+    expect(api.listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "gitslice" }));
+    expect(screen.getByRole("heading", { name: "@gitslice" })).toBeInTheDocument();
+    expect(screen.getByText("Public slices owned by gitslice.")).toBeInTheDocument();
+    expectHealthy();
+  });
+
+  it("says when an account has no public slices", async () => {
+    routerMock.params = { account: "quiet" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockResolvedValue({ slices: [] });
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    expect(await screen.findByText("No public slices")).toBeInTheDocument();
   });
 
   it("renders the slice settings page", async () => {

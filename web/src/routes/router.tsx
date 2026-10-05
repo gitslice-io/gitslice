@@ -38,6 +38,7 @@ import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
 import { BlogListPage } from "./BlogListPage";
 import { BlogPostPage } from "./BlogPostPage";
+import { AccountPage } from "./AccountPage";
 import { ChangesetDetailPage, sortedPatchsets } from "./ChangesetDetailPage";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
@@ -328,6 +329,12 @@ const sliceCreateRoute = createRoute({
 // API can delay the first byte by at most this much.
 const SLICE_PATH_PREFETCH_BUDGET_MS = 1200;
 
+const accountRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "accounts/$account",
+  component: AccountPage
+});
+
 const sliceDetailRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice",
@@ -600,6 +607,7 @@ const routeTree = rootRoute.addChildren([
     docSectionRoute,
     blogsRoute,
     blogPostRoute,
+    accountRoute,
     sliceDetailRoute,
     sliceAgentsRoute,
     sliceAgentConversationRoute,

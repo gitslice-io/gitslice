@@ -18,7 +18,8 @@ describe("sliceBreadcrumbItems", () => {
 
     expect(items.map((item) => item.label)).toEqual(["@gitslice", "gitslice"]);
     expect(items[0].title).toBe("Owned by gitslice");
-    expect(items[0].to).toBeUndefined();
+    expect(items[0].to).toBe("/accounts/$account");
+    expect(items[0].params).toEqual({ account: "gitslice" });
     expect(items[1].to).toBe("/slices/$account/$slice");
   });
 

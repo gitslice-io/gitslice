@@ -424,8 +424,14 @@ func TestRPCAuthenticationBoundary(t *testing.T) {
 
 	_, err = corev1.NewAuthServiceClient(conn).GetAuthStatus(context.Background(), &corev1.GetAuthStatusRequest{})
 	assertGRPCCode(t, err, codes.Unauthenticated)
-	_, err = corev1.NewSliceServiceClient(conn).ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "acme"})
-	assertGRPCCode(t, err, codes.Unauthenticated)
+	// Listing an account's slices needs no sign-in; it shows the public ones.
+	listed, err := corev1.NewSliceServiceClient(conn).ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "acme"})
+	if err != nil {
+		t.Fatalf("anonymous ListSlices: %v", err)
+	}
+	if len(listed.Slices) != 0 {
+		t.Fatalf("anonymous ListSlices returned private slices: %#v", listed.Slices)
+	}
 }
 
 func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T) {
@@ -447,8 +453,16 @@ func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T)
 		Ref: &corev1.SliceRef{Account: "acme", Slice: "payment"},
 	})
 	assertGRPCCode(t, err, codes.PermissionDenied)
-	_, err = slices.ListSlices(outsiderCtx, &corev1.ListSlicesRequest{Account: "acme"})
-	assertGRPCCode(t, err, codes.PermissionDenied)
+	// An outsider lists only the public slices; acme/payment is private.
+	outsiderList, err := slices.ListSlices(outsiderCtx, &corev1.ListSlicesRequest{Account: "acme"})
+	if err != nil {
+		t.Fatalf("outsider ListSlices: %v", err)
+	}
+	for _, slice := range outsiderList.Slices {
+		if slice.GetDefinition().GetVisibility() != "public" {
+			t.Fatalf("outsider ListSlices returned a non-public slice: %#v", slice)
+		}
+	}
 
 	workspace := corev1.NewWorkspaceServiceClient(conn)
 	_, err = workspace.GetWorkspaceState(outsiderCtx, &corev1.GetWorkspaceStateRequest{

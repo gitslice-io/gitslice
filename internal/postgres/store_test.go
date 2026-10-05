@@ -1043,3 +1043,47 @@ func TestBlobStoreGitBlobIDs(t *testing.T) {
 		t.Fatalf("limit 1 returned %d blobs", len(limited))
 	}
 }
+
+func TestSliceStoreListPublic(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	before, err := store.Slices().ListPublic(ctx, "acme", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, slice := range before {
+		if slice.Definition.GetVisibility() == "public" {
+			continue
+		}
+		t.Fatalf("ListPublic returned a non-public slice: %#v", slice)
+	}
+	all, err := store.Slices().List(ctx, "acme", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Slices().Create(ctx, "user_alice", &corev1.SliceRef{Account: "acme", Slice: "open"}, []string{"/acme/open"}, "public", 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := store.Slices().ListPublic(ctx, "acme", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before)+1 || !sliceNamed(after, "open") {
+		t.Fatalf("ListPublic after creating a public slice = %#v", after)
+	}
+	allAfter, err := store.Slices().List(ctx, "acme", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allAfter) != len(all)+1 {
+		t.Fatalf("List should include the new slice too: %d -> %d", len(all), len(allAfter))
+	}
+}
+
+func sliceNamed(slices []*corev1.Slice, name string) bool {
+	for _, slice := range slices {
+		if slice.Ref.Slice == name {
+			return true
+		}
+	}
+	return false
+}
