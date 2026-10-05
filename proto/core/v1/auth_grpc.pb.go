@@ -19,20 +19,27 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	AuthService_StartCliLogin_FullMethodName          = "/gitslice.core.v1.AuthService/StartCliLogin"
-	AuthService_PollCliLogin_FullMethodName           = "/gitslice.core.v1.AuthService/PollCliLogin"
-	AuthService_CompleteCliLogin_FullMethodName       = "/gitslice.core.v1.AuthService/CompleteCliLogin"
-	AuthService_GetAuthStatus_FullMethodName          = "/gitslice.core.v1.AuthService/GetAuthStatus"
-	AuthService_CheckUsernameAvailable_FullMethodName = "/gitslice.core.v1.AuthService/CheckUsernameAvailable"
-	AuthService_ChooseUsername_FullMethodName         = "/gitslice.core.v1.AuthService/ChooseUsername"
-	AuthService_RegisterAgent_FullMethodName          = "/gitslice.core.v1.AuthService/RegisterAgent"
-	AuthService_ListPendingClaims_FullMethodName      = "/gitslice.core.v1.AuthService/ListPendingClaims"
-	AuthService_AcceptClaim_FullMethodName            = "/gitslice.core.v1.AuthService/AcceptClaim"
-	AuthService_ListOwnedAgents_FullMethodName        = "/gitslice.core.v1.AuthService/ListOwnedAgents"
-	AuthService_CreateOrganization_FullMethodName     = "/gitslice.core.v1.AuthService/CreateOrganization"
-	AuthService_ListAccountMembers_FullMethodName     = "/gitslice.core.v1.AuthService/ListAccountMembers"
-	AuthService_SetAccountMember_FullMethodName       = "/gitslice.core.v1.AuthService/SetAccountMember"
-	AuthService_RemoveAccountMember_FullMethodName    = "/gitslice.core.v1.AuthService/RemoveAccountMember"
+	AuthService_StartCliLogin_FullMethodName           = "/gitslice.core.v1.AuthService/StartCliLogin"
+	AuthService_PollCliLogin_FullMethodName            = "/gitslice.core.v1.AuthService/PollCliLogin"
+	AuthService_CompleteCliLogin_FullMethodName        = "/gitslice.core.v1.AuthService/CompleteCliLogin"
+	AuthService_GetAuthStatus_FullMethodName           = "/gitslice.core.v1.AuthService/GetAuthStatus"
+	AuthService_CheckUsernameAvailable_FullMethodName  = "/gitslice.core.v1.AuthService/CheckUsernameAvailable"
+	AuthService_ChooseUsername_FullMethodName          = "/gitslice.core.v1.AuthService/ChooseUsername"
+	AuthService_RegisterAgent_FullMethodName           = "/gitslice.core.v1.AuthService/RegisterAgent"
+	AuthService_ListPendingClaims_FullMethodName       = "/gitslice.core.v1.AuthService/ListPendingClaims"
+	AuthService_AcceptClaim_FullMethodName             = "/gitslice.core.v1.AuthService/AcceptClaim"
+	AuthService_ListOwnedAgents_FullMethodName         = "/gitslice.core.v1.AuthService/ListOwnedAgents"
+	AuthService_CreateOrganization_FullMethodName      = "/gitslice.core.v1.AuthService/CreateOrganization"
+	AuthService_ListAccountMembers_FullMethodName      = "/gitslice.core.v1.AuthService/ListAccountMembers"
+	AuthService_SetAccountMember_FullMethodName        = "/gitslice.core.v1.AuthService/SetAccountMember"
+	AuthService_RemoveAccountMember_FullMethodName     = "/gitslice.core.v1.AuthService/RemoveAccountMember"
+	AuthService_InviteAccountMember_FullMethodName     = "/gitslice.core.v1.AuthService/InviteAccountMember"
+	AuthService_ListAccountInvitations_FullMethodName  = "/gitslice.core.v1.AuthService/ListAccountInvitations"
+	AuthService_ListMyInvitations_FullMethodName       = "/gitslice.core.v1.AuthService/ListMyInvitations"
+	AuthService_RespondToInvitation_FullMethodName     = "/gitslice.core.v1.AuthService/RespondToInvitation"
+	AuthService_CancelAccountInvitation_FullMethodName = "/gitslice.core.v1.AuthService/CancelAccountInvitation"
+	AuthService_GetAccountProfile_FullMethodName       = "/gitslice.core.v1.AuthService/GetAccountProfile"
+	AuthService_UpdateAccountProfile_FullMethodName    = "/gitslice.core.v1.AuthService/UpdateAccountProfile"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -59,18 +66,42 @@ type AuthServiceClient interface {
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(ctx context.Context, in *ListOwnedAgentsRequest, opts ...grpc.CallOption) (*ListOwnedAgentsResponse, error)
 	// CreateOrganization creates an organization account (with a private home
-	// slice) owned by the given users. Operator-only: the caller's subject must
-	// be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
-	// names reserved for self-service sign-up.
+	// slice). Any signed-in user with a personal account may create one and
+	// becomes its only owner; names reserved for sign-up are refused, and a user
+	// owns at most 20 organizations they created. Operators (the server's
+	// GITSLICE_OPERATOR_SUBJECTS) may use reserved names and name other owners.
 	CreateOrganization(ctx context.Context, in *CreateOrganizationRequest, opts ...grpc.CallOption) (*CreateOrganizationResponse, error)
 	// ListAccountMembers lists an account's members. Any member may call it.
 	ListAccountMembers(ctx context.Context, in *ListAccountMembersRequest, opts ...grpc.CallOption) (*ListAccountMembersResponse, error)
-	// SetAccountMember adds a user to an organization or changes their role.
-	// Owners and admins may call it; only owners grant or revoke owner.
+	// SetAccountMember changes a member's role. Owners and admins may call it;
+	// only owners grant or revoke owner. Adding someone who is not a member is
+	// for operators only; everyone else invites them (InviteAccountMember).
 	SetAccountMember(ctx context.Context, in *SetAccountMemberRequest, opts ...grpc.CallOption) (*SetAccountMemberResponse, error)
 	// RemoveAccountMember removes a user from an organization. The last owner
 	// cannot be removed.
 	RemoveAccountMember(ctx context.Context, in *RemoveAccountMemberRequest, opts ...grpc.CallOption) (*RemoveAccountMemberResponse, error)
+	// InviteAccountMember invites a user to an organization with a role. They
+	// become a member only when they accept. Owners and admins may invite;
+	// only owners invite owners. Inviting someone already invited replaces the
+	// invitation's role.
+	InviteAccountMember(ctx context.Context, in *InviteAccountMemberRequest, opts ...grpc.CallOption) (*InviteAccountMemberResponse, error)
+	// ListAccountInvitations lists an organization's pending invitations, for
+	// its owners and admins.
+	ListAccountInvitations(ctx context.Context, in *ListAccountInvitationsRequest, opts ...grpc.CallOption) (*ListAccountInvitationsResponse, error)
+	// ListMyInvitations lists the caller's pending invitations.
+	ListMyInvitations(ctx context.Context, in *ListMyInvitationsRequest, opts ...grpc.CallOption) (*ListMyInvitationsResponse, error)
+	// RespondToInvitation accepts or declines the caller's invitation to an
+	// organization. Either way the invitation is gone afterwards.
+	RespondToInvitation(ctx context.Context, in *RespondToInvitationRequest, opts ...grpc.CallOption) (*RespondToInvitationResponse, error)
+	// CancelAccountInvitation withdraws a pending invitation. Owners and admins
+	// may call it.
+	CancelAccountInvitation(ctx context.Context, in *CancelAccountInvitationRequest, opts ...grpc.CallOption) (*CancelAccountInvitationResponse, error)
+	// GetAccountProfile returns an account's public profile. Anyone may call it,
+	// signed in or not.
+	GetAccountProfile(ctx context.Context, in *GetAccountProfileRequest, opts ...grpc.CallOption) (*AccountProfile, error)
+	// UpdateAccountProfile changes an account's profile: an organization's by
+	// its owners and admins, a personal account's by its person.
+	UpdateAccountProfile(ctx context.Context, in *UpdateAccountProfileRequest, opts ...grpc.CallOption) (*AccountProfile, error)
 }
 
 type authServiceClient struct {
@@ -207,6 +238,69 @@ func (c *authServiceClient) RemoveAccountMember(ctx context.Context, in *RemoveA
 	return out, nil
 }
 
+func (c *authServiceClient) InviteAccountMember(ctx context.Context, in *InviteAccountMemberRequest, opts ...grpc.CallOption) (*InviteAccountMemberResponse, error) {
+	out := new(InviteAccountMemberResponse)
+	err := c.cc.Invoke(ctx, AuthService_InviteAccountMember_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ListAccountInvitations(ctx context.Context, in *ListAccountInvitationsRequest, opts ...grpc.CallOption) (*ListAccountInvitationsResponse, error) {
+	out := new(ListAccountInvitationsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListAccountInvitations_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ListMyInvitations(ctx context.Context, in *ListMyInvitationsRequest, opts ...grpc.CallOption) (*ListMyInvitationsResponse, error) {
+	out := new(ListMyInvitationsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListMyInvitations_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) RespondToInvitation(ctx context.Context, in *RespondToInvitationRequest, opts ...grpc.CallOption) (*RespondToInvitationResponse, error) {
+	out := new(RespondToInvitationResponse)
+	err := c.cc.Invoke(ctx, AuthService_RespondToInvitation_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) CancelAccountInvitation(ctx context.Context, in *CancelAccountInvitationRequest, opts ...grpc.CallOption) (*CancelAccountInvitationResponse, error) {
+	out := new(CancelAccountInvitationResponse)
+	err := c.cc.Invoke(ctx, AuthService_CancelAccountInvitation_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetAccountProfile(ctx context.Context, in *GetAccountProfileRequest, opts ...grpc.CallOption) (*AccountProfile, error) {
+	out := new(AccountProfile)
+	err := c.cc.Invoke(ctx, AuthService_GetAccountProfile_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) UpdateAccountProfile(ctx context.Context, in *UpdateAccountProfileRequest, opts ...grpc.CallOption) (*AccountProfile, error) {
+	out := new(AccountProfile)
+	err := c.cc.Invoke(ctx, AuthService_UpdateAccountProfile_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
@@ -231,18 +325,42 @@ type AuthServiceServer interface {
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *ListOwnedAgentsRequest) (*ListOwnedAgentsResponse, error)
 	// CreateOrganization creates an organization account (with a private home
-	// slice) owned by the given users. Operator-only: the caller's subject must
-	// be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
-	// names reserved for self-service sign-up.
+	// slice). Any signed-in user with a personal account may create one and
+	// becomes its only owner; names reserved for sign-up are refused, and a user
+	// owns at most 20 organizations they created. Operators (the server's
+	// GITSLICE_OPERATOR_SUBJECTS) may use reserved names and name other owners.
 	CreateOrganization(context.Context, *CreateOrganizationRequest) (*CreateOrganizationResponse, error)
 	// ListAccountMembers lists an account's members. Any member may call it.
 	ListAccountMembers(context.Context, *ListAccountMembersRequest) (*ListAccountMembersResponse, error)
-	// SetAccountMember adds a user to an organization or changes their role.
-	// Owners and admins may call it; only owners grant or revoke owner.
+	// SetAccountMember changes a member's role. Owners and admins may call it;
+	// only owners grant or revoke owner. Adding someone who is not a member is
+	// for operators only; everyone else invites them (InviteAccountMember).
 	SetAccountMember(context.Context, *SetAccountMemberRequest) (*SetAccountMemberResponse, error)
 	// RemoveAccountMember removes a user from an organization. The last owner
 	// cannot be removed.
 	RemoveAccountMember(context.Context, *RemoveAccountMemberRequest) (*RemoveAccountMemberResponse, error)
+	// InviteAccountMember invites a user to an organization with a role. They
+	// become a member only when they accept. Owners and admins may invite;
+	// only owners invite owners. Inviting someone already invited replaces the
+	// invitation's role.
+	InviteAccountMember(context.Context, *InviteAccountMemberRequest) (*InviteAccountMemberResponse, error)
+	// ListAccountInvitations lists an organization's pending invitations, for
+	// its owners and admins.
+	ListAccountInvitations(context.Context, *ListAccountInvitationsRequest) (*ListAccountInvitationsResponse, error)
+	// ListMyInvitations lists the caller's pending invitations.
+	ListMyInvitations(context.Context, *ListMyInvitationsRequest) (*ListMyInvitationsResponse, error)
+	// RespondToInvitation accepts or declines the caller's invitation to an
+	// organization. Either way the invitation is gone afterwards.
+	RespondToInvitation(context.Context, *RespondToInvitationRequest) (*RespondToInvitationResponse, error)
+	// CancelAccountInvitation withdraws a pending invitation. Owners and admins
+	// may call it.
+	CancelAccountInvitation(context.Context, *CancelAccountInvitationRequest) (*CancelAccountInvitationResponse, error)
+	// GetAccountProfile returns an account's public profile. Anyone may call it,
+	// signed in or not.
+	GetAccountProfile(context.Context, *GetAccountProfileRequest) (*AccountProfile, error)
+	// UpdateAccountProfile changes an account's profile: an organization's by
+	// its owners and admins, a personal account's by its person.
+	UpdateAccountProfile(context.Context, *UpdateAccountProfileRequest) (*AccountProfile, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
@@ -290,6 +408,27 @@ func (UnimplementedAuthServiceServer) SetAccountMember(context.Context, *SetAcco
 }
 func (UnimplementedAuthServiceServer) RemoveAccountMember(context.Context, *RemoveAccountMemberRequest) (*RemoveAccountMemberResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveAccountMember not implemented")
+}
+func (UnimplementedAuthServiceServer) InviteAccountMember(context.Context, *InviteAccountMemberRequest) (*InviteAccountMemberResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InviteAccountMember not implemented")
+}
+func (UnimplementedAuthServiceServer) ListAccountInvitations(context.Context, *ListAccountInvitationsRequest) (*ListAccountInvitationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAccountInvitations not implemented")
+}
+func (UnimplementedAuthServiceServer) ListMyInvitations(context.Context, *ListMyInvitationsRequest) (*ListMyInvitationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListMyInvitations not implemented")
+}
+func (UnimplementedAuthServiceServer) RespondToInvitation(context.Context, *RespondToInvitationRequest) (*RespondToInvitationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RespondToInvitation not implemented")
+}
+func (UnimplementedAuthServiceServer) CancelAccountInvitation(context.Context, *CancelAccountInvitationRequest) (*CancelAccountInvitationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelAccountInvitation not implemented")
+}
+func (UnimplementedAuthServiceServer) GetAccountProfile(context.Context, *GetAccountProfileRequest) (*AccountProfile, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountProfile not implemented")
+}
+func (UnimplementedAuthServiceServer) UpdateAccountProfile(context.Context, *UpdateAccountProfileRequest) (*AccountProfile, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateAccountProfile not implemented")
 }
 
 // UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -555,6 +694,132 @@ func _AuthService_RemoveAccountMember_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_InviteAccountMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InviteAccountMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).InviteAccountMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_InviteAccountMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).InviteAccountMember(ctx, req.(*InviteAccountMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ListAccountInvitations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAccountInvitationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListAccountInvitations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListAccountInvitations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListAccountInvitations(ctx, req.(*ListAccountInvitationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ListMyInvitations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyInvitationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListMyInvitations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListMyInvitations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListMyInvitations(ctx, req.(*ListMyInvitationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_RespondToInvitation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RespondToInvitationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RespondToInvitation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RespondToInvitation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RespondToInvitation(ctx, req.(*RespondToInvitationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_CancelAccountInvitation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelAccountInvitationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).CancelAccountInvitation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_CancelAccountInvitation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).CancelAccountInvitation(ctx, req.(*CancelAccountInvitationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetAccountProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetAccountProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetAccountProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetAccountProfile(ctx, req.(*GetAccountProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_UpdateAccountProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateAccountProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).UpdateAccountProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_UpdateAccountProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).UpdateAccountProfile(ctx, req.(*UpdateAccountProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -617,6 +882,34 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveAccountMember",
 			Handler:    _AuthService_RemoveAccountMember_Handler,
+		},
+		{
+			MethodName: "InviteAccountMember",
+			Handler:    _AuthService_InviteAccountMember_Handler,
+		},
+		{
+			MethodName: "ListAccountInvitations",
+			Handler:    _AuthService_ListAccountInvitations_Handler,
+		},
+		{
+			MethodName: "ListMyInvitations",
+			Handler:    _AuthService_ListMyInvitations_Handler,
+		},
+		{
+			MethodName: "RespondToInvitation",
+			Handler:    _AuthService_RespondToInvitation_Handler,
+		},
+		{
+			MethodName: "CancelAccountInvitation",
+			Handler:    _AuthService_CancelAccountInvitation_Handler,
+		},
+		{
+			MethodName: "GetAccountProfile",
+			Handler:    _AuthService_GetAccountProfile_Handler,
+		},
+		{
+			MethodName: "UpdateAccountProfile",
+			Handler:    _AuthService_UpdateAccountProfile_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

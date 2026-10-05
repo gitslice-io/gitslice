@@ -30,6 +30,10 @@ vi.mock("../state/selection", () => ({
   })
 }));
 
+vi.mock("./slices/PendingInvitations", () => ({
+  useMyInvitations: () => ({ data: [{ account: "labs", role: "writer", invitedBy: "boss" }] })
+}));
+
 import { AccountSwitcher } from "./AccountSwitcher";
 
 afterEach(cleanup);
@@ -38,8 +42,12 @@ describe("AccountSwitcher", () => {
   it("lists personal, organization and agent accounts and switches", () => {
     render(<AccountSwitcher />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch account (current: nic)" }));
+    expect(screen.getByLabelText("1 pending invitation")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Switch account \(current: nic\)/ }));
     expect(screen.getByText("Organizations")).toBeInTheDocument();
+    // (The router's Link is mocked as a plain link here.)
+    expect(screen.getByRole("link", { name: "New organization" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "1 pending invitation" })).toBeInTheDocument();
     expect(screen.getByText("Agents")).toBeInTheDocument();
     expect(screen.getByRole("menuitemradio", { name: /nic/ })).toHaveAttribute("aria-checked", "true");
 

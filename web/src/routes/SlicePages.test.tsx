@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RpcError } from "../api/client";
 import { AccountPage } from "./AccountPage";
 import { HomePage } from "./HomePage";
+import { NewOrganizationPage } from "./NewOrganizationPage";
 import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceDetailPage } from "./SliceDetailPage";
 import { SliceSettingsPage } from "./SliceSettingsPage";
@@ -107,6 +108,133 @@ describe("slice route pages (render smoke)", () => {
     await waitFor(() => expect(apiMock.current.listSlices).toHaveBeenCalled());
     await flushAsync();
     expectHealthy();
+  });
+
+  it("scopes Home to the active organization and offers invitations", async () => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
+    const setActiveAccount = vi.fn();
+    const acme = { account: "acme", kind: "organization", role: "writer" };
+    selectionMock.current = {
+      ...selectionMock.current,
+      accounts: ["nic", "acme"],
+      activeAccount: "acme",
+      activeMembership: acme,
+      memberships: [...selectionMock.current.memberships, acme],
+      setActiveAccount
+    };
+    const api = makeApi();
+    api.listConversations = vi.fn().mockResolvedValue({
+      conversations: [
+        { id: "c1", title: "Personal chat", slice: { account: "nic", slice: "home" }, createdAt: "2026-10-01T00:00:00Z" },
+        { id: "c2", title: "Team chat", slice: { account: "acme", slice: "payment" }, createdAt: "2026-10-02T00:00:00Z" }
+      ]
+    });
+    api.listMyInvitations = vi.fn().mockResolvedValue({ invitations: [{ account: "labs", role: "reader", invitedBy: "boss" }] });
+    apiMock.current = api;
+    renderRoute(<HomePage />);
+
+    expect(await screen.findByText("Team chat")).toBeInTheDocument();
+    expect(screen.queryByText("Personal chat")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "acme · Organization" })).toBeInTheDocument();
+    expect(api.listPendingClaims).not.toHaveBeenCalled();
+    expect(api.listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "acme" }));
+
+    const invitations = await screen.findByRole("region", { name: "You are invited to an organization" });
+    fireEvent.click(within(invitations).getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(api.respondToInvitation).toHaveBeenCalledWith({ account: "labs", accept: true }));
+    await waitFor(() => expect(setActiveAccount).toHaveBeenCalledWith("labs"));
+
+    selectionMock.current = {
+      ...selectionMock.current,
+      accounts: ["nic"],
+      activeAccount: "nic",
+      activeMembership: selectionMock.current.memberships[0],
+      memberships: selectionMock.current.memberships.slice(0, 1),
+      setActiveAccount: () => undefined
+    };
+  });
+
+  it("creates an organization and switches to it", async () => {
+    const setActiveAccount = vi.fn();
+    selectionMock.current = { ...selectionMock.current, setActiveAccount };
+    const api = makeApi();
+    api.createOrganization = vi.fn().mockResolvedValue({ account: "acme-labs" });
+    apiMock.current = api;
+    renderRoute(<NewOrganizationPage />);
+
+    const input = screen.getByPlaceholderText("acme-labs");
+    fireEvent.change(input, { target: { value: "ab" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create organization" }));
+    expect(await screen.findByText(/Use 4 to 63 letters/)).toBeInTheDocument();
+    expect(api.createOrganization).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "Acme_Labs" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create organization" }));
+    await waitFor(() => expect(api.createOrganization).toHaveBeenCalledWith({ slug: "acme-labs" }));
+    await waitFor(() => expect(setActiveAccount).toHaveBeenCalledWith("acme-labs"));
+    await waitFor(() =>
+      expect(routerMock.navigate).toHaveBeenCalledWith({ params: { account: "acme-labs" }, to: "/accounts/$account" })
+    );
+    selectionMock.current = { ...selectionMock.current, setActiveAccount: () => undefined };
+  });
+
+  it("shows an account's profile and lets its admins edit it", async () => {
+    selectionMock.current = {
+      ...selectionMock.current,
+      accounts: ["nic", "gitslice"],
+      memberships: [...selectionMock.current.memberships, { account: "gitslice", kind: "organization", role: "owner" }]
+    };
+    routerMock.params = { account: "gitslice" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockResolvedValue({ slices: [], accountKind: "organization" });
+    api.getAccountProfile = vi.fn().mockResolvedValue({
+      account: "gitslice",
+      kind: "organization",
+      displayName: "Gitslice",
+      description: "Slices of a source graph.",
+      website: "https://gitslice.io"
+    });
+    api.updateAccountProfile = vi.fn().mockResolvedValue({
+      account: "gitslice",
+      kind: "organization",
+      displayName: "Gitslice HQ",
+      description: "Slices of a source graph.",
+      website: "https://gitslice.io"
+    });
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    expect(await screen.findByRole("heading", { name: "Gitslice" })).toBeInTheDocument();
+    expect(screen.getByText("Slices of a source graph.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "gitslice.io" })).toHaveAttribute("rel", "noopener noreferrer nofollow ugc");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+    const form = screen.getByRole("form", { name: "Edit profile" });
+    fireEvent.change(within(form).getByLabelText("Display name"), { target: { value: "Gitslice HQ" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save profile" }));
+    await waitFor(() =>
+      expect(api.updateAccountProfile).toHaveBeenCalledWith({
+        account: "gitslice",
+        description: "Slices of a source graph.",
+        displayName: "Gitslice HQ",
+        website: "https://gitslice.io"
+      })
+    );
+    expect(await screen.findByRole("heading", { name: "Gitslice HQ" })).toBeInTheDocument();
+    selectionMock.current = { ...selectionMock.current, accounts: ["nic"], memberships: selectionMock.current.memberships.slice(0, 1) };
+  });
+
+  it("does not offer to edit someone else's profile", async () => {
+    routerMock.params = { account: "stranger" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockResolvedValue({ slices: [], accountKind: "personal" });
+    api.getAccountProfile = vi.fn().mockResolvedValue({ account: "stranger", kind: "personal" });
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    expect(await screen.findByText(/Personal/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit profile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "People" })).not.toBeInTheDocument();
   });
 
   it("renders the slice detail page past the slice-loaded guard", async () => {
@@ -247,6 +375,11 @@ describe("slice route pages (render smoke)", () => {
     });
     api.setAccountMember = vi.fn().mockResolvedValue({});
     api.removeAccountMember = vi.fn().mockResolvedValue({});
+    api.inviteAccountMember = vi.fn().mockResolvedValue({});
+    api.cancelAccountInvitation = vi.fn().mockResolvedValue({});
+    api.listAccountInvitations = vi.fn().mockResolvedValue({
+      invitations: [{ account: "gitslice", username: "pending-pat", role: "reader", invitedBy: "nic" }]
+    });
     apiMock.current = api;
     renderRoute(<AccountPage />);
 
@@ -262,10 +395,16 @@ describe("slice route pages (render smoke)", () => {
     fireEvent.click(within(people).getAllByRole("button", { name: "Remove" })[1]);
     await waitFor(() => expect(api.removeAccountMember).toHaveBeenCalledWith({ account: "gitslice", username: "gitslice-mirror" }));
 
+    // New people are invited, not added.
     fireEvent.change(within(people).getByPlaceholderText("username"), { target: { value: "@alice" } });
-    fireEvent.click(within(people).getByRole("button", { name: "Add" }));
+    fireEvent.click(within(people).getByRole("button", { name: "Invite" }));
     await waitFor(() =>
-      expect(api.setAccountMember).toHaveBeenLastCalledWith({ account: "gitslice", role: "writer", username: "alice" })
+      expect(api.inviteAccountMember).toHaveBeenLastCalledWith({ account: "gitslice", role: "writer", username: "alice" })
+    );
+    expect(await within(people).findByText("pending-pat")).toBeInTheDocument();
+    fireEvent.click(within(people).getByRole("button", { name: "Cancel invitation" }));
+    await waitFor(() =>
+      expect(api.cancelAccountInvitation).toHaveBeenCalledWith({ account: "gitslice", username: "pending-pat" })
     );
     selectionMock.current = { ...selectionMock.current, accounts: ["nic"], memberships: selectionMock.current.memberships.slice(0, 1) };
   });
@@ -521,6 +660,18 @@ function makeApi() {
     listAccountMembers: vi.fn().mockResolvedValue({ members: [] }),
     setAccountMember: vi.fn().mockResolvedValue({}),
     removeAccountMember: vi.fn().mockResolvedValue({}),
+    listMyInvitations: vi.fn().mockResolvedValue({ invitations: [] }),
+    listOwnedAgents: vi.fn().mockResolvedValue({ agents: [] }),
+    listPendingClaims: vi.fn().mockResolvedValue({ claims: [] }),
+    respondToInvitation: vi.fn().mockResolvedValue({}),
+    listAccountInvitations: vi.fn().mockResolvedValue({ invitations: [] }),
+    inviteAccountMember: vi.fn().mockResolvedValue({}),
+    cancelAccountInvitation: vi.fn().mockResolvedValue({}),
+    getAccountProfile: vi.fn().mockImplementation(({ account }: { account: string }) =>
+      Promise.resolve({ account, kind: account === "nic" ? "personal" : "organization" })
+    ),
+    updateAccountProfile: vi.fn(),
+    createOrganization: vi.fn(),
     getRef: vi.fn().mockResolvedValue({ name: "refs/global/main", commitId: "commit_1" }),
     listDirectory: vi.fn().mockResolvedValue({
       entries: [

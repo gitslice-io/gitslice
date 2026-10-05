@@ -78,6 +78,51 @@ type AuthStore interface {
 	// organization account. It returns ErrConflict for personal accounts and
 	// for the last owner, and ErrNotFound when the subject is not a member.
 	RemoveAccountMember(ctx context.Context, accountSlug, subjectID string) error
+	// CountOrganizationsCreatedBy counts the organizations the subject created.
+	CountOrganizationsCreatedBy(ctx context.Context, subjectID string) (int, error)
+	// UpsertAccountInvitation invites a subject to an organization with a role,
+	// replacing any pending invitation of theirs to it. It returns ErrConflict
+	// for personal accounts and ErrNotFound for unknown accounts.
+	UpsertAccountInvitation(ctx context.Context, accountSlug, subjectID, role, invitedBy string) (*AccountInvitation, error)
+	// ListAccountInvitations lists an organization's pending invitations,
+	// newest first.
+	ListAccountInvitations(ctx context.Context, accountSlug string) ([]AccountInvitation, error)
+	// ListSubjectInvitations lists the subject's pending invitations, newest
+	// first.
+	ListSubjectInvitations(ctx context.Context, subjectID string) ([]AccountInvitation, error)
+	// GetAccountInvitation returns one pending invitation, or ErrNotFound.
+	GetAccountInvitation(ctx context.Context, accountSlug, subjectID string) (*AccountInvitation, error)
+	// AcceptAccountInvitation turns the invitation into a membership with its
+	// role and deletes it, in one transaction. It returns the role, or
+	// ErrNotFound when there is no invitation.
+	AcceptAccountInvitation(ctx context.Context, accountSlug, subjectID string) (string, error)
+	// DeleteAccountInvitation removes a pending invitation, or returns
+	// ErrNotFound.
+	DeleteAccountInvitation(ctx context.Context, accountSlug, subjectID string) error
+	// GetAccountProfile returns an account's profile, or ErrNotFound.
+	GetAccountProfile(ctx context.Context, accountSlug string) (*AccountProfile, error)
+	// UpdateAccountProfile sets an account's display name, description and
+	// website (already validated) and returns the profile.
+	UpdateAccountProfile(ctx context.Context, accountSlug string, profile AccountProfile) (*AccountProfile, error)
+}
+
+// AccountInvitation is a pending invitation to join an organization.
+type AccountInvitation struct {
+	Account            string
+	SubjectID          string
+	Role               string
+	InvitedBySubjectID string
+	CreatedAt          time.Time
+}
+
+// AccountProfile is an account's public profile.
+type AccountProfile struct {
+	Account     string
+	Kind        string
+	DisplayName string
+	Description string
+	Website     string
+	CreatedAt   time.Time
 }
 
 // AccountMember is one member of an account and their highest role.

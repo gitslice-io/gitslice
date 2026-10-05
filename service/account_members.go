@@ -12,10 +12,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Organization accounts (design/12_account_auth.md). Operators, listed in the
-// server's GITSLICE_OPERATOR_SUBJECTS, create organizations and may use names
-// reserved for self-service sign-up. Owners and admins manage members after
-// that.
+// Organization accounts (design/12_account_auth.md). Any user with a personal
+// account may create organizations, up to maxCreatedOrganizations; operators,
+// listed in the server's GITSLICE_OPERATOR_SUBJECTS, may also use names
+// reserved for self-service sign-up and name other owners. Owners and admins
+// manage members after that, inviting new ones.
+
+// maxCreatedOrganizations caps how many organizations one user may create.
+const maxCreatedOrganizations = 20
 
 func (s *AuthService) isOperator(subjectID string) bool {
 	for _, operator := range s.OperatorSubjects {
@@ -31,12 +35,39 @@ func (s *AuthService) CreateOrganization(ctx context.Context, req *corev1.Create
 	if err != nil {
 		return nil, err
 	}
-	if !s.isOperator(subjectID) {
-		return nil, status.Error(codes.PermissionDenied, "creating organizations is limited to server operators")
+	operator := s.isOperator(subjectID)
+	normalize := usernames.Normalize
+	if operator {
+		normalize = usernames.NormalizeSyntax
 	}
-	slug, err := usernames.NormalizeSyntax(req.GetSlug())
+	slug, err := normalize(req.GetSlug())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid organization name: %v", err)
+	}
+	if !operator {
+		// A user creates an organization for themselves: they are its only owner
+		// and invite the rest.
+		names, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		self := names[subjectID]
+		if self == "" {
+			return nil, status.Error(codes.FailedPrecondition, "choose a username before creating an organization")
+		}
+		for _, owner := range req.GetOwnerUsernames() {
+			if !strings.EqualFold(strings.TrimSpace(owner), self) {
+				return nil, status.Error(codes.InvalidArgument, "you are the first owner; invite other owners after creating it")
+			}
+		}
+		created, err := s.Auth.CountOrganizationsCreatedBy(ctx, subjectID)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		if created >= maxCreatedOrganizations {
+			return nil, status.Errorf(codes.ResourceExhausted, "you have created %d organizations, the most allowed", created)
+		}
+		req = &corev1.CreateOrganizationRequest{Slug: slug}
 	}
 	if _, err := s.Auth.AccountKind(ctx, slug); err == nil {
 		return nil, status.Errorf(codes.AlreadyExists, "account %q already exists", slug)
@@ -107,6 +138,11 @@ func (s *AuthService) SetAccountMember(ctx context.Context, req *corev1.SetAccou
 	current, _ := s.Auth.AccountRole(ctx, target, account)
 	if err := s.authorizeMemberChange(ctx, subjectID, account, current, role); err != nil {
 		return nil, err
+	}
+	// New people are invited and join by accepting; only operators add them
+	// directly (server automation, such as ops/selfhost/phase1.sh).
+	if current == "" && !s.isOperator(subjectID) {
+		return nil, status.Errorf(codes.FailedPrecondition, "%s is not a member of %s; invite them instead (gs account invite %s %s)", req.GetUsername(), account, account, req.GetUsername())
 	}
 	if err := s.Auth.SetAccountMemberRole(ctx, account, target, role); err != nil {
 		return nil, grpcError(err)

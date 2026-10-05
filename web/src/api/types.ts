@@ -81,6 +81,77 @@ export interface RemoveAccountMemberRequest {
 
 export type RemoveAccountMemberResponse = Record<string, never>;
 
+export interface AccountInvitation {
+  account?: string;
+  username?: string;
+  role?: string;
+  invitedBy?: string;
+  createdAt?: string;
+}
+
+export interface InviteAccountMemberRequest {
+  account?: string;
+  username?: string;
+  role?: string;
+}
+
+export interface InviteAccountMemberResponse {
+  invitation?: AccountInvitation;
+}
+
+export interface ListAccountInvitationsRequest {
+  account?: string;
+}
+
+export interface ListInvitationsResponse {
+  invitations?: AccountInvitation[];
+}
+
+export type ListMyInvitationsRequest = Record<string, never>;
+
+export interface RespondToInvitationRequest {
+  account?: string;
+  accept?: boolean;
+}
+
+export interface RespondToInvitationResponse {
+  membership?: AccountMembership;
+}
+
+export interface CancelAccountInvitationRequest {
+  account?: string;
+  username?: string;
+}
+
+export interface AccountProfile {
+  account?: string;
+  kind?: string;
+  displayName?: string;
+  description?: string;
+  website?: string;
+  createdAt?: string;
+}
+
+export interface GetAccountProfileRequest {
+  account?: string;
+}
+
+export interface UpdateAccountProfileRequest {
+  account?: string;
+  displayName?: string;
+  description?: string;
+  website?: string;
+}
+
+export interface CreateOrganizationRequest {
+  slug?: string;
+}
+
+export interface CreateOrganizationResponse {
+  account?: string;
+  members?: AccountMember[];
+}
+
 export interface CheckUsernameAvailableRequest {
   username?: string;
 }

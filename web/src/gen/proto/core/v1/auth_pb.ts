@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/auth.proto.
  */
 export const file_proto_core_v1_auth: GenFile = /*@__PURE__*/
-  fileDesc("Chhwcm90by9jb3JlL3YxL2F1dGgucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiFgoUU3RhcnRDbGlMb2dpblJlcXVlc3QiWAoVU3RhcnRDbGlMb2dpblJlc3BvbnNlEgwKBGNvZGUYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYAyABKAUiIwoTUG9sbENsaUxvZ2luUmVxdWVzdBIMCgRjb2RlGAEgASgJIkkKFFBvbGxDbGlMb2dpblJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRINCgV0b2tlbhgCIAEoCRISCgpzdWJqZWN0X2lkGAMgASgJIicKF0NvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0EgwKBGNvZGUYASABKAkiLgoYQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkiFgoUR2V0QXV0aFN0YXR1c1JlcXVlc3QijwEKFUdldEF1dGhTdGF0dXNSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEhAKCGFjY291bnRzGAIgAygJEhYKDm5lZWRzX3VzZXJuYW1lGAMgASgIEjgKC21lbWJlcnNoaXBzGAQgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyc2hpcCJAChFBY2NvdW50TWVtYmVyc2hpcBIPCgdhY2NvdW50GAEgASgJEgwKBGtpbmQYAiABKAkSDAoEcm9sZRgDIAEoCSIxCh1DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSJXCh5DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVzcG9uc2USEQoJYXZhaWxhYmxlGAEgASgIEhIKCm5vcm1hbGl6ZWQYAiABKAkSDgoGcmVhc29uGAMgASgJIikKFUNob29zZVVzZXJuYW1lUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSI9ChZDaG9vc2VVc2VybmFtZVJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkSDwoHYWNjb3VudBgCIAEoCSJvChRSZWdpc3RlckFnZW50UmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRITCgtvd25lcl9lbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGgoScmVnaXN0cmF0aW9uX3Rva2VuGAQgASgJIk0KFVJlZ2lzdGVyQWdlbnRSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDwoHYXBpX2tleRgDIAEoCSJ+CgxQZW5kaW5nQ2xhaW0SGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCRIaChJhZ2VudF9kaXNwbGF5X25hbWUYAiABKAkSDwoHYWNjb3VudBgDIAEoCRITCgtvd25lcl9lbWFpbBgEIAEoCRISCgpjcmVhdGVkX2F0GAUgASgJIhoKGExpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdCJLChlMaXN0UGVuZGluZ0NsYWltc1Jlc3BvbnNlEi4KBmNsYWltcxgBIAMoCzIeLmdpdHNsaWNlLmNvcmUudjEuUGVuZGluZ0NsYWltIi4KEkFjY2VwdENsYWltUmVxdWVzdBIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJIiYKE0FjY2VwdENsYWltUmVzcG9uc2USDwoHYWNjb3VudBgBIAEoCSKWAQoKT3duZWRBZ2VudBIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJEhoKEmFnZW50X2Rpc3BsYXlfbmFtZRgCIAEoCRIPCgdhY2NvdW50GAMgASgJEhUKDXJlZ2lzdGVyZWRfYXQYBCABKAkSEgoKY2xhaW1lZF9hdBgFIAEoCRIWCg5sYXN0X2FjdGl2ZV9hdBgGIAEoCSIYChZMaXN0T3duZWRBZ2VudHNSZXF1ZXN0IkcKF0xpc3RPd25lZEFnZW50c1Jlc3BvbnNlEiwKBmFnZW50cxgBIAMoCzIcLmdpdHNsaWNlLmNvcmUudjEuT3duZWRBZ2VudCJCChlDcmVhdGVPcmdhbml6YXRpb25SZXF1ZXN0EgwKBHNsdWcYASABKAkSFwoPb3duZXJfdXNlcm5hbWVzGAIgAygJIl8KGkNyZWF0ZU9yZ2FuaXphdGlvblJlc3BvbnNlEg8KB2FjY291bnQYASABKAkSMAoHbWVtYmVycxgCIAMoCzIfLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudE1lbWJlciJDCg1BY2NvdW50TWVtYmVyEhAKCHVzZXJuYW1lGAEgASgJEhIKCnN1YmplY3RfaWQYAiABKAkSDAoEcm9sZRgDIAEoCSIsChlMaXN0QWNjb3VudE1lbWJlcnNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkibQoaTGlzdEFjY291bnRNZW1iZXJzUmVzcG9uc2USDwoHYWNjb3VudBgBIAEoCRIMCgRraW5kGAIgASgJEjAKB21lbWJlcnMYAyADKAsyHy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRNZW1iZXIiSgoXU2V0QWNjb3VudE1lbWJlclJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJIksKGFNldEFjY291bnRNZW1iZXJSZXNwb25zZRIvCgZtZW1iZXIYASABKAsyHy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRNZW1iZXIiPwoaUmVtb3ZlQWNjb3VudE1lbWJlclJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCSIdChtSZW1vdmVBY2NvdW50TWVtYmVyUmVzcG9uc2Uy0gsKC0F1dGhTZXJ2aWNlEmAKDVN0YXJ0Q2xpTG9naW4SJi5naXRzbGljZS5jb3JlLnYxLlN0YXJ0Q2xpTG9naW5SZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5TdGFydENsaUxvZ2luUmVzcG9uc2USXQoMUG9sbENsaUxvZ2luEiUuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXF1ZXN0GiYuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXNwb25zZRJpChBDb21wbGV0ZUNsaUxvZ2luEikuZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUNsaUxvZ2luUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEmAKDUdldEF1dGhTdGF0dXMSJi5naXRzbGljZS5jb3JlLnYxLkdldEF1dGhTdGF0dXNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5HZXRBdXRoU3RhdHVzUmVzcG9uc2USewoWQ2hlY2tVc2VybmFtZUF2YWlsYWJsZRIvLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QaMC5naXRzbGljZS5jb3JlLnYxLkNoZWNrVXNlcm5hbWVBdmFpbGFibGVSZXNwb25zZRJjCg5DaG9vc2VVc2VybmFtZRInLmdpdHNsaWNlLmNvcmUudjEuQ2hvb3NlVXNlcm5hbWVSZXF1ZXN0GiguZ2l0c2xpY2UuY29yZS52MS5DaG9vc2VVc2VybmFtZVJlc3BvbnNlEmAKDVJlZ2lzdGVyQWdlbnQSJi5naXRzbGljZS5jb3JlLnYxLlJlZ2lzdGVyQWdlbnRSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5SZWdpc3RlckFnZW50UmVzcG9uc2USbAoRTGlzdFBlbmRpbmdDbGFpbXMSKi5naXRzbGljZS5jb3JlLnYxLkxpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdBorLmdpdHNsaWNlLmNvcmUudjEuTGlzdFBlbmRpbmdDbGFpbXNSZXNwb25zZRJaCgtBY2NlcHRDbGFpbRIkLmdpdHNsaWNlLmNvcmUudjEuQWNjZXB0Q2xhaW1SZXF1ZXN0GiUuZ2l0c2xpY2UuY29yZS52MS5BY2NlcHRDbGFpbVJlc3BvbnNlEmYKD0xpc3RPd25lZEFnZW50cxIoLmdpdHNsaWNlLmNvcmUudjEuTGlzdE93bmVkQWdlbnRzUmVxdWVzdBopLmdpdHNsaWNlLmNvcmUudjEuTGlzdE93bmVkQWdlbnRzUmVzcG9uc2USbwoSQ3JlYXRlT3JnYW5pemF0aW9uEisuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVPcmdhbml6YXRpb25SZXF1ZXN0GiwuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVPcmdhbml6YXRpb25SZXNwb25zZRJvChJMaXN0QWNjb3VudE1lbWJlcnMSKy5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50TWVtYmVyc1JlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50TWVtYmVyc1Jlc3BvbnNlEmkKEFNldEFjY291bnRNZW1iZXISKS5naXRzbGljZS5jb3JlLnYxLlNldEFjY291bnRNZW1iZXJSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5TZXRBY2NvdW50TWVtYmVyUmVzcG9uc2UScgoTUmVtb3ZlQWNjb3VudE1lbWJlchIsLmdpdHNsaWNlLmNvcmUudjEuUmVtb3ZlQWNjb3VudE1lbWJlclJlcXVlc3QaLS5naXRzbGljZS5jb3JlLnYxLlJlbW92ZUFjY291bnRNZW1iZXJSZXNwb25zZUIrWilnaXRzbGljZS5pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z");
+  fileDesc("Chhwcm90by9jb3JlL3YxL2F1dGgucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiFgoUU3RhcnRDbGlMb2dpblJlcXVlc3QiWAoVU3RhcnRDbGlMb2dpblJlc3BvbnNlEgwKBGNvZGUYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYAyABKAUiIwoTUG9sbENsaUxvZ2luUmVxdWVzdBIMCgRjb2RlGAEgASgJIkkKFFBvbGxDbGlMb2dpblJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRINCgV0b2tlbhgCIAEoCRISCgpzdWJqZWN0X2lkGAMgASgJIicKF0NvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0EgwKBGNvZGUYASABKAkiLgoYQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkiFgoUR2V0QXV0aFN0YXR1c1JlcXVlc3QijwEKFUdldEF1dGhTdGF0dXNSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEhAKCGFjY291bnRzGAIgAygJEhYKDm5lZWRzX3VzZXJuYW1lGAMgASgIEjgKC21lbWJlcnNoaXBzGAQgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyc2hpcCJAChFBY2NvdW50TWVtYmVyc2hpcBIPCgdhY2NvdW50GAEgASgJEgwKBGtpbmQYAiABKAkSDAoEcm9sZRgDIAEoCSIxCh1DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSJXCh5DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVzcG9uc2USEQoJYXZhaWxhYmxlGAEgASgIEhIKCm5vcm1hbGl6ZWQYAiABKAkSDgoGcmVhc29uGAMgASgJIikKFUNob29zZVVzZXJuYW1lUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSI9ChZDaG9vc2VVc2VybmFtZVJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkSDwoHYWNjb3VudBgCIAEoCSJvChRSZWdpc3RlckFnZW50UmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRITCgtvd25lcl9lbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGgoScmVnaXN0cmF0aW9uX3Rva2VuGAQgASgJIk0KFVJlZ2lzdGVyQWdlbnRSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDwoHYXBpX2tleRgDIAEoCSJ+CgxQZW5kaW5nQ2xhaW0SGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCRIaChJhZ2VudF9kaXNwbGF5X25hbWUYAiABKAkSDwoHYWNjb3VudBgDIAEoCRITCgtvd25lcl9lbWFpbBgEIAEoCRISCgpjcmVhdGVkX2F0GAUgASgJIhoKGExpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdCJLChlMaXN0UGVuZGluZ0NsYWltc1Jlc3BvbnNlEi4KBmNsYWltcxgBIAMoCzIeLmdpdHNsaWNlLmNvcmUudjEuUGVuZGluZ0NsYWltIi4KEkFjY2VwdENsYWltUmVxdWVzdBIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJIiYKE0FjY2VwdENsYWltUmVzcG9uc2USDwoHYWNjb3VudBgBIAEoCSKWAQoKT3duZWRBZ2VudBIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJEhoKEmFnZW50X2Rpc3BsYXlfbmFtZRgCIAEoCRIPCgdhY2NvdW50GAMgASgJEhUKDXJlZ2lzdGVyZWRfYXQYBCABKAkSEgoKY2xhaW1lZF9hdBgFIAEoCRIWCg5sYXN0X2FjdGl2ZV9hdBgGIAEoCSIYChZMaXN0T3duZWRBZ2VudHNSZXF1ZXN0IkcKF0xpc3RPd25lZEFnZW50c1Jlc3BvbnNlEiwKBmFnZW50cxgBIAMoCzIcLmdpdHNsaWNlLmNvcmUudjEuT3duZWRBZ2VudCJCChlDcmVhdGVPcmdhbml6YXRpb25SZXF1ZXN0EgwKBHNsdWcYASABKAkSFwoPb3duZXJfdXNlcm5hbWVzGAIgAygJIl8KGkNyZWF0ZU9yZ2FuaXphdGlvblJlc3BvbnNlEg8KB2FjY291bnQYASABKAkSMAoHbWVtYmVycxgCIAMoCzIfLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudE1lbWJlciJDCg1BY2NvdW50TWVtYmVyEhAKCHVzZXJuYW1lGAEgASgJEhIKCnN1YmplY3RfaWQYAiABKAkSDAoEcm9sZRgDIAEoCSIsChlMaXN0QWNjb3VudE1lbWJlcnNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkibQoaTGlzdEFjY291bnRNZW1iZXJzUmVzcG9uc2USDwoHYWNjb3VudBgBIAEoCRIMCgRraW5kGAIgASgJEjAKB21lbWJlcnMYAyADKAsyHy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRNZW1iZXIiSgoXU2V0QWNjb3VudE1lbWJlclJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJIksKGFNldEFjY291bnRNZW1iZXJSZXNwb25zZRIvCgZtZW1iZXIYASABKAsyHy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRNZW1iZXIiPwoaUmVtb3ZlQWNjb3VudE1lbWJlclJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCSIdChtSZW1vdmVBY2NvdW50TWVtYmVyUmVzcG9uc2UibAoRQWNjb3VudEludml0YXRpb24SDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEhIKCmludml0ZWRfYnkYBCABKAkSEgoKY3JlYXRlZF9hdBgFIAEoCSJNChpJbnZpdGVBY2NvdW50TWVtYmVyUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEgwKBHJvbGUYAyABKAkiVgobSW52aXRlQWNjb3VudE1lbWJlclJlc3BvbnNlEjcKCmludml0YXRpb24YASABKAsyIy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRJbnZpdGF0aW9uIjAKHUxpc3RBY2NvdW50SW52aXRhdGlvbnNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkiWgoeTGlzdEFjY291bnRJbnZpdGF0aW9uc1Jlc3BvbnNlEjgKC2ludml0YXRpb25zGAEgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50SW52aXRhdGlvbiIaChhMaXN0TXlJbnZpdGF0aW9uc1JlcXVlc3QiVQoZTGlzdE15SW52aXRhdGlvbnNSZXNwb25zZRI4CgtpbnZpdGF0aW9ucxgBIAMoCzIjLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudEludml0YXRpb24iPQoaUmVzcG9uZFRvSW52aXRhdGlvblJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIOCgZhY2NlcHQYAiABKAgiVgobUmVzcG9uZFRvSW52aXRhdGlvblJlc3BvbnNlEjcKCm1lbWJlcnNoaXAYASABKAsyIy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRNZW1iZXJzaGlwIkMKHkNhbmNlbEFjY291bnRJbnZpdGF0aW9uUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhAKCHVzZXJuYW1lGAIgASgJIiEKH0NhbmNlbEFjY291bnRJbnZpdGF0aW9uUmVzcG9uc2UifwoOQWNjb3VudFByb2ZpbGUSDwoHYWNjb3VudBgBIAEoCRIMCgRraW5kGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRITCgtkZXNjcmlwdGlvbhgEIAEoCRIPCgd3ZWJzaXRlGAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKAkiKwoYR2V0QWNjb3VudFByb2ZpbGVSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkiagobVXBkYXRlQWNjb3VudFByb2ZpbGVSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEg8KB3dlYnNpdGUYBCABKAky8REKC0F1dGhTZXJ2aWNlEmAKDVN0YXJ0Q2xpTG9naW4SJi5naXRzbGljZS5jb3JlLnYxLlN0YXJ0Q2xpTG9naW5SZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5TdGFydENsaUxvZ2luUmVzcG9uc2USXQoMUG9sbENsaUxvZ2luEiUuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXF1ZXN0GiYuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXNwb25zZRJpChBDb21wbGV0ZUNsaUxvZ2luEikuZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUNsaUxvZ2luUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEmAKDUdldEF1dGhTdGF0dXMSJi5naXRzbGljZS5jb3JlLnYxLkdldEF1dGhTdGF0dXNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5HZXRBdXRoU3RhdHVzUmVzcG9uc2USewoWQ2hlY2tVc2VybmFtZUF2YWlsYWJsZRIvLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QaMC5naXRzbGljZS5jb3JlLnYxLkNoZWNrVXNlcm5hbWVBdmFpbGFibGVSZXNwb25zZRJjCg5DaG9vc2VVc2VybmFtZRInLmdpdHNsaWNlLmNvcmUudjEuQ2hvb3NlVXNlcm5hbWVSZXF1ZXN0GiguZ2l0c2xpY2UuY29yZS52MS5DaG9vc2VVc2VybmFtZVJlc3BvbnNlEmAKDVJlZ2lzdGVyQWdlbnQSJi5naXRzbGljZS5jb3JlLnYxLlJlZ2lzdGVyQWdlbnRSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5SZWdpc3RlckFnZW50UmVzcG9uc2USbAoRTGlzdFBlbmRpbmdDbGFpbXMSKi5naXRzbGljZS5jb3JlLnYxLkxpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdBorLmdpdHNsaWNlLmNvcmUudjEuTGlzdFBlbmRpbmdDbGFpbXNSZXNwb25zZRJaCgtBY2NlcHRDbGFpbRIkLmdpdHNsaWNlLmNvcmUudjEuQWNjZXB0Q2xhaW1SZXF1ZXN0GiUuZ2l0c2xpY2UuY29yZS52MS5BY2NlcHRDbGFpbVJlc3BvbnNlEmYKD0xpc3RPd25lZEFnZW50cxIoLmdpdHNsaWNlLmNvcmUudjEuTGlzdE93bmVkQWdlbnRzUmVxdWVzdBopLmdpdHNsaWNlLmNvcmUudjEuTGlzdE93bmVkQWdlbnRzUmVzcG9uc2USbwoSQ3JlYXRlT3JnYW5pemF0aW9uEisuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVPcmdhbml6YXRpb25SZXF1ZXN0GiwuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVPcmdhbml6YXRpb25SZXNwb25zZRJvChJMaXN0QWNjb3VudE1lbWJlcnMSKy5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50TWVtYmVyc1JlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50TWVtYmVyc1Jlc3BvbnNlEmkKEFNldEFjY291bnRNZW1iZXISKS5naXRzbGljZS5jb3JlLnYxLlNldEFjY291bnRNZW1iZXJSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5TZXRBY2NvdW50TWVtYmVyUmVzcG9uc2UScgoTUmVtb3ZlQWNjb3VudE1lbWJlchIsLmdpdHNsaWNlLmNvcmUudjEuUmVtb3ZlQWNjb3VudE1lbWJlclJlcXVlc3QaLS5naXRzbGljZS5jb3JlLnYxLlJlbW92ZUFjY291bnRNZW1iZXJSZXNwb25zZRJyChNJbnZpdGVBY2NvdW50TWVtYmVyEiwuZ2l0c2xpY2UuY29yZS52MS5JbnZpdGVBY2NvdW50TWVtYmVyUmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuSW52aXRlQWNjb3VudE1lbWJlclJlc3BvbnNlEnsKFkxpc3RBY2NvdW50SW52aXRhdGlvbnMSLy5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50SW52aXRhdGlvbnNSZXF1ZXN0GjAuZ2l0c2xpY2UuY29yZS52MS5MaXN0QWNjb3VudEludml0YXRpb25zUmVzcG9uc2USbAoRTGlzdE15SW52aXRhdGlvbnMSKi5naXRzbGljZS5jb3JlLnYxLkxpc3RNeUludml0YXRpb25zUmVxdWVzdBorLmdpdHNsaWNlLmNvcmUudjEuTGlzdE15SW52aXRhdGlvbnNSZXNwb25zZRJyChNSZXNwb25kVG9JbnZpdGF0aW9uEiwuZ2l0c2xpY2UuY29yZS52MS5SZXNwb25kVG9JbnZpdGF0aW9uUmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuUmVzcG9uZFRvSW52aXRhdGlvblJlc3BvbnNlEn4KF0NhbmNlbEFjY291bnRJbnZpdGF0aW9uEjAuZ2l0c2xpY2UuY29yZS52MS5DYW5jZWxBY2NvdW50SW52aXRhdGlvblJlcXVlc3QaMS5naXRzbGljZS5jb3JlLnYxLkNhbmNlbEFjY291bnRJbnZpdGF0aW9uUmVzcG9uc2USYQoRR2V0QWNjb3VudFByb2ZpbGUSKi5naXRzbGljZS5jb3JlLnYxLkdldEFjY291bnRQcm9maWxlUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudFByb2ZpbGUSZwoUVXBkYXRlQWNjb3VudFByb2ZpbGUSLS5naXRzbGljZS5jb3JlLnYxLlVwZGF0ZUFjY291bnRQcm9maWxlUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudFByb2ZpbGVCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw");
 
 /**
  * @generated from message gitslice.core.v1.StartCliLoginRequest
@@ -768,6 +768,336 @@ export const RemoveAccountMemberResponseSchema: GenMessage<RemoveAccountMemberRe
   messageDesc(file_proto_core_v1_auth, 31);
 
 /**
+ * @generated from message gitslice.core.v1.AccountInvitation
+ */
+export type AccountInvitation = Message<"gitslice.core.v1.AccountInvitation"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * The invited user's username.
+   *
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * owner, admin, writer, member or reader.
+   *
+   * @generated from field: string role = 3;
+   */
+  role: string;
+
+  /**
+   * Username of whoever sent the invitation.
+   *
+   * @generated from field: string invited_by = 4;
+   */
+  invitedBy: string;
+
+  /**
+   * RFC 3339.
+   *
+   * @generated from field: string created_at = 5;
+   */
+  createdAt: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.AccountInvitation.
+ * Use `create(AccountInvitationSchema)` to create a new message.
+ */
+export const AccountInvitationSchema: GenMessage<AccountInvitation> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 32);
+
+/**
+ * @generated from message gitslice.core.v1.InviteAccountMemberRequest
+ */
+export type InviteAccountMemberRequest = Message<"gitslice.core.v1.InviteAccountMemberRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * @generated from field: string role = 3;
+   */
+  role: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.InviteAccountMemberRequest.
+ * Use `create(InviteAccountMemberRequestSchema)` to create a new message.
+ */
+export const InviteAccountMemberRequestSchema: GenMessage<InviteAccountMemberRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 33);
+
+/**
+ * @generated from message gitslice.core.v1.InviteAccountMemberResponse
+ */
+export type InviteAccountMemberResponse = Message<"gitslice.core.v1.InviteAccountMemberResponse"> & {
+  /**
+   * @generated from field: gitslice.core.v1.AccountInvitation invitation = 1;
+   */
+  invitation?: AccountInvitation | undefined;
+};
+
+/**
+ * Describes the message gitslice.core.v1.InviteAccountMemberResponse.
+ * Use `create(InviteAccountMemberResponseSchema)` to create a new message.
+ */
+export const InviteAccountMemberResponseSchema: GenMessage<InviteAccountMemberResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 34);
+
+/**
+ * @generated from message gitslice.core.v1.ListAccountInvitationsRequest
+ */
+export type ListAccountInvitationsRequest = Message<"gitslice.core.v1.ListAccountInvitationsRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListAccountInvitationsRequest.
+ * Use `create(ListAccountInvitationsRequestSchema)` to create a new message.
+ */
+export const ListAccountInvitationsRequestSchema: GenMessage<ListAccountInvitationsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 35);
+
+/**
+ * @generated from message gitslice.core.v1.ListAccountInvitationsResponse
+ */
+export type ListAccountInvitationsResponse = Message<"gitslice.core.v1.ListAccountInvitationsResponse"> & {
+  /**
+   * @generated from field: repeated gitslice.core.v1.AccountInvitation invitations = 1;
+   */
+  invitations: AccountInvitation[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListAccountInvitationsResponse.
+ * Use `create(ListAccountInvitationsResponseSchema)` to create a new message.
+ */
+export const ListAccountInvitationsResponseSchema: GenMessage<ListAccountInvitationsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 36);
+
+/**
+ * @generated from message gitslice.core.v1.ListMyInvitationsRequest
+ */
+export type ListMyInvitationsRequest = Message<"gitslice.core.v1.ListMyInvitationsRequest"> & {
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListMyInvitationsRequest.
+ * Use `create(ListMyInvitationsRequestSchema)` to create a new message.
+ */
+export const ListMyInvitationsRequestSchema: GenMessage<ListMyInvitationsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 37);
+
+/**
+ * @generated from message gitslice.core.v1.ListMyInvitationsResponse
+ */
+export type ListMyInvitationsResponse = Message<"gitslice.core.v1.ListMyInvitationsResponse"> & {
+  /**
+   * @generated from field: repeated gitslice.core.v1.AccountInvitation invitations = 1;
+   */
+  invitations: AccountInvitation[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListMyInvitationsResponse.
+ * Use `create(ListMyInvitationsResponseSchema)` to create a new message.
+ */
+export const ListMyInvitationsResponseSchema: GenMessage<ListMyInvitationsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 38);
+
+/**
+ * @generated from message gitslice.core.v1.RespondToInvitationRequest
+ */
+export type RespondToInvitationRequest = Message<"gitslice.core.v1.RespondToInvitationRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: bool accept = 2;
+   */
+  accept: boolean;
+};
+
+/**
+ * Describes the message gitslice.core.v1.RespondToInvitationRequest.
+ * Use `create(RespondToInvitationRequestSchema)` to create a new message.
+ */
+export const RespondToInvitationRequestSchema: GenMessage<RespondToInvitationRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 39);
+
+/**
+ * @generated from message gitslice.core.v1.RespondToInvitationResponse
+ */
+export type RespondToInvitationResponse = Message<"gitslice.core.v1.RespondToInvitationResponse"> & {
+  /**
+   * The caller's new membership, when they accepted.
+   *
+   * @generated from field: gitslice.core.v1.AccountMembership membership = 1;
+   */
+  membership?: AccountMembership | undefined;
+};
+
+/**
+ * Describes the message gitslice.core.v1.RespondToInvitationResponse.
+ * Use `create(RespondToInvitationResponseSchema)` to create a new message.
+ */
+export const RespondToInvitationResponseSchema: GenMessage<RespondToInvitationResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 40);
+
+/**
+ * @generated from message gitslice.core.v1.CancelAccountInvitationRequest
+ */
+export type CancelAccountInvitationRequest = Message<"gitslice.core.v1.CancelAccountInvitationRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string username = 2;
+   */
+  username: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CancelAccountInvitationRequest.
+ * Use `create(CancelAccountInvitationRequestSchema)` to create a new message.
+ */
+export const CancelAccountInvitationRequestSchema: GenMessage<CancelAccountInvitationRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 41);
+
+/**
+ * @generated from message gitslice.core.v1.CancelAccountInvitationResponse
+ */
+export type CancelAccountInvitationResponse = Message<"gitslice.core.v1.CancelAccountInvitationResponse"> & {
+};
+
+/**
+ * Describes the message gitslice.core.v1.CancelAccountInvitationResponse.
+ * Use `create(CancelAccountInvitationResponseSchema)` to create a new message.
+ */
+export const CancelAccountInvitationResponseSchema: GenMessage<CancelAccountInvitationResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 42);
+
+/**
+ * @generated from message gitslice.core.v1.AccountProfile
+ */
+export type AccountProfile = Message<"gitslice.core.v1.AccountProfile"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * personal or organization.
+   *
+   * @generated from field: string kind = 2;
+   */
+  kind: string;
+
+  /**
+   * At most 64 characters; empty when not set.
+   *
+   * @generated from field: string display_name = 3;
+   */
+  displayName: string;
+
+  /**
+   * At most 280 characters.
+   *
+   * @generated from field: string description = 4;
+   */
+  description: string;
+
+  /**
+   * An http or https URL, at most 200 characters.
+   *
+   * @generated from field: string website = 5;
+   */
+  website: string;
+
+  /**
+   * RFC 3339.
+   *
+   * @generated from field: string created_at = 6;
+   */
+  createdAt: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.AccountProfile.
+ * Use `create(AccountProfileSchema)` to create a new message.
+ */
+export const AccountProfileSchema: GenMessage<AccountProfile> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 43);
+
+/**
+ * @generated from message gitslice.core.v1.GetAccountProfileRequest
+ */
+export type GetAccountProfileRequest = Message<"gitslice.core.v1.GetAccountProfileRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.GetAccountProfileRequest.
+ * Use `create(GetAccountProfileRequestSchema)` to create a new message.
+ */
+export const GetAccountProfileRequestSchema: GenMessage<GetAccountProfileRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 44);
+
+/**
+ * @generated from message gitslice.core.v1.UpdateAccountProfileRequest
+ */
+export type UpdateAccountProfileRequest = Message<"gitslice.core.v1.UpdateAccountProfileRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string display_name = 2;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string website = 4;
+   */
+  website: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.UpdateAccountProfileRequest.
+ * Use `create(UpdateAccountProfileRequestSchema)` to create a new message.
+ */
+export const UpdateAccountProfileRequestSchema: GenMessage<UpdateAccountProfileRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 45);
+
+/**
  * @generated from service gitslice.core.v1.AuthService
  */
 export const AuthService: GenService<{
@@ -866,9 +1196,10 @@ export const AuthService: GenService<{
   },
   /**
    * CreateOrganization creates an organization account (with a private home
-   * slice) owned by the given users. Operator-only: the caller's subject must
-   * be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
-   * names reserved for self-service sign-up.
+   * slice). Any signed-in user with a personal account may create one and
+   * becomes its only owner; names reserved for sign-up are refused, and a user
+   * owns at most 20 organizations they created. Operators (the server's
+   * GITSLICE_OPERATOR_SUBJECTS) may use reserved names and name other owners.
    *
    * @generated from rpc gitslice.core.v1.AuthService.CreateOrganization
    */
@@ -888,8 +1219,9 @@ export const AuthService: GenService<{
     output: typeof ListAccountMembersResponseSchema;
   },
   /**
-   * SetAccountMember adds a user to an organization or changes their role.
-   * Owners and admins may call it; only owners grant or revoke owner.
+   * SetAccountMember changes a member's role. Owners and admins may call it;
+   * only owners grant or revoke owner. Adding someone who is not a member is
+   * for operators only; everyone else invites them (InviteAccountMember).
    *
    * @generated from rpc gitslice.core.v1.AuthService.SetAccountMember
    */
@@ -908,6 +1240,84 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof RemoveAccountMemberRequestSchema;
     output: typeof RemoveAccountMemberResponseSchema;
+  },
+  /**
+   * InviteAccountMember invites a user to an organization with a role. They
+   * become a member only when they accept. Owners and admins may invite;
+   * only owners invite owners. Inviting someone already invited replaces the
+   * invitation's role.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.InviteAccountMember
+   */
+  inviteAccountMember: {
+    methodKind: "unary";
+    input: typeof InviteAccountMemberRequestSchema;
+    output: typeof InviteAccountMemberResponseSchema;
+  },
+  /**
+   * ListAccountInvitations lists an organization's pending invitations, for
+   * its owners and admins.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.ListAccountInvitations
+   */
+  listAccountInvitations: {
+    methodKind: "unary";
+    input: typeof ListAccountInvitationsRequestSchema;
+    output: typeof ListAccountInvitationsResponseSchema;
+  },
+  /**
+   * ListMyInvitations lists the caller's pending invitations.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.ListMyInvitations
+   */
+  listMyInvitations: {
+    methodKind: "unary";
+    input: typeof ListMyInvitationsRequestSchema;
+    output: typeof ListMyInvitationsResponseSchema;
+  },
+  /**
+   * RespondToInvitation accepts or declines the caller's invitation to an
+   * organization. Either way the invitation is gone afterwards.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.RespondToInvitation
+   */
+  respondToInvitation: {
+    methodKind: "unary";
+    input: typeof RespondToInvitationRequestSchema;
+    output: typeof RespondToInvitationResponseSchema;
+  },
+  /**
+   * CancelAccountInvitation withdraws a pending invitation. Owners and admins
+   * may call it.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.CancelAccountInvitation
+   */
+  cancelAccountInvitation: {
+    methodKind: "unary";
+    input: typeof CancelAccountInvitationRequestSchema;
+    output: typeof CancelAccountInvitationResponseSchema;
+  },
+  /**
+   * GetAccountProfile returns an account's public profile. Anyone may call it,
+   * signed in or not.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.GetAccountProfile
+   */
+  getAccountProfile: {
+    methodKind: "unary";
+    input: typeof GetAccountProfileRequestSchema;
+    output: typeof AccountProfileSchema;
+  },
+  /**
+   * UpdateAccountProfile changes an account's profile: an organization's by
+   * its owners and admins, a personal account's by its person.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.UpdateAccountProfile
+   */
+  updateAccountProfile: {
+    methodKind: "unary";
+    input: typeof UpdateAccountProfileRequestSchema;
+    output: typeof AccountProfileSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_auth, 0);

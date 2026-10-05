@@ -10,7 +10,9 @@ import {
 } from "./ConversationCard";
 import { SliceNotice, getErrorMessage } from "./SlicePageParts";
 
-export function RecentConversations() {
+// RecentConversations shows the newest conversations, limited to slices of
+// the given accounts when it is passed (the Home page's active account).
+export function RecentConversations({ accounts }: { accounts?: string[] } = {}) {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   const enabled = Boolean(isLoaded && isSignedIn);
@@ -21,11 +23,13 @@ export function RecentConversations() {
     queryFn: async () => (await api.listConversations({})).conversations ?? []
   });
 
-  const conversations = useMemo(
-    () =>
-      sortConversationsNewestFirst(conversationsQuery.data ?? []).slice(0, 6),
-    [conversationsQuery.data]
-  );
+  const accountKey = accounts?.map((a) => a.toLowerCase()).join(" ") ?? "";
+  const conversations = useMemo(() => {
+    const wanted = accountKey ? new Set(accountKey.split(" ")) : null;
+    return sortConversationsNewestFirst(conversationsQuery.data ?? [])
+      .filter((conversation) => !wanted || wanted.has((conversation.slice?.account ?? "").toLowerCase()))
+      .slice(0, 6);
+  }, [conversationsQuery.data, accountKey]);
 
   if (isLoaded && !isSignedIn) {
     return null;

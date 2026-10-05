@@ -53,10 +53,10 @@ func (s *AuthStore) CreateOrganization(ctx context.Context, slug string, ownerSu
 	}()
 	accountID := signupAccountID(slug)
 	res, err := tx.ExecContext(ctx, `
-		insert into accounts(id, slug, kind, created_at, updated_at)
-		values ($1, $2, $3, now(), now())
+		insert into accounts(id, slug, kind, created_by_subject_id, created_at, updated_at)
+		values ($1, $2, $3, nullif($4, ''), now(), now())
 		on conflict do nothing
-	`, accountID, slug, storage.AccountKindOrganization)
+	`, accountID, slug, storage.AccountKindOrganization, strings.TrimSpace(createdBy))
 	if err != nil {
 		return err
 	}
@@ -235,4 +235,181 @@ func sortAccountMembers(members []storage.AccountMember) {
 		}
 		return a.SubjectID < b.SubjectID
 	})
+}
+
+func (s *AuthStore) CountOrganizationsCreatedBy(ctx context.Context, subjectID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		select count(*) from accounts where kind = 'organization' and created_by_subject_id = $1
+	`, strings.TrimSpace(subjectID)).Scan(&count)
+	return count, err
+}
+
+func (s *AuthStore) UpsertAccountInvitation(ctx context.Context, accountSlug, subjectID, role, invitedBy string) (*storage.AccountInvitation, error) {
+	var accountID, kind string
+	err := s.db.QueryRowContext(ctx, `select id, kind from accounts where slug = $1`, strings.TrimSpace(accountSlug)).Scan(&accountID, &kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if kind != storage.AccountKindOrganization {
+		return nil, fmt.Errorf("%w: only organizations take invitations", ErrConflict)
+	}
+	invitation := storage.AccountInvitation{Account: strings.TrimSpace(accountSlug), SubjectID: subjectID, Role: role, InvitedBySubjectID: invitedBy}
+	err = s.db.QueryRowContext(ctx, `
+		insert into account_invitations(account_id, subject_id, role, invited_by_subject_id, created_at)
+		values ($1, $2, $3, $4, now())
+		on conflict (account_id, subject_id) do update
+		set role = excluded.role, invited_by_subject_id = excluded.invited_by_subject_id, created_at = excluded.created_at
+		returning created_at
+	`, accountID, subjectID, role, invitedBy).Scan(&invitation.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &invitation, nil
+}
+
+const invitationColumns = `a.slug, i.subject_id, i.role, i.invited_by_subject_id, i.created_at`
+
+func scanInvitations(rows *sql.Rows) ([]storage.AccountInvitation, error) {
+	defer rows.Close()
+	var out []storage.AccountInvitation
+	for rows.Next() {
+		var invitation storage.AccountInvitation
+		if err := rows.Scan(&invitation.Account, &invitation.SubjectID, &invitation.Role, &invitation.InvitedBySubjectID, &invitation.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, invitation)
+	}
+	return out, rows.Err()
+}
+
+func (s *AuthStore) ListAccountInvitations(ctx context.Context, accountSlug string) ([]storage.AccountInvitation, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select `+invitationColumns+`
+		from account_invitations i join accounts a on a.id = i.account_id
+		where a.slug = $1
+		order by i.created_at desc, i.subject_id
+	`, strings.TrimSpace(accountSlug))
+	if err != nil {
+		return nil, err
+	}
+	return scanInvitations(rows)
+}
+
+func (s *AuthStore) ListSubjectInvitations(ctx context.Context, subjectID string) ([]storage.AccountInvitation, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select `+invitationColumns+`
+		from account_invitations i join accounts a on a.id = i.account_id
+		where i.subject_id = $1
+		order by i.created_at desc, a.slug
+	`, strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	return scanInvitations(rows)
+}
+
+func (s *AuthStore) GetAccountInvitation(ctx context.Context, accountSlug, subjectID string) (*storage.AccountInvitation, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select `+invitationColumns+`
+		from account_invitations i join accounts a on a.id = i.account_id
+		where a.slug = $1 and i.subject_id = $2
+	`, strings.TrimSpace(accountSlug), strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	invitations, err := scanInvitations(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(invitations) == 0 {
+		return nil, ErrNotFound
+	}
+	return &invitations[0], nil
+}
+
+func (s *AuthStore) AcceptAccountInvitation(ctx context.Context, accountSlug, subjectID string) (role string, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	accountID, err := organizationAccountForUpdateTx(ctx, tx, accountSlug)
+	if err != nil {
+		return "", err
+	}
+	err = tx.QueryRowContext(ctx, `
+		delete from account_invitations where account_id = $1 and subject_id = $2 returning role
+	`, accountID, subjectID).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err = tx.ExecContext(ctx, `delete from account_memberships where account_id = $1 and subject_id = $2`, accountID, subjectID); err != nil {
+		return "", err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		insert into account_memberships(account_id, subject_id, role, created_at)
+		values ($1, $2, $3, now())
+	`, accountID, subjectID, role); err != nil {
+		return "", err
+	}
+	if err = tx.Commit(); err != nil {
+		return "", err
+	}
+	return role, nil
+}
+
+func (s *AuthStore) DeleteAccountInvitation(ctx context.Context, accountSlug, subjectID string) error {
+	res, err := s.db.ExecContext(ctx, `
+		delete from account_invitations i using accounts a
+		where a.id = i.account_id and a.slug = $1 and i.subject_id = $2
+	`, strings.TrimSpace(accountSlug), strings.TrimSpace(subjectID))
+	if err != nil {
+		return err
+	}
+	if affected, err := res.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *AuthStore) GetAccountProfile(ctx context.Context, accountSlug string) (*storage.AccountProfile, error) {
+	var profile storage.AccountProfile
+	err := s.db.QueryRowContext(ctx, `
+		select slug, kind, display_name, description, website, created_at from accounts where slug = $1
+	`, strings.TrimSpace(accountSlug)).Scan(&profile.Account, &profile.Kind, &profile.DisplayName, &profile.Description, &profile.Website, &profile.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+func (s *AuthStore) UpdateAccountProfile(ctx context.Context, accountSlug string, profile storage.AccountProfile) (*storage.AccountProfile, error) {
+	res, err := s.db.ExecContext(ctx, `
+		update accounts set display_name = $2, description = $3, website = $4, updated_at = now() where slug = $1
+	`, strings.TrimSpace(accountSlug), profile.DisplayName, profile.Description, profile.Website)
+	if err != nil {
+		return nil, err
+	}
+	if affected, err := res.RowsAffected(); err != nil {
+		return nil, err
+	} else if affected == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetAccountProfile(ctx, accountSlug)
 }

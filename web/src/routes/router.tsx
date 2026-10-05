@@ -49,6 +49,7 @@ import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
 import { LandingPage } from "./LandingPage";
 import { LoginPage } from "./LoginPage";
+import { NewOrganizationPage } from "./NewOrganizationPage";
 import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceAgentsPage } from "./SliceAgentsPage";
 import { SliceDetailPage } from "./SliceDetailPage";
@@ -316,6 +317,12 @@ const slicesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices",
   component: HomePage
+});
+
+const organizationCreateRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "organizations/new",
+  component: NewOrganizationPage
 });
 
 const sliceCreateRoute = createRoute({
@@ -600,6 +607,7 @@ const routeTree = rootRoute.addChildren([
     conversationsRoute,
     slicesRoute,
     sliceCreateRoute,
+    organizationCreateRoute,
     sliceSettingsRoute
   ]),
   publicAppRoute.addChildren([

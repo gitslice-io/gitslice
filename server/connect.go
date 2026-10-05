@@ -141,6 +141,34 @@ func (a connectAuthAdapter) RemoveAccountMember(ctx context.Context, req *connec
 	return connectResponse(a.svc.RemoveAccountMember(ctx, req.Msg))
 }
 
+func (a connectAuthAdapter) InviteAccountMember(ctx context.Context, req *connect.Request[corev1.InviteAccountMemberRequest]) (*connect.Response[corev1.InviteAccountMemberResponse], error) {
+	return connectResponse(a.svc.InviteAccountMember(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) ListAccountInvitations(ctx context.Context, req *connect.Request[corev1.ListAccountInvitationsRequest]) (*connect.Response[corev1.ListAccountInvitationsResponse], error) {
+	return connectResponse(a.svc.ListAccountInvitations(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) ListMyInvitations(ctx context.Context, req *connect.Request[corev1.ListMyInvitationsRequest]) (*connect.Response[corev1.ListMyInvitationsResponse], error) {
+	return connectResponse(a.svc.ListMyInvitations(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) RespondToInvitation(ctx context.Context, req *connect.Request[corev1.RespondToInvitationRequest]) (*connect.Response[corev1.RespondToInvitationResponse], error) {
+	return connectResponse(a.svc.RespondToInvitation(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) CancelAccountInvitation(ctx context.Context, req *connect.Request[corev1.CancelAccountInvitationRequest]) (*connect.Response[corev1.CancelAccountInvitationResponse], error) {
+	return connectResponse(a.svc.CancelAccountInvitation(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) GetAccountProfile(ctx context.Context, req *connect.Request[corev1.GetAccountProfileRequest]) (*connect.Response[corev1.AccountProfile], error) {
+	return connectResponse(a.svc.GetAccountProfile(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) UpdateAccountProfile(ctx context.Context, req *connect.Request[corev1.UpdateAccountProfileRequest]) (*connect.Response[corev1.AccountProfile], error) {
+	return connectResponse(a.svc.UpdateAccountProfile(ctx, req.Msg))
+}
+
 func (a connectAuthAdapter) RegisterAgent(ctx context.Context, req *connect.Request[corev1.RegisterAgentRequest]) (*connect.Response[corev1.RegisterAgentResponse], error) {
 	return connectResponse(a.svc.RegisterAgent(ctx, req.Msg))
 }

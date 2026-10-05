@@ -44,6 +44,19 @@ import type {
   SetAccountMemberResponse,
   RemoveAccountMemberRequest,
   RemoveAccountMemberResponse,
+  AccountProfile,
+  CancelAccountInvitationRequest,
+  CreateOrganizationRequest,
+  CreateOrganizationResponse,
+  GetAccountProfileRequest,
+  InviteAccountMemberRequest,
+  InviteAccountMemberResponse,
+  ListAccountInvitationsRequest,
+  ListInvitationsResponse,
+  ListMyInvitationsRequest,
+  RespondToInvitationRequest,
+  RespondToInvitationResponse,
+  UpdateAccountProfileRequest,
   ListPendingClaimsRequest,
   ListPendingClaimsResponse,
   GetAuthStatusResponse,
@@ -129,6 +142,24 @@ export interface ApiClient {
   removeAccountMember(
     request: RemoveAccountMemberRequest
   ): Promise<RemoveAccountMemberResponse>;
+  createOrganization(
+    request: CreateOrganizationRequest
+  ): Promise<CreateOrganizationResponse>;
+  inviteAccountMember(
+    request: InviteAccountMemberRequest
+  ): Promise<InviteAccountMemberResponse>;
+  listAccountInvitations(
+    request: ListAccountInvitationsRequest
+  ): Promise<ListInvitationsResponse>;
+  listMyInvitations(request: ListMyInvitationsRequest): Promise<ListInvitationsResponse>;
+  respondToInvitation(
+    request: RespondToInvitationRequest
+  ): Promise<RespondToInvitationResponse>;
+  cancelAccountInvitation(
+    request: CancelAccountInvitationRequest
+  ): Promise<Record<string, never>>;
+  getAccountProfile(request: GetAccountProfileRequest): Promise<AccountProfile>;
+  updateAccountProfile(request: UpdateAccountProfileRequest): Promise<AccountProfile>;
   resolvePath(request: ResolvePathRequest): Promise<ResolvePathResponse>;
   listDirectory(
     request: ListDirectoryRequest

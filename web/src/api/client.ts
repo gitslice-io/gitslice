@@ -111,6 +111,36 @@ export function createApiClient({
       unary<Api.RemoveAccountMemberResponse>(() =>
         auth.removeAccountMember(toProtoRequest(request))
       ),
+    createOrganization: (request) =>
+      unary<Api.CreateOrganizationResponse>(() =>
+        auth.createOrganization(toProtoRequest(request))
+      ),
+    inviteAccountMember: (request) =>
+      unary<Api.InviteAccountMemberResponse>(() =>
+        auth.inviteAccountMember(toProtoRequest(request))
+      ),
+    listAccountInvitations: (request) =>
+      unary<Api.ListInvitationsResponse>(() =>
+        auth.listAccountInvitations(toProtoRequest(request))
+      ),
+    listMyInvitations: (request) =>
+      unary<Api.ListInvitationsResponse>(() =>
+        auth.listMyInvitations(toProtoRequest(request))
+      ),
+    respondToInvitation: (request) =>
+      unary<Api.RespondToInvitationResponse>(() =>
+        auth.respondToInvitation(toProtoRequest(request))
+      ),
+    cancelAccountInvitation: (request) =>
+      unary<Record<string, never>>(() =>
+        auth.cancelAccountInvitation(toProtoRequest(request))
+      ),
+    getAccountProfile: (request) =>
+      unary<Api.AccountProfile>(() => auth.getAccountProfile(toProtoRequest(request))),
+    updateAccountProfile: (request) =>
+      unary<Api.AccountProfile>(() =>
+        auth.updateAccountProfile(toProtoRequest(request))
+      ),
     resolvePath: (request) =>
       unary<Api.ResolvePathResponse>(() =>
         repository.resolvePath(toProtoRequest(request))

@@ -16,9 +16,10 @@ const ROLE_HELP: Record<string, string> = {
   writer: "can change files"
 };
 
-// An organization's people, for its members. Owners and admins can add people,
-// change their roles and remove them; the server enforces who may do what
-// (admins cannot make or remove owners, and the last owner stays).
+// An organization's people, for its members. Owners and admins invite people
+// (who join when they accept), change roles and remove people; the server
+// enforces who may do what (admins cannot make or remove owners, and the last
+// owner stays).
 export function AccountPeople({ account, membership }: { account: string; membership: Membership }) {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -31,12 +32,33 @@ export function AccountPeople({ account, membership }: { account: string; member
     queryKey: ["accountMembers", account],
     queryFn: () => api.listAccountMembers({ account })
   });
+  const invitationsQuery = useQuery({
+    enabled: manage,
+    queryKey: ["accountInvitations", account],
+    queryFn: async () => (await api.listAccountInvitations({ account })).invitations ?? []
+  });
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["accountMembers", account] });
-    // Your own role may have changed.
-    await queryClient.invalidateQueries({ queryKey: ["authStatus"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["accountMembers", account] }),
+      queryClient.invalidateQueries({ queryKey: ["accountInvitations", account] }),
+      // Your own role may have changed.
+      queryClient.invalidateQueries({ queryKey: ["authStatus"] })
+    ]);
   };
+
+  const invite = useMutation({
+    mutationFn: (input: { username: string; role: string }) => api.inviteAccountMember({ account, ...input }),
+    onError: (err) => setError(getErrorMessage(err)),
+    onMutate: () => setError(""),
+    onSuccess: refresh
+  });
+  const cancelInvite = useMutation({
+    mutationFn: (name: string) => api.cancelAccountInvitation({ account, username: name }),
+    onError: (err) => setError(getErrorMessage(err)),
+    onMutate: () => setError(""),
+    onSuccess: refresh
+  });
 
   const setMember = useMutation({
     mutationFn: (input: { username: string; role: string }) => api.setAccountMember({ account, ...input }),
@@ -57,17 +79,20 @@ export function AccountPeople({ account, membership }: { account: string; member
     if (!name) {
       return;
     }
-    setMember.mutate({ role, username: name }, { onSuccess: () => setUsername("") });
+    invite.mutate({ role, username: name }, { onSuccess: () => setUsername("") });
   }
 
   const members = membersQuery.data?.members ?? [];
-  const busy = setMember.isPending || removeMember.isPending;
+  const busy = setMember.isPending || removeMember.isPending || invite.isPending || cancelInvite.isPending;
+  const invitations = invitationsQuery.data ?? [];
 
   return (
     <section aria-label="People" className="mt-10">
       <h2 className="mb-2 text-sm font-semibold text-zinc-950 dark:text-zinc-50">People</h2>
       <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-        {manage ? "Members of this organization and their roles. You can manage them." : "Members of this organization and their roles."}
+        {manage
+          ? "Members of this organization and their roles. Invite people by username; they join when they accept."
+          : "Members of this organization and their roles."}
       </p>
       {error ? (
         <div className="mb-4">
@@ -126,10 +151,37 @@ export function AccountPeople({ account, membership }: { account: string; member
           })}
         </ul>
       )}
+      {manage && invitations.length > 0 ? (
+        <div className="mt-6">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">Pending invitations</h3>
+          <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-dashed border-slate-300 bg-white dark:divide-zinc-800 dark:border-zinc-700 dark:bg-zinc-900">
+            {invitations.map((invitation) => (
+              <li className="flex flex-wrap items-center gap-3 px-4 py-2.5" key={invitation.username}>
+                <AccountAvatar account={invitation.username ?? "?"} kind="personal" />
+                <span className="min-w-0 flex-1 truncate text-sm text-zinc-950 dark:text-zinc-50">
+                  {invitation.username}
+                  <span className="ml-2 text-xs text-slate-500 dark:text-zinc-400">
+                    invited as {invitation.role}
+                    {invitation.invitedBy ? ` by ${invitation.invitedBy}` : ""}
+                  </span>
+                </span>
+                <button
+                  className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                  disabled={busy}
+                  onClick={() => cancelInvite.mutate(invitation.username ?? "")}
+                  type="button"
+                >
+                  Cancel invitation
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {manage ? (
         <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={add}>
           <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
-            Add a person by username
+            Invite a person by username
             <input
               className="h-9 w-56 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
               disabled={busy}
@@ -159,7 +211,7 @@ export function AccountPeople({ account, membership }: { account: string; member
             disabled={busy || username.trim() === ""}
             type="submit"
           >
-            Add
+            Invite
           </button>
         </form>
       ) : null}

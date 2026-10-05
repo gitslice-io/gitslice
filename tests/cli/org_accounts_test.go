@@ -33,7 +33,9 @@ func TestOrganizationAccounts(t *testing.T) {
 	auth := corev1.NewAuthServiceClient(conn)
 
 	_, err := auth.CreateOrganization(grpcAuthContext(writerToken), &corev1.CreateOrganizationRequest{Slug: "gitslice"})
-	wantCode(t, err, codes.PermissionDenied, "non-operator CreateOrganization")
+	// Anyone may create an organization, but names reserved for sign-up are
+	// for operators.
+	wantCode(t, err, codes.InvalidArgument, "non-operator CreateOrganization with a reserved name")
 
 	// Operators may claim names reserved for self-service sign-up.
 	operatorHome := t.TempDir()

@@ -6,13 +6,23 @@ import { PageHeader } from "../components/PageHeader";
 import { NewConversationDialog } from "../components/slices/NewConversationDialog";
 import { OwnedAgents } from "../components/slices/OwnedAgents";
 import { PendingClaims } from "../components/slices/PendingClaims";
+import { PendingInvitations } from "../components/slices/PendingInvitations";
 import { RecentConversations } from "../components/slices/RecentConversations";
 import { SlicesList } from "../components/slices/SlicesList";
+import { kindLabel } from "../lib/accounts";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
+import { useSelection } from "../state/selection";
 
 export function HomePage() {
   const navigate = useNavigate();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const { activeAccount, activeMembership, memberships } = useSelection();
+  // Home shows the account picked in the top bar. Your personal context also
+  // covers the agents you own; an organization's shows only the organization.
+  const personal = (activeMembership?.kind ?? "personal") === "personal";
+  const contextAccounts = personal
+    ? memberships.filter((m) => m.kind === "personal" || m.kind === "agent").map((m) => m.account)
+    : [activeAccount];
 
   function navigateToConversation(conversation: Conversation) {
     const routeParams = toSliceRouteParams(conversation.slice);
@@ -41,7 +51,7 @@ export function HomePage() {
         }
         title={
           <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg">
-            Home
+            {personal || !activeAccount ? "Home" : `${activeAccount} · ${kindLabel(activeMembership?.kind ?? "")}`}
           </h1>
         }
       />
@@ -51,9 +61,10 @@ export function HomePage() {
         open={isCreateOpen}
       />
       <div className="mt-2 grid gap-8">
-        <PendingClaims />
-        <RecentConversations />
-        <OwnedAgents />
+        <PendingInvitations />
+        {personal ? <PendingClaims /> : null}
+        <RecentConversations accounts={contextAccounts.length > 0 ? contextAccounts : undefined} />
+        {personal ? <OwnedAgents /> : null}
         <SlicesList />
       </div>
     </section>

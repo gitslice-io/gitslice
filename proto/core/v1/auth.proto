@@ -25,18 +25,42 @@ service AuthService {
   // owns (typically after AcceptClaim), with basic activity.
   rpc ListOwnedAgents(ListOwnedAgentsRequest) returns (ListOwnedAgentsResponse);
   // CreateOrganization creates an organization account (with a private home
-  // slice) owned by the given users. Operator-only: the caller's subject must
-  // be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
-  // names reserved for self-service sign-up.
+  // slice). Any signed-in user with a personal account may create one and
+  // becomes its only owner; names reserved for sign-up are refused, and a user
+  // owns at most 20 organizations they created. Operators (the server's
+  // GITSLICE_OPERATOR_SUBJECTS) may use reserved names and name other owners.
   rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse);
   // ListAccountMembers lists an account's members. Any member may call it.
   rpc ListAccountMembers(ListAccountMembersRequest) returns (ListAccountMembersResponse);
-  // SetAccountMember adds a user to an organization or changes their role.
-  // Owners and admins may call it; only owners grant or revoke owner.
+  // SetAccountMember changes a member's role. Owners and admins may call it;
+  // only owners grant or revoke owner. Adding someone who is not a member is
+  // for operators only; everyone else invites them (InviteAccountMember).
   rpc SetAccountMember(SetAccountMemberRequest) returns (SetAccountMemberResponse);
   // RemoveAccountMember removes a user from an organization. The last owner
   // cannot be removed.
   rpc RemoveAccountMember(RemoveAccountMemberRequest) returns (RemoveAccountMemberResponse);
+  // InviteAccountMember invites a user to an organization with a role. They
+  // become a member only when they accept. Owners and admins may invite;
+  // only owners invite owners. Inviting someone already invited replaces the
+  // invitation's role.
+  rpc InviteAccountMember(InviteAccountMemberRequest) returns (InviteAccountMemberResponse);
+  // ListAccountInvitations lists an organization's pending invitations, for
+  // its owners and admins.
+  rpc ListAccountInvitations(ListAccountInvitationsRequest) returns (ListAccountInvitationsResponse);
+  // ListMyInvitations lists the caller's pending invitations.
+  rpc ListMyInvitations(ListMyInvitationsRequest) returns (ListMyInvitationsResponse);
+  // RespondToInvitation accepts or declines the caller's invitation to an
+  // organization. Either way the invitation is gone afterwards.
+  rpc RespondToInvitation(RespondToInvitationRequest) returns (RespondToInvitationResponse);
+  // CancelAccountInvitation withdraws a pending invitation. Owners and admins
+  // may call it.
+  rpc CancelAccountInvitation(CancelAccountInvitationRequest) returns (CancelAccountInvitationResponse);
+  // GetAccountProfile returns an account's public profile. Anyone may call it,
+  // signed in or not.
+  rpc GetAccountProfile(GetAccountProfileRequest) returns (AccountProfile);
+  // UpdateAccountProfile changes an account's profile: an organization's by
+  // its owners and admins, a personal account's by its person.
+  rpc UpdateAccountProfile(UpdateAccountProfileRequest) returns (AccountProfile);
 }
 
 message StartCliLoginRequest {}
@@ -225,3 +249,81 @@ message RemoveAccountMemberRequest {
 }
 
 message RemoveAccountMemberResponse {}
+
+message AccountInvitation {
+  string account = 1;
+  // The invited user's username.
+  string username = 2;
+  // owner, admin, writer, member or reader.
+  string role = 3;
+  // Username of whoever sent the invitation.
+  string invited_by = 4;
+  // RFC 3339.
+  string created_at = 5;
+}
+
+message InviteAccountMemberRequest {
+  string account = 1;
+  string username = 2;
+  string role = 3;
+}
+
+message InviteAccountMemberResponse {
+  AccountInvitation invitation = 1;
+}
+
+message ListAccountInvitationsRequest {
+  string account = 1;
+}
+
+message ListAccountInvitationsResponse {
+  repeated AccountInvitation invitations = 1;
+}
+
+message ListMyInvitationsRequest {}
+
+message ListMyInvitationsResponse {
+  repeated AccountInvitation invitations = 1;
+}
+
+message RespondToInvitationRequest {
+  string account = 1;
+  bool accept = 2;
+}
+
+message RespondToInvitationResponse {
+  // The caller's new membership, when they accepted.
+  AccountMembership membership = 1;
+}
+
+message CancelAccountInvitationRequest {
+  string account = 1;
+  string username = 2;
+}
+
+message CancelAccountInvitationResponse {}
+
+message AccountProfile {
+  string account = 1;
+  // personal or organization.
+  string kind = 2;
+  // At most 64 characters; empty when not set.
+  string display_name = 3;
+  // At most 280 characters.
+  string description = 4;
+  // An http or https URL, at most 200 characters.
+  string website = 5;
+  // RFC 3339.
+  string created_at = 6;
+}
+
+message GetAccountProfileRequest {
+  string account = 1;
+}
+
+message UpdateAccountProfileRequest {
+  string account = 1;
+  string display_name = 2;
+  string description = 3;
+  string website = 4;
+}

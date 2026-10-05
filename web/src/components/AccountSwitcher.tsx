@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { kindLabel, type Membership } from "../lib/accounts";
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
+import { useMyInvitations } from "./slices/PendingInvitations";
 
 // The account switcher in the top bar: like GitHub's context switcher, it
 // picks which of the viewer's accounts (personal, organizations, claimed
@@ -13,6 +14,7 @@ export function AccountSwitcher() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const invitations = useMyInvitations().data ?? [];
 
   useEffect(() => {
     if (!open) {
@@ -70,6 +72,14 @@ export function AccountSwitcher() {
             {kindLabel(activeMembership?.kind ?? "")}
           </span>
         </span>
+        {invitations.length > 0 ? (
+          <span
+            aria-label={`${invitations.length} pending invitation${invitations.length === 1 ? "" : "s"}`}
+            className="rounded-full bg-sky-600 px-1.5 text-[10px] font-semibold leading-4 text-white"
+          >
+            {invitations.length}
+          </span>
+        ) : null}
         <span aria-hidden className="text-xs text-slate-400">
           ▾
         </span>
@@ -116,6 +126,24 @@ export function AccountSwitcher() {
               ))}
           </div>
           <div className="border-t border-slate-200 py-1 dark:border-zinc-800">
+            {invitations.length > 0 ? (
+              <Link
+                className="block px-3 py-2 text-sm font-medium text-sky-700 transition hover:bg-slate-50 dark:text-sky-300 dark:hover:bg-zinc-950"
+                onClick={() => setOpen(false)}
+                role="menuitem"
+                to="/"
+              >
+                {invitations.length === 1 ? "1 pending invitation" : `${invitations.length} pending invitations`}
+              </Link>
+            ) : null}
+            <Link
+              className="block px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-950"
+              onClick={() => setOpen(false)}
+              role="menuitem"
+              to="/organizations/new"
+            >
+              New organization
+            </Link>
             <Link
               className="block px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-zinc-950"
               onClick={() => setOpen(false)}

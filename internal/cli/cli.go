@@ -76,6 +76,9 @@ type UserConfig struct {
 	Token      string            `json:"token"`
 	SubjectID  string            `json:"subject_id"`
 	Aliases    map[string]string `json:"aliases,omitempty"`
+	// ActiveAccount is the account commands default to (gs account use), when
+	// the user still belongs to it; otherwise their personal account.
+	ActiveAccount string `json:"active_account,omitempty"`
 }
 
 type WorkspaceConfig struct {
@@ -322,7 +325,9 @@ type authStatusOutput struct {
 	ServerAddr string   `json:"server_addr,omitempty"`
 	SubjectID  string   `json:"subject_id,omitempty"`
 	Accounts   []string `json:"accounts,omitempty"`
-	Reason     string   `json:"reason,omitempty"`
+	// ActiveAccount is set by gs account use, while the user belongs to it.
+	ActiveAccount string `json:"active_account,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 type authTokenOutput struct {
@@ -3106,11 +3111,16 @@ func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
 		}
 		return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "auth_check_failed"}, err
 	}
+	active := ""
+	if containsFold(res.Accounts, cfg.ActiveAccount) {
+		active = cfg.ActiveAccount
+	}
 	return authStatusOutput{
-		SignedIn:   true,
-		ServerAddr: cfg.ServerAddr,
-		SubjectID:  res.SubjectId,
-		Accounts:   res.Accounts,
+		SignedIn:      true,
+		ServerAddr:    cfg.ServerAddr,
+		SubjectID:     res.SubjectId,
+		Accounts:      res.Accounts,
+		ActiveAccount: active,
 	}, nil
 }
 
@@ -3137,6 +3147,9 @@ func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) er
 		fmt.Fprintln(r.Stdout, "signed in")
 	}
 	fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
+	if status.ActiveAccount != "" {
+		fmt.Fprintf(r.Stdout, "active account: %s\n", status.ActiveAccount)
+	}
 	return nil
 }
 
@@ -4061,6 +4074,11 @@ func (r Runner) defaultSliceAccount(ctx context.Context, cfg UserConfig, conn *g
 	if conn == nil {
 		return "", userError("account_required", "account is required", "Run gs slice list <account>.")
 	}
+	if active, err := r.activeAccount(ctx, cfg, conn); err != nil {
+		return "", err
+	} else if active != "" {
+		return active, nil
+	}
 	account, err := r.personalAccountSlug(ctx, conn)
 	if err != nil {
 		if isUserErrorCode(err, "no_account") {
@@ -4069,6 +4087,36 @@ func (r Runner) defaultSliceAccount(ctx context.Context, cfg UserConfig, conn *g
 		return "", err
 	}
 	return account, nil
+}
+
+// activeAccount returns the account chosen with gs account use, if the user
+// still belongs to it, or "".
+func (r Runner) activeAccount(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn) (string, error) {
+	if strings.TrimSpace(cfg.ActiveAccount) == "" {
+		return "", nil
+	}
+	// ctx already carries the caller's credentials, as for personalAccountSlug.
+	status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(ctx, &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		return "", err
+	}
+	if containsFold(status.Accounts, cfg.ActiveAccount) {
+		return strings.TrimSpace(cfg.ActiveAccount), nil
+	}
+	return "", nil
+}
+
+func containsFold(values []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.EqualFold(value, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultSliceIncludedPaths(ref *corev1.SliceRef) []string {

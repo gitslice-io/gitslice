@@ -306,7 +306,8 @@ An organization is an account (`accounts.kind = 'organization'`) that belongs
 to its members rather than to one subject. It has a private `home` slice
 covering `/<slug>` and an account root directory, like a personal account.
 
-**Creation is operator-only.** The caller's subject id must be listed in
+**Creation by operators.** (Since 9.3 anyone with a username may also create
+an organization, without the operator powers below.) An operator's subject id is listed in
 `GITSLICE_OPERATOR_SUBJECTS`, separated by commas, semicolons or spaces. In
 production that is the `_OPERATOR_SUBJECTS` Cloud Build substitution.
 Operators may use names reserved for self-service sign-up, such as
@@ -323,7 +324,7 @@ gs account create-org gitslice [--owner <username>]...
 | RPC | Who may call it | Effect |
 |---|---|---|
 | `ListAccountMembers` | members, operators | lists members, owners first; for anyone else the account does not exist (NotFound) |
-| `SetAccountMember` | owners, admins, operators | makes a role the member's only role on the organization |
+| `SetAccountMember` | owners, admins, operators | makes a role a member's only role; only operators add a non-member (others invite, 9.3) |
 | `RemoveAccountMember` | owners, admins, operators | removes every membership of the member |
 
 Rules:
@@ -367,16 +368,36 @@ personal account, an organization they belong to, or an agent they claimed.
   decides; the UI only stops offering what it would refuse. A role an older
   server did not report is given the benefit of the doubt.
 
-Not done yet:
+## 9.3 Self-Service Organizations, Invitations And Profiles (2026-10)
 
-- Creating an organization is still operator-only; there is no self-service
-  "New organization".
-- Adding a member is immediate; there are no invitations to accept.
-- Organizations have no profile of their own (display name, description,
-  avatar).
-- The CLI has no active account: commands default to the personal account
-  and take an explicit account where it matters (`gs slice list <account>`).
-- Home's conversations and agents are not filtered by the active account.
+- **Anyone can create an organization.** A signed-in user with a username
+  calls `CreateOrganization` (web: "New organization" in the account menu,
+  `/organizations/new`; CLI: `gs account create-org <name>`). They are its only
+  owner. Names reserved for sign-up are refused, and a user may have created at
+  most 20 organizations (`accounts.created_by_subject_id`). Operators keep the
+  old powers: reserved names and naming other owners.
+- **Invitations.** Owners and admins invite people by username with a role
+  (`InviteAccountMember`, `gs account invite`); only owners invite owners. The
+  invitation (`account_invitations`) becomes a membership only when the invitee
+  accepts it (`RespondToInvitation`; web: the card on Home and the badge in the
+  account menu; CLI: `gs account invitations`, `accept`, `decline`). Owners and
+  admins see and cancel pending ones (`ListAccountInvitations`,
+  `CancelAccountInvitation`). Inviting again replaces the role.
+  `SetAccountMember` now only changes the role of existing members; adding a
+  non-member directly is left to operators, for server automation such as
+  `ops/selfhost/phase1.sh`.
+- **Profiles.** Each account has a display name (64 characters), description
+  (280) and website (an http or https URL), public through `GetAccountProfile`
+  and shown on its account page. An organization's owners and admins edit it,
+  as does a person their own (`UpdateAccountProfile`, `gs account set-profile`).
+  There is no avatar image; pages draw initials.
+- **CLI active account.** `gs account use <account>` stores `active_account` in
+  `~/.gitslice/config.json`; commands that default an account (`gs slice list`)
+  use it while the user still belongs to it. `gs account use --clear` goes back
+  to the personal account, `gs account current` shows which applies, and
+  `gs auth status` reports it.
+- **Home follows the active account** for conversations too; agent claims and
+  owned agents appear only in the personal context.
 
 ## 10. Subject Propagation And Audit Fields
 
@@ -409,7 +430,7 @@ from the validated bearer token on each server request.
 - no production identity provider
 - no refresh-token lifecycle
 - no server-side session revocation command
-- organization creation is operator-only (see 9.2 for the other account gaps)
+- no organization avatars or invitation expiry
 - incomplete path/read authorization on repository and blob APIs
 - no implemented auth-aware short commit id resolver yet
 - no per-slice or per-path ACLs

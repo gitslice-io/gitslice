@@ -74,6 +74,27 @@ const (
 	// AuthServiceRemoveAccountMemberProcedure is the fully-qualified name of the AuthService's
 	// RemoveAccountMember RPC.
 	AuthServiceRemoveAccountMemberProcedure = "/gitslice.core.v1.AuthService/RemoveAccountMember"
+	// AuthServiceInviteAccountMemberProcedure is the fully-qualified name of the AuthService's
+	// InviteAccountMember RPC.
+	AuthServiceInviteAccountMemberProcedure = "/gitslice.core.v1.AuthService/InviteAccountMember"
+	// AuthServiceListAccountInvitationsProcedure is the fully-qualified name of the AuthService's
+	// ListAccountInvitations RPC.
+	AuthServiceListAccountInvitationsProcedure = "/gitslice.core.v1.AuthService/ListAccountInvitations"
+	// AuthServiceListMyInvitationsProcedure is the fully-qualified name of the AuthService's
+	// ListMyInvitations RPC.
+	AuthServiceListMyInvitationsProcedure = "/gitslice.core.v1.AuthService/ListMyInvitations"
+	// AuthServiceRespondToInvitationProcedure is the fully-qualified name of the AuthService's
+	// RespondToInvitation RPC.
+	AuthServiceRespondToInvitationProcedure = "/gitslice.core.v1.AuthService/RespondToInvitation"
+	// AuthServiceCancelAccountInvitationProcedure is the fully-qualified name of the AuthService's
+	// CancelAccountInvitation RPC.
+	AuthServiceCancelAccountInvitationProcedure = "/gitslice.core.v1.AuthService/CancelAccountInvitation"
+	// AuthServiceGetAccountProfileProcedure is the fully-qualified name of the AuthService's
+	// GetAccountProfile RPC.
+	AuthServiceGetAccountProfileProcedure = "/gitslice.core.v1.AuthService/GetAccountProfile"
+	// AuthServiceUpdateAccountProfileProcedure is the fully-qualified name of the AuthService's
+	// UpdateAccountProfile RPC.
+	AuthServiceUpdateAccountProfileProcedure = "/gitslice.core.v1.AuthService/UpdateAccountProfile"
 )
 
 // AuthServiceClient is a client for the gitslice.core.v1.AuthService service.
@@ -98,18 +119,42 @@ type AuthServiceClient interface {
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error)
 	// CreateOrganization creates an organization account (with a private home
-	// slice) owned by the given users. Operator-only: the caller's subject must
-	// be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
-	// names reserved for self-service sign-up.
+	// slice). Any signed-in user with a personal account may create one and
+	// becomes its only owner; names reserved for sign-up are refused, and a user
+	// owns at most 20 organizations they created. Operators (the server's
+	// GITSLICE_OPERATOR_SUBJECTS) may use reserved names and name other owners.
 	CreateOrganization(context.Context, *connect.Request[v1.CreateOrganizationRequest]) (*connect.Response[v1.CreateOrganizationResponse], error)
 	// ListAccountMembers lists an account's members. Any member may call it.
 	ListAccountMembers(context.Context, *connect.Request[v1.ListAccountMembersRequest]) (*connect.Response[v1.ListAccountMembersResponse], error)
-	// SetAccountMember adds a user to an organization or changes their role.
-	// Owners and admins may call it; only owners grant or revoke owner.
+	// SetAccountMember changes a member's role. Owners and admins may call it;
+	// only owners grant or revoke owner. Adding someone who is not a member is
+	// for operators only; everyone else invites them (InviteAccountMember).
 	SetAccountMember(context.Context, *connect.Request[v1.SetAccountMemberRequest]) (*connect.Response[v1.SetAccountMemberResponse], error)
 	// RemoveAccountMember removes a user from an organization. The last owner
 	// cannot be removed.
 	RemoveAccountMember(context.Context, *connect.Request[v1.RemoveAccountMemberRequest]) (*connect.Response[v1.RemoveAccountMemberResponse], error)
+	// InviteAccountMember invites a user to an organization with a role. They
+	// become a member only when they accept. Owners and admins may invite;
+	// only owners invite owners. Inviting someone already invited replaces the
+	// invitation's role.
+	InviteAccountMember(context.Context, *connect.Request[v1.InviteAccountMemberRequest]) (*connect.Response[v1.InviteAccountMemberResponse], error)
+	// ListAccountInvitations lists an organization's pending invitations, for
+	// its owners and admins.
+	ListAccountInvitations(context.Context, *connect.Request[v1.ListAccountInvitationsRequest]) (*connect.Response[v1.ListAccountInvitationsResponse], error)
+	// ListMyInvitations lists the caller's pending invitations.
+	ListMyInvitations(context.Context, *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error)
+	// RespondToInvitation accepts or declines the caller's invitation to an
+	// organization. Either way the invitation is gone afterwards.
+	RespondToInvitation(context.Context, *connect.Request[v1.RespondToInvitationRequest]) (*connect.Response[v1.RespondToInvitationResponse], error)
+	// CancelAccountInvitation withdraws a pending invitation. Owners and admins
+	// may call it.
+	CancelAccountInvitation(context.Context, *connect.Request[v1.CancelAccountInvitationRequest]) (*connect.Response[v1.CancelAccountInvitationResponse], error)
+	// GetAccountProfile returns an account's public profile. Anyone may call it,
+	// signed in or not.
+	GetAccountProfile(context.Context, *connect.Request[v1.GetAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error)
+	// UpdateAccountProfile changes an account's profile: an organization's by
+	// its owners and admins, a personal account's by its person.
+	UpdateAccountProfile(context.Context, *connect.Request[v1.UpdateAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error)
 }
 
 // NewAuthServiceClient constructs a client for the gitslice.core.v1.AuthService service. By
@@ -207,25 +252,74 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("RemoveAccountMember")),
 			connect.WithClientOptions(opts...),
 		),
+		inviteAccountMember: connect.NewClient[v1.InviteAccountMemberRequest, v1.InviteAccountMemberResponse](
+			httpClient,
+			baseURL+AuthServiceInviteAccountMemberProcedure,
+			connect.WithSchema(authServiceMethods.ByName("InviteAccountMember")),
+			connect.WithClientOptions(opts...),
+		),
+		listAccountInvitations: connect.NewClient[v1.ListAccountInvitationsRequest, v1.ListAccountInvitationsResponse](
+			httpClient,
+			baseURL+AuthServiceListAccountInvitationsProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ListAccountInvitations")),
+			connect.WithClientOptions(opts...),
+		),
+		listMyInvitations: connect.NewClient[v1.ListMyInvitationsRequest, v1.ListMyInvitationsResponse](
+			httpClient,
+			baseURL+AuthServiceListMyInvitationsProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ListMyInvitations")),
+			connect.WithClientOptions(opts...),
+		),
+		respondToInvitation: connect.NewClient[v1.RespondToInvitationRequest, v1.RespondToInvitationResponse](
+			httpClient,
+			baseURL+AuthServiceRespondToInvitationProcedure,
+			connect.WithSchema(authServiceMethods.ByName("RespondToInvitation")),
+			connect.WithClientOptions(opts...),
+		),
+		cancelAccountInvitation: connect.NewClient[v1.CancelAccountInvitationRequest, v1.CancelAccountInvitationResponse](
+			httpClient,
+			baseURL+AuthServiceCancelAccountInvitationProcedure,
+			connect.WithSchema(authServiceMethods.ByName("CancelAccountInvitation")),
+			connect.WithClientOptions(opts...),
+		),
+		getAccountProfile: connect.NewClient[v1.GetAccountProfileRequest, v1.AccountProfile](
+			httpClient,
+			baseURL+AuthServiceGetAccountProfileProcedure,
+			connect.WithSchema(authServiceMethods.ByName("GetAccountProfile")),
+			connect.WithClientOptions(opts...),
+		),
+		updateAccountProfile: connect.NewClient[v1.UpdateAccountProfileRequest, v1.AccountProfile](
+			httpClient,
+			baseURL+AuthServiceUpdateAccountProfileProcedure,
+			connect.WithSchema(authServiceMethods.ByName("UpdateAccountProfile")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	startCliLogin          *connect.Client[v1.StartCliLoginRequest, v1.StartCliLoginResponse]
-	pollCliLogin           *connect.Client[v1.PollCliLoginRequest, v1.PollCliLoginResponse]
-	completeCliLogin       *connect.Client[v1.CompleteCliLoginRequest, v1.CompleteCliLoginResponse]
-	getAuthStatus          *connect.Client[v1.GetAuthStatusRequest, v1.GetAuthStatusResponse]
-	checkUsernameAvailable *connect.Client[v1.CheckUsernameAvailableRequest, v1.CheckUsernameAvailableResponse]
-	chooseUsername         *connect.Client[v1.ChooseUsernameRequest, v1.ChooseUsernameResponse]
-	registerAgent          *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
-	listPendingClaims      *connect.Client[v1.ListPendingClaimsRequest, v1.ListPendingClaimsResponse]
-	acceptClaim            *connect.Client[v1.AcceptClaimRequest, v1.AcceptClaimResponse]
-	listOwnedAgents        *connect.Client[v1.ListOwnedAgentsRequest, v1.ListOwnedAgentsResponse]
-	createOrganization     *connect.Client[v1.CreateOrganizationRequest, v1.CreateOrganizationResponse]
-	listAccountMembers     *connect.Client[v1.ListAccountMembersRequest, v1.ListAccountMembersResponse]
-	setAccountMember       *connect.Client[v1.SetAccountMemberRequest, v1.SetAccountMemberResponse]
-	removeAccountMember    *connect.Client[v1.RemoveAccountMemberRequest, v1.RemoveAccountMemberResponse]
+	startCliLogin           *connect.Client[v1.StartCliLoginRequest, v1.StartCliLoginResponse]
+	pollCliLogin            *connect.Client[v1.PollCliLoginRequest, v1.PollCliLoginResponse]
+	completeCliLogin        *connect.Client[v1.CompleteCliLoginRequest, v1.CompleteCliLoginResponse]
+	getAuthStatus           *connect.Client[v1.GetAuthStatusRequest, v1.GetAuthStatusResponse]
+	checkUsernameAvailable  *connect.Client[v1.CheckUsernameAvailableRequest, v1.CheckUsernameAvailableResponse]
+	chooseUsername          *connect.Client[v1.ChooseUsernameRequest, v1.ChooseUsernameResponse]
+	registerAgent           *connect.Client[v1.RegisterAgentRequest, v1.RegisterAgentResponse]
+	listPendingClaims       *connect.Client[v1.ListPendingClaimsRequest, v1.ListPendingClaimsResponse]
+	acceptClaim             *connect.Client[v1.AcceptClaimRequest, v1.AcceptClaimResponse]
+	listOwnedAgents         *connect.Client[v1.ListOwnedAgentsRequest, v1.ListOwnedAgentsResponse]
+	createOrganization      *connect.Client[v1.CreateOrganizationRequest, v1.CreateOrganizationResponse]
+	listAccountMembers      *connect.Client[v1.ListAccountMembersRequest, v1.ListAccountMembersResponse]
+	setAccountMember        *connect.Client[v1.SetAccountMemberRequest, v1.SetAccountMemberResponse]
+	removeAccountMember     *connect.Client[v1.RemoveAccountMemberRequest, v1.RemoveAccountMemberResponse]
+	inviteAccountMember     *connect.Client[v1.InviteAccountMemberRequest, v1.InviteAccountMemberResponse]
+	listAccountInvitations  *connect.Client[v1.ListAccountInvitationsRequest, v1.ListAccountInvitationsResponse]
+	listMyInvitations       *connect.Client[v1.ListMyInvitationsRequest, v1.ListMyInvitationsResponse]
+	respondToInvitation     *connect.Client[v1.RespondToInvitationRequest, v1.RespondToInvitationResponse]
+	cancelAccountInvitation *connect.Client[v1.CancelAccountInvitationRequest, v1.CancelAccountInvitationResponse]
+	getAccountProfile       *connect.Client[v1.GetAccountProfileRequest, v1.AccountProfile]
+	updateAccountProfile    *connect.Client[v1.UpdateAccountProfileRequest, v1.AccountProfile]
 }
 
 // StartCliLogin calls gitslice.core.v1.AuthService.StartCliLogin.
@@ -298,6 +392,41 @@ func (c *authServiceClient) RemoveAccountMember(ctx context.Context, req *connec
 	return c.removeAccountMember.CallUnary(ctx, req)
 }
 
+// InviteAccountMember calls gitslice.core.v1.AuthService.InviteAccountMember.
+func (c *authServiceClient) InviteAccountMember(ctx context.Context, req *connect.Request[v1.InviteAccountMemberRequest]) (*connect.Response[v1.InviteAccountMemberResponse], error) {
+	return c.inviteAccountMember.CallUnary(ctx, req)
+}
+
+// ListAccountInvitations calls gitslice.core.v1.AuthService.ListAccountInvitations.
+func (c *authServiceClient) ListAccountInvitations(ctx context.Context, req *connect.Request[v1.ListAccountInvitationsRequest]) (*connect.Response[v1.ListAccountInvitationsResponse], error) {
+	return c.listAccountInvitations.CallUnary(ctx, req)
+}
+
+// ListMyInvitations calls gitslice.core.v1.AuthService.ListMyInvitations.
+func (c *authServiceClient) ListMyInvitations(ctx context.Context, req *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error) {
+	return c.listMyInvitations.CallUnary(ctx, req)
+}
+
+// RespondToInvitation calls gitslice.core.v1.AuthService.RespondToInvitation.
+func (c *authServiceClient) RespondToInvitation(ctx context.Context, req *connect.Request[v1.RespondToInvitationRequest]) (*connect.Response[v1.RespondToInvitationResponse], error) {
+	return c.respondToInvitation.CallUnary(ctx, req)
+}
+
+// CancelAccountInvitation calls gitslice.core.v1.AuthService.CancelAccountInvitation.
+func (c *authServiceClient) CancelAccountInvitation(ctx context.Context, req *connect.Request[v1.CancelAccountInvitationRequest]) (*connect.Response[v1.CancelAccountInvitationResponse], error) {
+	return c.cancelAccountInvitation.CallUnary(ctx, req)
+}
+
+// GetAccountProfile calls gitslice.core.v1.AuthService.GetAccountProfile.
+func (c *authServiceClient) GetAccountProfile(ctx context.Context, req *connect.Request[v1.GetAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error) {
+	return c.getAccountProfile.CallUnary(ctx, req)
+}
+
+// UpdateAccountProfile calls gitslice.core.v1.AuthService.UpdateAccountProfile.
+func (c *authServiceClient) UpdateAccountProfile(ctx context.Context, req *connect.Request[v1.UpdateAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error) {
+	return c.updateAccountProfile.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the gitslice.core.v1.AuthService service.
 type AuthServiceHandler interface {
 	StartCliLogin(context.Context, *connect.Request[v1.StartCliLoginRequest]) (*connect.Response[v1.StartCliLoginResponse], error)
@@ -320,18 +449,42 @@ type AuthServiceHandler interface {
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error)
 	// CreateOrganization creates an organization account (with a private home
-	// slice) owned by the given users. Operator-only: the caller's subject must
-	// be listed in the server's GITSLICE_OPERATOR_SUBJECTS. Operators may use
-	// names reserved for self-service sign-up.
+	// slice). Any signed-in user with a personal account may create one and
+	// becomes its only owner; names reserved for sign-up are refused, and a user
+	// owns at most 20 organizations they created. Operators (the server's
+	// GITSLICE_OPERATOR_SUBJECTS) may use reserved names and name other owners.
 	CreateOrganization(context.Context, *connect.Request[v1.CreateOrganizationRequest]) (*connect.Response[v1.CreateOrganizationResponse], error)
 	// ListAccountMembers lists an account's members. Any member may call it.
 	ListAccountMembers(context.Context, *connect.Request[v1.ListAccountMembersRequest]) (*connect.Response[v1.ListAccountMembersResponse], error)
-	// SetAccountMember adds a user to an organization or changes their role.
-	// Owners and admins may call it; only owners grant or revoke owner.
+	// SetAccountMember changes a member's role. Owners and admins may call it;
+	// only owners grant or revoke owner. Adding someone who is not a member is
+	// for operators only; everyone else invites them (InviteAccountMember).
 	SetAccountMember(context.Context, *connect.Request[v1.SetAccountMemberRequest]) (*connect.Response[v1.SetAccountMemberResponse], error)
 	// RemoveAccountMember removes a user from an organization. The last owner
 	// cannot be removed.
 	RemoveAccountMember(context.Context, *connect.Request[v1.RemoveAccountMemberRequest]) (*connect.Response[v1.RemoveAccountMemberResponse], error)
+	// InviteAccountMember invites a user to an organization with a role. They
+	// become a member only when they accept. Owners and admins may invite;
+	// only owners invite owners. Inviting someone already invited replaces the
+	// invitation's role.
+	InviteAccountMember(context.Context, *connect.Request[v1.InviteAccountMemberRequest]) (*connect.Response[v1.InviteAccountMemberResponse], error)
+	// ListAccountInvitations lists an organization's pending invitations, for
+	// its owners and admins.
+	ListAccountInvitations(context.Context, *connect.Request[v1.ListAccountInvitationsRequest]) (*connect.Response[v1.ListAccountInvitationsResponse], error)
+	// ListMyInvitations lists the caller's pending invitations.
+	ListMyInvitations(context.Context, *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error)
+	// RespondToInvitation accepts or declines the caller's invitation to an
+	// organization. Either way the invitation is gone afterwards.
+	RespondToInvitation(context.Context, *connect.Request[v1.RespondToInvitationRequest]) (*connect.Response[v1.RespondToInvitationResponse], error)
+	// CancelAccountInvitation withdraws a pending invitation. Owners and admins
+	// may call it.
+	CancelAccountInvitation(context.Context, *connect.Request[v1.CancelAccountInvitationRequest]) (*connect.Response[v1.CancelAccountInvitationResponse], error)
+	// GetAccountProfile returns an account's public profile. Anyone may call it,
+	// signed in or not.
+	GetAccountProfile(context.Context, *connect.Request[v1.GetAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error)
+	// UpdateAccountProfile changes an account's profile: an organization's by
+	// its owners and admins, a personal account's by its person.
+	UpdateAccountProfile(context.Context, *connect.Request[v1.UpdateAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -425,6 +578,48 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("RemoveAccountMember")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceInviteAccountMemberHandler := connect.NewUnaryHandler(
+		AuthServiceInviteAccountMemberProcedure,
+		svc.InviteAccountMember,
+		connect.WithSchema(authServiceMethods.ByName("InviteAccountMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceListAccountInvitationsHandler := connect.NewUnaryHandler(
+		AuthServiceListAccountInvitationsProcedure,
+		svc.ListAccountInvitations,
+		connect.WithSchema(authServiceMethods.ByName("ListAccountInvitations")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceListMyInvitationsHandler := connect.NewUnaryHandler(
+		AuthServiceListMyInvitationsProcedure,
+		svc.ListMyInvitations,
+		connect.WithSchema(authServiceMethods.ByName("ListMyInvitations")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceRespondToInvitationHandler := connect.NewUnaryHandler(
+		AuthServiceRespondToInvitationProcedure,
+		svc.RespondToInvitation,
+		connect.WithSchema(authServiceMethods.ByName("RespondToInvitation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceCancelAccountInvitationHandler := connect.NewUnaryHandler(
+		AuthServiceCancelAccountInvitationProcedure,
+		svc.CancelAccountInvitation,
+		connect.WithSchema(authServiceMethods.ByName("CancelAccountInvitation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceGetAccountProfileHandler := connect.NewUnaryHandler(
+		AuthServiceGetAccountProfileProcedure,
+		svc.GetAccountProfile,
+		connect.WithSchema(authServiceMethods.ByName("GetAccountProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceUpdateAccountProfileHandler := connect.NewUnaryHandler(
+		AuthServiceUpdateAccountProfileProcedure,
+		svc.UpdateAccountProfile,
+		connect.WithSchema(authServiceMethods.ByName("UpdateAccountProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartCliLoginProcedure:
@@ -455,6 +650,20 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceSetAccountMemberHandler.ServeHTTP(w, r)
 		case AuthServiceRemoveAccountMemberProcedure:
 			authServiceRemoveAccountMemberHandler.ServeHTTP(w, r)
+		case AuthServiceInviteAccountMemberProcedure:
+			authServiceInviteAccountMemberHandler.ServeHTTP(w, r)
+		case AuthServiceListAccountInvitationsProcedure:
+			authServiceListAccountInvitationsHandler.ServeHTTP(w, r)
+		case AuthServiceListMyInvitationsProcedure:
+			authServiceListMyInvitationsHandler.ServeHTTP(w, r)
+		case AuthServiceRespondToInvitationProcedure:
+			authServiceRespondToInvitationHandler.ServeHTTP(w, r)
+		case AuthServiceCancelAccountInvitationProcedure:
+			authServiceCancelAccountInvitationHandler.ServeHTTP(w, r)
+		case AuthServiceGetAccountProfileProcedure:
+			authServiceGetAccountProfileHandler.ServeHTTP(w, r)
+		case AuthServiceUpdateAccountProfileProcedure:
+			authServiceUpdateAccountProfileHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -518,4 +727,32 @@ func (UnimplementedAuthServiceHandler) SetAccountMember(context.Context, *connec
 
 func (UnimplementedAuthServiceHandler) RemoveAccountMember(context.Context, *connect.Request[v1.RemoveAccountMemberRequest]) (*connect.Response[v1.RemoveAccountMemberResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.RemoveAccountMember is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) InviteAccountMember(context.Context, *connect.Request[v1.InviteAccountMemberRequest]) (*connect.Response[v1.InviteAccountMemberResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.InviteAccountMember is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListAccountInvitations(context.Context, *connect.Request[v1.ListAccountInvitationsRequest]) (*connect.Response[v1.ListAccountInvitationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListAccountInvitations is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListMyInvitations(context.Context, *connect.Request[v1.ListMyInvitationsRequest]) (*connect.Response[v1.ListMyInvitationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListMyInvitations is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) RespondToInvitation(context.Context, *connect.Request[v1.RespondToInvitationRequest]) (*connect.Response[v1.RespondToInvitationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.RespondToInvitation is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CancelAccountInvitation(context.Context, *connect.Request[v1.CancelAccountInvitationRequest]) (*connect.Response[v1.CancelAccountInvitationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.CancelAccountInvitation is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) GetAccountProfile(context.Context, *connect.Request[v1.GetAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.GetAccountProfile is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) UpdateAccountProfile(context.Context, *connect.Request[v1.UpdateAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.UpdateAccountProfile is not implemented"))
 }

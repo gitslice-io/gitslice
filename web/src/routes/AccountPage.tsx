@@ -1,9 +1,10 @@
 import { useAuth } from "@clerk/tanstack-react-start";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 
 import { RpcError } from "../api/client";
-import type { ListSlicesResponse } from "../api/types";
+import type { AccountProfile, ListSlicesResponse } from "../api/types";
 import { useApi } from "../api/useApi";
 import { AccountAvatar } from "../components/AccountSwitcher";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -57,10 +58,21 @@ export function AccountPage() {
     // signed in, not allowed); only failures that may pass are retried.
     retry: (count, error) => !isDefinite(error) && count < 2
   });
+  const profileQuery = useQuery({
+    enabled: Boolean(account),
+    queryKey: ["accountProfile", account],
+    queryFn: () => api.getAccountProfile({ account }),
+    retry: (count, error) => !isDefinite(error) && count < 2
+  });
+  const profile = profileQuery.data;
   const pages = slicesQuery.data?.pages ?? [];
   const slices = pages.flatMap((page: ListSlicesResponse) => page.slices ?? []);
-  const kind = membership?.kind || pages[0]?.accountKind || "";
-  const notFound = isNotFound(slicesQuery.error);
+  const kind = membership?.kind || profile?.kind || pages[0]?.accountKind || "";
+  const notFound = isNotFound(slicesQuery.error) || isNotFound(profileQuery.error);
+  // An organization's owners and admins edit its profile; a person edits their own.
+  const canEditProfile =
+    membership?.kind === "personal" || (membership?.kind === "organization" && canAdmin(membership));
+  const [editing, setEditing] = useState(false);
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
@@ -74,12 +86,24 @@ export function AccountPage() {
           <div className="mt-4 flex flex-wrap items-center gap-4">
             <AccountAvatar account={account} kind={kind} size="lg" />
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-semibold text-zinc-950 dark:text-zinc-50">{account}</h1>
+              <h1 className="truncate text-xl font-semibold text-zinc-950 dark:text-zinc-50">
+                {profile?.displayName || account}
+              </h1>
               <p className="text-sm text-slate-600 dark:text-zinc-400">
+                {profile?.displayName ? `@${account} · ` : ""}
                 {kind ? kindLabel(kind) : "Account"}
                 {membership?.role ? ` · you are ${article(membership.role)} ${membership.role}` : ""}
               </p>
             </div>
+            {canEditProfile && !editing ? (
+              <button
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                onClick={() => setEditing(true)}
+                type="button"
+              >
+                Edit profile
+              </button>
+            ) : null}
             {membership && membership.account !== activeAccount ? (
               <button
                 className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
@@ -99,6 +123,24 @@ export function AccountPage() {
               </Link>
             ) : null}
           </div>
+
+          {editing && profile ? (
+            <ProfileEditor account={account} onDone={() => setEditing(false)} profile={profile} />
+          ) : profile?.description || profile?.website ? (
+            <div className="mt-4 max-w-3xl space-y-1 text-sm leading-6 text-slate-700 dark:text-zinc-300">
+              {profile.description ? <p className="whitespace-pre-line">{profile.description}</p> : null}
+              {profile.website ? (
+                <a
+                  className="inline-block break-all text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                  href={profile.website}
+                  rel="noopener noreferrer nofollow ugc"
+                  target="_blank"
+                >
+                  {profile.website.replace(/^https?:\/\//, "")}
+                </a>
+              ) : null}
+            </div>
+          ) : null}
 
           <h2 className="mb-2 mt-8 text-sm font-semibold text-zinc-950 dark:text-zinc-50">Slices</h2>
           <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
@@ -175,4 +217,66 @@ export function AccountPage() {
 
 function article(role: string) {
   return /^[aeiou]/.test(role) ? "an" : "a";
+}
+
+// ProfileEditor edits an account's display name, description and website.
+function ProfileEditor({ account, onDone, profile }: { account: string; onDone(): void; profile: AccountProfile }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const [displayName, setDisplayName] = useState(profile.displayName ?? "");
+  const [description, setDescription] = useState(profile.description ?? "");
+  const [website, setWebsite] = useState(profile.website ?? "");
+  const save = useMutation({
+    mutationFn: () => api.updateAccountProfile({ account, description, displayName, website }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["accountProfile", account], updated);
+      onDone();
+    }
+  });
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    save.mutate();
+  }
+
+  const field =
+    "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-slate-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
+  return (
+    <form aria-label="Edit profile" className="mt-4 grid max-w-xl gap-3" onSubmit={submit}>
+      <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
+        Display name
+        <input className={field} maxLength={64} onChange={(e) => setDisplayName(e.target.value)} value={displayName} />
+      </label>
+      <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
+        Description
+        <textarea className={field} maxLength={280} onChange={(e) => setDescription(e.target.value)} rows={3} value={description} />
+      </label>
+      <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
+        Website
+        <input className={field} onChange={(e) => setWebsite(e.target.value)} placeholder="https://" type="url" value={website} />
+      </label>
+      {save.isError ? (
+        <SliceNotice title="Could not save the profile" tone="error">
+          {getErrorMessage(save.error)}
+        </SliceNotice>
+      ) : null}
+      <div className="flex gap-2">
+        <button
+          className="rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+          disabled={save.isPending}
+          type="submit"
+        >
+          {save.isPending ? "Saving..." : "Save profile"}
+        </button>
+        <button
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 dark:border-zinc-700 dark:text-zinc-300"
+          disabled={save.isPending}
+          onClick={onDone}
+          type="button"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
 }
