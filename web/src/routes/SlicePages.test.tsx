@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -108,6 +108,33 @@ describe("slice route pages (render smoke)", () => {
     await flushAsync();
     expect((await screen.findAllByText("Files")).length).toBeGreaterThan(0);
     expectHealthy();
+  });
+
+  it("shows whose slice it is in the breadcrumb", async () => {
+    renderRoute(<SliceDetailPage />);
+    await waitFor(() => expect(apiMock.current.resolveSlice).toHaveBeenCalled());
+    await flushAsync();
+    // Own slice: one crumb, "account:slice".
+    const own = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(own).toHaveTextContent("nic:home");
+    cleanup();
+
+    // Someone else's slice names the owner, then the slice.
+    routerMock.params = { account: "gitslice", slice: "gitslice" };
+    const api = makeApi();
+    api.resolveSlice = vi.fn().mockResolvedValue({
+      id: "slice_gitslice",
+      ref: { account: "gitslice", slice: "gitslice" },
+      definition: { includedPaths: ["/gitslice/gitslice"], visibility: "public" }
+    });
+    apiMock.current = api;
+    renderRoute(<SliceDetailPage />);
+    await waitFor(() => expect(api.resolveSlice).toHaveBeenCalled());
+    await flushAsync();
+    const other = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(other).toHaveTextContent("Home");
+    expect(within(other).getByText("@gitslice")).toHaveAttribute("title", "Owned by gitslice");
+    expect(within(other).getByText("gitslice")).toBeInTheDocument();
   });
 
   it("renders the slice settings page", async () => {

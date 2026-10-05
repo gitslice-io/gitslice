@@ -22,6 +22,7 @@ import {
 import type { Changeset, FileEdit, Patchset } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import { useSelection } from "../state/selection";
 import { PageHeader } from "../components/PageHeader";
 import {
   DiffViewer,
@@ -62,6 +63,7 @@ export function ChangesetDetailPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const { isLoaded, isSignedIn } = useAuth();
+  const { account: viewerAccount } = useSelection();
   const params = useParams({ strict: false }) as { id?: string };
   const changesetId = params.id ?? "";
   const navigate = useNavigate();
@@ -472,7 +474,8 @@ export function ChangesetDetailPage() {
           <Breadcrumb
             items={changesetBreadcrumbItems({
               changeset,
-              sliceSearch
+              sliceSearch,
+              viewerAccount
             })}
           />
         }

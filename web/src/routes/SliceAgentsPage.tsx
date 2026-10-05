@@ -14,7 +14,8 @@ import {
   SlicePanel,
   getErrorMessage,
 } from "../components/slices/SlicePageParts";
-import { toSliceRouteParams } from "../lib/sliceRoutes";
+import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
+import { useSelection } from "../state/selection";
 
 interface SliceParams {
   account?: string;
@@ -26,6 +27,7 @@ export function SliceAgentsPage() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   const navigate = useNavigate();
+  const { account: viewerAccount } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
@@ -53,13 +55,9 @@ export function SliceAgentsPage() {
   const sliceRouteParams = toSliceRouteParams(sliceRef);
   const breadcrumbItems = [
     { label: "Home", to: "/" },
-    sliceRouteParams
-      ? {
-          label: sliceLabel,
-          to: "/slices/$account/$slice",
-          params: sliceRouteParams,
-        }
-      : { label: sliceLabel },
+    ...(sliceBreadcrumbItems(sliceRef, viewerAccount).length > 0
+      ? sliceBreadcrumbItems(sliceRef, viewerAccount)
+      : [{ label: sliceLabel }]),
     sliceRouteParams
       ? {
           label: "Conversations",

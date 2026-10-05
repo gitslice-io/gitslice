@@ -2,6 +2,8 @@ import { Link } from "@tanstack/react-router";
 
 export interface Crumb {
   label: string;
+  // Shown on hover, for a crumb whose label is short.
+  title?: string;
   to?: string;
   params?: unknown;
   search?: unknown;
@@ -29,12 +31,16 @@ export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
                   className="min-w-0 truncate break-all font-medium text-slate-600 dark:text-zinc-400 transition hover:text-zinc-950 dark:hover:text-zinc-50"
                   params={item.params as never}
                   search={item.search as never}
+                  title={item.title}
                   to={item.to as never}
                 >
                   {item.label}
                 </Link>
               ) : (
-                <span className="min-w-0 truncate break-all font-semibold text-zinc-950 dark:text-zinc-50">
+                <span
+                  className="min-w-0 truncate break-all font-semibold text-zinc-950 dark:text-zinc-50"
+                  title={item.title}
+                >
                   {item.label}
                 </span>
               )}

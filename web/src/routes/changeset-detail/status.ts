@@ -3,7 +3,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import type { Changeset } from "../../api/types";
 import type { Crumb } from "../../components/Breadcrumb";
 import { shortChangesetId } from "../../lib/objectId";
-import { toSliceRouteParams } from "../../lib/sliceRoutes";
+import { sliceBreadcrumbItems } from "../../lib/sliceRoutes";
 
 export function humanizeStatus(status?: string) {
   const normalized = (status || "").toLowerCase();
@@ -75,24 +75,18 @@ export function changesetSliceSearch(changeset: Changeset) {
 
 export function changesetBreadcrumbItems({
   changeset,
-  sliceSearch
+  sliceSearch,
+  viewerAccount
 }: {
   changeset: Changeset;
   sliceSearch: string;
+  viewerAccount?: string;
 }): Crumb[] {
   const items: Crumb[] = [{ label: "Home", to: "/" }];
 
   if (sliceSearch) {
-    const routeParams = toSliceRouteParams(changeset.authoringSlice);
-    items.push(
-      routeParams
-        ? {
-            label: sliceSearch,
-            params: routeParams,
-            to: "/slices/$account/$slice"
-          }
-        : { label: sliceSearch }
-    );
+    const sliceCrumbs = sliceBreadcrumbItems(changeset.authoringSlice, viewerAccount);
+    items.push(...(sliceCrumbs.length > 0 ? sliceCrumbs : [{ label: sliceSearch }]));
     items.push({
       label: `${sliceSearch} changesets`,
       search: { slice: sliceSearch },

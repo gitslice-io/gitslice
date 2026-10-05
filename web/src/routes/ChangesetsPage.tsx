@@ -18,7 +18,8 @@ import {
 } from "../components/slices/SlicePageParts";
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
-import { toSliceRouteParams } from "../lib/sliceRoutes";
+import { sliceBreadcrumbItems } from "../lib/sliceRoutes";
+import { useSelection } from "../state/selection";
 import { mergeErrorMessage } from "./changeset-detail/status";
 import { displaySubmitBlockedReason } from "./stackPageUtils";
 
@@ -31,6 +32,7 @@ type ChangesetsQueryKey = readonly ["changesets", string, string];
 export function ChangesetsPage() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
+  const { account: viewerAccount } = useSelection();
   const canManage = Boolean(isLoaded && isSignedIn);
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as ChangesetsSearch;
@@ -61,16 +63,7 @@ export function ChangesetsPage() {
 
   const breadcrumbItems: Crumb[] = [{ label: "Home", to: "/" }];
   if (sliceRef) {
-    const routeParams = toSliceRouteParams(sliceRef);
-    breadcrumbItems.push(
-      routeParams
-        ? {
-            label: `${account}:${slice}`,
-            to: "/slices/$account/$slice",
-            params: routeParams
-          }
-        : { label: `${account}:${slice}` }
-    );
+    breadcrumbItems.push(...sliceBreadcrumbItems(sliceRef, viewerAccount));
   }
   breadcrumbItems.push({ label: "Changesets" });
   const pageTitle = sliceRef ? `${account}:${slice} · Changesets` : "Changesets";

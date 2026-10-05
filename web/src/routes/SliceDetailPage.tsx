@@ -36,7 +36,7 @@ import {
 } from "../components/source/SliceEditing";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
-import { toSliceRouteParams } from "../lib/sliceRoutes";
+import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
 import { pathSearchValue, buildGitCloneHint } from "./slice-detail/sourceTree";
@@ -313,13 +313,17 @@ export function SliceDetailPage() {
       ? "block"
       : "block lg:hidden";
   const workspaceVisibility = selectedPath ? "block" : "hidden lg:block";
+  const sliceCrumbs = sliceBreadcrumbItems(sliceRef, account);
 
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
       <PageHeader
         breadcrumb={
           <Breadcrumb
-            items={[{ label: "Home", to: "/" }, { label: sliceLabel }]}
+            items={[
+              { label: "Home", to: "/" },
+              ...(sliceCrumbs.length > 0 ? sliceCrumbs : [{ label: sliceLabel }])
+            ]}
           />
         }
         primaryAction={

@@ -73,6 +73,10 @@ vi.mock("@tanstack/react-router", async () => {
   };
 });
 
+vi.mock("../state/selection", () => ({
+  useSelection: () => ({ account: "nic" })
+}));
+
 vi.mock("../components/diff/DiffViewer", () => ({
   DiffViewer: ({
     fileStates,

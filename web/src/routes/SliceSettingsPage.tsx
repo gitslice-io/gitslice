@@ -22,7 +22,8 @@ import {
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
-import { toSliceRouteParams } from "../lib/sliceRoutes";
+import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
+import { useSelection } from "../state/selection";
 
 interface SliceParams {
   account?: string;
@@ -32,6 +33,7 @@ interface SliceParams {
 export function SliceSettingsPage() {
   const api = useApi();
   const queryClient = useQueryClient();
+  const { account: viewerAccount } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
@@ -200,6 +202,7 @@ export function SliceSettingsPage() {
   }
 
   const sliceLabel = sliceDisplayName(slice);
+  const sliceCrumbs = sliceBreadcrumbItems(slice?.ref ?? routeSliceRef, viewerAccount);
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
@@ -208,13 +211,7 @@ export function SliceSettingsPage() {
           <Breadcrumb
             items={[
               { label: "Home", to: "/" },
-              sliceRouteParams
-                ? {
-                    label: sliceLabel,
-                    params: sliceRouteParams,
-                    to: "/slices/$account/$slice"
-                  }
-                : { label: sliceLabel },
+              ...(sliceCrumbs.length > 0 ? sliceCrumbs : [{ label: sliceLabel }]),
               { label: "Settings" }
             ]}
           />
