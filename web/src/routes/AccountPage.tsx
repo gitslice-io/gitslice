@@ -19,6 +19,10 @@ import { useSelection } from "../state/selection";
 
 const PAGE_SIZE = 50;
 
+function isDefinite(error: unknown) {
+  return error instanceof RpcError && [400, 401, 403, 404].includes(error.status);
+}
+
 function isNotFound(error: unknown) {
   return error instanceof RpcError && (error.status === 404 || error.code === 5 || error.code === "5" || error.code === "NotFound" || error.code === "not_found");
 }
@@ -43,8 +47,9 @@ export function AccountPage() {
     initialPageParam: "",
     queryKey: ["accountSlices", account, viewerAccounts.join(" ")],
     queryFn: ({ pageParam }) => api.listSlices({ account, cursor: pageParam, pageSize: PAGE_SIZE }),
-    // An account that does not exist will not exist on a retry.
-    retry: (count, error) => !isNotFound(error) && count < 2
+    // Asking again does not change a definite answer (no such account, not
+    // signed in, not allowed); only failures that may pass are retried.
+    retry: (count, error) => !isDefinite(error) && count < 2
   });
   const slices = (slicesQuery.data?.pages ?? []).flatMap((page: ListSlicesResponse) => page.slices ?? []);
 

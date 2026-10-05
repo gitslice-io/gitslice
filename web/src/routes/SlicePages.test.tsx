@@ -183,6 +183,17 @@ describe("slice route pages (render smoke)", () => {
     expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
   });
 
+  it("does not retry an answer that will not change", async () => {
+    routerMock.params = { account: "gitslice" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockRejectedValue(new RpcError(401, { code: "unauthenticated", message: "missing subject" }));
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    expect(await screen.findByText("Could not load slices")).toBeInTheDocument();
+    expect(api.listSlices).toHaveBeenCalledTimes(1);
+  });
+
   it("says when the account does not exist", async () => {
     routerMock.params = { account: "ghost" };
     const api = makeApi();
