@@ -75,6 +75,19 @@ message GetAuthStatusResponse {
   // True when the subject has no personal account yet and must choose a
   // username before using account-scoped features.
   bool needs_username = 3;
+  // The same accounts, in the same order, with what each is and the
+  // subject's role in it, so a client can offer them as contexts to switch
+  // between.
+  repeated AccountMembership memberships = 4;
+}
+
+message AccountMembership {
+  string account = 1;
+  // personal (the subject's own account), organization, or agent (the
+  // personal account of an agent the subject claimed).
+  string kind = 2;
+  // owner, admin, writer, member or reader.
+  string role = 3;
 }
 
 message CheckUsernameAvailableRequest {

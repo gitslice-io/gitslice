@@ -38,6 +38,12 @@ import type {
   GetAuthStatusRequest,
   ListOwnedAgentsRequest,
   ListOwnedAgentsResponse,
+  ListAccountMembersRequest,
+  ListAccountMembersResponse,
+  SetAccountMemberRequest,
+  SetAccountMemberResponse,
+  RemoveAccountMemberRequest,
+  RemoveAccountMemberResponse,
   ListPendingClaimsRequest,
   ListPendingClaimsResponse,
   GetAuthStatusResponse,
@@ -114,6 +120,15 @@ export interface ApiClient {
   listOwnedAgents(
     request: ListOwnedAgentsRequest
   ): Promise<ListOwnedAgentsResponse>;
+  listAccountMembers(
+    request: ListAccountMembersRequest
+  ): Promise<ListAccountMembersResponse>;
+  setAccountMember(
+    request: SetAccountMemberRequest
+  ): Promise<SetAccountMemberResponse>;
+  removeAccountMember(
+    request: RemoveAccountMemberRequest
+  ): Promise<RemoveAccountMemberResponse>;
   resolvePath(request: ResolvePathRequest): Promise<ResolvePathResponse>;
   listDirectory(
     request: ListDirectoryRequest

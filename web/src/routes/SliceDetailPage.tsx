@@ -36,6 +36,7 @@ import {
 } from "../components/source/SliceEditing";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
+import { canAdmin, canWrite, membershipFor } from "../lib/accounts";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
@@ -67,7 +68,7 @@ export function SliceDetailPage() {
   const navigate = useNavigate();
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
-  const { account, accounts } = useSelection();
+  const { account, accounts, memberships } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const search = useSearch({ strict: false }) as SliceSearch;
   const routeAccount = params.account ?? "";
@@ -88,7 +89,12 @@ export function SliceDetailPage() {
   const [isCreatingChangeset, setIsCreatingChangeset] = useState(false);
   const [changesetError, setChangesetError] = useState("");
   const gitCloneOrigin = useGitCloneOrigin();
-  const canEdit = Boolean(isLoaded && isSignedIn && account);
+  // What the viewer may do here follows their role in the slice's account, as
+  // the server decides it: writers edit files, owners and admins change the
+  // slice's settings. Anyone else reads.
+  const sliceMembership = membershipFor(memberships, routeAccount);
+  const canEdit = Boolean(isLoaded && isSignedIn && account && canWrite(sliceMembership));
+  const canConfigure = Boolean(isLoaded && isSignedIn && canAdmin(sliceMembership));
 
   const sliceQuery = useQuery({
     enabled: Boolean(isLoaded && routeSliceRef),
@@ -344,7 +350,7 @@ export function SliceDetailPage() {
                 Conversations
               </Link>
             ) : null}
-            {canEdit && sliceRouteParams ? (
+            {canConfigure && sliceRouteParams ? (
               <Link
                 className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
                 params={sliceRouteParams as never}

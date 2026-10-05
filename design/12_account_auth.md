@@ -341,6 +341,43 @@ Authorization is unchanged. Slices under an organization authorize through
 `AccountRole`: owner, admin, writer and member can write; reader can only
 read.
 
+## 9.2 Accounts In The Web App (2026-10)
+
+The web app works in one account at a time, as GitHub does: the viewer's
+personal account, an organization they belong to, or an agent they claimed.
+
+- **Auth status** returns `memberships` next to `accounts`, in the same order:
+  each account's kind (`personal`, `organization`, or `agent` for a claimed
+  agent's personal account) and the caller's role in it.
+- **Switcher.** The top bar's account menu lists those memberships, grouped by
+  kind with the role. The choice is the *active account*, remembered in the
+  browser (`localStorage`, `gitslice.activeAccount`); one the viewer has left
+  falls back to their personal account. Home lists the active account's
+  slices (in the personal context, also the slices of agents they own), new
+  conversations start on its slices, and "New slice" creates there.
+- **Account pages** (`/accounts/<account>`): avatar, kind and the viewer's
+  role; the slices the viewer may read (`ListSlices`: every slice for members,
+  public ones for anyone else, with `account_kind`); for an organization's
+  members, its people. Owners and admins add people by username, change roles
+  and remove people there, through the RPCs in 9.1. Slice breadcrumbs link the
+  owner to this page.
+- **Role-aware UI.** The slice page offers editing to roles that can write
+  (owner, admin, writer, member) and Settings to owners and admins; "New
+  slice" offers the accounts the viewer owns or administers. The server still
+  decides; the UI only stops offering what it would refuse. A role an older
+  server did not report is given the benefit of the doubt.
+
+Not done yet:
+
+- Creating an organization is still operator-only; there is no self-service
+  "New organization".
+- Adding a member is immediate; there are no invitations to accept.
+- Organizations have no profile of their own (display name, description,
+  avatar).
+- The CLI has no active account: commands default to the personal account
+  and take an explicit account where it matters (`gs slice list <account>`).
+- Home's conversations and agents are not filtered by the active account.
+
 ## 10. Subject Propagation And Audit Fields
 
 Authenticated subject ids flow through service methods and are stored on
@@ -372,8 +409,7 @@ from the validated bearer token on each server request.
 - no production identity provider
 - no refresh-token lifecycle
 - no server-side session revocation command
-- no account or membership administration API
-- no role-specific authorization enforcement beyond storing `role`
+- organization creation is operator-only (see 9.2 for the other account gaps)
 - incomplete path/read authorization on repository and blob APIs
 - no implemented auth-aware short commit id resolver yet
 - no per-slice or per-path ACLs

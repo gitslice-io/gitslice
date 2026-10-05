@@ -35,7 +35,8 @@ export function NewConversationDialog({
   const api = useApi();
   const queryClient = useQueryClient();
   const selection = useSelection();
-  const account = selection.account.trim();
+  // Conversations start on a slice of the account picked in the top bar.
+  const account = (selection.activeAccount || selection.account).trim();
 
   const [selectedDaemonId, setSelectedDaemonId] = useState("");
   const [selectedSliceKey, setSelectedSliceKey] = useState("");

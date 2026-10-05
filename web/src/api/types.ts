@@ -33,7 +33,53 @@ export interface GetAuthStatusResponse {
   // Account slugs the subject belongs to; the first is their personal account.
   accounts?: string[];
   needsUsername?: boolean;
+  // The same accounts with their kind and the subject's role in each.
+  memberships?: AccountMembership[];
 }
+
+export type AccountKind = "personal" | "organization" | "agent";
+
+export type AccountRole = "owner" | "admin" | "writer" | "member" | "reader";
+
+export interface AccountMembership {
+  account?: string;
+  kind?: string;
+  role?: string;
+}
+
+export interface AccountMember {
+  username?: string;
+  subjectId?: string;
+  role?: string;
+}
+
+export interface ListAccountMembersRequest {
+  account?: string;
+}
+
+export interface ListAccountMembersResponse {
+  account?: string;
+  // personal or organization.
+  kind?: string;
+  members?: AccountMember[];
+}
+
+export interface SetAccountMemberRequest {
+  account?: string;
+  username?: string;
+  role?: string;
+}
+
+export interface SetAccountMemberResponse {
+  member?: AccountMember;
+}
+
+export interface RemoveAccountMemberRequest {
+  account?: string;
+  username?: string;
+}
+
+export type RemoveAccountMemberResponse = Record<string, never>;
 
 export interface CheckUsernameAvailableRequest {
   username?: string;
@@ -241,6 +287,8 @@ export interface ListSlicesRequest {
 export interface ListSlicesResponse {
   slices?: Slice[];
   nextCursor?: string;
+  // personal or organization.
+  accountKind?: string;
 }
 
 export interface CreateSliceRequest {

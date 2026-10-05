@@ -354,6 +354,10 @@ type GetAuthStatusResponse struct {
 	// True when the subject has no personal account yet and must choose a
 	// username before using account-scoped features.
 	NeedsUsername bool `protobuf:"varint,3,opt,name=needs_username,json=needsUsername,proto3" json:"needs_username,omitempty"`
+	// The same accounts, in the same order, with what each is and the
+	// subject's role in it, so a client can offer them as contexts to switch
+	// between.
+	Memberships   []*AccountMembership `protobuf:"bytes,4,rep,name=memberships,proto3" json:"memberships,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -409,6 +413,76 @@ func (x *GetAuthStatusResponse) GetNeedsUsername() bool {
 	return false
 }
 
+func (x *GetAuthStatusResponse) GetMemberships() []*AccountMembership {
+	if x != nil {
+		return x.Memberships
+	}
+	return nil
+}
+
+type AccountMembership struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Account string                 `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+	// personal (the subject's own account), organization, or agent (the
+	// personal account of an agent the subject claimed).
+	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	// owner, admin, writer, member or reader.
+	Role          string `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountMembership) Reset() {
+	*x = AccountMembership{}
+	mi := &file_proto_core_v1_auth_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountMembership) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountMembership) ProtoMessage() {}
+
+func (x *AccountMembership) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_auth_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountMembership.ProtoReflect.Descriptor instead.
+func (*AccountMembership) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AccountMembership) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *AccountMembership) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *AccountMembership) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
 type CheckUsernameAvailableRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
@@ -418,7 +492,7 @@ type CheckUsernameAvailableRequest struct {
 
 func (x *CheckUsernameAvailableRequest) Reset() {
 	*x = CheckUsernameAvailableRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[8]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -430,7 +504,7 @@ func (x *CheckUsernameAvailableRequest) String() string {
 func (*CheckUsernameAvailableRequest) ProtoMessage() {}
 
 func (x *CheckUsernameAvailableRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[8]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -443,7 +517,7 @@ func (x *CheckUsernameAvailableRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckUsernameAvailableRequest.ProtoReflect.Descriptor instead.
 func (*CheckUsernameAvailableRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *CheckUsernameAvailableRequest) GetUsername() string {
@@ -467,7 +541,7 @@ type CheckUsernameAvailableResponse struct {
 
 func (x *CheckUsernameAvailableResponse) Reset() {
 	*x = CheckUsernameAvailableResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[9]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -479,7 +553,7 @@ func (x *CheckUsernameAvailableResponse) String() string {
 func (*CheckUsernameAvailableResponse) ProtoMessage() {}
 
 func (x *CheckUsernameAvailableResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[9]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -492,7 +566,7 @@ func (x *CheckUsernameAvailableResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckUsernameAvailableResponse.ProtoReflect.Descriptor instead.
 func (*CheckUsernameAvailableResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CheckUsernameAvailableResponse) GetAvailable() bool {
@@ -525,7 +599,7 @@ type ChooseUsernameRequest struct {
 
 func (x *ChooseUsernameRequest) Reset() {
 	*x = ChooseUsernameRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[10]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -537,7 +611,7 @@ func (x *ChooseUsernameRequest) String() string {
 func (*ChooseUsernameRequest) ProtoMessage() {}
 
 func (x *ChooseUsernameRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[10]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -550,7 +624,7 @@ func (x *ChooseUsernameRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChooseUsernameRequest.ProtoReflect.Descriptor instead.
 func (*ChooseUsernameRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{10}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ChooseUsernameRequest) GetUsername() string {
@@ -571,7 +645,7 @@ type ChooseUsernameResponse struct {
 
 func (x *ChooseUsernameResponse) Reset() {
 	*x = ChooseUsernameResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[11]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -583,7 +657,7 @@ func (x *ChooseUsernameResponse) String() string {
 func (*ChooseUsernameResponse) ProtoMessage() {}
 
 func (x *ChooseUsernameResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[11]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -596,7 +670,7 @@ func (x *ChooseUsernameResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChooseUsernameResponse.ProtoReflect.Descriptor instead.
 func (*ChooseUsernameResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{11}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ChooseUsernameResponse) GetSubjectId() string {
@@ -634,7 +708,7 @@ type RegisterAgentRequest struct {
 
 func (x *RegisterAgentRequest) Reset() {
 	*x = RegisterAgentRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[12]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -646,7 +720,7 @@ func (x *RegisterAgentRequest) String() string {
 func (*RegisterAgentRequest) ProtoMessage() {}
 
 func (x *RegisterAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[12]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -659,7 +733,7 @@ func (x *RegisterAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterAgentRequest.ProtoReflect.Descriptor instead.
 func (*RegisterAgentRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{12}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RegisterAgentRequest) GetUsername() string {
@@ -702,7 +776,7 @@ type RegisterAgentResponse struct {
 
 func (x *RegisterAgentResponse) Reset() {
 	*x = RegisterAgentResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[13]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -714,7 +788,7 @@ func (x *RegisterAgentResponse) String() string {
 func (*RegisterAgentResponse) ProtoMessage() {}
 
 func (x *RegisterAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[13]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -727,7 +801,7 @@ func (x *RegisterAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterAgentResponse.ProtoReflect.Descriptor instead.
 func (*RegisterAgentResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{13}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RegisterAgentResponse) GetSubjectId() string {
@@ -765,7 +839,7 @@ type PendingClaim struct {
 
 func (x *PendingClaim) Reset() {
 	*x = PendingClaim{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[14]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -777,7 +851,7 @@ func (x *PendingClaim) String() string {
 func (*PendingClaim) ProtoMessage() {}
 
 func (x *PendingClaim) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[14]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -790,7 +864,7 @@ func (x *PendingClaim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PendingClaim.ProtoReflect.Descriptor instead.
 func (*PendingClaim) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{14}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *PendingClaim) GetAgentSubjectId() string {
@@ -836,7 +910,7 @@ type ListPendingClaimsRequest struct {
 
 func (x *ListPendingClaimsRequest) Reset() {
 	*x = ListPendingClaimsRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[15]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -848,7 +922,7 @@ func (x *ListPendingClaimsRequest) String() string {
 func (*ListPendingClaimsRequest) ProtoMessage() {}
 
 func (x *ListPendingClaimsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[15]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -861,7 +935,7 @@ func (x *ListPendingClaimsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPendingClaimsRequest.ProtoReflect.Descriptor instead.
 func (*ListPendingClaimsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{15}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{16}
 }
 
 type ListPendingClaimsResponse struct {
@@ -873,7 +947,7 @@ type ListPendingClaimsResponse struct {
 
 func (x *ListPendingClaimsResponse) Reset() {
 	*x = ListPendingClaimsResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[16]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -885,7 +959,7 @@ func (x *ListPendingClaimsResponse) String() string {
 func (*ListPendingClaimsResponse) ProtoMessage() {}
 
 func (x *ListPendingClaimsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[16]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -898,7 +972,7 @@ func (x *ListPendingClaimsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPendingClaimsResponse.ProtoReflect.Descriptor instead.
 func (*ListPendingClaimsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{16}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListPendingClaimsResponse) GetClaims() []*PendingClaim {
@@ -917,7 +991,7 @@ type AcceptClaimRequest struct {
 
 func (x *AcceptClaimRequest) Reset() {
 	*x = AcceptClaimRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[17]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -929,7 +1003,7 @@ func (x *AcceptClaimRequest) String() string {
 func (*AcceptClaimRequest) ProtoMessage() {}
 
 func (x *AcceptClaimRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[17]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -942,7 +1016,7 @@ func (x *AcceptClaimRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptClaimRequest.ProtoReflect.Descriptor instead.
 func (*AcceptClaimRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{17}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AcceptClaimRequest) GetAgentSubjectId() string {
@@ -962,7 +1036,7 @@ type AcceptClaimResponse struct {
 
 func (x *AcceptClaimResponse) Reset() {
 	*x = AcceptClaimResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[18]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -974,7 +1048,7 @@ func (x *AcceptClaimResponse) String() string {
 func (*AcceptClaimResponse) ProtoMessage() {}
 
 func (x *AcceptClaimResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[18]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -987,7 +1061,7 @@ func (x *AcceptClaimResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptClaimResponse.ProtoReflect.Descriptor instead.
 func (*AcceptClaimResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{18}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AcceptClaimResponse) GetAccount() string {
@@ -1014,7 +1088,7 @@ type OwnedAgent struct {
 
 func (x *OwnedAgent) Reset() {
 	*x = OwnedAgent{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[19]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1026,7 +1100,7 @@ func (x *OwnedAgent) String() string {
 func (*OwnedAgent) ProtoMessage() {}
 
 func (x *OwnedAgent) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[19]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1039,7 +1113,7 @@ func (x *OwnedAgent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OwnedAgent.ProtoReflect.Descriptor instead.
 func (*OwnedAgent) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{19}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *OwnedAgent) GetAgentSubjectId() string {
@@ -1092,7 +1166,7 @@ type ListOwnedAgentsRequest struct {
 
 func (x *ListOwnedAgentsRequest) Reset() {
 	*x = ListOwnedAgentsRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[20]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1104,7 +1178,7 @@ func (x *ListOwnedAgentsRequest) String() string {
 func (*ListOwnedAgentsRequest) ProtoMessage() {}
 
 func (x *ListOwnedAgentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[20]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1117,7 +1191,7 @@ func (x *ListOwnedAgentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListOwnedAgentsRequest.ProtoReflect.Descriptor instead.
 func (*ListOwnedAgentsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{20}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{21}
 }
 
 type ListOwnedAgentsResponse struct {
@@ -1129,7 +1203,7 @@ type ListOwnedAgentsResponse struct {
 
 func (x *ListOwnedAgentsResponse) Reset() {
 	*x = ListOwnedAgentsResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[21]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1141,7 +1215,7 @@ func (x *ListOwnedAgentsResponse) String() string {
 func (*ListOwnedAgentsResponse) ProtoMessage() {}
 
 func (x *ListOwnedAgentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[21]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1154,7 +1228,7 @@ func (x *ListOwnedAgentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListOwnedAgentsResponse.ProtoReflect.Descriptor instead.
 func (*ListOwnedAgentsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{21}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ListOwnedAgentsResponse) GetAgents() []*OwnedAgent {
@@ -1176,7 +1250,7 @@ type CreateOrganizationRequest struct {
 
 func (x *CreateOrganizationRequest) Reset() {
 	*x = CreateOrganizationRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[22]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1188,7 +1262,7 @@ func (x *CreateOrganizationRequest) String() string {
 func (*CreateOrganizationRequest) ProtoMessage() {}
 
 func (x *CreateOrganizationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[22]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1201,7 +1275,7 @@ func (x *CreateOrganizationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateOrganizationRequest.ProtoReflect.Descriptor instead.
 func (*CreateOrganizationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{22}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CreateOrganizationRequest) GetSlug() string {
@@ -1228,7 +1302,7 @@ type CreateOrganizationResponse struct {
 
 func (x *CreateOrganizationResponse) Reset() {
 	*x = CreateOrganizationResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[23]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1240,7 +1314,7 @@ func (x *CreateOrganizationResponse) String() string {
 func (*CreateOrganizationResponse) ProtoMessage() {}
 
 func (x *CreateOrganizationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[23]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1253,7 +1327,7 @@ func (x *CreateOrganizationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateOrganizationResponse.ProtoReflect.Descriptor instead.
 func (*CreateOrganizationResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{23}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CreateOrganizationResponse) GetAccount() string {
@@ -1283,7 +1357,7 @@ type AccountMember struct {
 
 func (x *AccountMember) Reset() {
 	*x = AccountMember{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[24]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1295,7 +1369,7 @@ func (x *AccountMember) String() string {
 func (*AccountMember) ProtoMessage() {}
 
 func (x *AccountMember) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[24]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1308,7 +1382,7 @@ func (x *AccountMember) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountMember.ProtoReflect.Descriptor instead.
 func (*AccountMember) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{24}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AccountMember) GetUsername() string {
@@ -1341,7 +1415,7 @@ type ListAccountMembersRequest struct {
 
 func (x *ListAccountMembersRequest) Reset() {
 	*x = ListAccountMembersRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[25]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1353,7 +1427,7 @@ func (x *ListAccountMembersRequest) String() string {
 func (*ListAccountMembersRequest) ProtoMessage() {}
 
 func (x *ListAccountMembersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[25]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1366,7 +1440,7 @@ func (x *ListAccountMembersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccountMembersRequest.ProtoReflect.Descriptor instead.
 func (*ListAccountMembersRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{25}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListAccountMembersRequest) GetAccount() string {
@@ -1388,7 +1462,7 @@ type ListAccountMembersResponse struct {
 
 func (x *ListAccountMembersResponse) Reset() {
 	*x = ListAccountMembersResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[26]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1400,7 +1474,7 @@ func (x *ListAccountMembersResponse) String() string {
 func (*ListAccountMembersResponse) ProtoMessage() {}
 
 func (x *ListAccountMembersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[26]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1413,7 +1487,7 @@ func (x *ListAccountMembersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAccountMembersResponse.ProtoReflect.Descriptor instead.
 func (*ListAccountMembersResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{26}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListAccountMembersResponse) GetAccount() string {
@@ -1448,7 +1522,7 @@ type SetAccountMemberRequest struct {
 
 func (x *SetAccountMemberRequest) Reset() {
 	*x = SetAccountMemberRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[27]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1460,7 +1534,7 @@ func (x *SetAccountMemberRequest) String() string {
 func (*SetAccountMemberRequest) ProtoMessage() {}
 
 func (x *SetAccountMemberRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[27]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1473,7 +1547,7 @@ func (x *SetAccountMemberRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAccountMemberRequest.ProtoReflect.Descriptor instead.
 func (*SetAccountMemberRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{27}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *SetAccountMemberRequest) GetAccount() string {
@@ -1506,7 +1580,7 @@ type SetAccountMemberResponse struct {
 
 func (x *SetAccountMemberResponse) Reset() {
 	*x = SetAccountMemberResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[28]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1518,7 +1592,7 @@ func (x *SetAccountMemberResponse) String() string {
 func (*SetAccountMemberResponse) ProtoMessage() {}
 
 func (x *SetAccountMemberResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[28]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1531,7 +1605,7 @@ func (x *SetAccountMemberResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAccountMemberResponse.ProtoReflect.Descriptor instead.
 func (*SetAccountMemberResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{28}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SetAccountMemberResponse) GetMember() *AccountMember {
@@ -1551,7 +1625,7 @@ type RemoveAccountMemberRequest struct {
 
 func (x *RemoveAccountMemberRequest) Reset() {
 	*x = RemoveAccountMemberRequest{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[29]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1563,7 +1637,7 @@ func (x *RemoveAccountMemberRequest) String() string {
 func (*RemoveAccountMemberRequest) ProtoMessage() {}
 
 func (x *RemoveAccountMemberRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[29]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1576,7 +1650,7 @@ func (x *RemoveAccountMemberRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveAccountMemberRequest.ProtoReflect.Descriptor instead.
 func (*RemoveAccountMemberRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{29}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RemoveAccountMemberRequest) GetAccount() string {
@@ -1601,7 +1675,7 @@ type RemoveAccountMemberResponse struct {
 
 func (x *RemoveAccountMemberResponse) Reset() {
 	*x = RemoveAccountMemberResponse{}
-	mi := &file_proto_core_v1_auth_proto_msgTypes[30]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1613,7 +1687,7 @@ func (x *RemoveAccountMemberResponse) String() string {
 func (*RemoveAccountMemberResponse) ProtoMessage() {}
 
 func (x *RemoveAccountMemberResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_auth_proto_msgTypes[30]
+	mi := &file_proto_core_v1_auth_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1626,7 +1700,7 @@ func (x *RemoveAccountMemberResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveAccountMemberResponse.ProtoReflect.Descriptor instead.
 func (*RemoveAccountMemberResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{30}
+	return file_proto_core_v1_auth_proto_rawDescGZIP(), []int{31}
 }
 
 var File_proto_core_v1_auth_proto protoreflect.FileDescriptor
@@ -1652,12 +1726,17 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\x18CompleteCliLoginResponse\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x01 \x01(\tR\tsubjectId\"\x16\n" +
-	"\x14GetAuthStatusRequest\"y\n" +
+	"\x14GetAuthStatusRequest\"\xc0\x01\n" +
 	"\x15GetAuthStatusResponse\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x01 \x01(\tR\tsubjectId\x12\x1a\n" +
 	"\baccounts\x18\x02 \x03(\tR\baccounts\x12%\n" +
-	"\x0eneeds_username\x18\x03 \x01(\bR\rneedsUsername\";\n" +
+	"\x0eneeds_username\x18\x03 \x01(\bR\rneedsUsername\x12E\n" +
+	"\vmemberships\x18\x04 \x03(\v2#.gitslice.core.v1.AccountMembershipR\vmemberships\"U\n" +
+	"\x11AccountMembership\x12\x18\n" +
+	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\";\n" +
 	"\x1dCheckUsernameAvailableRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\"v\n" +
 	"\x1eCheckUsernameAvailableResponse\x12\x1c\n" +
@@ -1765,7 +1844,7 @@ func file_proto_core_v1_auth_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_auth_proto_rawDescData
 }
 
-var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_proto_core_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*StartCliLoginRequest)(nil),           // 0: gitslice.core.v1.StartCliLoginRequest
 	(*StartCliLoginResponse)(nil),          // 1: gitslice.core.v1.StartCliLoginResponse
@@ -1775,69 +1854,71 @@ var file_proto_core_v1_auth_proto_goTypes = []any{
 	(*CompleteCliLoginResponse)(nil),       // 5: gitslice.core.v1.CompleteCliLoginResponse
 	(*GetAuthStatusRequest)(nil),           // 6: gitslice.core.v1.GetAuthStatusRequest
 	(*GetAuthStatusResponse)(nil),          // 7: gitslice.core.v1.GetAuthStatusResponse
-	(*CheckUsernameAvailableRequest)(nil),  // 8: gitslice.core.v1.CheckUsernameAvailableRequest
-	(*CheckUsernameAvailableResponse)(nil), // 9: gitslice.core.v1.CheckUsernameAvailableResponse
-	(*ChooseUsernameRequest)(nil),          // 10: gitslice.core.v1.ChooseUsernameRequest
-	(*ChooseUsernameResponse)(nil),         // 11: gitslice.core.v1.ChooseUsernameResponse
-	(*RegisterAgentRequest)(nil),           // 12: gitslice.core.v1.RegisterAgentRequest
-	(*RegisterAgentResponse)(nil),          // 13: gitslice.core.v1.RegisterAgentResponse
-	(*PendingClaim)(nil),                   // 14: gitslice.core.v1.PendingClaim
-	(*ListPendingClaimsRequest)(nil),       // 15: gitslice.core.v1.ListPendingClaimsRequest
-	(*ListPendingClaimsResponse)(nil),      // 16: gitslice.core.v1.ListPendingClaimsResponse
-	(*AcceptClaimRequest)(nil),             // 17: gitslice.core.v1.AcceptClaimRequest
-	(*AcceptClaimResponse)(nil),            // 18: gitslice.core.v1.AcceptClaimResponse
-	(*OwnedAgent)(nil),                     // 19: gitslice.core.v1.OwnedAgent
-	(*ListOwnedAgentsRequest)(nil),         // 20: gitslice.core.v1.ListOwnedAgentsRequest
-	(*ListOwnedAgentsResponse)(nil),        // 21: gitslice.core.v1.ListOwnedAgentsResponse
-	(*CreateOrganizationRequest)(nil),      // 22: gitslice.core.v1.CreateOrganizationRequest
-	(*CreateOrganizationResponse)(nil),     // 23: gitslice.core.v1.CreateOrganizationResponse
-	(*AccountMember)(nil),                  // 24: gitslice.core.v1.AccountMember
-	(*ListAccountMembersRequest)(nil),      // 25: gitslice.core.v1.ListAccountMembersRequest
-	(*ListAccountMembersResponse)(nil),     // 26: gitslice.core.v1.ListAccountMembersResponse
-	(*SetAccountMemberRequest)(nil),        // 27: gitslice.core.v1.SetAccountMemberRequest
-	(*SetAccountMemberResponse)(nil),       // 28: gitslice.core.v1.SetAccountMemberResponse
-	(*RemoveAccountMemberRequest)(nil),     // 29: gitslice.core.v1.RemoveAccountMemberRequest
-	(*RemoveAccountMemberResponse)(nil),    // 30: gitslice.core.v1.RemoveAccountMemberResponse
+	(*AccountMembership)(nil),              // 8: gitslice.core.v1.AccountMembership
+	(*CheckUsernameAvailableRequest)(nil),  // 9: gitslice.core.v1.CheckUsernameAvailableRequest
+	(*CheckUsernameAvailableResponse)(nil), // 10: gitslice.core.v1.CheckUsernameAvailableResponse
+	(*ChooseUsernameRequest)(nil),          // 11: gitslice.core.v1.ChooseUsernameRequest
+	(*ChooseUsernameResponse)(nil),         // 12: gitslice.core.v1.ChooseUsernameResponse
+	(*RegisterAgentRequest)(nil),           // 13: gitslice.core.v1.RegisterAgentRequest
+	(*RegisterAgentResponse)(nil),          // 14: gitslice.core.v1.RegisterAgentResponse
+	(*PendingClaim)(nil),                   // 15: gitslice.core.v1.PendingClaim
+	(*ListPendingClaimsRequest)(nil),       // 16: gitslice.core.v1.ListPendingClaimsRequest
+	(*ListPendingClaimsResponse)(nil),      // 17: gitslice.core.v1.ListPendingClaimsResponse
+	(*AcceptClaimRequest)(nil),             // 18: gitslice.core.v1.AcceptClaimRequest
+	(*AcceptClaimResponse)(nil),            // 19: gitslice.core.v1.AcceptClaimResponse
+	(*OwnedAgent)(nil),                     // 20: gitslice.core.v1.OwnedAgent
+	(*ListOwnedAgentsRequest)(nil),         // 21: gitslice.core.v1.ListOwnedAgentsRequest
+	(*ListOwnedAgentsResponse)(nil),        // 22: gitslice.core.v1.ListOwnedAgentsResponse
+	(*CreateOrganizationRequest)(nil),      // 23: gitslice.core.v1.CreateOrganizationRequest
+	(*CreateOrganizationResponse)(nil),     // 24: gitslice.core.v1.CreateOrganizationResponse
+	(*AccountMember)(nil),                  // 25: gitslice.core.v1.AccountMember
+	(*ListAccountMembersRequest)(nil),      // 26: gitslice.core.v1.ListAccountMembersRequest
+	(*ListAccountMembersResponse)(nil),     // 27: gitslice.core.v1.ListAccountMembersResponse
+	(*SetAccountMemberRequest)(nil),        // 28: gitslice.core.v1.SetAccountMemberRequest
+	(*SetAccountMemberResponse)(nil),       // 29: gitslice.core.v1.SetAccountMemberResponse
+	(*RemoveAccountMemberRequest)(nil),     // 30: gitslice.core.v1.RemoveAccountMemberRequest
+	(*RemoveAccountMemberResponse)(nil),    // 31: gitslice.core.v1.RemoveAccountMemberResponse
 }
 var file_proto_core_v1_auth_proto_depIdxs = []int32{
-	14, // 0: gitslice.core.v1.ListPendingClaimsResponse.claims:type_name -> gitslice.core.v1.PendingClaim
-	19, // 1: gitslice.core.v1.ListOwnedAgentsResponse.agents:type_name -> gitslice.core.v1.OwnedAgent
-	24, // 2: gitslice.core.v1.CreateOrganizationResponse.members:type_name -> gitslice.core.v1.AccountMember
-	24, // 3: gitslice.core.v1.ListAccountMembersResponse.members:type_name -> gitslice.core.v1.AccountMember
-	24, // 4: gitslice.core.v1.SetAccountMemberResponse.member:type_name -> gitslice.core.v1.AccountMember
-	0,  // 5: gitslice.core.v1.AuthService.StartCliLogin:input_type -> gitslice.core.v1.StartCliLoginRequest
-	2,  // 6: gitslice.core.v1.AuthService.PollCliLogin:input_type -> gitslice.core.v1.PollCliLoginRequest
-	4,  // 7: gitslice.core.v1.AuthService.CompleteCliLogin:input_type -> gitslice.core.v1.CompleteCliLoginRequest
-	6,  // 8: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
-	8,  // 9: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
-	10, // 10: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
-	12, // 11: gitslice.core.v1.AuthService.RegisterAgent:input_type -> gitslice.core.v1.RegisterAgentRequest
-	15, // 12: gitslice.core.v1.AuthService.ListPendingClaims:input_type -> gitslice.core.v1.ListPendingClaimsRequest
-	17, // 13: gitslice.core.v1.AuthService.AcceptClaim:input_type -> gitslice.core.v1.AcceptClaimRequest
-	20, // 14: gitslice.core.v1.AuthService.ListOwnedAgents:input_type -> gitslice.core.v1.ListOwnedAgentsRequest
-	22, // 15: gitslice.core.v1.AuthService.CreateOrganization:input_type -> gitslice.core.v1.CreateOrganizationRequest
-	25, // 16: gitslice.core.v1.AuthService.ListAccountMembers:input_type -> gitslice.core.v1.ListAccountMembersRequest
-	27, // 17: gitslice.core.v1.AuthService.SetAccountMember:input_type -> gitslice.core.v1.SetAccountMemberRequest
-	29, // 18: gitslice.core.v1.AuthService.RemoveAccountMember:input_type -> gitslice.core.v1.RemoveAccountMemberRequest
-	1,  // 19: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
-	3,  // 20: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
-	5,  // 21: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
-	7,  // 22: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
-	9,  // 23: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
-	11, // 24: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
-	13, // 25: gitslice.core.v1.AuthService.RegisterAgent:output_type -> gitslice.core.v1.RegisterAgentResponse
-	16, // 26: gitslice.core.v1.AuthService.ListPendingClaims:output_type -> gitslice.core.v1.ListPendingClaimsResponse
-	18, // 27: gitslice.core.v1.AuthService.AcceptClaim:output_type -> gitslice.core.v1.AcceptClaimResponse
-	21, // 28: gitslice.core.v1.AuthService.ListOwnedAgents:output_type -> gitslice.core.v1.ListOwnedAgentsResponse
-	23, // 29: gitslice.core.v1.AuthService.CreateOrganization:output_type -> gitslice.core.v1.CreateOrganizationResponse
-	26, // 30: gitslice.core.v1.AuthService.ListAccountMembers:output_type -> gitslice.core.v1.ListAccountMembersResponse
-	28, // 31: gitslice.core.v1.AuthService.SetAccountMember:output_type -> gitslice.core.v1.SetAccountMemberResponse
-	30, // 32: gitslice.core.v1.AuthService.RemoveAccountMember:output_type -> gitslice.core.v1.RemoveAccountMemberResponse
-	19, // [19:33] is the sub-list for method output_type
-	5,  // [5:19] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	8,  // 0: gitslice.core.v1.GetAuthStatusResponse.memberships:type_name -> gitslice.core.v1.AccountMembership
+	15, // 1: gitslice.core.v1.ListPendingClaimsResponse.claims:type_name -> gitslice.core.v1.PendingClaim
+	20, // 2: gitslice.core.v1.ListOwnedAgentsResponse.agents:type_name -> gitslice.core.v1.OwnedAgent
+	25, // 3: gitslice.core.v1.CreateOrganizationResponse.members:type_name -> gitslice.core.v1.AccountMember
+	25, // 4: gitslice.core.v1.ListAccountMembersResponse.members:type_name -> gitslice.core.v1.AccountMember
+	25, // 5: gitslice.core.v1.SetAccountMemberResponse.member:type_name -> gitslice.core.v1.AccountMember
+	0,  // 6: gitslice.core.v1.AuthService.StartCliLogin:input_type -> gitslice.core.v1.StartCliLoginRequest
+	2,  // 7: gitslice.core.v1.AuthService.PollCliLogin:input_type -> gitslice.core.v1.PollCliLoginRequest
+	4,  // 8: gitslice.core.v1.AuthService.CompleteCliLogin:input_type -> gitslice.core.v1.CompleteCliLoginRequest
+	6,  // 9: gitslice.core.v1.AuthService.GetAuthStatus:input_type -> gitslice.core.v1.GetAuthStatusRequest
+	9,  // 10: gitslice.core.v1.AuthService.CheckUsernameAvailable:input_type -> gitslice.core.v1.CheckUsernameAvailableRequest
+	11, // 11: gitslice.core.v1.AuthService.ChooseUsername:input_type -> gitslice.core.v1.ChooseUsernameRequest
+	13, // 12: gitslice.core.v1.AuthService.RegisterAgent:input_type -> gitslice.core.v1.RegisterAgentRequest
+	16, // 13: gitslice.core.v1.AuthService.ListPendingClaims:input_type -> gitslice.core.v1.ListPendingClaimsRequest
+	18, // 14: gitslice.core.v1.AuthService.AcceptClaim:input_type -> gitslice.core.v1.AcceptClaimRequest
+	21, // 15: gitslice.core.v1.AuthService.ListOwnedAgents:input_type -> gitslice.core.v1.ListOwnedAgentsRequest
+	23, // 16: gitslice.core.v1.AuthService.CreateOrganization:input_type -> gitslice.core.v1.CreateOrganizationRequest
+	26, // 17: gitslice.core.v1.AuthService.ListAccountMembers:input_type -> gitslice.core.v1.ListAccountMembersRequest
+	28, // 18: gitslice.core.v1.AuthService.SetAccountMember:input_type -> gitslice.core.v1.SetAccountMemberRequest
+	30, // 19: gitslice.core.v1.AuthService.RemoveAccountMember:input_type -> gitslice.core.v1.RemoveAccountMemberRequest
+	1,  // 20: gitslice.core.v1.AuthService.StartCliLogin:output_type -> gitslice.core.v1.StartCliLoginResponse
+	3,  // 21: gitslice.core.v1.AuthService.PollCliLogin:output_type -> gitslice.core.v1.PollCliLoginResponse
+	5,  // 22: gitslice.core.v1.AuthService.CompleteCliLogin:output_type -> gitslice.core.v1.CompleteCliLoginResponse
+	7,  // 23: gitslice.core.v1.AuthService.GetAuthStatus:output_type -> gitslice.core.v1.GetAuthStatusResponse
+	10, // 24: gitslice.core.v1.AuthService.CheckUsernameAvailable:output_type -> gitslice.core.v1.CheckUsernameAvailableResponse
+	12, // 25: gitslice.core.v1.AuthService.ChooseUsername:output_type -> gitslice.core.v1.ChooseUsernameResponse
+	14, // 26: gitslice.core.v1.AuthService.RegisterAgent:output_type -> gitslice.core.v1.RegisterAgentResponse
+	17, // 27: gitslice.core.v1.AuthService.ListPendingClaims:output_type -> gitslice.core.v1.ListPendingClaimsResponse
+	19, // 28: gitslice.core.v1.AuthService.AcceptClaim:output_type -> gitslice.core.v1.AcceptClaimResponse
+	22, // 29: gitslice.core.v1.AuthService.ListOwnedAgents:output_type -> gitslice.core.v1.ListOwnedAgentsResponse
+	24, // 30: gitslice.core.v1.AuthService.CreateOrganization:output_type -> gitslice.core.v1.CreateOrganizationResponse
+	27, // 31: gitslice.core.v1.AuthService.ListAccountMembers:output_type -> gitslice.core.v1.ListAccountMembersResponse
+	29, // 32: gitslice.core.v1.AuthService.SetAccountMember:output_type -> gitslice.core.v1.SetAccountMemberResponse
+	31, // 33: gitslice.core.v1.AuthService.RemoveAccountMember:output_type -> gitslice.core.v1.RemoveAccountMemberResponse
+	20, // [20:34] is the sub-list for method output_type
+	6,  // [6:20] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_auth_proto_init() }
@@ -1851,7 +1932,7 @@ func file_proto_core_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_auth_proto_rawDesc), len(file_proto_core_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   31,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

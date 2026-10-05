@@ -33,6 +33,13 @@ vi.mock("../../state/selection", () => ({
   useSelection: () => ({
     account: "nic",
     accounts: ["nic", "heibot"],
+    activeAccount: "nic",
+    activeMembership: { account: "nic", kind: "personal", role: "owner" },
+    memberships: [
+      { account: "nic", kind: "personal", role: "owner" },
+      { account: "heibot", kind: "agent", role: "owner" }
+    ],
+    setActiveAccount: () => undefined,
     error: null,
     isLoading: false,
     needsUsername: false,

@@ -967,7 +967,12 @@ func TestListSlicesPagesThroughAnAccountAndRejectsUnknownAccounts(t *testing.T) 
 		}
 	}
 
-	_, err := handlers.Slice.ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "nobody-here"})
+	first, err := handlers.Slice.ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "acme"})
+	if err != nil || first.AccountKind == "" {
+		t.Fatalf("ListSlices should say what the account is: %+v, %v", first, err)
+	}
+
+	_, err = handlers.Slice.ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "nobody-here"})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("an unknown account should be not found, got %v", err)
 	}

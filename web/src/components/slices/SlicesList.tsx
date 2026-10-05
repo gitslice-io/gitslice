@@ -5,6 +5,7 @@ import type { Slice } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { shortHash } from "../../lib/objectId";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
+import { canAdmin, kindLabel, membershipFor } from "../../lib/accounts";
 import { useSelection } from "../../state/selection";
 import { useOwnedAgents } from "./OwnedAgents";
 import {
@@ -27,11 +28,15 @@ export function SlicesList() {
   const selection = useSelection();
   const search = useSearch({ strict: false }) as SlicesSearch;
   const explicitAccount = (search.account || "").trim();
-  const effectiveAccount = (explicitAccount || selection.account || "").trim();
+  // The account picked in the top bar's switcher, or ?account= to look at one.
+  const effectiveAccount = (explicitAccount || selection.activeAccount || selection.account || "").trim();
+  const activeMembership = membershipFor(selection.memberships, effectiveAccount);
+  const isPersonalContext = !explicitAccount && (activeMembership?.kind ?? "personal") === "personal";
   const ownedAgents = useOwnedAgents();
-  // Without an explicit ?account=, the home list also covers the accounts of
-  // agents you co-own, so their slices sit next to yours.
-  const agentAccounts = explicitAccount
+  // In your personal context the home list also covers the accounts of agents
+  // you co-own, so their slices sit next to yours. An organization's context
+  // lists only the organization's slices.
+  const agentAccounts = !isPersonalContext
     ? []
     : ownedAgents.agents
         .map((agent) => agent.account ?? "")
@@ -56,19 +61,26 @@ export function SlicesList() {
     <section>
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Slices</h2>
+          <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+            {isPersonalContext ? "Slices" : `Slices in ${effectiveAccount}`}
+          </h2>
           <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
             {agentAccounts.length > 0
               ? "Slices in your account and in your agents' accounts."
-              : "Definitions for slices under the selected account."}
+              : isPersonalContext
+                ? "Slices in your account."
+                : `Slices of the ${kindLabel(activeMembership?.kind ?? "").toLowerCase()} ${effectiveAccount}. Switch accounts from the top bar.`}
           </p>
         </div>
-        <Link
-          className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
-          to="/slices/new"
-        >
-          New slice
-        </Link>
+        {canAdmin(activeMembership) ? (
+          <Link
+            className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
+            search={{ account: effectiveAccount } as never}
+            to="/slices/new"
+          >
+            New slice
+          </Link>
+        ) : null}
       </div>
 
       <div className="mt-4">

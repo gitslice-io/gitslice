@@ -111,6 +111,9 @@ message ListSlicesRequest {
 message ListSlicesResponse {
   repeated Slice slices = 1;
   string next_cursor = 2;
+  // What the account is: personal or organization. Public, like its public
+  // slices, so an account page can say so to anyone.
+  string account_kind = 3;
 }
 
 message ListSliceDefinitionVersionsRequest {

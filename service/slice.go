@@ -88,7 +88,8 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.Auth.AccountKind(ctx, account); err != nil {
+	kind, err := s.Auth.AccountKind(ctx, account)
+	if err != nil {
 		return nil, grpcError(err)
 	}
 	member := false
@@ -116,7 +117,7 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 		slices = slices[:pageSize]
 		next = slices[pageSize-1].GetRef().GetSlice()
 	}
-	return &corev1.ListSlicesResponse{Slices: slices, NextCursor: next}, nil
+	return &corev1.ListSlicesResponse{Slices: slices, NextCursor: next, AccountKind: kind}, nil
 }
 
 func (s *SliceService) ListSliceDefinitionVersions(ctx context.Context, req *corev1.ListSliceDefinitionVersionsRequest) (*corev1.ListSliceDefinitionVersionsResponse, error) {

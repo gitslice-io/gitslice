@@ -99,6 +99,18 @@ export function createApiClient({
       unary<Api.ListOwnedAgentsResponse>(() =>
         auth.listOwnedAgents(toProtoRequest(request))
       ),
+    listAccountMembers: (request) =>
+      unary<Api.ListAccountMembersResponse>(() =>
+        auth.listAccountMembers(toProtoRequest(request))
+      ),
+    setAccountMember: (request) =>
+      unary<Api.SetAccountMemberResponse>(() =>
+        auth.setAccountMember(toProtoRequest(request))
+      ),
+    removeAccountMember: (request) =>
+      unary<Api.RemoveAccountMemberResponse>(() =>
+        auth.removeAccountMember(toProtoRequest(request))
+      ),
     resolvePath: (request) =>
       unary<Api.ResolvePathResponse>(() =>
         repository.resolvePath(toProtoRequest(request))

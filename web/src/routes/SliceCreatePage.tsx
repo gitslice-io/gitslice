@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 
 import { useApi } from "../api/useApi";
@@ -15,6 +15,7 @@ import {
   SlicePanel,
   getErrorMessage
 } from "../components/slices/SlicePageParts";
+import { canAdmin, kindLabel } from "../lib/accounts";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
@@ -23,7 +24,17 @@ export function SliceCreatePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const selection = useSelection();
-  const account = selection.account.trim();
+  const search = useSearch({ strict: false }) as { account?: unknown };
+  // A slice can be created in any account where the viewer is an owner or
+  // admin: their own, or an organization's. It starts in the one asked for
+  // (?account=), else the active account.
+  const eligible = selection.memberships.filter((m) => canAdmin(m));
+  const requested = typeof search.account === "string" ? search.account.trim() : "";
+  const [picked, setPicked] = useState("");
+  const account =
+    [picked, requested, selection.activeAccount, eligible[0]?.account ?? ""].find(
+      (candidate) => candidate && eligible.some((m) => m.account === candidate)
+    ) ?? "";
   const [sliceName, setSliceName] = useState("");
   const [visibility, setVisibility] = useState<VisibilityOption>("private");
   const [includedPaths, setIncludedPaths] = useState<string[]>([]);
@@ -36,7 +47,7 @@ export function SliceCreatePage() {
       const name = sliceName.trim();
 
       if (!account) {
-        throw new Error("Signed-in account is not available.");
+        throw new Error("Choose an account you own or administer.");
       }
 
       const created = await api.createSlice({
@@ -84,7 +95,7 @@ export function SliceCreatePage() {
     const nextClientErrors = [...validation.errors];
 
     if (!account) {
-      nextClientErrors.unshift("Signed-in account is not available.");
+      nextClientErrors.unshift("Choose an account you own or administer.");
     }
 
     setNameError(nextNameError);
@@ -118,8 +129,8 @@ export function SliceCreatePage() {
         }
       />
       <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-        Create a slice under your signed-in account with a visibility value and
-        included source paths.
+        Create a slice in your account or in an organization you administer, with
+        a visibility value and included source paths.
       </p>
 
       <form className="mt-8 space-y-6" onSubmit={createSlice}>
@@ -129,18 +140,27 @@ export function SliceCreatePage() {
               Slice identity
             </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-              The account is resolved from your signed-in session.
+              The slice belongs to the account you choose; you need to be its
+              owner or admin.
             </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-2 text-sm font-medium text-zinc-950 dark:text-zinc-50">
               Account
-              <input
-                className="h-10 min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 px-3 font-mono text-sm text-slate-700 dark:text-zinc-300 outline-none"
-                readOnly
-                value={selection.isLoading ? "Loading..." : account}
-              />
+              <select
+                className="h-10 min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 font-mono text-sm text-zinc-950 dark:text-zinc-50 outline-none"
+                disabled={selection.isLoading || isBusy || eligible.length === 0}
+                onChange={(event) => setPicked(event.target.value)}
+                value={account}
+              >
+                {selection.isLoading ? <option value="">Loading...</option> : null}
+                {eligible.map((m) => (
+                  <option key={m.account} value={m.account}>
+                    {m.account} ({kindLabel(m.kind).toLowerCase()})
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="grid gap-2 text-sm font-medium text-zinc-950 dark:text-zinc-50">

@@ -72,6 +72,20 @@ func TestOrganizationAccounts(t *testing.T) {
 	if members.Kind != "organization" || roles["org-operator"] != "owner" || roles["org-writer"] != "writer" || roles["org-reader"] != "reader" {
 		t.Fatalf("unexpected members: kind=%s %v", members.Kind, roles)
 	}
+	// A member's auth status names each account with its kind and their role,
+	// which is what the web app's account switcher lists.
+	status, err := auth.GetAuthStatus(grpcAuthContext(writerToken), &corev1.GetAuthStatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, m := range status.Memberships {
+		got[m.Account] = m.Kind + "/" + m.Role
+	}
+	if len(status.Memberships) != len(status.Accounts) || status.Memberships[0].Account != "org-writer" ||
+		!strings.HasPrefix(got["org-writer"], "personal/") || got["gitslice"] != "organization/writer" {
+		t.Fatalf("writer memberships = %v (accounts %v)", got, status.Accounts)
+	}
 	_, err = auth.ListAccountMembers(grpcAuthContext(outsiderToken), &corev1.ListAccountMembersRequest{Account: "gitslice"})
 	wantCode(t, err, codes.NotFound, "outsider ListAccountMembers")
 	_, err = auth.SetAccountMember(grpcAuthContext(writerToken), &corev1.SetAccountMemberRequest{Account: "gitslice", Username: "org-outsider", Role: "reader"})

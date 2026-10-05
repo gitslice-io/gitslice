@@ -73,6 +73,9 @@ func TestClaimFlowVerifiesEmailWithClerk(t *testing.T) {
 	if !authStatus.NeedsUsername || len(authStatus.Accounts) != 1 || authStatus.Accounts[0] != "release-bot" {
 		t.Fatalf("claimer status = %+v; want the claimed account and needs_username", authStatus)
 	}
+	if len(authStatus.Memberships) != 1 || authStatus.Memberships[0].Kind != "agent" || authStatus.Memberships[0].Role != "owner" {
+		t.Fatalf("claimer memberships = %+v; want the agent's account, owned", authStatus.Memberships)
+	}
 
 	// The agent itself has no verified emails, so it can never claim.
 	agentCtx := authctx.WithSubjectID(ctx, agent.SubjectId)

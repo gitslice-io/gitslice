@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -83,7 +84,40 @@ func (s *AuthService) GetAuthStatus(ctx context.Context, req *corev1.GetAuthStat
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.GetAuthStatusResponse{SubjectId: subjectID, Accounts: accounts, NeedsUsername: usernames[subjectID] == ""}, nil
+	memberships, err := s.memberships(ctx, subjectID, usernames[subjectID], accounts)
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.GetAuthStatusResponse{SubjectId: subjectID, Accounts: accounts, NeedsUsername: usernames[subjectID] == "", Memberships: memberships}, nil
+}
+
+// memberships describes each of the subject's accounts: the subject's own
+// personal account, an organization, or the personal account of an agent the
+// subject claimed; and the subject's role in it. An account that vanished
+// between the two reads is left out.
+func (s *AuthService) memberships(ctx context.Context, subjectID, username string, accounts []string) ([]*corev1.AccountMembership, error) {
+	out := make([]*corev1.AccountMembership, 0, len(accounts))
+	for _, account := range accounts {
+		kind, err := s.Auth.AccountKind(ctx, account)
+		if errors.Is(err, storage.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		role, err := s.Auth.AccountRole(ctx, subjectID, account)
+		if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrUnauthorized) {
+			continue
+		}
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		if kind == storage.AccountKindPersonal && account != username {
+			kind = "agent"
+		}
+		out = append(out, &corev1.AccountMembership{Account: account, Kind: kind, Role: strings.ToLower(role)})
+	}
+	return out, nil
 }
 
 func (s *AuthService) CheckUsernameAvailable(ctx context.Context, req *corev1.CheckUsernameAvailableRequest) (*corev1.CheckUsernameAvailableResponse, error) {

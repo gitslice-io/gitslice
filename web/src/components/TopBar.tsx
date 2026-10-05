@@ -3,6 +3,7 @@ import { useAuth, UserButton } from "@clerk/tanstack-react-start";
 
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
+import { AccountSwitcher } from "./AccountSwitcher";
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -73,6 +74,7 @@ export function TopBar() {
   const isSlicesActive =
     pathname === "/" ||
     pathname.startsWith("/slices") ||
+    pathname.startsWith("/accounts") ||
     pathname.startsWith("/source") ||
     pathname.startsWith("/changesets") ||
     pathname.startsWith("/cs");
@@ -122,14 +124,7 @@ export function TopBar() {
             ))}
           </nav>
           <ThemeToggle />
-          {account ? (
-            <div className="hidden min-w-0 text-right text-xs font-semibold text-slate-500 dark:text-zinc-500 sm:block">
-              Account
-              <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                {account}
-              </div>
-            </div>
-          ) : null}
+          {account ? <AccountSwitcher /> : null}
           {!isLoaded ? (
             <div
               aria-hidden

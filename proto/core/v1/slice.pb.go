@@ -767,9 +767,12 @@ func (x *ListSlicesRequest) GetPageSize() int32 {
 }
 
 type ListSlicesResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Slices        []*Slice               `protobuf:"bytes,1,rep,name=slices,proto3" json:"slices,omitempty"`
-	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Slices     []*Slice               `protobuf:"bytes,1,rep,name=slices,proto3" json:"slices,omitempty"`
+	NextCursor string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	// What the account is: personal or organization. Public, like its public
+	// slices, so an account page can say so to anyone.
+	AccountKind   string `protobuf:"bytes,3,opt,name=account_kind,json=accountKind,proto3" json:"account_kind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -814,6 +817,13 @@ func (x *ListSlicesResponse) GetSlices() []*Slice {
 func (x *ListSlicesResponse) GetNextCursor() string {
 	if x != nil {
 		return x.NextCursor
+	}
+	return ""
+}
+
+func (x *ListSlicesResponse) GetAccountKind() string {
+	if x != nil {
+		return x.AccountKind
 	}
 	return ""
 }
@@ -1385,11 +1395,12 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x11ListSlicesRequest\x12\x18\n" +
 	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x16\n" +
 	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x1b\n" +
-	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"f\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\x89\x01\n" +
 	"\x12ListSlicesResponse\x12/\n" +
 	"\x06slices\x18\x01 \x03(\v2\x17.gitslice.core.v1.SliceR\x06slices\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\"\\\n" +
+	"nextCursor\x12!\n" +
+	"\faccount_kind\x18\x03 \x01(\tR\vaccountKind\"\\\n" +
 	"\"ListSliceDefinitionVersionsRequest\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\"k\n" +
