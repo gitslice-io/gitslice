@@ -96,7 +96,10 @@ export function TopBar() {
         </div>
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <nav aria-label="Primary" className="flex items-center gap-1">
-            {navItems.map((item) => (
+            {navItems
+              // The blog is for visitors; signed-in people work in the app.
+              .filter((item) => !(isSignedIn && item.section === "blog"))
+              .map((item) => (
               <Link
                 aria-current={
                   (item.section === "slices" && isSlicesActive) ||

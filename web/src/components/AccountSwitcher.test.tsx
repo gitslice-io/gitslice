@@ -34,7 +34,7 @@ vi.mock("./slices/PendingInvitations", () => ({
   useMyInvitations: () => ({ data: [{ account: "labs", role: "writer", invitedBy: "boss" }] })
 }));
 
-import { AccountSwitcher } from "./AccountSwitcher";
+import { AccountSwitcher, menuPlace } from "./AccountSwitcher";
 
 afterEach(cleanup);
 
@@ -63,5 +63,27 @@ describe("AccountSwitcher", () => {
     fireEvent.click(screen.getByRole("button", { name: /Switch account/ }));
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+});
+
+describe("menuPlace", () => {
+  it("stays inside a phone's screen", () => {
+    // A 390px-wide phone with the button near the left: the menu cannot be
+    // right-aligned with it, so it is pushed right, and is as wide as fits.
+    const place = menuPlace({ bottom: 60, right: 200 }, 390, 800);
+    expect(place.left).toBeGreaterThanOrEqual(8);
+    expect(place.left + place.width).toBeLessThanOrEqual(390 - 8);
+    expect(place.top).toBe(64);
+    expect(place.maxHeight).toBe(800 - 64 - 8);
+  });
+
+  it("right-aligns with the button on a wide screen", () => {
+    const place = menuPlace({ bottom: 50, right: 1200 }, 1440, 900);
+    expect(place.width).toBe(288);
+    expect(place.left).toBe(1200 - 288);
+  });
+
+  it("narrows on a very small screen", () => {
+    expect(menuPlace({ bottom: 50, right: 300 }, 280, 600).width).toBe(280 - 16);
   });
 });

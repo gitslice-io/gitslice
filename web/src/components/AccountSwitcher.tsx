@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { kindLabel, type Membership } from "../lib/accounts";
 import { cn } from "../lib/cn";
@@ -13,15 +14,42 @@ export function AccountSwitcher() {
   const { activeAccount, activeMembership, memberships, setActiveAccount } = useSelection();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [place, setPlace] = useState<MenuPlace | null>(null);
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const invitations = useMyInvitations().data ?? [];
+
+  // The menu is drawn in a portal, fixed to the viewport: inside the top bar it
+  // would sit under the page's sticky header (the bar's blur makes it its own
+  // stacking context), and anchored to the button it ran off a phone's screen.
+  useLayoutEffect(() => {
+    if (!open || !trigger.current) {
+      setPlace(null);
+      return;
+    }
+    const measure = () => {
+      if (!trigger.current) {
+        return;
+      }
+      setPlace(menuPlace(trigger.current.getBoundingClientRect(), window.innerWidth, window.innerHeight));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
+      setFilter("");
       return;
     }
-    function onMouseDown(event: MouseEvent) {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) {
+    function inside(target: EventTarget | null) {
+      return target instanceof Node && (root.current?.contains(target) || menu.current?.contains(target));
+    }
+    function onPointerDown(event: PointerEvent) {
+      if (!inside(event.target)) {
         setOpen(false);
       }
     }
@@ -30,11 +58,20 @@ export function AccountSwitcher() {
         setOpen(false);
       }
     }
-    document.addEventListener("mousedown", onMouseDown);
+    // Scrolling the page moves the button away from the menu; scrolling the
+    // menu itself is fine.
+    function onScroll(event: Event) {
+      if (!inside(event.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
-      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [open]);
 
@@ -42,11 +79,15 @@ export function AccountSwitcher() {
     return null;
   }
 
+  // A long list (people who claimed many agents) gets a filter, as GitHub's does.
+  const showFilter = memberships.length > FILTER_FROM;
+  const needle = filter.trim().toLowerCase();
+  const shown = needle ? memberships.filter((m) => m.account.toLowerCase().includes(needle)) : memberships;
   const groups: [string, Membership[]][] = [
-    ["Personal", memberships.filter((m) => m.kind === "personal")],
-    ["Organizations", memberships.filter((m) => m.kind === "organization")],
-    ["Agents", memberships.filter((m) => m.kind === "agent")],
-    ["Other", memberships.filter((m) => !["personal", "organization", "agent"].includes(m.kind))]
+    ["Personal", shown.filter((m) => m.kind === "personal")],
+    ["Organizations", shown.filter((m) => m.kind === "organization")],
+    ["Agents", shown.filter((m) => m.kind === "agent")],
+    ["Other", shown.filter((m) => !["personal", "organization", "agent"].includes(m.kind))]
   ];
 
   function choose(account: string) {
@@ -63,6 +104,7 @@ export function AccountSwitcher() {
         aria-label={`Switch account (current: ${activeAccount})`}
         className="flex max-w-48 items-center gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-left transition hover:bg-slate-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
         onClick={() => setOpen((current) => !current)}
+        ref={trigger}
         type="button"
       >
         <AccountAvatar account={activeAccount} kind={activeMembership?.kind ?? ""} />
@@ -84,15 +126,33 @@ export function AccountSwitcher() {
           ▾
         </span>
       </button>
-      {open ? (
+      {open && place ? createPortal(
         <div
-          className="absolute right-0 z-50 mt-1 w-72 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10 dark:border-zinc-800 dark:bg-zinc-900"
+          className="fixed z-[100] flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10 dark:border-zinc-800 dark:bg-zinc-900"
+          ref={menu}
           role="menu"
+          style={{ left: place.left, maxHeight: place.maxHeight, top: place.top, width: place.width }}
         >
-          <p className="border-b border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-zinc-800 dark:text-zinc-400">
+          <p className="shrink-0 border-b border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-zinc-800 dark:text-zinc-400">
             Switch dashboard context
           </p>
-          <div className="max-h-[60vh] overflow-auto py-1">
+          {showFilter ? (
+            <div className="shrink-0 border-b border-slate-200 p-2 dark:border-zinc-800">
+              <input
+                aria-label="Find an account"
+                autoFocus
+                className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-slate-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                onChange={(event) => setFilter(event.target.value)}
+                placeholder="Find an account"
+                type="search"
+                value={filter}
+              />
+            </div>
+          ) : null}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+            {shown.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-slate-500 dark:text-zinc-400">No account matches.</p>
+            ) : null}
             {groups
               .filter(([, items]) => items.length > 0)
               .map(([title, items]) => (
@@ -125,7 +185,7 @@ export function AccountSwitcher() {
                 </div>
               ))}
           </div>
-          <div className="border-t border-slate-200 py-1 dark:border-zinc-800">
+          <div className="shrink-0 border-t border-slate-200 py-1 dark:border-zinc-800">
             {invitations.length > 0 ? (
               <Link
                 className="block px-3 py-2 text-sm font-medium text-sky-700 transition hover:bg-slate-50 dark:text-sky-300 dark:hover:bg-zinc-950"
@@ -154,10 +214,32 @@ export function AccountSwitcher() {
               {activeMembership?.kind === "organization" ? "Organization profile and people" : "Your profile"}
             </Link>
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </div>
   );
+}
+
+const FILTER_FROM = 7;
+const MENU_WIDTH = 288;
+const MARGIN = 8;
+
+export interface MenuPlace {
+  left: number;
+  maxHeight: number;
+  top: number;
+  width: number;
+}
+
+// menuPlace puts the menu under the button, right-aligned with it when there is
+// room, and always inside the viewport: as wide as fits, and no taller than the
+// space below (the list scrolls).
+export function menuPlace(button: { bottom: number; right: number }, viewportWidth: number, viewportHeight: number): MenuPlace {
+  const width = Math.min(MENU_WIDTH, viewportWidth - 2 * MARGIN);
+  const left = Math.min(Math.max(MARGIN, button.right - width), viewportWidth - width - MARGIN);
+  const top = Math.round(button.bottom + 4);
+  return { left: Math.round(left), maxHeight: Math.max(160, viewportHeight - top - MARGIN), top, width };
 }
 
 export function AccountAvatar({ account, kind, size = "sm" }: { account: string; kind: string; size?: "sm" | "lg" }) {
