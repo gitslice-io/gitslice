@@ -32,7 +32,7 @@ type ChangesetsQueryKey = readonly ["changesets", string, string];
 export function ChangesetsPage() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
-  const { account: viewerAccount } = useSelection();
+  const { accounts: viewerAccounts } = useSelection();
   const canManage = Boolean(isLoaded && isSignedIn);
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as ChangesetsSearch;
@@ -63,7 +63,7 @@ export function ChangesetsPage() {
 
   const breadcrumbItems: Crumb[] = [{ label: "Home", to: "/" }];
   if (sliceRef) {
-    breadcrumbItems.push(...sliceBreadcrumbItems(sliceRef, viewerAccount));
+    breadcrumbItems.push(...sliceBreadcrumbItems(sliceRef, viewerAccounts));
   }
   breadcrumbItems.push({ label: "Changesets" });
   const pageTitle = sliceRef ? `${account}:${slice} · Changesets` : "Changesets";

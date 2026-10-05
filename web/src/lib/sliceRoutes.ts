@@ -24,20 +24,30 @@ export function toSliceRouteParams(
 // whose slice this is, so it is there for the viewer's own slices too.
 export function sliceBreadcrumbItems(
   ref: SliceRef | null | undefined,
-  viewerAccount: string | null | undefined
+  // The viewer's accounts, their personal account first (see useSelection).
+  viewerAccounts: readonly string[] | null | undefined
 ): Crumb[] {
   const params = toSliceRouteParams(ref);
   if (!params) {
     return [];
   }
-  const isOwn = Boolean(viewerAccount) && viewerAccount?.trim().toLowerCase() === params.account.toLowerCase();
   return [
     {
       label: `@${params.account}`,
       params: { account: params.account },
-      title: isOwn ? "Your account" : `Owned by ${params.account}`,
+      title: accountRelation(params.account, viewerAccounts),
       to: "/accounts/$account"
     },
     { label: params.slice, params, title: `${params.account}:${params.slice}`, to: "/slices/$account/$slice" }
   ];
+}
+
+// accountRelation says how an account relates to the viewer, for a tooltip.
+export function accountRelation(account: string, viewerAccounts: readonly string[] | null | undefined) {
+  const accounts = (viewerAccounts ?? []).map((name) => name.trim().toLowerCase());
+  const index = accounts.indexOf(account.trim().toLowerCase());
+  if (index === 0) {
+    return "Your account";
+  }
+  return index > 0 ? `${account}, an account you belong to` : `Owned by ${account}`;
 }

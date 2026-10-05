@@ -28,10 +28,12 @@ function isNotFound(error: unknown) {
 export function AccountPage() {
   const api = useApi();
   const { isLoaded } = useAuth();
-  const { account: viewerAccount } = useSelection();
+  const { accounts: viewerAccounts } = useSelection();
   const params = useParams({ strict: false }) as { account?: string };
   const account = params.account ?? "";
-  const isOwn = Boolean(viewerAccount) && viewerAccount.toLowerCase() === account.toLowerCase();
+  // Which of the viewer's accounts this is: their personal one first, then the
+  // organizations they belong to.
+  const membership = viewerAccounts.findIndex((name) => name.toLowerCase() === account.toLowerCase());
 
   const slicesQuery = useInfiniteQuery({
     // Wait for Clerk, so a member's token is attached and their private slices
@@ -39,7 +41,7 @@ export function AccountPage() {
     enabled: Boolean(isLoaded && account),
     getNextPageParam: (last: ListSlicesResponse) => last.nextCursor || undefined,
     initialPageParam: "",
-    queryKey: ["accountSlices", account, viewerAccount],
+    queryKey: ["accountSlices", account, viewerAccounts.join(" ")],
     queryFn: ({ pageParam }) => api.listSlices({ account, cursor: pageParam, pageSize: PAGE_SIZE }),
     // An account that does not exist will not exist on a retry.
     retry: (count, error) => !isNotFound(error) && count < 2
@@ -60,7 +62,11 @@ export function AccountPage() {
         <div className="mt-2" />
       ) : (
         <p className="mb-4 mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          {isOwn ? "Your slices. Others see only the public ones." : `Public slices owned by ${account}.`}
+          {membership === 0
+            ? "Your slices. Others see only the public ones."
+            : membership > 0
+              ? `Slices of ${account}, which you belong to. Others see only the public ones.`
+              : `Public slices owned by ${account}.`}
         </p>
       )}
       {slicesQuery.isPending ? (

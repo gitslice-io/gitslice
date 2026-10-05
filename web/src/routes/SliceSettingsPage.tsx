@@ -33,7 +33,7 @@ interface SliceParams {
 export function SliceSettingsPage() {
   const api = useApi();
   const queryClient = useQueryClient();
-  const { account: viewerAccount } = useSelection();
+  const { accounts: viewerAccounts } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
@@ -202,7 +202,7 @@ export function SliceSettingsPage() {
   }
 
   const sliceLabel = sliceDisplayName(slice);
-  const sliceCrumbs = sliceBreadcrumbItems(slice?.ref ?? routeSliceRef, viewerAccount);
+  const sliceCrumbs = sliceBreadcrumbItems(slice?.ref ?? routeSliceRef, viewerAccounts);
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">

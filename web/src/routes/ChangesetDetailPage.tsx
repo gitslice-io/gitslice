@@ -63,7 +63,7 @@ export function ChangesetDetailPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const { isLoaded, isSignedIn } = useAuth();
-  const { account: viewerAccount } = useSelection();
+  const { accounts: viewerAccounts } = useSelection();
   const params = useParams({ strict: false }) as { id?: string };
   const changesetId = params.id ?? "";
   const navigate = useNavigate();
@@ -475,7 +475,7 @@ export function ChangesetDetailPage() {
             items={changesetBreadcrumbItems({
               changeset,
               sliceSearch,
-              viewerAccount
+              viewerAccounts
             })}
           />
         }

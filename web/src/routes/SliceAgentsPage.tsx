@@ -27,7 +27,7 @@ export function SliceAgentsPage() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   const navigate = useNavigate();
-  const { account: viewerAccount } = useSelection();
+  const { accounts: viewerAccounts } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
@@ -55,8 +55,8 @@ export function SliceAgentsPage() {
   const sliceRouteParams = toSliceRouteParams(sliceRef);
   const breadcrumbItems = [
     { label: "Home", to: "/" },
-    ...(sliceBreadcrumbItems(sliceRef, viewerAccount).length > 0
-      ? sliceBreadcrumbItems(sliceRef, viewerAccount)
+    ...(sliceBreadcrumbItems(sliceRef, viewerAccounts).length > 0
+      ? sliceBreadcrumbItems(sliceRef, viewerAccounts)
       : [{ label: sliceLabel }]),
     sliceRouteParams
       ? {

@@ -76,16 +76,16 @@ export function changesetSliceSearch(changeset: Changeset) {
 export function changesetBreadcrumbItems({
   changeset,
   sliceSearch,
-  viewerAccount
+  viewerAccounts
 }: {
   changeset: Changeset;
   sliceSearch: string;
-  viewerAccount?: string;
+  viewerAccounts?: readonly string[];
 }): Crumb[] {
   const items: Crumb[] = [{ label: "Home", to: "/" }];
 
   if (sliceSearch) {
-    const sliceCrumbs = sliceBreadcrumbItems(changeset.authoringSlice, viewerAccount);
+    const sliceCrumbs = sliceBreadcrumbItems(changeset.authoringSlice, viewerAccounts);
     items.push(...(sliceCrumbs.length > 0 ? sliceCrumbs : [{ label: sliceSearch }]));
     items.push({
       label: `${sliceSearch} changesets`,

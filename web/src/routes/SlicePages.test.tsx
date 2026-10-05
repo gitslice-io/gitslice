@@ -194,6 +194,18 @@ describe("slice route pages (render smoke)", () => {
     expect(api.listSlices).toHaveBeenCalledTimes(1);
   });
 
+  it("tells a member of an organization that its page shows everything to them", async () => {
+    selectionMock.current = { ...selectionMock.current, accounts: ["nic", "acme"] };
+    routerMock.params = { account: "acme" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockResolvedValue({ slices: [] });
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    expect(await screen.findByText(/Slices of acme, which you belong to/)).toBeInTheDocument();
+    selectionMock.current = { ...selectionMock.current, accounts: ["nic"] };
+  });
+
   it("says when an account has no public slices", async () => {
     routerMock.params = { account: "quiet" };
     const api = makeApi();

@@ -67,7 +67,7 @@ export function SliceDetailPage() {
   const navigate = useNavigate();
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
-  const { account } = useSelection();
+  const { account, accounts } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const search = useSearch({ strict: false }) as SliceSearch;
   const routeAccount = params.account ?? "";
@@ -313,7 +313,7 @@ export function SliceDetailPage() {
       ? "block"
       : "block lg:hidden";
   const workspaceVisibility = selectedPath ? "block" : "hidden lg:block";
-  const sliceCrumbs = sliceBreadcrumbItems(sliceRef, account);
+  const sliceCrumbs = sliceBreadcrumbItems(sliceRef, accounts);
 
   return (
     <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
