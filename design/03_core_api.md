@@ -396,9 +396,11 @@ message GetSliceRequest {
   string slice_id = 1;
 }
 
-// ListSlices lists an account's slices. Members of the account see all of them;
-// everyone else, signed in or not, sees only the public ones (the account page
-// at /accounts/<account> uses this).
+// ListSlices lists an account's slices in name order, a page at a time (page_size
+// defaults to 50, at most 100; the cursor is the last name of the previous
+// page). Members of the account see all of them; everyone else, signed in or
+// not, sees only the public ones (the account page at /accounts/<account> uses
+// this). An account that does not exist is NOT_FOUND.
 message ListSlicesRequest {
   string account = 1;
   string cursor = 2;

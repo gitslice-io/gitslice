@@ -2853,12 +2853,12 @@ func (r Runner) browseTargetForPath(ctx context.Context, p string) (browseTarget
 		return out, nil
 	}
 	defer conn.Close()
-	resp, err := corev1.NewSliceServiceClient(conn).ListSlices(authContext(lookupCtx, cfg), &corev1.ListSlicesRequest{Account: account, PageSize: 200})
+	slices, err := listAllSlices(authContext(lookupCtx, cfg), corev1.NewSliceServiceClient(conn), account)
 	if err != nil {
 		return out, nil
 	}
 	best := -1
-	for _, slice := range resp.GetSlices() {
+	for _, slice := range slices {
 		for _, prefix := range slice.GetDefinition().GetIncludedPaths() {
 			if paths.Contains(prefix, abs) && len(strings.TrimRight(prefix, "/")) > best {
 				best = len(strings.TrimRight(prefix, "/"))
@@ -3663,15 +3663,12 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 			return err
 		}
 	}
-	res, err := corev1.NewSliceServiceClient(conn).ListSlices(callCtx, &corev1.ListSlicesRequest{
-		Account:  account,
-		PageSize: 1000,
-	})
+	slices, err := listAllSlices(callCtx, corev1.NewSliceServiceClient(conn), account)
 	if err != nil {
 		return err
 	}
-	out := make([]sliceOutput, 0, len(res.Slices))
-	for _, slice := range res.Slices {
+	out := make([]sliceOutput, 0, len(slices))
+	for _, slice := range slices {
 		out = append(out, sliceToOutput(slice))
 	}
 	if opts.jsonOutput() {
@@ -13280,4 +13277,21 @@ func selectJSONFields(v any, fields []string) (map[string]any, error) {
 		out[field] = value
 	}
 	return out, nil
+}
+
+// listAllSlices reads every page of an account's slices.
+func listAllSlices(ctx context.Context, client corev1.SliceServiceClient, account string) ([]*corev1.Slice, error) {
+	var all []*corev1.Slice
+	cursor := ""
+	for {
+		page, err := client.ListSlices(ctx, &corev1.ListSlicesRequest{Account: account, Cursor: cursor, PageSize: 100})
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.GetSlices()...)
+		if page.GetNextCursor() == "" {
+			return all, nil
+		}
+		cursor = page.GetNextCursor()
+	}
 }

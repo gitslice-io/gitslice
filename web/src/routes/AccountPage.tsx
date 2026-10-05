@@ -1,8 +1,9 @@
 import { useAuth } from "@clerk/tanstack-react-start";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 
-import type { Slice } from "../api/types";
+import { RpcError } from "../api/client";
+import type { ListSlicesResponse } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
@@ -16,7 +17,11 @@ import {
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 50;
+
+function isNotFound(error: unknown) {
+  return error instanceof RpcError && (error.status === 404 || error.code === 5 || error.code === "5" || error.code === "NotFound" || error.code === "not_found");
+}
 
 // An account's page: its slices that the visitor can open. Anyone sees the
 // public ones; the account's own members see every slice.
@@ -28,23 +33,18 @@ export function AccountPage() {
   const account = params.account ?? "";
   const isOwn = Boolean(viewerAccount) && viewerAccount.toLowerCase() === account.toLowerCase();
 
-  const slicesQuery = useQuery({
+  const slicesQuery = useInfiniteQuery({
     // Wait for Clerk, so a member's token is attached and their private slices
     // are included on the first request.
     enabled: Boolean(isLoaded && account),
+    getNextPageParam: (last: ListSlicesResponse) => last.nextCursor || undefined,
+    initialPageParam: "",
     queryKey: ["accountSlices", account, viewerAccount],
-    queryFn: async () => {
-      const slices: Slice[] = [];
-      let cursor = "";
-      do {
-        const page = await api.listSlices({ account, cursor, pageSize: PAGE_SIZE });
-        slices.push(...(page.slices ?? []));
-        cursor = page.nextCursor ?? "";
-      } while (cursor);
-      return slices;
-    }
+    queryFn: ({ pageParam }) => api.listSlices({ account, cursor: pageParam, pageSize: PAGE_SIZE }),
+    // An account that does not exist will not exist on a retry.
+    retry: (count, error) => !isNotFound(error) && count < 2
   });
-  const slices = slicesQuery.data ?? [];
+  const slices = (slicesQuery.data?.pages ?? []).flatMap((page: ListSlicesResponse) => page.slices ?? []);
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
@@ -56,11 +56,17 @@ export function AccountPage() {
           </h1>
         }
       />
-      <p className="mb-4 mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-        {isOwn ? "Your slices. Others see only the public ones." : `Public slices owned by ${account}.`}
-      </p>
+      {isNotFound(slicesQuery.error) ? (
+        <div className="mt-2" />
+      ) : (
+        <p className="mb-4 mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          {isOwn ? "Your slices. Others see only the public ones." : `Public slices owned by ${account}.`}
+        </p>
+      )}
       {slicesQuery.isPending ? (
         <SliceLoadingBlock />
+      ) : isNotFound(slicesQuery.error) ? (
+        <SliceNotice title="No such account">There is no account named {account}.</SliceNotice>
       ) : slicesQuery.isError ? (
         <SliceNotice title="Could not load slices" tone="error">
           {getErrorMessage(slicesQuery.error)}
@@ -95,6 +101,18 @@ export function AccountPage() {
           })}
         </ul>
       )}
+      {slicesQuery.hasNextPage ? (
+        <div className="mt-4 flex justify-center">
+          <button
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+            disabled={slicesQuery.isFetchingNextPage}
+            onClick={() => void slicesQuery.fetchNextPage()}
+            type="button"
+          >
+            {slicesQuery.isFetchingNextPage ? "Loading…" : "Show more"}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

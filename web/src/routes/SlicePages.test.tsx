@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { RpcError } from "../api/client";
 import { AccountPage } from "./AccountPage";
 import { HomePage } from "./HomePage";
 import { SliceCreatePage } from "./SliceCreatePage";
@@ -115,9 +116,10 @@ describe("slice route pages (render smoke)", () => {
     renderRoute(<SliceDetailPage />);
     await waitFor(() => expect(apiMock.current.resolveSlice).toHaveBeenCalled());
     await flushAsync();
-    // Own slice: one crumb, "account:slice".
+    // Own slice: your account, then the slice.
     const own = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(own).toHaveTextContent("nic:home");
+    expect(within(own).getByRole("link", { name: "@nic" })).toBeInTheDocument();
+    expect(own).toHaveTextContent("home");
     cleanup();
 
     // Someone else's slice names the owner, then the slice.
@@ -156,6 +158,40 @@ describe("slice route pages (render smoke)", () => {
     expect(screen.getByRole("heading", { name: "@gitslice" })).toBeInTheDocument();
     expect(screen.getByText("Public slices owned by gitslice.")).toBeInTheDocument();
     expectHealthy();
+  });
+
+  it("pages through a long list of slices", async () => {
+    routerMock.params = { account: "big" };
+    const api = makeApi();
+    api.listSlices = vi
+      .fn()
+      .mockResolvedValueOnce({
+        slices: [{ id: "a", ref: { account: "big", slice: "alpha" }, definition: { visibility: "public" } }],
+        nextCursor: "alpha"
+      })
+      .mockResolvedValueOnce({
+        slices: [{ id: "b", ref: { account: "big", slice: "bravo" }, definition: { visibility: "public" } }]
+      });
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    expect(await screen.findByText("alpha")).toBeInTheDocument();
+    expect(screen.queryByText("bravo")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(await screen.findByText("bravo")).toBeInTheDocument();
+    expect(api.listSlices).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "alpha" }));
+    expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+  });
+
+  it("says when the account does not exist", async () => {
+    routerMock.params = { account: "ghost" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockRejectedValue(new RpcError(404, { code: 5, message: "not found" }));
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    expect(await screen.findByText("No such account")).toBeInTheDocument();
+    expect(api.listSlices).toHaveBeenCalledTimes(1);
   });
 
   it("says when an account has no public slices", async () => {

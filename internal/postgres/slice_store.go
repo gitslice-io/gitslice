@@ -117,20 +117,20 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 	return scanSlice(row)
 }
 
-func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, limit, false)
+func (s *SliceStore) List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
+	return s.list(ctx, account, after, limit, false)
 }
 
-func (s *SliceStore) ListPublic(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, limit, true)
+func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
+	return s.list(ctx, account, after, limit, true)
 }
 
-func (s *SliceStore) list(ctx context.Context, account string, limit int, publicOnly bool) ([]*corev1.Slice, error) {
+func (s *SliceStore) list(ctx context.Context, account, after string, limit int, publicOnly bool) ([]*corev1.Slice, error) {
 	account, err := normalizeSlug(account, "account")
 	if err != nil {
 		return nil, err
 	}
-	if limit <= 0 || limit > 100 {
+	if limit <= 0 || limit > 1000 {
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
@@ -138,10 +138,10 @@ func (s *SliceStore) list(ctx context.Context, account string, limit int, public
 		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
-		where accounts.slug = $1 and (not $3 or slices.visibility = 'public')
+		where accounts.slug = $1 and (not $3 or slices.visibility = 'public') and slices.slug > $4
 		order by slices.slug
 		limit $2
-	`, account, limit, publicOnly)
+	`, account, limit, publicOnly, after)
 	if err != nil {
 		return nil, err
 	}

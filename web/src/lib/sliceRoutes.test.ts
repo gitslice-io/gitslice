@@ -3,14 +3,16 @@ import { describe, expect, it } from "vitest";
 import { sliceBreadcrumbItems } from "./sliceRoutes";
 
 describe("sliceBreadcrumbItems", () => {
-  it("is one crumb for a slice in the viewer's own account", () => {
-    expect(sliceBreadcrumbItems({ account: "nic", slice: "notes" }, "nic")).toEqual([
-      { label: "nic:notes", params: { account: "nic", slice: "notes" }, to: "/slices/$account/$slice" }
-    ]);
+  it("names the viewer's own account too, as theirs", () => {
+    const items = sliceBreadcrumbItems({ account: "nic", slice: "notes" }, "nic");
+
+    expect(items.map((item) => item.label)).toEqual(["@nic", "notes"]);
+    expect(items[0].title).toBe("Your account");
+    expect(items[0].to).toBe("/accounts/$account");
   });
 
   it("ignores case when comparing accounts", () => {
-    expect(sliceBreadcrumbItems({ account: "Nic", slice: "notes" }, "nic")).toHaveLength(1);
+    expect(sliceBreadcrumbItems({ account: "Nic", slice: "notes" }, "nic")[0].title).toBe("Your account");
   });
 
   it("names the owner for someone else's slice", () => {

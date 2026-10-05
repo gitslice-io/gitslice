@@ -19,10 +19,9 @@ export function toSliceRouteParams(
   return { account, slice };
 }
 
-// sliceBreadcrumbItems is a slice's place in a breadcrumb. A slice in the
-// viewer's own account is one crumb, "account:slice". Anyone else's is two, the
-// owner and then the slice, so the trail says whose slice this is, and the owner
-// links to the owner's page.
+// sliceBreadcrumbItems is a slice's place in a breadcrumb: the owner, linked to
+// the owner's page, and then the slice. The owner crumb is how the trail says
+// whose slice this is, so it is there for the viewer's own slices too.
 export function sliceBreadcrumbItems(
   ref: SliceRef | null | undefined,
   viewerAccount: string | null | undefined
@@ -32,12 +31,13 @@ export function sliceBreadcrumbItems(
     return [];
   }
   const isOwn = Boolean(viewerAccount) && viewerAccount?.trim().toLowerCase() === params.account.toLowerCase();
-  const to = "/slices/$account/$slice";
-  if (isOwn) {
-    return [{ label: `${params.account}:${params.slice}`, params, to }];
-  }
   return [
-    { label: `@${params.account}`, params: { account: params.account }, title: `Owned by ${params.account}`, to: "/accounts/$account" },
-    { label: params.slice, params, title: `${params.account}:${params.slice}`, to }
+    {
+      label: `@${params.account}`,
+      params: { account: params.account },
+      title: isOwn ? "Your account" : `Owned by ${params.account}`,
+      to: "/accounts/$account"
+    },
+    { label: params.slice, params, title: `${params.account}:${params.slice}`, to: "/slices/$account/$slice" }
   ];
 }

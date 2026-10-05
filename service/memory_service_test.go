@@ -916,6 +916,63 @@ func TestListSlicesShowsNonMembersOnlyPublicSlices(t *testing.T) {
 	}
 }
 
+func TestListSlicesPagesThroughAnAccountAndRejectsUnknownAccounts(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	alice := authctx.WithSubjectID(context.Background(), "user_alice")
+	data := []byte("package api\n")
+	hash := objectid.RawContentHash(data)
+	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutCommitWithFiles("commit_api", []storage.FileEntry{{
+		Path:        "/acme/payment/api/main.go",
+		BlobID:      objectid.BlobID(data),
+		ContentHash: hash,
+		Mode:        0o100644,
+		Size:        int64(len(data)),
+	}}, []string{"/acme/payment/api/main.go"})
+	for _, name := range []string{"delta", "alpha", "charlie", "bravo", "echo"} {
+		if _, err := handlers.Slice.CreateSlice(alice, &corev1.CreateSliceRequest{
+			Ref:           &corev1.SliceRef{Account: "acme", Slice: name},
+			IncludedPaths: []string{"/acme/payment"},
+			Visibility:    "public",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var names []string
+	cursor := ""
+	pages := 0
+	for {
+		page, err := handlers.Slice.ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "acme", Cursor: cursor, PageSize: 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pages++
+		for _, slice := range page.Slices {
+			names = append(names, slice.Ref.Slice)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	// Only public slices count, and "payment" and "home" fixtures are not public.
+	want := []string{"alpha", "bravo", "charlie", "delta", "echo"}
+	if len(names) != len(want) || pages != 3 {
+		t.Fatalf("paged names = %v in %d pages, want %v in 3", names, pages, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("paged names = %v, want %v", names, want)
+		}
+	}
+
+	_, err := handlers.Slice.ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "nobody-here"})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("an unknown account should be not found, got %v", err)
+	}
+}
+
 func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")

@@ -237,9 +237,11 @@ type SliceStore interface {
 	ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error)
 	Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error)
 	Get(ctx context.Context, sliceID string) (*corev1.Slice, error)
-	List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error)
-	// ListPublic lists the account's public slices, whoever is asking.
-	ListPublic(ctx context.Context, account string, limit int) ([]*corev1.Slice, error)
+	// List lists an account's slices in name order, up to limit, starting after
+	// the slice named after ("" for the first page).
+	List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error)
+	// ListPublic lists the account's public slices the same way, whoever is asking.
+	ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error)
 	ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error)
 	UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error)

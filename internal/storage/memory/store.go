@@ -2598,15 +2598,15 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 	return cloneSlice(slice), nil
 }
 
-func (s *SliceStore) List(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
-	return s.list(account, limit, false)
+func (s *SliceStore) List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
+	return s.list(account, after, limit, false)
 }
 
-func (s *SliceStore) ListPublic(ctx context.Context, account string, limit int) ([]*corev1.Slice, error) {
-	return s.list(account, limit, true)
+func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
+	return s.list(account, after, limit, true)
 }
 
-func (s *SliceStore) list(account string, limit int, publicOnly bool) ([]*corev1.Slice, error) {
+func (s *SliceStore) list(account, after string, limit int, publicOnly bool) ([]*corev1.Slice, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if limit <= 0 {
@@ -2614,7 +2614,7 @@ func (s *SliceStore) list(account string, limit int, publicOnly bool) ([]*corev1
 	}
 	var out []*corev1.Slice
 	for _, slice := range s.b.slices {
-		if slice.Ref.Account == account && (!publicOnly || slice.GetDefinition().GetVisibility() == "public") {
+		if slice.Ref.Account == account && slice.Ref.Slice > after && (!publicOnly || slice.GetDefinition().GetVisibility() == "public") {
 			out = append(out, cloneSlice(slice))
 		}
 	}

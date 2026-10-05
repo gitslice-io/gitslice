@@ -397,15 +397,12 @@ func TestConnectHTTPLoginAndListSlices(t *testing.T) {
 	ts := startTestServer(t)
 	slicesClient := corev1connect.NewSliceServiceClient(http.DefaultClient, connectBaseURL(ts.httpAddr))
 
-	// Without a token only public slices are listed; acme's are private.
-	anonymous, err := slicesClient.ListSlices(context.Background(), connect.NewRequest(&corev1.ListSlicesRequest{
-		Account: "acme",
+	// An account that does not exist is not found, token or not.
+	_, err := slicesClient.ListSlices(context.Background(), connect.NewRequest(&corev1.ListSlicesRequest{
+		Account: "no-such-account",
 	}))
-	if err != nil {
-		t.Fatalf("anonymous ListSlices: %v", err)
-	}
-	if len(anonymous.Msg.Slices) != 0 {
-		t.Fatalf("anonymous ListSlices returned private slices: %#v", anonymous.Msg.Slices)
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("expected ListSlices of an unknown account to be not found, got %v", err)
 	}
 	_, err = slicesClient.ListSlices(context.Background(), connectRequest("not-a-token", &corev1.ListSlicesRequest{
 		Account: "acme",

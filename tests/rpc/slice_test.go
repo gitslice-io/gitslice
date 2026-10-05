@@ -424,14 +424,9 @@ func TestRPCAuthenticationBoundary(t *testing.T) {
 
 	_, err = corev1.NewAuthServiceClient(conn).GetAuthStatus(context.Background(), &corev1.GetAuthStatusRequest{})
 	assertGRPCCode(t, err, codes.Unauthenticated)
-	// Listing an account's slices needs no sign-in; it shows the public ones.
-	listed, err := corev1.NewSliceServiceClient(conn).ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "acme"})
-	if err != nil {
-		t.Fatalf("anonymous ListSlices: %v", err)
-	}
-	if len(listed.Slices) != 0 {
-		t.Fatalf("anonymous ListSlices returned private slices: %#v", listed.Slices)
-	}
+	// Listing an account's slices needs no sign-in, but the account must exist.
+	_, err = corev1.NewSliceServiceClient(conn).ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "no-such-account"})
+	assertGRPCCode(t, err, codes.NotFound)
 }
 
 func TestRPCAccountMembershipProtectsChangesetWritesAndSliceScopes(t *testing.T) {

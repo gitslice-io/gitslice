@@ -72,14 +72,24 @@ func (s *SliceService) GetSlice(ctx context.Context, req *corev1.GetSliceRequest
 	return slice, nil
 }
 
-// ListSlices lists an account's slices. A member of the account sees all of
-// them; anyone else, signed in or not, sees the public ones, which they could
-// open anyway (an account page lists them).
+const (
+	defaultSlicePageSize = 50
+	maxSlicePageSize     = 100
+)
+
+// ListSlices lists an account's slices in name order, a page at a time (the
+// cursor is the last name of the previous page). A member of the account sees
+// all of them; anyone else, signed in or not, sees the public ones, which they
+// could open anyway (an account page lists them). An account that does not
+// exist is not found.
 func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesRequest) (*corev1.ListSlicesResponse, error) {
 	subjectID := optionalSubject(ctx)
 	account, err := normalizeServiceSlug(req.Account, "account")
 	if err != nil {
 		return nil, err
+	}
+	if _, err := s.Auth.AccountKind(ctx, account); err != nil {
+		return nil, grpcError(err)
 	}
 	member := false
 	if subjectID != "" {
@@ -91,11 +101,22 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 	if member {
 		list = s.Slices.List
 	}
-	slices, err := list(ctx, account, int(req.PageSize))
+	pageSize := int(req.PageSize)
+	if pageSize <= 0 {
+		pageSize = defaultSlicePageSize
+	}
+	pageSize = min(pageSize, maxSlicePageSize)
+	// One more than a page tells whether another page follows.
+	slices, err := list(ctx, account, req.Cursor, pageSize+1)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.ListSlicesResponse{Slices: slices}, nil
+	next := ""
+	if len(slices) > pageSize {
+		slices = slices[:pageSize]
+		next = slices[pageSize-1].GetRef().GetSlice()
+	}
+	return &corev1.ListSlicesResponse{Slices: slices, NextCursor: next}, nil
 }
 
 func (s *SliceService) ListSliceDefinitionVersions(ctx context.Context, req *corev1.ListSliceDefinitionVersionsRequest) (*corev1.ListSliceDefinitionVersionsResponse, error) {
