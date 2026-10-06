@@ -827,6 +827,7 @@ gs cs update
 gs cs submit [changeset] [--no-watch] [--watch-timeout <duration>]
 gs cs status [changeset] [--watch] [--watch-timeout <duration>]
 gs cs show [changeset]
+gs cs link [changeset]
 gs cs explain [changeset]
 gs cs versions [changeset]
 gs cs patchsets [changeset]
@@ -838,6 +839,13 @@ gs cs diff [changeset] --stat
 gs cs list [--slice <slice|account/slice>] [--status <status>] [--limit <n>]
 gs cs abandon [changeset] [--reason <reason>]
 ```
+
+`gs cs link` prints the changeset's web link after checking it exists, and
+refuses a commit id (`sha256:...`). `gs submit` names the changeset first
+(`submitted changeset <id> to <ref>`, then `view: <link>`) and labels the
+commit it landed as on a third line; its JSON has `changeset` and
+`changeset_url` next to `commit_id`. Agents share the changeset link, never
+a `/cs/` URL built from the commit id.
 
 User-facing changeset selectors use the shareable handle
 `<account>/<slice>@<number>`, for example `acme/payment@42`. This handle is the

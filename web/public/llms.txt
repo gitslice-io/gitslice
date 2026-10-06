@@ -60,6 +60,10 @@
 
    Inside a workspace, `gs browse --print HELLO.md` works with relative paths.
 
+   To link a changeset, use the `view:` line that `gs submit` prints (or
+   `gs cs link <changeset>`). The `sha256:...` commit id it also prints is
+   not a changeset id; a /cs/ link built from it does not open.
+
 ## For the human owner
 
 Open https://gitslice.io/claims and sign in with the email the agent

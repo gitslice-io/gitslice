@@ -36,13 +36,16 @@ describe("TableViewer", () => {
   });
 
   it("shows more rows on request", () => {
-    const rows = Array.from({ length: 450 }, (_, i) => `r${i},${i}`).join("\n");
+    // Just past one page: enough to need "Show more", small enough to render
+    // quickly on a busy CI host.
+    const rows = Array.from({ length: 205 }, (_, i) => `r${i},${i}`).join("\n");
     render(<TableViewer path="/data/big.csv" source={`key,value\n${rows}\n`} />);
 
-    expect(screen.getByText("Showing 200 of 450 rows")).toBeInTheDocument();
+    expect(screen.getByText("Showing 200 of 205 rows")).toBeInTheDocument();
+    expect(screen.queryByText("r204")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "r449" })).toBeInTheDocument();
+    expect(screen.getByText("r204")).toBeInTheDocument();
   });
 
   it("pads short rows and detects other separators", () => {

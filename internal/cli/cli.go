@@ -1398,6 +1398,18 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 			return r.runChangesetShow(cmd.Context(), *opts, id)
 		},
 	}
+	csLinkCmd := &cobra.Command{
+		Use:   "link [changeset]",
+		Short: "Print a changeset's web link, checked to exist (default: the workspace's changeset)",
+		Args:  maxArgs(1, "gs cs link [changeset]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := ""
+			if len(args) > 0 {
+				id = args[0]
+			}
+			return r.runChangesetLink(cmd.Context(), *opts, id)
+		},
+	}
 	csExplainCmd := &cobra.Command{
 		Use:   "explain [changeset]",
 		Short: "Explain changeset validation inputs",
@@ -1506,7 +1518,7 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 	csListCmd.Flags().StringVar(&csListSlice, "slice", csListSlice, "authoring slice, defaults to current workspace slice")
 	csListCmd.Flags().StringVar(&csListStatus, "status", csListStatus, "status filter")
 	csListCmd.Flags().IntVar(&csListLimit, "limit", csListLimit, "maximum changesets to list")
-	csCmd.AddCommand(csCreateCmd, csCaptureCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csConversationCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
+	csCmd.AddCommand(csCreateCmd, csCaptureCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csLinkCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csConversationCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
 
 	createMessage := ""
 	createParent := ""
@@ -6613,10 +6625,16 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			return err
 		}
 	}
-	webURL := webResourceURL("/cs/" + firstNonEmpty(storage.ShortChangesetID(changesetID), changesetID))
+	handle := firstNonEmpty(storage.ShortChangesetID(changesetID), changesetID)
+	webURL := webResourceURL("/cs/" + handle)
 	if opts.jsonOutput() {
+		// changeset and changeset_url name the changeset; commit_id is the
+		// native commit it landed as, which is not a changeset id and has no
+		// /cs/ page. Share changeset_url.
 		return r.writeJSONOutput(opts, map[string]any{
 			"changeset_id":      cs.Id,
+			"changeset":         handle,
+			"changeset_url":     webURL,
 			"commit_id":         commitID,
 			"target_ref":        res.TargetRef,
 			"new_ref_commit_id": refCommitID,
@@ -6636,9 +6654,50 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		}
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "submitted %s to %s\n", commitID, res.TargetRef)
+	// The changeset and its link come first: agents copy the first id they
+	// see, and the commit id is not a changeset id (its /cs/ link is a 404).
+	fmt.Fprintf(r.Stdout, "submitted changeset %s to %s\n", handle, res.TargetRef)
 	if webURL != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
+	}
+	if commitID != "" {
+		fmt.Fprintf(r.Stdout, "landed as commit %s (a commit id, not a changeset id; share the view link)\n", commitID)
+	}
+	return nil
+}
+
+// runChangesetLink prints a changeset's web link after checking that the
+// changeset exists, so a link handed to a person always opens. Given a commit
+// id by mistake, it says so instead of printing a link that would 404.
+func (r Runner) runChangesetLink(ctx context.Context, opts commandOptions, requestedID string) error {
+	requestedID = strings.TrimSpace(requestedID)
+	if strings.HasPrefix(requestedID, "sha256:") {
+		return userError("not_a_changeset", requestedID+" is a commit id, not a changeset id", "Use the changeset id from gs submit, gs cs list or gs cs show; commits have no /cs/ page.")
+	}
+	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
+	if err != nil {
+		return err
+	}
+	cs, err := r.getChangeset(ctx, cfg, changesetID)
+	if err != nil {
+		if grpcstatus.Code(err) == codes.NotFound {
+			return userError("changeset_not_found", "no changeset "+changesetID, "Check the id with gs cs list; a commit id from gs submit or gs log is not a changeset id.")
+		}
+		return err
+	}
+	handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
+	link := webResourceURL("/cs/" + handle)
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"changeset_id":  cs.Id,
+			"changeset":     handle,
+			"changeset_url": link,
+			"title":         cs.Title,
+			"status":        cs.Status,
+		})
+	}
+	if !opts.Quiet {
+		fmt.Fprintln(r.Stdout, link)
 	}
 	return nil
 }
