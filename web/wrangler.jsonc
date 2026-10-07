@@ -43,7 +43,10 @@
       "vars": {
         "PUBLIC_API_BASE_URL": "https://api.gitslice.io",
         "PUBLIC_GITSLICE_GIT_HTTP_BASE_URL": "https://gitslice.io"
-      }
+      },
+      // gs release files under releases/ (ops/release); the worker reads only
+      // that prefix (src/lib/releases.ts).
+      "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "gitslice-production" }]
     }
   }
 }

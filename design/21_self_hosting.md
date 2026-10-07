@@ -487,8 +487,33 @@ resolves against `https://gitslice.io/git/gitslice/gitslice.git`.
   matters, cache projection bundles in object storage; the deterministic ids
   allow it.
 
+## Releases Off GitHub (2026-10-07)
+
+A GitHub Actions outage held up v0.4.2 three times (no runner was ever
+assigned), so releases no longer depend on GitHub:
+
+1. **Tag natively:** `gs tag create v0.5.0 --slice gitslice/gitslice -m "..."`.
+2. **Build on Cloud Build** (`ops/release/cloudbuild.yaml`, script
+   `ops/release/build.sh`): every run lists the `v*` tags at
+   `https://gitslice.io/git/gitslice/gitslice.git`, finds those newer than
+   v0.4.1 that are not in R2 yet, clones each tag from Gitslice, builds the six
+   archives and `checksums.txt` exactly as `release.yml` did, checks that the
+   linux/amd64 `gs` reports the tag, and uploads them to the production bucket
+   under `releases/<tag>/`, then `releases/latest.json`. Cloud Scheduler job
+   `gs-release` runs it every 15 minutes; `ops/release/release.sh run [<tag>]`
+   runs it now (`schedule` creates or updates the job).
+3. **Serve from R2:** the web Worker's `RELEASES` binding serves
+   `/releases/latest` (a redirect to `/releases/tag/<tag>`, a page listing the
+   files), `/releases/download/<tag>/<asset>` and
+   `/releases/latest/download/<asset>` (`web/src/lib/releases.ts`). Anything
+   R2 does not have, such as releases up to v0.4.1, is redirected to the GitHub
+   releases as before. `install.sh` and `gs upgrade` are unchanged.
+
+GitHub stays a mirror: the exporter still pushes tags and starts
+`release.yml`, which copies the release to GitHub when Actions works, but
+nothing waits for it.
+
 ## Open Questions
 
-- Should release assets stay on GitHub behind `/releases`, or move to R2?
 - The repository has no `LICENSE`. pkg.go.dev will not render the module's
   documentation without one.

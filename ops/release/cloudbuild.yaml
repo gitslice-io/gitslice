@@ -1,0 +1,87 @@
+# Builds gs releases off GitHub (design/21_self_hosting.md, "Releases").
+#
+# Source: the version tags of the gitslice/gitslice slice, cloned from
+# Gitslice's own Git endpoint. Output: the six platform archives and
+# checksums.txt under releases/<tag>/ in R2, plus releases/latest.json, which
+# https://gitslice.io/releases serves (web/src/lib/releases.ts).
+#
+# Every run builds the v* tags that are not published yet (newer than
+# _SINCE), so a tag made with `gs tag create` is released by the next run.
+# Cloud Scheduler runs this every 15 minutes; ops/release/release.sh runs it
+# now (optionally for one _TAG, which it rebuilds even if published). The build
+# script is read from the slice's main branch.
+substitutions:
+  _TAG: ""
+  _SINCE: v0.4.1
+  _GIT_URL: https://gitslice.io/git/gitslice/gitslice.git
+  _MODULE_DIR: gitslice/gitslice
+  _BUCKET: gitslice-production
+  _R2_ENDPOINT: https://02fa014ee5c259f9cb1e01cf224ae197.r2.cloudflarestorage.com
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/gitslice-r2-access-key-id/versions/latest
+      env: AWS_ACCESS_KEY_ID
+    - versionName: projects/$PROJECT_ID/secrets/gitslice-r2-secret-access-key/versions/latest
+      env: AWS_SECRET_ACCESS_KEY
+
+steps:
+  # What is already published.
+  - id: published
+    name: amazon/aws-cli
+    entrypoint: bash
+    secretEnv: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY]
+    env: [AWS_DEFAULT_REGION=auto]
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        aws --endpoint-url "${_R2_ENDPOINT}" s3 ls "s3://${_BUCKET}/releases/" \
+          | awk '$1 == "PRE" { sub("/", "", $2); print $2 }' > /workspace/published.txt || true
+        echo "published: $(tr '\n' ' ' < /workspace/published.txt)"
+
+  # Which tags to build, and build them.
+  - id: build
+    name: golang:1.24-bookworm
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        # The build script comes from Gitslice too, so this config needs no
+        # source upload and Cloud Scheduler can submit it as it is.
+        git clone -q --depth 1 "${_GIT_URL}" /workspace/tools
+        bash "/workspace/tools/${_MODULE_DIR}/ops/release/build.sh"
+    env:
+      - TAG=${_TAG}
+      - SINCE=${_SINCE}
+      - GIT_URL=${_GIT_URL}
+      - MODULE_DIR=${_MODULE_DIR}
+
+  # Upload what was built; checksums.txt last, latest.json after that.
+  - id: publish
+    name: amazon/aws-cli
+    entrypoint: bash
+    secretEnv: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY]
+    env: [AWS_DEFAULT_REGION=auto]
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        if [ ! -s /workspace/built.txt ]; then echo "nothing to publish"; exit 0; fi
+        while read -r tag; do
+          for f in /workspace/dist/$$tag/*; do
+            [ "$$(basename "$$f")" = checksums.txt ] && continue
+            aws --endpoint-url "${_R2_ENDPOINT}" s3 cp "$$f" "s3://${_BUCKET}/releases/$$tag/$$(basename "$$f")" --only-show-errors
+          done
+          aws --endpoint-url "${_R2_ENDPOINT}" s3 cp "/workspace/dist/$$tag/checksums.txt" "s3://${_BUCKET}/releases/$$tag/checksums.txt" --only-show-errors
+          echo "published $$tag"
+        done < /workspace/built.txt
+        aws --endpoint-url "${_R2_ENDPOINT}" s3 cp /workspace/latest.json "s3://${_BUCKET}/releases/latest.json" \
+          --content-type application/json --only-show-errors
+        echo "latest: $$(cat /workspace/latest.json)"
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s

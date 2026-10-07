@@ -3,7 +3,7 @@ import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { handleIngestProxy } from "./analytics/ingestProxy";
 import { gitProxyTarget } from "./lib/gitProxy";
 import { goImportResponse } from "./lib/goImport";
-import { releaseRedirect } from "./lib/releases";
+import { releaseResponse, type ReleaseBucket } from "./lib/releases";
 
 export default createServerEntry({
   async fetch(request) {
@@ -19,7 +19,9 @@ export default createServerEntry({
     if (goImport) {
       return goImport;
     }
-    const release = releaseRedirect(request);
+    // Nitro's Cloudflare entry puts the Worker's bindings on globalThis.__env__.
+    const bindings = (globalThis as { __env__?: { RELEASES?: ReleaseBucket } }).__env__;
+    const release = await releaseResponse(request, bindings?.RELEASES);
     if (release) {
       return release;
     }
