@@ -79,7 +79,16 @@ func (r Runner) runUpgrade(ctx context.Context, opts commandOptions, req upgrade
 	base := strings.TrimRight(firstNonEmpty(os.Getenv("GS_DOWNLOAD_BASE"), defaultReleasesBase), "/")
 	client := &http.Client{Timeout: 2 * time.Minute}
 
-	out := upgradeOutput{Current: cliVersionInfo().Version}
+	binary, err := r.upgradeTarget(req.path)
+	if err != nil {
+		return err
+	}
+	// The version being replaced: this gs's, or with --path that binary's own.
+	current := cliVersionInfo().Version
+	if strings.TrimSpace(req.path) != "" {
+		current = binaryVersion(ctx, binary)
+	}
+	out := upgradeOutput{Current: current, Path: binary}
 	latest, err := latestReleaseTag(ctx, client, base)
 	if err != nil {
 		return userError("release_lookup_failed", fmt.Sprintf("could not find the latest release: %v", err), "Check your network, or pass --version <tag>.")
@@ -94,11 +103,6 @@ func (r Runner) runUpgrade(ctx context.Context, opts commandOptions, req upgrade
 		return r.writeUpgrade(opts, out, req.check)
 	}
 
-	binary, err := r.upgradeTarget(req.path)
-	if err != nil {
-		return err
-	}
-	out.Path = binary
 	if err := installRelease(ctx, client, base, out.Target, binary); err != nil {
 		return err
 	}
@@ -116,7 +120,13 @@ func (r Runner) writeUpgrade(opts commandOptions, out upgradeOutput, check bool)
 	}
 	switch {
 	case out.Upgraded:
-		fmt.Fprintf(r.Stdout, "upgraded gs %s -> %s (%s)\n", out.Current, out.Target, out.Path)
+		verb := "upgraded"
+		if sameVersion(out.Current, out.Target) {
+			verb = "reinstalled"
+		} else if newerVersion(out.Current, out.Target) {
+			verb = "downgraded"
+		}
+		fmt.Fprintf(r.Stdout, "%s gs %s -> %s (%s)\n", verb, out.Current, out.Target, out.Path)
 	case check && out.UpToDate:
 		fmt.Fprintf(r.Stdout, "gs %s is the latest release\n", out.Current)
 	case check:
@@ -143,6 +153,23 @@ func (r Runner) upgradeTarget(requested string) (string, error) {
 		return "", fmt.Errorf("find %s: %w", binary, err)
 	}
 	return resolved, nil
+}
+
+// binaryVersion asks a gs binary for its version, or says it could not.
+func binaryVersion(ctx context.Context, binary string) string {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, binary, "version", "--json").Output()
+	if err != nil {
+		return "unknown"
+	}
+	var info struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(out, &info); err != nil || strings.TrimSpace(info.Version) == "" {
+		return "unknown"
+	}
+	return info.Version
 }
 
 // latestReleaseTag follows <base>/latest, which redirects to the newest

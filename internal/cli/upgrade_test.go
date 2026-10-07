@@ -134,13 +134,18 @@ func releaseServer(t *testing.T, reportVersion string, tamper bool) string {
 	return srv.URL + "/releases"
 }
 
-func oldBinary(t *testing.T) string {
+// oldBinary is an installed gs that reports version.
+func oldBinary(t *testing.T, version string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "gs")
-	if err := os.WriteFile(path, []byte("old gs"), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte(oldScript(version)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func oldScript(version string) string {
+	return fmt.Sprintf("#!/bin/sh\n# old gs\necho '{\"version\":\"%s\"}'\n", version)
 }
 
 func TestUpgradeReplacesTheBinary(t *testing.T) {
@@ -148,7 +153,7 @@ func TestUpgradeReplacesTheBinary(t *testing.T) {
 		t.Skip("the fake release is a shell script")
 	}
 	t.Setenv("GS_DOWNLOAD_BASE", releaseServer(t, "v9.9.9", false))
-	path := oldBinary(t)
+	path := oldBinary(t, "v1.2.3")
 	var out bytes.Buffer
 	r := Runner{Stdout: &out, Stderr: &out}
 
@@ -156,10 +161,11 @@ func TestUpgradeReplacesTheBinary(t *testing.T) {
 	if err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{check: true, path: path}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "v9.9.9 is available") {
+	// It reports the version of the binary at --path, not of this gs.
+	if !strings.Contains(out.String(), "gs v1.2.3 is installed; v9.9.9 is available") {
 		t.Fatalf("check output: %s", out.String())
 	}
-	if data, _ := os.ReadFile(path); string(data) != "old gs" {
+	if data, _ := os.ReadFile(path); string(data) != oldScript("v1.2.3") {
 		t.Fatal("--check must not install")
 	}
 
@@ -171,7 +177,7 @@ func TestUpgradeReplacesTheBinary(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("json output %q: %v", out.String(), err)
 	}
-	if !result.Upgraded || result.Target != "v9.9.9" || result.Path != path {
+	if !result.Upgraded || result.Current != "v1.2.3" || result.Target != "v9.9.9" || result.Path != path {
 		t.Fatalf("result = %+v", result)
 	}
 	data, _ := os.ReadFile(path)
@@ -197,12 +203,12 @@ func TestUpgradeLeavesTheOldBinaryOnFailure(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("GS_DOWNLOAD_BASE", base)
-			path := oldBinary(t)
+			path := oldBinary(t, "v1.2.3")
 			r := Runner{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
 			if err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{path: path}); err == nil {
 				t.Fatal("the upgrade should fail")
 			}
-			if data, _ := os.ReadFile(path); string(data) != "old gs" {
+			if data, _ := os.ReadFile(path); string(data) != oldScript("v1.2.3") {
 				t.Fatalf("old gs changed: %q", data)
 			}
 		})
@@ -210,20 +216,46 @@ func TestUpgradeLeavesTheOldBinaryOnFailure(t *testing.T) {
 }
 
 func TestUpgradeSkipsWhenCurrent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake gs is a shell script")
+	}
 	t.Setenv("GS_DOWNLOAD_BASE", releaseServer(t, "v9.9.9", false))
-	old := Version
-	Version = "v9.9.9"
-	t.Cleanup(func() { Version = old })
-	path := oldBinary(t)
+	path := oldBinary(t, "v9.9.9")
 	var out bytes.Buffer
 	r := Runner{Stdout: &out, Stderr: &out}
 	if err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{path: path}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "already installed") {
+	if !strings.Contains(out.String(), "gs v9.9.9 is already installed") {
 		t.Fatalf("output: %s", out.String())
 	}
-	if data, _ := os.ReadFile(path); string(data) != "old gs" {
+	if data, _ := os.ReadFile(path); string(data) != oldScript("v9.9.9") {
 		t.Fatal("nothing should be installed when current")
+	}
+}
+
+func TestUpgradeSaysDowngradedAndReinstalled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake release is a shell script")
+	}
+	t.Setenv("GS_DOWNLOAD_BASE", releaseServer(t, "v9.9.9", false))
+	for _, tc := range []struct {
+		installed string
+		force     bool
+		want      string
+	}{
+		{"v10.0.0", false, "downgraded gs v10.0.0 -> v9.9.9"},
+		{"v9.9.9", true, "reinstalled gs v9.9.9 -> v9.9.9"},
+		{"v1.0.0", false, "upgraded gs v1.0.0 -> v9.9.9"},
+	} {
+		path := oldBinary(t, tc.installed)
+		var out bytes.Buffer
+		r := Runner{Stdout: &out, Stderr: &out}
+		if err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{path: path, version: "v9.9.9", force: tc.force}); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), tc.want) {
+			t.Fatalf("installed %s: output %q, want %q", tc.installed, out.String(), tc.want)
+		}
 	}
 }
