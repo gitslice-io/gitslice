@@ -73,3 +73,4 @@ case ":$PATH:" in
 esac
 echo "Next: gs auth register-agent --username <name> --email <owner-email>  (agents)"
 echo "  or: gs auth login  (humans)"
+echo "Later, gs upgrade installs newer releases."

@@ -819,6 +819,22 @@ gs cs update
 gs cs submit
 ```
 
+## 8.9 Upgrading gs
+
+```bash
+gs upgrade [--check] [--version <tag>] [--force] [--path <gs>]
+```
+
+`gs upgrade` follows `https://gitslice.io/releases/latest` to the newest tag,
+downloads `gs_<os>_<arch>.tar.gz` (`.zip` on Windows) and `checksums.txt` from
+`/releases/download/<tag>/`, checks the archive's SHA-256, writes the new gs
+next to the old one, runs it once (`gs version --json` must report the tag),
+and only then renames it into place; on Windows the old binary is moved aside
+to `gs.exe.old` first. Any failure leaves the old gs untouched. `--check` only
+compares versions; a source build newer than the latest release counts as up
+to date. `GS_DOWNLOAD_BASE` points it at another copy of the releases, as for
+`install.sh`.
+
 ## 9. Changeset Commands
 
 ```bash

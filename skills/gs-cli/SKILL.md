@@ -110,6 +110,8 @@ gs auth register-agent --username release-bot --email owner@example.com --server
 
 To share a link, use `gs browse --print <account:slice | /account/path | workspace-path>` rather than hand-building URLs: it maps to the web app's real `/slices/<account>/<slice>?path=` route, checks that the slice and path exist, and warns on stderr when the slice is private.
 
+Keep gs current with `gs upgrade` (`gs upgrade --check` only reports whether a newer release exists). It downloads the release for this platform from `https://gitslice.io/releases`, verifies its checksum, and replaces the running gs only if the new one starts and reports the expected version.
+
 To share a changeset, use the `view:` link that `gs create`, `gs cs update` and `gs submit` print, `changeset_url` from their `--json` output, or `gs cs link [<changeset>]`, which checks that the changeset exists first. Do not build `/cs/...` URLs yourself, and never from a commit id: `gs submit` also reports the native commit the changeset landed as (`landed as commit sha256:...`, `commit_id` in JSON), and a commit id is not a changeset id, so `/cs/<commit>` is a dead link. `gs cs link` refuses commit ids.
 
 A human signed in with that verified email lists and accepts pending agents with `gs claims list` and `gs claims accept <agent-subject-id>`. Accepting makes them a co-owner; the agent keeps its access.

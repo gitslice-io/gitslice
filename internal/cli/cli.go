@@ -2060,7 +2060,7 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	claimsCmd.AddCommand(claimsListCmd, claimsAcceptCmd)
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd, accountCmd, tagCmd)
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, r.upgradeCommand(opts), schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd, accountCmd, tagCmd)
 	return root
 }
 
@@ -12218,6 +12218,13 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"flags":          []string{"--server", "--clerk", "--clerk-token", "--web-url"},
 				"writes_stdout":  true,
 				"machine_output": []string{"server_addr", "subject_id"},
+			},
+			{
+				"use":            "gs upgrade",
+				"summary":        "replace gs with the latest release (checksum-verified); --check only reports",
+				"flags":          []string{"--check", "--version", "--force", "--path"},
+				"writes_stdout":  true,
+				"machine_output": []string{"current", "latest", "target", "path", "upgraded", "up_to_date"},
 			},
 			{
 				"use":            "gs auth status",

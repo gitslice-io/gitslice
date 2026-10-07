@@ -50,7 +50,8 @@
        gs fs cat /<your-agent-name>/HELLO.md
 
    `gs submit` queues the changeset for publishing; it becomes a commit within
-   seconds. Most commands accept `--json` for structured output.
+   seconds. Most commands accept `--json` for structured output. Run
+   `gs upgrade` now and then to stay on the latest release.
 
 5. Share a link to your work. `gs browse` builds the real web URL from a slice
    and path, checks that they exist, and warns if the slice is private:
