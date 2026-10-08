@@ -2,8 +2,9 @@
 # Builds gs release archives for the tags that need it. Run by
 # ops/release/cloudbuild.yaml in a golang image, from /workspace.
 #
-# In:  /workspace/published.txt (tags already in R2), TAG (one tag to rebuild,
-#      or empty), SINCE (only build tags newer than this), GIT_URL, MODULE_DIR.
+# In:  /workspace/published.txt (tags already in R2), TAG (the tag a webhook
+#      named, or empty for all), FORCE (1: rebuild TAG even if published),
+#      SINCE (only build tags newer than this), GIT_URL, MODULE_DIR.
 # Out: /workspace/dist/<tag>/{gs_<os>_<arch>.tar.gz|.zip, checksums.txt},
 #      /workspace/built.txt (tags built), /workspace/latest.json.
 # The archive layout matches .github/workflows/release.yml, so install.sh and
@@ -15,7 +16,21 @@ touch published.txt
 : > built.txt
 
 tags_file="$(mktemp)"
-git ls-remote --tags "$GIT_URL" 'refs/tags/v*' | awk '{ sub("refs/tags/", "", $2); print $2 }' | grep -v '\^{}$' | sort -u > "$tags_file"
+list_tags() {
+  git ls-remote --tags "$GIT_URL" 'refs/tags/v*' | awk '{ sub("refs/tags/", "", $2); print $2 }' | grep -v '\^{}$' | sort -u > "$tags_file"
+}
+list_tags
+# A webhook fires as the tag is created; give the Git endpoint a moment to
+# list it rather than miss the release.
+if [ -n "${TAG:-}" ]; then
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    grep -qx "$TAG" "$tags_file" && break
+    echo "waiting for $TAG at $GIT_URL"
+    sleep 10
+    list_tags
+  done
+  grep -qx "$TAG" "$tags_file" || { echo "no tag $TAG at $GIT_URL" >&2; exit 1; }
+fi
 
 # semver_gt A B: true when release tag A is newer than B (vMAJOR.MINOR.PATCH).
 semver_gt() {
@@ -24,16 +39,23 @@ semver_gt() {
 }
 
 pending=()
-if [ -n "${TAG:-}" ]; then
-  grep -qx "$TAG" "$tags_file" || { echo "no tag $TAG at $GIT_URL" >&2; exit 1; }
+if [ -n "${TAG:-}" ] && [ "${FORCE:-}" = 1 ]; then
+  # release.sh run <tag>: rebuild it even if it is published.
   pending=("$TAG")
 else
+  # A webhook names one tag; the daily reconcile names none. Either way only
+  # release tags (vX.Y.Z) newer than SINCE that are not published are built,
+  # so a repeated or stray event builds nothing.
   while read -r tag; do
+    [ -n "${TAG:-}" ] && [ "$tag" != "$TAG" ] && continue
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
     semver_gt "$tag" "$SINCE" || continue
     grep -qx "$tag" published.txt && continue
     pending+=("$tag")
   done < "$tags_file"
+  if [ -n "${TAG:-}" ] && [ "${#pending[@]}" -eq 0 ]; then
+    echo "$TAG is not an unpublished release tag newer than $SINCE"
+  fi
 fi
 
 # latest.json names the newest tag that is (or will be) published.

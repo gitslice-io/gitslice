@@ -31,6 +31,7 @@ type Stores struct {
 	Objects    *ObjectStore
 	Agents     *AgentStore
 	Checks     *CheckStore
+	Webhooks   *WebhookStore
 
 	backend *backend
 }
@@ -39,9 +40,12 @@ type backend struct {
 	mu   sync.Mutex
 	next int64
 
-	subjects         map[string]storage.Subject
-	accountMembers   map[string]map[string]string
-	personalAccounts map[string]string
+	subjects          map[string]storage.Subject
+	accountMembers    map[string]map[string]string
+	personalAccounts  map[string]string
+	webhooks          map[string]storage.Webhook
+	webhookEvents     []*memWebhookEvent
+	webhookDeliveries map[string]*memWebhookDelivery
 	// orgAccounts records which account slugs are organizations.
 	orgAccounts map[string]bool
 	// orgCreators records who created each organization.
@@ -141,6 +145,8 @@ func New() *Stores {
 		accountMembers:          map[string]map[string]string{},
 		personalAccounts:        map[string]string{},
 		orgAccounts:             map[string]bool{},
+		webhooks:                map[string]storage.Webhook{},
+		webhookDeliveries:       map[string]*memWebhookDelivery{},
 		orgCreators:             map[string]string{},
 		invitations:             map[string]map[string]storage.AccountInvitation{},
 		profiles:                map[string]storage.AccountProfile{},
@@ -203,6 +209,7 @@ func New() *Stores {
 		Objects:    &ObjectStore{b: b},
 		Agents:     &AgentStore{b: b},
 		Checks:     &CheckStore{b: b},
+		Webhooks:   &WebhookStore{b: b},
 		backend:    b,
 	}
 }
@@ -2111,6 +2118,16 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			delete(s.b.pendingAcceptedAt, cs.Id)
 		}
 		delete(s.b.pendingSequence, cs.Id)
+		if _, err := s.b.appendWebhookEventLocked(storage.WebhookEvent{
+			Kind:         storage.WebhookEventChangesetSubmitted,
+			ChangesetID:  cs.Id,
+			PatchsetID:   patchset.Id,
+			CommitID:     commitID,
+			TargetRef:    cs.TargetRef,
+			ChangedPaths: patchset.ChangedPaths,
+		}); err != nil {
+			return published, err
+		}
 		published++
 		s.b.refreshStackStatusLocked(cs.StackId)
 	}

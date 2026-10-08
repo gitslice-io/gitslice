@@ -2223,6 +2223,8 @@ func (ts *testServer) launch(t *testing.T, migrate bool) error {
 			OperatorSubjects:   ts.operatorSubjects,
 			AgentSignupEnabled: ts.agentSignup,
 			AgentSignupPerHour: 100,
+			// Webhook tests deliver to a local receiver.
+			WebhookAllowPrivateTargets: true,
 		})
 	}()
 	return waitForHealth(ts.addr, ts.errCh)

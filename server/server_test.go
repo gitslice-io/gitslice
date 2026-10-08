@@ -177,3 +177,51 @@ func TestConnectHTTPHandlerServesAPI(t *testing.T) {
 		t.Fatalf("invalid Connect token error = %v, want unauthenticated", err)
 	}
 }
+
+func TestConnectServesWebhooks(t *testing.T) {
+	mem := memory.New()
+	mem.AddAccount("user_alice", "acme")
+	handlers := service.New(service.Stores{
+		Auth:       mem.Auth,
+		Blobs:      mem.Blobs,
+		Changesets: mem.Changesets,
+		Repository: mem.Repository,
+		Slices:     mem.Slices,
+		Agents:     mem.Agents,
+		Checks:     mem.Checks,
+		Webhooks:   mem.Webhooks,
+	}, mem.Objects, nil)
+	resolve := func(ctx context.Context, token string) (string, error) {
+		if token == "token_123" {
+			return "user_alice", nil
+		}
+		return "", storage.ErrUnauthenticated
+	}
+	httpServer := httptest.NewServer(NewHTTPHandler(NewConnectHandler(resolve, handlers), nil, "http://web.test"))
+	t.Cleanup(httpServer.Close)
+
+	client := corev1connect.NewWebhookServiceClient(httpServer.Client(), httpServer.URL)
+	create := connect.NewRequest(&corev1.CreateWebhookRequest{
+		Slice:  &corev1.SliceRef{Account: "acme", Slice: "home"},
+		Url:    "https://hooks.example.com/gitslice",
+		Events: []string{"tag.created"},
+	})
+	create.Header().Set("Authorization", "Bearer token_123")
+	created, err := client.CreateWebhook(context.Background(), create)
+	if err != nil {
+		t.Fatalf("Connect CreateWebhook: %v", err)
+	}
+	list := connect.NewRequest(&corev1.ListWebhooksRequest{Slice: &corev1.SliceRef{Account: "acme", Slice: "home"}})
+	list.Header().Set("Authorization", "Bearer token_123")
+	listed, err := client.ListWebhooks(context.Background(), list)
+	if err != nil {
+		t.Fatalf("Connect ListWebhooks: %v", err)
+	}
+	if len(listed.Msg.GetWebhooks()) != 1 || listed.Msg.Webhooks[0].GetId() != created.Msg.GetId() {
+		t.Fatalf("listed = %+v", listed.Msg.GetWebhooks())
+	}
+	anonymous := connect.NewRequest(&corev1.ListWebhooksRequest{Slice: &corev1.SliceRef{Account: "acme", Slice: "home"}})
+	if _, err := client.ListWebhooks(context.Background(), anonymous); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("anonymous ListWebhooks: %v", err)
+	}
+}

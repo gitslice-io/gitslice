@@ -26,6 +26,7 @@ import (
 	"gitslice.io/gitslice/internal/rpclimits"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
+	"gitslice.io/gitslice/internal/webhooks"
 	"gitslice.io/gitslice/proto/core/v1"
 	"gitslice.io/gitslice/service"
 	"golang.org/x/net/http2"
@@ -127,6 +128,18 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 	}
+	dispatcher := webhooks.NewDispatcher(webhooks.Stores{
+		Webhooks:   db.Webhooks(),
+		Slices:     db.Slices(),
+		Changesets: db.Changesets(),
+		Checks:     db.Checks(),
+		Auth:       db.Auth(),
+	}, webhooks.Options{
+		Secrets:             secrets,
+		WebBaseURL:          cfg.webBaseURL(),
+		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
+	})
+	go dispatcher.Run(ctx)
 	pubNudge := newPublishNudger()
 	db.Changesets().SetPendingPublishListener(pubNudge.Nudge)
 	var indexWorker *indexworker.Worker
@@ -135,9 +148,13 @@ func Run(ctx context.Context, cfg Config) error {
 		go indexWorker.Run(ctx)
 	}
 	if !cfg.DisableAsyncPublisher {
-		var nudge func()
+		// A landed commit records changeset.submitted in its transaction.
+		nudge := dispatcher.Nudge
 		if indexWorker != nil {
-			nudge = indexWorker.Nudge
+			nudge = func() {
+				indexWorker.Nudge()
+				dispatcher.Nudge()
+			}
 		}
 		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval, nudge, pubNudge.ch, cfg.PublishBackoffMax)
 	}
@@ -148,13 +165,15 @@ func Run(ctx context.Context, cfg Config) error {
 	stores := service.Stores{
 		Auth:       db.Auth(),
 		Blobs:      db.Blobs(),
-		Changesets: db.Changesets(),
+		Changesets: webhooks.WrapChangesets(db.Changesets(), dispatcher),
 		Repository: db.Repository(),
-		Slices:     db.Slices(),
+		Slices:     webhooks.WrapSlices(db.Slices(), dispatcher),
 		Agents:     db.Agents(),
-		Checks:     db.Checks(),
+		Checks:     webhooks.WrapChecks(db.Checks(), dispatcher),
+		Webhooks:   db.Webhooks(),
 	}
 	handlers := service.New(stores, objectStore, tracker)
+	handlers.Webhook.Dispatcher = dispatcher
 	handlers.Auth.AgentSignupEnabled = cfg.AgentSignupEnabled
 	handlers.Auth.OperatorSubjects = cfg.OperatorSubjects
 	if users := clerk.NewUserClient(cfg.Clerk.SecretKey); users != nil {
@@ -428,6 +447,7 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 	corev1.RegisterChangesetStackServiceServer(grpcServer, handlers.Stack)
 	corev1.RegisterAgentServiceServer(grpcServer, handlers.Agent)
 	corev1.RegisterCheckServiceServer(grpcServer, handlers.Check)
+	corev1.RegisterWebhookServiceServer(grpcServer, handlers.Webhook)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)

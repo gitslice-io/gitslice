@@ -499,9 +499,15 @@ assigned), so releases no longer depend on GitHub:
    v0.4.1 that are not in R2 yet, clones each tag from Gitslice, builds the six
    archives and `checksums.txt` exactly as `release.yml` did, checks that the
    linux/amd64 `gs` reports the tag, and uploads them to the production bucket
-   under `releases/<tag>/`, then `releases/latest.json`. Cloud Scheduler job
-   `gs-release` runs it every 15 minutes; `ops/release/release.sh run [<tag>]`
-   runs it now (`schedule` creates or updates the job).
+   under `releases/<tag>/`, then `releases/latest.json`.
+   - Since 2026-10-08 the tag's own event starts the build instead of a
+     15-minute poll. The slice's `tag.created` webhook (`design/24_webhooks.md`)
+     calls the Cloud Build webhook trigger `gs-release-webhook` with the tag
+     name. `ops/release/release.sh webhook` creates that trigger.
+   - Cloud Scheduler job `gs-release` now runs once a day, to build a tag whose
+     event was missed (`release.sh schedule`).
+   - `ops/release/release.sh run [<tag>]` builds now; with a tag, it rebuilds
+     even a published one.
 3. **Serve from R2:** the web Worker's `RELEASES` binding serves
    `/releases/latest` (a redirect to `/releases/tag/<tag>`, a page listing the
    files), `/releases/download/<tag>/<asset>` and

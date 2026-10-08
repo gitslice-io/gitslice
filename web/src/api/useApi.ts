@@ -70,6 +70,16 @@ import type {
   GetStackRequest,
   ListDaemonsRequest,
   ListDaemonsResponse,
+  CreateWebhookRequest,
+  ListWebhooksRequest,
+  ListWebhooksResponse,
+  UpdateWebhookRequest,
+  Webhook,
+  WebhookDelivery,
+  WebhookIdRequest,
+  ListWebhookDeliveriesRequest,
+  ListWebhookDeliveriesResponse,
+  RedeliverWebhookDeliveryRequest,
   ListCommitsRequest,
   ListCommitsResponse,
   ListChangesetsRequest,
@@ -216,6 +226,17 @@ export interface ApiClient {
   ): Promise<DetachStackEntryResponse>;
   restack(request: RestackRequest): Promise<RestackResponse>;
   submitStack(request: SubmitStackRequest): Promise<SubmitStackResponse>;
+  createWebhook(request: CreateWebhookRequest): Promise<Webhook>;
+  listWebhooks(request: ListWebhooksRequest): Promise<ListWebhooksResponse>;
+  updateWebhook(request: UpdateWebhookRequest): Promise<Webhook>;
+  deleteWebhook(request: WebhookIdRequest): Promise<Empty>;
+  pingWebhook(request: WebhookIdRequest): Promise<WebhookDelivery>;
+  listWebhookDeliveries(
+    request: ListWebhookDeliveriesRequest
+  ): Promise<ListWebhookDeliveriesResponse>;
+  redeliverWebhookDelivery(
+    request: RedeliverWebhookDeliveryRequest
+  ): Promise<WebhookDelivery>;
   listDaemons(request: ListDaemonsRequest): Promise<ListDaemonsResponse>;
   createConversation(request: CreateConversationRequest): Promise<Conversation>;
   listConversations(

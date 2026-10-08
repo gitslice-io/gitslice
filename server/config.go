@@ -64,6 +64,13 @@ type Config struct {
 	PostHogAPIKey       string
 	PostHogHost         string
 	PostHogEnvironment  string
+	// WebBaseURL is the web app's origin, for links in webhook payloads
+	// (GITSLICE_WEB_BASE_URL; defaults to the first allowed CORS origin).
+	WebBaseURL string
+	// WebhookAllowPrivateTargets lets webhooks use http and private or
+	// loopback addresses (GITSLICE_WEBHOOK_ALLOW_PRIVATE_TARGETS=1). Only for
+	// tests and local development.
+	WebhookAllowPrivateTargets bool
 }
 
 func ConfigFromEnv() Config {
@@ -114,6 +121,10 @@ func ConfigFromEnv() Config {
 		PostHogAPIKey:            os.Getenv("GITSLICE_POSTHOG_API_KEY"),
 		PostHogHost:              os.Getenv("GITSLICE_POSTHOG_HOST"),
 		PostHogEnvironment:       os.Getenv("GITSLICE_POSTHOG_ENV"),
+
+		// Webhooks (design/24_webhooks.md).
+		WebBaseURL:                 os.Getenv("GITSLICE_WEB_BASE_URL"),
+		WebhookAllowPrivateTargets: os.Getenv("GITSLICE_WEBHOOK_ALLOW_PRIVATE_TARGETS") == "1",
 	}
 }
 
@@ -154,6 +165,21 @@ func (c Config) Validate() error {
 		return fmt.Errorf("GITSLICE_OBJECT_STORE_ROOT is required")
 	}
 	return nil
+}
+
+// webBaseURL is where the web app lives: GITSLICE_WEB_BASE_URL, or the
+// first allowed CORS origin that is not a wildcard.
+func (c Config) webBaseURL() string {
+	if c.WebBaseURL != "" {
+		return strings.TrimRight(c.WebBaseURL, "/")
+	}
+	for _, origin := range strings.Split(c.HTTPAllowedOrigin, ",") {
+		origin = strings.TrimSpace(origin)
+		if origin != "" && !strings.Contains(origin, "*") {
+			return strings.TrimRight(origin, "/")
+		}
+	}
+	return ""
 }
 
 func (c Config) secretsBox() (*secretbox.Box, error) {

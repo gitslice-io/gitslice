@@ -2267,6 +2267,9 @@ func (s *ChangesetStore) finalizePendingPublishBatch(ctx context.Context, claim 
 	if err := insertCommitPublishedOutboxTx(ctx, tx, build.OutboxPayloads); err != nil {
 		return err
 	}
+	if err := insertSubmittedWebhookEventsTx(ctx, tx, build); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `
 		update refs
 		set commit_id = $1, version = version + 1, updated_at = now(), updated_by = $2
@@ -4396,4 +4399,28 @@ func pathHeadFromTreeEntry(entry TreeEntry) PathHead {
 		Mode:        entry.Mode,
 		Size:        entry.Size,
 	})
+}
+
+// insertSubmittedWebhookEventsTx records a changeset.submitted webhook event
+// for each changeset the batch published, in the publishing transaction, so
+// an event exists exactly when the commit does (design/24_webhooks.md).
+func insertSubmittedWebhookEventsTx(ctx context.Context, tx *sql.Tx, build *pendingPublishBuild) error {
+	byCommit := map[string]commitPublishedPayload{}
+	for _, payload := range build.OutboxPayloads {
+		byCommit[payload.CommitID] = payload
+	}
+	for _, update := range build.ChangesetUpdates {
+		published := byCommit[update.CommitID]
+		if _, err := appendWebhookEvent(ctx, tx, storage.WebhookEvent{
+			Kind:         storage.WebhookEventChangesetSubmitted,
+			ChangesetID:  update.ChangesetID,
+			PatchsetID:   published.PatchsetID,
+			CommitID:     update.CommitID,
+			TargetRef:    published.TargetRef,
+			ChangedPaths: published.ChangedPaths,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

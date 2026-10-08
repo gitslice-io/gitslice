@@ -22,6 +22,8 @@ import {
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
+import { SliceWebhooksPanel } from "../components/slices/SliceWebhooksPanel";
+import { canAdmin, membershipFor } from "../lib/accounts";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
@@ -33,7 +35,7 @@ interface SliceParams {
 export function SliceSettingsPage() {
   const api = useApi();
   const queryClient = useQueryClient();
-  const { accounts: viewerAccounts } = useSelection();
+  const { accounts: viewerAccounts, memberships } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
@@ -203,6 +205,9 @@ export function SliceSettingsPage() {
 
   const sliceLabel = sliceDisplayName(slice);
   const sliceCrumbs = sliceBreadcrumbItems(slice?.ref ?? routeSliceRef, viewerAccounts);
+  // Webhooks are for the slice's owners and admins; the server checks too.
+  const webhookSlice = slice.ref ?? routeSliceRef;
+  const showWebhooks = Boolean(webhookSlice) && canAdmin(membershipFor(memberships, webhookSlice?.account));
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
@@ -331,6 +336,12 @@ export function SliceSettingsPage() {
           </button>
         </div>
       </form>
+
+      {showWebhooks && webhookSlice ? (
+        <div className="mt-8">
+          <SliceWebhooksPanel slice={webhookSlice} />
+        </div>
+      ) : null}
     </section>
   );
 }

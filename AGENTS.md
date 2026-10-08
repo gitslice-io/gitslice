@@ -43,6 +43,7 @@ The design source of truth is under `design/`, especially:
 - `design/16_bring_your_own_agent.md`
 - `design/17_continuous_integration.md`
 - `design/21_self_hosting.md`
+- `design/24_webhooks.md`
 
 ## Source Of Truth
 

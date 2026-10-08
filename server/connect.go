@@ -30,6 +30,7 @@ func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http
 	mount(corev1connect.NewChangesetStackServiceHandler(connectStackAdapter{svc: handlers.Stack}))
 	mount(corev1connect.NewAgentServiceHandler(connectAgentAdapter{svc: handlers.Agent}))
 	mount(corev1connect.NewCheckServiceHandler(connectCheckAdapter{svc: handlers.Check}))
+	mount(corev1connect.NewWebhookServiceHandler(connectWebhookAdapter{svc: handlers.Webhook}))
 	return mux
 }
 
@@ -584,4 +585,36 @@ func (s connectCheckRunLogStream) Context() context.Context {
 
 func (s connectCheckRunLogStream) Send(msg *corev1.CheckRunLog) error {
 	return s.stream.Send(msg)
+}
+
+type connectWebhookAdapter struct {
+	svc *service.WebhookService
+}
+
+func (a connectWebhookAdapter) CreateWebhook(ctx context.Context, req *connect.Request[corev1.CreateWebhookRequest]) (*connect.Response[corev1.Webhook], error) {
+	return connectResponse(a.svc.CreateWebhook(ctx, req.Msg))
+}
+
+func (a connectWebhookAdapter) ListWebhooks(ctx context.Context, req *connect.Request[corev1.ListWebhooksRequest]) (*connect.Response[corev1.ListWebhooksResponse], error) {
+	return connectResponse(a.svc.ListWebhooks(ctx, req.Msg))
+}
+
+func (a connectWebhookAdapter) UpdateWebhook(ctx context.Context, req *connect.Request[corev1.UpdateWebhookRequest]) (*connect.Response[corev1.Webhook], error) {
+	return connectResponse(a.svc.UpdateWebhook(ctx, req.Msg))
+}
+
+func (a connectWebhookAdapter) DeleteWebhook(ctx context.Context, req *connect.Request[corev1.DeleteWebhookRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.DeleteWebhook(ctx, req.Msg))
+}
+
+func (a connectWebhookAdapter) PingWebhook(ctx context.Context, req *connect.Request[corev1.PingWebhookRequest]) (*connect.Response[corev1.WebhookDelivery], error) {
+	return connectResponse(a.svc.PingWebhook(ctx, req.Msg))
+}
+
+func (a connectWebhookAdapter) ListWebhookDeliveries(ctx context.Context, req *connect.Request[corev1.ListWebhookDeliveriesRequest]) (*connect.Response[corev1.ListWebhookDeliveriesResponse], error) {
+	return connectResponse(a.svc.ListWebhookDeliveries(ctx, req.Msg))
+}
+
+func (a connectWebhookAdapter) RedeliverWebhookDelivery(ctx context.Context, req *connect.Request[corev1.RedeliverWebhookDeliveryRequest]) (*connect.Response[corev1.WebhookDelivery], error) {
+	return connectResponse(a.svc.RedeliverWebhookDelivery(ctx, req.Msg))
 }

@@ -186,6 +186,27 @@ func TestPublishPendingBatchPublishesAndSkipsNonPendingChangesets(t *testing.T) 
 			PatchsetID:   second.Id,
 		},
 	})
+	// Each landed changeset records a changeset.submitted webhook event in
+	// the publishing transaction.
+	events, err := store.Webhooks().ClaimWebhookEvents(ctx, 10, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("webhook events = %+v, want two changeset.submitted", events)
+	}
+	for i, want := range []struct {
+		changeset, patchset, commit, path string
+	}{
+		{first.ChangesetId, first.Id, firstState.PendingCommit.String, firstPath},
+		{second.ChangesetId, second.Id, secondState.PendingCommit.String, secondPath},
+	} {
+		got := events[i]
+		if got.Kind != "changeset.submitted" || got.ChangesetID != want.changeset || got.PatchsetID != want.patchset || got.CommitID != want.commit ||
+			got.TargetRef != DefaultTargetRef || len(got.ChangedPaths) != 1 || got.ChangedPaths[0] != want.path {
+			t.Fatalf("event %d = %+v", i, got)
+		}
+	}
 }
 
 func TestPublishPendingMultiChangesetDeterministicChainMovesRefOnce(t *testing.T) {

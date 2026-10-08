@@ -7,6 +7,7 @@ import (
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/webhooks"
 )
 
 type ObjectStore interface {
@@ -25,6 +26,7 @@ type Handlers struct {
 	Stack      *ChangesetStackService
 	Agent      *AgentService
 	Check      *CheckService
+	Webhook    *WebhookService
 }
 
 type Stores struct {
@@ -35,6 +37,8 @@ type Stores struct {
 	Slices     storage.SliceStore
 	Agents     storage.AgentStore
 	Checks     storage.CheckStore
+	// Webhooks is optional: without it the WebhookService is unavailable.
+	Webhooks storage.WebhookStore
 }
 
 func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Client) *Handlers {
@@ -122,7 +126,24 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			checkLogs:  checkLogs,
 			dispatcher: checkDispatcher,
 		},
+		Webhook: newWebhookService(stores),
 	}
+}
+
+// newWebhookService returns the WebhookService with a dispatcher that uses
+// default options; the server replaces the dispatcher with its configured one.
+func newWebhookService(stores Stores) *WebhookService {
+	svc := &WebhookService{Auth: stores.Auth, Slices: stores.Slices, Webhooks: stores.Webhooks}
+	if stores.Webhooks != nil {
+		svc.Dispatcher = webhooks.NewDispatcher(webhooks.Stores{
+			Webhooks:   stores.Webhooks,
+			Slices:     stores.Slices,
+			Changesets: stores.Changesets,
+			Checks:     stores.Checks,
+			Auth:       stores.Auth,
+		}, webhooks.Options{})
+	}
+	return svc
 }
 
 func captureAnalytics(ctx context.Context, tracker analytics.Client, eventName string, props map[string]any) {

@@ -709,6 +709,17 @@ workspace-relative shorthands such as `@42`, but must expand them before calling
 the API. JSON responses should include both the handle and canonical id when an
 object may be copied into another command.
 
+`WebhookService` (`proto/core/v1/webhook.proto`) manages a slice's webhooks:
+
+- `CreateWebhook`, `ListWebhooks`, `UpdateWebhook`, `DeleteWebhook`;
+- `PingWebhook`, which sends now;
+- `ListWebhookDeliveries`;
+- `RedeliverWebhookDelivery`.
+
+Every method needs the admin role on the slice's account. A webhook's secret
+is write-only: responses carry `has_secret`. The events, payloads, signing and
+retries are in `design/24_webhooks.md`.
+
 ## 3. Internal Commit API
 
 Normal users should not create commits directly. Commit creation is an internal

@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+import "proto/core/v1/common.proto";
+
+option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
+
+// WebhookService manages a slice's webhooks: HTTPS endpoints that Gitslice
+// POSTs a JSON event to when something happens in the slice
+// (design/24_webhooks.md). Only the slice's owners and admins manage them.
+service WebhookService {
+  rpc CreateWebhook(CreateWebhookRequest) returns (Webhook);
+  rpc ListWebhooks(ListWebhooksRequest) returns (ListWebhooksResponse);
+  rpc UpdateWebhook(UpdateWebhookRequest) returns (Webhook);
+  rpc DeleteWebhook(DeleteWebhookRequest) returns (Empty);
+  // PingWebhook sends a ping event now and returns its delivery.
+  rpc PingWebhook(PingWebhookRequest) returns (WebhookDelivery);
+  // ListWebhookDeliveries lists a webhook's recent deliveries, newest first.
+  rpc ListWebhookDeliveries(ListWebhookDeliveriesRequest) returns (ListWebhookDeliveriesResponse);
+  // RedeliverWebhookDelivery sends a delivery's event again, now, as a new
+  // delivery with the same event id.
+  rpc RedeliverWebhookDelivery(RedeliverWebhookDeliveryRequest) returns (WebhookDelivery);
+}
+
+message Webhook {
+  string id = 1;
+  SliceRef slice = 2;
+  string url = 3;
+  // Event names, or "*" for every event: ping is always sent.
+  repeated string events = 4;
+  bool active = 5;
+  // Whether deliveries are signed (X-Gitslice-Signature-256). The secret is
+  // never returned.
+  bool has_secret = 6;
+  // Username of whoever created it.
+  string created_by = 7;
+  // RFC 3339.
+  string created_at = 8;
+  string updated_at = 9;
+  // The most recent delivery, if any.
+  WebhookDelivery last_delivery = 10;
+}
+
+message WebhookDelivery {
+  string id = 1;
+  string webhook_id = 2;
+  // The event's name and id. Redeliveries keep the event id, so a receiver
+  // can drop duplicates.
+  string event = 3;
+  string event_id = 4;
+  // pending (waiting for an attempt or a retry), succeeded or failed (gave up).
+  string status = 5;
+  int32 attempts = 6;
+  // The last attempt's HTTP status, or 0 when it got no response.
+  int32 response_status = 7;
+  // Why the last attempt failed, when it did.
+  string error = 8;
+  string created_at = 9;
+  string delivered_at = 10;
+  string next_attempt_at = 11;
+  int64 duration_ms = 12;
+  // The JSON body sent, and the first 2 KiB of the last response.
+  string request_body = 13;
+  string response_body = 14;
+}
+
+message CreateWebhookRequest {
+  SliceRef slice = 1;
+  // https://… on a public host.
+  string url = 2;
+  repeated string events = 3;
+  // Optional: signs each delivery with HMAC-SHA256.
+  string secret = 4;
+  // Defaults to true.
+  optional bool active = 5;
+}
+
+message ListWebhooksRequest {
+  SliceRef slice = 1;
+}
+
+message ListWebhooksResponse {
+  repeated Webhook webhooks = 1;
+}
+
+message UpdateWebhookRequest {
+  string webhook_id = 1;
+  // Each field is changed only when set.
+  optional string url = 2;
+  // Replaces the events when update_events is true.
+  repeated string events = 3;
+  bool update_events = 4;
+  optional bool active = 5;
+  // A new secret; clear_secret removes it.
+  optional string secret = 6;
+  bool clear_secret = 7;
+}
+
+message DeleteWebhookRequest {
+  string webhook_id = 1;
+}
+
+message PingWebhookRequest {
+  string webhook_id = 1;
+}
+
+message ListWebhookDeliveriesRequest {
+  string webhook_id = 1;
+  int32 limit = 2;
+}
+
+message ListWebhookDeliveriesResponse {
+  repeated WebhookDelivery deliveries = 1;
+}
+
+message RedeliverWebhookDeliveryRequest {
+  string delivery_id = 1;
+}

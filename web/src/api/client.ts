@@ -11,6 +11,7 @@ import {
 } from "../gen/proto/core/v1/changeset_pb";
 import { RepositoryService } from "../gen/proto/core/v1/repository_pb";
 import { SliceService } from "../gen/proto/core/v1/slice_pb";
+import { WebhookService } from "../gen/proto/core/v1/webhook_pb";
 import type { ApiClient } from "./useApi";
 import type * as Api from "./types";
 
@@ -61,6 +62,7 @@ export function createApiClient({
   const stack = createClient(ChangesetStackService, transport);
   const agent = createClient(AgentService, transport);
   const check = createClient(CheckService, transport);
+  const webhook = createClient(WebhookService, transport);
 
   const unary = async <TResponse>(call: () => Promise<unknown>) => {
     try {
@@ -250,6 +252,28 @@ export function createApiClient({
       unary<Api.RestackResponse>(() => stack.restack(toProtoRequest(request))),
     submitStack: (request) =>
       unary<Api.SubmitStackResponse>(() => stack.submitStack(toProtoRequest(request))),
+    createWebhook: (request) =>
+      unary<Api.Webhook>(() => webhook.createWebhook(toProtoRequest(request))),
+    listWebhooks: (request) =>
+      unary<Api.ListWebhooksResponse>(() =>
+        webhook.listWebhooks(toProtoRequest(request))
+      ),
+    updateWebhook: (request) =>
+      unary<Api.Webhook>(() => webhook.updateWebhook(toProtoRequest(request))),
+    deleteWebhook: (request) =>
+      unary<Api.Empty>(() => webhook.deleteWebhook(toProtoRequest(request))),
+    pingWebhook: (request) =>
+      unary<Api.WebhookDelivery>(() =>
+        webhook.pingWebhook(toProtoRequest(request))
+      ),
+    listWebhookDeliveries: (request) =>
+      unary<Api.ListWebhookDeliveriesResponse>(() =>
+        webhook.listWebhookDeliveries(toProtoRequest(request))
+      ),
+    redeliverWebhookDelivery: (request) =>
+      unary<Api.WebhookDelivery>(() =>
+        webhook.redeliverWebhookDelivery(toProtoRequest(request))
+      ),
     listDaemons: (request) =>
       unary<Api.ListDaemonsResponse>(() => agent.listDaemons(toProtoRequest(request))),
     createConversation: (request) =>
