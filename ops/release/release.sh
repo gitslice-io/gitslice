@@ -90,15 +90,16 @@ except ImportError:
 print(json.dumps(yaml.safe_load(open(sys.argv[1]))))
 PY
     uri="https://cloudbuild.googleapis.com/v1/projects/${project}/builds"
+    # create takes --headers; update takes --update-headers.
     if gcloud scheduler jobs describe "$job" --project "$project" --location "$region" >/dev/null 2>&1; then
-      verb=update
+      verb=update headers=--update-headers
     else
-      verb=create
+      verb=create headers=--headers
     fi
     # Tags arrive by webhook; this only catches a missed one.
     gcloud scheduler jobs "$verb" http "$job" --project "$project" --location "$region" \
       --schedule "${RELEASE_SCHEDULE:-30 6 * * *}" --time-zone UTC --uri "$uri" --http-method POST \
-      --headers "Content-Type=application/json" --message-body-from-file "$body" \
+      "$headers" "Content-Type=application/json" --message-body-from-file "$body" \
       --oauth-service-account-email "$account" \
       --description "Build gs releases for tags the webhook missed (ops/release)"
     rm -f "$body"
