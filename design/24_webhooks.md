@@ -187,6 +187,12 @@ gs webhook delete <webhook-id> --yes
 
 `--slice` defaults to the workspace's slice. Every command takes `--json`.
 
+User documentation lives in two places:
+
+- `gs help webhooks`, a topic guide covering the events, headers and retries;
+- https://gitslice.io/doc/webhooks, which adds a signature check example
+  (`web/src/routes/DocPage.tsx`). The CLI Reference page lists the commands.
+
 The web UI is the Webhooks panel in Slice Settings, shown to the account's
 owners and admins. From it you can:
 

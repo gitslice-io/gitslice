@@ -712,6 +712,57 @@ Workspaces bind to exactly one slice. Changesets created from a workspace use
 that bound slice as the authoring slice.
 `,
 	},
+	{
+		Name:    "webhooks",
+		Summary: "Send a slice's events to an HTTPS endpoint",
+		Body: `Webhooks
+
+A webhook POSTs a JSON event to an HTTPS URL when something happens in a
+slice. The slice's owners and admins manage them with gs webhook or in the
+web app's Slice Settings.
+
+  gs webhook create --slice acme/payment --url https://example.com/hook \
+    --event tag.created --event push --secret-stdin < secret.txt
+  gs webhook list --slice acme/payment
+  gs webhook ping <webhook-id>
+  gs webhook deliveries <webhook-id>
+  gs webhook redeliver <delivery-id>
+  gs webhook update <webhook-id> --active false
+  gs webhook delete <webhook-id> --yes
+
+Events
+  push                 a commit landed that changes paths the slice includes
+  tag.created          a tag (release) was created
+  changeset.created    a changeset was opened
+  changeset.updated    a new patchset was uploaded
+  changeset.approved   a changeset was approved
+  changeset.submitted  a changeset landed
+  changeset.abandoned  a changeset was abandoned
+  check_run.completed  a check finished
+  *                    all of the above
+  ping                 always sent, on request (gs webhook ping)
+
+Each body has id, event, created_at, slice, sender, plus a section for the
+event: tag, changeset, commit or check_run.
+
+Headers
+  X-Gitslice-Event           the event name
+  X-Gitslice-Event-ID        the event id; the same on retries and redeliveries
+  X-Gitslice-Delivery        this delivery's id
+  X-Gitslice-Hook-ID         the webhook's id
+  X-Gitslice-Signature-256   sha256=<hex HMAC-SHA256 of the raw body, keyed by
+                             the secret>, when the webhook has a secret
+
+Verify the signature by computing the HMAC of the raw body yourself and
+comparing in constant time.
+
+Delivery
+  Any 2xx answer within 10 seconds is success; redirects are not followed.
+  Failures are retried after 1m, 5m, 30m, 2h, 6h and 12h, then given up.
+  Deliveries can repeat and arrive out of order: drop duplicate event ids.
+  URLs must be https and reach a public address.
+`,
+	},
 }
 
 func Main(args []string, stdout, stderr io.Writer) int {

@@ -818,6 +818,7 @@ func TestHelpTopics(t *testing.T) {
 		{"exit-codes", "4"},
 		{"paths", "account-rooted"},
 		{"slices", "nic/home"},
+		{"webhooks", "X-Gitslice-Signature-256"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

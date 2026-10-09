@@ -659,7 +659,8 @@ How results are reported:
 - The text output shows a URL's query values as `...`; `--json` prints them in
   full.
 
-Only the slice's owners and admins can use these commands.
+Only the slice's owners and admins can use these commands. `gs help webhooks`
+summarizes the events, headers and retry schedule.
 
 ## 6. Server File Shell
 
