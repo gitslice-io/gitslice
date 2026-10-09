@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/cn";
+import { useMobileDetailsClass } from "../MobileDetails";
 import { languageFromPath, previewKindFromPath, type PreviewKind } from "./sourceUtils";
 import { highlightToHtml } from "./highlight";
 import { DiagramViewer } from "./DiagramViewer";
@@ -41,6 +42,9 @@ export function SourceCodeViewer({
     error: ""
   });
   const shouldRenderRaw = !previewKind || viewMode === "raw";
+  // On a phone with the page's details folded, only the Preview/Raw switch
+  // stays; with nothing to switch, the bar goes too.
+  const foldedOnPhone = useMobileDetailsClass();
 
   useEffect(() => {
     let active = true;
@@ -77,13 +81,18 @@ export function SourceCodeViewer({
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-4 py-3 text-xs text-slate-500 dark:text-zinc-400">
-        <div className="min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400">{path}</div>
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-4 py-3 text-xs text-slate-500 dark:text-zinc-400",
+          foldedOnPhone && (previewKind ? "max-lg:justify-end max-lg:py-2" : foldedOnPhone)
+        )}
+      >
+        <div className={cn("min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400", foldedOnPhone)}>{path}</div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           {previewKind ? (
             <ViewModeToggle onChange={setViewMode} value={viewMode} />
           ) : null}
-          <div className="flex items-center gap-3">
+          <div className={cn("flex items-center gap-3", foldedOnPhone)}>
             {shouldRenderRaw && highlight.isLoading && code ? (
               <span className="text-slate-400 dark:text-zinc-500">highlighting…</span>
             ) : null}

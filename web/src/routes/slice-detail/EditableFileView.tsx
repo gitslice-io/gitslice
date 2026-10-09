@@ -17,6 +17,8 @@ import { BinaryViewer } from "../../components/source/BinaryViewer";
 import { SourceCodeViewer } from "../../components/source/SourceCodeViewer";
 import { binaryKindFromPath } from "../../components/source/sourceUtils";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
+import { useMobileDetailsClass } from "../../components/MobileDetails";
+import { cn } from "../../lib/cn";
 import { canModifyPath, joinRepositoryPath } from "./DirectoryHeader";
 
 const TOP_LEVEL_SLICE_FOLDER_TITLE =
@@ -54,6 +56,7 @@ export function EditableFileView({
   const [draft, setDraft] = useState(displayedContent);
   const [renameError, setRenameError] = useState("");
   const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
+  const foldedOnPhone = useMobileDetailsClass();
   const modifyDisabledTitle = canModifySelectedPath
     ? undefined
     : TOP_LEVEL_SLICE_FOLDER_TITLE;
@@ -98,7 +101,9 @@ export function EditableFileView({
 
   return (
     <div className="space-y-3">
-      <SlicePanel className="p-0">
+      {/* The path, history and file actions fold away on phones until the
+          details are opened, unless the file is being edited or renamed. */}
+      <SlicePanel className={cn("p-0", !isEditing && !isRenaming && foldedOnPhone)}>
         <div className="border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { cn } from "../../lib/cn";
+import { useMobileDetailsClass } from "../MobileDetails";
 
 // A table for rows of text: CSV and TSV files, spreadsheets, Parquet files and
 // JSON Lines records all end up here. Large inputs show the first rows and
@@ -32,6 +33,8 @@ export function DataTable({
   truncated = false
 }: DataTableProps) {
   const [headerOverride, setHeaderOverride] = useState<boolean | null>(null);
+  // The counts and header switch fold away with the page's details on phones.
+  const foldedOnPhone = useMobileDetailsClass();
   const [visible, setVisible] = useState(ROWS_PER_PAGE);
 
   const firstRowIsHeader = canToggleHeader && (headerOverride ?? looksLikeHeader(rows));
@@ -52,7 +55,7 @@ export function DataTable({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-zinc-800 dark:text-zinc-400">
+      <div className={`flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-zinc-800 dark:text-zinc-400 ${foldedOnPhone}`}>
         <span>
           {total} {body.length === 1 && !truncated ? "row" : "rows"} · {columnCount}{" "}
           {columnCount === 1 ? "column" : "columns"}

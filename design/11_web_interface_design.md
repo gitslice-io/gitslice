@@ -279,6 +279,15 @@ Supported behavior:
 - Link each included path to the source browser.
 - Show a Git clone URL only when the deployment config exposes the optional Git
   smart HTTP server. The current Git layer supports clone and fetch, not push.
+- On phones (below the `lg` breakpoint), an open file or folder starts with
+  its details folded so the content is first on screen:
+  - A sticky bar shows `← Files`, the name, and a Details toggle.
+  - Folded until the toggle opens them: the breadcrumb, slice links, path,
+    commit, History and file actions, the viewer's path/type/line count, and a
+    table's row and column counts with its header switch.
+  - Controls that change the view, such as Preview/Raw, stay.
+  - Opening another path folds the details again.
+  - The shared state is `web/src/components/MobileDetails.tsx`.
 
 Do not show roles, submit settings, reviewers, or check summaries; those require
 APIs or fields that do not exist yet.
@@ -405,9 +414,15 @@ Supported behavior:
 
 - Display handle, title, description, author, authoring slice, target ref, base
   commit, status, current patchset number, commit id, and pending publish id.
-- Keep the primary title to one visible line on the review surface. Collapse
-  secondary metadata and actions on mobile so the file list and diff begin high
-  on the page.
+- Keep the primary title to one visible line on the review surface.
+- On phones, the page starts with only the title, status and a Details toggle
+  above the diff; review actions stay too. Details unfolds the rest:
+  - the breadcrumb;
+  - the handle, links and author;
+  - the description and base;
+  - patchsets;
+  - checks;
+  - the submit-blocked note.
 - Keep canonical changeset and patchset ids available only in debug/details JSON,
   not as the primary visible label.
 - Show the base changeset as a direct `Base changeset` link when the changeset

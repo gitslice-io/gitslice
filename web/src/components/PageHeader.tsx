@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
+import { cn } from "../lib/cn";
 import { ActionMenu, type ActionMenuItem } from "./source/ActionMenu";
 
 interface PageHeaderProps {
@@ -13,6 +14,8 @@ interface PageHeaderProps {
   actions?: ActionMenuItem[];
   /** Accessible label for the dropdown trigger. */
   menuLabel?: string;
+  /** Extra classes, such as hiding the header on phones. */
+  className?: string;
 }
 
 export function PageHeader({
@@ -20,7 +23,8 @@ export function PageHeader({
   title,
   primaryAction,
   actions,
-  menuLabel = "Actions"
+  menuLabel = "Actions",
+  className
 }: PageHeaderProps) {
   const headerRef = useRef<HTMLElement>(null);
 
@@ -54,7 +58,10 @@ export function PageHeader({
 
   return (
     <header
-      className="sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/95 dark:bg-zinc-950/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+      className={cn(
+        "sticky top-0 z-30 mb-4 flex flex-col gap-2 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/95 dark:bg-zinc-950/95 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-3",
+        className
+      )}
       ref={headerRef}
     >
       <div className="min-w-0 sm:flex-1">

@@ -24,6 +24,7 @@ import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { useSelection } from "../state/selection";
 import { PageHeader } from "../components/PageHeader";
+import { MobileDetailsProvider } from "../components/MobileDetails";
 import {
   DiffViewer,
   type DiffViewerFileState
@@ -75,6 +76,9 @@ export function ChangesetDetailPage() {
     conversation?: unknown;
   };
   const [abandonReason, setAbandonReason] = useState("");
+  // On phones the page opens with its details (breadcrumbs, ids, patchsets,
+  // checks) folded so the diff comes first; the header's Details unfolds them.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [actionError, setActionError] = useState("");
   // The conversation drawer's open state lives in the URL so browser/mobile
   // back closes it instead of leaving the changeset detail page.
@@ -468,76 +472,84 @@ export function ChangesetDetailPage() {
   const terminal = isTerminalStatus(changeset.status);
   const actionBusy = mergeMutation.isPending || abandonMutation.isPending;
   return (
-    <section className="mx-auto w-full max-w-[100rem]">
-      <PageHeader
-        breadcrumb={
-          <Breadcrumb
-            items={changesetBreadcrumbItems({
-              changeset,
-              sliceSearch,
-              viewerAccounts
-            })}
-          />
-        }
-      />
+    <MobileDetailsProvider
+      onToggle={() => setDetailsOpen((open) => !open)}
+      open={detailsOpen}
+    >
+      <section className="mx-auto w-full max-w-[100rem]">
+        <PageHeader
+          className={cn(!detailsOpen && "max-lg:hidden")}
+          breadcrumb={
+            <Breadcrumb
+              items={changesetBreadcrumbItems({
+                changeset,
+                sliceSearch,
+                viewerAccounts
+              })}
+            />
+          }
+        />
 
-      <HeaderCard
-        abandonReason={abandonReason}
-        actionBusy={actionBusy}
-        actionError={actionError}
-        abandonPending={abandonMutation.isPending}
-        canUseReviewActions={Boolean(isLoaded && isSignedIn)}
-        changeset={changeset}
-        dependentChangesets={dependentChangesets}
-        mergePending={mergeMutation.isPending}
-        onAbandon={submitAbandon}
-        onAbandonReasonChange={setAbandonReason}
-        onMerge={() => mergeMutation.mutate()}
-        patchsetCompare={
-          <PatchsetComparePanel
-            conversationOpen={conversationOpen}
-            currentPatchsetId={changeset.currentPatchsetId}
-            fromPatchset={fromPatchset}
-            onFromPatchsetChange={handleFromPatchsetChange}
-            onToPatchsetChange={handleToPatchsetChange}
-            onToggleConversation={toggleConversation}
-            patchsets={patchsets}
-            toPatchset={selectedToPatchset}
-          />
-        }
-        terminal={terminal}
-      />
+        <HeaderCard
+          abandonReason={abandonReason}
+          actionBusy={actionBusy}
+          actionError={actionError}
+          abandonPending={abandonMutation.isPending}
+          canUseReviewActions={Boolean(isLoaded && isSignedIn)}
+          changeset={changeset}
+          dependentChangesets={dependentChangesets}
+          mergePending={mergeMutation.isPending}
+          onAbandon={submitAbandon}
+          onAbandonReasonChange={setAbandonReason}
+          onMerge={() => mergeMutation.mutate()}
+          patchsetCompare={
+            <PatchsetComparePanel
+              conversationOpen={conversationOpen}
+              currentPatchsetId={changeset.currentPatchsetId}
+              fromPatchset={fromPatchset}
+              onFromPatchsetChange={handleFromPatchsetChange}
+              onToPatchsetChange={handleToPatchsetChange}
+              onToggleConversation={toggleConversation}
+              patchsets={patchsets}
+              toPatchset={selectedToPatchset}
+            />
+          }
+          terminal={terminal}
+        />
 
-      <ChecksPanel
-        changesetId={canonicalChangesetId}
-        patchsetId={selectedToPatchset}
-      />
-
-      <div className={cn(isWide && conversationOpen && "flex items-start gap-3")}>
-        <div className={cn(isWide && conversationOpen && "min-w-0 flex-1")}>
-          <DiffViewer
-            diffResponse={diffQuery.data}
-            error={diffQuery.error}
-            fileStates={fileStates}
-            focusFilePath={search.file}
-            isError={diffQuery.isError}
-            isLoading={!usesLazyFileDiffs && diffQuery.isPending}
-            key={comparisonKey}
-            onFileNeeded={requestFileDiff}
-            onFileRetry={retryFileDiff}
+        <div className={cn(!detailsOpen && "max-lg:hidden")}>
+          <ChecksPanel
+            changesetId={canonicalChangesetId}
+            patchsetId={selectedToPatchset}
           />
         </div>
-        <ConversationDrawer
-          docked={isWide}
-          enabled={Boolean(isLoaded)}
-          fromPatchsetId={fromPatchset}
-          onClose={closeConversation}
-          open={conversationOpen}
-          patchsets={patchsets}
-          selectedPatchsetId={selectedToPatchset}
-        />
-      </div>
-    </section>
+
+        <div className={cn(isWide && conversationOpen && "flex items-start gap-3")}>
+          <div className={cn(isWide && conversationOpen && "min-w-0 flex-1")}>
+            <DiffViewer
+              diffResponse={diffQuery.data}
+              error={diffQuery.error}
+              fileStates={fileStates}
+              focusFilePath={search.file}
+              isError={diffQuery.isError}
+              isLoading={!usesLazyFileDiffs && diffQuery.isPending}
+              key={comparisonKey}
+              onFileNeeded={requestFileDiff}
+              onFileRetry={retryFileDiff}
+            />
+          </div>
+          <ConversationDrawer
+            docked={isWide}
+            enabled={Boolean(isLoaded)}
+            fromPatchsetId={fromPatchset}
+            onClose={closeConversation}
+            open={conversationOpen}
+            patchsets={patchsets}
+            selectedPatchsetId={selectedToPatchset}
+          />
+        </div>
+      </section>
+    </MobileDetailsProvider>
   );
 }
 

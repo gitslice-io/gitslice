@@ -10,6 +10,8 @@ import {
 } from "../../components/source/SliceEditing";
 import { ActionMenu } from "../../components/source/ActionMenu";
 import { shortHash } from "../../lib/objectId";
+import { cn } from "../../lib/cn";
+import { useMobileDetailsClass } from "../../components/MobileDetails";
 
 interface DirectoryHeaderProps {
   commitId: string;
@@ -34,6 +36,7 @@ export function DirectoryHeader({
   children
 }: DirectoryHeaderProps) {
   const [isRenaming, setIsRenaming] = useState(false);
+  const foldedOnPhone = useMobileDetailsClass();
   const canRename = Boolean(selectedPath && onStageEdit);
   const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
   const modifyDisabledTitle = canModifySelectedPath
@@ -84,7 +87,7 @@ export function DirectoryHeader({
   ) : null;
 
   return (
-    <div className="border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5">
+    <div className={cn("border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5", !isRenaming && foldedOnPhone)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="break-all text-base font-semibold text-zinc-950 dark:text-zinc-50">

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { useMobileDetailsClass } from "../MobileDetails";
+
 const IMAGE_MIME_TYPES: Record<string, string> = {
   avif: "image/avif",
   bmp: "image/bmp",
@@ -31,6 +33,7 @@ export function imageMimeTypeFromPath(path: string) {
 export function ImageViewer({ data, path }: ImageViewerProps) {
   const mimeType = imageMimeTypeFromPath(path);
   const [status, setStatus] = useState<ImageStatus>(data ? "loading" : "empty");
+  const foldedOnPhone = useMobileDetailsClass();
   const filename = path.replace(/\\/g, "/").split("/").pop() || "image";
 
   useEffect(() => {
@@ -43,7 +46,7 @@ export function ImageViewer({ data, path }: ImageViewerProps) {
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+      <div className={`flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 ${foldedOnPhone}`}>
         <div className="min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400">
           {path}
         </div>

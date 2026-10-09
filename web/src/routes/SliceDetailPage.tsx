@@ -14,6 +14,10 @@ import { capture } from "../analytics/posthog";
 import type { SliceRef, TreeEntry } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
+import {
+  MobileDetailsProvider,
+  MobileDetailsToggle,
+} from "../components/MobileDetails";
 import { PageHeader } from "../components/PageHeader";
 import {
   SliceLoadingBlock,
@@ -86,6 +90,12 @@ export function SliceDetailPage() {
   // of navigating away from the slice page entirely.
   const historyOpen = Boolean(search.history);
   const [showTree, setShowTree] = useState(true);
+  // On phones a file or folder opens with its details (breadcrumbs, path,
+  // counts) folded; the bar at the top unfolds them.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  useEffect(() => {
+    setDetailsOpen(false);
+  }, [selectedPath]);
   const [isCreatingChangeset, setIsCreatingChangeset] = useState(false);
   const [changesetError, setChangesetError] = useState("");
   const gitCloneOrigin = useGitCloneOrigin();
@@ -322,164 +332,196 @@ export function SliceDetailPage() {
   const sliceCrumbs = sliceBreadcrumbItems(sliceRef, accounts);
 
   return (
-    <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
-      <PageHeader
-        breadcrumb={
-          <Breadcrumb
-            items={[
-              { label: "Home", to: "/" },
-              ...(sliceCrumbs.length > 0 ? sliceCrumbs : [{ label: sliceLabel }])
-            ]}
+    <MobileDetailsProvider
+      onToggle={() => setDetailsOpen((open) => !open)}
+      open={detailsOpen}
+    >
+      <section className="mx-auto w-full max-w-[100rem] lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col lg:overflow-hidden">
+        {selectedPath ? (
+          <MobileFileBar
+            name={selectedPath.split("/").filter(Boolean).pop() ?? selectedPath}
+            onBack={() => selectPath("")}
           />
-        }
-        primaryAction={
-          <>
-            <Link
-              className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-              search={{ slice: sliceLabel } as never}
-              to="/changesets"
-            >
-              Changesets
-            </Link>
-            {isSignedIn && sliceRouteParams ? (
-              <Link
-                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                params={sliceRouteParams as never}
-                to="/slices/$account/$slice/agents"
-              >
-                Conversations
-              </Link>
-            ) : null}
-            {canConfigure && sliceRouteParams ? (
-              <Link
-                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                params={sliceRouteParams as never}
-                to="/slices/$account/$slice/settings"
-              >
-                Settings
-              </Link>
-            ) : null}
-            <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
-          </>
-        }
-      />
-
-      <>
-        <div
+        ) : null}
+        <PageHeader
+          // Under the phone bar the header scrolls away instead of sticking,
+          // and stays folded until the details are opened.
           className={cn(
-            "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
-            showTree
-              ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
-              : "lg:grid-cols-[2.75rem_minmax(0,1fr)]",
+            selectedPath && "max-lg:static",
+            selectedPath && !detailsOpen && "max-lg:hidden",
           )}
-        >
-          <button
-            aria-controls="slice-file-tree-panel"
-            aria-expanded={false}
-            aria-label="Show files"
-            className={cn(
-              "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 py-3 text-xs font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]",
-              showTree ? "" : "lg:flex",
-            )}
-            onClick={() => setShowTree(true)}
-            title="Show files"
-            type="button"
-          >
-            <span aria-hidden="true" className="text-sm leading-none">
-              »
-            </span>
-            <span className="[writing-mode:vertical-rl]">Files</span>
-          </button>
-          <aside
-            className={cn(
-              "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
-              treePanelVisibility,
-            )}
-            id="slice-file-tree-panel"
-          >
-            <SliceFolderNavigator
-              api={api}
-              commitId={commitId}
-              includedPaths={includedPaths}
-              isLatestLoading={latestQuery.isPending}
-              isSelectedDirectory={isDirectory}
-              onCollapse={() => setShowTree(false)}
-              onSelectPath={selectPath}
-              selectedPath={selectedPath}
-              sliceId={sliceId || sliceRouteKey}
-              sliceRef={sliceRef}
+          breadcrumb={
+            <Breadcrumb
+              items={[
+                { label: "Home", to: "/" },
+                ...(sliceCrumbs.length > 0 ? sliceCrumbs : [{ label: sliceLabel }])
+              ]}
             />
-          </aside>
+          }
+          primaryAction={
+            <>
+              <Link
+                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+                search={{ slice: sliceLabel } as never}
+                to="/changesets"
+              >
+                Changesets
+              </Link>
+              {isSignedIn && sliceRouteParams ? (
+                <Link
+                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+                  params={sliceRouteParams as never}
+                  to="/slices/$account/$slice/agents"
+                >
+                  Conversations
+                </Link>
+              ) : null}
+              {canConfigure && sliceRouteParams ? (
+                <Link
+                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+                  params={sliceRouteParams as never}
+                  to="/slices/$account/$slice/settings"
+                >
+                  Settings
+                </Link>
+              ) : null}
+              <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
+            </>
+          }
+        />
 
+        <>
           <div
             className={cn(
-              "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
-              workspaceVisibility,
+              "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
+              showTree
+                ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
+                : "lg:grid-cols-[2.75rem_minmax(0,1fr)]",
             )}
           >
-            <div className="mb-3 lg:hidden">
-              <button
-                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                onClick={() => selectPath("")}
-                type="button"
-              >
-                ← Files
-              </button>
-            </div>
-            <SliceSourceWorkspace
-              commitError={latestQuery.error}
-              commitId={commitId}
-              createDirectory={createDirectory}
-              directoryEntries={currentEntries}
-              directoryError={directoryQuery.error}
-              entry={entry}
-              fileContent={decodeBase64File(fileQuery.data?.data)}
-              fileData={fileQuery.data?.data ?? ""}
-              fileError={fileQuery.error}
-              includedPaths={includedPaths}
-              isDirectoryLoading={directoryQuery.isPending}
-              isFileLoading={fileQuery.isPending}
-              isLatestLoading={latestQuery.isPending}
-              isPathLoading={pathQuery.isLoading}
-              onOpenHistory={openHistory}
-              onSelectPath={selectPath}
-              onStageEdit={canEdit ? stagePendingEdit : undefined}
-              pathError={pathQuery.error}
-              pendingEdits={pendingEdits}
-              selectedPath={selectedPath}
-            />
-          </div>
-        </div>
-        <HistoryDrawer
-          api={api}
-          commitId={commitId}
-          onClose={closeHistory}
-          open={historyOpen}
-          selectedPath={selectedPath}
-          sliceId={sliceId || sliceRouteKey}
-          sliceLabel={sliceLabel}
-          sliceRef={sliceRef}
-        />
-      </>
-      {isCreatingChangeset ? <CreatingChangesetOverlay /> : null}
-      {changesetError ? (
-        <div
-          className="fixed inset-x-0 bottom-4 z-50 mx-auto w-[min(28rem,calc(100%-2rem))] rounded-md border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 px-4 py-3 text-sm text-rose-900 dark:text-rose-200 shadow-lg"
-          role="alert"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <span className="min-w-0 break-words">{changesetError}</span>
             <button
-              className="shrink-0 font-semibold underline decoration-rose-300 underline-offset-4 hover:decoration-rose-700"
-              onClick={() => setChangesetError("")}
+              aria-controls="slice-file-tree-panel"
+              aria-expanded={false}
+              aria-label="Show files"
+              className={cn(
+                "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 py-3 text-xs font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]",
+                showTree ? "" : "lg:flex",
+              )}
+              onClick={() => setShowTree(true)}
+              title="Show files"
               type="button"
             >
-              Dismiss
+              <span aria-hidden="true" className="text-sm leading-none">
+                »
+              </span>
+              <span className="[writing-mode:vertical-rl]">Files</span>
             </button>
+            <aside
+              className={cn(
+                "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
+                treePanelVisibility,
+              )}
+              id="slice-file-tree-panel"
+            >
+              <SliceFolderNavigator
+                api={api}
+                commitId={commitId}
+                includedPaths={includedPaths}
+                isLatestLoading={latestQuery.isPending}
+                isSelectedDirectory={isDirectory}
+                onCollapse={() => setShowTree(false)}
+                onSelectPath={selectPath}
+                selectedPath={selectedPath}
+                sliceId={sliceId || sliceRouteKey}
+                sliceRef={sliceRef}
+              />
+            </aside>
+
+            <div
+              className={cn(
+                "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
+                workspaceVisibility,
+              )}
+            >
+              <SliceSourceWorkspace
+                commitError={latestQuery.error}
+                commitId={commitId}
+                createDirectory={createDirectory}
+                directoryEntries={currentEntries}
+                directoryError={directoryQuery.error}
+                entry={entry}
+                fileContent={decodeBase64File(fileQuery.data?.data)}
+                fileData={fileQuery.data?.data ?? ""}
+                fileError={fileQuery.error}
+                includedPaths={includedPaths}
+                isDirectoryLoading={directoryQuery.isPending}
+                isFileLoading={fileQuery.isPending}
+                isLatestLoading={latestQuery.isPending}
+                isPathLoading={pathQuery.isLoading}
+                onOpenHistory={openHistory}
+                onSelectPath={selectPath}
+                onStageEdit={canEdit ? stagePendingEdit : undefined}
+                pathError={pathQuery.error}
+                pendingEdits={pendingEdits}
+                selectedPath={selectedPath}
+              />
+            </div>
           </div>
-        </div>
-      ) : null}
-    </section>
+          <HistoryDrawer
+            api={api}
+            commitId={commitId}
+            onClose={closeHistory}
+            open={historyOpen}
+            selectedPath={selectedPath}
+            sliceId={sliceId || sliceRouteKey}
+            sliceLabel={sliceLabel}
+            sliceRef={sliceRef}
+          />
+        </>
+        {isCreatingChangeset ? <CreatingChangesetOverlay /> : null}
+        {changesetError ? (
+          <div
+            className="fixed inset-x-0 bottom-4 z-50 mx-auto w-[min(28rem,calc(100%-2rem))] rounded-md border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 px-4 py-3 text-sm text-rose-900 dark:text-rose-200 shadow-lg"
+            role="alert"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="min-w-0 break-words">{changesetError}</span>
+              <button
+                className="shrink-0 font-semibold underline decoration-rose-300 underline-offset-4 hover:decoration-rose-700"
+                onClick={() => setChangesetError("")}
+                type="button"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    </MobileDetailsProvider>
+  );
+}
+
+// The top of a file or folder on a phone: back to the file list, the name,
+// and the toggle that unfolds the page's details.
+function MobileFileBar({ name, onBack }: { name: string; onBack(): void }) {
+  return (
+    <div className="sticky top-0 z-30 mb-3 flex items-center gap-2 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/95 dark:bg-zinc-950/95 py-2 backdrop-blur lg:hidden">
+      <button
+        aria-label="Back to files"
+        className="shrink-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+        onClick={onBack}
+        type="button"
+      >
+        ← Files
+      </button>
+      <span
+        className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50"
+        title={name}
+      >
+        {name}
+      </span>
+      <MobileDetailsToggle />
+    </div>
   );
 }
 
