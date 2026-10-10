@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -700,5 +701,38 @@ func TestPublishPendingReleasesClaimsOnFailure(t *testing.T) {
 	published, err = store.Changesets().PublishPending(ctx, 10)
 	if err != nil || published != 1 {
 		t.Fatalf("retry PublishPending = %d, %v; want 1", published, err)
+	}
+}
+
+// A landed commit's id, full or shortened the way gs prints it, finds the
+// changeset that landed it: such ids get pasted where a changeset id belongs.
+func TestGetChangesetByLandedCommitID(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	blobID, hash := upsertTestBlob(t, ctx, store, "package payment\nconst Landed = true\n")
+	patchset := createDraftPatchset(t, ctx, store, base.CommitId, "/acme/payment/landed.go", blobID, hash)
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Changesets().PublishPending(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	commit := requirePublishStateForTest(t, ctx, store, patchset.ChangesetId).PendingCommit.String
+	for _, selector := range []string{commit, strings.TrimPrefix(commit, "sha256:")[:12], strings.ToUpper(strings.TrimPrefix(commit, "sha256:")[:16])} {
+		cs, err := store.Changesets().Get(ctx, selector)
+		if err != nil {
+			t.Fatalf("Get(%q): %v", selector, err)
+		}
+		if cs.Id != patchset.ChangesetId {
+			t.Fatalf("Get(%q) = %s, want %s", selector, cs.Id, patchset.ChangesetId)
+		}
+	}
+	// A changeset id prefix still means that changeset.
+	short := strings.TrimPrefix(patchset.ChangesetId, "cs_")[:10]
+	if cs, err := store.Changesets().Get(ctx, short); err != nil || cs.Id != patchset.ChangesetId {
+		t.Fatalf("Get(%q) = %v, %v", short, cs, err)
+	}
+	if _, err := store.Changesets().Get(ctx, "0000000000ab"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get(unknown) err = %v, want ErrNotFound", err)
 	}
 }

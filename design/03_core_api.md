@@ -709,6 +709,11 @@ workspace-relative shorthands such as `@42`, but must expand them before calling
 the API. JSON responses should include both the handle and canonical id when an
 object may be copied into another command.
 
+A changeset selector may also be the id of the commit a changeset landed as:
+the full `sha256:...` id, or a prefix of at least 7 hex characters. The lookup
+answers with that changeset. A matching changeset id prefix always wins. This
+exists because commit ids get pasted where changeset ids belong.
+
 `WebhookService` (`proto/core/v1/webhook.proto`) manages a slice's webhooks:
 
 - `CreateWebhook`, `ListWebhooks`, `UpdateWebhook`, `DeleteWebhook`;

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -133,5 +134,24 @@ func TestPopulateChangesetHandlesLeavesDeprecatedFieldsEmpty(t *testing.T) {
 	}
 	if got := cs.Patchsets[0].Handle; got != "" {
 		t.Fatalf("patchset handle populated: %q", got)
+	}
+}
+
+func TestCommitIDLookupPrefix(t *testing.T) {
+	for selector, want := range map[string]string{
+		"2d15cca3e1b1":                      "sha256:2d15cca3e1b1",
+		"sha256:2D15CCA3E1B1":               "sha256:2d15cca3e1b1",
+		" 2d15cca ":                         "sha256:2d15cca",
+		"2d15cc":                            "",
+		"cs_2d15cca3e1":                     "",
+		"acme/payment@4":                    "",
+		"zz15cca3e1b1":                      "",
+		strings.Repeat("a", 65):             "",
+		"sha256:" + strings.Repeat("a", 64): "sha256:" + strings.Repeat("a", 64),
+	} {
+		got, ok := CommitIDLookupPrefix(selector)
+		if got != want || ok != (want != "") {
+			t.Errorf("CommitIDLookupPrefix(%q) = %q, %v; want %q", selector, got, ok, want)
+		}
 	}
 }

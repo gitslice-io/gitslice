@@ -895,12 +895,25 @@ gs cs list [--slice <slice|account/slice>] [--status <status>] [--limit <n>]
 gs cs abandon [changeset] [--reason <reason>]
 ```
 
-`gs cs link` prints the changeset's web link after checking it exists, and
-refuses a commit id (`sha256:...`). `gs submit` names the changeset first
-(`submitted changeset <id> to <ref>`, then `view: <link>`) and labels the
-commit it landed as on a third line; its JSON has `changeset` and
-`changeset_url` next to `commit_id`. Agents share the changeset link, never
-a `/cs/` URL built from the commit id.
+Every command that lands a change names the changeset and its link before the
+commit it landed as. The commit id is labelled "not a changeset id".
+
+- `gs submit` prints `submitted changeset <id> to <ref>`, then
+  `view: <link>`, then the commit on a third line.
+- `gs fs` writes (`write`, `upload`, `mkdir`, `touch`, `mv`, `rm`) print
+  `<verb> <paths> in <slice> through changeset <id>`, then `view: <link>`, then
+  the commit.
+- `gs shell` prints `ok <verb> through changeset <id> <link>`.
+- Their JSON has `changeset` and `changeset_url` next to `commit_id`.
+
+Agents share the changeset link.
+
+`gs cs link` prints the changeset's web link after checking it exists. Given
+the id of a commit a changeset landed as (full, or shortened to 12 characters as
+`gs` prints commits), it prints that changeset's link and says so on stderr.
+The server resolves such ids for every changeset lookup, so a `/cs/` URL built
+from a landed commit's id also opens the changeset; the web page then switches
+the address to the changeset's own link.
 
 User-facing changeset selectors use the shareable handle
 `<account>/<slice>@<number>`, for example `acme/payment@42`. This handle is the

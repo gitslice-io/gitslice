@@ -212,6 +212,41 @@ describe("changeset detail page", () => {
     expect(routerMock.search).toEqual({ from: "ps_child_1" });
   });
 
+  it("moves a link made from a landed commit's id to the changeset's own link", async () => {
+    routerMock.params = { id: "2d15cca3e1b1" };
+    const api = makeApi();
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: [], diff: "" });
+    api.getChangeset = vi
+      .fn()
+      .mockResolvedValue(changeset("cs_cf52df6ccbcb849a1b29b76c6b98335f", "add expenses"));
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    expect(await screen.findByText("add expenses")).toBeInTheDocument();
+    expect(api.getChangeset).toHaveBeenCalledWith({ changesetId: "2d15cca3e1b1" });
+    await waitFor(() =>
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ params: { id: "cf52df6ccb" }, replace: true, to: "/cs/$id" })
+      )
+    );
+  });
+
+  it("keeps a changeset's own link", async () => {
+    routerMock.params = { id: "cf52df6ccb" };
+    const api = makeApi();
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: [], diff: "" });
+    api.getChangeset = vi
+      .fn()
+      .mockResolvedValue(changeset("cs_cf52df6ccbcb849a1b29b76c6b98335f", "add expenses"));
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    expect(await screen.findByText("add expenses")).toBeInTheDocument();
+    expect(routerMock.navigate).not.toHaveBeenCalledWith(expect.objectContaining({ to: "/cs/$id" }));
+  });
+
   it("drives the diff from URL from/to params on first render", async () => {
     routerMock.params = { id: "cs_child" };
     routerMock.search = { from: "ps_child_1", to: "ps_child_2" };

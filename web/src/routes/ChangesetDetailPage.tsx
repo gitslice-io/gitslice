@@ -36,6 +36,7 @@ import {
   type FileChangeKind
 } from "../components/diff/parseDiff";
 import { cn } from "../lib/cn";
+import { shortChangesetId } from "../lib/objectId";
 
 import {
   ChangesetSkeleton,
@@ -120,6 +121,23 @@ export function ChangesetDetailPage() {
 
   const changeset = changesetQuery.data;
   const authoringSlice = changeset?.authoringSlice;
+
+  // A link made from a landed commit's id (gs shows commits shortened to 12
+  // characters) still opens the changeset that landed it; switch the address
+  // to the changeset's own link so that is what gets shared.
+  useEffect(() => {
+    const id = changeset?.id ?? "";
+    const requested = changesetId.toLowerCase().replace(/^cs_/, "");
+    if (!id || !requested || id.replace(/^cs_/, "").startsWith(requested)) {
+      return;
+    }
+    void navigate({
+      params: { id: shortChangesetId(id) } as never,
+      replace: true,
+      search: search as never,
+      to: "/cs/$id"
+    });
+  }, [changeset?.id, changesetId]);
 
   const sliceChangesetsQuery = useQuery({
     enabled: Boolean(

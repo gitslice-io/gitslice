@@ -44,6 +44,24 @@ func ChangesetIDLookupPrefix(selector string) (prefix string, ok bool) {
 	return "cs_" + body, true
 }
 
+// CommitIDLookupPrefix reads a selector as a commit id or a prefix of one
+// ("sha256:" optional, at least 7 hex chars) and returns the "sha256:"-prefixed
+// form for a left-anchored match. People and agents paste a landed commit's id
+// where a changeset id belongs (gs prints commits shortened to 12 chars), so a
+// changeset lookup that finds nothing tries the changeset that landed it.
+func CommitIDLookupPrefix(selector string) (prefix string, ok bool) {
+	body := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(selector)), "sha256:")
+	if len(body) < 7 || len(body) > 64 {
+		return "", false
+	}
+	for _, ch := range body {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return "", false
+		}
+	}
+	return "sha256:" + body, true
+}
+
 // SliceHandle is the canonical global slice identity, account:slice. The colon
 // keeps it visually distinct from a "/account/slice" repository path.
 func SliceHandle(ref *corev1.SliceRef) string {

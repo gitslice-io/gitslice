@@ -850,43 +850,57 @@ func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsReq
 }
 
 func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector string) (string, error) {
-	prefix, ok := storage.ChangesetIDLookupPrefix(selector)
-	if !ok {
+	prefix, isChangeset := storage.ChangesetIDLookupPrefix(selector)
+	commitPrefix, isCommit := storage.CommitIDLookupPrefix(selector)
+	if !isChangeset && !isCommit {
 		return selector, nil
 	}
+	if isChangeset {
+		matches, err := s.selectChangesetIDs(ctx, `select id from changesets where left(id, $2) = $1 order by id limit 2`, prefix, len(prefix))
+		if err != nil {
+			return "", err
+		}
+		if len(matches) > 1 {
+			return "", fmt.Errorf("changeset id prefix %q is ambiguous: %w", selector, ErrInvalid)
+		}
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
+	}
+	if isCommit {
+		// Not a changeset: maybe the id of the commit a changeset landed as.
+		matches, err := s.selectChangesetIDs(ctx, `select id from changesets where commit_id like $1 || '%' order by id limit 2`, commitPrefix)
+		if err != nil {
+			return "", err
+		}
+		if len(matches) > 1 {
+			return "", fmt.Errorf("commit id prefix %q is ambiguous: %w", selector, ErrInvalid)
+		}
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
+	}
+	if !isChangeset {
+		return selector, nil
+	}
+	return "", ErrNotFound
+}
 
-	rows, err := s.db.QueryContext(ctx, `
-		select id
-		from changesets
-		where left(id, $2) = $1
-		order by id
-		limit 2
-	`, prefix, len(prefix))
+func (s *ChangesetStore) selectChangesetIDs(ctx context.Context, query string, args ...any) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer rows.Close()
-
 	var matches []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return "", err
+			return nil, err
 		}
 		matches = append(matches, id)
 	}
-	if err := rows.Err(); err != nil {
-		return "", err
-	}
-
-	switch len(matches) {
-	case 0:
-		return "", ErrNotFound
-	case 1:
-		return matches[0], nil
-	default:
-		return "", fmt.Errorf("changeset id prefix %q is ambiguous: %w", selector, ErrInvalid)
-	}
+	return matches, rows.Err()
 }
 
 func lockSliceForChangesetNumber(ctx context.Context, tx *sql.Tx, sliceID string) error {

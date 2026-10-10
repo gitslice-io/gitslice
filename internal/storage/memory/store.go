@@ -455,23 +455,38 @@ func memoryTokenHash(token string) string {
 }
 
 func (b *backend) resolveChangesetSelectorLocked(selector string) string {
-	prefix, ok := storage.ChangesetIDLookupPrefix(selector)
-	if !ok {
-		return ""
-	}
-	var match string
-	for id, cs := range b.changesets {
-		if cs == nil {
-			continue
+	if prefix, ok := storage.ChangesetIDLookupPrefix(selector); ok {
+		var match string
+		for id, cs := range b.changesets {
+			if cs == nil {
+				continue
+			}
+			if strings.HasPrefix(strings.ToLower(id), prefix) {
+				if match != "" {
+					return ""
+				}
+				match = id
+			}
 		}
-		if strings.HasPrefix(strings.ToLower(id), prefix) {
+		if match != "" {
+			return match
+		}
+	}
+	// Not a changeset: maybe the id of the commit a changeset landed as.
+	if prefix, ok := storage.CommitIDLookupPrefix(selector); ok {
+		var match string
+		for id, cs := range b.changesets {
+			if cs == nil || cs.CommitId == "" || !strings.HasPrefix(cs.CommitId, prefix) {
+				continue
+			}
 			if match != "" {
 				return ""
 			}
 			match = id
 		}
+		return match
 	}
-	return match
+	return ""
 }
 
 func (s *ObjectStore) Put(ctx context.Context, key string, r io.Reader) error {

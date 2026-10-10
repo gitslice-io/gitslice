@@ -377,8 +377,8 @@ func TestServerShellAttachesExplicitSlice(t *testing.T) {
 		"payment/",
 		"custom/",
 		"package custom\nconst Nested = true\n",
-		"ok created @",
-		"ok wrote @",
+		"ok created through changeset",
+		"ok wrote through changeset",
 		"hello explicit slice",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -649,10 +649,10 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 		"today.md",
 		"hello from file command\n",
 		"gs /file-user/docs> /file-user/docs",
-		"ok created @",
-		"ok wrote @",
-		"ok moved @",
-		"ok removed @",
+		"ok created through changeset",
+		"ok wrote through changeset",
+		"ok moved through changeset",
+		"ok removed through changeset",
 		"hello from shell",
 	} {
 		if !strings.Contains(stdout, want) {

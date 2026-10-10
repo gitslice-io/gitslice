@@ -416,8 +416,12 @@ type sliceDefinitionVersionOutput struct {
 }
 
 type fileMutationOutput struct {
-	Operation      string   `json:"operation"`
-	Slice          string   `json:"slice"`
+	Operation string `json:"operation"`
+	Slice     string `json:"slice"`
+	// The changeset the edit landed through, and its web page.
+	Changeset      string   `json:"changeset"`
+	ChangesetID    string   `json:"changeset_id"`
+	ChangesetURL   string   `json:"changeset_url,omitempty"`
 	CommitID       string   `json:"commit_id"`
 	NewRefCommitID string   `json:"new_ref_commit_id"`
 	ChangedPaths   []string `json:"changed_paths"`
@@ -6722,22 +6726,26 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 // id by mistake, it says so instead of printing a link that would 404.
 func (r Runner) runChangesetLink(ctx context.Context, opts commandOptions, requestedID string) error {
 	requestedID = strings.TrimSpace(requestedID)
-	if strings.HasPrefix(requestedID, "sha256:") {
-		return userError("not_a_changeset", requestedID+" is a commit id, not a changeset id", "Use the changeset id from gs submit, gs cs list or gs cs show; commits have no /cs/ page.")
-	}
 	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
 	if err != nil {
 		return err
 	}
+	// The server also accepts the id of a commit a changeset landed as, and
+	// answers with that changeset.
 	cs, err := r.getChangeset(ctx, cfg, changesetID)
 	if err != nil {
 		if grpcstatus.Code(err) == codes.NotFound {
-			return userError("changeset_not_found", "no changeset "+changesetID, "Check the id with gs cs list; a commit id from gs submit or gs log is not a changeset id.")
+			return userError("changeset_not_found", "no changeset or landed commit "+changesetID, "Check the id with gs cs list.")
 		}
 		return err
 	}
 	handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
 	link := webResourceURL("/cs/" + handle)
+	_, commitShaped := storage.CommitIDLookupPrefix(changesetID)
+	fromCommit := commitShaped && !sameChangesetSelector(changesetID, cs.Id)
+	if fromCommit && !opts.Quiet && !opts.jsonOutput() {
+		fmt.Fprintf(r.Stderr, "%s is the commit changeset %s landed as; this is the changeset's link.\n", changesetID, handle)
+	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"changeset_id":  cs.Id,
@@ -6745,6 +6753,7 @@ func (r Runner) runChangesetLink(ctx context.Context, opts commandOptions, reque
 			"changeset_url": link,
 			"title":         cs.Title,
 			"status":        cs.Status,
+			"from_commit":   fromCommit,
 		})
 	}
 	if !opts.Quiet {
@@ -7688,6 +7697,8 @@ type remoteFileMutator struct {
 	cfg    UserConfig
 	conn   *grpc.ClientConn
 	slice  *corev1.Slice
+	// last is what the latest apply landed, for gs shell to report.
+	last fileMutationOutput
 }
 
 func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, operation string, edits []*corev1.FileEdit) error {
@@ -7741,20 +7752,34 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 			return err
 		}
 	}
+	handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
 	output := fileMutationOutput{
 		Operation:      operation,
 		Slice:          m.slice.Ref.Account + ":" + m.slice.Ref.Slice,
+		Changeset:      handle,
+		ChangesetID:    cs.Id,
+		ChangesetURL:   webResourceURL("/cs/" + handle),
 		CommitID:       commitID,
 		NewRefCommitID: refCommitID,
 		ChangedPaths:   changed,
 	}
+	m.last = output
 	if opts.jsonOutput() {
 		return writeJSON(m.runner.stdout(), output)
 	}
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(m.runner.stdout(), "%s %s in %s at %s\n", operationPastTense(operation), changedPathsSummary(changed), output.Slice, shortID(refCommitID))
+	// Name the changeset and its link first: a commit id is not a changeset
+	// id, and agents share whatever id the output offers.
+	stdout := m.runner.stdout()
+	fmt.Fprintf(stdout, "%s %s in %s through changeset %s\n", operationPastTense(operation), changedPathsSummary(changed), output.Slice, handle)
+	if output.ChangesetURL != "" {
+		fmt.Fprintf(stdout, "view: %s\n", output.ChangesetURL)
+	}
+	if refCommitID != "" {
+		fmt.Fprintf(stdout, "landed as commit %s (a commit id, not a changeset id; share the view link)\n", refCommitID)
+	}
 	return nil
 }
 
@@ -10762,7 +10787,13 @@ func (s *serverShell) mutate(ctx context.Context, operation string, edits []*cor
 		return err
 	}
 	s.commitID = ref.CommitId
-	fmt.Fprintf(s.stdout, "%s %s @ %s\n", s.colorize(ansiGreen, "ok"), operationPastTense(operation), shortID(s.commitID))
+	// Name the changeset, not the commit: its link is the one to share.
+	landed := s.mutator.last
+	fmt.Fprintf(s.stdout, "%s %s through changeset %s", s.colorize(ansiGreen, "ok"), operationPastTense(operation), landed.Changeset)
+	if landed.ChangesetURL != "" {
+		fmt.Fprintf(s.stdout, " %s", landed.ChangesetURL)
+	}
+	fmt.Fprintln(s.stdout)
 	return nil
 }
 
