@@ -115,3 +115,72 @@ func TestFileCommandsNameTheChangesetLink(t *testing.T) {
 		t.Fatalf("fs write --json = %+v", written)
 	}
 }
+
+// TestCLIShowsWhichIDsHaveAPage covers the rest of an agent's report on
+// dead links: gs create prints the link, gs log names the changeset behind
+// each commit, gs browse checks a changeset before printing its URL, and
+// gs fs --no-submit leaves a changeset open for review.
+func TestCLIShowsWhichIDsHaveAPage(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	loginTestCLI(t, ts, home, workspace)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+
+	writeWorkspaceFile(t, workspace, "pages.go", "package payment\nconst Pages = 1\n")
+	created := runCLI(t, home, workspace, "create", "--all", "--message", "pages")
+	match := regexp.MustCompile(`(?m)^created ([0-9a-f]+) patchset 1\nview: (\S+)$`).FindStringSubmatch(created)
+	if match == nil || !strings.HasSuffix(match[2], "/cs/"+match[1]) {
+		t.Fatalf("cs create should print the changeset link:\n%s", created)
+	}
+	handle := match[1]
+	commit := submittedRefCommitID(t, runCLI(t, home, workspace, "cs", "submit", "--json"))
+
+	// gs log names the changeset next to each commit it landed.
+	var log struct {
+		Commits []struct {
+			ID           string `json:"id"`
+			Changeset    string `json:"changeset"`
+			ChangesetURL string `json:"changeset_url"`
+		} `json:"commits"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, home, workspace, "log", "--limit", "5", "--json")), &log); err != nil {
+		t.Fatal(err)
+	}
+	if len(log.Commits) == 0 || log.Commits[0].ID != commit || log.Commits[0].Changeset != handle || !strings.HasSuffix(log.Commits[0].ChangesetURL, "/cs/"+handle) {
+		t.Fatalf("gs log --json first commit = %+v, want commit %s from changeset %s", log.Commits, commit, handle)
+	}
+	if text := runCLI(t, home, workspace, "log", "--limit", "1"); !strings.Contains(text, "(changeset "+handle+")") {
+		t.Fatalf("gs log should name the changeset:\n%s", text)
+	}
+
+	// gs browse checks the id and links the changeset, even from a commit id.
+	short := strings.TrimPrefix(commit, "sha256:")[:12]
+	out, stderr := runCLIStreams(t, home, workspace, "browse", "--print", "cs/"+short)
+	if !strings.HasSuffix(strings.TrimSpace(out), "/cs/"+handle) || !strings.Contains(stderr, "landed as") {
+		t.Fatalf("browse cs/<commit> = %q (stderr %q), want the changeset %s", out, stderr, handle)
+	}
+	if _, stderr := runCLIFails(t, home, workspace, "browse", "--print", "cs/deadbeef00"); !strings.Contains(stderr, "no changeset") {
+		t.Fatalf("browse with a bogus id should fail:\n%s", stderr)
+	}
+
+	// gs fs --no-submit leaves the changeset open for review.
+	draft := runCLI(t, home, workspace, "fs", "write", "/acme/payment/review.txt", "--text", "please review\n", "--no-submit")
+	open := regexp.MustCompile(`changeset ([0-9a-f]+) is open for review, not submitted`).FindStringSubmatch(draft)
+	if open == nil || !strings.Contains(draft, "view: ") || !strings.Contains(draft, "gs cs submit "+open[1]) {
+		t.Fatalf("fs write --no-submit output:\n%s", draft)
+	}
+	var shown struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, home, workspace, "cs", "show", open[1], "--json")), &shown); err != nil {
+		t.Fatal(err)
+	}
+	if shown.Status == "submitted" {
+		t.Fatalf("--no-submit changeset was submitted")
+	}
+	runCLI(t, home, workspace, "cs", "submit", open[1])
+	if err := json.Unmarshal([]byte(runCLI(t, home, workspace, "cs", "show", open[1], "--json")), &shown); err != nil || shown.Status != "submitted" {
+		t.Fatalf("after gs cs submit: %+v, %v", shown, err)
+	}
+}

@@ -552,6 +552,30 @@ func (s *RepositoryService) attachGitImports(ctx context.Context, commits ...*co
 	return nil
 }
 
+// attachChangesets sets Commit.changeset_id, so clients can link a commit to
+// the changeset that landed it (commits have no web page of their own).
+func (s *RepositoryService) attachChangesets(ctx context.Context, commits ...*corev1.Commit) error {
+	ids := make([]string, 0, len(commits))
+	for _, commit := range commits {
+		if commit != nil && commit.Id != "" {
+			ids = append(ids, commit.Id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	landed, err := s.Repository.ChangesetsForCommits(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, commit := range commits {
+		if commit != nil {
+			commit.ChangesetId = landed[commit.Id]
+		}
+	}
+	return nil
+}
+
 func gitImportInfo(record storage.GitImportedCommitRecord) *corev1.GitImportInfo {
 	return &corev1.GitImportInfo{
 		GitCommitId: record.GitCommitID,
@@ -568,6 +592,9 @@ func gitImportInfo(record storage.GitImportedCommitRecord) *corev1.GitImportInfo
 // unchanged so the response still carries a stable identifier.
 func (s *RepositoryService) resolveCommitAuthors(ctx context.Context, commits ...*corev1.Commit) error {
 	if err := s.attachGitImports(ctx, commits...); err != nil {
+		return err
+	}
+	if err := s.attachChangesets(ctx, commits...); err != nil {
 		return err
 	}
 	seen := map[string]struct{}{}

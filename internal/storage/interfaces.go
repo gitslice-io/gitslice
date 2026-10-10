@@ -253,6 +253,9 @@ type RepositoryStore interface {
 	// GitImportsForCommits returns the import record behind each native commit
 	// that came from a Git import, keyed by native commit id.
 	GitImportsForCommits(ctx context.Context, nativeCommitIDs []string) (map[string]GitImportedCommitRecord, error)
+	// ChangesetsForCommits maps each given commit to the changeset that landed
+	// it; commits no changeset landed are left out.
+	ChangesetsForCommits(ctx context.Context, commitIDs []string) (map[string]string, error)
 	CompleteGitImport(ctx context.Context, importID, finalNativeCommitID string) error
 	GetCommit(ctx context.Context, commitID string) (*corev1.Commit, error)
 	ResolveCommitCandidates(ctx context.Context, filter CommitResolveFilter) ([]*corev1.Commit, error)

@@ -187,6 +187,9 @@ type commandOptions struct {
 	// AgentConversationID, when set on `workspace init`, stamps the workspace
 	// config so changesets authored here link to the agent conversation.
 	AgentConversationID string
+	// NoSubmit leaves the changeset a gs fs write creates open for review
+	// instead of landing it.
+	NoSubmit bool
 }
 
 func (o commandOptions) jsonOutput() bool {
@@ -418,12 +421,14 @@ type sliceDefinitionVersionOutput struct {
 type fileMutationOutput struct {
 	Operation string `json:"operation"`
 	Slice     string `json:"slice"`
-	// The changeset the edit landed through, and its web page.
+	// The changeset the edit landed through (or, with --no-submit, waits in
+	// for review), and its web page.
 	Changeset      string   `json:"changeset"`
 	ChangesetID    string   `json:"changeset_id"`
 	ChangesetURL   string   `json:"changeset_url,omitempty"`
-	CommitID       string   `json:"commit_id"`
-	NewRefCommitID string   `json:"new_ref_commit_id"`
+	Submitted      bool     `json:"submitted"`
+	CommitID       string   `json:"commit_id,omitempty"`
+	NewRefCommitID string   `json:"new_ref_commit_id,omitempty"`
 	ChangedPaths   []string `json:"changed_paths"`
 }
 
@@ -451,6 +456,10 @@ type commitOutput struct {
 	Message      string                 `json:"message"`
 	ChangedPaths []string               `json:"changed_paths,omitempty"`
 	GitImport    *commitGitImportOutput `json:"git_import,omitempty"`
+	// The changeset that landed the commit, and its web page. A commit id is
+	// not a changeset id: commits have no page of their own.
+	Changeset    string `json:"changeset,omitempty"`
+	ChangesetURL string `json:"changeset_url,omitempty"`
 }
 
 // commitGitImportOutput describes the original Git commit behind an imported
@@ -1762,8 +1771,11 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 		Use:     "fs",
 		Aliases: []string{"file"},
 		Short:   "Read and mutate files in the signed-in home slice",
-		RunE:    requireSubcommand("fs"),
+		Long: "Read and change files in your home slice. Each change is a changeset that is submitted\n" +
+			"and landed at once; --no-submit leaves it open for review instead.",
+		RunE: requireSubcommand("fs"),
 	}
+	fsCmd.PersistentFlags().BoolVar(&opts.NoSubmit, "no-submit", false, "open the changeset for review instead of submitting it")
 	fsLsCmd := &cobra.Command{
 		Use:   "ls [remote-path]",
 		Short: "List a remote directory or file in the signed-in home slice",
@@ -2804,6 +2816,34 @@ func (r Runner) runBrowse(ctx context.Context, opts commandOptions, webURL, rawT
 	return nil
 }
 
+// browseChangesetHandle asks the server for a changeset and returns its
+// shareable id. When the server cannot be asked, the id is used as typed.
+func (r Runner) browseChangesetHandle(ctx context.Context, id string) (string, error) {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		fmt.Fprintf(r.stderr(), "note: not signed in, so changeset %s was not checked.\n", id)
+		return id, nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cs, err := r.getChangeset(lookupCtx, cfg, id)
+	switch grpcstatus.Code(err) {
+	case codes.OK:
+		handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
+		if _, commitShaped := storage.CommitIDLookupPrefix(id); commitShaped && !sameChangesetSelector(id, cs.Id) {
+			fmt.Fprintf(r.stderr(), "%s is the commit changeset %s landed as; linking the changeset.\n", id, handle)
+		}
+		return handle, nil
+	case codes.NotFound:
+		return "", userError("changeset_not_found", "no changeset or landed commit "+id, "Check the id with gs cs list; gs prints changesets as 10 hex characters.")
+	case codes.PermissionDenied, codes.Unauthenticated:
+		return "", userError("changeset_not_visible", "changeset "+id+" is in a slice you cannot read", "Sign in with gs auth login, or ask the slice's owner for access.")
+	default:
+		fmt.Fprintf(r.stderr(), "warning: could not check changeset %s: %v\n", id, err)
+		return id, nil
+	}
+}
+
 // resolveBrowseTarget maps what the user typed to a real web app location.
 func (r Runner) resolveBrowseTarget(ctx context.Context, rawTarget, rawPath string) (browseTarget, error) {
 	target := strings.TrimSpace(rawTarget)
@@ -2850,6 +2890,19 @@ func (r Runner) resolveBrowseTarget(ctx context.Context, rawTarget, rawPath stri
 		parts := strings.Split(strings.SplitN(route, "?", 2)[0], "/")
 		if parts[0] == "slices" && len(parts) >= 3 && parts[1] != "" && parts[2] != "" && parts[2] != "new" {
 			return browseTarget{route: route, account: parts[1], slice: parts[2], path: browseRoutePathParam(route)}, nil
+		}
+		if parts[0] == "cs" && len(parts) == 2 && parts[1] != "" {
+			// Check the changeset exists before handing out its link, and use
+			// its own id (a landed commit's id also finds it).
+			handle, err := r.browseChangesetHandle(ctx, parts[1])
+			if err != nil {
+				return browseTarget{}, err
+			}
+			query := ""
+			if i := strings.Index(route, "?"); i >= 0 {
+				query = route[i:]
+			}
+			return browseTarget{route: "cs/" + handle + query}, nil
 		}
 		return browseTarget{route: route}, nil
 	}
@@ -6377,6 +6430,9 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "created %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
+	if link := webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(cs), cs.Id)); link != "" {
+		fmt.Fprintf(r.Stdout, "view: %s\n", link)
+	}
 	fmt.Fprintf(r.Stdout, "dependencies: %s\n", stackID)
 	return nil
 }
@@ -6610,6 +6666,9 @@ func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "updated %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
+	if link := webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(cs), cs.Id)); link != "" {
+		fmt.Fprintf(r.Stdout, "view: %s\n", link)
+	}
 	if len(restacked) > 0 {
 		fmt.Fprintf(r.Stdout, "updated dependents: %s\n", strings.Join(restacked, ", "))
 	}
@@ -7737,6 +7796,30 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	if err != nil {
 		return err
 	}
+	handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
+	if opts.NoSubmit {
+		output := fileMutationOutput{
+			Operation:    operation,
+			Slice:        m.slice.Ref.Account + ":" + m.slice.Ref.Slice,
+			Changeset:    handle,
+			ChangesetID:  cs.Id,
+			ChangesetURL: webResourceURL("/cs/" + handle),
+			ChangedPaths: changed,
+		}
+		m.last = output
+		if opts.jsonOutput() {
+			return writeJSON(m.runner.stdout(), output)
+		}
+		if !opts.Quiet {
+			stdout := m.runner.stdout()
+			fmt.Fprintf(stdout, "%s %s in %s: changeset %s is open for review, not submitted\n", operationPastTense(operation), changedPathsSummary(changed), output.Slice, handle)
+			if output.ChangesetURL != "" {
+				fmt.Fprintf(stdout, "view: %s\n", output.ChangesetURL)
+			}
+			fmt.Fprintf(stdout, "submit it with: gs cs submit %s\n", handle)
+		}
+		return nil
+	}
 	res, err := changesetClient.SubmitChangeset(callCtx, &corev1.SubmitChangesetRequest{
 		ChangesetId:               cs.Id,
 		ExpectedCurrentPatchsetId: patchset.Id,
@@ -7752,13 +7835,13 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 			return err
 		}
 	}
-	handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
 	output := fileMutationOutput{
 		Operation:      operation,
 		Slice:          m.slice.Ref.Account + ":" + m.slice.Ref.Slice,
 		Changeset:      handle,
 		ChangesetID:    cs.Id,
 		ChangesetURL:   webResourceURL("/cs/" + handle),
+		Submitted:      true,
 		CommitID:       commitID,
 		NewRefCommitID: refCommitID,
 		ChangedPaths:   changed,
@@ -9959,6 +10042,10 @@ func commitToOutput(commit *corev1.Commit) commitOutput {
 		Message:      commit.Message,
 		ChangedPaths: append([]string(nil), commit.ChangedPaths...),
 	}
+	if commit.ChangesetId != "" {
+		out.Changeset = storage.ShortChangesetID(commit.ChangesetId)
+		out.ChangesetURL = webResourceURL("/cs/" + out.Changeset)
+	}
 	if imported := commit.GetGitImport(); imported != nil {
 		out.GitImport = &commitGitImportOutput{
 			GitCommitID: imported.GitCommitId,
@@ -9974,7 +10061,13 @@ func commitToOutput(commit *corev1.Commit) commitOutput {
 func printCommitLogOneline(w io.Writer, commits []*corev1.Commit, full, nameOnly, color bool) {
 	for _, commit := range commits {
 		id := displayCommitID(commit.Id, full)
-		fmt.Fprintf(w, "%s  %s\n", colorize(color, ansiYellow, id), commit.Message)
+		// Name the changeset next to the commit: its id is the one with a
+		// web page.
+		landed := ""
+		if commit.ChangesetId != "" {
+			landed = colorize(color, ansiDim, "  (changeset "+storage.ShortChangesetID(commit.ChangesetId)+")")
+		}
+		fmt.Fprintf(w, "%s  %s%s\n", colorize(color, ansiYellow, id), commit.Message, landed)
 		if nameOnly {
 			printIndentedPathsColor(w, commit.ChangedPaths, "  ", color)
 		}
@@ -10006,6 +10099,10 @@ func printCommitDetails(w io.Writer, commit *corev1.Commit, full, color bool) {
 	}
 	if commit.RootTreeId != "" {
 		fmt.Fprintf(w, "%s %s\n", colorize(color, ansiDim, "Root:"), displayCommitID(commit.RootTreeId, full))
+	}
+	if commit.ChangesetId != "" {
+		handle := storage.ShortChangesetID(commit.ChangesetId)
+		fmt.Fprintf(w, "%s %s %s\n", colorize(color, ansiDim, "Changeset:"), handle, webResourceURL("/cs/"+handle))
 	}
 	if commit.Author != "" {
 		fmt.Fprintf(w, "%s %s\n", colorize(color, ansiDim, "Author:"), commit.Author)

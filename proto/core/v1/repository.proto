@@ -36,6 +36,9 @@ message Commit {
   // Set when the commit was published by a Git import: the original Git
   // commit's identity and metadata. author and created_at describe the import.
   GitImportInfo git_import = 8;
+  // The changeset that landed this commit, when one did. Its web page is
+  // /cs/<first 10 hex chars after cs_>; commits have no page of their own.
+  string changeset_id = 9;
 }
 
 message GitImportInfo {

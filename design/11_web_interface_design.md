@@ -414,6 +414,14 @@ Supported behavior:
 
 - Display handle, title, description, author, authoring slice, target ref, base
   commit, status, current patchset number, commit id, and pending publish id.
+- When a changeset does not load, say why:
+  - not found, with a hint that `gs` prints changeset ids as 10 hex
+    characters;
+  - sign in, for a private slice when signed out;
+  - no access, when signed in without access, with a link to `/claims` for
+    the viewer's own agents.
+- A `/cs/` link made from a landed commit's id opens that commit's changeset
+  and replaces the address with the changeset's own link.
 - Keep the primary title to one visible line on the review surface.
 - On phones, the page starts with only the title, status and a Details toggle
   above the diff; review actions stay too. Details unfolds the rest:

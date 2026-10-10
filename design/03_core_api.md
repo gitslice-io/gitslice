@@ -714,6 +714,9 @@ the full `sha256:...` id, or a prefix of at least 7 hex characters. The lookup
 answers with that changeset. A matching changeset id prefix always wins. This
 exists because commit ids get pasted where changeset ids belong.
 
+`Commit.changeset_id` names the changeset that landed a commit, when one did.
+`ListCommits` and `GetCommit` fill it so clients can link a commit to a page.
+
 `WebhookService` (`proto/core/v1/webhook.proto`) manages a slice's webhooks:
 
 - `CreateWebhook`, `ListWebhooks`, `UpdateWebhook`, `DeleteWebhook`;

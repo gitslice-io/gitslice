@@ -100,7 +100,10 @@ type Commit struct {
 	ChangedPaths []string               `protobuf:"bytes,7,rep,name=changed_paths,json=changedPaths,proto3" json:"changed_paths,omitempty"`
 	// Set when the commit was published by a Git import: the original Git
 	// commit's identity and metadata. author and created_at describe the import.
-	GitImport     *GitImportInfo `protobuf:"bytes,8,opt,name=git_import,json=gitImport,proto3" json:"git_import,omitempty"`
+	GitImport *GitImportInfo `protobuf:"bytes,8,opt,name=git_import,json=gitImport,proto3" json:"git_import,omitempty"`
+	// The changeset that landed this commit, when one did. Its web page is
+	// /cs/<first 10 hex chars after cs_>; commits have no page of their own.
+	ChangesetId   string `protobuf:"bytes,9,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -189,6 +192,13 @@ func (x *Commit) GetGitImport() *GitImportInfo {
 		return x.GitImport
 	}
 	return nil
+}
+
+func (x *Commit) GetChangesetId() string {
+	if x != nil {
+		return x.ChangesetId
+	}
+	return ""
 }
 
 type GitImportInfo struct {
@@ -1387,7 +1397,7 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x03 \x01(\tR\tupdatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_by\x18\x04 \x01(\tR\tupdatedBy\"\x8f\x02\n" +
+	"updated_by\x18\x04 \x01(\tR\tupdatedBy\"\xb2\x02\n" +
 	"\x06Commit\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -1400,7 +1410,8 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12#\n" +
 	"\rchanged_paths\x18\a \x03(\tR\fchangedPaths\x12>\n" +
 	"\n" +
-	"git_import\x18\b \x01(\v2\x1f.gitslice.core.v1.GitImportInfoR\tgitImport\"\xb2\x01\n" +
+	"git_import\x18\b \x01(\v2\x1f.gitslice.core.v1.GitImportInfoR\tgitImport\x12!\n" +
+	"\fchangeset_id\x18\t \x01(\tR\vchangesetId\"\xb2\x01\n" +
 	"\rGitImportInfo\x12\"\n" +
 	"\rgit_commit_id\x18\x01 \x01(\tR\vgitCommitId\x12\x1f\n" +
 	"\vauthor_name\x18\x02 \x01(\tR\n" +

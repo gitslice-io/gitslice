@@ -190,14 +190,15 @@ const commandGroups = [
     commands: [
       ["gs fs ls <path>", "List server files."],
       ["gs fs cat <path>", "Read a server file."],
-      ["gs fs upload <local> <path>", "Upload local content into a pending edit."],
+      ["gs fs upload <local> <path>", "Upload and land local content; prints the changeset link."],
+      ["gs fs write <path> --text <t> --no-submit", "Open the change as a changeset for review instead of landing it."],
       ["gs fs mkdir <path>", "Create a directory."]
     ]
   },
   {
     title: "Changesets",
     commands: [
-      ["gs create --message <title>", "Create a changeset from pending edits."],
+      ["gs create --message <title>", "Create a changeset from pending edits; prints its link."],
       ["gs modify", "Create a new patchset on the active changeset."],
       ["gs diff", "Review workspace or changeset content."],
       ["gs submit", "Submit for validation and publish."],

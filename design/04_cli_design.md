@@ -756,6 +756,10 @@ gs fs mv /nic/notes/readme.md /nic/notes/today.md
 gs fs rm /nic/notes/today.md
 ```
 
+`gs fs` writes create a changeset and submit it at once. With `--no-submit`
+the changeset stays open for review instead. The command prints its link and
+`gs cs submit <id>`, which lands it later.
+
 `gs fs` commands use absolute global paths when a path is provided. They are
 intended for small remote reads and edits in the signed-in user's personal home
 slice. For username `nic`, every `gs fs` operation must stay under `/nic`;
@@ -904,7 +908,15 @@ commit it landed as. The commit id is labelled "not a changeset id".
   `<verb> <paths> in <slice> through changeset <id>`, then `view: <link>`, then
   the commit.
 - `gs shell` prints `ok <verb> through changeset <id> <link>`.
+- `gs create` and `gs modify` print `view: <link>` after the changeset id.
 - Their JSON has `changeset` and `changeset_url` next to `commit_id`.
+- `gs log` names the changeset that landed each commit: oneline output ends
+  with `(changeset <id>)`, and `--format medium` adds a `Changeset:` line with
+  the link. JSON has `changeset` and `changeset_url` per commit. A commit id
+  has no web page of its own.
+- `gs browse cs/<id>` checks the changeset with the server first, when signed
+  in. It fails on an unknown id, and links the changeset when given the id of
+  a commit it landed as.
 
 Agents share the changeset link.
 

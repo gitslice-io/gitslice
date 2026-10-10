@@ -2300,6 +2300,22 @@ func (s *RepositoryStore) RecordGitImportCommit(ctx context.Context, record stor
 	return nil
 }
 
+func (s *RepositoryStore) ChangesetsForCommits(ctx context.Context, commitIDs []string) (map[string]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	wanted := map[string]bool{}
+	for _, id := range commitIDs {
+		wanted[id] = true
+	}
+	out := map[string]string{}
+	for id, cs := range s.b.changesets {
+		if cs != nil && cs.CommitId != "" && wanted[cs.CommitId] {
+			out[cs.CommitId] = id
+		}
+	}
+	return out, nil
+}
+
 func (s *RepositoryStore) GitImportsForCommits(ctx context.Context, nativeCommitIDs []string) (map[string]storage.GitImportedCommitRecord, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

@@ -1,4 +1,14 @@
-export function PageMessage({ message, title }: { message: string; title: string }) {
+import type { ReactNode } from "react";
+
+export function PageMessage({
+  children,
+  message,
+  title
+}: {
+  children?: ReactNode;
+  message: string;
+  title: string;
+}) {
   return (
     <section className="mx-auto w-full max-w-[100rem]">
       <div className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
@@ -6,6 +16,7 @@ export function PageMessage({ message, title }: { message: string; title: string
           {title}
         </h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">{message}</p>
+        {children ? <div className="mt-4 flex flex-wrap gap-2">{children}</div> : null}
       </div>
     </section>
   );

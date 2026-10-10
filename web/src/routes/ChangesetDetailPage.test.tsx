@@ -12,6 +12,7 @@ import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Changeset, ChangesetStack, PatchsetConflict } from "../api/types";
+import { RpcError } from "../api/client";
 import { ChangesetDetailPage } from "./ChangesetDetailPage";
 
 const apiMock = vi.hoisted(() => ({
@@ -230,6 +231,26 @@ describe("changeset detail page", () => {
         expect.objectContaining({ params: { id: "cf52df6ccb" }, replace: true, to: "/cs/$id" })
       )
     );
+  });
+
+  it("says why a changeset did not load", async () => {
+    for (const [status, title, action] of [
+      [404, "No changeset 2d15cca3e1b1", null],
+      [403, "You can't see this changeset", "Claim agents"],
+      [401, "Sign in to see this changeset", "Sign in"],
+      [500, "Unable to load changeset", null]
+    ] as const) {
+      routerMock.params = { id: "2d15cca3e1b1" };
+      const api = makeApi();
+      api.getChangeset = vi.fn().mockRejectedValue(new RpcError(status, { message: "nope" }));
+      apiMock.current = api;
+      renderRoute(<ChangesetDetailPage />);
+      expect(await screen.findByRole("heading", { name: title })).toBeInTheDocument();
+      if (action) {
+        expect(screen.getByRole("link", { name: action })).toBeInTheDocument();
+      }
+      cleanup();
+    }
   });
 
   it("keeps a changeset's own link", async () => {

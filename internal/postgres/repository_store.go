@@ -171,6 +171,26 @@ func (s *RepositoryStore) GitImportsForCommits(ctx context.Context, nativeCommit
 	return out, rows.Err()
 }
 
+func (s *RepositoryStore) ChangesetsForCommits(ctx context.Context, commitIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(commitIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `select commit_id, id from changesets where commit_id = any($1)`, commitIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var commitID, changesetID string
+		if err := rows.Scan(&commitID, &changesetID); err != nil {
+			return nil, err
+		}
+		out[commitID] = changesetID
+	}
+	return out, rows.Err()
+}
+
 func (s *RepositoryStore) RecordGitImportCommit(ctx context.Context, record GitImportedCommitRecord) error {
 	var authoredAt any
 	if record.AuthoredAt != "" {
