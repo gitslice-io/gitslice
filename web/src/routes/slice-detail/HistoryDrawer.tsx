@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
-import type { Changeset, SliceRef } from "../../api/types";
+import type { SliceRef } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { shortChangesetId, shortHash } from "../../lib/objectId";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../../lib/globalRef";
+import { Timestamp } from "../../components/Timestamp";
 
 interface HistoryDrawerProps {
   api: ApiClient;
@@ -47,32 +48,11 @@ export function HistoryDrawer({
       })
   });
 
-  const changesetsQuery = useQuery({
-    enabled: Boolean(open && sliceRef?.account && sliceRef?.slice),
-    queryKey: ["sliceHistoryChangesets", sliceRef?.account, sliceRef?.slice],
-    queryFn: () =>
-      api.listChangesets({
-        authoringSlice: sliceRef,
-        limit: 200,
-        summary: true
-      })
-  });
-
-  const changesetByCommit = (() => {
-    const next = new Map<string, Changeset>();
-    if (changesetsQuery.isError) {
-      return next;
-    }
-    for (const changeset of changesetsQuery.data?.changesets ?? []) {
-      if (changeset.commitId) {
-        next.set(changeset.commitId, changeset);
-      }
-    }
-    return next;
-  })();
-
   const commits = commitsQuery.data?.commits ?? [];
-  const historyIsPending = commitsQuery.isPending || changesetsQuery.isPending;
+  const historyIsPending = commitsQuery.isPending;
+  // Opening a commit's changeset from a file's history lands on that file's
+  // diff. The diff ignores a path it does not show (a folder).
+  const focusFile = selectedPath.replace(/^\/+/, "");
 
   return (
     <>
@@ -130,18 +110,15 @@ export function HistoryDrawer({
           ) : (
             <div className="grid grid-cols-1 gap-1.5">
               {commits.map((commit) => {
-                const changeset = commit.id
-                  ? changesetByCommit.get(commit.id)
-                  : undefined;
+                // The changeset that landed the commit, whichever slice
+                // authored it: the server says, so every commit that has a
+                // diff links to it.
+                const handle = shortChangesetId(commit.changesetId ?? "");
                 const summary =
                   commit.message?.split("\n")[0] || "(no message)";
                 const shortCommitId = shortHash(commit.id);
-
-                return (
-                  <div
-                    className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-2"
-                    key={commit.id ?? `${summary}-${commit.createdAt ?? ""}`}
-                  >
+                const body = (
+                  <>
                     <p className="text-sm font-medium leading-snug text-zinc-950 dark:text-zinc-50">
                       {summary}
                     </p>
@@ -155,22 +132,33 @@ export function HistoryDrawer({
                         </span>
                       ) : null}
                       {commit.author ? <span>{commit.author}</span> : null}
-                      {commit.createdAt ? <span>{commit.createdAt}</span> : null}
-                      {changeset ? (
-                        <Link
-                          className="inline-flex rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-white dark:hover:bg-zinc-900 hover:text-zinc-950 dark:hover:text-zinc-50"
-                          params={{
-                            id: shortChangesetId(changeset.id ?? "") || ""
-                          }}
-                          to="/cs/$id"
-                        >
-                          {shortChangesetId(changeset.id ?? "") ||
-                            (changeset.number
-                              ? `#${changeset.number}`
-                              : changeset.id)}
-                        </Link>
+                      <Timestamp value={commit.createdAt} />
+                      {handle ? (
+                        <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          {handle}
+                          <span aria-hidden="true">→</span>
+                        </span>
                       ) : null}
                     </div>
+                  </>
+                );
+                const cardClass =
+                  "block rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-2";
+
+                return handle ? (
+                  <Link
+                    aria-label={`${summary}: open changeset ${handle}`}
+                    className={`${cardClass} transition hover:border-slate-300 hover:bg-slate-50 dark:hover:border-zinc-700 dark:hover:bg-zinc-950`}
+                    key={commit.id ?? summary}
+                    params={{ id: handle }}
+                    search={(focusFile ? { file: focusFile } : {}) as never}
+                    to="/cs/$id"
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div className={cardClass} key={commit.id ?? `${summary}-${commit.createdAt ?? ""}`}>
+                    {body}
                   </div>
                 );
               })}

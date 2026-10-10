@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 
 import type { OwnedAgent } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { formatRelativeTime } from "./ConversationCard";
+import { formatRelativeTime } from "../../lib/time";
 
 // useOwnedAgents returns the self-registered agents whose accounts the
 // signed-in user owns. Errors resolve to an empty list so callers (the home

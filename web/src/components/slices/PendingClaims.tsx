@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import type { PendingClaim } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { getErrorMessage } from "./SlicePageParts";
+import { formatDate } from "../../lib/time";
 
 // PendingClaims lists agents that registered with one of the signed-in user's
 // verified emails and lets them accept co-ownership. It renders nothing when
@@ -138,7 +139,7 @@ function PendingClaimRow({
         <p className="truncate text-xs text-slate-500 dark:text-zinc-400">
           Account {claim.account}
           {created && !Number.isNaN(created.getTime())
-            ? ` · registered ${created.toLocaleDateString()}`
+            ? ` · registered ${formatDate(created)}`
             : ""}
         </p>
       </div>

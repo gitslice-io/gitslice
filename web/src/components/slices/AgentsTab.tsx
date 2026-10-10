@@ -7,6 +7,7 @@ import { cn } from "../../lib/cn";
 import { Popup } from "../Popup";
 import { AgentConversation } from "./AgentConversation";
 import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
+import { Timestamp } from "../Timestamp";
 
 interface AgentsTabProps {
   api: ApiClient;
@@ -368,12 +369,11 @@ export function AgentsTab({
                             </span>
                           ) : null}
                           {conversation.updatedAt ? (
-                            <span
+                            <Timestamp
                               className="truncate font-mono text-[0.7rem] text-slate-400 dark:text-zinc-500"
-                              title={conversation.updatedAt}
-                            >
-                              {formatRelativeTime(conversation.updatedAt)}
-                            </span>
+                              relative
+                              value={conversation.updatedAt}
+                            />
                           ) : null}
                         </span>
                       </button>
@@ -544,23 +544,6 @@ function ConversationStatusPill({ status }: { status?: string }) {
       title={value}
     />
   );
-}
-
-function formatRelativeTime(iso: string) {
-  const then = Date.parse(iso);
-  if (!Number.isFinite(then)) {
-    return "";
-  }
-  const seconds = Math.round((Date.now() - then) / 1000);
-  if (seconds < 45) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  // For older items fall back to a short calendar date.
-  return new Date(then).toISOString().slice(0, 10);
 }
 
 function sortConversationsNewestFirst(conversations: Conversation[]) {

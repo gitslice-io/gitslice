@@ -231,6 +231,8 @@ export interface Commit {
   message?: string;
   createdAt?: string;
   changedPaths?: string[];
+  // The changeset that landed the commit, when one did.
+  changesetId?: string;
 }
 
 export interface ResolvePathRequest {

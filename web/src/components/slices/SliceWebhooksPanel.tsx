@@ -4,7 +4,8 @@ import { useState, type FormEvent } from "react";
 import type { SliceRef, Webhook, WebhookDelivery } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
-import { formatRelativeTime } from "./ConversationCard";
+import { formatRelativeTime } from "../../lib/time";
+import { Timestamp } from "../Timestamp";
 import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 // Event names a webhook can subscribe to (design/24_webhooks.md).
@@ -250,7 +251,7 @@ export function SliceWebhooksPanel({ slice }: { slice: SliceRef }) {
                     <span>
                       {hook.lastDelivery ? (
                         <>
-                          last delivery {formatRelativeTime(hook.lastDelivery.createdAt)}:{" "}
+                          last delivery <Timestamp relative value={hook.lastDelivery.createdAt} />:{" "}
                           <DeliveryStatus delivery={hook.lastDelivery} />
                         </>
                       ) : (
@@ -458,12 +459,12 @@ function WebhookDeliveries({ webhookId }: { webhookId: string }) {
               >
                 <code className="font-mono text-zinc-900 dark:text-zinc-100">{delivery.event}</code>
                 <DeliveryStatus delivery={delivery} />
-                <span className="text-slate-500 dark:text-zinc-400">{formatRelativeTime(delivery.createdAt)}</span>
+                <Timestamp className="text-slate-500 dark:text-zinc-400" relative value={delivery.createdAt} />
                 {delivery.durationMs ? (
                   <span className="text-slate-500 dark:text-zinc-400">{String(delivery.durationMs)}ms</span>
                 ) : null}
                 {delivery.status === "pending" && delivery.nextAttemptAt && (delivery.attempts ?? 0) > 0 ? (
-                  <span className="text-slate-500 dark:text-zinc-400">retry {formatRelativeTime(delivery.nextAttemptAt).replace(" ago", "")}</span>
+                  <span className="text-slate-500 dark:text-zinc-400">retry {formatRelativeTime(delivery.nextAttemptAt)}</span>
                 ) : null}
               </button>
               {shown === id ? (

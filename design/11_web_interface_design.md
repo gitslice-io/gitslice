@@ -279,6 +279,12 @@ Supported behavior:
 - Link each included path to the source browser.
 - Show a Git clone URL only when the deployment config exposes the optional Git
   smart HTTP server. The current Git layer supports clone and fetch, not push.
+- The history drawer lists the commits that touched the path. Each commit
+  with a changeset (`Commit.changeset_id`, whichever slice authored it) opens
+  that changeset's diff at the viewed file (`/cs/<id>?file=<path>`).
+- Times are shown in the viewer's own time zone and locale
+  (`web/src/lib/time.ts`, `<Timestamp>`). A server render shows the UTC date
+  until the browser takes over. Hovering a time shows it in full with its zone.
 - On phones (below the `lg` breakpoint), an open file or folder starts with
   its details folded so the content is first on screen:
   - A sticky bar shows `← Files`, the name, and a Details toggle.

@@ -138,6 +138,7 @@ export function DiffViewer({
   // Tracks the focusFilePath we have already scrolled to, so a deep link is
   // honored once rather than yanking the view back on every diff re-render.
   const focusAppliedRef = useRef<string | null>(null);
+  const [focusTargetId, setFocusTargetId] = useState<string | null>(null);
   const changedPathCount =
     fileStates?.length ?? diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
@@ -196,7 +197,11 @@ export function DiffViewer({
   const firstFileId = files[0]?.id;
 
   useEffect(() => {
-    pinnedActiveIdRef.current = null;
+    // The file list grows as lazily loaded diffs arrive; a file picked (or
+    // deep-linked) stays picked while it is still in the list.
+    if (pinnedActiveIdRef.current && !fileIds.has(pinnedActiveIdRef.current)) {
+      pinnedActiveIdRef.current = null;
+    }
 
     if (!fileIds.size) {
       setActiveId(undefined);
@@ -364,7 +369,7 @@ export function DiffViewer({
   );
 
   const selectFile = useCallback(
-    (id: string) => {
+    (id: string, behavior: ScrollBehavior = "smooth") => {
       pinnedActiveIdRef.current = id;
       setActiveId(id);
       mountFileBody(id);
@@ -374,13 +379,34 @@ export function DiffViewer({
       }
       window.setTimeout(() => {
         document.getElementById(id)?.scrollIntoView({
-          behavior: "smooth",
+          behavior,
           block: "start"
         });
       }, 0);
     },
     [filePathsById, mountFileBody, onFileNeeded]
   );
+
+  // Diffs keep loading around a deep-linked file and change the page's height;
+  // keep the file in view until the user scrolls (which releases the pin), for
+  // up to 20 seconds.
+  useEffect(() => {
+    if (!focusTargetId || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const keepInView = () => {
+      if (pinnedActiveIdRef.current === focusTargetId) {
+        document.getElementById(focusTargetId)?.scrollIntoView({ block: "start" });
+      }
+    };
+    const observer = new ResizeObserver(keepInView);
+    observer.observe(document.body);
+    const stop = window.setTimeout(() => observer.disconnect(), 20_000);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(stop);
+    };
+  }, [focusTargetId]);
 
   // Honor a `?file=` deep link: once the diff contains the requested path, pin
   // and scroll to it. Runs after the files-changed effect above (which resets
@@ -389,15 +415,20 @@ export function DiffViewer({
     if (!focusFilePath || !files.length) {
       return;
     }
-    if (focusAppliedRef.current === focusFilePath) {
-      return;
-    }
-    const target = files.find((file) => file.path === focusFilePath);
+    // Paths may come with or without the leading slash.
+    const wanted = focusFilePath.replace(/^\/+/, "");
+    const target = files.find((file) => file.path.replace(/^\/+/, "") === wanted);
     if (!target) {
       return;
     }
+    if (focusAppliedRef.current === focusFilePath) {
+      return;
+    }
     focusAppliedRef.current = focusFilePath;
-    selectFile(target.id);
+    // Jump at once: a smooth scroll passes the files above, which then load
+    // their diffs and move the page under it.
+    selectFile(target.id, "auto");
+    setFocusTargetId(target.id);
   }, [files, focusFilePath, selectFile]);
 
   return (

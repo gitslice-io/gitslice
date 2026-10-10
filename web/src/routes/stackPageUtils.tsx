@@ -7,6 +7,7 @@ import type {
 } from "../api/types";
 import { cn } from "../lib/cn";
 import { shortChangesetId, shortHash } from "../lib/objectId";
+import { formatDateTime } from "../lib/time";
 
 export const primaryButtonClass =
   "inline-flex items-center justify-center rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60";
@@ -225,11 +226,7 @@ export function formatTimestamp(value?: string | null) {
   if (!value) {
     return "not returned";
   }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
+  return formatDateTime(value) || value;
 }
 
 export function getErrorMessage(error: unknown) {

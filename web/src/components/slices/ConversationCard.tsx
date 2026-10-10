@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import type { Conversation } from "../../api/types";
+import { Timestamp } from "../Timestamp";
 import { cn } from "../../lib/cn";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 
@@ -17,7 +18,6 @@ export function ConversationCard({
   const title =
     conversation.title || conversation.id || "Untitled conversation";
   const timeSource = conversation.updatedAt || conversation.createdAt;
-  const timeLabel = formatRelativeTime(timeSource);
   const cardClass =
     "block rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-3 shadow-sm shadow-slate-200/50 dark:shadow-black/50 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950";
   const body = (
@@ -26,12 +26,11 @@ export function ConversationCard({
       <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
         <ConversationStatusPill conversation={conversation} />
         <span className="min-w-0 truncate">{sliceLabel}</span>
-        <span
+        <Timestamp
           className="ml-auto shrink-0 whitespace-nowrap font-mono text-[0.7rem] text-slate-400 dark:text-zinc-500"
-          title={timeSource}
-        >
-          {timeLabel}
-        </span>
+          relative
+          value={timeSource}
+        />
       </div>
     </>
   );
@@ -74,25 +73,8 @@ export function ConversationStatusPill({
   );
 }
 
-export function formatRelativeTime(iso?: string) {
-  if (!iso) {
-    return "unknown";
-  }
-
-  const then = Date.parse(iso);
-  if (!Number.isFinite(then)) {
-    return "unknown";
-  }
-  const seconds = Math.round((Date.now() - then) / 1000);
-  if (seconds < 45) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(then).toISOString().slice(0, 10);
-}
+// Kept for existing imports; times are formatted in src/lib/time.ts.
+export { formatRelativeTime } from "../../lib/time";
 
 export function sortConversationsNewestFirst(conversations: Conversation[]) {
   return [...conversations].sort((left, right) => {
