@@ -224,6 +224,32 @@ describe("slice route pages (render smoke)", () => {
     selectionMock.current = { ...selectionMock.current, accounts: ["nic"], memberships: selectionMock.current.memberships.slice(0, 1) };
   });
 
+  it("lists your organizations and agents on your own page", async () => {
+    const original = selectionMock.current;
+    selectionMock.current = {
+      ...original,
+      accounts: ["nic", "gitslice", "heibot"],
+      memberships: [
+        ...original.memberships,
+        { account: "gitslice", kind: "organization", role: "owner" },
+        { account: "heibot", kind: "agent", role: "owner" }
+      ]
+    };
+    routerMock.params = { account: "nic" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockResolvedValue({ slices: [], accountKind: "personal" });
+    api.getAccountProfile = vi.fn().mockResolvedValue({ account: "nic", kind: "personal" });
+    apiMock.current = api;
+    renderRoute(<AccountPage />);
+
+    const orgs = await screen.findByRole("region", { name: "Organizations" });
+    expect(within(orgs).getByRole("link", { name: /gitslice/ })).toBeInTheDocument();
+    expect(within(orgs).getByText("owner")).toBeInTheDocument();
+    expect(within(orgs).getByRole("link", { name: "New organization" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Agents" })).getByRole("link", { name: /heibot/ })).toBeInTheDocument();
+    selectionMock.current = original;
+  });
+
   it("does not offer to edit someone else's profile", async () => {
     routerMock.params = { account: "stranger" };
     const api = makeApi();

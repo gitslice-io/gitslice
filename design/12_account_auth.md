@@ -361,7 +361,9 @@ personal account, an organization they belong to, or an agent they claimed.
   public ones for anyone else, with `account_kind`); for an organization's
   members, its people. Owners and admins add people by username, change roles
   and remove people there, through the RPCs in 9.1. Slice breadcrumbs link the
-  owner to this page.
+  owner to this page. Your own personal page also lists the organizations you
+  belong to and the agents you have claimed, each with your role, plus a "New
+  organization" link. Others do not see your memberships.
 - **Role-aware UI.** The slice page offers editing to roles that can write
   (owner, admin, writer, member) and Settings to owners and admins; "New
   slice" offers the accounts the viewer owns or administers. The server still
