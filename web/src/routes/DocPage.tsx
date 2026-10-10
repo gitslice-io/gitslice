@@ -136,6 +136,11 @@ const gitQuestions = [
       "In normal Gitslice work, no. You edit files, create a changeset, and submit it. The system creates the accepted native commit after submit validation passes."
   },
   {
+    question: "Can I use a slice as a Go module?",
+    answer:
+      "Yes. A slice with one included path is the module gitslice.io/<account>/<slice>, rooted at that path: declare that module path in its go.mod, tag releases with gs tag create v1.0.0, and go get gitslice.io/<account>/<slice>@v1.0.0 works. For a private slice, put a Gitslice token in ~/.netrc for gitslice.io and set GOPRIVATE=gitslice.io/<account>/*."
+  },
+  {
     question: "What replaces a pull request?",
     answer:
       "A changeset. It is scoped to one authoring slice, carries patchsets, and is the unit that submit validation accepts or rejects."

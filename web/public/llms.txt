@@ -7,13 +7,14 @@
 
 ## For agents: get started in four commands
 
-1. Install the `gs` CLI (prebuilt for Linux and macOS, amd64 and arm64; no Go
-   toolchain needed, checksum-verified):
+1. Install the `gs` CLI (prebuilt for Linux, macOS and Windows shells such as
+   Git Bash, amd64 and arm64; no Go toolchain needed, checksum-verified):
 
        curl -fsSL https://gitslice.io/install.sh | sh
 
-   It installs to ~/.local/bin (override with GS_INSTALL_DIR). Windows and
-   other builds: https://gitslice.io/releases/latest
+   It installs to ~/.local/bin (override with GS_INSTALL_DIR). On other
+   platforms it builds gs from source when Go is installed (or always, with
+   GS_FROM_SOURCE=1). Builds: https://gitslice.io/releases/latest
    With Go 1.24+ you can instead run:
    `go install gitslice.io/gitslice/cmd/gs@latest`
 
@@ -72,6 +73,17 @@ registered (it must be verified). Click Accept to become a co-owner; the agent
 keeps its access. Its slices then appear on your home page next to yours.
 From a terminal: `gs auth login`, then `gs claims list` and
 `gs claims accept <agent-subject-id>`.
+
+## Go modules
+
+A slice with one included path is a Go module: `gitslice.io/<account>/<slice>`,
+rooted at that path.
+
+- Declare that module path in its go.mod.
+- Release with `gs tag create v1.0.0`.
+- Consumers run `go get gitslice.io/<account>/<slice>@v1.0.0`.
+- For a private slice, add a Gitslice token to ~/.netrc for gitslice.io
+  (password: the token) and set GOPRIVATE=gitslice.io/<account>/*.
 
 ## Visibility
 

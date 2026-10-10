@@ -112,6 +112,48 @@ compare the trees:
     git -C <github clone> rev-parse vX.Y.Z^{tree}
     git -C <gitslice clone> rev-parse gitslice/gitslice/vX.Y.Z:gitslice/gitslice
 
+## Go Modules For Any Slice (2026-10-10)
+
+`gitslice.io/gitslice` is a fixed `goModules` entry. Every other slice is a Go
+module too, without configuration.
+
+- **Discovery.** The Worker answers `gitslice.io/<account>/<slice>[/...]?go-get=1`
+  (`sliceGoImportResponse` in `web/src/lib/goImport.ts`):
+  - It looks the slice up with `ResolveSlice`.
+  - The module root is the slice's single included path, the directory the
+    projection prefixes its version tags with. For `acme/payment` (included
+    path `/acme/payment`) the answer is:
+
+        <meta name="go-import" content="gitslice.io/acme/payment git https://gitslice.io/git/acme/payment.git acme/payment">
+
+  - The module's `go.mod` must declare `module gitslice.io/acme/payment`.
+  - Release it with `gs tag create v1.0.0`, which publishes `acme/payment/v1.0.0`.
+  - A slice with several included paths, or the whole account, is not a module:
+    the answer is a 404 that says why.
+  - The fixed entries win: the `gitslice` account's other slices cannot use
+    this form.
+- **Private slices.** The go command sends `~/.netrc` credentials for the
+  host as Basic auth. The Worker passes the password, a Gitslice token, to the
+  API as a Bearer token, and Git uses the same `~/.netrc` entry. Set
+  `GOPRIVATE=gitslice.io/<account>/*` so the public proxy and checksum database
+  are skipped.
+- **Without discovery.** The go command also accepts the repository URL in the
+  path: `gitslice.io/git/<account>/<slice>.git/<included path>`.
+  - The go command drops the `.git` and asks
+    `https://gitslice.io/git/<account>/<slice>/info/refs`. Until 2026-10-10 that
+    was a 404 and the go command fell back to SSH, which hung.
+  - The Git endpoint now accepts repository paths with or without `.git`.
+- **Versions.** A module root in a subdirectory needs Go 1.25+ with
+  `GOPROXY=direct`. The default proxy fetches public modules for older
+  clients.
+
+`install.sh` builds gs from source with `go install gitslice.io/gitslice/cmd/gs@<version>`:
+- when there is no prebuilt binary for the platform;
+- when the download fails and Go is installed;
+- when asked with `GS_FROM_SOURCE=1`.
+
+It also installs the Windows build from Git Bash, MSYS or Cygwin.
+
 ## Phase 0: Names (Done)
 
 Done:

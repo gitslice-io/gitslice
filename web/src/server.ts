@@ -2,7 +2,7 @@ import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 
 import { handleIngestProxy } from "./analytics/ingestProxy";
 import { gitProxyTarget } from "./lib/gitProxy";
-import { goImportResponse } from "./lib/goImport";
+import { apiSliceLookup, goImportResponse, sliceGoImportResponse } from "./lib/goImport";
 import { releaseResponse, type ReleaseBucket } from "./lib/releases";
 
 export default createServerEntry({
@@ -15,7 +15,9 @@ export default createServerEntry({
 
     // `go get` discovery for gitslice.io import paths and stable release
     // download URLs. Both are answered here, never by the app.
-    const goImport = goImportResponse(request);
+    const goImport =
+      goImportResponse(request) ??
+      (await sliceGoImportResponse(request, apiSliceLookup(import.meta.env.VITE_API_BASE_URL ?? "")));
     if (goImport) {
       return goImport;
     }

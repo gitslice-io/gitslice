@@ -355,13 +355,16 @@ func parseGitPath(path string) (string, string, string, error) {
 	if !ok || account == "" {
 		return "", "", "", errors.New("git path missing account")
 	}
-	idx := strings.Index(rest, ".git")
-	if idx <= 0 {
-		return "", "", "", errors.New("git path missing repository suffix")
+	// The repository is the next path segment, with or without ".git": the go
+	// command drops the suffix from a gitslice.io/git/<account>/<slice>.git
+	// module path and asks for /git/<account>/<slice>/info/refs (as GitHub
+	// allows).
+	name, suffix, hasSuffix := strings.Cut(rest, "/")
+	if hasSuffix {
+		suffix = "/" + suffix
 	}
-	slice := rest[:idx]
-	suffix := rest[idx+len(".git"):]
-	if strings.Contains(slice, "/") || slice == "" {
+	slice := strings.TrimSuffix(name, ".git")
+	if slice == "" || slice == "." || slice == ".." {
 		return "", "", "", errors.New("invalid slice")
 	}
 	return account, slice, "/" + account + "/" + slice + ".git" + suffix, nil

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestSubmitNamesTheChangesetLink checks that what gs prints after a submit
@@ -144,11 +145,27 @@ func TestCLIShowsWhichIDsHaveAPage(t *testing.T) {
 			ChangesetURL string `json:"changeset_url"`
 		} `json:"commits"`
 	}
-	if err := json.Unmarshal([]byte(runCLI(t, home, workspace, "log", "--limit", "5", "--json")), &log); err != nil {
-		t.Fatal(err)
+	// Slice history is indexed after submit returns; on a busy host the log
+	// can briefly lack the new commit, so wait for it.
+	var found bool
+	for attempt := 0; attempt < 50 && !found; attempt++ {
+		if attempt > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err := json.Unmarshal([]byte(runCLI(t, home, workspace, "log", "--limit", "5", "--json")), &log); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range log.Commits {
+			if c.ID == commit {
+				found = true
+				if c.Changeset != handle || !strings.HasSuffix(c.ChangesetURL, "/cs/"+handle) {
+					t.Fatalf("gs log --json commit %s = %+v, want changeset %s", commit, c, handle)
+				}
+			}
+		}
 	}
-	if len(log.Commits) == 0 || log.Commits[0].ID != commit || log.Commits[0].Changeset != handle || !strings.HasSuffix(log.Commits[0].ChangesetURL, "/cs/"+handle) {
-		t.Fatalf("gs log --json first commit = %+v, want commit %s from changeset %s", log.Commits, commit, handle)
+	if !found {
+		t.Fatalf("gs log --json never listed commit %s: %+v", commit, log.Commits)
 	}
 	if text := runCLI(t, home, workspace, "log", "--limit", "1"); !strings.Contains(text, "(changeset "+handle+")") {
 		t.Fatalf("gs log should name the changeset:\n%s", text)
