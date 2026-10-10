@@ -63,14 +63,16 @@ describe("HistoryDrawer", () => {
       </QueryClientProvider>
     );
 
-    const link = await screen.findByRole("link", { name: /open changeset b083ab0e70/ });
+    // The title is the link: no separate button.
+    const link = await screen.findByRole("link", { name: "web: Home lists only the active account" });
     expect(link).toHaveAttribute("href", "/cs/b083ab0e70?file=gitslice/gitslice/web/src/routes/HomePage.tsx");
+    expect(screen.getAllByRole("link")).toHaveLength(1);
     // A commit no changeset landed is not a link.
     expect(screen.getByText("imported").closest("a")).toBeNull();
     // No list of the slice's changesets is needed any more.
     expect(api.listChangesets).not.toHaveBeenCalled();
     // Times are shown, not raw ISO strings.
     expect(screen.queryByText("2026-10-10T17:13:45.077318Z")).not.toBeInTheDocument();
-    expect(link.querySelector("time")).toHaveAttribute("dateTime", "2026-10-10T17:13:45.077Z");
+    expect(document.querySelector("time")).toHaveAttribute("dateTime", "2026-10-10T17:13:45.077Z");
   });
 });

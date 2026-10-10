@@ -117,11 +117,26 @@ export function HistoryDrawer({
                 const summary =
                   commit.message?.split("\n")[0] || "(no message)";
                 const shortCommitId = shortHash(commit.id);
-                const body = (
-                  <>
-                    <p className="text-sm font-medium leading-snug text-zinc-950 dark:text-zinc-50">
-                      {summary}
-                    </p>
+                return (
+                  <div
+                    className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-2"
+                    key={commit.id ?? `${summary}-${commit.createdAt ?? ""}`}
+                  >
+                    {handle ? (
+                      <Link
+                        className="text-sm font-medium leading-snug text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                        params={{ id: handle }}
+                        search={(focusFile ? { file: focusFile } : {}) as never}
+                        title={`Open changeset ${handle}`}
+                        to="/cs/$id"
+                      >
+                        {summary}
+                      </Link>
+                    ) : (
+                      <p className="text-sm font-medium leading-snug text-zinc-950 dark:text-zinc-50">
+                        {summary}
+                      </p>
+                    )}
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-zinc-400">
                       {shortCommitId ? (
                         <span
@@ -133,32 +148,7 @@ export function HistoryDrawer({
                       ) : null}
                       {commit.author ? <span>{commit.author}</span> : null}
                       <Timestamp value={commit.createdAt} />
-                      {handle ? (
-                        <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                          {handle}
-                          <span aria-hidden="true">→</span>
-                        </span>
-                      ) : null}
                     </div>
-                  </>
-                );
-                const cardClass =
-                  "block rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-2";
-
-                return handle ? (
-                  <Link
-                    aria-label={`${summary}: open changeset ${handle}`}
-                    className={`${cardClass} transition hover:border-slate-300 hover:bg-slate-50 dark:hover:border-zinc-700 dark:hover:bg-zinc-950`}
-                    key={commit.id ?? summary}
-                    params={{ id: handle }}
-                    search={(focusFile ? { file: focusFile } : {}) as never}
-                    to="/cs/$id"
-                  >
-                    {body}
-                  </Link>
-                ) : (
-                  <div className={cardClass} key={commit.id ?? `${summary}-${commit.createdAt ?? ""}`}>
-                    {body}
                   </div>
                 );
               })}
