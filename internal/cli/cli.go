@@ -9240,6 +9240,9 @@ func (r Runner) runChangesetList(ctx context.Context, opts commandOptions, slice
 		AuthoringSlice: ref,
 		Status:         strings.TrimSpace(statusFilter),
 		Limit:          int32(limit),
+		// The text list shows each changeset's own fields; --json keeps the
+		// full answer, patchsets included, for scripts that read them.
+		Summary: !opts.jsonOutput(),
 	})
 	if err != nil {
 		return err

@@ -1574,6 +1574,19 @@ func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsReq
 		}
 		clone := cloneChangeset(cs)
 		storage.PopulateChangesetHandles(clone)
+		if req.Summary {
+			// Like the Postgres store: the current patchset's submit
+			// requirements stay, the patchsets go.
+			for _, patchset := range clone.Patchsets {
+				if patchset.GetId() == clone.CurrentPatchsetId && patchset.SubmitRequirements != nil {
+					clone.SubmitRequirements = patchset.SubmitRequirements
+				}
+			}
+			if clone.SubmitRequirements == nil {
+				clone.SubmitRequirements = &corev1.SubmitRequirements{}
+			}
+			clone.Patchsets = nil
+		}
 		out = append(out, clone)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })

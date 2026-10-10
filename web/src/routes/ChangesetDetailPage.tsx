@@ -149,7 +149,7 @@ export function ChangesetDetailPage() {
       authoringSlice?.account,
       authoringSlice?.slice
     ],
-    queryFn: () => api.listChangesets({ authoringSlice, limit: 200 })
+    queryFn: () => api.listChangesets({ authoringSlice, limit: 200, summary: true })
   });
 
   const dependentChangesets = useMemo(() => {

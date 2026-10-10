@@ -52,7 +52,10 @@ export function ChangesetsPage() {
     queryKey,
     queryFn: () =>
       api.listChangesets({
-        authoringSlice: { account, slice }
+        authoringSlice: { account, slice },
+        // The list shows each changeset's own fields; patchsets are the heavy
+        // part of the answer.
+        summary: true
       })
   });
 

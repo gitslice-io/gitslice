@@ -707,63 +707,16 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 	if err != nil {
 		return nil, err
 	}
-	var cs corev1.Changeset
-	var account, slice, currentPatchsetID, commitID, pendingPublishID sql.NullString
-	var stackID, parentChangesetID, parentPatchsetID sql.NullString
-	var stackOrder, stackDepth, siblingOrder sql.NullInt64
-	var affectedJSON []byte
-	err = s.db.QueryRowContext(ctx, `
-			select c.id, c.authoring_account, c.authoring_slice, c.author_subject_id, c.target_ref,
-			       c.base_commit_id, c.title, c.description, c.status, c.affected_paths,
-			       coalesce(c.current_patchset_number, 0), c.current_patchset_id,
-			       c.commit_id, p.id, c.number, c.submit_blocked_reason,
-			       c.stack_id, c.stack_order, c.parent_changeset_id, c.parent_patchset_id,
-			       case when c.parent_changeset_id is null then 'commit' else 'patchset' end,
-			       c.stack_depth, c.sibling_order
+	cs, _, err := scanChangesetRow(s.db.QueryRowContext(ctx, `
+			select `+changesetRowColumns+`, null::jsonb
 			from changesets c
 			left join pending_publish p on p.changeset_id = c.id
 			where c.id = $1
-		`, changesetID).Scan(&cs.Id, &account, &slice, &cs.Author, &cs.TargetRef,
-		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
-		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID, &cs.Number, &cs.SubmitBlockedReason,
-		&stackID, &stackOrder, &parentChangesetID, &parentPatchsetID, &cs.BaseKind, &stackDepth, &siblingOrder)
+		`, changesetID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, err
-	}
-	if account.Valid || slice.Valid {
-		cs.AuthoringSlice = &corev1.SliceRef{Account: account.String, Slice: slice.String}
-	}
-	if currentPatchsetID.Valid {
-		cs.CurrentPatchsetId = currentPatchsetID.String
-	}
-	if commitID.Valid {
-		cs.CommitId = commitID.String
-	}
-	if pendingPublishID.Valid {
-		cs.PendingPublishId = pendingPublishID.String
-	}
-	if stackID.Valid {
-		cs.StackId = stackID.String
-	}
-	if stackOrder.Valid {
-		cs.StackOrder = stackOrder.Int64
-	}
-	if parentChangesetID.Valid {
-		cs.ParentChangesetId = parentChangesetID.String
-	}
-	if parentPatchsetID.Valid {
-		cs.ParentPatchsetId = parentPatchsetID.String
-	}
-	if stackDepth.Valid {
-		cs.StackDepth = stackDepth.Int64
-	}
-	if siblingOrder.Valid {
-		cs.SiblingOrder = siblingOrder.Int64
-	}
-	if err := decodeJSON(affectedJSON, &cs.AffectedPaths); err != nil {
 		return nil, err
 	}
 	patchsets, err := s.listPatchsets(ctx, changesetID)
@@ -771,13 +724,96 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 		return nil, err
 	}
 	cs.Patchsets = patchsets
-	storage.PopulateChangesetHandles(&cs)
-	if current := currentPatchset(&cs); current != nil {
+	storage.PopulateChangesetHandles(cs)
+	if current := currentPatchset(cs); current != nil {
 		cs.SubmitRequirements = current.SubmitRequirements
 	} else {
 		cs.SubmitRequirements = &corev1.SubmitRequirements{}
 	}
-	return &cs, nil
+	return cs, nil
+}
+
+// changesetRowColumns are a changeset's own fields, read with the
+// pending_publish row joined as p. scanChangesetRow reads them, plus one more
+// column: the current patchset's submit requirements (or null).
+const changesetRowColumns = `c.id, c.authoring_account, c.authoring_slice, c.author_subject_id, c.target_ref,
+			       c.base_commit_id, c.title, c.description, c.status, c.affected_paths,
+			       coalesce(c.current_patchset_number, 0), c.current_patchset_id,
+			       c.commit_id, p.id, c.number, c.submit_blocked_reason,
+			       c.stack_id, c.stack_order, c.parent_changeset_id, c.parent_patchset_id,
+			       case when c.parent_changeset_id is null then 'commit' else 'patchset' end,
+			       c.stack_depth, c.sibling_order`
+
+func scanChangesetRow(row rowScanner) (*corev1.Changeset, []byte, error) {
+	var cs corev1.Changeset
+	var account, slice, currentPatchsetID, commitID, pendingPublishID sql.NullString
+	var stackID, parentChangesetID, parentPatchsetID sql.NullString
+	var stackOrder, stackDepth, siblingOrder sql.NullInt64
+	var affectedJSON, submitRequirementsJSON []byte
+	if err := row.Scan(&cs.Id, &account, &slice, &cs.Author, &cs.TargetRef,
+		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
+		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID, &cs.Number, &cs.SubmitBlockedReason,
+		&stackID, &stackOrder, &parentChangesetID, &parentPatchsetID, &cs.BaseKind, &stackDepth, &siblingOrder,
+		&submitRequirementsJSON); err != nil {
+		return nil, nil, err
+	}
+	if account.Valid || slice.Valid {
+		cs.AuthoringSlice = &corev1.SliceRef{Account: account.String, Slice: slice.String}
+	}
+	cs.CurrentPatchsetId = currentPatchsetID.String
+	cs.CommitId = commitID.String
+	cs.PendingPublishId = pendingPublishID.String
+	cs.StackId = stackID.String
+	cs.StackOrder = stackOrder.Int64
+	cs.ParentChangesetId = parentChangesetID.String
+	cs.ParentPatchsetId = parentPatchsetID.String
+	cs.StackDepth = stackDepth.Int64
+	cs.SiblingOrder = siblingOrder.Int64
+	if err := decodeJSON(affectedJSON, &cs.AffectedPaths); err != nil {
+		return nil, nil, err
+	}
+	return &cs, submitRequirementsJSON, nil
+}
+
+// listSummaries reads changesets without their patchsets, in one query, in the
+// order of ids. Submit requirements come from each current patchset.
+func (s *ChangesetStore) listSummaries(ctx context.Context, ids []string) ([]*corev1.Changeset, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select `+changesetRowColumns+`, cp.submit_requirements
+		from changesets c
+		left join pending_publish p on p.changeset_id = c.id
+		left join patchsets cp on cp.id = c.current_patchset_id
+		where c.id = any($1)
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byID := map[string]*corev1.Changeset{}
+	for rows.Next() {
+		cs, requirementsJSON, err := scanChangesetRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		cs.SubmitRequirements = &corev1.SubmitRequirements{}
+		if len(requirementsJSON) > 0 {
+			if err := decodeJSON(requirementsJSON, &cs.SubmitRequirements); err != nil {
+				return nil, err
+			}
+		}
+		storage.PopulateChangesetHandles(cs)
+		byID[cs.Id] = cs
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]*corev1.Changeset, 0, len(ids))
+	for _, id := range ids {
+		if cs := byID[id]; cs != nil {
+			out = append(out, cs)
+		}
+	}
+	return out, nil
 }
 
 func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error) {
@@ -837,6 +873,9 @@ func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsReq
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	if req.Summary {
+		return s.listSummaries(ctx, ids)
 	}
 	out := make([]*corev1.Changeset, 0, len(ids))
 	for _, id := range ids {

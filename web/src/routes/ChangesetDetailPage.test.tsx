@@ -637,7 +637,8 @@ describe("changeset detail page", () => {
     expect(screen.getAllByText("Dependent")).toHaveLength(1);
     expect(api.listChangesets).toHaveBeenCalledWith({
       authoringSlice: { account: "acme", slice: "payment" },
-      limit: 200
+      limit: 200,
+      summary: true
     });
   });
 

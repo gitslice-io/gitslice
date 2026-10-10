@@ -53,7 +53,8 @@ export function HistoryDrawer({
     queryFn: () =>
       api.listChangesets({
         authoringSlice: sliceRef,
-        limit: 200
+        limit: 200,
+        summary: true
       })
   });
 

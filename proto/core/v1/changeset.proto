@@ -190,6 +190,10 @@ message ListChangesetsRequest {
   SliceRef authoring_slice = 1;
   string status = 2;
   int32 limit = 3;
+  // Leave out each changeset's patchsets, the heavy part, for list views.
+  // Everything else, including the current patchset's submit requirements, is
+  // still returned.
+  bool summary = 4;
 }
 
 message ListChangesetsResponse {

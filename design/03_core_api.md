@@ -714,6 +714,12 @@ the full `sha256:...` id, or a prefix of at least 7 hex characters. The lookup
 answers with that changeset. A matching changeset id prefix always wins. This
 exists because commit ids get pasted where changeset ids belong.
 
+`ListChangesetsRequest.summary` leaves out each changeset's patchsets, the
+heavy part of the answer. The rest is still returned, including the current
+patchset's submit requirements. List views (the web changesets page, slice
+history, dependents, `gs cs list` text output) ask for summaries. The store
+reads them in one query instead of one full load per changeset.
+
 `Commit.changeset_id` names the changeset that landed a commit, when one did.
 `ListCommits` and `GetCommit` fill it so clients can link a commit to a page.
 

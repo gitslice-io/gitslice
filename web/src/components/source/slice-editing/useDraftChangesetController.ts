@@ -121,7 +121,8 @@ export function useDraftChangesetController({
         const listed = await api.listChangesets({
           authoringSlice: sliceRef,
           status: "draft",
-          limit: 50
+          limit: 50,
+          summary: true
         });
         const draft = (listed.changesets ?? []).find(
           (changeset) => changeset.author === authorUsername

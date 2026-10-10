@@ -1376,8 +1376,12 @@ type ListChangesetsRequest struct {
 	AuthoringSlice *SliceRef              `protobuf:"bytes,1,opt,name=authoring_slice,json=authoringSlice,proto3" json:"authoring_slice,omitempty"`
 	Status         string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	Limit          int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Leave out each changeset's patchsets, the heavy part, for list views.
+	// Everything else, including the current patchset's submit requirements, is
+	// still returned.
+	Summary       bool `protobuf:"varint,4,opt,name=summary,proto3" json:"summary,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListChangesetsRequest) Reset() {
@@ -1429,6 +1433,13 @@ func (x *ListChangesetsRequest) GetLimit() int32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *ListChangesetsRequest) GetSummary() bool {
+	if x != nil {
+		return x.Summary
+	}
+	return false
 }
 
 type ListChangesetsResponse struct {
@@ -3291,11 +3302,12 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x13parent_changeset_id\x18\a \x01(\tR\x11parentChangesetId\x12,\n" +
 	"\x12parent_patchset_id\x18\b \x01(\tR\x10parentPatchsetId\"8\n" +
 	"\x13GetChangesetRequest\x12!\n" +
-	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\"\x8a\x01\n" +
+	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\"\xa4\x01\n" +
 	"\x15ListChangesetsRequest\x12C\n" +
 	"\x0fauthoring_slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\x05R\x05limit\"U\n" +
+	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x18\n" +
+	"\asummary\x18\x04 \x01(\bR\asummary\"U\n" +
 	"\x16ListChangesetsResponse\x12;\n" +
 	"\n" +
 	"changesets\x18\x01 \x03(\v2\x1b.gitslice.core.v1.ChangesetR\n" +

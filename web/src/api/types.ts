@@ -519,6 +519,8 @@ export interface ListChangesetsRequest {
   authoringSlice?: SliceRef;
   status?: string;
   limit?: number;
+  // Leave out patchsets (list views); see ListChangesetsRequest.summary.
+  summary?: boolean;
 }
 
 export interface ListChangesetsResponse {

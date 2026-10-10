@@ -512,7 +512,7 @@ const changesetsRoute = createRoute({
           await context.queryClient.ensureQueryData({
             queryKey: ["changesets", account, slice],
             queryFn: () =>
-              api.listChangesets({ authoringSlice: { account, slice } })
+              api.listChangesets({ authoringSlice: { account, slice }, summary: true })
           });
         } catch {
           // The component keeps the existing client-side load/error behavior.
@@ -585,7 +585,7 @@ const changesetShortRoute = createRoute({
                   authoringSlice.slice
                 ],
                 queryFn: () =>
-                  api.listChangesets({ authoringSlice, limit: 200 })
+                  api.listChangesets({ authoringSlice, limit: 200, summary: true })
               })
             : Promise.resolve(undefined)
         ]);
