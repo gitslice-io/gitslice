@@ -277,15 +277,20 @@ caller holds an `owner` membership on. For each agent it gives the name,
 account, registration and claim times, and `last_active_at`, which is the
 latest `api_keys.last_used_at` and therefore stamped at most once a minute.
 
-The web home page uses it in two places:
+Your own account page (`/accounts/<you>`) uses it for a **"Your agents"**
+section. It shows one card per agent:
 
-- **"Your agents" section:** one card per agent, showing its name, a link to
-  `<account>/home`, when it was last active, and when it was claimed. With no
-  agents it shows a pointer to `/llms.txt`.
-- **Slice list:** when no `?account=` is given, the list also loads each owned
-  agent's account and marks those rows "agent".
+- its name;
+- a link to `<account>/home`;
+- when it was last active;
+- when it was claimed.
 
-If the call fails, both fall back to showing only the user's own account.
+With no agents it shows a pointer to `/llms.txt`. If the call fails, the
+section is hidden.
+
+Home used to show this section too, and merged the agents' slices into its
+list. Since 2026-10-10 Home lists only the active account. The top bar's
+account switcher lists the agents; switch to one to see its slices.
 
 ## Phase 3: Co-Owner Management
 

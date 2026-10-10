@@ -226,6 +226,7 @@ describe("slice route pages (render smoke)", () => {
 
   it("lists your organizations and agents on your own page", async () => {
     const original = selectionMock.current;
+    authMock.current = { isLoaded: true, isSignedIn: true };
     selectionMock.current = {
       ...original,
       accounts: ["nic", "gitslice", "heibot"],
@@ -239,15 +240,24 @@ describe("slice route pages (render smoke)", () => {
     const api = makeApi();
     api.listSlices = vi.fn().mockResolvedValue({ slices: [], accountKind: "personal" });
     api.getAccountProfile = vi.fn().mockResolvedValue({ account: "nic", kind: "personal" });
+    api.listOwnedAgents = vi.fn().mockResolvedValue({
+      agents: [{ account: "heibot", agentDisplayName: "hei", agentSubjectId: "agent_1", claimedAt: "2026-09-30T02:01:48Z" }]
+    });
     apiMock.current = api;
-    renderRoute(<AccountPage />);
+    try {
+      renderRoute(<AccountPage />);
 
-    const orgs = await screen.findByRole("region", { name: "Organizations" });
-    expect(within(orgs).getByRole("link", { name: /gitslice/ })).toBeInTheDocument();
-    expect(within(orgs).getByText("owner")).toBeInTheDocument();
-    expect(within(orgs).getByRole("link", { name: "New organization" })).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Agents" })).getByRole("link", { name: /heibot/ })).toBeInTheDocument();
-    selectionMock.current = original;
+      const orgs = await screen.findByRole("region", { name: "Organizations" });
+      expect(within(orgs).getByRole("link", { name: /gitslice/ })).toBeInTheDocument();
+      expect(within(orgs).getByText("owner")).toBeInTheDocument();
+      expect(within(orgs).getByRole("link", { name: "New organization" })).toBeInTheDocument();
+      // The agent cards moved here from Home.
+      const agents = await screen.findByRole("region", { name: "Your agents" });
+      expect(within(agents).getByText("hei")).toBeInTheDocument();
+    } finally {
+      selectionMock.current = original;
+      authMock.current = { isLoaded: true, isSignedIn: false };
+    }
   });
 
   it("does not offer to edit someone else's profile", async () => {

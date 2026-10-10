@@ -7,7 +7,6 @@ import { shortHash } from "../../lib/objectId";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { canAdmin, kindLabel, membershipFor } from "../../lib/accounts";
 import { useSelection } from "../../state/selection";
-import { useOwnedAgents } from "./OwnedAgents";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -32,28 +31,12 @@ export function SlicesList() {
   const effectiveAccount = (explicitAccount || selection.activeAccount || selection.account || "").trim();
   const activeMembership = membershipFor(selection.memberships, effectiveAccount);
   const isPersonalContext = !explicitAccount && (activeMembership?.kind ?? "personal") === "personal";
-  const ownedAgents = useOwnedAgents();
-  // In your personal context the home list also covers the accounts of agents
-  // you co-own, so their slices sit next to yours. An organization's context
-  // lists only the organization's slices.
-  const agentAccounts = !isPersonalContext
-    ? []
-    : ownedAgents.agents
-        .map((agent) => agent.account ?? "")
-        .filter((account) => account && account !== effectiveAccount);
-  const accounts = effectiveAccount ? [effectiveAccount, ...agentAccounts] : [];
-  const agentAccountSet = new Set(agentAccounts);
-
+  // Only the active account's slices: agents and organizations are a switch
+  // away in the top bar, each with its own list.
   const slicesQuery = useQuery({
-    enabled:
-      accounts.length > 0 && (Boolean(explicitAccount) || !ownedAgents.isLoading),
-    queryKey: ["slices", ...accounts],
-    queryFn: async () => {
-      const perAccount = await Promise.all(
-        accounts.map((account) => listAllSlices(api, account))
-      );
-      return perAccount.flat();
-    }
+    enabled: Boolean(effectiveAccount),
+    queryKey: ["slices", effectiveAccount],
+    queryFn: () => listAllSlices(api, effectiveAccount)
   });
   const slices = slicesQuery.data ?? [];
 
@@ -65,11 +48,9 @@ export function SlicesList() {
             {isPersonalContext ? "Slices" : `Slices in ${effectiveAccount}`}
           </h2>
           <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            {agentAccounts.length > 0
-              ? "Slices in your account and in your agents' accounts."
-              : isPersonalContext
-                ? "Slices in your account."
-                : `Slices of the ${kindLabel(activeMembership?.kind ?? "").toLowerCase()} ${effectiveAccount}. Switch accounts from the top bar.`}
+            {isPersonalContext
+              ? "Slices in your account. Switch to an agent or organization from the top bar to see its slices."
+              : `Slices of the ${kindLabel(activeMembership?.kind ?? "").toLowerCase()} ${effectiveAccount}. Switch accounts from the top bar.`}
           </p>
         </div>
         {canAdmin(activeMembership) ? (
@@ -124,9 +105,6 @@ export function SlicesList() {
                       >
                         <span className="min-w-0 truncate font-medium text-zinc-950 dark:text-zinc-50">
                           {name}
-                          {agentAccountSet.has(slice.ref?.account ?? "") ? (
-                            <AgentBadge />
-                          ) : null}
                         </span>
                         <VisibilityBadge
                           visibility={slice.definition?.visibility}
@@ -183,9 +161,6 @@ export function SlicesList() {
                             ) : (
                               sliceDisplayName(slice)
                             )}
-                            {agentAccountSet.has(slice.ref?.account ?? "") ? (
-                              <AgentBadge />
-                            ) : null}
                           </td>
                           <td className="px-4 py-3">
                             <VisibilityBadge
@@ -240,12 +215,4 @@ async function listAllSlices(api: ReturnType<typeof useApi>, account: string) {
   } while (cursor);
 
   return slices;
-}
-
-function AgentBadge() {
-  return (
-    <span className="ml-2 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 align-middle text-[10px] font-medium text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300">
-      agent
-    </span>
-  );
 }

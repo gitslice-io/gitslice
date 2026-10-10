@@ -4,7 +4,6 @@ import { useState } from "react";
 import type { Conversation } from "../api/types";
 import { PageHeader } from "../components/PageHeader";
 import { NewConversationDialog } from "../components/slices/NewConversationDialog";
-import { OwnedAgents } from "../components/slices/OwnedAgents";
 import { PendingClaims } from "../components/slices/PendingClaims";
 import { PendingInvitations } from "../components/slices/PendingInvitations";
 import { RecentConversations } from "../components/slices/RecentConversations";
@@ -64,7 +63,6 @@ export function HomePage() {
         <PendingInvitations />
         {personal ? <PendingClaims /> : null}
         <RecentConversations accounts={contextAccounts.length > 0 ? contextAccounts : undefined} />
-        {personal ? <OwnedAgents /> : null}
         <SlicesList />
       </div>
     </section>

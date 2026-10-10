@@ -107,10 +107,10 @@ describe("OwnedAgents", () => {
   });
 });
 
-describe("SlicesList with owned agents", () => {
+describe("SlicesList on Home", () => {
   afterEach(() => cleanup());
 
-  it("merges the agents' slices into the home list", async () => {
+  it("lists only the active account's slices, not your agents'", async () => {
     const listSlices = vi.fn(({ account }: { account: string }) =>
       Promise.resolve({
         slices: [
@@ -122,35 +122,13 @@ describe("SlicesList with owned agents", () => {
         ]
       })
     );
-    apiMock.current = {
-      listOwnedAgents: vi.fn().mockResolvedValue({ agents: [heibot] }),
-      listSlices
-    };
+    const listOwnedAgents = vi.fn().mockResolvedValue({ agents: [heibot] });
+    apiMock.current = { listOwnedAgents, listSlices };
     renderWithQuery(<SlicesList />);
-    await waitFor(() =>
-      expect(listSlices).toHaveBeenCalledWith(
-        expect.objectContaining({ account: "heibot" })
-      )
-    );
-    expect(listSlices).toHaveBeenCalledWith(
-      expect.objectContaining({ account: "nic" })
-    );
-    expect(
-      await screen.findByText("Slices in your account and in your agents' accounts.")
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("agent").length).toBeGreaterThan(0);
-  });
-
-  it("falls back to your own slices if owned agents cannot load", async () => {
-    const listSlices = vi.fn().mockResolvedValue({ slices: [] });
-    apiMock.current = {
-      listOwnedAgents: vi.fn().mockRejectedValue(new Error("unavailable")),
-      listSlices
-    };
-    renderWithQuery(<SlicesList />);
+    expect(await screen.findByText(/Slices in your account\. Switch to an agent/)).toBeInTheDocument();
     await waitFor(() => expect(listSlices).toHaveBeenCalledTimes(1));
-    expect(listSlices).toHaveBeenCalledWith(
-      expect.objectContaining({ account: "nic" })
-    );
+    expect(listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "nic" }));
+    expect(listOwnedAgents).not.toHaveBeenCalled();
+    expect(screen.queryByText("agent")).not.toBeInTheDocument();
   });
 });

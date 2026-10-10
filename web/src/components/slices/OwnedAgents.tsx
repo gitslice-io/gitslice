@@ -27,8 +27,9 @@ export function useOwnedAgents() {
   };
 }
 
-// OwnedAgents is the home page "Your agents" section: the agents you co-own
-// after claiming them, with when each last used its API key.
+// OwnedAgents is the "Your agents" section of your own account page: the
+// agents you co-own after claiming them, with when each last used its API key.
+// (Home lists only the active account; the top bar switches to an agent.)
 export function OwnedAgents() {
   const { agents, enabled, isError, isLoading } = useOwnedAgents();
   // On error, render nothing rather than a misleading "No agents yet".

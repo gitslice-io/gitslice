@@ -353,8 +353,9 @@ personal account, an organization they belong to, or an agent they claimed.
 - **Switcher.** The top bar's account menu lists those memberships, grouped by
   kind with the role. The choice is the *active account*, remembered in the
   browser (`localStorage`, `gitslice.activeAccount`); one the viewer has left
-  falls back to their personal account. Home lists the active account's
-  slices (in the personal context, also the slices of agents they own), new
+  falls back to their personal account. Home lists only the active account's
+  slices: agents and organizations are a switch away, each with its own list.
+  Claimed agents, with their activity, are listed on your own account page. New
   conversations start on its slices, and "New slice" creates there.
 - **Account pages** (`/accounts/<account>`): avatar, kind and the viewer's
   role; the slices the viewer may read (`ListSlices`: every slice for members,

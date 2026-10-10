@@ -10,6 +10,7 @@ import { AccountAvatar } from "../components/AccountSwitcher";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import { AccountPeople } from "../components/slices/AccountPeople";
+import { OwnedAgents } from "../components/slices/OwnedAgents";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -217,13 +218,10 @@ export function AccountPage() {
   );
 }
 
-// On your own page: the organizations you belong to and the agents you have
-// claimed, each with your role, like a GitHub profile's organizations.
+// On your own page: the organizations you belong to, with your role, like a
+// GitHub profile's organizations, and the agents you have claimed.
 function YourAccounts({ memberships }: { memberships: readonly Membership[] }) {
-  const groups = [
-    { kind: "organization", title: "Organizations", empty: "You do not belong to any organizations yet." },
-    { kind: "agent", title: "Agents", empty: "" }
-  ];
+  const groups = [{ kind: "organization", title: "Organizations", empty: "You do not belong to any organizations yet." }];
   return (
     <>
       {groups.map(({ empty, kind, title }) => {
@@ -266,6 +264,9 @@ function YourAccounts({ memberships }: { memberships: readonly Membership[] }) {
           </section>
         );
       })}
+      <div className="mt-10">
+        <OwnedAgents />
+      </div>
     </>
   );
 }
