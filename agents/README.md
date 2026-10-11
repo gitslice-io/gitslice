@@ -20,7 +20,7 @@ There are no branches to rebase and no merge queue to wait in.
 **Demo video:** a hundred agents land a hundred changesets in one codebase.
 There are two versions, both with captions, on the
 [release](https://github.com/gitslice-io/gitslice/releases/tag/agents-demo-2026-10-02):
-- the 2:54 cut;
+- the 2:58 cut;
 - the full 7:33 version.
 
 ## Why
