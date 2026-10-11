@@ -23,6 +23,9 @@ There are two versions, both with captions, on the
 - the 2:58 cut;
 - the full 7:33 version.
 
+**Contest submission:** status, what is left and how to run the demo during
+judging are in [`demo/CONTEST_HANDOVER.md`](demo/CONTEST_HANDOVER.md).
+
 ## Why
 
 Coding agents need two things that pull in opposite directions:
