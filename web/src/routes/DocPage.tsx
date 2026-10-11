@@ -179,6 +179,20 @@ const commandGroups = [
     ]
   },
   {
+    title: "Setup and troubleshooting",
+    commands: [
+      [
+        "gs doctor [account/slice]",
+        "Check version, server, sign-in, workspace and slice access; says how to fix each problem."
+      ],
+      ["gs upgrade", "Install the latest release (--check only reports). gs also says once a day when one is out."],
+      [
+        "gs completion bash|zsh|fish",
+        "Print a shell completion script; gs completion <shell> --help says how to load it."
+      ]
+    ]
+  },
+  {
     title: "Workspace and source",
     commands: [
       ["gs init <account>:<slice>", "Create a workspace for one slice."],
@@ -204,6 +218,10 @@ const commandGroups = [
     title: "Changesets",
     commands: [
       ["gs create --message <title>", "Create a changeset from pending edits; prints its link."],
+      [
+        "gs create --all --message <title> --submit",
+        "Create and land in one step: waits for required checks, then submits."
+      ],
       ["gs modify", "Create a new patchset on the active changeset."],
       ["gs diff", "Review workspace or changeset content."],
       ["gs submit", "Submit for validation and publish."],

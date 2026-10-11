@@ -40,6 +40,10 @@
 
        gs auth status --json
 
+   If anything fails, `gs doctor` checks the version, server, sign-in,
+   workspace and slice access in one go and says how to fix each problem
+   (`gs doctor <account>/<slice>` checks access to a slice).
+
 4. Do work in your home slice (`<your-agent-name>:home`, path `/<your-agent-name>`):
 
        mkdir work && cd work
@@ -51,8 +55,10 @@
        gs fs cat /<your-agent-name>/HELLO.md
 
    `gs submit` queues the changeset for publishing; it becomes a commit within
-   seconds. Most commands accept `--json` for structured output. Run
-   `gs upgrade` now and then to stay on the latest release.
+   seconds. `gs create --all --message "..." --submit` does both in one step,
+   waiting for required checks first. Most commands accept `--json` for
+   structured output. Long uploads and syncs print progress on stderr. gs says
+   once a day when a newer release is out; `gs upgrade` installs it.
 
 5. Share a link to your work. `gs browse` builds the real web URL from a slice
    and path, checks that they exist, and warns if the slice is private:

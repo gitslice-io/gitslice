@@ -32,4 +32,12 @@ describe("DocPage", () => {
     render(<DocPage />);
     expect(screen.getByText("gs webhook ping <webhook-id>")).toBeInTheDocument();
   });
+
+  it("lists the setup commands and create --submit in the CLI reference", () => {
+    params.current = { section: "cli" };
+    render(<DocPage />);
+    expect(screen.getByText("gs doctor [account/slice]")).toBeInTheDocument();
+    expect(screen.getByText("gs completion bash|zsh|fish")).toBeInTheDocument();
+    expect(screen.getByText("gs create --all --message <title> --submit")).toBeInTheDocument();
+  });
 });

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -267,6 +268,8 @@ type changesetOutput struct {
 	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
 	StackID             string                     `json:"dependency_id,omitempty"`
 	WebURL              string                     `json:"web_url,omitempty"`
+	// Submit is what gs create --submit did with the changeset.
+	Submit *submitDependenciesOutput `json:"submit,omitempty"`
 }
 
 type stackOutput struct {
@@ -602,6 +605,10 @@ GS_CLIENT_CACHE_DIR
 GITSLICE_CLIENT_CACHE_DIR
   Compatibility alias for GS_CLIENT_CACHE_DIR when GS_CLIENT_CACHE_DIR is unset.
 
+GS_NO_UPDATE_CHECK=1
+  Stop gs from looking up the latest release once a day and saying on
+  stderr when a newer one exists. gs upgrade --check still looks.
+
 NO_COLOR
   Disable ANSI color output.
 
@@ -637,8 +644,11 @@ the same JSON-shaped fields:
   gs auth status --template '{{.signed_in}}'
   gs context --template '{{.active_slice}} {{.active_slice_source}}'
 
-Diagnostics, progress, and errors are written to stderr. When a command is run
-with --json, --format json, --jq, or --template, error output has this shape:
+Diagnostics, progress, and errors are written to stderr. Long uploads, syncs
+and hydrates report how far they have got there: one line that rewrites
+itself on a terminal, otherwise a line every few seconds. --json and --quiet
+turn progress off. When a command is run with --json, --format json, --jq,
+or --template, error output has this shape:
 
   {
     "error": {
@@ -822,7 +832,10 @@ func (r Runner) Run(ctx context.Context, args []string) error {
 	root.SetArgs(expanded)
 	root.SetOut(r.Stdout)
 	root.SetErr(r.Stderr)
-	return r.enhanceCommandError(root.ExecuteContext(ctx))
+	update := r.startUpdateCheck(ctx, expanded)
+	err = r.enhanceCommandError(root.ExecuteContext(ctx))
+	update.finish(r)
+	return err
 }
 
 func (r Runner) expandAliasArgs(args []string) ([]string, error) {
@@ -888,8 +901,27 @@ func (r Runner) enhanceCommandError(err error) error {
 	if errors.As(err, &cmdErr) {
 		return err
 	}
-	if grpcstatus.Code(err) != codes.Unauthenticated {
-		return err
+	switch grpcstatus.Code(err) {
+	case codes.Unauthenticated:
+		return r.unauthenticatedError(err)
+	case codes.PermissionDenied:
+		return r.permissionDeniedError(err)
+	}
+	return err
+}
+
+// unauthenticatedError says which of the two ways a request goes
+// unauthenticated this was: no saved token (private slices need a signed-in
+// member), or a token the server did not accept.
+func (r Runner) unauthenticatedError(err error) error {
+	cfg, _ := r.readPartialUserConfig()
+	if strings.TrimSpace(cfg.Token) == "" {
+		return commandError{
+			Code:    "unauthenticated",
+			Message: "not signed in: this needs a signed-in account (a private slice is open only to members of the account that owns it)",
+			Hint:    "Sign in with gs auth login, or gs auth register-agent for an agent, then try again. If the slice belongs to an agent you own, claim co-ownership at " + claimsURL() + ". gs doctor checks the setup.",
+			Cause:   err,
+		}
 	}
 	message := grpcstatus.Convert(err).Message()
 	if message == "" {
@@ -897,14 +929,39 @@ func (r Runner) enhanceCommandError(err error) error {
 	}
 	return commandError{
 		Code:    "unauthenticated",
-		Message: "authentication failed: " + message,
+		Message: "authentication failed: " + firstNonEmpty(cfg.ServerAddr, "the server") + " did not accept the saved token (" + message + ")",
 		Hint:    r.authRecoveryHint(),
 		Cause:   err,
 	}
 }
 
 func (r Runner) authRecoveryHint() string {
-	return "Run gs auth status to inspect the saved token. If it is invalid, run gs auth login."
+	return "The token may have expired or been revoked, or be for another server. Run gs auth status to inspect the saved token; if it is invalid, run gs auth login (or gs auth register-agent for an agent). gs doctor checks the whole setup."
+}
+
+// permissionDeniedError explains a request the server refused for the
+// signed-in subject, and how to get access.
+func (r Runner) permissionDeniedError(err error) error {
+	cfg, _ := r.readPartialUserConfig()
+	message := "permission denied"
+	if subject := strings.TrimSpace(cfg.SubjectID); subject != "" {
+		message += " for " + subject
+	}
+	if detail := grpcstatus.Convert(err).Message(); detail != "" && detail != "unauthorized" && detail != "permission denied" {
+		message += ": " + detail
+	}
+	return commandError{
+		Code:    "permission_denied",
+		Message: message,
+		Hint: "A private slice is open only to members of the account that owns it, and changing a slice needs write access. " +
+			"If the slice belongs to an agent you own, claim co-ownership at " + claimsURL() + " (signed in with the email the agent registered with); " +
+			"otherwise ask an owner of the account to add you. gs doctor <account/slice> checks your access.",
+		Cause: err,
+	}
+}
+
+func claimsURL() string {
+	return firstNonEmpty(webResourceURL("/claims"), "https://gitslice.io/claims")
 }
 
 func (r Runner) rootCommand() *cobra.Command {
@@ -935,6 +992,9 @@ func (r Runner) rootCommand() *cobra.Command {
 			}
 			if opts.JQ != "" && opts.Template != "" {
 				return userError("invalid_format", "cannot use --jq and --template together", "Use --jq to filter JSON or --template to format output.")
+			}
+			if !opts.Quiet && !opts.jsonOutput() {
+				cmd.SetContext(withProgress(cmd.Context(), r.stderr()))
 			}
 			return nil
 		},
@@ -1589,12 +1649,24 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 	createRoot := false
 	createSibling := false
 	createAll := false
+	createSubmit := false
+	createWatchTimeout := "15m"
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a changeset from workspace edits",
-		Args:  noArgs("gs create --message title [--all] [--base changeset] [--sibling] [--root]"),
+		Long: "Create a changeset from workspace edits. With --submit, also submit it: gs create waits for " +
+			"required checks that have no result yet (up to --watch-timeout), submits, and waits for it to land.",
+		Args: noArgs("gs create --message title [--all] [--submit] [--base changeset] [--sibling] [--root]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll)
+			submit := createSubmitOptions{}
+			if createSubmit {
+				timeout, err := parsePositiveDurationFlag("watch-timeout", createWatchTimeout)
+				if err != nil {
+					return err
+				}
+				submit = createSubmitOptions{enabled: true, timeout: timeout}
+			}
+			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll, submit)
 		},
 	}
 	createCmd.Flags().StringVar(&createMessage, "message", createMessage, "changeset title")
@@ -1602,6 +1674,8 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 	createCmd.Flags().BoolVar(&createRoot, "root", createRoot, "create a new root changeset")
 	createCmd.Flags().BoolVar(&createSibling, "sibling", createSibling, "create a sibling of the active changeset")
 	createCmd.Flags().BoolVar(&createAll, "all", createAll, "snapshot all current workspace edits")
+	createCmd.Flags().BoolVar(&createSubmit, "submit", createSubmit, "submit the changeset once required checks pass, and wait for it to land")
+	createCmd.Flags().StringVar(&createWatchTimeout, "watch-timeout", createWatchTimeout, "with --submit, how long to wait for required checks and for the changeset to land")
 
 	modifyMessage := ""
 	modifyNoRestack := false
@@ -2127,7 +2201,8 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	claimsCmd.AddCommand(claimsListCmd, claimsAcceptCmd)
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, r.upgradeCommand(opts), schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd, accountCmd, tagCmd, r.webhookCommand(opts))
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, r.upgradeCommand(opts), r.doctorCommand(opts), schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd, accountCmd, tagCmd, r.webhookCommand(opts))
+	r.attachCompletions(root)
 	return root
 }
 
@@ -4586,26 +4661,36 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if err := r.applyWorkspaceSyncMergeStrategy(callCtx, repo, cache, oldBaseCommitID, newBaseCommitID, mergeStrategy, base, current, remoteFiles, &plan); err != nil {
 		return err
 	}
+	progress := startProgress(ctx, "syncing", "paths", len(plan.RemoteDeletes)+len(plan.RemoteUpserts)+len(plan.MergedFiles)+len(plan.Conflicts))
 	for _, p := range plan.RemoteDeletes {
 		if err := removeWorkspaceFile(root, ws, current, p); err != nil {
+			progress.Finish()
 			return err
 		}
+		progress.Add(1)
 	}
 	for _, file := range plan.RemoteUpserts {
 		if err := r.writeWorkspaceRemoteFile(callCtx, repo, cache, root, ws, current, newBaseCommitID, file); err != nil {
+			progress.Finish()
 			return err
 		}
+		progress.Add(1)
 	}
 	for _, file := range plan.MergedFiles {
 		if err := r.writeWorkspaceMergedFile(root, ws, current, file); err != nil {
+			progress.Finish()
 			return err
 		}
+		progress.Add(1)
 	}
 	for _, conflict := range plan.Conflicts {
 		if err := r.materializeWorkspaceConflict(callCtx, repo, cache, root, ws, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, conflict); err != nil {
+			progress.Finish()
 			return err
 		}
+		progress.Add(1)
 	}
+	progress.Finish()
 	remoteSnapshot := BaseSnapshot{CommitID: newBaseCommitID, Files: remoteBaseSnapshotFiles(remoteFiles)}
 	state.BaseCommitID = newBaseCommitID
 	ws.BaseCommitID = newBaseCommitID
@@ -6314,7 +6399,12 @@ func (r Runner) writeCaptureDiagnostics(stats captureDiagnostics) {
 	)
 }
 
-func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool) error {
+type createSubmitOptions struct {
+	enabled bool
+	timeout time.Duration
+}
+
+func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool, submit createSubmitOptions) error {
 	_ = all
 	title, err := r.requiredCommandMessage(opts, title, "Changeset title: ", "create requires --message", "Run gs create --message <title>.")
 	if err != nil {
@@ -6417,24 +6507,90 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
+	link := webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(cs), cs.Id))
+	if !opts.jsonOutput() && !opts.Quiet {
+		fmt.Fprintf(r.Stdout, "created %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
+		if link != "" {
+			fmt.Fprintf(r.Stdout, "view: %s\n", link)
+		}
+		fmt.Fprintf(r.Stdout, "dependencies: %s\n", stackID)
+	}
+	out := changesetOutput{
+		ChangesetID:    cs.Id,
+		PatchsetID:     patchset.Id,
+		PatchsetNumber: patchset.Number,
+		StackID:        stackID,
+		WebURL:         link,
+	}
+	var submitErr error
+	if submit.enabled {
+		res, err := r.submitWhenChecksReport(ctx, opts, conn, cfg, state, submit.timeout)
+		if err != nil {
+			// The changeset exists either way; say which it is.
+			if opts.jsonOutput() {
+				_ = r.writeJSONOutput(opts, out)
+			}
+			return err
+		}
+		displaySubmitStackResponse(res)
+		result := submitDependenciesOutputFromProto(res)
+		out.Submit = &result
+		if res.Status == "partial" {
+			submitErr = userError("submit_blocked", "created "+firstNonEmpty(displayChangesetID(cs), cs.Id)+" but could not submit it", "Fix what blocks it, then run gs submit.")
+		}
+		if !opts.jsonOutput() && !opts.Quiet {
+			r.writeSubmitResultsText(res)
+		}
+	}
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, changesetOutput{
-			ChangesetID:    cs.Id,
-			PatchsetID:     patchset.Id,
-			PatchsetNumber: patchset.Number,
-			StackID:        stackID,
-			WebURL:         webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(cs), cs.Id)),
-		})
+		if err := r.writeJSONOutput(opts, out); err != nil {
+			return err
+		}
 	}
-	if opts.Quiet {
-		return nil
+	return submitErr
+}
+
+// pendingCheckPattern matches a submit blocked only because a required check
+// has no result yet (storage.EvaluateSubmitRequirements).
+var pendingCheckPattern = regexp.MustCompile(`required check "([^"]+)" has no result`)
+
+// submitRetryInterval is how often gs create --submit retries while required
+// checks have not reported.
+var submitRetryInterval = 5 * time.Second
+
+// submitWhenChecksReport submits a changeset gs create just made. Its required
+// checks start when it is created, so a submit right away is often blocked
+// only because they have not reported; it waits for them (up to timeout) and
+// tries again. Anything else that blocks the submit is returned as it is.
+func (r Runner) submitWhenChecksReport(ctx context.Context, opts commandOptions, conn *grpc.ClientConn, cfg UserConfig, state WorkspaceState, timeout time.Duration) (*corev1.SubmitStackResponse, error) {
+	deadline := time.Now().Add(timeout)
+	waitingFor := ""
+	for {
+		res, err := r.submitActivePath(ctx, conn, cfg, state, true, time.Until(deadline))
+		if err != nil {
+			return nil, err
+		}
+		check := ""
+		for _, result := range res.Results {
+			if match := pendingCheckPattern.FindStringSubmatch(result.BlockedReason); match != nil {
+				check = match[1]
+				break
+			}
+		}
+		remaining := time.Until(deadline)
+		if check == "" || remaining <= 0 {
+			return res, nil
+		}
+		if check != waitingFor && !opts.Quiet && !opts.jsonOutput() {
+			fmt.Fprintf(r.stderr(), "waiting for required check %q to pass...\n", check)
+		}
+		waitingFor = check
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(min(submitRetryInterval, remaining)):
+		}
 	}
-	fmt.Fprintf(r.Stdout, "created %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
-	if link := webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(cs), cs.Id)); link != "" {
-		fmt.Fprintf(r.Stdout, "view: %s\n", link)
-	}
-	fmt.Fprintf(r.Stdout, "dependencies: %s\n", stackID)
-	return nil
 }
 
 func (r Runner) requiredCommandMessage(opts commandOptions, value, prompt, message, hint string) (string, error) {
@@ -7463,6 +7619,8 @@ func hashLocalUploadFiles(ctx context.Context, files []localUploadFile, concurre
 		size        int64
 		err         error
 	}
+	progress := startProgress(ctx, "hashing", "files", len(files))
+	defer progress.Finish()
 	jobs := make(chan int)
 	results := make(chan result, len(files))
 	var wg sync.WaitGroup
@@ -7511,6 +7669,7 @@ func hashLocalUploadFiles(ctx context.Context, files []localUploadFile, concurre
 		close(results)
 	}()
 	for result := range results {
+		progress.Add(1)
 		if result.err != nil {
 			return result.err
 		}
@@ -7580,6 +7739,8 @@ func uploadBlobsConcurrently(ctx context.Context, hashes []string, concurrency i
 		return map[string]*corev1.UploadBlobResponse{}, nil
 	}
 	concurrency = boundedUploadConcurrency(concurrency, len(hashes))
+	progress := startProgress(ctx, "uploading", "files", len(hashes))
+	defer progress.Finish()
 	type result struct {
 		hash     string
 		response *corev1.UploadBlobResponse
@@ -7620,6 +7781,7 @@ func uploadBlobsConcurrently(ctx context.Context, hashes []string, concurrency i
 	uploaded := make(map[string]*corev1.UploadBlobResponse, len(hashes))
 	var firstErr error
 	for result := range results {
+		progress.Add(1)
 		if result.err != nil {
 			if firstErr == nil {
 				firstErr = result.err
@@ -8124,24 +8286,7 @@ func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, request
 			}
 		}
 	}
-	displaySubmitStackResponse(res)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, submitDependenciesOutputFromProto(res))
-	}
-	if opts.Quiet {
-		return nil
-	}
-	for _, result := range res.Results {
-		if result.BlockedReason != "" {
-			fmt.Fprintf(r.Stdout, "blocked %s: %s\n", firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId), result.BlockedReason)
-			continue
-		}
-		fmt.Fprintf(r.Stdout, "%s %s\n", result.Status, firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId))
-	}
-	if res.Status == "partial" {
-		fmt.Fprintln(r.Stdout, "dependencies partially submitted")
-	}
-	return nil
+	return r.writeSubmitDependencies(opts, res)
 }
 
 func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOptions, cfg UserConfig, state WorkspaceState, watch bool, watchTimeout time.Duration) error {
@@ -8150,14 +8295,24 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 		return err
 	}
 	defer conn.Close()
-	callCtx := authContext(ctx, cfg)
-	stack, err := corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	res, err := r.submitActivePath(ctx, conn, cfg, state, watch, watchTimeout)
 	if err != nil {
 		return err
 	}
+	return r.writeSubmitDependencies(opts, res)
+}
+
+// submitActivePath submits the active changeset and the changesets it is
+// based on, base first, and says what became of each.
+func (r Runner) submitActivePath(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, state WorkspaceState, watch bool, watchTimeout time.Duration) (*corev1.SubmitStackResponse, error) {
+	callCtx := authContext(ctx, cfg)
+	stack, err := corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+	if err != nil {
+		return nil, err
+	}
 	entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID)
 	if entry == nil {
-		return userError("stack_entry_not_found", "active changeset not found", "Run gs deps to inspect available changesets.")
+		return nil, userError("stack_entry_not_found", "active changeset not found", "Run gs deps to inspect available changesets.")
 	}
 	entriesByID := map[string]*corev1.ChangesetStackEntry{}
 	for _, item := range stack.Entries {
@@ -8193,7 +8348,7 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 		if cs == nil {
 			cs, err = changesetClient.GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: item.ChangesetId})
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 		if cs.Status == "submitted" {
@@ -8206,19 +8361,29 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 			res.Results = append(res.Results, &corev1.SubmitStackEntryResult{ChangesetId: cs.Id, Status: "blocked", BlockedReason: cliSubmitBlockReason(err)})
 			continue
 		}
-		if watch && (submitted.Status == "pending_publish" || submitted.Status == "submitted") {
-			_, _, _ = r.waitForChangesetPublished(ctx, conn, cfg, cs.Id, cs.Id, watchTimeout, false)
-		}
-		res.Results = append(res.Results, &corev1.SubmitStackEntryResult{
+		result := &corev1.SubmitStackEntryResult{
 			ChangesetId:      cs.Id,
 			Status:           submitted.Status,
 			CommitId:         submitted.CommitId,
 			PendingPublishId: submitted.PendingPublishId,
-		})
+		}
+		if watch && (submitted.Status == "pending_publish" || submitted.Status == "submitted") {
+			// Once it has landed, say so rather than what the submit first said.
+			if commitID, _, err := r.waitForChangesetPublished(ctx, conn, cfg, cs.Id, cs.Id, watchTimeout, false); err == nil && commitID != "" {
+				result.Status = "submitted"
+				result.CommitId = commitID
+				result.PendingPublishId = ""
+			}
+		}
+		res.Results = append(res.Results, result)
 	}
 	if blocked {
 		res.Status = "partial"
 	}
+	return res, nil
+}
+
+func (r Runner) writeSubmitDependencies(opts commandOptions, res *corev1.SubmitStackResponse) error {
 	displaySubmitStackResponse(res)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, submitDependenciesOutputFromProto(res))
@@ -8226,6 +8391,11 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 	if opts.Quiet {
 		return nil
 	}
+	r.writeSubmitResultsText(res)
+	return nil
+}
+
+func (r Runner) writeSubmitResultsText(res *corev1.SubmitStackResponse) {
 	for _, result := range res.Results {
 		if result.BlockedReason != "" {
 			fmt.Fprintf(r.Stdout, "blocked %s: %s\n", firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId), result.BlockedReason)
@@ -8236,7 +8406,6 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 	if res.Status == "partial" {
 		fmt.Fprintln(r.Stdout, "dependencies partially submitted")
 	}
-	return nil
 }
 
 func cliSubmitBlockReason(err error) string {
@@ -11250,7 +11419,9 @@ func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn
 		ws:       ws,
 		commitID: commitID,
 		base:     base,
+		progress: startProgress(ctx, "hydrating", "files", 0),
 	}
+	defer hydrator.progress.Finish()
 	for _, requestedPath := range requested {
 		globalPath, err := workspaceInputToGlobalPath(ws, requestedPath)
 		if err != nil {
@@ -11276,6 +11447,7 @@ type workspaceHydrator struct {
 	commitID string
 	base     BaseSnapshot
 	result   hydrateResult
+	progress *progressReporter
 }
 
 func (h *workspaceHydrator) hydratePath(ctx context.Context, globalPath string) error {
@@ -11367,6 +11539,7 @@ func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeE
 		Size:        size,
 	}
 	h.result.FileCount++
+	h.progress.Add(1)
 	return nil
 }
 
@@ -12409,6 +12582,13 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"current", "latest", "target", "path", "upgraded", "up_to_date"},
 			},
 			{
+				"use":            "gs doctor [account/slice]",
+				"summary":        "check version, config, server, sign-in, workspace and slice access, with a fix for each problem; exits 1 when a check fails",
+				"args":           []string{"account/slice"},
+				"writes_stdout":  true,
+				"machine_output": []string{"ok", "checks"},
+			},
+			{
 				"use":            "gs auth status",
 				"summary":        "show current authentication status after validating the local token",
 				"writes_stdout":  true,
@@ -12568,10 +12748,10 @@ func (r Runner) runSchema(opts commandOptions) error {
 			},
 			{
 				"use":            "gs create",
-				"summary":        "create a changeset and first patchset from workspace edits",
-				"flags":          []string{"--message", "--all", "--base", "--sibling", "--root"},
+				"summary":        "create a changeset and first patchset from workspace edits; --submit also waits for required checks and lands it",
+				"flags":          []string{"--message", "--all", "--submit", "--watch-timeout", "--base", "--sibling", "--root"},
 				"writes_stdout":  true,
-				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url"},
+				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url", "submit"},
 			},
 			{
 				"use":            "gs modify",
@@ -12804,7 +12984,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 			},
 			{
 				"use":           "gs completion <shell>",
-				"summary":       "generate shell completion scripts",
+				"summary":       "print a shell completion script (bash, zsh, fish, powershell); changeset and slice arguments complete from the server",
 				"args":          []string{"shell"},
 				"writes_stdout": true,
 			},

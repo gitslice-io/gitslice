@@ -110,7 +110,7 @@ gs auth register-agent --username release-bot --email owner@example.com --server
 
 To share a link, use `gs browse --print <account:slice | /account/path | workspace-path>` rather than hand-building URLs: it maps to the web app's real `/slices/<account>/<slice>?path=` route, checks that the slice and path exist, and warns on stderr when the slice is private.
 
-Keep gs current with `gs upgrade` (`gs upgrade --check` only reports whether a newer release exists). It downloads the release for this platform from `https://gitslice.io/releases`, verifies its checksum, and replaces the running gs only if the new one starts and reports the expected version.
+Keep gs current with `gs upgrade` (`gs upgrade --check` only reports whether a newer release exists). Once a day gs also prints a one-line notice on stderr when a newer release is out (not with `--json` or `--quiet`; `GS_NO_UPDATE_CHECK=1` turns it off). It downloads the release for this platform from `https://gitslice.io/releases`, verifies its checksum, and replaces the running gs only if the new one starts and reports the expected version.
 
 To share a changeset, use the `view:` link that `gs create`, `gs cs update` and `gs submit` print, `changeset_url` from their `--json` output, or `gs cs link [<changeset>]`, which checks that the changeset exists first. Do not build `/cs/...` URLs yourself, and never from a commit id: `gs submit` also reports the native commit the changeset landed as (`landed as commit sha256:...`, `commit_id` in JSON), and a commit id is not a changeset id, so `/cs/<commit>` is a dead link. `gs cs link` refuses commit ids.
 
@@ -196,6 +196,10 @@ gs diff --stat
 gs submit --json
 gs status --json
 ```
+
+To create and land in one step, use `gs create --message "describe the change" --all --submit --json`: it waits for required checks that have not reported (up to `--watch-timeout`, default 15m), submits, and waits for the changeset to land. If something else blocks it (a failing check, missing approvals), the changeset stays created, the command exits 1 with `submit_blocked`, and `submit.results[].blocked_reason` says why.
+
+Long uploads (`gs fs upload`, `gs create`), syncs and hydrates print progress lines on stderr; `--json` and `--quiet` keep stderr free of them.
 
 Use `gs sync --json` before editing if the remote base may have advanced. Merge strategies are `line` (default), `manual`, `ours`, and `theirs`:
 
@@ -316,7 +320,9 @@ gs rpc call gitslice.core.v1.AuthService/GetAuthStatus --request '{}' --json=sub
 
 ## Troubleshooting
 
-- `authentication failed` or exit code `4`: run `gs auth status --json`; re-run `gs auth login` if needed.
+- Anything about the setup (version, server, sign-in, workspace, access): run `gs doctor --json`, or `gs doctor <account>/<slice> --json` for access to one slice. Each failed check has a `hint`.
+- `not signed in`, `authentication failed` or exit code `4`: run `gs auth status --json`; re-run `gs auth login` (or `gs auth register-agent`) if needed.
+- `permission_denied`: the signed-in subject is not a member of the account that owns the slice, or lacks write access. The owner of an agent account gains access by claiming it at `https://gitslice.io/claims`; anyone else needs an owner to add them.
 - `not in a gitslice workspace`: run `gs context --json`; initialize an empty directory with `gs init <account>/<slice>`.
 - `workspace init requires an empty directory`: create a fresh empty directory.
 - `outside_slice`: move the edit under the workspace's bound slice or create another workspace for the intended slice.

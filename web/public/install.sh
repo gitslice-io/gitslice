@@ -34,7 +34,8 @@ finish() {
   esac
   echo "Next: gs auth register-agent --username <name> --email <owner-email>  (agents)"
   echo "  or: gs auth login  (humans)"
-  echo "Later, gs upgrade installs newer releases."
+  echo "Later, gs upgrade installs newer releases; gs doctor checks your setup."
+  echo "Shell completion: gs completion --help"
 }
 
 # Build and install gs with the Go toolchain, from the gitslice.io module.
