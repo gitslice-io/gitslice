@@ -82,7 +82,8 @@ vi.mock("../components/diff/DiffViewer", () => ({
   DiffViewer: ({
     fileStates,
     onFileNeeded,
-    onFileRetry
+    onFileRetry,
+    onViewFile
   }: {
     fileStates?: {
       path: string;
@@ -92,9 +93,16 @@ vi.mock("../components/diff/DiffViewer", () => ({
     }[];
     onFileNeeded?(path: string): void;
     onFileRetry?(path: string): void;
+    onViewFile?(file: { path: string; changeKind: string }): void;
   }) => (
     <div data-testid="diff-viewer">
       Diff viewer
+      <button
+        onClick={() => onViewFile?.({ changeKind: "modified", path: "acme/payment/parser.go" })}
+        type="button"
+      >
+        View parser.go
+      </button>
       {fileStates?.map((file, index) => (
         <div data-testid={`file-state-${index}`} key={file.path}>
           {file.path}: {file.status} kind=
@@ -692,6 +700,107 @@ describe("changeset detail page", () => {
     expect(
       await screen.findByText("Changeset conflicts with base")
     ).toBeInTheDocument();
+  });
+});
+
+describe("reading a changed file in full", () => {
+  beforeEach(() => {
+    routerMock.navigate = vi.fn((options?: { search?: unknown }) => {
+      const next = options?.search;
+      if (typeof next === "function") {
+        routerMock.setSearch((next as (prev: Record<string, unknown>) => Record<string, unknown>)(routerMock.search));
+      }
+    });
+    routerMock.back = vi.fn();
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = {};
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("opens the original file, then the changed one, from the patchset's trees", async () => {
+    const api = makeApi();
+    const detail = changeset("cs_child", "use parser in payment API", {
+      patchsetId: "ps_child_1",
+      patchsetNumber: "1"
+    });
+    detail.authoringSlice = { account: "acme", slice: "payment" };
+    detail.patchsets = [
+      {
+        ...(detail.patchsets?.[0] ?? {}),
+        baseTreeId: "tree_base",
+        changedPaths: ["/acme/payment/parser.go"],
+        id: "ps_child_1",
+        number: "1",
+        resultTreeId: "tree_result"
+      }
+    ];
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: [], diff: "" });
+    api.readFile = vi.fn(({ rootTreeId }: { rootTreeId: string }) =>
+      Promise.resolve({ data: btoa(rootTreeId === "tree_base" ? "package payment // before" : "package payment // after") })
+    );
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "View parser.go" }));
+
+    expect(routerMock.search).toEqual({ side: "original", view: "acme/payment/parser.go" });
+    const drawer = screen.getByRole("complementary", { name: "File" });
+    await waitFor(() => expect(drawer).toHaveTextContent("package payment // before"));
+    expect(api.readFile).toHaveBeenCalledWith({
+      path: "/acme/payment/parser.go",
+      rootTreeId: "tree_base",
+      slice: { account: "acme", slice: "payment" }
+    });
+    expect(screen.getByRole("button", { name: "Original" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Changed" }));
+    expect(routerMock.search).toEqual({ side: "changed", view: "acme/payment/parser.go" });
+    await waitFor(() => expect(drawer).toHaveTextContent("package payment // after"));
+    expect(api.readFile).toHaveBeenLastCalledWith({
+      path: "/acme/payment/parser.go",
+      rootTreeId: "tree_result",
+      slice: { account: "acme", slice: "payment" }
+    });
+    expect(screen.getByText(/Open the latest version in acme\/payment/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(routerMock.back).toHaveBeenCalled();
+  });
+
+  it("opens a shared link to a deleted file on its original version", async () => {
+    routerMock.search = { view: "/acme/payment/old.go" };
+    const api = makeApi();
+    const detail = changeset("cs_child", "drop old", { patchsetId: "ps_child_1", patchsetNumber: "1" });
+    detail.authoringSlice = { account: "acme", slice: "payment" };
+    detail.patchsets = [
+      {
+        ...(detail.patchsets?.[0] ?? {}),
+        baseTreeId: "tree_base",
+        changedPaths: ["/acme/payment/old.go"],
+        fileEdits: [{ op: "delete", path: "/acme/payment/old.go" }],
+        id: "ps_child_1",
+        number: "1",
+        resultTreeId: "tree_result"
+      }
+    ];
+    api.getChangeset = vi.fn().mockResolvedValue(detail);
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: [], diff: "" });
+    api.readFile = vi.fn().mockResolvedValue({ data: btoa("package payment // old") });
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("complementary", { name: "File" })).toHaveTextContent("package payment // old")
+    );
+    expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ rootTreeId: "tree_base" }));
+    expect(screen.getByRole("button", { name: "Changed" })).toBeDisabled();
+    expect(screen.queryByText(/Open the latest version/)).not.toBeInTheDocument();
   });
 });
 

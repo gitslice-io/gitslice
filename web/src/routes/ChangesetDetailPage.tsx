@@ -58,6 +58,12 @@ import {
   mergeErrorMessage
 } from "./changeset-detail/status";
 import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
+import {
+  FileVersionDrawer,
+  fileVersionSides,
+  type FileVersionSide,
+  type FileVersionTarget
+} from "./changeset-detail/FileVersionDrawer";
 
 const fullDiffPathLimit = 20;
 const eagerFileDiffCount = 10;
@@ -76,6 +82,8 @@ export function ChangesetDetailPage() {
     to?: string;
     file?: string;
     conversation?: unknown;
+    view?: string;
+    side?: string;
   };
   const [abandonReason, setAbandonReason] = useState("");
   // On phones the page opens with its details (breadcrumbs, ids, patchsets,
@@ -410,6 +418,59 @@ export function ChangesetDetailPage() {
     openConversation();
   }, [closeConversation, conversationOpen, openConversation]);
 
+  // The file being read in full lives in the URL (?view=<path>&side=) like
+  // the conversation, so back closes it and the link can be shared. The diff
+  // knows a file's change kind; a shared link falls back to the edits.
+  const [viewedFile, setViewedFile] = useState<FileVersionTarget>();
+  const fileViewPath = search.view ?? "";
+  const fileViewTarget = useMemo<FileVersionTarget | undefined>(() => {
+    if (!fileViewPath) {
+      return undefined;
+    }
+    if (viewedFile && samePath(viewedFile.path, fileViewPath)) {
+      return viewedFile;
+    }
+    const metadataPath = changedPaths.find((path) => samePath(path, fileViewPath));
+    return { path: fileViewPath, ...(metadataPath ? fileMetadataByPath.get(metadataPath) : {}) };
+  }, [changedPaths, fileMetadataByPath, fileViewPath, viewedFile]);
+  const fileViewSide: FileVersionSide =
+    search.side === "changed" || search.side === "original"
+      ? search.side
+      : fileVersionSides(fileViewTarget?.changeKind).original
+        ? "original"
+        : "changed";
+  const openFileView = useCallback(
+    (file: DiffFile) => {
+      setViewedFile({ changeKind: file.changeKind, oldPath: file.oldPath, path: file.path });
+      void navigate({
+        params: { id: changesetId } as never,
+        search: ((prev: Record<string, unknown>) => ({
+          ...prev,
+          side: fileVersionSides(file.changeKind).original ? "original" : "changed",
+          view: file.path
+        })) as never,
+        to: "/cs/$id"
+      });
+    },
+    [changesetId, navigate]
+  );
+  const setFileViewSide = useCallback(
+    (side: FileVersionSide) => {
+      void navigate({
+        params: { id: changesetId } as never,
+        replace: true,
+        search: ((prev: Record<string, unknown>) => ({ ...prev, side })) as never,
+        to: "/cs/$id"
+      });
+    },
+    [changesetId, navigate]
+  );
+  const closeFileView = useCallback(() => {
+    if (fileViewPath) {
+      router.history.back();
+    }
+  }, [fileViewPath, router.history]);
+
   const mergeMutation = useMutation({
     mutationFn: async () => {
       if (!canonicalChangesetId) {
@@ -556,6 +617,7 @@ export function ChangesetDetailPage() {
               key={comparisonKey}
               onFileNeeded={requestFileDiff}
               onFileRetry={retryFileDiff}
+              onViewFile={openFileView}
             />
           </div>
           <ConversationDrawer
@@ -568,6 +630,20 @@ export function ChangesetDetailPage() {
             selectedPatchsetId={selectedToPatchset}
           />
         </div>
+        <FileVersionDrawer
+          api={api}
+          changedLabel={selectedFromPatchset ? `Patchset ${selectedToPatchsetMetadata?.number ?? ""}` : "Changed"}
+          changedTreeId={selectedToPatchsetMetadata?.resultTreeId}
+          onClose={closeFileView}
+          onSideChange={setFileViewSide}
+          originalLabel={selectedFromPatchset ? `Patchset ${selectedFromPatchset.number ?? ""}` : "Original"}
+          originalTreeId={
+            selectedFromPatchset ? selectedFromPatchset.resultTreeId : selectedToPatchsetMetadata?.baseTreeId
+          }
+          side={fileViewSide}
+          slice={authoringSlice}
+          target={fileViewTarget}
+        />
       </section>
     </MobileDetailsProvider>
   );
@@ -625,6 +701,10 @@ function ChangesetLoadError({
   return (
     <PageMessage message={errorMessage(error)} title="Unable to load changeset" />
   );
+}
+
+function samePath(a: string, b: string) {
+  return a.replace(/^\/+/, "") === b.replace(/^\/+/, "");
 }
 
 function changedPathsForDiff(from?: Patchset, to?: Patchset) {

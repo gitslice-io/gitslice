@@ -57,6 +57,8 @@ interface DiffViewerProps {
   fileStates?: DiffViewerFileState[];
   onFileNeeded?(path: string): void;
   onFileRetry?(path: string): void;
+  /** Opens the whole file, before or after the change. */
+  onViewFile?(file: DiffFile): void;
 }
 
 export type DiffFileLoadStatus =
@@ -89,7 +91,8 @@ export function DiffViewer({
   focusFilePath,
   fileStates,
   onFileNeeded,
-  onFileRetry
+  onFileRetry,
+  onViewFile
 }: DiffViewerProps) {
   const parsedFiles = useMemo(
     () =>
@@ -501,6 +504,7 @@ export function DiffViewer({
                   key={file.id}
                   onExpand={expandGap}
                   onRetry={onFileRetry}
+                  onViewFile={onViewFile}
                   refCallback={(node) => {
                     panelRefs.current[file.id] = node;
                   }}
@@ -568,6 +572,7 @@ function DiffFilePanel({
   isBodyMounted,
   onExpand,
   onRetry,
+  onViewFile,
   refCallback,
   revealed,
   viewMode
@@ -577,6 +582,7 @@ function DiffFilePanel({
   isBodyMounted: boolean;
   onExpand: ExpandFn;
   onRetry?(path: string): void;
+  onViewFile?(file: DiffFile): void;
   refCallback(node: HTMLElement | null): void;
   revealed: Record<string, RevealState>;
   viewMode: ViewMode;
@@ -602,16 +608,28 @@ function DiffFilePanel({
             {file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}
           </h3>
         </div>
-        {status === "loaded" ? (
-          <div className="flex shrink-0 gap-2 font-mono text-xs">
-            <span className="rounded bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-emerald-800 dark:text-emerald-200 sm:px-2 sm:py-1">
-              +{file.additions}
-            </span>
-            <span className="rounded bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 text-rose-800 dark:text-rose-200 sm:px-2 sm:py-1">
-              -{file.deletions}
-            </span>
-          </div>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {status === "loaded" ? (
+            <div className="flex gap-2 font-mono text-xs">
+              <span className="rounded bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-emerald-800 dark:text-emerald-200 sm:px-2 sm:py-1">
+                +{file.additions}
+              </span>
+              <span className="rounded bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 text-rose-800 dark:text-rose-200 sm:px-2 sm:py-1">
+                -{file.deletions}
+              </span>
+            </div>
+          ) : null}
+          {onViewFile ? (
+            <button
+              className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] sm:py-1"
+              onClick={() => onViewFile({ ...file, changeKind: fileState?.changeKind ?? file.changeKind, oldPath: file.oldPath ?? fileState?.oldPath })}
+              title="Read the whole file, before or after this change"
+              type="button"
+            >
+              View file
+            </button>
+          ) : null}
+        </div>
       </div>
       {status !== "loaded" ? (
         <PendingDiffBody

@@ -50,6 +50,37 @@ describe("DiffViewer", () => {
     ).toBeInTheDocument();
   });
 
+  it("offers each file in full, with its change kind and old path", () => {
+    const diff = [
+      "diff --git a/old.go b/new.go",
+      "similarity index 90%",
+      "rename from old.go",
+      "rename to new.go",
+      "--- a/old.go",
+      "+++ b/new.go",
+      "@@ -1 +1 @@",
+      "-package old",
+      "+package new",
+      ""
+    ].join("\n");
+    const onViewFile = vi.fn();
+
+    render(
+      <DiffViewer
+        diffResponse={{ changedPaths: ["new.go"], diff }}
+        error={null}
+        isError={false}
+        isLoading={false}
+        onViewFile={onViewFile}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View file" }));
+    expect(onViewFile).toHaveBeenCalledWith(
+      expect.objectContaining({ changeKind: "renamed", oldPath: "old.go", path: "new.go" })
+    );
+  });
+
   it("guards diffs over 5,000 lines until Show diff is clicked", () => {
     const contextLines = Array.from(
       { length: 5001 },
