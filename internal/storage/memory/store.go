@@ -32,6 +32,7 @@ type Stores struct {
 	Agents     *AgentStore
 	Checks     *CheckStore
 	Webhooks   *WebhookStore
+	Feedback   *FeedbackStore
 
 	backend *backend
 }
@@ -44,6 +45,7 @@ type backend struct {
 	accountMembers    map[string]map[string]string
 	personalAccounts  map[string]string
 	webhooks          map[string]storage.Webhook
+	feedback          map[string]storage.Feedback
 	webhookEvents     []*memWebhookEvent
 	webhookDeliveries map[string]*memWebhookDelivery
 	// orgAccounts records which account slugs are organizations.
@@ -146,6 +148,7 @@ func New() *Stores {
 		personalAccounts:        map[string]string{},
 		orgAccounts:             map[string]bool{},
 		webhooks:                map[string]storage.Webhook{},
+		feedback:                map[string]storage.Feedback{},
 		webhookDeliveries:       map[string]*memWebhookDelivery{},
 		orgCreators:             map[string]string{},
 		invitations:             map[string]map[string]storage.AccountInvitation{},
@@ -210,6 +213,7 @@ func New() *Stores {
 		Agents:     &AgentStore{b: b},
 		Checks:     &CheckStore{b: b},
 		Webhooks:   &WebhookStore{b: b},
+		Feedback:   &FeedbackStore{b: b},
 		backend:    b,
 	}
 }
@@ -218,6 +222,14 @@ func (s *Stores) AddAccount(subjectID, accountSlug string) {
 	s.backend.mu.Lock()
 	defer s.backend.mu.Unlock()
 	s.backend.addAccountLocked(subjectID, accountSlug)
+}
+
+// AddPersonalAccount gives the subject its own account, as choosing a
+// username does.
+func (s *Stores) AddPersonalAccount(subjectID, username string) {
+	s.backend.mu.Lock()
+	defer s.backend.mu.Unlock()
+	s.backend.provisionPersonalAccountLocked(subjectID, username, username)
 }
 
 func (s *Stores) AddAccountRole(subjectID, accountSlug, role string) {

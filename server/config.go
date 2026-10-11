@@ -58,7 +58,11 @@ type Config struct {
 	// OperatorSubjects may create organization accounts
 	// (GITSLICE_OPERATOR_SUBJECTS: subject ids separated by commas,
 	// semicolons or spaces).
-	OperatorSubjects    []string
+	OperatorSubjects []string
+	// FeedbackAccount is the account whose owners and admins read and answer
+	// feedback, with the operators (GITSLICE_FEEDBACK_ACCOUNT; default
+	// gitslice, "none" for operators only).
+	FeedbackAccount     string
 	MetricsToken        string
 	RequireMetricsToken bool
 	PostHogAPIKey       string
@@ -116,6 +120,7 @@ func ConfigFromEnv() Config {
 		AgentSignupEnabled:       envEnabled(os.Getenv("GITSLICE_AGENT_SIGNUP_ENABLED")),
 		AgentSignupPerHour:       intValueOrDefault(os.Getenv("GITSLICE_AGENT_SIGNUP_PER_HOUR"), 5),
 		OperatorSubjects:         splitList(os.Getenv("GITSLICE_OPERATOR_SUBJECTS")),
+		FeedbackAccount:          feedbackAccount(os.Getenv("GITSLICE_FEEDBACK_ACCOUNT")),
 		MetricsToken:             os.Getenv("GITSLICE_METRICS_TOKEN"),
 		RequireMetricsToken:      os.Getenv("GITSLICE_REQUIRE_METRICS_TOKEN") == "1",
 		PostHogAPIKey:            os.Getenv("GITSLICE_POSTHOG_API_KEY"),
@@ -263,4 +268,17 @@ func splitList(value string) []string {
 	return strings.FieldsFunc(value, func(r rune) bool {
 		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
 	})
+}
+
+// feedbackAccount reads GITSLICE_FEEDBACK_ACCOUNT: unset means gitslice, and
+// "none" means no account, so only operators read feedback.
+func feedbackAccount(value string) string {
+	value = strings.TrimSpace(value)
+	switch value {
+	case "":
+		return "gitslice"
+	case "none":
+		return ""
+	}
+	return value
 }

@@ -445,6 +445,19 @@ also waits a day. It is skipped for source builds, `--json`, `--quiet`,
 `GS_NO_UPDATE_CHECK=1`. The last lookup is kept in
 `~/.gitslice/update-check.json`.
 
+## 3.11 Feedback
+
+```bash
+gs feedback [message] [--category bug|idea|docs|other] [--stdin] [--context key=value]
+gs feedback list [--mine] [--status open|resolved|all] [--limit N] [--cursor C]
+gs feedback resolve <feedback-id> --note <answer> | --reopen
+```
+
+Anyone signed in sends feedback to the Gitslice team, and reads it back with
+the team's answer (`--mine`); the team reads everyone's and answers it.
+gs adds `gs_version`, `os`, `arch` and the workspace slice as context. See
+[design/25_feedback.md](25_feedback.md).
+
 ## 4. Workspace Commands
 
 ```bash

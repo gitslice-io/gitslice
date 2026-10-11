@@ -27,6 +27,7 @@ type Handlers struct {
 	Agent      *AgentService
 	Check      *CheckService
 	Webhook    *WebhookService
+	Feedback   *FeedbackService
 }
 
 type Stores struct {
@@ -39,6 +40,8 @@ type Stores struct {
 	Checks     storage.CheckStore
 	// Webhooks is optional: without it the WebhookService is unavailable.
 	Webhooks storage.WebhookStore
+	// Feedback is optional: without it the FeedbackService is unavailable.
+	Feedback storage.FeedbackStore
 }
 
 func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Client) *Handlers {
@@ -127,6 +130,8 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			dispatcher: checkDispatcher,
 		},
 		Webhook: newWebhookService(stores),
+		// The server sets who reads feedback (Account, OperatorSubjects).
+		Feedback: &FeedbackService{Auth: stores.Auth, Feedback: stores.Feedback},
 	}
 }
 

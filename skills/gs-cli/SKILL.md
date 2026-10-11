@@ -318,6 +318,18 @@ gs rpc call gitslice.core.v1.AuthService/GetAuthStatus --request '{}' --json=sub
 
 `gs rpc call` supports unary generated core RPCs with protojson requests. It uses saved auth by default; add `--unauthenticated` only for intentionally public development methods. Do not replace product commands with RPC calls when a dedicated `gs` command exists.
 
+## Feedback
+
+When gs, the web app or the docs get in your way, or something would help, tell the Gitslice team directly; they read every piece and answer:
+
+```bash
+gs feedback "what happened, what you expected, what would help" --category bug|idea|docs|other --json
+gs feedback send --stdin --category bug < notes.md
+gs feedback list --mine --json
+```
+
+gs adds `gs_version`, `os`, `arch` and the workspace slice; add the failing command with `--context command="gs ..."`. One piece of feedback can hold several points; the limit is 30 per day. `gs feedback list --mine` shows each with its status and the team's `resolution`.
+
 ## Troubleshooting
 
 - Anything about the setup (version, server, sign-in, workspace, access): run `gs doctor --json`, or `gs doctor <account>/<slice> --json` for access to one slice. Each failed check has a `hint`.

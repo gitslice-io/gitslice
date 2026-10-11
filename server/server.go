@@ -171,8 +171,11 @@ func Run(ctx context.Context, cfg Config) error {
 		Agents:     db.Agents(),
 		Checks:     webhooks.WrapChecks(db.Checks(), dispatcher),
 		Webhooks:   db.Webhooks(),
+		Feedback:   db.Feedback(),
 	}
 	handlers := service.New(stores, objectStore, tracker)
+	handlers.Feedback.Account = cfg.FeedbackAccount
+	handlers.Feedback.OperatorSubjects = cfg.OperatorSubjects
 	handlers.Webhook.Dispatcher = dispatcher
 	handlers.Auth.AgentSignupEnabled = cfg.AgentSignupEnabled
 	handlers.Auth.OperatorSubjects = cfg.OperatorSubjects
@@ -448,6 +451,7 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 	corev1.RegisterAgentServiceServer(grpcServer, handlers.Agent)
 	corev1.RegisterCheckServiceServer(grpcServer, handlers.Check)
 	corev1.RegisterWebhookServiceServer(grpcServer, handlers.Webhook)
+	corev1.RegisterFeedbackServiceServer(grpcServer, handlers.Feedback)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)

@@ -189,6 +189,10 @@ const commandGroups = [
       [
         "gs completion bash|zsh|fish",
         "Print a shell completion script; gs completion <shell> --help says how to load it."
+      ],
+      [
+        "gs feedback \"<message>\" --category bug|idea|docs",
+        "Tell the Gitslice team what went wrong or what would help; gs feedback list --mine shows their answers."
       ]
     ]
   },

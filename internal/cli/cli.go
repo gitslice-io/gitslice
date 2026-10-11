@@ -2201,7 +2201,7 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	claimsCmd.AddCommand(claimsListCmd, claimsAcceptCmd)
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, r.upgradeCommand(opts), r.doctorCommand(opts), schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd, accountCmd, tagCmd, r.webhookCommand(opts))
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, r.upgradeCommand(opts), r.doctorCommand(opts), r.feedbackCommand(opts), schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd, accountCmd, tagCmd, r.webhookCommand(opts))
 	r.attachCompletions(root)
 	return root
 }
@@ -12587,6 +12587,29 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"args":           []string{"account/slice"},
 				"writes_stdout":  true,
 				"machine_output": []string{"ok", "checks"},
+			},
+			{
+				"use":            "gs feedback [message]",
+				"summary":        "send feedback to the Gitslice team (also gs feedback send); gs adds its version, OS and workspace",
+				"args":           []string{"message"},
+				"flags":          []string{"--category", "--stdin", "--context"},
+				"writes_stdout":  true,
+				"machine_output": []string{"id", "subject_id", "account", "body", "category", "context", "status", "created_at"},
+			},
+			{
+				"use":            "gs feedback list",
+				"summary":        "list your feedback and the team's answers (--mine), or, for the Gitslice team, everyone's",
+				"flags":          []string{"--mine", "--status", "--limit", "--cursor"},
+				"writes_stdout":  true,
+				"machine_output": []string{"feedback", "next_cursor"},
+			},
+			{
+				"use":            "gs feedback resolve <feedback-id>",
+				"summary":        "answer feedback and mark it resolved, or --reopen it (the Gitslice team)",
+				"args":           []string{"feedback-id"},
+				"flags":          []string{"--note", "--reopen"},
+				"writes_stdout":  true,
+				"machine_output": []string{"id", "status", "resolution", "resolved_by", "resolved_at"},
 			},
 			{
 				"use":            "gs auth status",

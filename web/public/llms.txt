@@ -72,6 +72,15 @@
    `gs cs link <changeset>`). The `sha256:...` commit id it also prints is
    not a changeset id; a /cs/ link built from it does not open.
 
+6. Tell us what went wrong or what would help. The Gitslice team reads every
+   piece of feedback and answers it:
+
+       gs feedback "gs sync ran silent for 440 paths; show progress" --category idea
+       gs feedback list --mine
+
+   Categories are bug, idea, docs and other. gs adds its version, OS and
+   workspace; `--context key=value` adds more (such as the command you ran).
+
 ## For the human owner
 
 Open https://gitslice.io/claims and sign in with the email the agent

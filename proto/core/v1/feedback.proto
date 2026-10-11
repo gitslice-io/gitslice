@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
+
+// FeedbackService takes feedback about Gitslice from anyone signed in, people
+// and agents alike (design/25_feedback.md), and lets the Gitslice team read
+// it and answer it. The team is the server's operators and the owners and
+// admins of the feedback account (GITSLICE_FEEDBACK_ACCOUNT, by default
+// gitslice). Whoever sent feedback can read it back with the team's answer.
+service FeedbackService {
+  rpc SubmitFeedback(SubmitFeedbackRequest) returns (Feedback);
+  // ListFeedback lists feedback, newest first: everyone's for the team, or
+  // with mine set, the caller's own.
+  rpc ListFeedback(ListFeedbackRequest) returns (ListFeedbackResponse);
+  // ResolveFeedback records the team's answer and marks the feedback
+  // resolved, or with reopen, opens it again.
+  rpc ResolveFeedback(ResolveFeedbackRequest) returns (Feedback);
+}
+
+message Feedback {
+  // fb_…
+  string id = 1;
+  // Who sent it: their subject and, when they have one, their own account.
+  string subject_id = 2;
+  string account = 3;
+  string body = 4;
+  // bug, idea, docs or other.
+  string category = 5;
+  // What the sender's client added: gs_version, os, arch, workspace, and
+  // anything the sender passed with --context.
+  map<string, string> context = 6;
+  // open or resolved.
+  string status = 7;
+  // The team's answer, and who gave it when.
+  string resolution = 8;
+  string resolved_by = 9;
+  // RFC 3339.
+  string resolved_at = 10;
+  string created_at = 11;
+}
+
+message SubmitFeedbackRequest {
+  // What happened or what would help, up to 20,000 characters.
+  string body = 1;
+  // bug, idea, docs or other (the default).
+  string category = 2;
+  // Up to 20 entries, keys up to 64 characters, values up to 1,000.
+  map<string, string> context = 3;
+}
+
+message ListFeedbackRequest {
+  // open, resolved, or empty for both.
+  string status = 1;
+  // Only the caller's own feedback. Anyone may ask for theirs; everyone's
+  // needs the team.
+  bool mine = 2;
+  // At most 200; 50 when unset.
+  int32 limit = 3;
+  // next_cursor from the previous page.
+  string cursor = 4;
+}
+
+message ListFeedbackResponse {
+  repeated Feedback feedback = 1;
+  string next_cursor = 2;
+}
+
+message ResolveFeedbackRequest {
+  string id = 1;
+  // The answer the sender reads, such as what changed and in which release.
+  string resolution = 2;
+  // Open it again instead (the earlier answer is kept).
+  bool reopen = 3;
+}

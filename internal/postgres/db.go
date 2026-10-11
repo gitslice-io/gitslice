@@ -21,6 +21,7 @@ type DB struct {
 	agents     *AgentStore
 	checks     *CheckStore
 	webhooks   *WebhookStore
+	feedback   *FeedbackStore
 }
 
 func Open(ctx context.Context, databaseURL string) (*DB, error) {
@@ -86,6 +87,11 @@ func (d *DB) Webhooks() *WebhookStore {
 	return d.webhooks
 }
 
+// Feedback returns the feedback store (design/25_feedback.md).
+func (d *DB) Feedback() *FeedbackStore {
+	return d.feedback
+}
+
 func (d *DB) initStores() {
 	d.auth = &AuthStore{db: d.db}
 	d.blobs = &BlobStore{db: d.db}
@@ -99,4 +105,5 @@ func (d *DB) initStores() {
 	d.agents = &AgentStore{db: d.db}
 	d.checks = &CheckStore{db: d.db}
 	d.webhooks = &WebhookStore{db: d.db}
+	d.feedback = &FeedbackStore{db: d.db}
 }

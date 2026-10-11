@@ -31,6 +31,7 @@ func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http
 	mount(corev1connect.NewAgentServiceHandler(connectAgentAdapter{svc: handlers.Agent}))
 	mount(corev1connect.NewCheckServiceHandler(connectCheckAdapter{svc: handlers.Check}))
 	mount(corev1connect.NewWebhookServiceHandler(connectWebhookAdapter{svc: handlers.Webhook}))
+	mount(corev1connect.NewFeedbackServiceHandler(connectFeedbackAdapter{svc: handlers.Feedback}))
 	return mux
 }
 
@@ -585,6 +586,22 @@ func (s connectCheckRunLogStream) Context() context.Context {
 
 func (s connectCheckRunLogStream) Send(msg *corev1.CheckRunLog) error {
 	return s.stream.Send(msg)
+}
+
+type connectFeedbackAdapter struct {
+	svc *service.FeedbackService
+}
+
+func (a connectFeedbackAdapter) SubmitFeedback(ctx context.Context, req *connect.Request[corev1.SubmitFeedbackRequest]) (*connect.Response[corev1.Feedback], error) {
+	return connectResponse(a.svc.SubmitFeedback(ctx, req.Msg))
+}
+
+func (a connectFeedbackAdapter) ListFeedback(ctx context.Context, req *connect.Request[corev1.ListFeedbackRequest]) (*connect.Response[corev1.ListFeedbackResponse], error) {
+	return connectResponse(a.svc.ListFeedback(ctx, req.Msg))
+}
+
+func (a connectFeedbackAdapter) ResolveFeedback(ctx context.Context, req *connect.Request[corev1.ResolveFeedbackRequest]) (*connect.Response[corev1.Feedback], error) {
+	return connectResponse(a.svc.ResolveFeedback(ctx, req.Msg))
 }
 
 type connectWebhookAdapter struct {
