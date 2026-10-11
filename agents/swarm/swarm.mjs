@@ -25,7 +25,10 @@ const KEY = process.env.AGENTS_API_KEY ?? (args["key-file"] ? (await readFile(ar
 const CONCURRENCY = Number(args.concurrency ?? 24);
 const LIMIT = Number(args.agents ?? Infinity);
 const STAGGER_MS = Number(args.stagger ?? 120);
-const HUMAN_WAIT_MS = Number(args["human-wait"] ?? 15 * 60_000);
+// How long to wait for a person to approve an escalated change. Protected
+// paths (payments) need a human by design; whoever runs the swarm without
+// being able to approve sees the change reported as waiting, not failed.
+const HUMAN_WAIT_MS = Number(args["human-wait"] ?? 2 * 60_000);
 const ONLY = args.only ? new Set(String(args.only).split(",")) : null;
 const SKIP = new Set(String(args.skip ?? "").split(",").filter(Boolean));
 const QUIET = Boolean(args.quiet);
@@ -231,11 +234,18 @@ function summary() {
       `  ·  auto-merged ${count((r) => r.autoMerged)}  ·  reworked after conflicts ${count((r) => r.reworked)}` +
       `  ·  human-approved ${count((r) => r.outcome === "landed" && r.agent.startsWith("payments"))}` +
       `  ·  fixed by a fixer agent ${count((r) => r.fixed)}` +
-      `  ·  failed ${count((r) => !["landed", "noop"].includes(r.outcome))}` +
+      (count((r) => r.outcome === "needs-human") ? `  ·  waiting for a human ${count((r) => r.outcome === "needs-human")}` : "") +
+      `  ·  failed ${count((r) => !["landed", "noop", "needs-human"].includes(r.outcome))}` +
       (times.length ? `  ·  median ${(times[Math.floor(times.length / 2)] / 1000).toFixed(1)}s per agent` : "") +
       "\n",
   );
-  for (const r of results.filter((r) => !["landed", "noop"].includes(r.outcome))) {
+  for (const r of results.filter((r) => r.outcome === "needs-human")) {
+    process.stdout.write(
+      `  ${COLOR.yellow}${r.agent}: waiting for a human. Protected paths need a person's approval by design;` +
+        ` a member of the slice approves it with gs cs approve ${r.handle ?? "<changeset>"}, and it lands.${COLOR.reset}\n`,
+    );
+  }
+  for (const r of results.filter((r) => !["landed", "noop", "needs-human"].includes(r.outcome))) {
     process.stdout.write(`  ${COLOR.red}${r.agent}: ${r.outcome}${r.error ? " — " + r.error : ""}${COLOR.reset}\n`);
   }
 }

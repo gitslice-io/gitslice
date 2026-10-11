@@ -13,12 +13,15 @@ one Gitslice codebase:
 
 There are no branches to rebase and no merge queue to wait in.
 
-**Live:** https://agents.gitslice.io is the dashboard for the demo slice
-`demo/store`.
+**Live:** https://agents.gitslice.io is the dashboard.
+- `demo/store` keeps the run recorded in the video.
+- `demo/storefront` is the slice to run your own swarm on (see "Try it").
 
-**Demo video** (6:48): a hundred agents land a hundred changesets in one
-codebase. Download it, with captions, from the
-[release](https://github.com/gitslice-io/gitslice/releases/tag/agents-demo-2026-10-02).
+**Demo video:** a hundred agents land a hundred changesets in one codebase.
+There are two versions, both with captions, on the
+[release](https://github.com/gitslice-io/gitslice/releases/tag/agents-demo-2026-10-02):
+- the 2:54 cut;
+- the full 7:33 version.
 
 ## Why
 
@@ -122,12 +125,21 @@ for the judges.
 
 ```bash
 cd agents
-AGENTS_API_KEY=<key> node swarm/swarm.mjs --slice demo/store --reset --concurrency 32
+AGENTS_API_KEY=<key> node swarm/swarm.mjs --slice demo/storefront --reset --concurrency 32
 ```
 
-Open https://agents.gitslice.io/slices/demo/store while it runs. `--reset`
-first puts the demo store back to its seed, so every agent has its work to do.
-It takes about two minutes.
+Open https://agents.gitslice.io/slices/demo/storefront while it runs.
+- `--reset` first puts the scratch store back to its seed, so every agent has
+  its work to do. It takes three to four minutes.
+- `demo/store` is the run from the video. Please leave it as it is.
+- If someone else is running the swarm, wait for them to finish. A reset in
+  the middle of their run takes their slice away.
+
+One change is meant to stop. `payments-retry` touches a protected path, so it
+waits for a person to approve it in Gitslice. The judges' key cannot approve.
+After two minutes (`--human-wait <ms>` changes that), the run reports it as
+"waiting for a human" rather than as a failure. It lands once a member of the
+slice runs `gs cs approve`. Every other change lands on its own.
 
 **The swarm** (`swarm/storefront.mjs`) runs a hundred agents:
 - translators for twenty-eight locales, eight of them new;
@@ -147,10 +159,10 @@ It takes about two minutes.
 ```bash
 curl -s -X POST https://agents.gitslice.io/v1/sessions \
   -H "authorization: Bearer $AGENTS_API_KEY" -H 'content-type: application/json' \
-  -d '{"slice":"demo/store","agent":"me","task":"Fix a typo in the README","intent":["demo/store/README.md"]}'
+  -d '{"slice":"demo/storefront","agent":"me","task":"Fix a typo in the README","intent":["demo/storefront/README.md"]}'
 # → { "id", "remote", "token", "signals", ... }
 git -c http.extraHeader="Authorization: Bearer $TOKEN" clone "$REMOTE" work && cd work
-$EDITOR demo/store/README.md
+$EDITOR demo/storefront/README.md
 git commit -am "docs: fix a typo" -m "Why I changed it."
 git -c http.extraHeader="Authorization: Bearer $TOKEN" push origin HEAD:main
 curl -s https://agents.gitslice.io/v1/sessions/$ID     # status, changeset, signals
