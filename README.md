@@ -38,6 +38,7 @@ Design: [design/22_agents_on_artifacts.md](design/22_agents_on_artifacts.md).
 
 ```bash
 curl -fsSL https://gitslice.io/install.sh | sh        # prebuilt gs
+brew install gitslice-io/tap/gitslice                 # or with Homebrew
 go install gitslice.io/gitslice/cmd/gs@latest         # or with Go
 ```
 

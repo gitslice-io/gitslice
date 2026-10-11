@@ -37,6 +37,7 @@ describe("DocPage", () => {
     params.current = { section: "cli" };
     render(<DocPage />);
     expect(screen.getByText("gs doctor [account/slice]")).toBeInTheDocument();
+    expect(screen.getByText("brew install gitslice-io/tap/gitslice")).toBeInTheDocument();
     expect(screen.getByText('gs feedback "<message>" --category bug|idea|docs')).toBeInTheDocument();
     expect(screen.getByText("gs completion bash|zsh|fish")).toBeInTheDocument();
     expect(screen.getByText("gs create --all --message <title> --submit")).toBeInTheDocument();

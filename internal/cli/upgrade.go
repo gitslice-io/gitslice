@@ -102,6 +102,11 @@ func (r Runner) runUpgrade(ctx context.Context, opts commandOptions, req upgrade
 	if req.check || (out.UpToDate && !req.force) {
 		return r.writeUpgrade(opts, out, req.check)
 	}
+	// Homebrew owns a gs it installed; replacing it here would leave Homebrew
+	// out of step.
+	if strings.Contains(filepath.ToSlash(binary), "/Cellar/gitslice/") {
+		return userError("installed_by_homebrew", "this gs was installed with Homebrew ("+binary+")", "Run brew upgrade gitslice.")
+	}
 
 	if err := installRelease(ctx, client, base, out.Target, binary); err != nil {
 		return err
@@ -130,7 +135,7 @@ func (r Runner) writeUpgrade(opts commandOptions, out upgradeOutput, check bool)
 	case check && out.UpToDate:
 		fmt.Fprintf(r.Stdout, "gs %s is the latest release\n", out.Current)
 	case check:
-		fmt.Fprintf(r.Stdout, "gs %s is installed; %s is available. Run gs upgrade.\n", out.Current, out.Latest)
+		fmt.Fprintf(r.Stdout, "gs %s is installed; %s is available. Run %s.\n", out.Current, out.Latest, upgradeHint())
 	default:
 		fmt.Fprintf(r.Stdout, "gs %s is already installed\n", out.Current)
 	}

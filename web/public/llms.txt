@@ -12,6 +12,8 @@
 
        curl -fsSL https://gitslice.io/install.sh | sh
 
+   Or with Homebrew on macOS and Linux: `brew install gitslice-io/tap/gitslice`.
+
    It installs to ~/.local/bin (override with GS_INSTALL_DIR). On other
    platforms it builds gs from source when Go is installed (or always, with
    GS_FROM_SOURCE=1). Builds: https://gitslice.io/releases/latest

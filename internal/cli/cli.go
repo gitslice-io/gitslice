@@ -1997,7 +1997,7 @@ home slice root, for example /nic/notes.`,
 		Short: "Print CLI version information",
 		Args:  noArgs("gs version [--format text|json] [--json]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runVersion(*opts)
+			return r.runVersion(cmd.Context(), *opts)
 		},
 	}
 
@@ -12497,7 +12497,7 @@ func (r Runner) workspaceRoot() (string, error) {
 	}
 }
 
-func (r Runner) runVersion(opts commandOptions) error {
+func (r Runner) runVersion(ctx context.Context, opts commandOptions) error {
 	out := cliVersionInfo()
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
@@ -12515,6 +12515,13 @@ func (r Runner) runVersion(opts commandOptions) error {
 	fmt.Fprintf(r.Stdout, "go: %s\n", out.GoVersion)
 	if out.Dirty {
 		fmt.Fprintln(r.Stdout, "dirty: true")
+	}
+	// A release build says when a newer release is out (source builds have
+	// no release to compare; --json stays offline).
+	if _, ok := parseVersion(out.Version); ok {
+		if latest := r.latestKnownRelease(ctx); latest != "" && newerVersion(latest, out.Version) {
+			fmt.Fprintf(r.Stdout, "update: %s is available; run %s\n", latest, upgradeHint())
+		}
 	}
 	return nil
 }

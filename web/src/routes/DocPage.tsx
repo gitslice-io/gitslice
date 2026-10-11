@@ -1141,6 +1141,19 @@ function CliReferenceDoc() {
         </p>
 
         <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+          Or with Homebrew (macOS and Linux)
+        </h3>
+        <CommandBlock>{`brew install gitslice-io/tap/gitslice`}</CommandBlock>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          Installs gs with its shell completions. Upgrade it with{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
+            brew upgrade gitslice
+          </code>
+          . Ghostscript also installs a gs command, so the two cannot be
+          installed together with Homebrew.
+        </p>
+
+        <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           Option B — go install
         </h3>
         <CommandBlock>{`go install gitslice.io/gitslice/cmd/gs@latest`}</CommandBlock>

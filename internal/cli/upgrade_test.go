@@ -259,3 +259,31 @@ func TestUpgradeSaysDowngradedAndReinstalled(t *testing.T) {
 		}
 	}
 }
+
+func TestUpgradeLeavesHomebrewInstallsToHomebrew(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake gs is a shell script")
+	}
+	t.Setenv("GS_DOWNLOAD_BASE", releaseServer(t, "v9.9.9", false))
+	dir := filepath.Join(t.TempDir(), "Cellar", "gitslice", "0.1.0", "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "gs")
+	if err := os.WriteFile(path, []byte(oldScript("v0.1.0")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	r := Runner{Stdout: &out, Stderr: &out}
+	err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{path: path})
+	if !isUserErrorCode(err, "installed_by_homebrew") || !strings.Contains(err.Error(), "brew upgrade gitslice") {
+		t.Fatalf("err = %v", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != oldScript("v0.1.0") {
+		t.Fatal("a Homebrew install was replaced")
+	}
+	// --check still reports.
+	if err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{path: path, check: true}); err != nil || !strings.Contains(out.String(), "v9.9.9 is available") {
+		t.Fatalf("check: %v\n%s", err, out.String())
+	}
+}

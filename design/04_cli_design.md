@@ -947,6 +947,18 @@ compares versions; a source build newer than the latest release counts as up
 to date. `GS_DOWNLOAD_BASE` points it at another copy of the releases, as for
 `install.sh`.
 
+`gs version` (text) ends with `update: <tag> is available; run gs upgrade` when
+a newer release exists. It uses the daily release check's answer while that
+is a day old or newer, else looks it up (2-second limit) and records the
+answer; `--json` never looks.
+
+Homebrew installs gs from the tap `gitslice-io/homebrew-tap`
+(`brew install gitslice-io/tap/gitslice`, formula `gitslice`, which conflicts
+with Ghostscript's `gs`). The tap's hourly `update` workflow writes the formula
+for the latest release from its `checksums.txt` and checks it installs. A gs
+in a Homebrew Cellar refuses `gs upgrade` (`installed_by_homebrew`), and its
+update notices say `brew upgrade gitslice`.
+
 ## 9. Changeset Commands
 
 ```bash

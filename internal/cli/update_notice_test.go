@@ -68,7 +68,6 @@ func TestUpdateNoticeOncePerDay(t *testing.T) {
 		{"config", "list", "--quiet"},
 		{"--format", "json", "config", "list"},
 		{"upgrade", "--check"},
-		{"version"},
 	} {
 		if stderr := run(args...); strings.Contains(stderr, "is available (this is") {
 			t.Fatalf("%v printed the notice:\n%s", args, stderr)
@@ -98,5 +97,48 @@ func TestUpdateNoticeQuietWhenCurrent(t *testing.T) {
 	}
 	if lookups.Load() != 2 { // a source build ("dev") does not look
 		t.Fatalf("lookups = %d, want 2", lookups.Load())
+	}
+}
+
+func TestVersionSaysWhenAnUpdateIsOut(t *testing.T) {
+	base, lookups := latestReleaseServer(t, "v9.9.9")
+	t.Setenv("GS_DOWNLOAD_BASE", base)
+	t.Setenv("GS_NO_UPDATE_CHECK", "")
+	withVersion(t, "v0.1.0")
+	home := t.TempDir()
+	run := func(args ...string) (string, string) {
+		var stdout, stderr bytes.Buffer
+		r := Runner{Home: home, Stdout: &stdout, Stderr: &stderr}
+		if err := r.Run(context.Background(), args); err != nil {
+			t.Fatalf("gs %v: %v", args, err)
+		}
+		return stdout.String(), stderr.String()
+	}
+
+	stdout, stderr := run("version")
+	if !strings.HasPrefix(stdout, "gs version v0.1.0\n") || !strings.HasSuffix(stdout, "update: v9.9.9 is available; run gs upgrade\n") || stderr != "" {
+		t.Fatalf("version:\n%s\nstderr: %s", stdout, stderr)
+	}
+	// The lookup is recorded, so the next gs version (or command) does not
+	// look again that day.
+	if stdout, _ := run("version"); !strings.Contains(stdout, "update: v9.9.9") || lookups.Load() != 1 {
+		t.Fatalf("second version looked up %d times:\n%s", lookups.Load(), stdout)
+	}
+	// JSON stays offline and unchanged; the opt-out and current releases say
+	// nothing.
+	if stdout, _ := run("version", "--json"); strings.Contains(stdout, "update") {
+		t.Fatalf("version --json:\n%s", stdout)
+	}
+	t.Setenv("GS_NO_UPDATE_CHECK", "1")
+	if stdout, _ := run("version"); strings.Contains(stdout, "update:") {
+		t.Fatalf("GS_NO_UPDATE_CHECK=1:\n%s", stdout)
+	}
+	t.Setenv("GS_NO_UPDATE_CHECK", "")
+	withVersion(t, "v9.9.9")
+	if stdout, _ := run("version"); strings.Contains(stdout, "update:") {
+		t.Fatalf("the latest release:\n%s", stdout)
+	}
+	if lookups.Load() != 1 {
+		t.Fatalf("lookups = %d, want 1", lookups.Load())
 	}
 }
