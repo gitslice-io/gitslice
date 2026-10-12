@@ -18,8 +18,9 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("../state/selection", () => ({ useSelection: () => ({ account: "" }) }));
 
-// The theme toggle is not under test here.
+// The theme toggle and claims notice are not under test here.
 vi.mock("./ThemeToggle", () => ({ ThemeToggle: () => null }));
+vi.mock("./ClaimsNotice", () => ({ ClaimsNotice: () => null }));
 
 import { TopBar } from "./TopBar";
 

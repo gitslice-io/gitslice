@@ -815,7 +815,18 @@ func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) 
 		if !ok {
 			continue
 		}
-		members = append(members, storage.AccountMember{SubjectID: subjectID, Username: s.b.personalAccounts[subjectID], Role: role})
+		username := s.b.personalAccounts[subjectID]
+		kind := "user"
+		if _, ok := s.b.agentRegistrations[subjectID]; ok {
+			kind = "agent"
+		}
+		members = append(members, storage.AccountMember{
+			SubjectID:   subjectID,
+			Username:    username,
+			Role:        role,
+			DisplayName: s.b.profiles[username].DisplayName,
+			Kind:        kind,
+		})
 	}
 	sort.SliceStable(members, func(i, j int) bool {
 		a, b := members[i], members[j]

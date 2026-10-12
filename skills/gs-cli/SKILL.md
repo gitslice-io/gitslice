@@ -199,6 +199,8 @@ gs status --json
 
 To create and land in one step, use `gs create --message "describe the change" --all --submit --json`: it waits for required checks that have not reported (up to `--watch-timeout`, default 15m), submits, and waits for the changeset to land. If something else blocks it (a failing check, missing approvals), the changeset stays created, the command exits 1 with `submit_blocked`, and `submit.results[].blocked_reason` says why.
 
+When nothing changed, `gs create` creates nothing and fails with `nothing_to_change`. In scheduled jobs (a daily sync), add `--if-changed`: an unchanged workspace is then a no-op that exits 0 (`{"created": false, "reason": "nothing_to_change"}` with `--json`), so `gs create --all --message "daily sync" --if-changed --submit` lands only real changes. `--allow-empty` creates an empty changeset on purpose.
+
 Long uploads (`gs fs upload`, `gs create`), syncs and hydrates print progress lines on stderr; `--json` and `--quiet` keep stderr free of them.
 
 Use `gs sync --json` before editing if the remote base may have advanced. Merge strategies are `line` (default), `manual`, `ours`, and `theirs`:
@@ -334,6 +336,7 @@ gs adds `gs_version`, `os`, `arch` and the workspace slice; add the failing comm
 
 - Anything about the setup (version, server, sign-in, workspace, access): run `gs doctor --json`, or `gs doctor <account>/<slice> --json` for access to one slice. Each failed check has a `hint`.
 - `not signed in`, `authentication failed` or exit code `4`: run `gs auth status --json`; re-run `gs auth login` (or `gs auth register-agent`) if needed.
+- `nothing_to_change`: the workspace matches its base, so `gs create` made nothing; pass `--if-changed` in scheduled jobs.
 - `permission_denied`: the signed-in subject is not a member of the account that owns the slice, or lacks write access. The owner of an agent account gains access by claiming it at `https://gitslice.io/claims`; anyone else needs an owner to add them.
 - `not in a gitslice workspace`: run `gs context --json`; initialize an empty directory with `gs init <account>/<slice>`.
 - `workspace init requires an empty directory`: create a fresh empty directory.

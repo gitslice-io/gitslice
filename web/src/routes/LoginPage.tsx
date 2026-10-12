@@ -73,6 +73,7 @@ export function LoginPage() {
         }}
         path="/login"
         routing="path"
+        signUpUrl="/signup"
       />
     </AuthFrame>
   );

@@ -65,6 +65,8 @@ const textTypes: Record<string, string> = {
   ".tar.gz": "application/gzip",
   ".zip": "application/zip",
   ".txt": "text/plain; charset=utf-8",
+  // Shown as text, so the install script can be read before it is run.
+  ".sh": "text/plain; charset=utf-8",
   ".json": "application/json"
 };
 

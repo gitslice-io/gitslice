@@ -176,9 +176,9 @@ export function LandingPage() {
             </Link>
             <Link
               className="rounded-full bg-zinc-950 px-3.5 py-2 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
-              to="/doc"
+              to="/signup"
             >
-              Get started
+              Sign up
             </Link>
           </nav>
         </div>
@@ -209,9 +209,9 @@ export function LandingPage() {
             <div className="mt-9 flex flex-col gap-3 min-[380px]:flex-row">
               <Link
                 className="inline-flex min-h-11 items-center justify-center rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
-                to="/doc"
+                to="/signup"
               >
-                Get started
+                Sign up
                 <svg
                   aria-hidden="true"
                   className="ml-2 h-4 w-4"
@@ -228,9 +228,9 @@ export function LandingPage() {
               </Link>
               <Link
                 className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-300 bg-white/70 px-5 py-2.5 text-sm font-semibold text-zinc-700 outline-none transition hover:border-slate-400 hover:bg-white active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:border-white/20 dark:hover:bg-white/[0.08] dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
-                to="/login"
+                to="/doc"
               >
-                Sign in
+                Read the docs
               </Link>
               <Link
                 className="inline-flex min-h-11 items-center justify-center rounded-full border border-sky-300 bg-sky-50 px-5 py-2.5 text-sm font-semibold text-sky-900 outline-none transition hover:border-sky-400 hover:bg-sky-100 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:border-sky-700 dark:hover:bg-sky-950/70 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"

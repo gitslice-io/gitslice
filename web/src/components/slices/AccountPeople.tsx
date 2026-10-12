@@ -116,6 +116,14 @@ export function AccountPeople({ account, membership }: { account: string; member
                 <AccountAvatar account={name} kind="personal" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-950 dark:text-zinc-50">
                   {name}
+                  {member.displayName ? (
+                    <span className="ml-2 font-normal text-slate-500 dark:text-zinc-400">{member.displayName}</span>
+                  ) : null}
+                  {member.kind === "agent" ? (
+                    <span className="ml-2 rounded bg-sky-50 px-1.5 py-0.5 text-xs font-normal text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+                      agent
+                    </span>
+                  ) : null}
                 </span>
                 {manage && member.username ? (
                   <>

@@ -51,6 +51,10 @@ export interface AccountMember {
   username?: string;
   subjectId?: string;
   role?: string;
+  /** The display name on the member's own account profile, when set. */
+  displayName?: string;
+  /** person or agent. */
+  kind?: string;
 }
 
 export interface ListAccountMembersRequest {

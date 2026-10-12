@@ -1440,15 +1440,17 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 		RunE:    requireSubcommand("cs"),
 	}
 	createTitle := "CLI changeset"
+	csCreateEmpty := emptyChangesetOptions{}
 	csCreateCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a changeset from workspace edits",
-		Args:  noArgs("gs cs create [--title title]"),
+		Args:  noArgs("gs cs create [--title title] [--if-changed | --allow-empty]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runChangesetCreate(cmd.Context(), *opts, createTitle)
+			return r.runChangesetCreate(cmd.Context(), *opts, createTitle, csCreateEmpty)
 		},
 	}
 	csCreateCmd.Flags().StringVar(&createTitle, "title", createTitle, "changeset title")
+	csCreateEmpty.addFlags(csCreateCmd)
 	captureTitle := "agent changeset"
 	captureNoChecks := false
 	csCaptureCmd := &cobra.Command{
@@ -1651,12 +1653,13 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 	createAll := false
 	createSubmit := false
 	createWatchTimeout := "15m"
+	createEmpty := emptyChangesetOptions{}
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a changeset from workspace edits",
 		Long: "Create a changeset from workspace edits. With --submit, also submit it: gs create waits for " +
 			"required checks that have no result yet (up to --watch-timeout), submits, and waits for it to land.",
-		Args: noArgs("gs create --message title [--all] [--submit] [--base changeset] [--sibling] [--root]"),
+		Args: noArgs("gs create --message title [--all] [--submit] [--if-changed | --allow-empty] [--base changeset] [--sibling] [--root]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			submit := createSubmitOptions{}
 			if createSubmit {
@@ -1666,7 +1669,7 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 				}
 				submit = createSubmitOptions{enabled: true, timeout: timeout}
 			}
-			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll, submit)
+			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll, submit, createEmpty)
 		},
 	}
 	createCmd.Flags().StringVar(&createMessage, "message", createMessage, "changeset title")
@@ -1676,6 +1679,7 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 	createCmd.Flags().BoolVar(&createAll, "all", createAll, "snapshot all current workspace edits")
 	createCmd.Flags().BoolVar(&createSubmit, "submit", createSubmit, "submit the changeset once required checks pass, and wait for it to land")
 	createCmd.Flags().StringVar(&createWatchTimeout, "watch-timeout", createWatchTimeout, "with --submit, how long to wait for required checks and for the changeset to land")
+	createEmpty.addFlags(createCmd)
 
 	modifyMessage := ""
 	modifyNoRestack := false
@@ -6162,7 +6166,10 @@ func (r Runner) workspaceBaseDiffFile(ctx context.Context, repo corev1.Repositor
 	return diffutil.File{Path: p, Exists: true, Data: read.Data}, nil
 }
 
-func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, title string) error {
+func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, title string, empty emptyChangesetOptions) error {
+	if err := empty.validate(); err != nil {
+		return err
+	}
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -6179,6 +6186,9 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	edits, _, err := r.snapshotEdits(ctx, conn, cfg, ws, true)
 	if err != nil {
 		return err
+	}
+	if len(edits) == 0 && !empty.allowEmpty {
+		return r.nothingToChange(opts, empty.ifChanged)
 	}
 	callCtx := authContext(ctx, cfg)
 	cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
@@ -6399,13 +6409,54 @@ func (r Runner) writeCaptureDiagnostics(stats captureDiagnostics) {
 	)
 }
 
+// emptyChangesetOptions says what gs create does when the workspace has no
+// edits: by default it refuses, so a scheduled job does not land empty
+// commits.
+type emptyChangesetOptions struct {
+	// ifChanged makes "nothing changed" a success that creates nothing.
+	ifChanged bool
+	// allowEmpty creates the empty changeset anyway.
+	allowEmpty bool
+}
+
+func (o *emptyChangesetOptions) addFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(&o.ifChanged, "if-changed", false, "when nothing changed, create nothing and exit 0 (for scheduled jobs)")
+	cmd.Flags().BoolVar(&o.allowEmpty, "allow-empty", false, "create the changeset even when nothing changed")
+}
+
+func (o emptyChangesetOptions) validate() error {
+	if o.ifChanged && o.allowEmpty {
+		return userError("invalid_args", "use --if-changed or --allow-empty, not both", "")
+	}
+	return nil
+}
+
+// nothingToChange answers a create with no edits: a no-op with --if-changed,
+// else an error.
+func (r Runner) nothingToChange(opts commandOptions, ifChanged bool) error {
+	if !ifChanged {
+		return userError("nothing_to_change", "nothing changed since the base, so no changeset was created",
+			"Edit files first. In a scheduled job, pass --if-changed to make this a no-op that exits 0; --allow-empty creates an empty changeset anyway.")
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"created": false, "reason": "nothing_to_change"})
+	}
+	if !opts.Quiet {
+		fmt.Fprintln(r.Stdout, "nothing changed; no changeset created")
+	}
+	return nil
+}
+
 type createSubmitOptions struct {
 	enabled bool
 	timeout time.Duration
 }
 
-func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool, submit createSubmitOptions) error {
+func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool, submit createSubmitOptions, empty emptyChangesetOptions) error {
 	_ = all
+	if err := empty.validate(); err != nil {
+		return err
+	}
 	title, err := r.requiredCommandMessage(opts, title, "Changeset title: ", "create requires --message", "Run gs create --message <title>.")
 	if err != nil {
 		return err
@@ -6428,17 +6479,11 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 
 	stackID := state.ActiveStackID
 	var stack *corev1.ChangesetStack
-	if root || stackID == "" {
-		stack, err = stackClient.CreateStack(callCtx, &corev1.CreateStackRequest{
-			AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
-			TargetRef:      postgres.DefaultTargetRef,
-			BaseCommitId:   state.BaseCommitID,
-			Title:          title,
-		})
-		if err != nil {
-			return err
-		}
-		stackID = stack.Id
+	newStack := root || stackID == ""
+	if newStack {
+		// The dependency tree is created once there are edits to put in it;
+		// until then it has no entries, as a new one would.
+		stack = &corev1.ChangesetStack{BaseCommitId: state.BaseCommitID}
 	} else {
 		stack, err = stackClient.GetStack(callCtx, &corev1.GetStackRequest{StackId: stackID})
 		if err != nil {
@@ -6477,6 +6522,21 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 	edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, true)
 	if err != nil {
 		return err
+	}
+	if len(edits) == 0 && !empty.allowEmpty {
+		return r.nothingToChange(opts, empty.ifChanged)
+	}
+	if newStack {
+		stack, err = stackClient.CreateStack(callCtx, &corev1.CreateStackRequest{
+			AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+			TargetRef:      postgres.DefaultTargetRef,
+			BaseCommitId:   state.BaseCommitID,
+			Title:          title,
+		})
+		if err != nil {
+			return err
+		}
+		stackID = stack.Id
 	}
 	cs, err := stackClient.AddStackEntry(callCtx, &corev1.AddStackEntryRequest{
 		StackId:           stackID,
@@ -12779,7 +12839,7 @@ func (r Runner) runSchema(opts commandOptions) error {
 			{
 				"use":            "gs create",
 				"summary":        "create a changeset and first patchset from workspace edits; --submit also waits for required checks and lands it",
-				"flags":          []string{"--message", "--all", "--submit", "--watch-timeout", "--base", "--sibling", "--root"},
+				"flags":          []string{"--message", "--all", "--submit", "--watch-timeout", "--if-changed", "--allow-empty", "--base", "--sibling", "--root"},
 				"writes_stdout":  true,
 				"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url", "submit"},
 			},

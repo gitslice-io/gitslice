@@ -1140,6 +1140,17 @@ function CliReferenceDoc() {
           .
         </p>
 
+        <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          To read and check the script before running it: each release carries
+          its own copy, listed in that release&apos;s checksums, and the same
+          file is in the public GitHub mirror at the release tag.
+        </p>
+        <CommandBlock>{`curl -fsSLO https://gitslice.io/releases/latest/download/install.sh
+curl -fsSL https://gitslice.io/releases/latest/download/checksums.txt | grep ' install.sh$' | sha256sum -c -
+tag=$(curl -fsSI https://gitslice.io/releases/latest | sed -n 's#^[Ll]ocation: .*/tag/##p' | tr -d '\\r')
+curl -fsSL "https://raw.githubusercontent.com/gitslice-io/gitslice/$tag/web/public/install.sh" | cmp - install.sh
+less install.sh && sh install.sh`}</CommandBlock>
+
         <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           Or with Homebrew (macOS and Linux)
         </h3>

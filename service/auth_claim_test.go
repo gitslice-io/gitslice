@@ -77,8 +77,22 @@ func TestClaimFlowVerifiesEmailWithClerk(t *testing.T) {
 		t.Fatalf("claimer memberships = %+v; want the agent's account, owned", authStatus.Memberships)
 	}
 
-	// The agent itself has no verified emails, so it can never claim.
+	// The agent's account lists the agent and the person who claimed it, each
+	// with its kind, so the agent can tell who its owner is.
 	agentCtx := authctx.WithSubjectID(ctx, agent.SubjectId)
+	members, err := handlers.Auth.ListAccountMembers(agentCtx, &corev1.ListAccountMembersRequest{Account: "release-bot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]string{}
+	for _, member := range members.Members {
+		kinds[member.SubjectId] = member.Kind
+	}
+	if len(members.Members) != 2 || kinds[agent.SubjectId] != "agent" || kinds[human] != "person" {
+		t.Fatalf("agent account members = %+v", members.Members)
+	}
+
+	// The agent itself has no verified emails, so it can never claim.
 	if list, err := handlers.Auth.ListPendingClaims(agentCtx, &corev1.ListPendingClaimsRequest{}); err != nil || len(list.Claims) != 0 {
 		t.Fatalf("agent claims = %+v, %v", list, err)
 	}

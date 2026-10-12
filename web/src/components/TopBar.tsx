@@ -4,6 +4,7 @@ import { useAuth, UserButton } from "@clerk/tanstack-react-start";
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
 import { AccountSwitcher } from "./AccountSwitcher";
+import { ClaimsNotice } from "./ClaimsNotice";
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -126,6 +127,7 @@ export function TopBar() {
               </Link>
             ))}
           </nav>
+          <ClaimsNotice />
           <ThemeToggle />
           {account ? <AccountSwitcher /> : null}
           {!isLoaded ? (

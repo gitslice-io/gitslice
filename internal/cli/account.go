@@ -12,9 +12,17 @@ import (
 )
 
 type accountMemberOutput struct {
-	Username  string `json:"username"`
-	SubjectID string `json:"subject_id"`
-	Role      string `json:"role"`
+	Username    string `json:"username"`
+	SubjectID   string `json:"subject_id"`
+	Role        string `json:"role"`
+	DisplayName string `json:"display_name,omitempty"`
+	// Kind is person or agent.
+	Kind string `json:"kind,omitempty"`
+	// You marks the signed-in subject.
+	You bool `json:"you,omitempty"`
+	// ClaimedAgent marks a person who co-owns this account because they
+	// claimed the agent it belongs to.
+	ClaimedAgent bool `json:"claimed_agent,omitempty"`
 }
 
 type accountMembersOutput struct {
@@ -468,7 +476,7 @@ func (r Runner) runAccountCreateOrg(ctx context.Context, opts commandOptions, sl
 }
 
 func (r Runner) runAccountMembers(ctx context.Context, opts commandOptions, account string) error {
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
+	cfg, conn, authCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
 	}
@@ -477,12 +485,30 @@ func (r Runner) runAccountMembers(ctx context.Context, opts commandOptions, acco
 	if err != nil {
 		return accountError(err)
 	}
-	out := accountMembersOutput{Account: resp.Account, Kind: resp.Kind, Members: accountMembersFromProto(resp.Members)}
+	members := accountMembersFromProto(resp.Members)
+	markAccountMembers(members, resp.Account, cfg.SubjectID)
+	out := accountMembersOutput{Account: resp.Account, Kind: resp.Kind, Members: members}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	r.printAccountMembers(out.Members)
 	return nil
+}
+
+// markAccountMembers marks the signed-in subject, and in an agent's own
+// account the people who claimed the agent: the account is the agent's when
+// its slug is the username of an agent member.
+func markAccountMembers(members []accountMemberOutput, account, subjectID string) {
+	agentAccount := false
+	for _, member := range members {
+		if member.Kind == "agent" && member.Username == account {
+			agentAccount = true
+		}
+	}
+	for i := range members {
+		members[i].You = subjectID != "" && members[i].SubjectID == subjectID
+		members[i].ClaimedAgent = agentAccount && members[i].Kind == "person"
+	}
 }
 
 func (r Runner) runAccountSetMember(ctx context.Context, opts commandOptions, account, username, role string) error {
@@ -542,14 +568,37 @@ func (r Runner) printAccountMembers(members []accountMemberOutput) {
 		if name == "" {
 			name = member.SubjectID
 		}
-		fmt.Fprintf(r.Stdout, "%s\t%s\n", name, member.Role)
+		var notes []string
+		if member.DisplayName != "" {
+			notes = append(notes, member.DisplayName)
+		}
+		if member.Kind != "" {
+			notes = append(notes, member.Kind)
+		}
+		if member.ClaimedAgent {
+			notes = append(notes, "claimed this agent")
+		}
+		if member.You {
+			notes = append(notes, "you")
+		}
+		line := name + "\t" + member.Role
+		if len(notes) > 0 {
+			line += "\t(" + strings.Join(notes, ", ") + ")"
+		}
+		fmt.Fprintln(r.Stdout, line)
 	}
 }
 
 func accountMembersFromProto(members []*corev1.AccountMember) []accountMemberOutput {
 	out := make([]accountMemberOutput, 0, len(members))
 	for _, member := range members {
-		out = append(out, accountMemberOutput{Username: member.Username, SubjectID: member.SubjectId, Role: member.Role})
+		out = append(out, accountMemberOutput{
+			Username:    member.GetUsername(),
+			SubjectID:   member.GetSubjectId(),
+			Role:        member.GetRole(),
+			DisplayName: member.GetDisplayName(),
+			Kind:        member.GetKind(),
+		})
 	}
 	return out
 }

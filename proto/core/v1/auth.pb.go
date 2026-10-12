@@ -1350,7 +1350,11 @@ type AccountMember struct {
 	Username  string `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
 	SubjectId string `protobuf:"bytes,2,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
 	// owner, admin, writer, member or reader.
-	Role          string `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	Role string `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	// The display name on the member's own account profile, when they set one.
+	DisplayName string `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	// person or agent.
+	Kind          string `protobuf:"bytes,5,opt,name=kind,proto3" json:"kind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1402,6 +1406,20 @@ func (x *AccountMember) GetSubjectId() string {
 func (x *AccountMember) GetRole() string {
 	if x != nil {
 		return x.Role
+	}
+	return ""
+}
+
+func (x *AccountMember) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *AccountMember) GetKind() string {
+	if x != nil {
+		return x.Kind
 	}
 	return ""
 }
@@ -2532,12 +2550,14 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"\x0fowner_usernames\x18\x02 \x03(\tR\x0eownerUsernames\"q\n" +
 	"\x1aCreateOrganizationResponse\x12\x18\n" +
 	"\aaccount\x18\x01 \x01(\tR\aaccount\x129\n" +
-	"\amembers\x18\x02 \x03(\v2\x1f.gitslice.core.v1.AccountMemberR\amembers\"^\n" +
+	"\amembers\x18\x02 \x03(\v2\x1f.gitslice.core.v1.AccountMemberR\amembers\"\x95\x01\n" +
 	"\rAccountMember\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x02 \x01(\tR\tsubjectId\x12\x12\n" +
-	"\x04role\x18\x03 \x01(\tR\x04role\"5\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\x12!\n" +
+	"\fdisplay_name\x18\x04 \x01(\tR\vdisplayName\x12\x12\n" +
+	"\x04kind\x18\x05 \x01(\tR\x04kind\"5\n" +
 	"\x19ListAccountMembersRequest\x12\x18\n" +
 	"\aaccount\x18\x01 \x01(\tR\aaccount\"\x85\x01\n" +
 	"\x1aListAccountMembersResponse\x12\x18\n" +

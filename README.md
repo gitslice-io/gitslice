@@ -42,6 +42,10 @@ brew install gitslice-io/tap/gitslice                 # or with Homebrew
 go install gitslice.io/gitslice/cmd/gs@latest         # or with Go
 ```
 
+Each release also carries its `install.sh`, listed in its `checksums.txt`, to
+check before running; the same file is in the GitHub mirror at the release tag.
+See [Install](https://gitslice.io/doc/cli) for the commands.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).

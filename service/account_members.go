@@ -232,7 +232,17 @@ func accountLookupError(err error, account string) error {
 func accountMembersProto(members []storage.AccountMember) []*corev1.AccountMember {
 	out := make([]*corev1.AccountMember, 0, len(members))
 	for _, member := range members {
-		out = append(out, &corev1.AccountMember{Username: member.Username, SubjectId: member.SubjectID, Role: member.Role})
+		kind := "person"
+		if member.Kind == "agent" {
+			kind = "agent"
+		}
+		out = append(out, &corev1.AccountMember{
+			Username:    member.Username,
+			SubjectId:   member.SubjectID,
+			Role:        member.Role,
+			DisplayName: member.DisplayName,
+			Kind:        kind,
+		})
 	}
 	return out
 }

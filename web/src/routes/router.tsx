@@ -49,6 +49,7 @@ import { DocPage } from "./DocPage";
 import { HomePage } from "./HomePage";
 import { LandingPage } from "./LandingPage";
 import { LoginPage } from "./LoginPage";
+import { SignupPage } from "./SignupPage";
 import { NewOrganizationPage } from "./NewOrganizationPage";
 import { SliceCreatePage } from "./SliceCreatePage";
 import { SliceAgentsPage } from "./SliceAgentsPage";
@@ -151,6 +152,20 @@ const loginFlowRoute = createRoute({
   // as application 404s.
   path: "/login/$",
   component: LoginPage
+});
+
+const signupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/signup",
+  component: SignupPage
+});
+
+const signupFlowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  // Clerk's sign-up flow nests verification steps under the page, as sign-in
+  // does under /login.
+  path: "/signup/$",
+  component: SignupPage
 });
 
 const cliLoginRoute = createRoute({
@@ -601,6 +616,8 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   loginFlowRoute,
+  signupRoute,
+  signupFlowRoute,
   cliLoginRoute,
   appRoute.addChildren([
     claimsRoute,

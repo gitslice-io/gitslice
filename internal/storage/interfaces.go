@@ -130,6 +130,10 @@ type AccountMember struct {
 	SubjectID string
 	Username  string
 	Role      string
+	// DisplayName is the display name on the member's own account profile.
+	DisplayName string
+	// Kind is the member's subject kind: user or agent.
+	Kind string
 }
 
 // Account kinds.

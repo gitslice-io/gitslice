@@ -82,21 +82,22 @@ func (s *AuthStore) CreateOrganization(ctx context.Context, slug string, ownerSu
 
 func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) ([]storage.AccountMember, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select m.subject_id, m.role,
-		       coalesce((
-				select pa.slug
-				from account_memberships pm
-				join accounts pa on pa.id = pm.account_id
-				where pa.kind = 'personal' and pm.subject_id = m.subject_id
-				  and not exists (
-					select 1 from agent_registrations r
-					where r.account_id = pa.id and r.subject_id <> pm.subject_id
-				  )
-				order by pm.created_at
-				limit 1
-		       ), '')
+		select m.subject_id, m.role, coalesce(p.slug, ''), coalesce(p.display_name, ''), coalesce(s.kind, '')
 		from account_memberships m
 		join accounts a on a.id = m.account_id
+		left join subjects s on s.id = m.subject_id
+		left join lateral (
+			select pa.slug, pa.display_name
+			from account_memberships pm
+			join accounts pa on pa.id = pm.account_id
+			where pa.kind = 'personal' and pm.subject_id = m.subject_id
+			  and not exists (
+				select 1 from agent_registrations r
+				where r.account_id = pa.id and r.subject_id <> pm.subject_id
+			  )
+			order by pm.created_at
+			limit 1
+		) p on true
 		where a.slug = $1
 		order by m.created_at, m.subject_id
 	`, strings.TrimSpace(accountSlug))
@@ -108,7 +109,7 @@ func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) 
 	var order []string
 	for rows.Next() {
 		var member storage.AccountMember
-		if err := rows.Scan(&member.SubjectID, &member.Role, &member.Username); err != nil {
+		if err := rows.Scan(&member.SubjectID, &member.Role, &member.Username, &member.DisplayName, &member.Kind); err != nil {
 			return nil, err
 		}
 		existing, ok := bySubject[member.SubjectID]

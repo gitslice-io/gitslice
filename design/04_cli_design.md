@@ -990,6 +990,11 @@ commit it landed as. The commit id is labelled "not a changeset id".
   the commit.
 - `gs shell` prints `ok <verb> through changeset <id> <link>`.
 - `gs create` and `gs modify` print `view: <link>` after the changeset id.
+- With no edits, `gs create` (and `gs cs create`) creates nothing, not even
+  the dependency tree, and fails with `nothing_to_change`; before this a
+  scheduled job landed an empty commit every run. `--if-changed` makes it a
+  no-op that exits 0 (JSON `{"created": false, "reason": "nothing_to_change"}`),
+  and `--allow-empty` creates the empty changeset on purpose.
 - `gs create --submit` creates the changeset and submits it in one step. A
   submit right after creating is often blocked only because required checks
   have not reported yet (`required check "<name>" has no result`), so it

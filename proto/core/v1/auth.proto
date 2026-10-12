@@ -220,6 +220,10 @@ message AccountMember {
   string subject_id = 2;
   // owner, admin, writer, member or reader.
   string role = 3;
+  // The display name on the member's own account profile, when they set one.
+  string display_name = 4;
+  // person or agent.
+  string kind = 5;
 }
 
 message ListAccountMembersRequest {

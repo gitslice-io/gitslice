@@ -69,7 +69,8 @@ function bucket(objects: Record<string, string>) {
 const stored = {
   "releases/latest.json": '{"tag":"v0.4.2"}',
   "releases/v0.4.2/checksums.txt": "abc123  gs_linux_amd64.tar.gz\ndef456  gs_windows_amd64.zip\n",
-  "releases/v0.4.2/gs_linux_amd64.tar.gz": "linux-archive"
+  "releases/v0.4.2/gs_linux_amd64.tar.gz": "linux-archive",
+  "releases/v0.4.2/install.sh": "#!/bin/sh\n"
 };
 
 async function serve(path: string, objects: Record<string, string> | null = stored, method = "GET") {
@@ -102,6 +103,15 @@ describe("releaseResponse", () => {
     const head = await serve("/releases/download/v0.4.2/gs_linux_amd64.tar.gz", stored, "HEAD");
     expect(head?.status).toBe(200);
     expect(await head!.text()).toBe("");
+  });
+
+  it("serves a release's install script as text, to read before running", async () => {
+    const script = await serve("/releases/download/v0.4.2/install.sh");
+    expect(script?.status).toBe(200);
+    expect(script?.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(await script!.text()).toBe("#!/bin/sh\n");
+    const latest = await serve("/releases/latest/download/install.sh");
+    expect(latest?.headers.get("Location")).toBe("/releases/download/v0.4.2/install.sh");
   });
 
   it("sends latest downloads through the tag's URL", async () => {

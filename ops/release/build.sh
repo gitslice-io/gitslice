@@ -99,7 +99,14 @@ for tag in "${pending[@]}"; do
       fi
     done
   )
-  (cd "$out" && sha256sum gs_* > checksums.txt)
+  # The release also carries the install script at this tag, so it can be
+  # checked (checksums.txt, or the same file in the GitHub mirror at the tag)
+  # before it is run. Tags from before it existed have none.
+  installer="$src/$MODULE_DIR/web/public/install.sh"
+  if [ -f "$installer" ]; then
+    cp "$installer" "$out/install.sh"
+  fi
+  (cd "$out" && sha256sum gs_* $( [ -f install.sh ] && echo install.sh ) > checksums.txt)
   # Smoke test before anything is published.
   check="$(mktemp -d)"
   tar -C "$check" -xzf "$out/gs_linux_amd64.tar.gz"

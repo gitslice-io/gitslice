@@ -31,6 +31,8 @@ export function ClerkAuthProvider({ children }: ClerkAuthProviderProps) {
   return (
     <ClerkProvider
       afterSignOutUrl="/login"
+      signInUrl="/login"
+      signUpUrl="/signup"
       appearance={{
         variables: {
           colorBackground: "var(--clerk-color-background)",
