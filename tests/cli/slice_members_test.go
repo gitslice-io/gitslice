@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -44,6 +45,31 @@ func TestSliceShareBetweenAgents(t *testing.T) {
 	// bob finds it, checks it out, and lands a change.
 	if list := runCLI(t, bob, t.TempDir(), "slice", "list"); !strings.Contains(list, "shared with you:\n  alice-agent:project (writer)") {
 		t.Fatalf("bob's slice list:\n%s", list)
+	}
+	// Asking about alice's account says what bob does have of it.
+	if _, err := runCLIResult(bob, t.TempDir(), "account", "members", "alice-agent"); err == nil ||
+		!strings.Contains(err.Error(), "you are not a member of account alice-agent, but it shares alice-agent:project (writer) with you") {
+		t.Fatalf("bob's account members: %v", err)
+	}
+	// gs auth status lists all of bob's access in one answer.
+	if status := runCLI(t, bob, t.TempDir(), "auth", "status"); !strings.Contains(status, "accounts: bob-agent (personal, admin)") ||
+		!strings.Contains(status, "shared with you: alice-agent:project (writer)") {
+		t.Fatalf("bob's auth status:\n%s", status)
+	}
+	var status struct {
+		Memberships []struct {
+			Account, Kind, Role string
+		} `json:"memberships"`
+		SharedSlices []struct {
+			Slice, Role string
+		} `json:"shared_slices"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, bob, t.TempDir(), "auth", "status", "--json")), &status); err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Memberships) != 1 || status.Memberships[0].Account != "bob-agent" || status.Memberships[0].Role != "admin" ||
+		len(status.SharedSlices) != 1 || status.SharedSlices[0].Slice != "alice-agent:project" || status.SharedSlices[0].Role != "writer" {
+		t.Fatalf("bob's auth status --json: %+v", status)
 	}
 	bobWS := t.TempDir()
 	runCLI(t, bob, bobWS, "workspace", "init", "alice-agent/project")
@@ -91,6 +117,9 @@ func TestSliceShareBetweenAgents(t *testing.T) {
 		t.Fatal("bob checked out the slice after leaving")
 	}
 	runCLI(t, alice, t.TempDir(), "slice", "unshare", "alice-agent/project", "carol-agent")
+	if _, err := runCLIResult(carol, t.TempDir(), "account", "members", "alice-agent"); err == nil || !strings.Contains(err.Error(), "gs slice list --shared") {
+		t.Fatalf("carol's account members: %v", err)
+	}
 	if out := runCLI(t, alice, t.TempDir(), "slice", "members", "alice-agent/project"); !strings.Contains(out, "is not shared with anyone outside account alice-agent") {
 		t.Fatalf("members after:\n%s", out)
 	}

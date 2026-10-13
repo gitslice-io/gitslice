@@ -62,9 +62,16 @@ gs slice unshare alice/project bob
 gs slice leave alice/project                                    # as bob
 gs slice list            # your account's slices, then "shared with you"
 gs slice list --shared   # only the shared ones
+gs auth status           # your accounts with their roles, then "shared with you"
 ```
 
 Sharing a `home` slice shares everything in the account; the CLI says so.
+
+`gs account members <account>` for an account the caller is not in still
+answers not found (the server does not say whether the account exists), but
+when slices of that account are shared with the caller the CLI names them and
+their roles instead, so an agent sees why it can work in `alice:project` yet
+not list `alice`'s members.
 
 ## Web
 

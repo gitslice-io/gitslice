@@ -203,9 +203,19 @@ JSON output exposes only non-secret fields:
 {
   "signed_in": true,
   "server_addr": "127.0.0.1:50051",
-  "subject_id": "user_alice"
+  "subject_id": "user_alice",
+  "accounts": ["alice", "acme-corp"],
+  "memberships": [
+    {"account": "alice", "kind": "personal", "role": "admin"},
+    {"account": "acme-corp", "kind": "organization", "role": "writer"}
+  ],
+  "shared_slices": [{"slice": "bob:project", "role": "writer"}]
 }
 ```
+
+`memberships` are the accounts with what each is and the subject's role in it;
+`shared_slices` are the slices shared with it from accounts it is not in
+(design/26_slice_members.md), so one call answers what it can reach.
 
 `gs auth token` is the explicit secret-bearing CLI command for scripts and
 Git-compatible flows that need the bearer token. It reads

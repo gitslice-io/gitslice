@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"gitslice.io/gitslice/proto/core/v1"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -323,7 +324,7 @@ func (r Runner) runAccountUse(ctx context.Context, opts commandOptions, account 
 			return err
 		}
 		if !containsFold(status.Accounts, account) {
-			return userError("not_a_member", fmt.Sprintf("you do not belong to %s", account), "Run gs auth status to see your accounts.")
+			return userError("not_found", fmt.Sprintf("you do not belong to %s", account), "Run gs auth status to see your accounts.")
 		}
 	}
 	cfg.ActiveAccount = account
@@ -483,6 +484,9 @@ func (r Runner) runAccountMembers(ctx context.Context, opts commandOptions, acco
 	defer conn.Close()
 	resp, err := corev1.NewAuthServiceClient(conn).ListAccountMembers(authCtx, &corev1.ListAccountMembersRequest{Account: strings.TrimSpace(account)})
 	if err != nil {
+		if grpcstatus.Code(err) == codes.NotFound {
+			return r.accountNotFoundError(authCtx, conn, strings.TrimSpace(account), err)
+		}
 		return accountError(err)
 	}
 	members := accountMembersFromProto(resp.Members)
@@ -493,6 +497,30 @@ func (r Runner) runAccountMembers(ctx context.Context, opts commandOptions, acco
 	}
 	r.printAccountMembers(out.Members)
 	return nil
+}
+
+// accountNotFoundError answers gs account members for an account the caller
+// does not belong to. The server does not say whether the account exists, but
+// the caller may still have slices of it shared with them
+// (design/26_slice_members.md); say so rather than only "not found".
+func (r Runner) accountNotFoundError(ctx context.Context, conn *grpc.ClientConn, account string, err error) error {
+	message := grpcstatus.Convert(err).Message()
+	shared, listErr := listSharedSlices(ctx, corev1.NewSliceServiceClient(conn))
+	if listErr == nil {
+		var refs, labels []string
+		for _, s := range shared {
+			if strings.HasPrefix(s.Ref, account+":") {
+				refs = append(refs, s.Ref)
+				labels = append(labels, fmt.Sprintf("%s (%s)", s.Ref, s.Role))
+			}
+		}
+		if len(refs) > 0 {
+			return userError("not_found",
+				"you are not a member of account "+account+", but it shares "+strings.Join(labels, ", ")+" with you",
+				"gs slice members "+refs[0]+" shows who else has it; gs slice list --shared lists every slice shared with you.")
+		}
+	}
+	return userError("not_found", message, "Check the account and username, and that you are a member. Slices shared with you from accounts you are not in: gs slice list --shared.")
 }
 
 // markAccountMembers marks the signed-in subject, and in an agent's own

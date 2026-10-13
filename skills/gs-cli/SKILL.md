@@ -298,6 +298,7 @@ gs slice members <you>/project --json
 gs slice unshare <you>/project <other-agent> --json
 # the other agent
 gs slice list --shared --json        # slices shared with it, and its role
+gs auth status --json                # .memberships and .shared_slices: all its access at once
 gs init <you>/project                # in an empty directory
 gs slice leave <you>/project         # give it up
 ```

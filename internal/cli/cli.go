@@ -331,9 +331,28 @@ type authStatusOutput struct {
 	ServerAddr string   `json:"server_addr,omitempty"`
 	SubjectID  string   `json:"subject_id,omitempty"`
 	Accounts   []string `json:"accounts,omitempty"`
+	// Memberships are the same accounts with what each is and the subject's
+	// role in it.
+	Memberships []authMembershipOutput `json:"memberships,omitempty"`
+	// SharedSlices are the slices shared with the subject from accounts it
+	// may not belong to (design/26_slice_members.md); only gs auth status
+	// looks them up.
+	SharedSlices []authSharedSliceOutput `json:"shared_slices,omitempty"`
 	// ActiveAccount is set by gs account use, while the user belongs to it.
 	ActiveAccount string `json:"active_account,omitempty"`
 	Reason        string `json:"reason,omitempty"`
+}
+
+type authMembershipOutput struct {
+	Account string `json:"account"`
+	// personal, organization or agent.
+	Kind string `json:"kind,omitempty"`
+	Role string `json:"role,omitempty"`
+}
+
+type authSharedSliceOutput struct {
+	Slice string `json:"slice"`
+	Role  string `json:"role"`
 }
 
 type authTokenOutput struct {
@@ -3201,7 +3220,31 @@ func (r Runner) runAuthStatus(ctx context.Context, opts commandOptions) error {
 	if err != nil {
 		return err
 	}
+	// Everything the subject can reach in one answer: its accounts, and the
+	// slices shared with it from elsewhere.
+	if status.SignedIn {
+		if shared, err := r.sharedSlicesForStatus(ctx); err == nil {
+			status.SharedSlices = shared
+		}
+	}
 	return r.writeAuthStatus(opts, status)
+}
+
+func (r Runner) sharedSlicesForStatus(ctx context.Context) ([]authSharedSliceOutput, error) {
+	_, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	shared, err := listSharedSlices(callCtx, corev1.NewSliceServiceClient(conn))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]authSharedSliceOutput, 0, len(shared))
+	for _, s := range shared {
+		out = append(out, authSharedSliceOutput{Slice: s.Ref, Role: s.Role})
+	}
+	return out, nil
 }
 
 func (r Runner) runAuthToken(ctx context.Context, opts commandOptions) error {
@@ -3317,11 +3360,16 @@ func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
 	if containsFold(res.Accounts, cfg.ActiveAccount) {
 		active = cfg.ActiveAccount
 	}
+	memberships := make([]authMembershipOutput, 0, len(res.GetMemberships()))
+	for _, m := range res.GetMemberships() {
+		memberships = append(memberships, authMembershipOutput{Account: m.GetAccount(), Kind: m.GetKind(), Role: m.GetRole()})
+	}
 	return authStatusOutput{
 		SignedIn:      true,
 		ServerAddr:    cfg.ServerAddr,
 		SubjectID:     res.SubjectId,
 		Accounts:      res.Accounts,
+		Memberships:   memberships,
 		ActiveAccount: active,
 	}, nil
 }
@@ -3351,6 +3399,20 @@ func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) er
 	fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
 	if status.ActiveAccount != "" {
 		fmt.Fprintf(r.Stdout, "active account: %s\n", status.ActiveAccount)
+	}
+	if len(status.Memberships) > 0 {
+		parts := make([]string, 0, len(status.Memberships))
+		for _, m := range status.Memberships {
+			parts = append(parts, fmt.Sprintf("%s (%s)", m.Account, strings.Trim(m.Kind+", "+m.Role, ", ")))
+		}
+		fmt.Fprintf(r.Stdout, "accounts: %s\n", strings.Join(parts, ", "))
+	}
+	if len(status.SharedSlices) > 0 {
+		parts := make([]string, 0, len(status.SharedSlices))
+		for _, s := range status.SharedSlices {
+			parts = append(parts, fmt.Sprintf("%s (%s)", s.Slice, s.Role))
+		}
+		fmt.Fprintf(r.Stdout, "shared with you: %s\n", strings.Join(parts, ", "))
 	}
 	return nil
 }
@@ -12725,9 +12787,9 @@ func (r Runner) runSchema(opts commandOptions) error {
 			},
 			{
 				"use":            "gs auth status",
-				"summary":        "show current authentication status after validating the local token",
+				"summary":        "show current authentication status after validating the local token, with every account and shared slice the subject can reach",
 				"writes_stdout":  true,
-				"machine_output": []string{"signed_in", "server_addr", "subject_id", "reason"},
+				"machine_output": []string{"signed_in", "server_addr", "subject_id", "accounts", "memberships", "shared_slices", "active_account", "reason"},
 			},
 			{
 				"use":            "gs auth token",
