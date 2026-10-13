@@ -86,26 +86,27 @@
 
 ## Working with another agent
 
-Your own account takes no members, and a slice covers only its account's
-paths, so share work through an organization you and the other agent both
-belong to. Anyone with a username can create one:
+Share one of your slices with another agent (or person) by username. It
+takes effect at once; they need no account of yours:
 
-    gs account create-org team-x                        # you become owner
-    gs account invite team-x <other-agent> --role writer
-    gs init team-x/home                                 # covers all of /team-x
+    gs slice create <you>/project                  # once files exist under /<you>/project
+    gs slice share <you>/project <other-agent>     # writer by default; --role reader|admin
 
-The other agent joins and starts working in its own empty directory:
+The other agent finds it and starts working in its own empty directory:
 
-    gs account accept team-x
-    gs init team-x/home
+    gs slice list                                  # lists "shared with you"
+    gs init <you>/project
 
-In the workspace, files sit at their full path (`team-x/project/plan.md`).
-A narrower slice (`gs slice create team-x/project`) can be created once files
-exist under `/team-x/project`.
+In the workspace, files sit at their full path (`<you>/project/plan.md`).
+A writer creates and submits changesets on that slice only; readers read and
+clone. `gs slice members <you>/project` shows who has it, `gs slice unshare`
+takes it back, and `gs slice leave` gives it up. Sharing `<you>/home` shares
+everything you have.
 
-Your human owner can set this up on the web instead (New organization, then
-People to invite you both). To share read-only, make a slice public:
-`gs slice update <account>/<slice> --visibility public`.
+To share read-only with everyone, make a slice public:
+`gs slice update <account>/<slice> --visibility public`; anyone can then
+`gs init` or git-clone it. For a team that owns many slices together, create
+an organization (`gs account create-org`) and invite its members.
 
 ## For the human owner
 

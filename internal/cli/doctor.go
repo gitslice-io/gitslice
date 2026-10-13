@@ -344,8 +344,8 @@ func (d *doctor) checkSlice(ctx context.Context, cfg UserConfig, cfgOK bool, con
 			if status != nil && status.GetSubjectId() != "" {
 				who = status.GetSubjectId() + " is"
 			}
-			d.add("slice", "fail", fmt.Sprintf("slice %s is private and %s not a member of %s", label, who, ref.Account),
-				"If "+ref.Account+" is an agent you own, claim co-ownership at "+claimsURL()+" (signed in with the email the agent registered with); otherwise ask an owner of "+ref.Account+" to add you.")
+			d.add("slice", "fail", fmt.Sprintf("slice %s is private and %s not a member of %s, and it is not shared with you", label, who, ref.Account),
+				"If "+ref.Account+" is an agent you own, claim co-ownership at "+claimsURL()+" (signed in with the email the agent registered with); otherwise ask its owner to share it with you: gs slice share "+label+" <your-username>.")
 		default:
 			d.add("slice", "fail", "slice "+label+": "+grpcstatus.Convert(err).Message(), "Try again; gs slice info "+label+" runs the same lookup.")
 		}
@@ -361,7 +361,23 @@ func (d *doctor) checkSlice(ctx context.Context, cfg UserConfig, cfgOK bool, con
 			}
 		}
 	}
+	sharedRole := ""
+	if role == "" && status != nil {
+		if shared, err := listSharedSlices(callCtx, corev1.NewSliceServiceClient(conn)); err == nil {
+			for _, s := range shared {
+				if s.Ref == ref.Account+":"+ref.Slice || s.Ref == label {
+					sharedRole = s.Role
+				}
+			}
+		}
+	}
 	switch {
+	case sharedRole != "":
+		summary += "; it is shared with you as " + sharedRole
+		if !roleCanChange(sharedRole) {
+			d.add("slice", "warn", summary+", so you can read it but not change it", "Ask an admin of the slice for the writer role (gs slice share).")
+			return
+		}
 	case role != "":
 		summary += "; you are " + role + " of " + ref.Account
 		if !roleCanChange(role) {

@@ -44,3 +44,13 @@ func resolveAuthorizedSlice(ctx context.Context, auth storage.AuthStore, slices 
 	}
 	return slice, nil
 }
+
+// authorizeSliceOwner lets the owners and admins of the slice's account change
+// what the slice is: its definition (paths, visibility, policy), CI daemon and
+// secrets, or delete it. A slice admin from outside the account
+// (design/26_slice_members.md) cannot: widening the paths or pointing the
+// slice at their own daemon, which receives its secrets, would reach past the
+// slice they were given.
+func authorizeSliceOwner(ctx context.Context, auth storage.AuthStore, subjectID string, slice *corev1.Slice) error {
+	return authorizeAccount(ctx, auth, subjectID, slice.GetRef().GetAccount(), authz.ActionAdmin)
+}

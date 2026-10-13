@@ -39,29 +39,56 @@ func (a Authorizer) Authorize(ctx context.Context, subjectID string, slice *core
 	if strings.TrimSpace(subjectID) == "" {
 		return storage.ErrUnauthenticated
 	}
+	switch action {
+	case ActionRead, ActionWrite, ActionAdmin:
+	default:
+		return storage.ErrInvalid
+	}
+	// The account's role decides first; a role on the slice itself
+	// (design/26_slice_members.md) can only add to it.
 	role, ok, err := a.accountRole(ctx, subjectID, slice.Ref.Account)
 	if err != nil {
 		return err
 	}
+	if ok && roleAllows(role, action) {
+		return nil
+	}
+	sliceRole, ok, err := a.SliceRole(ctx, subjectID, slice)
+	if err != nil {
+		return err
+	}
+	if ok && roleAllows(sliceRole, action) {
+		return nil
+	}
+	return storage.ErrUnauthorized
+}
+
+// SliceRole returns the role the subject was given on the slice itself, if
+// any (not its role in the slice's account).
+func (a Authorizer) SliceRole(ctx context.Context, subjectID string, slice *corev1.Slice) (string, bool, error) {
+	if a.Auth == nil || slice == nil || strings.TrimSpace(slice.Id) == "" || strings.TrimSpace(subjectID) == "" {
+		return "", false, nil
+	}
+	role, err := a.Auth.SliceRole(ctx, subjectID, slice.Id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrUnauthorized) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return strings.ToLower(strings.TrimSpace(role)), true, nil
+}
+
+func roleAllows(role string, action Action) bool {
 	switch action {
 	case ActionRead:
-		if !ok {
-			return storage.ErrUnauthorized
-		}
-		return nil
+		return true
 	case ActionWrite:
-		if !ok || !roleCanWrite(role) {
-			return storage.ErrUnauthorized
-		}
-		return nil
+		return roleCanWrite(role)
 	case ActionAdmin:
-		if !ok || !roleCanAdmin(role) {
-			return storage.ErrUnauthorized
-		}
-		return nil
-	default:
-		return storage.ErrInvalid
+		return roleCanAdmin(role)
 	}
+	return false
 }
 
 func (a Authorizer) AuthorizeAccount(ctx context.Context, subjectID, account string, action Action) error {

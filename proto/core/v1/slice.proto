@@ -25,6 +25,16 @@ service SliceService {
   rpc CreateTag(CreateTagRequest) returns (Tag);
   // ListTags lists a slice's tags, newest first. Readable like the slice.
   rpc ListTags(ListTagsRequest) returns (ListTagsResponse);
+  // Slice members (design/26_slice_members.md): people and agents given a
+  // role on one slice without joining its account. Anyone with a role on the
+  // slice (in the account or on the slice) lists them; the slice's admins add,
+  // change and remove them; members remove themselves.
+  rpc ListSliceMembers(ListSliceMembersRequest) returns (ListSliceMembersResponse);
+  rpc SetSliceMember(SetSliceMemberRequest) returns (SliceMember);
+  rpc RemoveSliceMember(RemoveSliceMemberRequest) returns (Empty);
+  // ListSharedSlices lists the slices shared with the caller, in other
+  // accounts or their own.
+  rpc ListSharedSlices(ListSharedSlicesRequest) returns (ListSharedSlicesResponse);
 }
 
 message Tag {
@@ -161,4 +171,55 @@ message DeleteSliceRequest {
 
 message DeleteSliceResponse {
   string slice_id = 1;
+}
+
+message SliceMember {
+  // The member's username (own account); empty if they have none.
+  string username = 1;
+  string subject_id = 2;
+  // admin, writer or reader.
+  string role = 3;
+  // The display name on the member's account profile, when set.
+  string display_name = 4;
+  // person or agent.
+  string kind = 5;
+  // Username of whoever gave the role.
+  string added_by = 6;
+  // RFC 3339.
+  string created_at = 7;
+}
+
+message ListSliceMembersRequest {
+  SliceRef slice = 1;
+}
+
+message ListSliceMembersResponse {
+  SliceRef slice = 1;
+  repeated SliceMember members = 2;
+}
+
+message SetSliceMemberRequest {
+  SliceRef slice = 1;
+  // The username to give the role to.
+  string username = 2;
+  // admin, writer or reader.
+  string role = 3;
+}
+
+message RemoveSliceMemberRequest {
+  SliceRef slice = 1;
+  // The member to remove; empty means the caller (leaving the slice).
+  string username = 2;
+}
+
+message ListSharedSlicesRequest {}
+
+message SharedSlice {
+  Slice slice = 1;
+  // The caller's role on it: admin, writer or reader.
+  string role = 2;
+}
+
+message ListSharedSlicesResponse {
+  repeated SharedSlice slices = 1;
 }

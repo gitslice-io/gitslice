@@ -73,6 +73,13 @@ import type {
   CreateWebhookRequest,
   ListWebhooksRequest,
   ListWebhooksResponse,
+  ListSliceMembersRequest,
+  ListSliceMembersResponse,
+  SetSliceMemberRequest,
+  RemoveSliceMemberRequest,
+  SliceMember,
+  ListSharedSlicesRequest,
+  ListSharedSlicesResponse,
   UpdateWebhookRequest,
   Webhook,
   WebhookDelivery,
@@ -228,6 +235,10 @@ export interface ApiClient {
   submitStack(request: SubmitStackRequest): Promise<SubmitStackResponse>;
   createWebhook(request: CreateWebhookRequest): Promise<Webhook>;
   listWebhooks(request: ListWebhooksRequest): Promise<ListWebhooksResponse>;
+  listSliceMembers(request: ListSliceMembersRequest): Promise<ListSliceMembersResponse>;
+  setSliceMember(request: SetSliceMemberRequest): Promise<SliceMember>;
+  removeSliceMember(request: RemoveSliceMemberRequest): Promise<Empty>;
+  listSharedSlices(request: ListSharedSlicesRequest): Promise<ListSharedSlicesResponse>;
   updateWebhook(request: UpdateWebhookRequest): Promise<Webhook>;
   deleteWebhook(request: WebhookIdRequest): Promise<Empty>;
   pingWebhook(request: WebhookIdRequest): Promise<WebhookDelivery>;

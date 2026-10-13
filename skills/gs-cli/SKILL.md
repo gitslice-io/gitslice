@@ -289,32 +289,32 @@ acme-corp` makes the organization the default account for commands such as
 
 ### Working With Another Agent
 
-A personal account (yours, or another agent's) takes no members, and a slice
-covers only paths in its own account (`/<account>/...`). To work on the same
-code as another agent, put it in an organization you both belong to. A new
-organization comes with a `home` slice covering all of `/<org>`, so you can
-both start there:
+Share a slice with another agent or person by username; it takes effect at
+once, without adding them to your account (design/26_slice_members.md):
 
 ```bash
-# you
-gs account create-org team-x
-gs account invite team-x <other-agent> --role writer
-gs init team-x/home                         # in an empty directory
+gs slice share <you>/project <other-agent> --role writer --json   # reader|writer|admin
+gs slice members <you>/project --json
+gs slice unshare <you>/project <other-agent> --json
 # the other agent
-gs account accept team-x
-gs init team-x/home                         # in its own empty directory
+gs slice list --shared --json        # slices shared with it, and its role
+gs init <you>/project                # in an empty directory
+gs slice leave <you>/project         # give it up
 ```
 
-Each of you then works in your own workspace (files sit at their full path,
-such as `team-x/project/plan.md`) and lands changesets as usual; `gs sync`
-picks up the other's landed changes. A narrower slice, such as
-`gs slice create team-x/project` for `/team-x/project`, can be created once
-files exist under that path. Your human owner can do the
-setup instead on the web (New organization, then People to invite), and keep
-ownership. Work already in a personal slice does not move: copy the files into
-the organization's workspace and land them as a new changeset. To share code
-read-only, make the slice public instead (`gs slice update <account>/<slice>
---visibility public`); others can `gs init` or git-clone it but not change it.
+A slice covers only paths that hold files, so create `<you>/project` once
+files exist under `/<you>/project` (or share `<you>/home`, which shares
+everything you have). Files sit at their full path in the workspace
+(`<you>/project/plan.md`). Roles apply to that slice only: readers read and
+clone; writers also create, submit and approve changesets (which run the
+slice's checks with its secrets, as an account writer's do); admins also
+manage its members and webhooks. The slice's paths, visibility, policy, CI
+daemon and secrets stay with the account's owners and admins.
+
+To share read-only with everyone, make the slice public (`gs slice update
+<account>/<slice> --visibility public`); anyone can then `gs init` or
+git-clone it. For a team that owns many slices together, use an organization
+(above).
 
 ## History And Diff
 
@@ -374,7 +374,7 @@ gs adds `gs_version`, `os`, `arch` and the workspace slice; add the failing comm
 - Anything about the setup (version, server, sign-in, workspace, access): run `gs doctor --json`, or `gs doctor <account>/<slice> --json` for access to one slice. Each failed check has a `hint`.
 - `not signed in`, `authentication failed` or exit code `4`: run `gs auth status --json`; re-run `gs auth login` (or `gs auth register-agent`) if needed.
 - `nothing_to_change`: the workspace matches its base, so `gs create` made nothing; pass `--if-changed` in scheduled jobs.
-- `permission_denied`: the signed-in subject is not a member of the account that owns the slice, or lacks write access. The owner of an agent account gains access by claiming it at `https://gitslice.io/claims`; anyone else needs an owner to add them.
+- `permission_denied`: the signed-in subject has no role on the slice (in its account, or shared with it), or lacks write access. The owner of an agent account gains access by claiming it at `https://gitslice.io/claims`; anyone else asks an owner to share the slice (`gs slice share <slice> <username>`).
 - `not in a gitslice workspace`: run `gs context --json`; initialize an empty directory with `gs init <account>/<slice>`.
 - `workspace init requires an empty directory`: create a fresh empty directory.
 - `outside_slice`: move the edit under the workspace's bound slice or create another workspace for the intended slice.

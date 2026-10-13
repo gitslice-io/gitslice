@@ -32,6 +32,10 @@ const (
 	SliceService_DeleteSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/DeleteSlice"
 	SliceService_CreateTag_FullMethodName                   = "/gitslice.core.v1.SliceService/CreateTag"
 	SliceService_ListTags_FullMethodName                    = "/gitslice.core.v1.SliceService/ListTags"
+	SliceService_ListSliceMembers_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceMembers"
+	SliceService_SetSliceMember_FullMethodName              = "/gitslice.core.v1.SliceService/SetSliceMember"
+	SliceService_RemoveSliceMember_FullMethodName           = "/gitslice.core.v1.SliceService/RemoveSliceMember"
+	SliceService_ListSharedSlices_FullMethodName            = "/gitslice.core.v1.SliceService/ListSharedSlices"
 )
 
 // SliceServiceClient is the client API for SliceService service.
@@ -56,6 +60,16 @@ type SliceServiceClient interface {
 	CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*Tag, error)
 	// ListTags lists a slice's tags, newest first. Readable like the slice.
 	ListTags(ctx context.Context, in *ListTagsRequest, opts ...grpc.CallOption) (*ListTagsResponse, error)
+	// Slice members (design/26_slice_members.md): people and agents given a
+	// role on one slice without joining its account. Anyone with a role on the
+	// slice (in the account or on the slice) lists them; the slice's admins add,
+	// change and remove them; members remove themselves.
+	ListSliceMembers(ctx context.Context, in *ListSliceMembersRequest, opts ...grpc.CallOption) (*ListSliceMembersResponse, error)
+	SetSliceMember(ctx context.Context, in *SetSliceMemberRequest, opts ...grpc.CallOption) (*SliceMember, error)
+	RemoveSliceMember(ctx context.Context, in *RemoveSliceMemberRequest, opts ...grpc.CallOption) (*Empty, error)
+	// ListSharedSlices lists the slices shared with the caller, in other
+	// accounts or their own.
+	ListSharedSlices(ctx context.Context, in *ListSharedSlicesRequest, opts ...grpc.CallOption) (*ListSharedSlicesResponse, error)
 }
 
 type sliceServiceClient struct {
@@ -183,6 +197,42 @@ func (c *sliceServiceClient) ListTags(ctx context.Context, in *ListTagsRequest, 
 	return out, nil
 }
 
+func (c *sliceServiceClient) ListSliceMembers(ctx context.Context, in *ListSliceMembersRequest, opts ...grpc.CallOption) (*ListSliceMembersResponse, error) {
+	out := new(ListSliceMembersResponse)
+	err := c.cc.Invoke(ctx, SliceService_ListSliceMembers_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) SetSliceMember(ctx context.Context, in *SetSliceMemberRequest, opts ...grpc.CallOption) (*SliceMember, error) {
+	out := new(SliceMember)
+	err := c.cc.Invoke(ctx, SliceService_SetSliceMember_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) RemoveSliceMember(ctx context.Context, in *RemoveSliceMemberRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, SliceService_RemoveSliceMember_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) ListSharedSlices(ctx context.Context, in *ListSharedSlicesRequest, opts ...grpc.CallOption) (*ListSharedSlicesResponse, error) {
+	out := new(ListSharedSlicesResponse)
+	err := c.cc.Invoke(ctx, SliceService_ListSharedSlices_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SliceServiceServer is the server API for SliceService service.
 // All implementations should embed UnimplementedSliceServiceServer
 // for forward compatibility
@@ -205,6 +255,16 @@ type SliceServiceServer interface {
 	CreateTag(context.Context, *CreateTagRequest) (*Tag, error)
 	// ListTags lists a slice's tags, newest first. Readable like the slice.
 	ListTags(context.Context, *ListTagsRequest) (*ListTagsResponse, error)
+	// Slice members (design/26_slice_members.md): people and agents given a
+	// role on one slice without joining its account. Anyone with a role on the
+	// slice (in the account or on the slice) lists them; the slice's admins add,
+	// change and remove them; members remove themselves.
+	ListSliceMembers(context.Context, *ListSliceMembersRequest) (*ListSliceMembersResponse, error)
+	SetSliceMember(context.Context, *SetSliceMemberRequest) (*SliceMember, error)
+	RemoveSliceMember(context.Context, *RemoveSliceMemberRequest) (*Empty, error)
+	// ListSharedSlices lists the slices shared with the caller, in other
+	// accounts or their own.
+	ListSharedSlices(context.Context, *ListSharedSlicesRequest) (*ListSharedSlicesResponse, error)
 }
 
 // UnimplementedSliceServiceServer should be embedded to have forward compatible implementations.
@@ -249,6 +309,18 @@ func (UnimplementedSliceServiceServer) CreateTag(context.Context, *CreateTagRequ
 }
 func (UnimplementedSliceServiceServer) ListTags(context.Context, *ListTagsRequest) (*ListTagsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTags not implemented")
+}
+func (UnimplementedSliceServiceServer) ListSliceMembers(context.Context, *ListSliceMembersRequest) (*ListSliceMembersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSliceMembers not implemented")
+}
+func (UnimplementedSliceServiceServer) SetSliceMember(context.Context, *SetSliceMemberRequest) (*SliceMember, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetSliceMember not implemented")
+}
+func (UnimplementedSliceServiceServer) RemoveSliceMember(context.Context, *RemoveSliceMemberRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveSliceMember not implemented")
+}
+func (UnimplementedSliceServiceServer) ListSharedSlices(context.Context, *ListSharedSlicesRequest) (*ListSharedSlicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListSharedSlices not implemented")
 }
 
 // UnsafeSliceServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -496,6 +568,78 @@ func _SliceService_ListTags_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_ListSliceMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSliceMembersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).ListSliceMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_ListSliceMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).ListSliceMembers(ctx, req.(*ListSliceMembersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_SetSliceMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSliceMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).SetSliceMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_SetSliceMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).SetSliceMember(ctx, req.(*SetSliceMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_RemoveSliceMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveSliceMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).RemoveSliceMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_RemoveSliceMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).RemoveSliceMember(ctx, req.(*RemoveSliceMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_ListSharedSlices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSharedSlicesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).ListSharedSlices(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_ListSharedSlices_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).ListSharedSlices(ctx, req.(*ListSharedSlicesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SliceService_ServiceDesc is the grpc.ServiceDesc for SliceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -554,6 +698,22 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListTags",
 			Handler:    _SliceService_ListTags_Handler,
+		},
+		{
+			MethodName: "ListSliceMembers",
+			Handler:    _SliceService_ListSliceMembers_Handler,
+		},
+		{
+			MethodName: "SetSliceMember",
+			Handler:    _SliceService_SetSliceMember_Handler,
+		},
+		{
+			MethodName: "RemoveSliceMember",
+			Handler:    _SliceService_RemoveSliceMember_Handler,
+		},
+		{
+			MethodName: "ListSharedSlices",
+			Handler:    _SliceService_ListSharedSlices_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -8,6 +8,7 @@ import { PendingClaims } from "../components/slices/PendingClaims";
 import { PendingInvitations } from "../components/slices/PendingInvitations";
 import { RecentConversations } from "../components/slices/RecentConversations";
 import { SlicesList } from "../components/slices/SlicesList";
+import { SharedSlices } from "../components/slices/SharedSlices";
 import { kindLabel } from "../lib/accounts";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
@@ -64,6 +65,7 @@ export function HomePage() {
         {personal ? <PendingClaims /> : null}
         <RecentConversations accounts={contextAccounts.length > 0 ? contextAccounts : undefined} />
         <SlicesList />
+        {personal ? <SharedSlices /> : null}
       </div>
     </section>
   );

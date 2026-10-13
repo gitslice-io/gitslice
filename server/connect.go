@@ -604,6 +604,22 @@ func (a connectFeedbackAdapter) ResolveFeedback(ctx context.Context, req *connec
 	return connectResponse(a.svc.ResolveFeedback(ctx, req.Msg))
 }
 
+func (a connectSliceAdapter) ListSliceMembers(ctx context.Context, req *connect.Request[corev1.ListSliceMembersRequest]) (*connect.Response[corev1.ListSliceMembersResponse], error) {
+	return connectResponse(a.svc.ListSliceMembers(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) SetSliceMember(ctx context.Context, req *connect.Request[corev1.SetSliceMemberRequest]) (*connect.Response[corev1.SliceMember], error) {
+	return connectResponse(a.svc.SetSliceMember(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) RemoveSliceMember(ctx context.Context, req *connect.Request[corev1.RemoveSliceMemberRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.RemoveSliceMember(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) ListSharedSlices(ctx context.Context, req *connect.Request[corev1.ListSharedSlicesRequest]) (*connect.Response[corev1.ListSharedSlicesResponse], error) {
+	return connectResponse(a.svc.ListSharedSlices(ctx, req.Msg))
+}
+
 type connectWebhookAdapter struct {
 	svc *service.WebhookService
 }

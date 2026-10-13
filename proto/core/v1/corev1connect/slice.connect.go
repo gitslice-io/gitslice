@@ -68,6 +68,18 @@ const (
 	SliceServiceCreateTagProcedure = "/gitslice.core.v1.SliceService/CreateTag"
 	// SliceServiceListTagsProcedure is the fully-qualified name of the SliceService's ListTags RPC.
 	SliceServiceListTagsProcedure = "/gitslice.core.v1.SliceService/ListTags"
+	// SliceServiceListSliceMembersProcedure is the fully-qualified name of the SliceService's
+	// ListSliceMembers RPC.
+	SliceServiceListSliceMembersProcedure = "/gitslice.core.v1.SliceService/ListSliceMembers"
+	// SliceServiceSetSliceMemberProcedure is the fully-qualified name of the SliceService's
+	// SetSliceMember RPC.
+	SliceServiceSetSliceMemberProcedure = "/gitslice.core.v1.SliceService/SetSliceMember"
+	// SliceServiceRemoveSliceMemberProcedure is the fully-qualified name of the SliceService's
+	// RemoveSliceMember RPC.
+	SliceServiceRemoveSliceMemberProcedure = "/gitslice.core.v1.SliceService/RemoveSliceMember"
+	// SliceServiceListSharedSlicesProcedure is the fully-qualified name of the SliceService's
+	// ListSharedSlices RPC.
+	SliceServiceListSharedSlicesProcedure = "/gitslice.core.v1.SliceService/ListSharedSlices"
 )
 
 // SliceServiceClient is a client for the gitslice.core.v1.SliceService service.
@@ -90,6 +102,16 @@ type SliceServiceClient interface {
 	CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error)
 	// ListTags lists a slice's tags, newest first. Readable like the slice.
 	ListTags(context.Context, *connect.Request[v1.ListTagsRequest]) (*connect.Response[v1.ListTagsResponse], error)
+	// Slice members (design/26_slice_members.md): people and agents given a
+	// role on one slice without joining its account. Anyone with a role on the
+	// slice (in the account or on the slice) lists them; the slice's admins add,
+	// change and remove them; members remove themselves.
+	ListSliceMembers(context.Context, *connect.Request[v1.ListSliceMembersRequest]) (*connect.Response[v1.ListSliceMembersResponse], error)
+	SetSliceMember(context.Context, *connect.Request[v1.SetSliceMemberRequest]) (*connect.Response[v1.SliceMember], error)
+	RemoveSliceMember(context.Context, *connect.Request[v1.RemoveSliceMemberRequest]) (*connect.Response[v1.Empty], error)
+	// ListSharedSlices lists the slices shared with the caller, in other
+	// accounts or their own.
+	ListSharedSlices(context.Context, *connect.Request[v1.ListSharedSlicesRequest]) (*connect.Response[v1.ListSharedSlicesResponse], error)
 }
 
 // NewSliceServiceClient constructs a client for the gitslice.core.v1.SliceService service. By
@@ -181,6 +203,30 @@ func NewSliceServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(sliceServiceMethods.ByName("ListTags")),
 			connect.WithClientOptions(opts...),
 		),
+		listSliceMembers: connect.NewClient[v1.ListSliceMembersRequest, v1.ListSliceMembersResponse](
+			httpClient,
+			baseURL+SliceServiceListSliceMembersProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("ListSliceMembers")),
+			connect.WithClientOptions(opts...),
+		),
+		setSliceMember: connect.NewClient[v1.SetSliceMemberRequest, v1.SliceMember](
+			httpClient,
+			baseURL+SliceServiceSetSliceMemberProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("SetSliceMember")),
+			connect.WithClientOptions(opts...),
+		),
+		removeSliceMember: connect.NewClient[v1.RemoveSliceMemberRequest, v1.Empty](
+			httpClient,
+			baseURL+SliceServiceRemoveSliceMemberProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("RemoveSliceMember")),
+			connect.WithClientOptions(opts...),
+		),
+		listSharedSlices: connect.NewClient[v1.ListSharedSlicesRequest, v1.ListSharedSlicesResponse](
+			httpClient,
+			baseURL+SliceServiceListSharedSlicesProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("ListSharedSlices")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -199,6 +245,10 @@ type sliceServiceClient struct {
 	deleteSlice                 *connect.Client[v1.DeleteSliceRequest, v1.DeleteSliceResponse]
 	createTag                   *connect.Client[v1.CreateTagRequest, v1.Tag]
 	listTags                    *connect.Client[v1.ListTagsRequest, v1.ListTagsResponse]
+	listSliceMembers            *connect.Client[v1.ListSliceMembersRequest, v1.ListSliceMembersResponse]
+	setSliceMember              *connect.Client[v1.SetSliceMemberRequest, v1.SliceMember]
+	removeSliceMember           *connect.Client[v1.RemoveSliceMemberRequest, v1.Empty]
+	listSharedSlices            *connect.Client[v1.ListSharedSlicesRequest, v1.ListSharedSlicesResponse]
 }
 
 // CreateSlice calls gitslice.core.v1.SliceService.CreateSlice.
@@ -266,6 +316,26 @@ func (c *sliceServiceClient) ListTags(ctx context.Context, req *connect.Request[
 	return c.listTags.CallUnary(ctx, req)
 }
 
+// ListSliceMembers calls gitslice.core.v1.SliceService.ListSliceMembers.
+func (c *sliceServiceClient) ListSliceMembers(ctx context.Context, req *connect.Request[v1.ListSliceMembersRequest]) (*connect.Response[v1.ListSliceMembersResponse], error) {
+	return c.listSliceMembers.CallUnary(ctx, req)
+}
+
+// SetSliceMember calls gitslice.core.v1.SliceService.SetSliceMember.
+func (c *sliceServiceClient) SetSliceMember(ctx context.Context, req *connect.Request[v1.SetSliceMemberRequest]) (*connect.Response[v1.SliceMember], error) {
+	return c.setSliceMember.CallUnary(ctx, req)
+}
+
+// RemoveSliceMember calls gitslice.core.v1.SliceService.RemoveSliceMember.
+func (c *sliceServiceClient) RemoveSliceMember(ctx context.Context, req *connect.Request[v1.RemoveSliceMemberRequest]) (*connect.Response[v1.Empty], error) {
+	return c.removeSliceMember.CallUnary(ctx, req)
+}
+
+// ListSharedSlices calls gitslice.core.v1.SliceService.ListSharedSlices.
+func (c *sliceServiceClient) ListSharedSlices(ctx context.Context, req *connect.Request[v1.ListSharedSlicesRequest]) (*connect.Response[v1.ListSharedSlicesResponse], error) {
+	return c.listSharedSlices.CallUnary(ctx, req)
+}
+
 // SliceServiceHandler is an implementation of the gitslice.core.v1.SliceService service.
 type SliceServiceHandler interface {
 	CreateSlice(context.Context, *connect.Request[v1.CreateSliceRequest]) (*connect.Response[v1.Slice], error)
@@ -286,6 +356,16 @@ type SliceServiceHandler interface {
 	CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error)
 	// ListTags lists a slice's tags, newest first. Readable like the slice.
 	ListTags(context.Context, *connect.Request[v1.ListTagsRequest]) (*connect.Response[v1.ListTagsResponse], error)
+	// Slice members (design/26_slice_members.md): people and agents given a
+	// role on one slice without joining its account. Anyone with a role on the
+	// slice (in the account or on the slice) lists them; the slice's admins add,
+	// change and remove them; members remove themselves.
+	ListSliceMembers(context.Context, *connect.Request[v1.ListSliceMembersRequest]) (*connect.Response[v1.ListSliceMembersResponse], error)
+	SetSliceMember(context.Context, *connect.Request[v1.SetSliceMemberRequest]) (*connect.Response[v1.SliceMember], error)
+	RemoveSliceMember(context.Context, *connect.Request[v1.RemoveSliceMemberRequest]) (*connect.Response[v1.Empty], error)
+	// ListSharedSlices lists the slices shared with the caller, in other
+	// accounts or their own.
+	ListSharedSlices(context.Context, *connect.Request[v1.ListSharedSlicesRequest]) (*connect.Response[v1.ListSharedSlicesResponse], error)
 }
 
 // NewSliceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -373,6 +453,30 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(sliceServiceMethods.ByName("ListTags")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sliceServiceListSliceMembersHandler := connect.NewUnaryHandler(
+		SliceServiceListSliceMembersProcedure,
+		svc.ListSliceMembers,
+		connect.WithSchema(sliceServiceMethods.ByName("ListSliceMembers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceSetSliceMemberHandler := connect.NewUnaryHandler(
+		SliceServiceSetSliceMemberProcedure,
+		svc.SetSliceMember,
+		connect.WithSchema(sliceServiceMethods.ByName("SetSliceMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceRemoveSliceMemberHandler := connect.NewUnaryHandler(
+		SliceServiceRemoveSliceMemberProcedure,
+		svc.RemoveSliceMember,
+		connect.WithSchema(sliceServiceMethods.ByName("RemoveSliceMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceListSharedSlicesHandler := connect.NewUnaryHandler(
+		SliceServiceListSharedSlicesProcedure,
+		svc.ListSharedSlices,
+		connect.WithSchema(sliceServiceMethods.ByName("ListSharedSlices")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.SliceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SliceServiceCreateSliceProcedure:
@@ -401,6 +505,14 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 			sliceServiceCreateTagHandler.ServeHTTP(w, r)
 		case SliceServiceListTagsProcedure:
 			sliceServiceListTagsHandler.ServeHTTP(w, r)
+		case SliceServiceListSliceMembersProcedure:
+			sliceServiceListSliceMembersHandler.ServeHTTP(w, r)
+		case SliceServiceSetSliceMemberProcedure:
+			sliceServiceSetSliceMemberHandler.ServeHTTP(w, r)
+		case SliceServiceRemoveSliceMemberProcedure:
+			sliceServiceRemoveSliceMemberHandler.ServeHTTP(w, r)
+		case SliceServiceListSharedSlicesProcedure:
+			sliceServiceListSharedSlicesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -460,4 +572,20 @@ func (UnimplementedSliceServiceHandler) CreateTag(context.Context, *connect.Requ
 
 func (UnimplementedSliceServiceHandler) ListTags(context.Context, *connect.Request[v1.ListTagsRequest]) (*connect.Response[v1.ListTagsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.ListTags is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) ListSliceMembers(context.Context, *connect.Request[v1.ListSliceMembersRequest]) (*connect.Response[v1.ListSliceMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.ListSliceMembers is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) SetSliceMember(context.Context, *connect.Request[v1.SetSliceMemberRequest]) (*connect.Response[v1.SliceMember], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceMember is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) RemoveSliceMember(context.Context, *connect.Request[v1.RemoveSliceMemberRequest]) (*connect.Response[v1.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.RemoveSliceMember is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) ListSharedSlices(context.Context, *connect.Request[v1.ListSharedSlicesRequest]) (*connect.Response[v1.ListSharedSlicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.ListSharedSlices is not implemented"))
 }

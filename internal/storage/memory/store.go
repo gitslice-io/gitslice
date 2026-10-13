@@ -41,10 +41,12 @@ type backend struct {
 	mu   sync.Mutex
 	next int64
 
-	subjects          map[string]storage.Subject
-	accountMembers    map[string]map[string]string
-	personalAccounts  map[string]string
-	webhooks          map[string]storage.Webhook
+	subjects         map[string]storage.Subject
+	accountMembers   map[string]map[string]string
+	personalAccounts map[string]string
+	webhooks         map[string]storage.Webhook
+	// sliceMembers maps a slice id to its members' roles, by subject.
+	sliceMembers      map[string]map[string]memSliceMember
 	feedback          map[string]storage.Feedback
 	webhookEvents     []*memWebhookEvent
 	webhookDeliveries map[string]*memWebhookDelivery
@@ -148,6 +150,7 @@ func New() *Stores {
 		personalAccounts:        map[string]string{},
 		orgAccounts:             map[string]bool{},
 		webhooks:                map[string]storage.Webhook{},
+		sliceMembers:            map[string]map[string]memSliceMember{},
 		feedback:                map[string]storage.Feedback{},
 		webhookDeliveries:       map[string]*memWebhookDelivery{},
 		orgCreators:             map[string]string{},
@@ -2693,14 +2696,16 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 }
 
 func (s *SliceStore) List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(account, after, limit, false)
+	return s.list(account, after, limit, false, "")
 }
 
 func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(account, after, limit, true)
+	return s.list(account, after, limit, true, "")
 }
 
-func (s *SliceStore) list(account, after string, limit int, publicOnly bool) ([]*corev1.Slice, error) {
+// list lists an account's slices: all of them, or with publicOnly the public
+// ones and those shared with sharedWith.
+func (s *SliceStore) list(account, after string, limit int, publicOnly bool, sharedWith string) ([]*corev1.Slice, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if limit <= 0 {
@@ -2708,7 +2713,8 @@ func (s *SliceStore) list(account, after string, limit int, publicOnly bool) ([]
 	}
 	var out []*corev1.Slice
 	for _, slice := range s.b.slices {
-		if slice.Ref.Account == account && slice.Ref.Slice > after && (!publicOnly || slice.GetDefinition().GetVisibility() == "public") {
+		_, shared := s.b.sliceMembers[slice.Id][sharedWith]
+		if slice.Ref.Account == account && slice.Ref.Slice > after && (!publicOnly || slice.GetDefinition().GetVisibility() == "public" || (sharedWith != "" && shared)) {
 			out = append(out, cloneSlice(slice))
 		}
 	}

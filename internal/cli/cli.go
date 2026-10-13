@@ -955,7 +955,7 @@ func (r Runner) permissionDeniedError(err error) error {
 		Message: message,
 		Hint: "A private slice is open only to members of the account that owns it, and changing a slice needs write access. " +
 			"If the slice belongs to an agent you own, claim co-ownership at " + claimsURL() + " (signed in with the email the agent registered with); " +
-			"otherwise ask an owner of the account to add you. gs doctor <account/slice> checks your access.",
+			"otherwise ask an owner of the account to share the slice with you (gs slice share <slice> <username>). gs doctor <account/slice> checks your access.",
 		Cause: err,
 	}
 }
@@ -2070,18 +2070,20 @@ home slice root, for example /nic/notes.`,
 	sliceCreateCmd.Flags().StringVar(&sliceCreateVisibility, "visibility", sliceCreateVisibility, "slice visibility: private or public")
 	sliceCreateCmd.Flags().IntVar(&sliceCreateRequiredApprovals, "required-approvals", sliceCreateRequiredApprovals, "distinct non-author approvals required before submit")
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateRequiredChecks, "required-check", nil, "check name required to pass before submit; repeat for multiple checks")
+	sliceListShared := false
 	sliceListCmd := &cobra.Command{
 		Use:   "list [account]",
-		Short: "List slices in an account",
-		Args:  maxArgs(1, "gs slice list [account]"),
+		Short: "List slices in an account, and those shared with you",
+		Args:  maxArgs(1, "gs slice list [account] [--shared]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			account := ""
 			if len(args) > 0 {
 				account = args[0]
 			}
-			return r.runSliceList(cmd.Context(), *opts, account)
+			return r.runSliceList(cmd.Context(), *opts, account, sliceListShared)
 		},
 	}
+	sliceListCmd.Flags().BoolVar(&sliceListShared, "shared", false, "only the slices shared with you from other accounts")
 	sliceInfoCmd := &cobra.Command{
 		Use:   "info <slice|account:slice>",
 		Short: "Show slice metadata",
@@ -2178,6 +2180,7 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	sliceSecretCmd.AddCommand(sliceSecretSetCmd, sliceSecretRemoveCmd, sliceSecretListCmd)
+	sliceCmd.AddCommand(r.sliceMemberCommands(opts)...)
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceSecretCmd, sliceDeleteCmd)
 
 	agentCmd := r.agentCommand(opts)
@@ -3864,12 +3867,34 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 	return writeSliceText(r.Stdout, slice)
 }
 
-func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account string) error {
+func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account string, sharedOnly bool) error {
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	// Listing your own account also lists what others shared with you.
+	defaultAccount := strings.TrimSpace(account) == ""
+	var shared []sharedSliceOutput
+	if sharedOnly || defaultAccount {
+		if shared, err = listSharedSlices(callCtx, corev1.NewSliceServiceClient(conn)); err != nil {
+			return err
+		}
+	}
+	if sharedOnly {
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{"shared": nonNilShared(shared)})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		if len(shared) == 0 {
+			fmt.Fprintln(r.Stdout, "no slices are shared with you")
+			return nil
+		}
+		r.writeSharedSlicesText(shared)
+		return nil
+	}
 	if strings.TrimSpace(account) == "" {
 		account, err = r.defaultSliceAccount(callCtx, cfg, conn)
 		if err != nil {
@@ -3890,29 +3915,43 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 		out = append(out, sliceToOutput(slice))
 	}
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
+		payload := map[string]any{
 			"account": account,
 			"slices":  out,
-		})
+		}
+		if defaultAccount {
+			payload["shared"] = nonNilShared(shared)
+		}
+		return r.writeJSONOutput(opts, payload)
 	}
 	if opts.Quiet {
 		return nil
 	}
 	if len(out) == 0 {
 		fmt.Fprintf(r.Stdout, "no slices found for account %s\n", account)
-		return nil
-	}
-	fmt.Fprintf(r.Stdout, "slices for account %s:\n", account)
-	for _, slice := range out {
-		fmt.Fprintf(r.Stdout, "  %s\n", slice.Ref)
-		fmt.Fprintf(r.Stdout, "    visibility: %s\n", slice.Visibility)
-		fmt.Fprintf(r.Stdout, "    included paths: %s\n", strings.Join(slice.IncludedPaths, ", "))
-		fmt.Fprintf(r.Stdout, "    required approvals: %d\n", slice.RequiredApprovals)
-		if len(slice.RequiredChecks) > 0 {
-			fmt.Fprintf(r.Stdout, "    required checks: %s\n", strings.Join(slice.RequiredChecks, ", "))
+	} else {
+		fmt.Fprintf(r.Stdout, "slices for account %s:\n", account)
+		for _, slice := range out {
+			fmt.Fprintf(r.Stdout, "  %s\n", slice.Ref)
+			fmt.Fprintf(r.Stdout, "    visibility: %s\n", slice.Visibility)
+			fmt.Fprintf(r.Stdout, "    included paths: %s\n", strings.Join(slice.IncludedPaths, ", "))
+			fmt.Fprintf(r.Stdout, "    required approvals: %d\n", slice.RequiredApprovals)
+			if len(slice.RequiredChecks) > 0 {
+				fmt.Fprintf(r.Stdout, "    required checks: %s\n", strings.Join(slice.RequiredChecks, ", "))
+			}
 		}
 	}
+	if len(shared) > 0 {
+		r.writeSharedSlicesText(shared)
+	}
 	return nil
+}
+
+func nonNilShared(shared []sharedSliceOutput) []sharedSliceOutput {
+	if shared == nil {
+		return []sharedSliceOutput{}
+	}
+	return shared
 }
 
 func (r Runner) runSliceInfo(ctx context.Context, opts commandOptions, sliceRef string) error {
@@ -12945,12 +12984,40 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
 			},
 			{
+				"use":            "gs slice share <slice|account:slice> <username>",
+				"summary":        "give a person or agent a role on one slice (reader, writer or admin), without adding them to its account",
+				"args":           []string{"slice", "username"},
+				"flags":          []string{"--role"},
+				"writes_stdout":  true,
+				"machine_output": []string{"username", "subject_id", "role", "display_name", "kind", "added_by", "created_at"},
+			},
+			{
+				"use":            "gs slice members <slice|account:slice>",
+				"summary":        "list who a slice is shared with beyond its account",
+				"args":           []string{"slice"},
+				"writes_stdout":  true,
+				"machine_output": []string{"slice", "members"},
+			},
+			{
+				"use":           "gs slice unshare <slice|account:slice> <username>",
+				"summary":       "take away someone's role on a slice",
+				"args":          []string{"slice", "username"},
+				"writes_stdout": true,
+			},
+			{
+				"use":           "gs slice leave <slice|account:slice>",
+				"summary":       "give up your role on a slice shared with you",
+				"args":          []string{"slice"},
+				"writes_stdout": true,
+			},
+			{
 				"use":            "gs slice list [account]",
-				"summary":        "list slices in an account",
+				"summary":        "list slices in an account; without an account, also those shared with you (--shared: only those)",
 				"aliases":        []string{"gs slices list [account]"},
 				"args":           []string{"account"},
+				"flags":          []string{"--shared"},
 				"writes_stdout":  true,
-				"machine_output": []string{"account", "slices"},
+				"machine_output": []string{"account", "slices", "shared"},
 			},
 			{
 				"use":            "gs slice info <slice|account:slice>",

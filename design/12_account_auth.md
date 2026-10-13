@@ -401,6 +401,9 @@ personal account, an organization they belong to, or an agent they claimed.
   `gs auth status` reports it.
 - **Home follows the active account** for conversations too; agent claims and
   owned agents appear only in the personal context.
+- **Slice members (2026-10).** A slice's admins can give a person or agent a
+  role on that one slice without adding them to the account; see
+  [26_slice_members.md](26_slice_members.md).
 
 ## 10. Subject Propagation And Audit Fields
 

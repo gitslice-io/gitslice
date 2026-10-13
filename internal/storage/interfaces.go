@@ -57,6 +57,9 @@ type AuthStore interface {
 	EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error
 	AccountRole(ctx context.Context, subjectID, accountSlug string) (string, error)
 	ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error)
+	// SliceRole returns the role the subject was given on the slice itself
+	// (design/26_slice_members.md), or ErrNotFound when it has none.
+	SliceRole(ctx context.Context, subjectID, sliceID string) (string, error)
 	// SubjectIDForUsername returns the subject whose personal account has the
 	// given slug, or ErrNotFound.
 	SubjectIDForUsername(ctx context.Context, username string) (string, error)
@@ -294,6 +297,17 @@ type SliceStore interface {
 	List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error)
 	// ListPublic lists the account's public slices the same way, whoever is asking.
 	ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error)
+	// ListVisible lists the account's slices someone outside the account can
+	// see: the public ones and those shared with subjectID.
+	ListVisible(ctx context.Context, account, subjectID, after string, limit int) ([]*corev1.Slice, error)
+	// ListMembers lists the people and agents given a role on the slice.
+	ListMembers(ctx context.Context, sliceID string) ([]SliceMember, error)
+	// SetMember gives the subject a role on the slice, or changes it.
+	SetMember(ctx context.Context, sliceID, subjectID, role, addedBy string) (*SliceMember, error)
+	// RemoveMember takes the subject's slice role away, or returns ErrNotFound.
+	RemoveMember(ctx context.Context, sliceID, subjectID string) error
+	// ListShared lists the slices shared with the subject, with its role on each.
+	ListShared(ctx context.Context, subjectID string) ([]SharedSlice, error)
 	ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error)
 	UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error)
@@ -309,6 +323,30 @@ type SliceStore interface {
 	CreateTag(ctx context.Context, tag SliceTag) (*SliceTag, bool, error)
 	// ListTags returns a slice's tags, newest first.
 	ListTags(ctx context.Context, sliceID string) ([]SliceTag, error)
+}
+
+// SliceRoles are the roles a slice member can have (design/26_slice_members.md).
+var SliceRoles = []string{"admin", "writer", "reader"}
+
+// SliceMember is a person or agent given a role on one slice.
+type SliceMember struct {
+	SliceID   string
+	SubjectID string
+	// Username is the member's own account; DisplayName its profile name.
+	Username    string
+	DisplayName string
+	// Kind is the member's subject kind: user or agent.
+	Kind string
+	Role string
+	// AddedBy is the username of whoever gave the role.
+	AddedBy   string
+	CreatedAt time.Time
+}
+
+// SharedSlice is a slice shared with someone, and their role on it.
+type SharedSlice struct {
+	Slice *corev1.Slice
+	Role  string
 }
 
 // SliceTag is an immutable name for a native commit, scoped to a slice.

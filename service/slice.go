@@ -99,8 +99,14 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 		}
 	}
 	list := s.Slices.ListPublic
-	if member {
+	switch {
+	case member:
 		list = s.Slices.List
+	case subjectID != "":
+		// Outside the account: the public slices and any shared with them.
+		list = func(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
+			return s.Slices.ListVisible(ctx, account, subjectID, after, limit)
+		}
 	}
 	pageSize := int(req.PageSize)
 	if pageSize <= 0 {
@@ -148,7 +154,7 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionAdmin); err != nil {
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
 	if req.Definition == nil {
@@ -192,7 +198,7 @@ func (s *SliceService) SetSliceCIDaemon(ctx context.Context, req *corev1.SetSlic
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionAdmin); err != nil {
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
 	updated, err := s.Slices.SetCIDaemon(ctx, current.Id, req.DaemonId)
@@ -215,7 +221,7 @@ func (s *SliceService) SetSliceSecret(ctx context.Context, req *corev1.SetSliceS
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionAdmin); err != nil {
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
 	if err := s.Slices.SetSliceSecret(ctx, current.Id, req.Name, req.Value); err != nil {
@@ -237,7 +243,7 @@ func (s *SliceService) DeleteSliceSecret(ctx context.Context, req *corev1.Delete
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionAdmin); err != nil {
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
 	if err := s.Slices.DeleteSliceSecret(ctx, current.Id, req.Name); err != nil {
@@ -278,7 +284,7 @@ func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceR
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionAdmin); err != nil {
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
 		return nil, err
 	}
 	if err := s.Slices.Delete(ctx, req.SliceId); err != nil {

@@ -23,6 +23,7 @@ import {
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
 import { SliceWebhooksPanel } from "../components/slices/SliceWebhooksPanel";
+import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
 import { canAdmin, membershipFor } from "../lib/accounts";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
@@ -336,6 +337,12 @@ export function SliceSettingsPage() {
           </button>
         </div>
       </form>
+
+      {showWebhooks && webhookSlice ? (
+        <div className="mt-8">
+          <SliceMembersPanel slice={webhookSlice} />
+        </div>
+      ) : null}
 
       {showWebhooks && webhookSlice ? (
         <div className="mt-8">

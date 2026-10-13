@@ -258,6 +258,14 @@ export function createApiClient({
       unary<Api.ListWebhooksResponse>(() =>
         webhook.listWebhooks(toProtoRequest(request))
       ),
+    listSliceMembers: (request) =>
+      unary<Api.ListSliceMembersResponse>(() => slice.listSliceMembers(toProtoRequest(request))),
+    setSliceMember: (request) =>
+      unary<Api.SliceMember>(() => slice.setSliceMember(toProtoRequest(request))),
+    removeSliceMember: (request) =>
+      unary<Api.Empty>(() => slice.removeSliceMember(toProtoRequest(request))),
+    listSharedSlices: (request) =>
+      unary<Api.ListSharedSlicesResponse>(() => slice.listSharedSlices(toProtoRequest(request))),
     updateWebhook: (request) =>
       unary<Api.Webhook>(() => webhook.updateWebhook(toProtoRequest(request))),
     deleteWebhook: (request) =>

@@ -289,7 +289,7 @@ func TestDoctorTextOutput(t *testing.T) {
 		"✓ gs v0.1.0 is the latest release\n",
 		"✓ server " + addr + " answered in ",
 		"- not in a workspace\n",
-		"✗ slice acme/secret is private and user_alice is not a member of acme\n    If acme is an agent you own, claim co-ownership at https://gitslice.io/claims",
+		"✗ slice acme/secret is private and user_alice is not a member of acme, and it is not shared with you\n    If acme is an agent you own, claim co-ownership at https://gitslice.io/claims",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("missing %q in:\n%s", want, stdout.String())

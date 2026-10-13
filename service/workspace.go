@@ -63,7 +63,7 @@ func (s *WorkspaceService) HydratePaths(ctx context.Context, req *corev1.Hydrate
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if account := accountSlugForRepositoryPath(p); account != "" {
-		if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+		if err := ensurePathRead(ctx, s.Auth, s.Slices, subjectID, account, p); err != nil {
 			return nil, err
 		}
 	}

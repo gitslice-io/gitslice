@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/slice.proto.
  */
 export const file_proto_core_v1_slice: GenFile = /*@__PURE__*/
-  fileDesc("Chlwcm90by9jb3JlL3YxL3NsaWNlLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIqYBCgNUYWcSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSEQoJY29tbWl0X2lkGAMgASgJEhoKEmRlZmluaXRpb25fdmVyc2lvbhgEIAEoAxIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYnkYBiABKAkSEgoKY3JlYXRlZF9hdBgHIAEoCSJvChBDcmVhdGVUYWdSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJEhEKCWNvbW1pdF9pZBgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIjwKD0xpc3RUYWdzUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiNwoQTGlzdFRhZ3NSZXNwb25zZRIjCgR0YWdzGAEgAygLMhUuZ2l0c2xpY2UuY29yZS52MS5UYWciogEKBVNsaWNlEgoKAmlkGAEgASgJEicKA3JlZhgCIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSNQoKZGVmaW5pdGlvbhgDIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uEhcKD2RlZmluaXRpb25faGFzaBgEIAEoCRIUCgxjaV9kYWVtb25faWQYBSABKAkilQEKD1NsaWNlRGVmaW5pdGlvbhIQCghzbGljZV9pZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEhYKDmluY2x1ZGVkX3BhdGhzGAMgAygJEhIKCnZpc2liaWxpdHkYBCABKAkSGgoScmVxdWlyZWRfYXBwcm92YWxzGAUgASgFEhcKD3JlcXVpcmVkX2NoZWNrcxgGIAMoCSLdAQoWU2xpY2VEZWZpbml0aW9uVmVyc2lvbhIQCghzbGljZV9pZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEhcKD2RlZmluaXRpb25faGFzaBgDIAEoCRISCgp2aXNpYmlsaXR5GAQgASgJEhYKDmluY2x1ZGVkX3BhdGhzGAUgAygJEhoKEnJlcXVpcmVkX2FwcHJvdmFscxgGIAEoBRIXCg9yZXF1aXJlZF9jaGVja3MYByADKAkSEgoKY3JlYXRlZF9hdBgIIAEoCRISCgpjcmVhdGVkX2J5GAkgASgJIp4BChJDcmVhdGVTbGljZVJlcXVlc3QSJwoDcmVmGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIWCg5pbmNsdWRlZF9wYXRocxgCIAMoCRISCgp2aXNpYmlsaXR5GAMgASgJEhoKEnJlcXVpcmVkX2FwcHJvdmFscxgEIAEoBRIXCg9yZXF1aXJlZF9jaGVja3MYBSADKAkiPgoTUmVzb2x2ZVNsaWNlUmVxdWVzdBInCgNyZWYYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIiMKD0dldFNsaWNlUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCSJHChFMaXN0U2xpY2VzUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEg4KBmN1cnNvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUiaAoSTGlzdFNsaWNlc1Jlc3BvbnNlEicKBnNsaWNlcxgBIAMoCzIXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USEwoLbmV4dF9jdXJzb3IYAiABKAkSFAoMYWNjb3VudF9raW5kGAMgASgJIkkKIkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1JlcXVlc3QSEAoIc2xpY2VfaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgFImEKI0xpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1Jlc3BvbnNlEjoKCHZlcnNpb25zGAEgAygLMiguZ2l0c2xpY2UuY29yZS52MS5TbGljZURlZmluaXRpb25WZXJzaW9uIokBChxVcGRhdGVTbGljZURlZmluaXRpb25SZXF1ZXN0EhAKCHNsaWNlX2lkGAEgASgJEiAKGGV4cGVjdGVkX2RlZmluaXRpb25faGFzaBgCIAEoCRI1CgpkZWZpbml0aW9uGAMgASgLMiEuZ2l0c2xpY2UuY29yZS52MS5TbGljZURlZmluaXRpb24iVwoXU2V0U2xpY2VDSURhZW1vblJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhEKCWRhZW1vbl9pZBgCIAEoCSJfChVTZXRTbGljZVNlY3JldFJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSDQoFdmFsdWUYAyABKAkiUwoYRGVsZXRlU2xpY2VTZWNyZXRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJIkQKF0xpc3RTbGljZVNlY3JldHNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiIpChhMaXN0U2xpY2VTZWNyZXRzUmVzcG9uc2USDQoFbmFtZXMYASADKAkiJgoSRGVsZXRlU2xpY2VSZXF1ZXN0EhAKCHNsaWNlX2lkGAEgASgJIicKE0RlbGV0ZVNsaWNlUmVzcG9uc2USEAoIc2xpY2VfaWQYASABKAkyrgkKDFNsaWNlU2VydmljZRJMCgtDcmVhdGVTbGljZRIkLmdpdHNsaWNlLmNvcmUudjEuQ3JlYXRlU2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJOCgxSZXNvbHZlU2xpY2USJS5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVTbGljZVJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlEkYKCEdldFNsaWNlEiEuZ2l0c2xpY2UuY29yZS52MS5HZXRTbGljZVJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlElcKCkxpc3RTbGljZXMSIy5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZXNSZXF1ZXN0GiQuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VzUmVzcG9uc2USigEKG0xpc3RTbGljZURlZmluaXRpb25WZXJzaW9ucxI0LmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlRGVmaW5pdGlvblZlcnNpb25zUmVxdWVzdBo1LmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlRGVmaW5pdGlvblZlcnNpb25zUmVzcG9uc2USagoVVXBkYXRlU2xpY2VEZWZpbml0aW9uEi4uZ2l0c2xpY2UuY29yZS52MS5VcGRhdGVTbGljZURlZmluaXRpb25SZXF1ZXN0GiEuZ2l0c2xpY2UuY29yZS52MS5TbGljZURlZmluaXRpb24SVgoQU2V0U2xpY2VDSURhZW1vbhIpLmdpdHNsaWNlLmNvcmUudjEuU2V0U2xpY2VDSURhZW1vblJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlElIKDlNldFNsaWNlU2VjcmV0EicuZ2l0c2xpY2UuY29yZS52MS5TZXRTbGljZVNlY3JldFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5ElgKEURlbGV0ZVNsaWNlU2VjcmV0EiouZ2l0c2xpY2UuY29yZS52MS5EZWxldGVTbGljZVNlY3JldFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5EmkKEExpc3RTbGljZVNlY3JldHMSKS5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZVNlY3JldHNSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VTZWNyZXRzUmVzcG9uc2USWgoLRGVsZXRlU2xpY2USJC5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNsaWNlUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuRGVsZXRlU2xpY2VSZXNwb25zZRJGCglDcmVhdGVUYWcSIi5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZVRhZ1JlcXVlc3QaFS5naXRzbGljZS5jb3JlLnYxLlRhZxJRCghMaXN0VGFncxIhLmdpdHNsaWNlLmNvcmUudjEuTGlzdFRhZ3NSZXF1ZXN0GiIuZ2l0c2xpY2UuY29yZS52MS5MaXN0VGFnc1Jlc3BvbnNlQitaKWdpdHNsaWNlLmlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM", [file_proto_core_v1_common]);
+  fileDesc("Chlwcm90by9jb3JlL3YxL3NsaWNlLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIqYBCgNUYWcSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSEQoJY29tbWl0X2lkGAMgASgJEhoKEmRlZmluaXRpb25fdmVyc2lvbhgEIAEoAxIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYnkYBiABKAkSEgoKY3JlYXRlZF9hdBgHIAEoCSJvChBDcmVhdGVUYWdSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJEhEKCWNvbW1pdF9pZBgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIjwKD0xpc3RUYWdzUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiNwoQTGlzdFRhZ3NSZXNwb25zZRIjCgR0YWdzGAEgAygLMhUuZ2l0c2xpY2UuY29yZS52MS5UYWciogEKBVNsaWNlEgoKAmlkGAEgASgJEicKA3JlZhgCIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSNQoKZGVmaW5pdGlvbhgDIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uEhcKD2RlZmluaXRpb25faGFzaBgEIAEoCRIUCgxjaV9kYWVtb25faWQYBSABKAkilQEKD1NsaWNlRGVmaW5pdGlvbhIQCghzbGljZV9pZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEhYKDmluY2x1ZGVkX3BhdGhzGAMgAygJEhIKCnZpc2liaWxpdHkYBCABKAkSGgoScmVxdWlyZWRfYXBwcm92YWxzGAUgASgFEhcKD3JlcXVpcmVkX2NoZWNrcxgGIAMoCSLdAQoWU2xpY2VEZWZpbml0aW9uVmVyc2lvbhIQCghzbGljZV9pZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEhcKD2RlZmluaXRpb25faGFzaBgDIAEoCRISCgp2aXNpYmlsaXR5GAQgASgJEhYKDmluY2x1ZGVkX3BhdGhzGAUgAygJEhoKEnJlcXVpcmVkX2FwcHJvdmFscxgGIAEoBRIXCg9yZXF1aXJlZF9jaGVja3MYByADKAkSEgoKY3JlYXRlZF9hdBgIIAEoCRISCgpjcmVhdGVkX2J5GAkgASgJIp4BChJDcmVhdGVTbGljZVJlcXVlc3QSJwoDcmVmGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIWCg5pbmNsdWRlZF9wYXRocxgCIAMoCRISCgp2aXNpYmlsaXR5GAMgASgJEhoKEnJlcXVpcmVkX2FwcHJvdmFscxgEIAEoBRIXCg9yZXF1aXJlZF9jaGVja3MYBSADKAkiPgoTUmVzb2x2ZVNsaWNlUmVxdWVzdBInCgNyZWYYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIiMKD0dldFNsaWNlUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCSJHChFMaXN0U2xpY2VzUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEg4KBmN1cnNvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUiaAoSTGlzdFNsaWNlc1Jlc3BvbnNlEicKBnNsaWNlcxgBIAMoCzIXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USEwoLbmV4dF9jdXJzb3IYAiABKAkSFAoMYWNjb3VudF9raW5kGAMgASgJIkkKIkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1JlcXVlc3QSEAoIc2xpY2VfaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgFImEKI0xpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1Jlc3BvbnNlEjoKCHZlcnNpb25zGAEgAygLMiguZ2l0c2xpY2UuY29yZS52MS5TbGljZURlZmluaXRpb25WZXJzaW9uIokBChxVcGRhdGVTbGljZURlZmluaXRpb25SZXF1ZXN0EhAKCHNsaWNlX2lkGAEgASgJEiAKGGV4cGVjdGVkX2RlZmluaXRpb25faGFzaBgCIAEoCRI1CgpkZWZpbml0aW9uGAMgASgLMiEuZ2l0c2xpY2UuY29yZS52MS5TbGljZURlZmluaXRpb24iVwoXU2V0U2xpY2VDSURhZW1vblJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhEKCWRhZW1vbl9pZBgCIAEoCSJfChVTZXRTbGljZVNlY3JldFJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSDQoFdmFsdWUYAyABKAkiUwoYRGVsZXRlU2xpY2VTZWNyZXRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJIkQKF0xpc3RTbGljZVNlY3JldHNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiIpChhMaXN0U2xpY2VTZWNyZXRzUmVzcG9uc2USDQoFbmFtZXMYASADKAkiJgoSRGVsZXRlU2xpY2VSZXF1ZXN0EhAKCHNsaWNlX2lkGAEgASgJIicKE0RlbGV0ZVNsaWNlUmVzcG9uc2USEAoIc2xpY2VfaWQYASABKAkiiwEKC1NsaWNlTWVtYmVyEhAKCHVzZXJuYW1lGAEgASgJEhIKCnN1YmplY3RfaWQYAiABKAkSDAoEcm9sZRgDIAEoCRIUCgxkaXNwbGF5X25hbWUYBCABKAkSDAoEa2luZBgFIAEoCRIQCghhZGRlZF9ieRgGIAEoCRISCgpjcmVhdGVkX2F0GAcgASgJIkQKF0xpc3RTbGljZU1lbWJlcnNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJ1ChhMaXN0U2xpY2VNZW1iZXJzUmVzcG9uc2USKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEi4KB21lbWJlcnMYAiADKAsyHS5naXRzbGljZS5jb3JlLnYxLlNsaWNlTWVtYmVyImIKFVNldFNsaWNlTWVtYmVyUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSEAoIdXNlcm5hbWUYAiABKAkSDAoEcm9sZRgDIAEoCSJXChhSZW1vdmVTbGljZU1lbWJlclJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhAKCHVzZXJuYW1lGAIgASgJIhkKF0xpc3RTaGFyZWRTbGljZXNSZXF1ZXN0IkMKC1NoYXJlZFNsaWNlEiYKBXNsaWNlGAEgASgLMhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRIMCgRyb2xlGAIgASgJIkkKGExpc3RTaGFyZWRTbGljZXNSZXNwb25zZRItCgZzbGljZXMYASADKAsyHS5naXRzbGljZS5jb3JlLnYxLlNoYXJlZFNsaWNlMrgMCgxTbGljZVNlcnZpY2USTAoLQ3JlYXRlU2xpY2USJC5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZVNsaWNlUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USTgoMUmVzb2x2ZVNsaWNlEiUuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlU2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJGCghHZXRTbGljZRIhLmdpdHNsaWNlLmNvcmUudjEuR2V0U2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJXCgpMaXN0U2xpY2VzEiMuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VzUmVxdWVzdBokLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlc1Jlc3BvbnNlEooBChtMaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnMSNC5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1JlcXVlc3QaNS5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1Jlc3BvbnNlEmoKFVVwZGF0ZVNsaWNlRGVmaW5pdGlvbhIuLmdpdHNsaWNlLmNvcmUudjEuVXBkYXRlU2xpY2VEZWZpbml0aW9uUmVxdWVzdBohLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uElYKEFNldFNsaWNlQ0lEYWVtb24SKS5naXRzbGljZS5jb3JlLnYxLlNldFNsaWNlQ0lEYWVtb25SZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJSCg5TZXRTbGljZVNlY3JldBInLmdpdHNsaWNlLmNvcmUudjEuU2V0U2xpY2VTZWNyZXRSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5FbXB0eRJYChFEZWxldGVTbGljZVNlY3JldBIqLmdpdHNsaWNlLmNvcmUudjEuRGVsZXRlU2xpY2VTZWNyZXRSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5FbXB0eRJpChBMaXN0U2xpY2VTZWNyZXRzEikuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VTZWNyZXRzUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlU2VjcmV0c1Jlc3BvbnNlEloKC0RlbGV0ZVNsaWNlEiQuZ2l0c2xpY2UuY29yZS52MS5EZWxldGVTbGljZVJlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNsaWNlUmVzcG9uc2USRgoJQ3JlYXRlVGFnEiIuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVUYWdSZXF1ZXN0GhUuZ2l0c2xpY2UuY29yZS52MS5UYWcSUQoITGlzdFRhZ3MSIS5naXRzbGljZS5jb3JlLnYxLkxpc3RUYWdzUmVxdWVzdBoiLmdpdHNsaWNlLmNvcmUudjEuTGlzdFRhZ3NSZXNwb25zZRJpChBMaXN0U2xpY2VNZW1iZXJzEikuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VNZW1iZXJzUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlTWVtYmVyc1Jlc3BvbnNlElgKDlNldFNsaWNlTWVtYmVyEicuZ2l0c2xpY2UuY29yZS52MS5TZXRTbGljZU1lbWJlclJlcXVlc3QaHS5naXRzbGljZS5jb3JlLnYxLlNsaWNlTWVtYmVyElgKEVJlbW92ZVNsaWNlTWVtYmVyEiouZ2l0c2xpY2UuY29yZS52MS5SZW1vdmVTbGljZU1lbWJlclJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5EmkKEExpc3RTaGFyZWRTbGljZXMSKS5naXRzbGljZS5jb3JlLnYxLkxpc3RTaGFyZWRTbGljZXNSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5MaXN0U2hhcmVkU2xpY2VzUmVzcG9uc2VCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
 
 /**
  * @generated from message gitslice.core.v1.Tag
@@ -607,6 +607,213 @@ export const DeleteSliceResponseSchema: GenMessage<DeleteSliceResponse> = /*@__P
   messageDesc(file_proto_core_v1_slice, 21);
 
 /**
+ * @generated from message gitslice.core.v1.SliceMember
+ */
+export type SliceMember = Message<"gitslice.core.v1.SliceMember"> & {
+  /**
+   * The member's username (own account); empty if they have none.
+   *
+   * @generated from field: string username = 1;
+   */
+  username: string;
+
+  /**
+   * @generated from field: string subject_id = 2;
+   */
+  subjectId: string;
+
+  /**
+   * admin, writer or reader.
+   *
+   * @generated from field: string role = 3;
+   */
+  role: string;
+
+  /**
+   * The display name on the member's account profile, when set.
+   *
+   * @generated from field: string display_name = 4;
+   */
+  displayName: string;
+
+  /**
+   * person or agent.
+   *
+   * @generated from field: string kind = 5;
+   */
+  kind: string;
+
+  /**
+   * Username of whoever gave the role.
+   *
+   * @generated from field: string added_by = 6;
+   */
+  addedBy: string;
+
+  /**
+   * RFC 3339.
+   *
+   * @generated from field: string created_at = 7;
+   */
+  createdAt: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.SliceMember.
+ * Use `create(SliceMemberSchema)` to create a new message.
+ */
+export const SliceMemberSchema: GenMessage<SliceMember> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 22);
+
+/**
+ * @generated from message gitslice.core.v1.ListSliceMembersRequest
+ */
+export type ListSliceMembersRequest = Message<"gitslice.core.v1.ListSliceMembersRequest"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListSliceMembersRequest.
+ * Use `create(ListSliceMembersRequestSchema)` to create a new message.
+ */
+export const ListSliceMembersRequestSchema: GenMessage<ListSliceMembersRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 23);
+
+/**
+ * @generated from message gitslice.core.v1.ListSliceMembersResponse
+ */
+export type ListSliceMembersResponse = Message<"gitslice.core.v1.ListSliceMembersResponse"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.SliceMember members = 2;
+   */
+  members: SliceMember[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListSliceMembersResponse.
+ * Use `create(ListSliceMembersResponseSchema)` to create a new message.
+ */
+export const ListSliceMembersResponseSchema: GenMessage<ListSliceMembersResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 24);
+
+/**
+ * @generated from message gitslice.core.v1.SetSliceMemberRequest
+ */
+export type SetSliceMemberRequest = Message<"gitslice.core.v1.SetSliceMemberRequest"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * The username to give the role to.
+   *
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * admin, writer or reader.
+   *
+   * @generated from field: string role = 3;
+   */
+  role: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.SetSliceMemberRequest.
+ * Use `create(SetSliceMemberRequestSchema)` to create a new message.
+ */
+export const SetSliceMemberRequestSchema: GenMessage<SetSliceMemberRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 25);
+
+/**
+ * @generated from message gitslice.core.v1.RemoveSliceMemberRequest
+ */
+export type RemoveSliceMemberRequest = Message<"gitslice.core.v1.RemoveSliceMemberRequest"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * The member to remove; empty means the caller (leaving the slice).
+   *
+   * @generated from field: string username = 2;
+   */
+  username: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.RemoveSliceMemberRequest.
+ * Use `create(RemoveSliceMemberRequestSchema)` to create a new message.
+ */
+export const RemoveSliceMemberRequestSchema: GenMessage<RemoveSliceMemberRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 26);
+
+/**
+ * @generated from message gitslice.core.v1.ListSharedSlicesRequest
+ */
+export type ListSharedSlicesRequest = Message<"gitslice.core.v1.ListSharedSlicesRequest"> & {
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListSharedSlicesRequest.
+ * Use `create(ListSharedSlicesRequestSchema)` to create a new message.
+ */
+export const ListSharedSlicesRequestSchema: GenMessage<ListSharedSlicesRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 27);
+
+/**
+ * @generated from message gitslice.core.v1.SharedSlice
+ */
+export type SharedSlice = Message<"gitslice.core.v1.SharedSlice"> & {
+  /**
+   * @generated from field: gitslice.core.v1.Slice slice = 1;
+   */
+  slice?: Slice | undefined;
+
+  /**
+   * The caller's role on it: admin, writer or reader.
+   *
+   * @generated from field: string role = 2;
+   */
+  role: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.SharedSlice.
+ * Use `create(SharedSliceSchema)` to create a new message.
+ */
+export const SharedSliceSchema: GenMessage<SharedSlice> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 28);
+
+/**
+ * @generated from message gitslice.core.v1.ListSharedSlicesResponse
+ */
+export type ListSharedSlicesResponse = Message<"gitslice.core.v1.ListSharedSlicesResponse"> & {
+  /**
+   * @generated from field: repeated gitslice.core.v1.SharedSlice slices = 1;
+   */
+  slices: SharedSlice[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListSharedSlicesResponse.
+ * Use `create(ListSharedSlicesResponseSchema)` to create a new message.
+ */
+export const ListSharedSlicesResponseSchema: GenMessage<ListSharedSlicesResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 29);
+
+/**
  * @generated from service gitslice.core.v1.SliceService
  */
 export const SliceService: GenService<{
@@ -720,6 +927,46 @@ export const SliceService: GenService<{
     methodKind: "unary";
     input: typeof ListTagsRequestSchema;
     output: typeof ListTagsResponseSchema;
+  },
+  /**
+   * Slice members (design/26_slice_members.md): people and agents given a
+   * role on one slice without joining its account. Anyone with a role on the
+   * slice (in the account or on the slice) lists them; the slice's admins add,
+   * change and remove them; members remove themselves.
+   *
+   * @generated from rpc gitslice.core.v1.SliceService.ListSliceMembers
+   */
+  listSliceMembers: {
+    methodKind: "unary";
+    input: typeof ListSliceMembersRequestSchema;
+    output: typeof ListSliceMembersResponseSchema;
+  },
+  /**
+   * @generated from rpc gitslice.core.v1.SliceService.SetSliceMember
+   */
+  setSliceMember: {
+    methodKind: "unary";
+    input: typeof SetSliceMemberRequestSchema;
+    output: typeof SliceMemberSchema;
+  },
+  /**
+   * @generated from rpc gitslice.core.v1.SliceService.RemoveSliceMember
+   */
+  removeSliceMember: {
+    methodKind: "unary";
+    input: typeof RemoveSliceMemberRequestSchema;
+    output: typeof EmptySchema;
+  },
+  /**
+   * ListSharedSlices lists the slices shared with the caller, in other
+   * accounts or their own.
+   *
+   * @generated from rpc gitslice.core.v1.SliceService.ListSharedSlices
+   */
+  listSharedSlices: {
+    methodKind: "unary";
+    input: typeof ListSharedSlicesRequestSchema;
+    output: typeof ListSharedSlicesResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_slice, 0);

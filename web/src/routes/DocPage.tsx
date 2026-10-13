@@ -235,7 +235,9 @@ const commandGroups = [
   {
     title: "Slices",
     commands: [
-      ["gs slice list", "List account slices."],
+      ["gs slice list", "List account slices, and those shared with you."],
+      ["gs slice share <slice> <username>", "Give a person or agent a role on one slice (--role reader|writer|admin)."],
+      ["gs slice members <slice>", "Who the slice is shared with; gs slice unshare and gs slice leave end it."],
       ["gs slice create", "Create a slice definition."],
       ["gs slice update", "Change included paths or policy (e.g. --required-check)."],
       ["gs slice set-ci-daemon", "Designate the daemon that runs out-of-slice checks."],

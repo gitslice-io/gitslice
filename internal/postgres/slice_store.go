@@ -118,14 +118,20 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 }
 
 func (s *SliceStore) List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, after, limit, false)
+	return s.list(ctx, account, after, limit, false, "")
 }
 
 func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, after, limit, true)
+	return s.list(ctx, account, after, limit, true, "")
 }
 
-func (s *SliceStore) list(ctx context.Context, account, after string, limit int, publicOnly bool) ([]*corev1.Slice, error) {
+func (s *SliceStore) ListVisible(ctx context.Context, account, subjectID, after string, limit int) ([]*corev1.Slice, error) {
+	return s.list(ctx, account, after, limit, true, strings.TrimSpace(subjectID))
+}
+
+// list lists an account's slices: all of them, or with publicOnly the public
+// ones and those shared with sharedWith.
+func (s *SliceStore) list(ctx context.Context, account, after string, limit int, publicOnly bool, sharedWith string) ([]*corev1.Slice, error) {
 	account, err := normalizeSlug(account, "account")
 	if err != nil {
 		return nil, err
@@ -138,10 +144,13 @@ func (s *SliceStore) list(ctx context.Context, account, after string, limit int,
 		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
 		from slices
 		join accounts on accounts.id = slices.account_id
-		where accounts.slug = $1 and (not $3 or slices.visibility = 'public') and slices.slug > $4
+		where accounts.slug = $1 and slices.slug > $4
+		  and (not $3 or slices.visibility = 'public' or ($5 <> '' and exists (
+			select 1 from slice_members sm where sm.slice_id = slices.id and sm.subject_id = $5
+		  )))
 		order by slices.slug
 		limit $2
-	`, account, limit, publicOnly, after)
+	`, account, limit, publicOnly, after, sharedWith)
 	if err != nil {
 		return nil, err
 	}

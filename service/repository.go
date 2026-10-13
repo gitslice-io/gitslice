@@ -383,10 +383,26 @@ func (s *RepositoryService) ensureRepositoryPathRead(ctx context.Context, subjec
 	if account == "" {
 		return nil
 	}
-	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+	return ensurePathRead(ctx, s.Auth, s.Slices, subjectID, account, p)
+}
+
+// ensurePathRead lets the subject read path p in account: as a member of the
+// account, or, signed in, through a slice that includes p and that they can
+// read (public, or shared with them; design/26_slice_members.md). Anonymous
+// readers of a public slice read through the slice itself.
+func ensurePathRead(ctx context.Context, auth storage.AuthStore, sliceStore storage.SliceStore, subjectID, account, p string) error {
+	err := authorizeAccount(ctx, auth, subjectID, account, authz.ActionRead)
+	if err == nil || strings.TrimSpace(subjectID) == "" {
 		return err
 	}
-	return nil
+	ok, lookupErr := readableThroughSlice(ctx, auth, sliceStore, subjectID, p)
+	if lookupErr != nil {
+		return lookupErr
+	}
+	if ok {
+		return nil
+	}
+	return err
 }
 
 func (s *RepositoryService) readableAccountPrefixes(ctx context.Context, subjectID string) ([]string, error) {
@@ -409,7 +425,7 @@ func (s *RepositoryService) ensureCommitRead(ctx context.Context, subjectID stri
 	if commit == nil || len(commit.ChangedPaths) == 0 {
 		return nil
 	}
-	accounts := map[string]struct{}{}
+	accounts := map[string][]string{}
 	for _, changed := range commit.ChangedPaths {
 		p, err := repositoryReadPath(changed)
 		if err != nil {
@@ -417,15 +433,22 @@ func (s *RepositoryService) ensureCommitRead(ctx context.Context, subjectID stri
 		}
 		account := accountSlugForRepositoryPath(p)
 		if account != "" {
-			accounts[account] = struct{}{}
+			accounts[account] = append(accounts[account], p)
 		}
 	}
 	if len(accounts) == 0 {
 		return status.Error(codes.PermissionDenied, "commit is not readable")
 	}
-	for account := range accounts {
-		if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
-			return err
+	// A commit is readable when each path it changes is: through the account,
+	// or through a slice readable to the subject.
+	for account, changed := range accounts {
+		if authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead) == nil {
+			continue
+		}
+		for _, p := range changed {
+			if err := ensurePathRead(ctx, s.Auth, s.Slices, subjectID, account, p); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
