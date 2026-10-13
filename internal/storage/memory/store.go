@@ -33,6 +33,7 @@ type Stores struct {
 	Checks     *CheckStore
 	Webhooks   *WebhookStore
 	Feedback   *FeedbackStore
+	Blames     *BlameStore
 
 	backend *backend
 }
@@ -46,8 +47,10 @@ type backend struct {
 	personalAccounts map[string]string
 	webhooks         map[string]storage.Webhook
 	// sliceMembers maps a slice id to its members' roles, by subject.
-	sliceMembers      map[string]map[string]memSliceMember
-	feedback          map[string]storage.Feedback
+	sliceMembers map[string]map[string]memSliceMember
+	feedback     map[string]storage.Feedback
+	// blameSnapshots maps a commit id, then a path, to a blame snapshot.
+	blameSnapshots    map[string]map[string]storage.BlameSnapshot
 	webhookEvents     []*memWebhookEvent
 	webhookDeliveries map[string]*memWebhookDelivery
 	// orgAccounts records which account slugs are organizations.
@@ -152,6 +155,7 @@ func New() *Stores {
 		webhooks:                map[string]storage.Webhook{},
 		sliceMembers:            map[string]map[string]memSliceMember{},
 		feedback:                map[string]storage.Feedback{},
+		blameSnapshots:          map[string]map[string]storage.BlameSnapshot{},
 		webhookDeliveries:       map[string]*memWebhookDelivery{},
 		orgCreators:             map[string]string{},
 		invitations:             map[string]map[string]storage.AccountInvitation{},
@@ -217,6 +221,7 @@ func New() *Stores {
 		Checks:     &CheckStore{b: b},
 		Webhooks:   &WebhookStore{b: b},
 		Feedback:   &FeedbackStore{b: b},
+		Blames:     &BlameStore{b: b},
 		backend:    b,
 	}
 }

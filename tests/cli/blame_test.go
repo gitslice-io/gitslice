@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -78,9 +79,70 @@ func TestBlameFollowsLinesAndMoves(t *testing.T) {
 		t.Fatalf("blame = %+v\nper line %q, want %q", blame, perLine, want)
 	}
 
+	// The blame was stored as a snapshot. After one more change, the next
+	// blame starts from it, and still credits every line correctly.
+	db, err := sql.Open("pgx", databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	countSnapshots := func() int {
+		var n int
+		if err := db.QueryRow(`select count(*) from blame_snapshots`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := countSnapshots(); n != 1 {
+		t.Fatalf("snapshots after the first blame = %d, want 1", n)
+	}
+	writeWorkspaceFile(t, workspace, "renamed.go", "package payment // moved\nconst A = 2\nconst B = 3\nconst C = 2\n")
+	land("change B")
+	perLineSummaries := func() []string {
+		t.Helper()
+		var again struct {
+			Ranges []struct {
+				LineCount int    `json:"line_count"`
+				CommitID  string `json:"commit_id"`
+			} `json:"ranges"`
+			Commits []struct {
+				ID      string `json:"id"`
+				Summary string `json:"summary"`
+			} `json:"commits"`
+		}
+		if err := json.Unmarshal([]byte(runCLI(t, home, workspace, "blame", "renamed.go", "--json")), &again); err != nil {
+			t.Fatal(err)
+		}
+		names := map[string]string{}
+		for _, c := range again.Commits {
+			names[c.ID] = c.Summary
+		}
+		var out []string
+		for _, rg := range again.Ranges {
+			for i := 0; i < rg.LineCount; i++ {
+				out = append(out, names[rg.CommitID])
+			}
+		}
+		return out
+	}
+	want = []string{"comment the package", "change A, add C", "change B", "change A, add C"}
+	if got := perLineSummaries(); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("blame from the snapshot: %q, want %q", got, want)
+	}
+	if n := countSnapshots(); n != 2 {
+		t.Fatalf("snapshots after the second blame = %d, want 2", n)
+	}
+	// Without snapshots, the full walk gives the same answer.
+	if _, err := db.Exec(`delete from blame_snapshots`); err != nil {
+		t.Fatal(err)
+	}
+	if got := perLineSummaries(); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("blame without snapshots: %q, want %q", got, want)
+	}
+
 	text := runCLI(t, home, workspace, "blame", "renamed.go", "--lines", "2,3")
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-	if len(lines) != 2 || !strings.HasSuffix(lines[0], " 2) const A = 2") || !strings.HasSuffix(lines[1], " 3) const B = 1") {
+	if len(lines) != 2 || !strings.HasSuffix(lines[0], " 2) const A = 2") || !strings.HasSuffix(lines[1], " 3) const B = 3") {
 		t.Fatalf("blame text:\n%s", text)
 	}
 	if _, stderr := runCLIFails(t, home, workspace, "blame", "missing.go"); !strings.Contains(stderr, "no file at /acme/payment/missing.go") {

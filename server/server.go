@@ -172,6 +172,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Checks:     webhooks.WrapChecks(db.Checks(), dispatcher),
 		Webhooks:   db.Webhooks(),
 		Feedback:   db.Feedback(),
+		Blames:     db.Blames(),
 	}
 	handlers := service.New(stores, objectStore, tracker)
 	handlers.Feedback.Account = cfg.FeedbackAccount

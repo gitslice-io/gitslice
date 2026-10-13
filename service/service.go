@@ -42,6 +42,8 @@ type Stores struct {
 	Webhooks storage.WebhookStore
 	// Feedback is optional: without it the FeedbackService is unavailable.
 	Feedback storage.FeedbackStore
+	// Blames is optional: without it every blame walks the file's history.
+	Blames storage.BlameStore
 }
 
 func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Client) *Handlers {
@@ -69,6 +71,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			Repository:  stores.Repository,
 			Slices:      stores.Slices,
 			ObjectStore: objectStore,
+			Blames:      stores.Blames,
 			validator:   validator,
 		},
 		Blob: &BlobService{Auth: stores.Auth, Blobs: stores.Blobs, Slices: stores.Slices, ObjectStore: objectStore},

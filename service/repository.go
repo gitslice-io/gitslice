@@ -34,7 +34,9 @@ type RepositoryService struct {
 	Repository  storage.RepositoryStore
 	Slices      storage.SliceStore
 	ObjectStore ObjectStore
-	validator   diffValidator
+	// Blames stores blame snapshots (design/27_blame.md); optional.
+	Blames    storage.BlameStore
+	validator diffValidator
 }
 
 func (s *RepositoryService) ResolvePath(ctx context.Context, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {

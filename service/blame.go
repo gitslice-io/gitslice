@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 
 	"gitslice.io/gitslice/internal/authz"
@@ -17,10 +18,15 @@ import (
 )
 
 // Blame (design/27_blame.md): which commit last changed each line of a file.
-// The server walks the file's history newest first (following moves, as path
-// history does), diffs each version against its parent's, and credits a line
-// to the commit where it stops matching. The walk reads one version per
-// commit and stops at blameMaxCommits.
+//
+// A file's blame at the commit that last changed it is that commit's parent
+// version's blame carried through one diff: lines the diff matches keep
+// their owner, the rest are the commit's. Blames are stored as snapshots
+// (storage.BlameStore), so a blame walks back through the file's history
+// (following moves, as path history does) only until it reaches a version
+// with a snapshot, or the commit that created the file, and then carries the
+// blame forward one diff per newer version. The newest result is stored for
+// the next blame. The walk reads at most blameMaxCommits versions.
 
 const (
 	blameMaxCommits = 500
@@ -56,101 +62,46 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	current, found, err := s.blameVersion(ctx, head.CommitId, p)
+	headEntry, found, err := s.blameEntry(ctx, head.CommitId, p)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
 		return nil, status.Errorf(codes.NotFound, "no file at %s", p)
 	}
-	if bytes.IndexByte(current.data[:min(len(current.data), 8000)], 0) >= 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "%s is a binary file", p)
-	}
-
 	filters, err := s.listCommitFilters(ctx, subjectID, &corev1.ListCommitsRequest{RefName: refName, Path: p, Slice: req.Slice})
 	if err != nil {
 		return nil, err
 	}
-	walk := newBlameWalk(len(current.lines))
-	tracked, trackedPath := current, p
-	var last *corev1.Commit
-	seen, token := 0, ""
-	historyEnded := false
-pages:
-	for {
-		page, err := s.listCommitPage(ctx, refName, filters, blamePageSize, token)
-		if err != nil {
-			return nil, err
-		}
-		for _, commit := range page.Commits {
-			if seen++; seen > blameMaxCommits {
-				break pages
-			}
-			last = commit
-			parent, parentPath, found := blameVersion{}, trackedPath, false
-			if len(commit.ParentIds) > 0 {
-				if parent, found, err = s.blameVersion(ctx, commit.ParentIds[0], trackedPath); err != nil {
-					return nil, err
-				}
-				if !found {
-					// Moved in this commit? Read it where it was.
-					if parentPath, err = s.blameMovedFrom(ctx, commit, trackedPath, tracked); err != nil {
-						return nil, err
-					}
-					if parentPath != "" {
-						if parent, found, err = s.blameVersion(ctx, commit.ParentIds[0], parentPath); err != nil {
-							return nil, err
-						}
-					}
-				}
-			}
-			if !found {
-				// Created here: every line still unaccounted for is this commit's.
-				walk.creditRest(commit.Id)
-				break pages
-			}
-			if parent.hash != tracked.hash {
-				walk.step(commit.Id, diffutil.MatchLines(parent.lines, tracked.lines, 0))
-			}
-			tracked, trackedPath = parent, parentPath
-			if walk.remaining == 0 {
-				break pages
-			}
-		}
-		if page.NextPageToken == "" {
-			historyEnded = true
-			break
-		}
-		token = page.NextPageToken
-	}
-	truncated := walk.remaining > 0 && !(historyEnded && last == nil)
-	switch {
-	case walk.remaining > 0 && last != nil:
-		walk.creditRest(last.Id)
-	case walk.remaining > 0:
-		// No recorded history for the path: the head commit is all there is.
-		walk.creditRest(head.CommitId)
+
+	result, err := s.blameWalk(ctx, refName, filters, head.CommitId, p, headEntry)
+	if err != nil {
+		return nil, err
 	}
 
-	out := &corev1.BlameFileResponse{CommitId: head.CommitId, Path: p, LineCount: int32(len(current.lines)), Truncated: truncated}
-	ids := []string{}
-	seenIDs := map[string]bool{}
-	for start := 0; start < len(walk.owner); {
+	out := &corev1.BlameFileResponse{CommitId: head.CommitId, Path: p, LineCount: int32(len(result.owners)), Truncated: result.truncated}
+	var ids []string
+	named := map[string]bool{}
+	for start := 0; start < len(result.owners); {
 		end := start
-		for end < len(walk.owner) && walk.owner[end] == walk.owner[start] {
+		for end < len(result.owners) && result.owners[end] == result.owners[start] {
 			end++
 		}
-		out.Ranges = append(out.Ranges, &corev1.BlameRange{StartLine: int32(start + 1), LineCount: int32(end - start), CommitId: walk.owner[start]})
-		if !seenIDs[walk.owner[start]] {
-			seenIDs[walk.owner[start]] = true
-			ids = append(ids, walk.owner[start])
+		owner := result.owners[start]
+		out.Ranges = append(out.Ranges, &corev1.BlameRange{StartLine: int32(start + 1), LineCount: int32(end - start), CommitId: owner})
+		if !named[owner] {
+			named[owner] = true
+			ids = append(ids, owner)
 		}
 		start = end
 	}
 	for _, id := range ids {
-		commit, err := s.Repository.GetCommit(ctx, id)
-		if err != nil {
-			return nil, grpcError(err)
+		commit := result.commits[id]
+		if commit == nil {
+			// Named by a stored snapshot, from beyond this walk.
+			if commit, err = s.Repository.GetCommit(ctx, id); err != nil {
+				return nil, grpcError(err)
+			}
 		}
 		out.Commits = append(out.Commits, commit)
 	}
@@ -158,6 +109,248 @@ pages:
 		return nil, grpcError(err)
 	}
 	return out, nil
+}
+
+type blameResult struct {
+	owners    []string
+	truncated bool
+	// commits holds the commits the walk read, by id.
+	commits map[string]*corev1.Commit
+}
+
+// blameStep is one commit of the walk: the file's version right after the
+// commit, and right before it (none when the commit created it).
+type blameStep struct {
+	commit  *corev1.Commit
+	path    string
+	version blameVersion
+	parent  *blameVersion
+}
+
+func (s *RepositoryService) blameWalk(ctx context.Context, refName string, filters listCommitFilters, headCommitID, p string, headEntry *storage.FileEntry) (blameResult, error) {
+	result := blameResult{commits: map[string]*corev1.Commit{}}
+	trackedPath, trackedHash := p, headEntry.ContentHash
+	var trackedLines []string
+	loaded := false
+	var steps []blameStep
+	var base *storage.BlameSnapshot
+	created := false
+	seen, token := 0, ""
+	first := true
+walk:
+	for {
+		page, err := s.listCommitPage(ctx, refName, filters, blamePageSize, token)
+		if err != nil {
+			return result, err
+		}
+		commits := page.Commits
+		if first {
+			first = false
+			recent, err := s.blameUnlistedCommits(ctx, headCommitID, p, headEntry.ContentHash, commits)
+			if err != nil {
+				return result, err
+			}
+			commits = append(recent, commits...)
+		}
+		snapshots := map[string]map[string]*storage.BlameSnapshot{}
+		if s.Blames != nil && len(commits) > 0 {
+			ids := make([]string, 0, len(commits))
+			for _, commit := range commits {
+				ids = append(ids, commit.Id)
+			}
+			if snapshots, err = s.Blames.BlameSnapshots(ctx, ids); err != nil {
+				slog.Warn("blame snapshots unavailable", "error", err)
+				snapshots = map[string]map[string]*storage.BlameSnapshot{}
+			}
+		}
+		for _, commit := range commits {
+			result.commits[commit.Id] = commit
+			// A stored blame of exactly the version being tracked ends the walk.
+			if snapshot := snapshots[commit.Id][trackedPath]; snapshot != nil && snapshot.ContentHash == trackedHash {
+				base = snapshot
+				break walk
+			}
+			if seen++; seen > blameMaxCommits {
+				result.truncated = true
+				break walk
+			}
+			if !loaded {
+				if trackedLines, err = s.blameLines(ctx, trackedPath, trackedHash, headEntry.Size); err != nil {
+					return result, err
+				}
+				loaded = true
+			}
+			step := blameStep{commit: commit, path: trackedPath, version: blameVersion{hash: trackedHash, lines: trackedLines}}
+			parentPath := trackedPath
+			if len(commit.ParentIds) > 0 {
+				parent, found, err := s.blameVersion(ctx, commit.ParentIds[0], trackedPath)
+				if err != nil {
+					return result, err
+				}
+				if !found {
+					// Moved in this commit? Read it where it was.
+					if parentPath, err = s.blameMovedFrom(ctx, commit, trackedPath, step.version); err != nil {
+						return result, err
+					}
+					if parentPath != "" {
+						if parent, found, err = s.blameVersion(ctx, commit.ParentIds[0], parentPath); err != nil {
+							return result, err
+						}
+					}
+				}
+				if found {
+					step.parent = &parent
+				}
+			}
+			steps = append(steps, step)
+			if step.parent == nil {
+				created = true
+				break walk
+			}
+			trackedPath, trackedHash, trackedLines = parentPath, step.parent.hash, step.parent.lines
+		}
+		if page.NextPageToken == "" {
+			break
+		}
+		token = page.NextPageToken
+	}
+
+	// The blame of the version just before the oldest step, then carried
+	// forward through each step.
+	var owners []string
+	switch {
+	case base != nil:
+		owners = base.Owners
+		result.truncated = base.Truncated
+	case created:
+		// The oldest step created the file; it starts the carry below.
+	case len(steps) > 0:
+		// The walk stopped (a limit, or history that ends without creating
+		// the file): what is older is credited to the oldest commit read.
+		oldest := steps[len(steps)-1]
+		owners = make([]string, len(oldest.parent.lines))
+		for i := range owners {
+			owners[i] = oldest.commit.Id
+		}
+		result.truncated = true
+	default:
+		// No recorded history for the path: the head commit is all there is.
+		lines, err := s.blameLines(ctx, p, headEntry.ContentHash, headEntry.Size)
+		if err != nil {
+			return result, err
+		}
+		owners = make([]string, len(lines))
+		for i := range owners {
+			owners[i] = headCommitID
+		}
+		result.owners = owners
+		return result, nil
+	}
+	for i := len(steps) - 1; i >= 0; i-- {
+		owners = carryBlame(owners, steps[i])
+	}
+	result.owners = owners
+
+	// Store what was computed for the next blame: the blame of the version
+	// the newest step left, which is the head's, unless history listing has
+	// not caught up with the head yet.
+	if s.Blames != nil && len(steps) > 0 {
+		newest := steps[0]
+		if entry, found, err := s.blameEntry(ctx, newest.commit.Id, newest.path); err == nil && found && entry.ContentHash == newest.version.hash {
+			if err := s.Blames.PutBlameSnapshot(ctx, storage.BlameSnapshot{
+				CommitID:    newest.commit.Id,
+				Path:        newest.path,
+				ContentHash: newest.version.hash,
+				Truncated:   result.truncated,
+				Owners:      owners,
+			}); err != nil {
+				slog.Warn("storing blame snapshot failed", "commit_id", newest.commit.Id, "path", newest.path, "error", err)
+			}
+		}
+	}
+	return result, nil
+}
+
+// blameUnlistedMax bounds the walk along the main line for commits path
+// history does not list yet.
+const blameUnlistedMax = 100
+
+// blameUnlistedCommits finds the commits that changed the file but are not in
+// its path history yet: history is indexed shortly after a commit lands, so a
+// blame right after one could otherwise credit its lines to an older commit.
+// When the file at the head is not the version the newest listed commit left,
+// it walks the main line back from the head, collecting the commits that
+// changed the file, until the file is that version again.
+func (s *RepositoryService) blameUnlistedCommits(ctx context.Context, headCommitID, p, headHash string, listed []*corev1.Commit) ([]*corev1.Commit, error) {
+	listedHash := ""
+	if len(listed) > 0 {
+		entry, found, err := s.blameEntry(ctx, listed[0].Id, p)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			listedHash = entry.ContentHash
+		}
+		if listedHash == headHash {
+			return nil, nil
+		}
+	}
+	var recent []*corev1.Commit
+	commitID, hash := headCommitID, headHash
+	for i := 0; i < blameUnlistedMax; i++ {
+		if len(listed) > 0 && commitID == listed[0].Id {
+			break
+		}
+		commit, err := s.Repository.GetCommit(ctx, commitID)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		if len(commit.ParentIds) == 0 {
+			break
+		}
+		parentHash := ""
+		entry, found, err := s.blameEntry(ctx, commit.ParentIds[0], p)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			parentHash = entry.ContentHash
+		}
+		if parentHash != hash {
+			recent = append(recent, commit)
+		}
+		if parentHash == listedHash {
+			break
+		}
+		commitID, hash = commit.ParentIds[0], parentHash
+	}
+	return recent, nil
+}
+
+// carryBlame takes the blame of a step's parent version (owners, one per
+// line) to the step's own version: matched lines keep their owner, the rest
+// are the step's commit's. A step that created the file owns every line.
+func carryBlame(owners []string, step blameStep) []string {
+	out := make([]string, len(step.version.lines))
+	if step.parent == nil {
+		for i := range out {
+			out[i] = step.commit.Id
+		}
+		return out
+	}
+	if step.parent.hash == step.version.hash {
+		copy(out, owners)
+		return out
+	}
+	match := diffutil.MatchLines(step.parent.lines, step.version.lines, 0)
+	for j, i := range match {
+		if i >= 0 && i < len(owners) {
+			out[j] = owners[i]
+		} else {
+			out[j] = step.commit.Id
+		}
+	}
+	return out
 }
 
 // listCommitPage reads one page of commits for the filters, as ListCommits
@@ -185,34 +378,58 @@ func (s *RepositoryService) listCommitPage(ctx context.Context, refName string, 
 
 type blameVersion struct {
 	hash  string
-	data  []byte
 	lines []string
+}
+
+// blameEntry finds the file at path in a commit; found is false when there
+// is none.
+func (s *RepositoryService) blameEntry(ctx context.Context, commitID, p string) (*storage.FileEntry, bool, error) {
+	entry, err := s.Repository.GetFile(ctx, commitID, p)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, grpcError(err)
+	}
+	if entry.Size > blameMaxBytes {
+		return nil, false, status.Errorf(codes.FailedPrecondition, "%s is larger than %d bytes, too large to blame", p, blameMaxBytes)
+	}
+	return entry, true, nil
+}
+
+// blameLines reads a file version's lines, refusing binary files.
+func (s *RepositoryService) blameLines(ctx context.Context, p, contentHash string, size int64) ([]string, error) {
+	if size > blameMaxBytes {
+		return nil, status.Errorf(codes.FailedPrecondition, "%s is larger than %d bytes, too large to blame", p, blameMaxBytes)
+	}
+	rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	defer rc.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(rc); err != nil {
+		return nil, grpcError(err)
+	}
+	data := buf.Bytes()
+	if bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "%s is a binary file", p)
+	}
+	return splitBlameLines(data), nil
 }
 
 // blameVersion reads the file at path in a commit; found is false when there
 // is no file there.
 func (s *RepositoryService) blameVersion(ctx context.Context, commitID, p string) (blameVersion, bool, error) {
-	entry, err := s.Repository.GetFile(ctx, commitID, p)
+	entry, found, err := s.blameEntry(ctx, commitID, p)
+	if err != nil || !found {
+		return blameVersion{}, found, err
+	}
+	lines, err := s.blameLines(ctx, p, entry.ContentHash, entry.Size)
 	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			return blameVersion{}, false, nil
-		}
-		return blameVersion{}, false, grpcError(err)
+		return blameVersion{}, false, err
 	}
-	if entry.Size > blameMaxBytes {
-		return blameVersion{}, false, status.Errorf(codes.FailedPrecondition, "%s is larger than %d bytes, too large to blame", p, blameMaxBytes)
-	}
-	rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(entry.ContentHash), 0, 0)
-	if err != nil {
-		return blameVersion{}, false, grpcError(err)
-	}
-	defer rc.Close()
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(rc); err != nil {
-		return blameVersion{}, false, grpcError(err)
-	}
-	data := buf.Bytes()
-	return blameVersion{hash: entry.ContentHash, data: data, lines: splitBlameLines(data)}, true, nil
+	return blameVersion{hash: entry.ContentHash, lines: lines}, true, nil
 }
 
 // blameMovedFrom finds where a file was before a commit that moved it: among
@@ -232,7 +449,7 @@ func (s *RepositoryService) blameMovedFrom(ctx context.Context, commit *corev1.C
 		if err != nil || candidate == movedTo {
 			continue
 		}
-		if _, stillThere, err := s.blameVersion(ctx, commit.Id, candidate); err != nil || stillThere {
+		if _, stillThere, err := s.blameEntry(ctx, commit.Id, candidate); err != nil || stillThere {
 			continue
 		}
 		before, found, err := s.blameVersion(ctx, commit.ParentIds[0], candidate)
@@ -262,46 +479,4 @@ func splitBlameLines(data []byte) []string {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
-}
-
-// blameWalk tracks, for each line of the file at the head, the line it is in
-// the version being read, until a commit is credited with it.
-type blameWalk struct {
-	owner     []string
-	pos       []int
-	remaining int
-}
-
-func newBlameWalk(lines int) *blameWalk {
-	w := &blameWalk{owner: make([]string, lines), pos: make([]int, lines), remaining: lines}
-	for i := range w.pos {
-		w.pos[i] = i
-	}
-	return w
-}
-
-// step credits commitID with the lines that have no match in its parent's
-// version (match maps the commit's version to the parent's), and moves the
-// rest to their lines in the parent's version.
-func (w *blameWalk) step(commitID string, match []int) {
-	for i, owner := range w.owner {
-		if owner != "" {
-			continue
-		}
-		if j := match[w.pos[i]]; j >= 0 {
-			w.pos[i] = j
-			continue
-		}
-		w.owner[i] = commitID
-		w.remaining--
-	}
-}
-
-func (w *blameWalk) creditRest(commitID string) {
-	for i, owner := range w.owner {
-		if owner == "" {
-			w.owner[i] = commitID
-			w.remaining--
-		}
-	}
 }
