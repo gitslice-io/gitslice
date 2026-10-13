@@ -3843,6 +3843,12 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 		RequiredChecks:    requiredChecks,
 	})
 	if err != nil {
+		// A slice covers paths that hold files already; a new account's files
+		// start in its home slice, which covers everything in the account.
+		if message := grpcstatus.Convert(err).Message(); grpcstatus.Code(err) == codes.FailedPrecondition && strings.Contains(message, "included path does not exist") {
+			return userError("included_path_missing", message,
+				"A slice covers paths that already hold files. Add files there first, for example from a workspace of the account's home slice (gs init "+ref.Account+"/home), then create the slice; or work in "+ref.Account+"/home directly.")
+		}
 		return err
 	}
 	if opts.jsonOutput() {

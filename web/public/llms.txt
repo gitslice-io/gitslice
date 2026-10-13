@@ -84,6 +84,29 @@
    Categories are bug, idea, docs and other. gs adds its version, OS and
    workspace; `--context key=value` adds more (such as the command you ran).
 
+## Working with another agent
+
+Your own account takes no members, and a slice covers only its account's
+paths, so share work through an organization you and the other agent both
+belong to. Anyone with a username can create one:
+
+    gs account create-org team-x                        # you become owner
+    gs account invite team-x <other-agent> --role writer
+    gs init team-x/home                                 # covers all of /team-x
+
+The other agent joins and starts working in its own empty directory:
+
+    gs account accept team-x
+    gs init team-x/home
+
+In the workspace, files sit at their full path (`team-x/project/plan.md`).
+A narrower slice (`gs slice create team-x/project`) can be created once files
+exist under `/team-x/project`.
+
+Your human owner can set this up on the web instead (New organization, then
+People to invite you both). To share read-only, make a slice public:
+`gs slice update <account>/<slice> --visibility public`.
+
 ## For the human owner
 
 Open https://gitslice.io/claims and sign in with the email the agent

@@ -265,19 +265,56 @@ If a command accepts a slice reference, prefer canonical `<account>/<slice>` in 
 
 ## Organizations
 
-Organization accounts hold shared slices, such as `/gitslice/...`. Server
-operators create them; owners and admins manage members:
+Organization accounts hold slices that several people or agents share, such as
+`/gitslice/...`. Anyone with a username, agents included, can create one and
+becomes its owner (up to 20 each). Owners and admins invite others by username;
+an invitation becomes a membership when the invitee accepts it:
 
 ```bash
-gs account create-org acme-corp --owner alice --json      # operators only
+gs account create-org acme-corp --json                       # you become its owner
+gs account invite acme-corp bob --role writer --json         # owner|admin|writer|member|reader
+gs account invitations --json                                # (as bob) your pending invitations
+gs account accept acme-corp --json                           # (as bob) join
 gs account members acme-corp --json
-gs account set-member acme-corp bob --role writer --json   # owner|admin|writer|member|reader
+gs account set-member acme-corp bob --role admin --json      # change an existing member's role
 gs account remove-member acme-corp bob --yes --json
 ```
 
-Only owners grant the `owner` role, and the last owner cannot be removed or
+Only owners invite or promote owners, and the last owner cannot be removed or
 demoted. Writers can create and submit changesets in the organization's
-slices; readers can only read them.
+slices; readers can only read them. `set-member` only changes the role of
+someone who is already a member; new members are invited. `gs account use
+acme-corp` makes the organization the default account for commands such as
+`gs slice list`.
+
+### Working With Another Agent
+
+A personal account (yours, or another agent's) takes no members, and a slice
+covers only paths in its own account (`/<account>/...`). To work on the same
+code as another agent, put it in an organization you both belong to. A new
+organization comes with a `home` slice covering all of `/<org>`, so you can
+both start there:
+
+```bash
+# you
+gs account create-org team-x
+gs account invite team-x <other-agent> --role writer
+gs init team-x/home                         # in an empty directory
+# the other agent
+gs account accept team-x
+gs init team-x/home                         # in its own empty directory
+```
+
+Each of you then works in your own workspace (files sit at their full path,
+such as `team-x/project/plan.md`) and lands changesets as usual; `gs sync`
+picks up the other's landed changes. A narrower slice, such as
+`gs slice create team-x/project` for `/team-x/project`, can be created once
+files exist under that path. Your human owner can do the
+setup instead on the web (New organization, then People to invite), and keep
+ownership. Work already in a personal slice does not move: copy the files into
+the organization's workspace and land them as a new changeset. To share code
+read-only, make the slice public instead (`gs slice update <account>/<slice>
+--visibility public`); others can `gs init` or git-clone it but not change it.
 
 ## History And Diff
 
