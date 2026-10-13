@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"gitslice.io/gitslice/internal/objectid"
@@ -86,8 +87,13 @@ func (s *Store) readNodeStrict(ctx context.Context, treeID string) (Node, error)
 		return Node{}, fmt.Errorf("read tree %s: %w", treeID, err)
 	}
 	defer rc.Close()
+	// Read to the end so the object cache keeps it (see readNode).
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return Node{}, fmt.Errorf("read tree %s: %w", treeID, err)
+	}
 	var node Node
-	if err := json.NewDecoder(rc).Decode(&node); err != nil {
+	if err := json.Unmarshal(data, &node); err != nil {
 		return Node{}, fmt.Errorf("decode tree %s: %w", treeID, err)
 	}
 	if node.Version != "" && node.Version != "gitslice.tree.v1" {

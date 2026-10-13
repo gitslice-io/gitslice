@@ -720,8 +720,14 @@ func (s *Store) readNode(ctx context.Context, treeID string) (Node, error) {
 		return Node{}, err
 	}
 	defer rc.Close()
+	// Read to the end before decoding: the object cache keeps an object only
+	// once it has been read to EOF, which a JSON decoder stops short of.
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return Node{}, err
+	}
 	var node Node
-	if err := json.NewDecoder(rc).Decode(&node); err != nil {
+	if err := json.Unmarshal(data, &node); err != nil {
 		return Node{}, err
 	}
 	if node.Version == "" {

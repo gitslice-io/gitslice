@@ -38,7 +38,10 @@ on demand, stored, and safe to delete.
    after a commit lands, so when the head's file is not the version the newest
    listed commit left, walk the main line back from the head for the commits
    that changed the file and are not listed yet (at most 100 steps).
-3. Walk back commit by commit. Stop at a commit with a snapshot of exactly
+3. Walk back commit by commit, reading the file in the commits' parents up to
+   16 at a time ahead of the walk (not past a commit with a snapshot, where
+   the walk likely stops; a move restarts the reads ahead for the old path).
+   Stop at a commit with a snapshot of exactly
    the version being tracked (same content hash), or at the commit that
    created the file (no file in its parent). Otherwise read the file in the
    commit's first parent; if it is not at the same path, the commit moved it,
@@ -57,13 +60,21 @@ The walk stops at 500 commits; what is older is credited to the oldest commit
 read, and `truncated` is set (and kept by snapshots built on it).
 
 Cost: the first blame of a file reads one version per commit back to its
-creation. After that, a blame of an unchanged file reads no file content at
-all, and a blame after k new changes reads about k versions. Measured with
-30 ms of object-storage latency on a 3,000-line file with 60 versions: 7.6 s
-for the first blame, 56 ms again, 233 ms after one more change.
+creation, 16 at a time. After that, a blame of an unchanged file reads no
+file content at all, and a blame after k new changes reads about k versions.
+Tree nodes are kept in the server's object cache (they were not, before:
+the JSON decoder stopped short of the EOF the cache waits for), so the
+directories a path shares with earlier versions are read once. Measured with
+30 ms of object-storage latency and a cold cache, on a 3,000-line file with
+60 versions:
 
-Not yet: blame at an older commit, ignoring whitespace-only changes, and
-reading versions in parallel to speed up a first blame.
+| Blame | Before snapshots | Snapshots | Snapshots, parallel reads, cached trees |
+|---|---|---|---|
+| First | 7.6 s | 7.6 s | 0.95 s |
+| Again | 7.6 s | 56 ms | 57 ms |
+| After one more change | 7.6 s | 233 ms | 213 ms |
+
+Not yet: blame at an older commit, and ignoring whitespace-only changes.
 
 ## CLI
 

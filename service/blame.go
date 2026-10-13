@@ -163,7 +163,13 @@ walk:
 				snapshots = map[string]map[string]*storage.BlameSnapshot{}
 			}
 		}
-		for _, commit := range commits {
+		// Read the versions ahead of the walk, several at a time: the walk
+		// needs them in order, but fetching each is a storage round trip.
+		prefetch := newBlamePrefetch(ctx, s, commits, func(i int, path string) bool {
+			return snapshots[commits[i].Id][path] != nil
+		})
+		defer prefetch.stop()
+		for index, commit := range commits {
 			result.commits[commit.Id] = commit
 			// A stored blame of exactly the version being tracked ends the walk.
 			if snapshot := snapshots[commit.Id][trackedPath]; snapshot != nil && snapshot.ContentHash == trackedHash {
@@ -183,7 +189,7 @@ walk:
 			step := blameStep{commit: commit, path: trackedPath, version: blameVersion{hash: trackedHash, lines: trackedLines}}
 			parentPath := trackedPath
 			if len(commit.ParentIds) > 0 {
-				parent, found, err := s.blameVersion(ctx, commit.ParentIds[0], trackedPath)
+				parent, found, err := prefetch.version(index, trackedPath)
 				if err != nil {
 					return result, err
 				}
@@ -269,6 +275,75 @@ walk:
 		}
 	}
 	return result, nil
+}
+
+// blamePrefetchWindow is how many versions are read ahead of the walk.
+const blamePrefetchWindow = 16
+
+// blamePrefetch reads the file in the parents of upcoming commits while the
+// walk works through earlier ones. Reads are started for the path the walk
+// expects; when a move changes the path, the reads ahead are started again.
+type blamePrefetch struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	s       *RepositoryService
+	commits []*corev1.Commit
+	reads   map[int]*blameRead
+	// mayStop reports a commit the walk will likely stop at (it has a
+	// snapshot), which the reads ahead do not go past.
+	mayStop func(i int, path string) bool
+}
+
+type blameRead struct {
+	path    string
+	done    chan struct{}
+	version blameVersion
+	found   bool
+	err     error
+}
+
+func newBlamePrefetch(ctx context.Context, s *RepositoryService, commits []*corev1.Commit, mayStop func(i int, path string) bool) *blamePrefetch {
+	ctx, cancel := context.WithCancel(ctx)
+	return &blamePrefetch{ctx: ctx, cancel: cancel, s: s, commits: commits, reads: map[int]*blameRead{}, mayStop: mayStop}
+}
+
+// version returns the file at path in the first parent of commits[index],
+// starting the reads for the next commits too.
+func (p *blamePrefetch) version(index int, path string) (blameVersion, bool, error) {
+	for i := index; i < min(index+blamePrefetchWindow, len(p.commits)); i++ {
+		if i > index && p.mayStop(i, path) {
+			break
+		}
+		if read := p.reads[i]; read == nil || read.path != path {
+			p.start(i, path)
+		}
+	}
+	read := p.reads[index]
+	delete(p.reads, index)
+	select {
+	case <-read.done:
+	case <-p.ctx.Done():
+		return blameVersion{}, false, p.ctx.Err()
+	}
+	return read.version, read.found, read.err
+}
+
+func (p *blamePrefetch) start(i int, path string) {
+	read := &blameRead{path: path, done: make(chan struct{})}
+	p.reads[i] = read
+	commit := p.commits[i]
+	go func() {
+		defer close(read.done)
+		if len(commit.ParentIds) == 0 {
+			return
+		}
+		read.version, read.found, read.err = p.s.blameVersion(p.ctx, commit.ParentIds[0], path)
+	}()
+}
+
+// stop abandons the reads still running.
+func (p *blamePrefetch) stop() {
+	p.cancel()
 }
 
 // blameUnlistedMax bounds the walk along the main line for commits path
