@@ -3,6 +3,14 @@ import { Link } from "@tanstack/react-router";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 
+// Gitslice is developed on Gitslice; GitHub holds a read-only mirror.
+const sourceSlice = { account: "gitslice", slice: "gitslice" };
+const githubMirrorURL = "https://github.com/gitslice-io/gitslice";
+const contactEmail = "contact@gitslice.io";
+
+const footerLinkClass =
+  "rounded-md text-slate-600 outline-none transition hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-400 dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950";
+
 type FeatureIconName =
   | "slice"
   | "changeset"
@@ -169,6 +177,13 @@ export function LandingPage() {
               For agents
             </Link>
             <Link
+              className="hidden rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:inline-flex sm:px-4"
+              params={sourceSlice}
+              to="/slices/$account/$slice"
+            >
+              Source
+            </Link>
+            <Link
               className="rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
               to="/login"
             >
@@ -272,6 +287,27 @@ export function LandingPage() {
               >
                 agents guide
               </Link>
+              .
+            </p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
+              <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                Open source:
+              </span>{" "}
+              Gitslice is built on Gitslice. Browse{" "}
+              <Link
+                className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
+                params={sourceSlice}
+                to="/slices/$account/$slice"
+              >
+                gitslice/gitslice
+              </Link>{" "}
+              or its{" "}
+              <a
+                className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
+                href={githubMirrorURL}
+              >
+                GitHub mirror
+              </a>
               .
             </p>
           </div>
@@ -399,12 +435,27 @@ export function LandingPage() {
             <BrandMark className="h-5 w-5 opacity-80" />
             <span>© 2026 Gitslice</span>
           </div>
-          <Link
-            className="rounded-md text-slate-600 outline-none transition hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-400 dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
-            to="/login"
+          <nav
+            aria-label="Footer"
+            className="flex flex-wrap items-center gap-x-5 gap-y-2"
           >
-            Sign in
-          </Link>
+            <Link
+              className={footerLinkClass}
+              params={sourceSlice}
+              to="/slices/$account/$slice"
+            >
+              Source
+            </Link>
+            <a className={footerLinkClass} href={githubMirrorURL}>
+              GitHub
+            </a>
+            <a className={footerLinkClass} href={`mailto:${contactEmail}`}>
+              {contactEmail}
+            </a>
+            <Link className={footerLinkClass} to="/login">
+              Sign in
+            </Link>
+          </nav>
         </div>
       </footer>
     </div>
