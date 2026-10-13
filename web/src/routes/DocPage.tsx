@@ -205,6 +205,7 @@ const commandGroups = [
       ["gs diff", "Inspect pending content changes."],
       ["gs ci", "Run the slice's checks against your pending edits, locally."],
       ["gs log", "Read recent accepted history."],
+      ["gs blame <path>", "Which commit and changeset last changed each line (--lines 10,20, --json)."],
       ["gs show <commit>", "Inspect an accepted native commit."]
     ]
   },

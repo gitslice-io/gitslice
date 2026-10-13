@@ -203,6 +203,10 @@ func (a connectRepositoryAdapter) ListCommits(ctx context.Context, req *connect.
 	return connectResponse(a.svc.ListCommits(ctx, req.Msg))
 }
 
+func (a connectRepositoryAdapter) BlameFile(ctx context.Context, req *connect.Request[corev1.BlameFileRequest]) (*connect.Response[corev1.BlameFileResponse], error) {
+	return connectResponse(a.svc.BlameFile(ctx, req.Msg))
+}
+
 func (a connectRepositoryAdapter) GetRef(ctx context.Context, req *connect.Request[corev1.GetRefRequest]) (*connect.Response[corev1.Ref], error) {
 	return connectResponse(a.svc.GetRef(ctx, req.Msg))
 }

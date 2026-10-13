@@ -323,6 +323,8 @@ Use native commit inspection commands, not removed `gs commit ...` compatibility
 ```bash
 gs log --slice acme/payment --limit 20 --json
 gs log -- /acme/payment/app.go
+gs blame app.go --json                          # who last changed each line, and in which changeset
+gs blame app.go --lines 40,60
 gs show <commit-id-or-prefix> --name-only --json
 gs diff
 gs diff --name-only
@@ -331,6 +333,8 @@ gs diff <old-commit> <new-commit> --stat
 ```
 
 Commit prefixes are acceptable for interactive inspection, but scripts should keep full ids from JSON output when available.
+
+`gs blame --json` returns `ranges` (`start_line`, `line_count`, `commit_id`) covering every line and `commits` with each commit's `summary`, `author`, `changeset_id` and `changeset_url`. It follows the file across moves; `truncated` means the history walk stopped before the file's first commit.
 
 ## Tags
 

@@ -51,6 +51,9 @@ const (
 	// RepositoryServiceListCommitsProcedure is the fully-qualified name of the RepositoryService's
 	// ListCommits RPC.
 	RepositoryServiceListCommitsProcedure = "/gitslice.core.v1.RepositoryService/ListCommits"
+	// RepositoryServiceBlameFileProcedure is the fully-qualified name of the RepositoryService's
+	// BlameFile RPC.
+	RepositoryServiceBlameFileProcedure = "/gitslice.core.v1.RepositoryService/BlameFile"
 	// RepositoryServiceGetRefProcedure is the fully-qualified name of the RepositoryService's GetRef
 	// RPC.
 	RepositoryServiceGetRefProcedure = "/gitslice.core.v1.RepositoryService/GetRef"
@@ -70,6 +73,9 @@ type RepositoryServiceClient interface {
 	GetCommit(context.Context, *connect.Request[v1.GetCommitRequest]) (*connect.Response[v1.Commit], error)
 	ResolveCommit(context.Context, *connect.Request[v1.ResolveCommitRequest]) (*connect.Response[v1.ResolveCommitResponse], error)
 	ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error)
+	// BlameFile says which commit last changed each line of a file at the
+	// head of the target ref, following the file across moves.
+	BlameFile(context.Context, *connect.Request[v1.BlameFileRequest]) (*connect.Response[v1.BlameFileResponse], error)
 	GetRef(context.Context, *connect.Request[v1.GetRefRequest]) (*connect.Response[v1.Ref], error)
 	ImportGitRepository(context.Context, *connect.Request[v1.ImportGitRepositoryRequest]) (*connect.Response[v1.ImportGitRepositoryResponse], error)
 	ImportGitRepositoryStream(context.Context, *connect.Request[v1.ImportGitRepositoryRequest]) (*connect.ServerStreamForClient[v1.ImportGitRepositoryProgress], error)
@@ -122,6 +128,12 @@ func NewRepositoryServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(repositoryServiceMethods.ByName("ListCommits")),
 			connect.WithClientOptions(opts...),
 		),
+		blameFile: connect.NewClient[v1.BlameFileRequest, v1.BlameFileResponse](
+			httpClient,
+			baseURL+RepositoryServiceBlameFileProcedure,
+			connect.WithSchema(repositoryServiceMethods.ByName("BlameFile")),
+			connect.WithClientOptions(opts...),
+		),
 		getRef: connect.NewClient[v1.GetRefRequest, v1.Ref](
 			httpClient,
 			baseURL+RepositoryServiceGetRefProcedure,
@@ -151,6 +163,7 @@ type repositoryServiceClient struct {
 	getCommit                 *connect.Client[v1.GetCommitRequest, v1.Commit]
 	resolveCommit             *connect.Client[v1.ResolveCommitRequest, v1.ResolveCommitResponse]
 	listCommits               *connect.Client[v1.ListCommitsRequest, v1.ListCommitsResponse]
+	blameFile                 *connect.Client[v1.BlameFileRequest, v1.BlameFileResponse]
 	getRef                    *connect.Client[v1.GetRefRequest, v1.Ref]
 	importGitRepository       *connect.Client[v1.ImportGitRepositoryRequest, v1.ImportGitRepositoryResponse]
 	importGitRepositoryStream *connect.Client[v1.ImportGitRepositoryRequest, v1.ImportGitRepositoryProgress]
@@ -186,6 +199,11 @@ func (c *repositoryServiceClient) ListCommits(ctx context.Context, req *connect.
 	return c.listCommits.CallUnary(ctx, req)
 }
 
+// BlameFile calls gitslice.core.v1.RepositoryService.BlameFile.
+func (c *repositoryServiceClient) BlameFile(ctx context.Context, req *connect.Request[v1.BlameFileRequest]) (*connect.Response[v1.BlameFileResponse], error) {
+	return c.blameFile.CallUnary(ctx, req)
+}
+
 // GetRef calls gitslice.core.v1.RepositoryService.GetRef.
 func (c *repositoryServiceClient) GetRef(ctx context.Context, req *connect.Request[v1.GetRefRequest]) (*connect.Response[v1.Ref], error) {
 	return c.getRef.CallUnary(ctx, req)
@@ -209,6 +227,9 @@ type RepositoryServiceHandler interface {
 	GetCommit(context.Context, *connect.Request[v1.GetCommitRequest]) (*connect.Response[v1.Commit], error)
 	ResolveCommit(context.Context, *connect.Request[v1.ResolveCommitRequest]) (*connect.Response[v1.ResolveCommitResponse], error)
 	ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error)
+	// BlameFile says which commit last changed each line of a file at the
+	// head of the target ref, following the file across moves.
+	BlameFile(context.Context, *connect.Request[v1.BlameFileRequest]) (*connect.Response[v1.BlameFileResponse], error)
 	GetRef(context.Context, *connect.Request[v1.GetRefRequest]) (*connect.Response[v1.Ref], error)
 	ImportGitRepository(context.Context, *connect.Request[v1.ImportGitRepositoryRequest]) (*connect.Response[v1.ImportGitRepositoryResponse], error)
 	ImportGitRepositoryStream(context.Context, *connect.Request[v1.ImportGitRepositoryRequest], *connect.ServerStream[v1.ImportGitRepositoryProgress]) error
@@ -257,6 +278,12 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 		connect.WithSchema(repositoryServiceMethods.ByName("ListCommits")),
 		connect.WithHandlerOptions(opts...),
 	)
+	repositoryServiceBlameFileHandler := connect.NewUnaryHandler(
+		RepositoryServiceBlameFileProcedure,
+		svc.BlameFile,
+		connect.WithSchema(repositoryServiceMethods.ByName("BlameFile")),
+		connect.WithHandlerOptions(opts...),
+	)
 	repositoryServiceGetRefHandler := connect.NewUnaryHandler(
 		RepositoryServiceGetRefProcedure,
 		svc.GetRef,
@@ -289,6 +316,8 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 			repositoryServiceResolveCommitHandler.ServeHTTP(w, r)
 		case RepositoryServiceListCommitsProcedure:
 			repositoryServiceListCommitsHandler.ServeHTTP(w, r)
+		case RepositoryServiceBlameFileProcedure:
+			repositoryServiceBlameFileHandler.ServeHTTP(w, r)
 		case RepositoryServiceGetRefProcedure:
 			repositoryServiceGetRefHandler.ServeHTTP(w, r)
 		case RepositoryServiceImportGitRepositoryProcedure:
@@ -326,6 +355,10 @@ func (UnimplementedRepositoryServiceHandler) ResolveCommit(context.Context, *con
 
 func (UnimplementedRepositoryServiceHandler) ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.ListCommits is not implemented"))
+}
+
+func (UnimplementedRepositoryServiceHandler) BlameFile(context.Context, *connect.Request[v1.BlameFileRequest]) (*connect.Response[v1.BlameFileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.BlameFile is not implemented"))
 }
 
 func (UnimplementedRepositoryServiceHandler) GetRef(context.Context, *connect.Request[v1.GetRefRequest]) (*connect.Response[v1.Ref], error) {

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/repository.proto.
  */
 export const file_proto_core_v1_repository: GenFile = /*@__PURE__*/
-  fileDesc("Ch5wcm90by9jb3JlL3YxL3JlcG9zaXRvcnkucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiTgoDUmVmEgwKBG5hbWUYASABKAkSEQoJY29tbWl0X2lkGAIgASgJEhIKCnVwZGF0ZWRfYXQYAyABKAkSEgoKdXBkYXRlZF9ieRgEIAEoCSLVAQoGQ29tbWl0EgoKAmlkGAEgASgJEhIKCnBhcmVudF9pZHMYAiADKAkSFAoMcm9vdF90cmVlX2lkGAMgASgJEg4KBmF1dGhvchgEIAEoCRIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKAkSFQoNY2hhbmdlZF9wYXRocxgHIAMoCRIzCgpnaXRfaW1wb3J0GAggASgLMh8uZ2l0c2xpY2UuY29yZS52MS5HaXRJbXBvcnRJbmZvEhQKDGNoYW5nZXNldF9pZBgJIAEoCSJ3Cg1HaXRJbXBvcnRJbmZvEhUKDWdpdF9jb21taXRfaWQYASABKAkSEwoLYXV0aG9yX25hbWUYAiABKAkSFAoMYXV0aG9yX2VtYWlsGAMgASgJEhMKC2F1dGhvcmVkX2F0GAQgASgJEg8KB21lc3NhZ2UYBSABKAkidgoSUmVzb2x2ZVBhdGhSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEhQKDHJvb3RfdHJlZV9pZBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiQQoTUmVzb2x2ZVBhdGhSZXNwb25zZRIqCgVlbnRyeRgBIAEoCzIbLmdpdHNsaWNlLmNvcmUudjEuVHJlZUVudHJ5IpsBChRMaXN0RGlyZWN0b3J5UmVxdWVzdBIRCgljb21taXRfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIOCgZjdXJzb3IYAyABKAkSEQoJcGFnZV9zaXplGAQgASgFEikKBXNsaWNlGAUgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIUCgxyb290X3RyZWVfaWQYBiABKAkiWgoVTGlzdERpcmVjdG9yeVJlc3BvbnNlEiwKB2VudHJpZXMYASADKAsyGy5naXRzbGljZS5jb3JlLnYxLlRyZWVFbnRyeRITCgtuZXh0X2N1cnNvchgCIAEoCSKTAQoPUmVhZEZpbGVSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEg4KBm9mZnNldBgDIAEoAxIOCgZsZW5ndGgYBCABKAMSFAoMcm9vdF90cmVlX2lkGAUgASgJEikKBXNsaWNlGAYgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJGChBSZWFkRmlsZVJlc3BvbnNlEgwKBGRhdGEYASABKAwSDgoGb2Zmc2V0GAIgASgDEhQKDGNvbnRlbnRfaGFzaBgDIAEoCSIlChBHZXRDb21taXRSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCSKgAQoUUmVzb2x2ZUNvbW1pdFJlcXVlc3QSEQoJY29tbWl0X2lkGAEgASgJEhAKCHJlZl9uYW1lGAIgASgJEgwKBHBhdGgYAyABKAkSKQoFc2xpY2UYBCABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhkKDGZvbGxvd19tb3ZlcxgFIAEoCEgAiAEBQg8KDV9mb2xsb3dfbW92ZXMiWQoVUmVzb2x2ZUNvbW1pdFJlc3BvbnNlEigKBmNvbW1pdBgBIAEoCzIYLmdpdHNsaWNlLmNvcmUudjEuQ29tbWl0EhYKDm1hdGNoZWRfcHJlZml4GAIgASgJIq4BChJMaXN0Q29tbWl0c1JlcXVlc3QSEAoIcmVmX25hbWUYASABKAkSDQoFbGltaXQYAiABKAUSDAoEcGF0aBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSEgoKcGFnZV90b2tlbhgFIAEoCRIZCgxmb2xsb3dfbW92ZXMYBiABKAhIAIgBAUIPCg1fZm9sbG93X21vdmVzIlkKE0xpc3RDb21taXRzUmVzcG9uc2USKQoHY29tbWl0cxgBIAMoCzIYLmdpdHNsaWNlLmNvcmUudjEuQ29tbWl0EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIhCg1HZXRSZWZSZXF1ZXN0EhAKCHJlZl9uYW1lGAEgASgJIrwBChpJbXBvcnRHaXRSZXBvc2l0b3J5UmVxdWVzdBIOCgZzb3VyY2UYASABKAkSEgoKbW91bnRfcGF0aBgCIAEoCRIzCg9hdXRob3Jpbmdfc2xpY2UYAyABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG1vZGUYBCABKAkSEgoKdGFyZ2V0X3JlZhgFIAEoCRITCgttYXhfY29tbWl0cxgGIAEoBRIOCgZyZXN1bWUYByABKAgiVQoRSW1wb3J0ZWRHaXRDb21taXQSFQoNZ2l0X2NvbW1pdF9pZBgBIAEoCRIYChBuYXRpdmVfY29tbWl0X2lkGAIgASgJEg8KB21lc3NhZ2UYAyABKAkisgEKG0ltcG9ydEdpdFJlcG9zaXRvcnlSZXNwb25zZRIOCgZzb3VyY2UYASABKAkSEgoKbW91bnRfcGF0aBgCIAEoCRIMCgRtb2RlGAMgASgJEhIKCnRhcmdldF9yZWYYBCABKAkSFwoPZmluYWxfY29tbWl0X2lkGAUgASgJEjQKB2NvbW1pdHMYBiADKAsyIy5naXRzbGljZS5jb3JlLnYxLkltcG9ydGVkR2l0Q29tbWl0IukBChtJbXBvcnRHaXRSZXBvc2l0b3J5UHJvZ3Jlc3MSDQoFcGhhc2UYASABKAkSDwoHbWVzc2FnZRgCIAEoCRIPCgdjdXJyZW50GAMgASgDEg0KBXRvdGFsGAQgASgDEhUKDWdpdF9jb21taXRfaWQYBSABKAkSGAoQbmF0aXZlX2NvbW1pdF9pZBgGIAEoCRIaChJjaGFuZ2VkX3BhdGhfY291bnQYByABKAUSPQoGcmVzdWx0GAggASgLMi0uZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRSZXBvc2l0b3J5UmVzcG9uc2Uy3wYKEVJlcG9zaXRvcnlTZXJ2aWNlEloKC1Jlc29sdmVQYXRoEiQuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlUGF0aFJlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVQYXRoUmVzcG9uc2USYAoNTGlzdERpcmVjdG9yeRImLmdpdHNsaWNlLmNvcmUudjEuTGlzdERpcmVjdG9yeVJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkxpc3REaXJlY3RvcnlSZXNwb25zZRJRCghSZWFkRmlsZRIhLmdpdHNsaWNlLmNvcmUudjEuUmVhZEZpbGVSZXF1ZXN0GiIuZ2l0c2xpY2UuY29yZS52MS5SZWFkRmlsZVJlc3BvbnNlEkkKCUdldENvbW1pdBIiLmdpdHNsaWNlLmNvcmUudjEuR2V0Q29tbWl0UmVxdWVzdBoYLmdpdHNsaWNlLmNvcmUudjEuQ29tbWl0EmAKDVJlc29sdmVDb21taXQSJi5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVDb21taXRSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlQ29tbWl0UmVzcG9uc2USWgoLTGlzdENvbW1pdHMSJC5naXRzbGljZS5jb3JlLnYxLkxpc3RDb21taXRzUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuTGlzdENvbW1pdHNSZXNwb25zZRJACgZHZXRSZWYSHy5naXRzbGljZS5jb3JlLnYxLkdldFJlZlJlcXVlc3QaFS5naXRzbGljZS5jb3JlLnYxLlJlZhJyChNJbXBvcnRHaXRSZXBvc2l0b3J5EiwuZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRSZXBvc2l0b3J5UmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuSW1wb3J0R2l0UmVwb3NpdG9yeVJlc3BvbnNlEnoKGUltcG9ydEdpdFJlcG9zaXRvcnlTdHJlYW0SLC5naXRzbGljZS5jb3JlLnYxLkltcG9ydEdpdFJlcG9zaXRvcnlSZXF1ZXN0Gi0uZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRSZXBvc2l0b3J5UHJvZ3Jlc3MwAUIrWilnaXRzbGljZS5pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z", [file_proto_core_v1_common]);
+  fileDesc("Ch5wcm90by9jb3JlL3YxL3JlcG9zaXRvcnkucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiTgoDUmVmEgwKBG5hbWUYASABKAkSEQoJY29tbWl0X2lkGAIgASgJEhIKCnVwZGF0ZWRfYXQYAyABKAkSEgoKdXBkYXRlZF9ieRgEIAEoCSLVAQoGQ29tbWl0EgoKAmlkGAEgASgJEhIKCnBhcmVudF9pZHMYAiADKAkSFAoMcm9vdF90cmVlX2lkGAMgASgJEg4KBmF1dGhvchgEIAEoCRIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKAkSFQoNY2hhbmdlZF9wYXRocxgHIAMoCRIzCgpnaXRfaW1wb3J0GAggASgLMh8uZ2l0c2xpY2UuY29yZS52MS5HaXRJbXBvcnRJbmZvEhQKDGNoYW5nZXNldF9pZBgJIAEoCSJ3Cg1HaXRJbXBvcnRJbmZvEhUKDWdpdF9jb21taXRfaWQYASABKAkSEwoLYXV0aG9yX25hbWUYAiABKAkSFAoMYXV0aG9yX2VtYWlsGAMgASgJEhMKC2F1dGhvcmVkX2F0GAQgASgJEg8KB21lc3NhZ2UYBSABKAkidgoSUmVzb2x2ZVBhdGhSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEhQKDHJvb3RfdHJlZV9pZBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiQQoTUmVzb2x2ZVBhdGhSZXNwb25zZRIqCgVlbnRyeRgBIAEoCzIbLmdpdHNsaWNlLmNvcmUudjEuVHJlZUVudHJ5IpsBChRMaXN0RGlyZWN0b3J5UmVxdWVzdBIRCgljb21taXRfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIOCgZjdXJzb3IYAyABKAkSEQoJcGFnZV9zaXplGAQgASgFEikKBXNsaWNlGAUgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIUCgxyb290X3RyZWVfaWQYBiABKAkiWgoVTGlzdERpcmVjdG9yeVJlc3BvbnNlEiwKB2VudHJpZXMYASADKAsyGy5naXRzbGljZS5jb3JlLnYxLlRyZWVFbnRyeRITCgtuZXh0X2N1cnNvchgCIAEoCSKTAQoPUmVhZEZpbGVSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEg4KBm9mZnNldBgDIAEoAxIOCgZsZW5ndGgYBCABKAMSFAoMcm9vdF90cmVlX2lkGAUgASgJEikKBXNsaWNlGAYgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJGChBSZWFkRmlsZVJlc3BvbnNlEgwKBGRhdGEYASABKAwSDgoGb2Zmc2V0GAIgASgDEhQKDGNvbnRlbnRfaGFzaBgDIAEoCSIlChBHZXRDb21taXRSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCSKgAQoUUmVzb2x2ZUNvbW1pdFJlcXVlc3QSEQoJY29tbWl0X2lkGAEgASgJEhAKCHJlZl9uYW1lGAIgASgJEgwKBHBhdGgYAyABKAkSKQoFc2xpY2UYBCABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhkKDGZvbGxvd19tb3ZlcxgFIAEoCEgAiAEBQg8KDV9mb2xsb3dfbW92ZXMiWQoVUmVzb2x2ZUNvbW1pdFJlc3BvbnNlEigKBmNvbW1pdBgBIAEoCzIYLmdpdHNsaWNlLmNvcmUudjEuQ29tbWl0EhYKDm1hdGNoZWRfcHJlZml4GAIgASgJIq4BChJMaXN0Q29tbWl0c1JlcXVlc3QSEAoIcmVmX25hbWUYASABKAkSDQoFbGltaXQYAiABKAUSDAoEcGF0aBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSEgoKcGFnZV90b2tlbhgFIAEoCRIZCgxmb2xsb3dfbW92ZXMYBiABKAhIAIgBAUIPCg1fZm9sbG93X21vdmVzIlkKE0xpc3RDb21taXRzUmVzcG9uc2USKQoHY29tbWl0cxgBIAMoCzIYLmdpdHNsaWNlLmNvcmUudjEuQ29tbWl0EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIhCg1HZXRSZWZSZXF1ZXN0EhAKCHJlZl9uYW1lGAEgASgJIrwBChpJbXBvcnRHaXRSZXBvc2l0b3J5UmVxdWVzdBIOCgZzb3VyY2UYASABKAkSEgoKbW91bnRfcGF0aBgCIAEoCRIzCg9hdXRob3Jpbmdfc2xpY2UYAyABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG1vZGUYBCABKAkSEgoKdGFyZ2V0X3JlZhgFIAEoCRITCgttYXhfY29tbWl0cxgGIAEoBRIOCgZyZXN1bWUYByABKAgiVQoRSW1wb3J0ZWRHaXRDb21taXQSFQoNZ2l0X2NvbW1pdF9pZBgBIAEoCRIYChBuYXRpdmVfY29tbWl0X2lkGAIgASgJEg8KB21lc3NhZ2UYAyABKAkisgEKG0ltcG9ydEdpdFJlcG9zaXRvcnlSZXNwb25zZRIOCgZzb3VyY2UYASABKAkSEgoKbW91bnRfcGF0aBgCIAEoCRIMCgRtb2RlGAMgASgJEhIKCnRhcmdldF9yZWYYBCABKAkSFwoPZmluYWxfY29tbWl0X2lkGAUgASgJEjQKB2NvbW1pdHMYBiADKAsyIy5naXRzbGljZS5jb3JlLnYxLkltcG9ydGVkR2l0Q29tbWl0IukBChtJbXBvcnRHaXRSZXBvc2l0b3J5UHJvZ3Jlc3MSDQoFcGhhc2UYASABKAkSDwoHbWVzc2FnZRgCIAEoCRIPCgdjdXJyZW50GAMgASgDEg0KBXRvdGFsGAQgASgDEhUKDWdpdF9jb21taXRfaWQYBSABKAkSGAoQbmF0aXZlX2NvbW1pdF9pZBgGIAEoCRIaChJjaGFuZ2VkX3BhdGhfY291bnQYByABKAUSPQoGcmVzdWx0GAggASgLMi0uZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRSZXBvc2l0b3J5UmVzcG9uc2UiXQoQQmxhbWVGaWxlUmVxdWVzdBIMCgRwYXRoGAEgASgJEikKBXNsaWNlGAIgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIQCghyZWZfbmFtZRgDIAEoCSJHCgpCbGFtZVJhbmdlEhIKCnN0YXJ0X2xpbmUYASABKAUSEgoKbGluZV9jb3VudBgCIAEoBRIRCgljb21taXRfaWQYAyABKAkitAEKEUJsYW1lRmlsZVJlc3BvbnNlEhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEhIKCmxpbmVfY291bnQYAyABKAUSLAoGcmFuZ2VzGAQgAygLMhwuZ2l0c2xpY2UuY29yZS52MS5CbGFtZVJhbmdlEikKB2NvbW1pdHMYBSADKAsyGC5naXRzbGljZS5jb3JlLnYxLkNvbW1pdBIRCgl0cnVuY2F0ZWQYBiABKAgytQcKEVJlcG9zaXRvcnlTZXJ2aWNlEloKC1Jlc29sdmVQYXRoEiQuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlUGF0aFJlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVQYXRoUmVzcG9uc2USYAoNTGlzdERpcmVjdG9yeRImLmdpdHNsaWNlLmNvcmUudjEuTGlzdERpcmVjdG9yeVJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkxpc3REaXJlY3RvcnlSZXNwb25zZRJRCghSZWFkRmlsZRIhLmdpdHNsaWNlLmNvcmUudjEuUmVhZEZpbGVSZXF1ZXN0GiIuZ2l0c2xpY2UuY29yZS52MS5SZWFkRmlsZVJlc3BvbnNlEkkKCUdldENvbW1pdBIiLmdpdHNsaWNlLmNvcmUudjEuR2V0Q29tbWl0UmVxdWVzdBoYLmdpdHNsaWNlLmNvcmUudjEuQ29tbWl0EmAKDVJlc29sdmVDb21taXQSJi5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVDb21taXRSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlQ29tbWl0UmVzcG9uc2USWgoLTGlzdENvbW1pdHMSJC5naXRzbGljZS5jb3JlLnYxLkxpc3RDb21taXRzUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuTGlzdENvbW1pdHNSZXNwb25zZRJUCglCbGFtZUZpbGUSIi5naXRzbGljZS5jb3JlLnYxLkJsYW1lRmlsZVJlcXVlc3QaIy5naXRzbGljZS5jb3JlLnYxLkJsYW1lRmlsZVJlc3BvbnNlEkAKBkdldFJlZhIfLmdpdHNsaWNlLmNvcmUudjEuR2V0UmVmUmVxdWVzdBoVLmdpdHNsaWNlLmNvcmUudjEuUmVmEnIKE0ltcG9ydEdpdFJlcG9zaXRvcnkSLC5naXRzbGljZS5jb3JlLnYxLkltcG9ydEdpdFJlcG9zaXRvcnlSZXF1ZXN0Gi0uZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRSZXBvc2l0b3J5UmVzcG9uc2USegoZSW1wb3J0R2l0UmVwb3NpdG9yeVN0cmVhbRIsLmdpdHNsaWNlLmNvcmUudjEuSW1wb3J0R2l0UmVwb3NpdG9yeVJlcXVlc3QaLS5naXRzbGljZS5jb3JlLnYxLkltcG9ydEdpdFJlcG9zaXRvcnlQcm9ncmVzczABQitaKWdpdHNsaWNlLmlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM", [file_proto_core_v1_common]);
 
 /**
  * @generated from message gitslice.core.v1.Ref
@@ -701,6 +701,123 @@ export const ImportGitRepositoryProgressSchema: GenMessage<ImportGitRepositoryPr
   messageDesc(file_proto_core_v1_repository, 18);
 
 /**
+ * @generated from message gitslice.core.v1.BlameFileRequest
+ */
+export type BlameFileRequest = Message<"gitslice.core.v1.BlameFileRequest"> & {
+  /**
+   * The file, as a repository path such as /acme/payment/api.go.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * Optional slice projection, as for ReadFile: read authorization goes
+   * through the slice, and the file must be in it.
+   *
+   * @generated from field: gitslice.core.v1.SliceRef slice = 2;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * The target ref; empty means refs/global/main.
+   *
+   * @generated from field: string ref_name = 3;
+   */
+  refName: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.BlameFileRequest.
+ * Use `create(BlameFileRequestSchema)` to create a new message.
+ */
+export const BlameFileRequestSchema: GenMessage<BlameFileRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 19);
+
+/**
+ * A run of lines last changed by one commit.
+ *
+ * @generated from message gitslice.core.v1.BlameRange
+ */
+export type BlameRange = Message<"gitslice.core.v1.BlameRange"> & {
+  /**
+   * 1-based.
+   *
+   * @generated from field: int32 start_line = 1;
+   */
+  startLine: number;
+
+  /**
+   * @generated from field: int32 line_count = 2;
+   */
+  lineCount: number;
+
+  /**
+   * @generated from field: string commit_id = 3;
+   */
+  commitId: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.BlameRange.
+ * Use `create(BlameRangeSchema)` to create a new message.
+ */
+export const BlameRangeSchema: GenMessage<BlameRange> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 20);
+
+/**
+ * @generated from message gitslice.core.v1.BlameFileResponse
+ */
+export type BlameFileResponse = Message<"gitslice.core.v1.BlameFileResponse"> & {
+  /**
+   * The head commit the file was read at.
+   *
+   * @generated from field: string commit_id = 1;
+   */
+  commitId: string;
+
+  /**
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * @generated from field: int32 line_count = 3;
+   */
+  lineCount: number;
+
+  /**
+   * In line order, covering every line.
+   *
+   * @generated from field: repeated gitslice.core.v1.BlameRange ranges = 4;
+   */
+  ranges: BlameRange[];
+
+  /**
+   * Each commit the ranges name, with its author, message and changeset.
+   *
+   * @generated from field: repeated gitslice.core.v1.Commit commits = 5;
+   */
+  commits: Commit[];
+
+  /**
+   * The walk stopped before the file's first commit (it reads at most a few
+   * hundred versions): the oldest commit named may only be where the walk
+   * ended, not where its lines were written.
+   *
+   * @generated from field: bool truncated = 6;
+   */
+  truncated: boolean;
+};
+
+/**
+ * Describes the message gitslice.core.v1.BlameFileResponse.
+ * Use `create(BlameFileResponseSchema)` to create a new message.
+ */
+export const BlameFileResponseSchema: GenMessage<BlameFileResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 21);
+
+/**
  * @generated from service gitslice.core.v1.RepositoryService
  */
 export const RepositoryService: GenService<{
@@ -751,6 +868,17 @@ export const RepositoryService: GenService<{
     methodKind: "unary";
     input: typeof ListCommitsRequestSchema;
     output: typeof ListCommitsResponseSchema;
+  },
+  /**
+   * BlameFile says which commit last changed each line of a file at the
+   * head of the target ref, following the file across moves.
+   *
+   * @generated from rpc gitslice.core.v1.RepositoryService.BlameFile
+   */
+  blameFile: {
+    methodKind: "unary";
+    input: typeof BlameFileRequestSchema;
+    output: typeof BlameFileResponseSchema;
   },
   /**
    * @generated from rpc gitslice.core.v1.RepositoryService.GetRef

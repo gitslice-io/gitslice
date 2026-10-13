@@ -445,6 +445,15 @@ also waits a day. It is skipped for source builds, `--json`, `--quiet`,
 `GS_NO_UPDATE_CHECK=1`. The last lookup is kept in
 `~/.gitslice/update-check.json`.
 
+## 3.10.1 Blame
+
+```bash
+gs blame <path> [--lines start,end] [--slice account/slice] [--json]
+```
+
+Which commit, and the changeset that landed it, last changed each line of a
+file, following moves. See [design/27_blame.md](27_blame.md).
+
 ## 3.11 Feedback
 
 ```bash

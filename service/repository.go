@@ -706,20 +706,9 @@ func (s *RepositoryService) ListCommits(ctx context.Context, req *corev1.ListCom
 	if err != nil {
 		return nil, err
 	}
-	page := &storage.CommitListPage{}
-	if filters.filtered && len(filters.prefixes) == 0 && len(filters.entityRefs) == 0 {
-		page.Commits = nil
-	} else if len(filters.entityRefs) > 0 && filters.includePrefixesWithEntities {
-		page, err = s.Repository.ListCommitPageByEntityRefsOrPathPrefixes(ctx, req.RefName, filters.entityRefs, filters.prefixes, int(req.Limit), req.PageToken)
-	} else if len(filters.entityRefs) > 0 {
-		page, err = s.Repository.ListCommitPageByEntityRefs(ctx, req.RefName, filters.entityRefs, int(req.Limit), req.PageToken)
-	} else if len(filters.prefixes) == 0 {
-		page, err = s.Repository.ListCommitPage(ctx, req.RefName, int(req.Limit), req.PageToken)
-	} else {
-		page, err = s.Repository.ListCommitPageByPathPrefixes(ctx, req.RefName, filters.prefixes, int(req.Limit), req.PageToken)
-	}
+	page, err := s.listCommitPage(ctx, req.RefName, filters, int(req.Limit), req.PageToken)
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	if err := s.resolveCommitAuthors(ctx, page.Commits...); err != nil {
 		return nil, grpcError(err)

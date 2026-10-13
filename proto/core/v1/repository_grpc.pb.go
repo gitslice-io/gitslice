@@ -25,6 +25,7 @@ const (
 	RepositoryService_GetCommit_FullMethodName                 = "/gitslice.core.v1.RepositoryService/GetCommit"
 	RepositoryService_ResolveCommit_FullMethodName             = "/gitslice.core.v1.RepositoryService/ResolveCommit"
 	RepositoryService_ListCommits_FullMethodName               = "/gitslice.core.v1.RepositoryService/ListCommits"
+	RepositoryService_BlameFile_FullMethodName                 = "/gitslice.core.v1.RepositoryService/BlameFile"
 	RepositoryService_GetRef_FullMethodName                    = "/gitslice.core.v1.RepositoryService/GetRef"
 	RepositoryService_ImportGitRepository_FullMethodName       = "/gitslice.core.v1.RepositoryService/ImportGitRepository"
 	RepositoryService_ImportGitRepositoryStream_FullMethodName = "/gitslice.core.v1.RepositoryService/ImportGitRepositoryStream"
@@ -40,6 +41,9 @@ type RepositoryServiceClient interface {
 	GetCommit(ctx context.Context, in *GetCommitRequest, opts ...grpc.CallOption) (*Commit, error)
 	ResolveCommit(ctx context.Context, in *ResolveCommitRequest, opts ...grpc.CallOption) (*ResolveCommitResponse, error)
 	ListCommits(ctx context.Context, in *ListCommitsRequest, opts ...grpc.CallOption) (*ListCommitsResponse, error)
+	// BlameFile says which commit last changed each line of a file at the
+	// head of the target ref, following the file across moves.
+	BlameFile(ctx context.Context, in *BlameFileRequest, opts ...grpc.CallOption) (*BlameFileResponse, error)
 	GetRef(ctx context.Context, in *GetRefRequest, opts ...grpc.CallOption) (*Ref, error)
 	ImportGitRepository(ctx context.Context, in *ImportGitRepositoryRequest, opts ...grpc.CallOption) (*ImportGitRepositoryResponse, error)
 	ImportGitRepositoryStream(ctx context.Context, in *ImportGitRepositoryRequest, opts ...grpc.CallOption) (RepositoryService_ImportGitRepositoryStreamClient, error)
@@ -107,6 +111,15 @@ func (c *repositoryServiceClient) ListCommits(ctx context.Context, in *ListCommi
 	return out, nil
 }
 
+func (c *repositoryServiceClient) BlameFile(ctx context.Context, in *BlameFileRequest, opts ...grpc.CallOption) (*BlameFileResponse, error) {
+	out := new(BlameFileResponse)
+	err := c.cc.Invoke(ctx, RepositoryService_BlameFile_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *repositoryServiceClient) GetRef(ctx context.Context, in *GetRefRequest, opts ...grpc.CallOption) (*Ref, error) {
 	out := new(Ref)
 	err := c.cc.Invoke(ctx, RepositoryService_GetRef_FullMethodName, in, out, opts...)
@@ -167,6 +180,9 @@ type RepositoryServiceServer interface {
 	GetCommit(context.Context, *GetCommitRequest) (*Commit, error)
 	ResolveCommit(context.Context, *ResolveCommitRequest) (*ResolveCommitResponse, error)
 	ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error)
+	// BlameFile says which commit last changed each line of a file at the
+	// head of the target ref, following the file across moves.
+	BlameFile(context.Context, *BlameFileRequest) (*BlameFileResponse, error)
 	GetRef(context.Context, *GetRefRequest) (*Ref, error)
 	ImportGitRepository(context.Context, *ImportGitRepositoryRequest) (*ImportGitRepositoryResponse, error)
 	ImportGitRepositoryStream(*ImportGitRepositoryRequest, RepositoryService_ImportGitRepositoryStreamServer) error
@@ -193,6 +209,9 @@ func (UnimplementedRepositoryServiceServer) ResolveCommit(context.Context, *Reso
 }
 func (UnimplementedRepositoryServiceServer) ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListCommits not implemented")
+}
+func (UnimplementedRepositoryServiceServer) BlameFile(context.Context, *BlameFileRequest) (*BlameFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BlameFile not implemented")
 }
 func (UnimplementedRepositoryServiceServer) GetRef(context.Context, *GetRefRequest) (*Ref, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRef not implemented")
@@ -323,6 +342,24 @@ func _RepositoryService_ListCommits_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RepositoryService_BlameFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BlameFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RepositoryServiceServer).BlameFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RepositoryService_BlameFile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RepositoryServiceServer).BlameFile(ctx, req.(*BlameFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RepositoryService_GetRef_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetRefRequest)
 	if err := dec(in); err != nil {
@@ -410,6 +447,10 @@ var RepositoryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListCommits",
 			Handler:    _RepositoryService_ListCommits_Handler,
+		},
+		{
+			MethodName: "BlameFile",
+			Handler:    _RepositoryService_BlameFile_Handler,
 		},
 		{
 			MethodName: "GetRef",

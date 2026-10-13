@@ -2208,7 +2208,7 @@ home slice root, for example /nic/notes.`,
 		},
 	}
 	claimsCmd.AddCommand(claimsListCmd, claimsAcceptCmd)
-	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, r.upgradeCommand(opts), r.doctorCommand(opts), r.feedbackCommand(opts), schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd, accountCmd, tagCmd, r.webhookCommand(opts))
+	root.AddCommand(authCmd, initCmd, importCmd, syncCmd, workspaceCmd, statusCmd, contextCmd, configCmd, aliasCmd, rpcCmd, browseCmd, logCmd, showCmd, diffCmd, ciCmd, createCmd, modifyCmd, submitCmd, depsCmd, updateDependentsCmd, switchCmd, upCmd, downCmd, topCmd, bottomCmd, moveCmd, insertCmd, detachCmd, csCmd, fsCmd, shellCmd, versionCmd, r.upgradeCommand(opts), r.doctorCommand(opts), r.feedbackCommand(opts), r.blameCommand(opts), schemaCmd, adminCmd, sliceCmd, agentCmd, claimsCmd, accountCmd, tagCmd, r.webhookCommand(opts))
 	r.attachCompletions(root)
 	return root
 }
@@ -12821,6 +12821,14 @@ func (r Runner) runSchema(opts commandOptions) error {
 				"flags":          []string{"--limit", "--path", "--slice", "--page-token", "--no-follow-moves", "--follow", "--all", "--full", "--oneline", "--name-only", "--stat", "--patch"},
 				"writes_stdout":  true,
 				"machine_output": []string{"scope", "commits", "next_page_token"},
+			},
+			{
+				"use":            "gs blame <path>",
+				"summary":        "show which commit and changeset last changed each line of a file, following moves",
+				"args":           []string{"path"},
+				"flags":          []string{"--lines", "--slice"},
+				"writes_stdout":  true,
+				"machine_output": []string{"commit_id", "path", "line_count", "truncated", "ranges", "commits"},
 			},
 			{
 				"use":            "gs show <commit-id-or-prefix>",
