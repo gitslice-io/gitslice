@@ -3,9 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
 
-// Gitslice is developed on Gitslice; GitHub holds a read-only mirror.
+// Gitslice is developed on Gitslice.
 const sourceSlice = { account: "gitslice", slice: "gitslice" };
-const githubMirrorURL = "https://github.com/gitslice-io/gitslice";
 const contactEmail = "contact@gitslice.io";
 
 const footerLinkClass =
@@ -300,14 +299,7 @@ export function LandingPage() {
                 to="/slices/$account/$slice"
               >
                 gitslice/gitslice
-              </Link>{" "}
-              or its{" "}
-              <a
-                className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
-                href={githubMirrorURL}
-              >
-                GitHub mirror
-              </a>
+              </Link>
               .
             </p>
           </div>
@@ -446,9 +438,6 @@ export function LandingPage() {
             >
               Source
             </Link>
-            <a className={footerLinkClass} href={githubMirrorURL}>
-              GitHub
-            </a>
             <a className={footerLinkClass} href={`mailto:${contactEmail}`}>
               {contactEmail}
             </a>

@@ -40,10 +40,7 @@ describe("LandingPage", () => {
       "href",
       "/slices/gitslice/gitslice"
     );
-    expect(screen.getByRole("link", { name: "GitHub mirror" })).toHaveAttribute(
-      "href",
-      "https://github.com/gitslice-io/gitslice"
-    );
+    expect(screen.queryByRole("link", { name: /github/i })).not.toBeInTheDocument();
     const footer = within(screen.getByRole("navigation", { name: "Footer" }));
     expect(footer.getByRole("link", { name: "Source" })).toHaveAttribute("href", "/slices/gitslice/gitslice");
     expect(footer.getByRole("link", { name: "contact@gitslice.io" })).toHaveAttribute(
