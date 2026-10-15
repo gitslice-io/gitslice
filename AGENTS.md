@@ -27,6 +27,42 @@ The current MVP prototype is Go-based and uses:
 - `ops/mirror`: exporter that mirrors the Gitslice-hosted source to GitHub
   (`design/21_self_hosting.md`).
 
+## Code Layout
+
+Packages are split into one file per feature or responsibility, so a change
+usually touches a few small files. Keep new code that way (aim for under about
+600 lines a file; split by what the code does, not by size).
+
+- `internal/cli`: `cli.go` holds `Runner`, `Main`, `Run` and `rootCommand`,
+  which only registers commands. Each command's implementation lives in a
+  file named for the feature (`auth_*.go`, `workspace_*.go`, `changeset_*.go`,
+  `stack*.go`, `slice*.go`, `fs*.go`, `shell*.go`, `commit_log.go`, ...).
+  Cobra wiring is in `commands_<area>.go`, one builder per command group
+  (`authCommand`, `sliceCommand`, `stackCommands`, ...). To add a command:
+  implement it in its feature file, build it in the matching `commands_*.go`,
+  and describe it in `schema_commands_*.go` (`gs schema` is checked by tests).
+  Local state, config and the stat cache are in `local_state.go`,
+  `runner_env.go` and `stat_cache.go`; output helpers in `output.go`,
+  `errors.go` and `color.go`.
+- `internal/postgres`: one file per store (`auth_store.go`, `slice_store.go`,
+  `check_store.go`, ...). The changeset store is `changeset_store.go`
+  (create, read, list) with `changeset_submit.go`, `changeset_publish*.go`,
+  `changeset_patchset.go`, `changeset_requirements.go`, `stack_*.go`,
+  `path_heads.go`, `path_bases.go` and `entity_*.go` beside it. The
+  repository store is `repository_store.go` with `commit_*.go`,
+  `materialized_heads.go` and `tree_reads.go`. `internal/storage/memory`
+  mirrors the same files for the in-memory stores used by service tests.
+- `service/`: `repository*.go` (reads, listing, access control, commits and
+  history), `git_*.go` (Git import), `changeset*.go`, `diff_validator.go`,
+  `check*.go`, `slice*.go`, `agent*.go`.
+- `web/src`: `routes/` holds pages (`routes/doc/` the docs sections,
+  `routes/changeset-detail/` the changeset page parts), `components/` shared
+  UI, `api/types.ts` re-exports `api/types/*.ts`, which hold the API types by
+  domain.
+- Tests sit beside what they test, split the same way; shared test servers,
+  fixtures and helpers are in `*_helpers_test.go`, `testserver_test.go` and
+  similar files.
+
 The design source of truth is under `design/`, especially:
 
 - `design/00_product.md`
