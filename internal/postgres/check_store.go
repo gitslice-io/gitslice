@@ -316,6 +316,9 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 		if err != nil {
 			return nil, err
 		}
+		if err := clearRequirementBlockTx(ctx, tx, run.ChangesetID, run.PatchsetID); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err

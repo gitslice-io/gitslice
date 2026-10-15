@@ -1753,6 +1753,7 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 		s.b.approvals[key] = map[string]struct{}{}
 	}
 	s.b.approvals[key][strings.TrimSpace(subjectID)] = struct{}{}
+	clearRequirementBlockLocked(cs, patchset.Id)
 	return &corev1.ApproveChangesetResponse{ChangesetId: changesetID, PatchsetId: patchset.Id, SubjectId: strings.TrimSpace(subjectID)}, nil
 }
 
@@ -1783,7 +1784,15 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 		s.b.checkResults[key] = map[string]string{}
 	}
 	s.b.checkResults[key][checkName] = resultStatus
+	clearRequirementBlockLocked(cs, patchset.Id)
 	return &corev1.ReportCheckResultResponse{ChangesetId: changesetID, PatchsetId: patchset.Id, CheckName: checkName, Status: resultStatus}, nil
+}
+
+// clearRequirementBlockLocked is the Postgres store's clearRequirementBlockTx.
+func clearRequirementBlockLocked(cs *corev1.Changeset, patchsetID string) {
+	if current := currentPatchset(cs); current != nil && current.Id == patchsetID && storage.IsRequirementBlock(cs.SubmitBlockedReason) {
+		cs.SubmitBlockedReason = ""
+	}
 }
 
 func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInput) (*corev1.CheckRun, error) {
@@ -2008,6 +2017,9 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 			s.b.checkResults[key] = map[string]string{}
 		}
 		s.b.checkResults[key][run.CheckName] = resultStatus
+		if cs := s.b.changesets[run.ChangesetId]; cs != nil {
+			clearRequirementBlockLocked(cs, run.PatchsetId)
+		}
 	}
 	return cloneCheckRun(run), nil
 }

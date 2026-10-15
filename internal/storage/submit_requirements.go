@@ -56,6 +56,14 @@ func EvaluateSubmitRequirements(req *corev1.SubmitRequirements, author string, a
 	return ""
 }
 
+// IsRequirementBlock reports whether a submit-blocked reason is one
+// EvaluateSubmitRequirements gives (a check or approval requirement). Such a
+// reason describes the last submit attempt; a new check result or approval
+// for the patchset makes it stale.
+func IsRequirementBlock(reason string) bool {
+	return strings.HasPrefix(reason, "required check ") || strings.HasPrefix(reason, "required approvals ")
+}
+
 // SubmitRequirementsHash hashes only the fields that gate whether a patchset is
 // still valid to submit: included paths and the required approvals/checks. It
 // deliberately excludes slice visibility and definition version, so cosmetic

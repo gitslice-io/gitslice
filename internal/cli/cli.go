@@ -272,6 +272,42 @@ type changesetOutput struct {
 	WebURL              string                     `json:"web_url,omitempty"`
 	// Submit is what gs create --submit did with the changeset.
 	Submit *submitDependenciesOutput `json:"submit,omitempty"`
+	// Checks are the current patchset's check runs (gs cs status), the
+	// latest attempt of each.
+	Checks []changesetCheckOutput `json:"checks,omitempty"`
+}
+
+type changesetCheckOutput struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	RunID  string `json:"run_id"`
+}
+
+// currentPatchsetChecks lists the latest run of each check on the patchset.
+// A server or caller that cannot list them gets none.
+func currentPatchsetChecks(ctx context.Context, conn *grpc.ClientConn, changesetID, patchsetID string) []changesetCheckOutput {
+	if patchsetID == "" {
+		return nil
+	}
+	res, err := corev1.NewCheckServiceClient(conn).ListCheckRuns(ctx, &corev1.ListCheckRunsRequest{ChangesetId: changesetID, PatchsetId: patchsetID})
+	if err != nil {
+		return nil
+	}
+	latest := map[string]*corev1.CheckRun{}
+	for _, run := range res.GetRuns() {
+		if run.GetPatchsetId() != patchsetID {
+			continue
+		}
+		if prev := latest[run.GetCheckName()]; prev == nil || run.GetAttempt() > prev.GetAttempt() || (run.GetAttempt() == prev.GetAttempt() && run.GetCreatedAt() > prev.GetCreatedAt()) {
+			latest[run.GetCheckName()] = run
+		}
+	}
+	out := make([]changesetCheckOutput, 0, len(latest))
+	for name, run := range latest {
+		out = append(out, changesetCheckOutput{Name: name, Status: run.GetStatus(), RunID: run.GetId()})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 type stackOutput struct {
@@ -1512,7 +1548,7 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 		},
 	}
 	csSubmitCmd.Flags().BoolVar(&csSubmitNoWatch, "no-watch", csSubmitNoWatch, "return after submit is accepted without waiting for publish")
-	csSubmitCmd.Flags().StringVar(&csSubmitWatchTimeout, "watch-timeout", csSubmitWatchTimeout, "maximum time to wait for publish")
+	csSubmitCmd.Flags().StringVar(&csSubmitWatchTimeout, "watch-timeout", csSubmitWatchTimeout, "maximum time to wait for required checks that have not reported, and for publish")
 	csStatusWatch := false
 	csStatusWatchTimeout := "5m"
 	csStatusCmd := &cobra.Command{
@@ -1740,7 +1776,7 @@ warns on stderr if the slice is private (only signed-in members can open it).`,
 	submitCmd.Flags().BoolVar(&submitStack, "with-dependencies", submitStack, "submit dependent changesets together")
 	submitCmd.Flags().StringVar(&submitSubtree, "subtree", submitSubtree, "submit one dependency subtree")
 	submitCmd.Flags().BoolVar(&submitNoWatch, "no-watch", submitNoWatch, "return after submit is accepted without waiting for publish")
-	submitCmd.Flags().StringVar(&submitWatchTimeout, "watch-timeout", submitWatchTimeout, "maximum time to wait for publish")
+	submitCmd.Flags().StringVar(&submitWatchTimeout, "watch-timeout", submitWatchTimeout, "maximum time to wait for required checks that have not reported, and for publish")
 
 	depsCmd := &cobra.Command{
 		Use:   "deps [dependency-tree]",
@@ -7037,10 +7073,32 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			return userError("unresolved_conflicts", "workspace has unresolved sync conflicts", "Resolve conflicts and run gs cs update before submitting.")
 		}
 	}
-	res, err := changesetClient.SubmitChangeset(authContext(ctx, cfg), &corev1.SubmitChangesetRequest{
+	submitReq := &corev1.SubmitChangesetRequest{
 		ChangesetId:               changesetID,
 		ExpectedCurrentPatchsetId: expectedPatchsetID,
-	})
+	}
+	res, err := changesetClient.SubmitChangeset(authContext(ctx, cfg), submitReq)
+	// Required checks that have not reported yet are waited for (up to the
+	// watch timeout), as gs create --submit does.
+	deadline := time.Now().Add(watchTimeout)
+	waitingFor := ""
+	for watch && err != nil {
+		match := pendingCheckPattern.FindStringSubmatch(grpcstatus.Convert(err).Message())
+		remaining := time.Until(deadline)
+		if match == nil || remaining <= 0 {
+			break
+		}
+		if match[1] != waitingFor && !opts.Quiet && !opts.jsonOutput() {
+			fmt.Fprintf(r.stderr(), "waiting for required check %q to pass...\n", match[1])
+		}
+		waitingFor = match[1]
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(min(submitRetryInterval, remaining)):
+		}
+		res, err = changesetClient.SubmitChangeset(authContext(ctx, cfg), submitReq)
+	}
 	if err != nil {
 		return err
 	}
@@ -8406,6 +8464,9 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		SubmitBlockedReason: displaySubmitBlockedReason(cs.SubmitBlockedReason),
 		SubmitRequirements:  currentPatchsetSubmitRequirements(cs),
 	}
+	if cs.Status != "submitted" && cs.Status != "abandoned" {
+		output.Checks = currentPatchsetChecks(authContext(ctx, cfg), conn, cs.Id, cs.CurrentPatchsetId)
+	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, output)
 	}
@@ -8423,6 +8484,12 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		fmt.Fprintf(r.Stdout, "patchset: %d\n", cs.CurrentPatchsetNumber)
 	}
 	printSubmitRequirements(r.Stdout, currentPatchsetSubmitRequirements(cs))
+	if len(output.Checks) > 0 {
+		fmt.Fprintln(r.Stdout, "checks:")
+		for _, check := range output.Checks {
+			fmt.Fprintf(r.Stdout, "  %s: %s\n", check.Name, check.Status)
+		}
+	}
 	return nil
 }
 
@@ -8492,7 +8559,13 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 		return err
 	}
 	defer conn.Close()
-	res, err := r.submitActivePath(ctx, conn, cfg, state, watch, watchTimeout)
+	var res *corev1.SubmitStackResponse
+	if watch {
+		// Required checks that have not reported yet are waited for.
+		res, err = r.submitWhenChecksReport(ctx, opts, conn, cfg, state, watchTimeout)
+	} else {
+		res, err = r.submitActivePath(ctx, conn, cfg, state, false, watchTimeout)
+	}
 	if err != nil {
 		return err
 	}

@@ -1710,6 +1710,9 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 	if err != nil {
 		return nil, err
 	}
+	if err := clearRequirementBlockTx(ctx, tx, changesetID, patchsetID); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -1766,6 +1769,9 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 		    updated_at = now()
 	`, changesetID, patchsetID, checkName, resultStatus, subjectID)
 	if err != nil {
+		return nil, err
+	}
+	if err := clearRequirementBlockTx(ctx, tx, changesetID, patchsetID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -3723,6 +3729,24 @@ func mergeCheckStatuses(statuses map[string]string, extra map[string]string) {
 		}
 		statuses[checkName] = normalized
 	}
+}
+
+// clearRequirementBlockTx clears a stored submit-blocked reason about checks
+// or approvals (storage.IsRequirementBlock) when the current patchset gets a
+// new check result or approval: the reason described the last submit
+// attempt, whose inputs have changed, and the next submit evaluates the
+// requirements again. Without this, gs cs status kept reporting a check as
+// having no result after it had passed.
+func clearRequirementBlockTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string) error {
+	_, err := tx.ExecContext(ctx, `
+		update changesets
+		set submit_blocked_reason = '',
+		    updated_at = now()
+		where id = $1
+		  and current_patchset_id = $2
+		  and (submit_blocked_reason like 'required check %' or submit_blocked_reason like 'required approvals %')
+	`, changesetID, patchsetID)
+	return err
 }
 
 func blockSubmitTx(ctx context.Context, tx *sql.Tx, changesetID, reason string) error {
