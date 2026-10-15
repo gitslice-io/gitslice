@@ -10,6 +10,100 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "benchmarking-gitslice-against-git",
+    title: "Benchmarking Gitslice against Git: where we win, where we lose, and what 455 seconds taught us",
+    dek: "We timed import, commit and checkout against Git on the same files. A one-directory checkout beats Git; import is still 3x slower. And a 455-second checkout over a real network became 2.7 seconds by removing per-file round trips.",
+    date: "2026-10-15",
+    readingMinutes: 6,
+    tags: ["performance", "benchmarks"],
+    markdown: `How does Gitslice compare with Git on the operations people and agents wait for? We did not have an honest answer, so we wrote a benchmark, ran it, and fixed what it found. This post has the numbers, including the ones where Git wins.
+
+## 1. What we measured
+
+The runner (\`tests/cli/bench_git_test.go\`) times four workloads, the same ones the OpenScion and Scion projects publish for their own clients, so the numbers can be read side by side. The fixture is 10 directories of 4 KiB files of seeded random bytes: 100 files each (1,000 files) or 1,000 each (10,000 files).
+
+| Scenario | git | gs |
+|---|---|---|
+| Import a directory | \`init\`, \`add -A\`, \`commit\` | \`gs create --all --submit\` in a fresh workspace, until the change is published |
+| Commit one changed file | \`commit -a\` | \`gs create --all\` (the changeset is recorded on the server) |
+| Full clone / checkout | \`clone --no-local\` | \`gs init <account>/home\` |
+| One directory | \`clone --filter=blob:none --sparse\`, then \`sparse-checkout set dir0000\` | \`gs init\` of a slice of \`dir0000\` |
+
+Every run starts its own server with a fresh database and object store and uses fresh client caches, so nothing is deduplicated against an earlier run. Every checkout is compared with the fixture byte for byte. Before each timed step the runner waits for the server's background indexing to finish, flushes the disk and waits for the machine to go idle. Without that, Git was being timed while the kernel was still writing back Gitslice's files.
+
+## 2. Results
+
+Medians in milliseconds, on a 2-vCPU VM (Xeon E5-2680 v2, 3.3 GiB), Linux 5.15, Go 1.24, Postgres 16, git 2.34. Seven runs at 1,000 files, five at 10,000.
+
+| Scenario | git, 1k | gs, 1k | git, 10k | gs, 10k |
+|---|---:|---:|---:|---:|
+| Import a directory | 446 | 1,325 | 4,175 | 11,329 |
+| Commit one changed file | 70 | 149 | 259 | 485 |
+| Full clone / checkout | 734 | **413** | 2,069 | 3,888 |
+| One directory | 180 | **83** | 459 | **343** |
+
+- **One directory:** Gitslice wins at both sizes (2.2x faster at 1,000 files, 1.3x at 10,000). A checkout costs what the directory costs, not the repository: it fetches that directory's files and nothing else.
+- **Full checkout:** Gitslice wins at 1,000 files (1.8x) and loses at 10,000 (1.9x slower). It writes each file twice, into the client cache and into the workspace, where Git writes one pack and then the files.
+- **Import:** Gitslice is about 3x slower. It uploads every blob to the object store, then validates and publishes every path into the global graph.
+- **Commit:** Gitslice is about 2x slower, mostly in the roughly 70 ms the server spends recording the changeset.
+
+Read these with the differences in mind. Gitslice does more: an import lands the change on a server, uploaded, validated and published, where Git writes a local repository, and a Gitslice commit is recorded on the server while Git's stays local. The benchmark also has no network (client and server share a machine), \`gs\` runs inside the test process while \`git\` starts a process per command, and the object store is the local disk rather than R2.
+
+## 3. What the first run found
+
+Our first measurement had Gitslice at 5.5 s to import 1,000 files and 4.9 s for a full checkout, and 54 s and 53 s at 10,000 files. (That run did not yet wait between steps, so treat the exact figures as rough.) Nothing was slow by itself. Everything was per file:
+
+- **Checkout read one file per call.** Each call paid for authentication, an authorization lookup and database reads.
+- **Uploads were one blob per call,** each with a slice authorization, an object write and four database statements.
+- **Validation looked up each edit** with its own queries.
+- **Path lookups decoded the directory again for each file.** Tree nodes were cached as bytes, so reading every file of a 1,000-entry directory decoded that directory 1,000 times.
+- **Every commit re-read every file** to find the one that had changed.
+
+## 4. What we changed
+
+- **Batch calls.** \`ReadFiles\` reads up to 1,000 files in one call and authorizes once. \`UploadBlobs\` takes up to 1,000 blobs, with one authorization and one statement to record them. The CLI sends batches of up to 256 files or 4 MiB, several at a time.
+- **Recursive listing.** \`ListDirectory\` can list everything under a path, a page at a time, instead of one directory per round trip.
+- **Streamed checkout.** A new \`Checkout\` call streams the slice, the head commit, the listing and, on a cold cache, the file contents, gzip-compressed, in a single request.
+- **A decoded tree cache.** The server keeps decoded tree nodes, which are named by content so they never go stale. A directory is decoded once, not once per file.
+- **A token cache.** Resolved signed tokens are remembered for 30 seconds and never past their expiry. API keys and sessions are still checked against the database on every call, so revoking one takes effect at once.
+- **A stat cache in the workspace,** like Git's index. A commit rehashes only files whose size, modification time or mode changed.
+
+With these, the first-run numbers became 1.3 s and 0.4 s at 1,000 files and 11.3 s and 3.9 s at 10,000: roughly 4x faster for import and 12 to 14x faster for checkout.
+
+## 5. Over a real network
+
+The benchmark has no network, so it cannot show round trips, and round trips turned out to matter more than anything else. We timed \`gs init gitslice/gitslice\` (779 files, 9.8 MB) from a machine about 200 ms from the API, with a cold client cache:
+
+| Step | Time |
+|---|---:|
+| v0.4.6: one \`ReadFile\` per file | 455 s |
+| Batched reads and uploads | 61.5 s |
+| Recursive listing (110 sequential \`ListDirectory\` calls become a few paged ones) | 8 s |
+| 4 MiB HTTP/2 stream windows, gzip, and fewer lookups before the first listing | 4.3 s |
+| Single streamed \`Checkout\` (v0.4.7) | **2.7 s** |
+| The same, with a warm client cache | **1.7 s** |
+
+The HTTP/2 change is worth a sentence. gRPC's default 64 KiB window meant a large response arrived 64 KiB per round trip, so 9.8 MB of source took over 150 round trips. The client now opens 4 MiB stream and 16 MiB connection windows, and gzip shrinks source about 3.5 times (9.8 MB became 2.8 MB).
+
+For comparison, \`git clone --depth 1\` of the GitHub mirror takes 1.5 s from the same machine. That is a different server, but the point stands: a 455 s checkout is now within a factor of two of Git, and we got there mostly by removing per-file and per-directory round trips.
+
+## 6. Where we are still behind
+
+Import is about 3x slower than Git and a commit about 2x, and at 10,000 files a full checkout is still slower. We know why for each, listed above. We are not claiming to be faster than Git; we are claiming to be close on the operations an agent repeats most, and ahead on the one that matters when a repository is bigger than the task, which is fetching only the directory you need.
+
+## 7. Reproduce it
+
+The benchmark is part of the repository and is documented in \`design/28_benchmarks.md\` in the [gitslice/gitslice](https://gitslice.io/slices/gitslice/gitslice) slice. It needs a Postgres database:
+
+\`\`\`bash
+GITSLICE_TEST_DATABASE_URL=... GITSLICE_BENCH=1 \\
+  GITSLICE_BENCH_FILES_PER_DIR=100 GITSLICE_BENCH_RUNS=7 \\
+  go test ./tests/cli -run TestBenchmarkAgainstGit -v -timeout 60m
+\`\`\`
+
+The fixes above are in v0.4.7 (\`gs upgrade\`), and the server side is live at gitslice.io. If a number on your machine disagrees with ours, or a workload we left out is slow for you, send it with \`gs feedback\`.`
+  },
+  {
     slug: "agent-scale-source-control",
     title: "Source control at agent scale: Scion, Origin and Gitslice",
     dek: "Anthropic built its own version control system for agents, and Cursor built a Git forge for them. Here is where Gitslice fits: slices over one source graph, Git at the edges, open source. And how to point your agents at it.",

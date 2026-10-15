@@ -28,4 +28,14 @@ describe("blog posts", () => {
     expect(html).toContain('<code class="language-bash">curl -fsSL https://gitslice.io/install.sh | sh');
     expect(html).toContain('<a href="/blogs/native-source-graph">our first post</a>');
   });
+
+  it("include the benchmark results against git", () => {
+    const post = getPost("benchmarking-gitslice-against-git");
+    expect(post?.markdown).toContain("| Scenario | git, 1k | gs, 1k | git, 10k | gs, 10k |");
+    expect(post?.markdown).toContain("GITSLICE_BENCH=1");
+    const html = marked.parse(post?.markdown ?? "", { async: false });
+    expect(html).toContain('<th align="right">gs, 10k</th>');
+    expect(html).toContain('<code class="language-bash">GITSLICE_TEST_DATABASE_URL=...');
+    expect(html).toContain('<td align="right">455 s</td>');
+  });
 });
