@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 
 	"gitslice.io/gitslice/internal/authz"
@@ -11,6 +12,7 @@ import (
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -93,6 +95,97 @@ func (s *BlobService) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequ
 	}
 	recordBlobUpload(int64(len(req.Data)))
 	return &corev1.UploadBlobResponse{BlobId: blobID, ContentHash: contentHash, Size: int64(len(req.Data))}, nil
+}
+
+const (
+	uploadBlobsMaxBlobs = 1000
+	uploadBlobsMaxBytes = 64 << 20
+	uploadBlobsWrites   = 8
+)
+
+// UploadBlobs is UploadBlob for many blobs in one call (design/28_benchmarks.md):
+// one slice authorization, concurrent object writes, and one statement each to
+// record the blobs, their Git ids and their slice.
+func (s *BlobService) UploadBlobs(ctx context.Context, req *corev1.UploadBlobsRequest) (*corev1.UploadBlobsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Slice == nil {
+		return nil, status.Error(codes.InvalidArgument, "slice is required")
+	}
+	if len(req.GetBlobs()) > uploadBlobsMaxBlobs {
+		return nil, status.Errorf(codes.InvalidArgument, "upload at most %d blobs per call", uploadBlobsMaxBlobs)
+	}
+	var total int64
+	for _, blob := range req.GetBlobs() {
+		total += int64(len(blob.GetData()))
+	}
+	if total > uploadBlobsMaxBytes {
+		return nil, status.Errorf(codes.ResourceExhausted, "these blobs total %d bytes, more than the %d a call may upload; use UploadBlobStream for large blobs", total, uploadBlobsMaxBytes)
+	}
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionWrite)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*corev1.UploadBlobResponse, len(req.GetBlobs()))
+	// Each distinct blob is written once, however often it appears.
+	firstIndex := map[string]int{}
+	rows := []storage.BlobUpsert{}
+	gitIDs := map[string]string{}
+	hashes := []string{}
+	for i, blob := range req.GetBlobs() {
+		contentHash := objectid.RawContentHash(blob.GetData())
+		if blob.GetContentHash() != "" && blob.GetContentHash() != contentHash {
+			return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("content hash %s does not match the bytes of blob %d", blob.GetContentHash(), i))
+		}
+		out[i] = &corev1.UploadBlobResponse{BlobId: objectid.BlobID(blob.GetData()), ContentHash: contentHash, Size: int64(len(blob.GetData()))}
+		if _, seen := firstIndex[contentHash]; seen {
+			continue
+		}
+		firstIndex[contentHash] = i
+		rows = append(rows, storage.BlobUpsert{ID: out[i].BlobId, ContentHash: contentHash, Size: out[i].Size, StorageLocation: filesystem.BlobKey(contentHash)})
+		if gitID := objectid.GitBlobID(blob.GetData()); gitID != "" {
+			gitIDs[contentHash] = gitID
+		}
+		hashes = append(hashes, contentHash)
+	}
+
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(uploadBlobsWrites)
+	for _, contentHash := range hashes {
+		data := req.GetBlobs()[firstIndex[contentHash]].GetData()
+		group.Go(func() error {
+			return s.ObjectStore.Put(groupCtx, filesystem.BlobKey(contentHash), bytes.NewReader(data))
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, grpcError(err)
+	}
+	if batch, ok := s.Blobs.(storage.BlobBatchStore); ok {
+		if err := batch.UpsertMany(ctx, rows); err != nil {
+			return nil, grpcError(err)
+		}
+	} else {
+		for _, row := range rows {
+			if err := s.Blobs.Upsert(ctx, row.ID, row.ContentHash, row.Size, row.StorageLocation); err != nil {
+				return nil, grpcError(err)
+			}
+		}
+	}
+	if len(gitIDs) > 0 {
+		if err := s.Blobs.SetGitBlobIDs(ctx, gitIDs); err != nil {
+			slog.Warn("could not record blobs' git ids; the backfill will", "blobs", len(gitIDs), "error", err)
+		}
+	}
+	if err := s.Blobs.AssociateSlices(ctx, slice.Id, hashes); err != nil {
+		return nil, grpcError(err)
+	}
+	for _, row := range rows {
+		recordBlobUpload(row.Size)
+	}
+	return &corev1.UploadBlobsResponse{Blobs: out}, nil
 }
 
 // recordGitBlobID stores a blob's Git id. The id is metadata that can be

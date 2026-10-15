@@ -380,6 +380,139 @@ func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRe
 	return readFile(ctx, s.Repository, s.ObjectStore, req)
 }
 
+const (
+	readFilesMaxPaths   = 1000
+	readFilesMaxBytes   = 32 << 20
+	readFilesBatchReads = 16
+)
+
+// ReadFiles reads many files in one call (design/28_benchmarks.md): it
+// authorizes once through the slice, or once per account, then resolves the
+// entries and reads their objects concurrently.
+func (s *RepositoryService) ReadFiles(ctx context.Context, req *corev1.ReadFilesRequest) (*corev1.ReadFilesResponse, error) {
+	subjectID := optionalSubject(ctx)
+	if len(req.GetPaths()) > readFilesMaxPaths {
+		return nil, status.Errorf(codes.InvalidArgument, "read at most %d files per call", readFilesMaxPaths)
+	}
+	canonical := make([]string, len(req.GetPaths()))
+	for i, raw := range req.GetPaths() {
+		p, err := paths.Canonical(raw)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		canonical[i] = p
+	}
+	if req.Slice != nil {
+		slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range canonical {
+			if err := ensureRepositoryPathInSlice(slice, p); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		reads := pathReads{auth: s.Auth, slices: s.Slices, subjectID: subjectID}
+		for _, p := range canonical {
+			if err := reads.check(ctx, p); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Resolve the root tree once, then walk it (its nodes are cached) for
+	// each path, rather than looking each path up in the database.
+	rootTreeID := strings.TrimSpace(req.GetRootTreeId())
+	if rootTreeID == "" {
+		var err error
+		if rootTreeID, err = s.Repository.RootTreeForCommit(ctx, req.GetCommitId()); err != nil {
+			return nil, grpcError(err)
+		}
+	}
+	entries := make([]*storage.FileEntry, len(canonical))
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(readFilesBatchReads)
+	for i, p := range canonical {
+		group.Go(func() error {
+			entry, err := s.Repository.GetFileAtTree(groupCtx, rootTreeID, p)
+			if err != nil {
+				return grpcError(err)
+			}
+			entries[i] = entry
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	var total int64
+	for _, entry := range entries {
+		total += entry.Size
+	}
+	if total > readFilesMaxBytes {
+		return nil, status.Errorf(codes.ResourceExhausted, "these files total %d bytes, more than the %d a call may read; read fewer at once", total, readFilesMaxBytes)
+	}
+
+	files := make([]*corev1.ReadFilesEntry, len(entries))
+	group, groupCtx = errgroup.WithContext(ctx)
+	group.SetLimit(readFilesBatchReads)
+	for i, entry := range entries {
+		group.Go(func() error {
+			rc, err := s.ObjectStore.Get(groupCtx, filesystem.BlobKey(entry.ContentHash), 0, 0)
+			if err != nil {
+				return grpcError(err)
+			}
+			defer rc.Close()
+			data, err := io.ReadAll(rc)
+			if err != nil {
+				return grpcError(err)
+			}
+			files[i] = &corev1.ReadFilesEntry{Path: canonical[i], Data: data, ContentHash: entry.ContentHash}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	return &corev1.ReadFilesResponse{Files: files}, nil
+}
+
+// pathReads authorizes path reads for one subject as ensurePathRead does,
+// asking about each account once rather than once per path.
+type pathReads struct {
+	auth      storage.AuthStore
+	slices    storage.SliceStore
+	subjectID string
+	accounts  map[string]error
+}
+
+func (r *pathReads) check(ctx context.Context, p string) error {
+	account := accountSlugForRepositoryPath(p)
+	if account == "" {
+		return nil
+	}
+	if r.accounts == nil {
+		r.accounts = map[string]error{}
+	}
+	err, seen := r.accounts[account]
+	if !seen {
+		err = authorizeAccount(ctx, r.auth, r.subjectID, account, authz.ActionRead)
+		r.accounts[account] = err
+	}
+	if err == nil || strings.TrimSpace(r.subjectID) == "" {
+		return err
+	}
+	ok, lookupErr := readableThroughSlice(ctx, r.auth, r.slices, r.subjectID, p)
+	if lookupErr != nil {
+		return lookupErr
+	}
+	if ok {
+		return nil
+	}
+	return err
+}
+
 func (s *RepositoryService) ensureRepositoryPathRead(ctx context.Context, subjectID, p string) error {
 	account := accountSlugForRepositoryPath(p)
 	if account == "" {

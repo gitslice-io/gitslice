@@ -494,6 +494,8 @@ command aliases or helpers, not part of the current implemented CLI surface.
   slice.json
   state.json
   base_snapshot.json
+  stat_cache.json         # files' size, mtime and mode with their hashes, so a
+                          # scan reads only changed files (design/28_benchmarks.md)
   conflicts.json          # only when sync conflicts are unresolved
 ```
 

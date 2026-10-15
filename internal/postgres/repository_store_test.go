@@ -374,7 +374,8 @@ func assertCurrentEntityPaths(t *testing.T, entities []CurrentPathEntity, want [
 
 func useCountingTreeStore(store *DB, base treestore.ObjectStore) *countingTreeObjectStore {
 	counter := &countingTreeObjectStore{base: base}
-	store.SetTreeStore(treestore.New(counter))
+	// Uncached, so every node read reaches the counter.
+	store.SetTreeStore(treestore.NewUncached(counter))
 	return counter
 }
 

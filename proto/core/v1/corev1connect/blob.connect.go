@@ -38,6 +38,8 @@ const (
 	BlobServiceGetBlobStatusProcedure = "/gitslice.core.v1.BlobService/GetBlobStatus"
 	// BlobServiceUploadBlobProcedure is the fully-qualified name of the BlobService's UploadBlob RPC.
 	BlobServiceUploadBlobProcedure = "/gitslice.core.v1.BlobService/UploadBlob"
+	// BlobServiceUploadBlobsProcedure is the fully-qualified name of the BlobService's UploadBlobs RPC.
+	BlobServiceUploadBlobsProcedure = "/gitslice.core.v1.BlobService/UploadBlobs"
 	// BlobServiceUploadBlobStreamProcedure is the fully-qualified name of the BlobService's
 	// UploadBlobStream RPC.
 	BlobServiceUploadBlobStreamProcedure = "/gitslice.core.v1.BlobService/UploadBlobStream"
@@ -50,6 +52,9 @@ const (
 type BlobServiceClient interface {
 	GetBlobStatus(context.Context, *connect.Request[v1.GetBlobStatusRequest]) (*connect.Response[v1.GetBlobStatusResponse], error)
 	UploadBlob(context.Context, *connect.Request[v1.UploadBlobRequest]) (*connect.Response[v1.UploadBlobResponse], error)
+	// UploadBlobs uploads many small blobs into one slice in one call: at most
+	// 1000 blobs totalling 64 MiB. Larger blobs use UploadBlobStream.
+	UploadBlobs(context.Context, *connect.Request[v1.UploadBlobsRequest]) (*connect.Response[v1.UploadBlobsResponse], error)
 	UploadBlobStream(context.Context) *connect.ClientStreamForClient[v1.UploadBlobChunk, v1.UploadBlobResponse]
 	ReadBlobStream(context.Context, *connect.Request[v1.ReadBlobStreamRequest]) (*connect.ServerStreamForClient[v1.ReadBlobChunk], error)
 }
@@ -77,6 +82,12 @@ func NewBlobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(blobServiceMethods.ByName("UploadBlob")),
 			connect.WithClientOptions(opts...),
 		),
+		uploadBlobs: connect.NewClient[v1.UploadBlobsRequest, v1.UploadBlobsResponse](
+			httpClient,
+			baseURL+BlobServiceUploadBlobsProcedure,
+			connect.WithSchema(blobServiceMethods.ByName("UploadBlobs")),
+			connect.WithClientOptions(opts...),
+		),
 		uploadBlobStream: connect.NewClient[v1.UploadBlobChunk, v1.UploadBlobResponse](
 			httpClient,
 			baseURL+BlobServiceUploadBlobStreamProcedure,
@@ -96,6 +107,7 @@ func NewBlobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 type blobServiceClient struct {
 	getBlobStatus    *connect.Client[v1.GetBlobStatusRequest, v1.GetBlobStatusResponse]
 	uploadBlob       *connect.Client[v1.UploadBlobRequest, v1.UploadBlobResponse]
+	uploadBlobs      *connect.Client[v1.UploadBlobsRequest, v1.UploadBlobsResponse]
 	uploadBlobStream *connect.Client[v1.UploadBlobChunk, v1.UploadBlobResponse]
 	readBlobStream   *connect.Client[v1.ReadBlobStreamRequest, v1.ReadBlobChunk]
 }
@@ -108,6 +120,11 @@ func (c *blobServiceClient) GetBlobStatus(ctx context.Context, req *connect.Requ
 // UploadBlob calls gitslice.core.v1.BlobService.UploadBlob.
 func (c *blobServiceClient) UploadBlob(ctx context.Context, req *connect.Request[v1.UploadBlobRequest]) (*connect.Response[v1.UploadBlobResponse], error) {
 	return c.uploadBlob.CallUnary(ctx, req)
+}
+
+// UploadBlobs calls gitslice.core.v1.BlobService.UploadBlobs.
+func (c *blobServiceClient) UploadBlobs(ctx context.Context, req *connect.Request[v1.UploadBlobsRequest]) (*connect.Response[v1.UploadBlobsResponse], error) {
+	return c.uploadBlobs.CallUnary(ctx, req)
 }
 
 // UploadBlobStream calls gitslice.core.v1.BlobService.UploadBlobStream.
@@ -124,6 +141,9 @@ func (c *blobServiceClient) ReadBlobStream(ctx context.Context, req *connect.Req
 type BlobServiceHandler interface {
 	GetBlobStatus(context.Context, *connect.Request[v1.GetBlobStatusRequest]) (*connect.Response[v1.GetBlobStatusResponse], error)
 	UploadBlob(context.Context, *connect.Request[v1.UploadBlobRequest]) (*connect.Response[v1.UploadBlobResponse], error)
+	// UploadBlobs uploads many small blobs into one slice in one call: at most
+	// 1000 blobs totalling 64 MiB. Larger blobs use UploadBlobStream.
+	UploadBlobs(context.Context, *connect.Request[v1.UploadBlobsRequest]) (*connect.Response[v1.UploadBlobsResponse], error)
 	UploadBlobStream(context.Context, *connect.ClientStream[v1.UploadBlobChunk]) (*connect.Response[v1.UploadBlobResponse], error)
 	ReadBlobStream(context.Context, *connect.Request[v1.ReadBlobStreamRequest], *connect.ServerStream[v1.ReadBlobChunk]) error
 }
@@ -147,6 +167,12 @@ func NewBlobServiceHandler(svc BlobServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(blobServiceMethods.ByName("UploadBlob")),
 		connect.WithHandlerOptions(opts...),
 	)
+	blobServiceUploadBlobsHandler := connect.NewUnaryHandler(
+		BlobServiceUploadBlobsProcedure,
+		svc.UploadBlobs,
+		connect.WithSchema(blobServiceMethods.ByName("UploadBlobs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	blobServiceUploadBlobStreamHandler := connect.NewClientStreamHandler(
 		BlobServiceUploadBlobStreamProcedure,
 		svc.UploadBlobStream,
@@ -165,6 +191,8 @@ func NewBlobServiceHandler(svc BlobServiceHandler, opts ...connect.HandlerOption
 			blobServiceGetBlobStatusHandler.ServeHTTP(w, r)
 		case BlobServiceUploadBlobProcedure:
 			blobServiceUploadBlobHandler.ServeHTTP(w, r)
+		case BlobServiceUploadBlobsProcedure:
+			blobServiceUploadBlobsHandler.ServeHTTP(w, r)
 		case BlobServiceUploadBlobStreamProcedure:
 			blobServiceUploadBlobStreamHandler.ServeHTTP(w, r)
 		case BlobServiceReadBlobStreamProcedure:
@@ -184,6 +212,10 @@ func (UnimplementedBlobServiceHandler) GetBlobStatus(context.Context, *connect.R
 
 func (UnimplementedBlobServiceHandler) UploadBlob(context.Context, *connect.Request[v1.UploadBlobRequest]) (*connect.Response[v1.UploadBlobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.BlobService.UploadBlob is not implemented"))
+}
+
+func (UnimplementedBlobServiceHandler) UploadBlobs(context.Context, *connect.Request[v1.UploadBlobsRequest]) (*connect.Response[v1.UploadBlobsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.BlobService.UploadBlobs is not implemented"))
 }
 
 func (UnimplementedBlobServiceHandler) UploadBlobStream(context.Context, *connect.ClientStream[v1.UploadBlobChunk]) (*connect.Response[v1.UploadBlobResponse], error) {

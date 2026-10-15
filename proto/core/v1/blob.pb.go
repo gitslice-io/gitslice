@@ -455,6 +455,156 @@ func (x *UploadBlobResponse) GetSize() int64 {
 	return 0
 }
 
+type UploadBlobsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Slice         *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
+	Blobs         []*UploadBlobsEntry    `protobuf:"bytes,2,rep,name=blobs,proto3" json:"blobs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadBlobsRequest) Reset() {
+	*x = UploadBlobsRequest{}
+	mi := &file_proto_core_v1_blob_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadBlobsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadBlobsRequest) ProtoMessage() {}
+
+func (x *UploadBlobsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_blob_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadBlobsRequest.ProtoReflect.Descriptor instead.
+func (*UploadBlobsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_blob_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *UploadBlobsRequest) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
+	}
+	return nil
+}
+
+func (x *UploadBlobsRequest) GetBlobs() []*UploadBlobsEntry {
+	if x != nil {
+		return x.Blobs
+	}
+	return nil
+}
+
+type UploadBlobsEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional; when set it must match the bytes.
+	ContentHash   string `protobuf:"bytes,1,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	Data          []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadBlobsEntry) Reset() {
+	*x = UploadBlobsEntry{}
+	mi := &file_proto_core_v1_blob_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadBlobsEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadBlobsEntry) ProtoMessage() {}
+
+func (x *UploadBlobsEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_blob_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadBlobsEntry.ProtoReflect.Descriptor instead.
+func (*UploadBlobsEntry) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_blob_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UploadBlobsEntry) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
+func (x *UploadBlobsEntry) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type UploadBlobsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// In the order of the request's blobs.
+	Blobs         []*UploadBlobResponse `protobuf:"bytes,1,rep,name=blobs,proto3" json:"blobs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadBlobsResponse) Reset() {
+	*x = UploadBlobsResponse{}
+	mi := &file_proto_core_v1_blob_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadBlobsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadBlobsResponse) ProtoMessage() {}
+
+func (x *UploadBlobsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_blob_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadBlobsResponse.ProtoReflect.Descriptor instead.
+func (*UploadBlobsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_blob_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UploadBlobsResponse) GetBlobs() []*UploadBlobResponse {
+	if x != nil {
+		return x.Blobs
+	}
+	return nil
+}
+
 type ReadBlobStreamRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Slice         *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
@@ -467,7 +617,7 @@ type ReadBlobStreamRequest struct {
 
 func (x *ReadBlobStreamRequest) Reset() {
 	*x = ReadBlobStreamRequest{}
-	mi := &file_proto_core_v1_blob_proto_msgTypes[7]
+	mi := &file_proto_core_v1_blob_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -479,7 +629,7 @@ func (x *ReadBlobStreamRequest) String() string {
 func (*ReadBlobStreamRequest) ProtoMessage() {}
 
 func (x *ReadBlobStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_blob_proto_msgTypes[7]
+	mi := &file_proto_core_v1_blob_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -492,7 +642,7 @@ func (x *ReadBlobStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadBlobStreamRequest.ProtoReflect.Descriptor instead.
 func (*ReadBlobStreamRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_blob_proto_rawDescGZIP(), []int{7}
+	return file_proto_core_v1_blob_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ReadBlobStreamRequest) GetSlice() *SliceRef {
@@ -534,7 +684,7 @@ type ReadBlobChunk struct {
 
 func (x *ReadBlobChunk) Reset() {
 	*x = ReadBlobChunk{}
-	mi := &file_proto_core_v1_blob_proto_msgTypes[8]
+	mi := &file_proto_core_v1_blob_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -546,7 +696,7 @@ func (x *ReadBlobChunk) String() string {
 func (*ReadBlobChunk) ProtoMessage() {}
 
 func (x *ReadBlobChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_blob_proto_msgTypes[8]
+	mi := &file_proto_core_v1_blob_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -559,7 +709,7 @@ func (x *ReadBlobChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadBlobChunk.ProtoReflect.Descriptor instead.
 func (*ReadBlobChunk) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_blob_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_blob_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ReadBlobChunk) GetData() []byte {
@@ -616,7 +766,15 @@ const file_proto_core_v1_blob_proto_rawDesc = "" +
 	"\x12UploadBlobResponse\x12\x17\n" +
 	"\ablob_id\x18\x01 \x01(\tR\x06blobId\x12!\n" +
 	"\fcontent_hash\x18\x02 \x01(\tR\vcontentHash\x12\x12\n" +
-	"\x04size\x18\x03 \x01(\x03R\x04size\"\x9c\x01\n" +
+	"\x04size\x18\x03 \x01(\x03R\x04size\"\x80\x01\n" +
+	"\x12UploadBlobsRequest\x120\n" +
+	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x128\n" +
+	"\x05blobs\x18\x02 \x03(\v2\".gitslice.core.v1.UploadBlobsEntryR\x05blobs\"I\n" +
+	"\x10UploadBlobsEntry\x12!\n" +
+	"\fcontent_hash\x18\x01 \x01(\tR\vcontentHash\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"Q\n" +
+	"\x13UploadBlobsResponse\x12:\n" +
+	"\x05blobs\x18\x01 \x03(\v2$.gitslice.core.v1.UploadBlobResponseR\x05blobs\"\x9c\x01\n" +
 	"\x15ReadBlobStreamRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12!\n" +
 	"\fcontent_hash\x18\x02 \x01(\tR\vcontentHash\x12\x16\n" +
@@ -625,11 +783,12 @@ const file_proto_core_v1_blob_proto_rawDesc = "" +
 	"\rReadBlobChunk\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x03R\x06offset\x12!\n" +
-	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash2\x85\x03\n" +
+	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash2\xe1\x03\n" +
 	"\vBlobService\x12`\n" +
 	"\rGetBlobStatus\x12&.gitslice.core.v1.GetBlobStatusRequest\x1a'.gitslice.core.v1.GetBlobStatusResponse\x12W\n" +
 	"\n" +
-	"UploadBlob\x12#.gitslice.core.v1.UploadBlobRequest\x1a$.gitslice.core.v1.UploadBlobResponse\x12]\n" +
+	"UploadBlob\x12#.gitslice.core.v1.UploadBlobRequest\x1a$.gitslice.core.v1.UploadBlobResponse\x12Z\n" +
+	"\vUploadBlobs\x12$.gitslice.core.v1.UploadBlobsRequest\x1a%.gitslice.core.v1.UploadBlobsResponse\x12]\n" +
 	"\x10UploadBlobStream\x12!.gitslice.core.v1.UploadBlobChunk\x1a$.gitslice.core.v1.UploadBlobResponse(\x01\x12\\\n" +
 	"\x0eReadBlobStream\x12'.gitslice.core.v1.ReadBlobStreamRequest\x1a\x1f.gitslice.core.v1.ReadBlobChunk0\x01B+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
@@ -645,7 +804,7 @@ func file_proto_core_v1_blob_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_blob_proto_rawDescData
 }
 
-var file_proto_core_v1_blob_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_proto_core_v1_blob_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_proto_core_v1_blob_proto_goTypes = []any{
 	(*GetBlobStatusRequest)(nil),  // 0: gitslice.core.v1.GetBlobStatusRequest
 	(*BlobRecord)(nil),            // 1: gitslice.core.v1.BlobRecord
@@ -654,30 +813,38 @@ var file_proto_core_v1_blob_proto_goTypes = []any{
 	(*UploadBlobInit)(nil),        // 4: gitslice.core.v1.UploadBlobInit
 	(*UploadBlobChunk)(nil),       // 5: gitslice.core.v1.UploadBlobChunk
 	(*UploadBlobResponse)(nil),    // 6: gitslice.core.v1.UploadBlobResponse
-	(*ReadBlobStreamRequest)(nil), // 7: gitslice.core.v1.ReadBlobStreamRequest
-	(*ReadBlobChunk)(nil),         // 8: gitslice.core.v1.ReadBlobChunk
-	(*SliceRef)(nil),              // 9: gitslice.core.v1.SliceRef
+	(*UploadBlobsRequest)(nil),    // 7: gitslice.core.v1.UploadBlobsRequest
+	(*UploadBlobsEntry)(nil),      // 8: gitslice.core.v1.UploadBlobsEntry
+	(*UploadBlobsResponse)(nil),   // 9: gitslice.core.v1.UploadBlobsResponse
+	(*ReadBlobStreamRequest)(nil), // 10: gitslice.core.v1.ReadBlobStreamRequest
+	(*ReadBlobChunk)(nil),         // 11: gitslice.core.v1.ReadBlobChunk
+	(*SliceRef)(nil),              // 12: gitslice.core.v1.SliceRef
 }
 var file_proto_core_v1_blob_proto_depIdxs = []int32{
-	9,  // 0: gitslice.core.v1.GetBlobStatusRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	12, // 0: gitslice.core.v1.GetBlobStatusRequest.slice:type_name -> gitslice.core.v1.SliceRef
 	1,  // 1: gitslice.core.v1.GetBlobStatusResponse.blobs:type_name -> gitslice.core.v1.BlobRecord
-	9,  // 2: gitslice.core.v1.UploadBlobRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	9,  // 3: gitslice.core.v1.UploadBlobInit.slice:type_name -> gitslice.core.v1.SliceRef
+	12, // 2: gitslice.core.v1.UploadBlobRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	12, // 3: gitslice.core.v1.UploadBlobInit.slice:type_name -> gitslice.core.v1.SliceRef
 	4,  // 4: gitslice.core.v1.UploadBlobChunk.init:type_name -> gitslice.core.v1.UploadBlobInit
-	9,  // 5: gitslice.core.v1.ReadBlobStreamRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	0,  // 6: gitslice.core.v1.BlobService.GetBlobStatus:input_type -> gitslice.core.v1.GetBlobStatusRequest
-	3,  // 7: gitslice.core.v1.BlobService.UploadBlob:input_type -> gitslice.core.v1.UploadBlobRequest
-	5,  // 8: gitslice.core.v1.BlobService.UploadBlobStream:input_type -> gitslice.core.v1.UploadBlobChunk
-	7,  // 9: gitslice.core.v1.BlobService.ReadBlobStream:input_type -> gitslice.core.v1.ReadBlobStreamRequest
-	2,  // 10: gitslice.core.v1.BlobService.GetBlobStatus:output_type -> gitslice.core.v1.GetBlobStatusResponse
-	6,  // 11: gitslice.core.v1.BlobService.UploadBlob:output_type -> gitslice.core.v1.UploadBlobResponse
-	6,  // 12: gitslice.core.v1.BlobService.UploadBlobStream:output_type -> gitslice.core.v1.UploadBlobResponse
-	8,  // 13: gitslice.core.v1.BlobService.ReadBlobStream:output_type -> gitslice.core.v1.ReadBlobChunk
-	10, // [10:14] is the sub-list for method output_type
-	6,  // [6:10] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	12, // 5: gitslice.core.v1.UploadBlobsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	8,  // 6: gitslice.core.v1.UploadBlobsRequest.blobs:type_name -> gitslice.core.v1.UploadBlobsEntry
+	6,  // 7: gitslice.core.v1.UploadBlobsResponse.blobs:type_name -> gitslice.core.v1.UploadBlobResponse
+	12, // 8: gitslice.core.v1.ReadBlobStreamRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	0,  // 9: gitslice.core.v1.BlobService.GetBlobStatus:input_type -> gitslice.core.v1.GetBlobStatusRequest
+	3,  // 10: gitslice.core.v1.BlobService.UploadBlob:input_type -> gitslice.core.v1.UploadBlobRequest
+	7,  // 11: gitslice.core.v1.BlobService.UploadBlobs:input_type -> gitslice.core.v1.UploadBlobsRequest
+	5,  // 12: gitslice.core.v1.BlobService.UploadBlobStream:input_type -> gitslice.core.v1.UploadBlobChunk
+	10, // 13: gitslice.core.v1.BlobService.ReadBlobStream:input_type -> gitslice.core.v1.ReadBlobStreamRequest
+	2,  // 14: gitslice.core.v1.BlobService.GetBlobStatus:output_type -> gitslice.core.v1.GetBlobStatusResponse
+	6,  // 15: gitslice.core.v1.BlobService.UploadBlob:output_type -> gitslice.core.v1.UploadBlobResponse
+	9,  // 16: gitslice.core.v1.BlobService.UploadBlobs:output_type -> gitslice.core.v1.UploadBlobsResponse
+	6,  // 17: gitslice.core.v1.BlobService.UploadBlobStream:output_type -> gitslice.core.v1.UploadBlobResponse
+	11, // 18: gitslice.core.v1.BlobService.ReadBlobStream:output_type -> gitslice.core.v1.ReadBlobChunk
+	14, // [14:19] is the sub-list for method output_type
+	9,  // [9:14] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_blob_proto_init() }
@@ -697,7 +864,7 @@ func file_proto_core_v1_blob_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_blob_proto_rawDesc), len(file_proto_core_v1_blob_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

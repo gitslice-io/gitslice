@@ -179,6 +179,23 @@ type BlobStore interface {
 	BlobsByGitIDs(ctx context.Context, gitBlobIDs []string) (map[string]*corev1.BlobRecord, error)
 }
 
+// BlobUpsert is one blob row for BlobBatchStore.UpsertMany.
+type BlobUpsert struct {
+	ID              string
+	ContentHash     string
+	Size            int64
+	StorageLocation string
+}
+
+// BlobBatchStore is a BlobStore that records and reads many blobs in one
+// statement. Stores without it are used a blob at a time.
+type BlobBatchStore interface {
+	UpsertMany(ctx context.Context, blobs []BlobUpsert) error
+	// GetByIDs returns the blobs with the given ids, keyed by id; ids no blob
+	// has are left out.
+	GetByIDs(ctx context.Context, blobIDs []string) (map[string]*corev1.BlobRecord, error)
+}
+
 type ChangesetStore interface {
 	CreateStack(ctx context.Context, subjectID string, req *corev1.CreateStackRequest) (*corev1.ChangesetStack, error)
 	GetStack(ctx context.Context, stackID string) (*corev1.ChangesetStack, error)

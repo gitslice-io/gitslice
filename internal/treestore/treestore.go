@@ -25,6 +25,9 @@ type ObjectStore interface {
 
 type Store struct {
 	objects ObjectStore
+	// nodes keeps decoded nodes for readers; nil in the buffered stores
+	// that build a tree.
+	nodes *nodeCache
 }
 
 const treeFlushConcurrency = 16
@@ -144,6 +147,12 @@ type Entry struct {
 }
 
 func New(objects ObjectStore) *Store {
+	return &Store{objects: objects, nodes: newNodeCache(nodeCacheEntries)}
+}
+
+// NewUncached is New without the decoded-node cache, for callers that must
+// see every node read (tests that count them).
+func NewUncached(objects ObjectStore) *Store {
 	return &Store{objects: objects}
 }
 
@@ -230,7 +239,7 @@ func (s *Store) ListDirectory(ctx context.Context, rootTreeID, p string) ([]Tree
 		treeID = entry.TreeID
 		prefix = fullPath
 	}
-	node, err := s.readNode(ctx, treeID)
+	node, err := s.readSharedNode(ctx, treeID)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +530,7 @@ func (s *Store) applyBatch(ctx context.Context, treeID string, edits []batchEdit
 }
 
 func (s *Store) entryAt(ctx context.Context, treeID string, parts []string) (Entry, error) {
-	node, err := s.readNode(ctx, treeID)
+	node, err := s.readSharedNode(ctx, treeID)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -539,7 +548,7 @@ func (s *Store) entryAt(ctx context.Context, treeID string, parts []string) (Ent
 }
 
 func (s *Store) collectFiles(ctx context.Context, treeID, prefix string) ([]FileEntry, error) {
-	node, err := s.readNode(ctx, treeID)
+	node, err := s.readSharedNode(ctx, treeID)
 	if err != nil {
 		return nil, err
 	}
@@ -708,7 +717,41 @@ func (s *Store) deletePath(ctx context.Context, treeID string, parts []string) (
 	return newTreeID, len(node.Entries) == 0, err
 }
 
+// readNode returns a node its caller may change: writers edit the entries
+// of the node they read to build its replacement.
 func (s *Store) readNode(ctx context.Context, treeID string) (Node, error) {
+	node, err := s.readSharedNode(ctx, treeID)
+	if err != nil || s.nodes == nil {
+		return node, err
+	}
+	node.Entries = append([]Entry(nil), node.Entries...)
+	return node, nil
+}
+
+// readSharedNode returns a node that may be shared with other readers, so its
+// caller must not change it. A path lookup reads a node from the cache
+// instead of decoding it again: decoding a directory for every file in it
+// made reading many files of one directory quadratic.
+func (s *Store) readSharedNode(ctx context.Context, treeID string) (Node, error) {
+	if treeID == "" {
+		treeID = EmptyRootID()
+	}
+	if s.nodes != nil {
+		if node, ok := s.nodes.get(treeID); ok {
+			return node, nil
+		}
+	}
+	node, err := s.decodeNode(ctx, treeID)
+	if err != nil {
+		return Node{}, err
+	}
+	if s.nodes != nil {
+		s.nodes.add(treeID, node)
+	}
+	return node, nil
+}
+
+func (s *Store) decodeNode(ctx context.Context, treeID string) (Node, error) {
 	if treeID == "" {
 		treeID = EmptyRootID()
 	}

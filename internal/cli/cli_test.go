@@ -1616,6 +1616,88 @@ func TestScanWorkspaceFilesIncludesUserDotPaths(t *testing.T) {
 	}
 }
 
+// TestScanWorkspaceFilesReusesStatCache: a scan uses a file's recorded hash
+// while its stat matches, and reads the file again when it changed, when it
+// was modified no earlier than the record, or when its content left the
+// client cache.
+func TestScanWorkspaceFilesReusesStatCache(t *testing.T) {
+	workspace := t.TempDir()
+	r := Runner{Home: t.TempDir(), Dir: workspace}
+	ws := WorkspaceConfig{Account: "acme", Slice: "payment", IncludedPaths: []string{"/acme/payment"}}
+	write := func(rel, content string, modTime time.Time) {
+		t.Helper()
+		path := filepath.Join(workspace, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hashOf := func(content string) string { return objectid.RawContentHash([]byte(content)) }
+	scanned := func(globalPath string) string {
+		t.Helper()
+		files, err := r.scanWorkspaceFiles(ws)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return files[globalPath].ContentHash
+	}
+	// recordAs replaces a file's recorded hash, keeping its recorded stat.
+	recordAs := func(rel, contentHash string) {
+		t.Helper()
+		cache := readStatCache(workspace)
+		entry, ok := cache.Files[rel]
+		if !ok {
+			t.Fatalf("no record for %s", rel)
+		}
+		entry.ContentHash = contentHash
+		cache.Files[rel] = entry
+		writeStatCache(workspace, cache.Files)
+	}
+
+	past := time.Now().Add(-time.Hour)
+	write(".gs/slice.json", "{}", past)
+	write("acme/payment/a.txt", "alpha\n", past)
+	write("acme/payment/b.txt", "bravo\n", past)
+	if got := scanned("/acme/payment/a.txt"); got != hashOf("alpha\n") {
+		t.Fatalf("first scan hash = %s", got)
+	}
+
+	// The record is used: pointed at other cached content, the scan
+	// believes it rather than reading the file.
+	recordAs("acme/payment/a.txt", hashOf("bravo\n"))
+	if got := scanned("/acme/payment/a.txt"); got != hashOf("bravo\n") {
+		t.Fatalf("a matching record was not used: %s", got)
+	}
+
+	// A changed file (same size, new modification time) is read again.
+	write("acme/payment/a.txt", "ALPHA\n", past.Add(time.Minute))
+	if got := scanned("/acme/payment/a.txt"); got != hashOf("ALPHA\n") {
+		t.Fatalf("a changed file kept its old hash: %s", got)
+	}
+
+	// A record whose content is not in the client cache is not used.
+	recordAs("acme/payment/b.txt", hashOf("never cached\n"))
+	if got := scanned("/acme/payment/b.txt"); got != hashOf("bravo\n") {
+		t.Fatalf("a record without cached content was used: %s", got)
+	}
+
+	// A file modified no earlier than the record is read again, even when
+	// its stat matches: a change in the same clock tick would not show.
+	future := time.Now().Add(time.Hour)
+	write("acme/payment/b.txt", "bravo\n", future)
+	cache := readStatCache(workspace)
+	cache.Files["acme/payment/b.txt"] = statCacheEntry{Size: 6, ModTimeNs: future.UnixNano(), Mode: 0o100644, ContentHash: hashOf("ALPHA\n")}
+	writeStatCache(workspace, cache.Files)
+	if got := scanned("/acme/payment/b.txt"); got != hashOf("bravo\n") {
+		t.Fatalf("a record newer than the cache was used: %s", got)
+	}
+}
+
 func TestHashWorkspaceFilesUsesBoundedConcurrency(t *testing.T) {
 	paths := []string{"a", "b", "c", "d", "e", "f"}
 	started := make(chan struct{}, len(paths))
@@ -1895,6 +1977,34 @@ func TestAttachBlobIDsUploadsEachMissingHashOnceFromCache(t *testing.T) {
 	}
 }
 
+func TestAttachBlobIDsUploadsSmallBlobsInBatches(t *testing.T) {
+	cache, err := clientcache.New(filepath.Join(t.TempDir(), "cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const files = uploadBatchBlobs + 10
+	edits := make([]*corev1.FileEdit, 0, files)
+	for i := 0; i < files; i++ {
+		cached, err := cache.PutBytes([]byte(fmt.Sprintf("content-%d", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		edits = append(edits, &corev1.FileEdit{Op: "upsert", Path: fmt.Sprintf("/acme/payment/%d.txt", i), ContentHash: cached.ContentHash})
+	}
+	client := &fakeBlobClient{status: map[string]*corev1.BlobRecord{}, batches: true}
+	if err := attachBlobIDs(context.Background(), client, &corev1.SliceRef{Account: "acme", Slice: "payment"}, cache, edits); err != nil {
+		t.Fatal(err)
+	}
+	if client.batchCalls != 2 || client.uploads != files {
+		t.Fatalf("uploaded %d blobs in %d calls, want %d in 2", client.uploads, client.batchCalls, files)
+	}
+	for i, edit := range edits {
+		if want := objectid.BlobID([]byte(fmt.Sprintf("content-%d", i))); edit.BlobId != want {
+			t.Fatalf("edit %d blob id = %q, want %q", i, edit.BlobId, want)
+		}
+	}
+}
+
 func TestAttachBlobIDsUploadsMissingHashesConcurrently(t *testing.T) {
 	cache, err := clientcache.New(filepath.Join(t.TempDir(), "cache"))
 	if err != nil {
@@ -1955,8 +2065,12 @@ func TestAttachBlobIDsUploadsMissingHashesConcurrently(t *testing.T) {
 
 type fakeBlobClient struct {
 	corev1.BlobServiceClient
-	mu             sync.Mutex
-	status         map[string]*corev1.BlobRecord
+	mu     sync.Mutex
+	status map[string]*corev1.BlobRecord
+	// batches makes the fake take UploadBlobs; without it the fake is a
+	// server older than UploadBlobs.
+	batches        bool
+	batchCalls     int
 	uploads        int
 	currentUploads int
 	maximumUploads int
@@ -2478,6 +2592,21 @@ func (f *fakeBlobClient) GetBlobStatus(ctx context.Context, req *corev1.GetBlobS
 		out = append(out, &corev1.BlobRecord{ContentHash: hash, State: "missing"})
 	}
 	return &corev1.GetBlobStatusResponse{Blobs: out}, nil
+}
+
+func (f *fakeBlobClient) UploadBlobs(ctx context.Context, req *corev1.UploadBlobsRequest, opts ...grpc.CallOption) (*corev1.UploadBlobsResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.batches {
+		return nil, status.Error(codes.Unimplemented, "unknown method UploadBlobs")
+	}
+	f.batchCalls++
+	out := &corev1.UploadBlobsResponse{}
+	for _, blob := range req.Blobs {
+		f.uploads++
+		out.Blobs = append(out.Blobs, &corev1.UploadBlobResponse{BlobId: objectid.BlobID(blob.Data), ContentHash: objectid.RawContentHash(blob.Data), Size: int64(len(blob.Data))})
+	}
+	return out, nil
 }
 
 func (f *fakeBlobClient) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequest, opts ...grpc.CallOption) (*corev1.UploadBlobResponse, error) {

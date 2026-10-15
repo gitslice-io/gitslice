@@ -683,6 +683,183 @@ func (x *ReadFileResponse) GetContentHash() string {
 	return ""
 }
 
+type ReadFilesRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	CommitId string                 `protobuf:"bytes,1,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
+	// At most 1000 paths.
+	Paths []string `protobuf:"bytes,2,rep,name=paths,proto3" json:"paths,omitempty"`
+	// Optional immutable tree root, as in ReadFileRequest.
+	RootTreeId string `protobuf:"bytes,3,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
+	// Optional slice projection: authorization is evaluated once through this
+	// slice, and every path must be included by it.
+	Slice         *SliceRef `protobuf:"bytes,4,opt,name=slice,proto3" json:"slice,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadFilesRequest) Reset() {
+	*x = ReadFilesRequest{}
+	mi := &file_proto_core_v1_repository_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadFilesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadFilesRequest) ProtoMessage() {}
+
+func (x *ReadFilesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_repository_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadFilesRequest.ProtoReflect.Descriptor instead.
+func (*ReadFilesRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ReadFilesRequest) GetCommitId() string {
+	if x != nil {
+		return x.CommitId
+	}
+	return ""
+}
+
+func (x *ReadFilesRequest) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *ReadFilesRequest) GetRootTreeId() string {
+	if x != nil {
+		return x.RootTreeId
+	}
+	return ""
+}
+
+func (x *ReadFilesRequest) GetSlice() *SliceRef {
+	if x != nil {
+		return x.Slice
+	}
+	return nil
+}
+
+type ReadFilesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// In the order of the request's paths.
+	Files         []*ReadFilesEntry `protobuf:"bytes,1,rep,name=files,proto3" json:"files,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadFilesResponse) Reset() {
+	*x = ReadFilesResponse{}
+	mi := &file_proto_core_v1_repository_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadFilesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadFilesResponse) ProtoMessage() {}
+
+func (x *ReadFilesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_repository_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadFilesResponse.ProtoReflect.Descriptor instead.
+func (*ReadFilesResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ReadFilesResponse) GetFiles() []*ReadFilesEntry {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+type ReadFilesEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	ContentHash   string                 `protobuf:"bytes,3,opt,name=content_hash,json=contentHash,proto3" json:"content_hash,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadFilesEntry) Reset() {
+	*x = ReadFilesEntry{}
+	mi := &file_proto_core_v1_repository_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadFilesEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadFilesEntry) ProtoMessage() {}
+
+func (x *ReadFilesEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_repository_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadFilesEntry.ProtoReflect.Descriptor instead.
+func (*ReadFilesEntry) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ReadFilesEntry) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ReadFilesEntry) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *ReadFilesEntry) GetContentHash() string {
+	if x != nil {
+		return x.ContentHash
+	}
+	return ""
+}
+
 type GetCommitRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CommitId      string                 `protobuf:"bytes,1,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
@@ -692,7 +869,7 @@ type GetCommitRequest struct {
 
 func (x *GetCommitRequest) Reset() {
 	*x = GetCommitRequest{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[9]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -704,7 +881,7 @@ func (x *GetCommitRequest) String() string {
 func (*GetCommitRequest) ProtoMessage() {}
 
 func (x *GetCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[9]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -717,7 +894,7 @@ func (x *GetCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCommitRequest.ProtoReflect.Descriptor instead.
 func (*GetCommitRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetCommitRequest) GetCommitId() string {
@@ -745,7 +922,7 @@ type ResolveCommitRequest struct {
 
 func (x *ResolveCommitRequest) Reset() {
 	*x = ResolveCommitRequest{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[10]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -757,7 +934,7 @@ func (x *ResolveCommitRequest) String() string {
 func (*ResolveCommitRequest) ProtoMessage() {}
 
 func (x *ResolveCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[10]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -770,7 +947,7 @@ func (x *ResolveCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveCommitRequest.ProtoReflect.Descriptor instead.
 func (*ResolveCommitRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{10}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ResolveCommitRequest) GetCommitId() string {
@@ -820,7 +997,7 @@ type ResolveCommitResponse struct {
 
 func (x *ResolveCommitResponse) Reset() {
 	*x = ResolveCommitResponse{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[11]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -832,7 +1009,7 @@ func (x *ResolveCommitResponse) String() string {
 func (*ResolveCommitResponse) ProtoMessage() {}
 
 func (x *ResolveCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[11]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -845,7 +1022,7 @@ func (x *ResolveCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveCommitResponse.ProtoReflect.Descriptor instead.
 func (*ResolveCommitResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{11}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ResolveCommitResponse) GetCommit() *Commit {
@@ -882,7 +1059,7 @@ type ListCommitsRequest struct {
 
 func (x *ListCommitsRequest) Reset() {
 	*x = ListCommitsRequest{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[12]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -894,7 +1071,7 @@ func (x *ListCommitsRequest) String() string {
 func (*ListCommitsRequest) ProtoMessage() {}
 
 func (x *ListCommitsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[12]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -907,7 +1084,7 @@ func (x *ListCommitsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCommitsRequest.ProtoReflect.Descriptor instead.
 func (*ListCommitsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{12}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListCommitsRequest) GetRefName() string {
@@ -962,7 +1139,7 @@ type ListCommitsResponse struct {
 
 func (x *ListCommitsResponse) Reset() {
 	*x = ListCommitsResponse{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[13]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -974,7 +1151,7 @@ func (x *ListCommitsResponse) String() string {
 func (*ListCommitsResponse) ProtoMessage() {}
 
 func (x *ListCommitsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[13]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -987,7 +1164,7 @@ func (x *ListCommitsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCommitsResponse.ProtoReflect.Descriptor instead.
 func (*ListCommitsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{13}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListCommitsResponse) GetCommits() []*Commit {
@@ -1013,7 +1190,7 @@ type GetRefRequest struct {
 
 func (x *GetRefRequest) Reset() {
 	*x = GetRefRequest{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[14]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1025,7 +1202,7 @@ func (x *GetRefRequest) String() string {
 func (*GetRefRequest) ProtoMessage() {}
 
 func (x *GetRefRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[14]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1038,7 +1215,7 @@ func (x *GetRefRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRefRequest.ProtoReflect.Descriptor instead.
 func (*GetRefRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{14}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetRefRequest) GetRefName() string {
@@ -1065,7 +1242,7 @@ type ImportGitRepositoryRequest struct {
 
 func (x *ImportGitRepositoryRequest) Reset() {
 	*x = ImportGitRepositoryRequest{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[15]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1077,7 +1254,7 @@ func (x *ImportGitRepositoryRequest) String() string {
 func (*ImportGitRepositoryRequest) ProtoMessage() {}
 
 func (x *ImportGitRepositoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[15]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1090,7 +1267,7 @@ func (x *ImportGitRepositoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportGitRepositoryRequest.ProtoReflect.Descriptor instead.
 func (*ImportGitRepositoryRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{15}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ImportGitRepositoryRequest) GetSource() string {
@@ -1153,7 +1330,7 @@ type ImportedGitCommit struct {
 
 func (x *ImportedGitCommit) Reset() {
 	*x = ImportedGitCommit{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[16]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1165,7 +1342,7 @@ func (x *ImportedGitCommit) String() string {
 func (*ImportedGitCommit) ProtoMessage() {}
 
 func (x *ImportedGitCommit) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[16]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1178,7 +1355,7 @@ func (x *ImportedGitCommit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportedGitCommit.ProtoReflect.Descriptor instead.
 func (*ImportedGitCommit) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{16}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ImportedGitCommit) GetGitCommitId() string {
@@ -1216,7 +1393,7 @@ type ImportGitRepositoryResponse struct {
 
 func (x *ImportGitRepositoryResponse) Reset() {
 	*x = ImportGitRepositoryResponse{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[17]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1228,7 +1405,7 @@ func (x *ImportGitRepositoryResponse) String() string {
 func (*ImportGitRepositoryResponse) ProtoMessage() {}
 
 func (x *ImportGitRepositoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[17]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1241,7 +1418,7 @@ func (x *ImportGitRepositoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportGitRepositoryResponse.ProtoReflect.Descriptor instead.
 func (*ImportGitRepositoryResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{17}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ImportGitRepositoryResponse) GetSource() string {
@@ -1302,7 +1479,7 @@ type ImportGitRepositoryProgress struct {
 
 func (x *ImportGitRepositoryProgress) Reset() {
 	*x = ImportGitRepositoryProgress{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[18]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1314,7 +1491,7 @@ func (x *ImportGitRepositoryProgress) String() string {
 func (*ImportGitRepositoryProgress) ProtoMessage() {}
 
 func (x *ImportGitRepositoryProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[18]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1327,7 +1504,7 @@ func (x *ImportGitRepositoryProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportGitRepositoryProgress.ProtoReflect.Descriptor instead.
 func (*ImportGitRepositoryProgress) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{18}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ImportGitRepositoryProgress) GetPhase() string {
@@ -1401,7 +1578,7 @@ type BlameFileRequest struct {
 
 func (x *BlameFileRequest) Reset() {
 	*x = BlameFileRequest{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[19]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1413,7 +1590,7 @@ func (x *BlameFileRequest) String() string {
 func (*BlameFileRequest) ProtoMessage() {}
 
 func (x *BlameFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[19]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1426,7 +1603,7 @@ func (x *BlameFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlameFileRequest.ProtoReflect.Descriptor instead.
 func (*BlameFileRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{19}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BlameFileRequest) GetPath() string {
@@ -1463,7 +1640,7 @@ type BlameRange struct {
 
 func (x *BlameRange) Reset() {
 	*x = BlameRange{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[20]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1475,7 +1652,7 @@ func (x *BlameRange) String() string {
 func (*BlameRange) ProtoMessage() {}
 
 func (x *BlameRange) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[20]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1488,7 +1665,7 @@ func (x *BlameRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlameRange.ProtoReflect.Descriptor instead.
 func (*BlameRange) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{20}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *BlameRange) GetStartLine() int32 {
@@ -1532,7 +1709,7 @@ type BlameFileResponse struct {
 
 func (x *BlameFileResponse) Reset() {
 	*x = BlameFileResponse{}
-	mi := &file_proto_core_v1_repository_proto_msgTypes[21]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1544,7 +1721,7 @@ func (x *BlameFileResponse) String() string {
 func (*BlameFileResponse) ProtoMessage() {}
 
 func (x *BlameFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_repository_proto_msgTypes[21]
+	mi := &file_proto_core_v1_repository_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1557,7 +1734,7 @@ func (x *BlameFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlameFileResponse.ProtoReflect.Descriptor instead.
 func (*BlameFileResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{21}
+	return file_proto_core_v1_repository_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *BlameFileResponse) GetCommitId() string {
@@ -1667,6 +1844,18 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\x10ReadFileResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x03R\x06offset\x12!\n" +
+	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash\"\x99\x01\n" +
+	"\x10ReadFilesRequest\x12\x1b\n" +
+	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x14\n" +
+	"\x05paths\x18\x02 \x03(\tR\x05paths\x12 \n" +
+	"\froot_tree_id\x18\x03 \x01(\tR\n" +
+	"rootTreeId\x120\n" +
+	"\x05slice\x18\x04 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"K\n" +
+	"\x11ReadFilesResponse\x126\n" +
+	"\x05files\x18\x01 \x03(\v2 .gitslice.core.v1.ReadFilesEntryR\x05files\"[\n" +
+	"\x0eReadFilesEntry\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12!\n" +
 	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash\"/\n" +
 	"\x10GetCommitRequest\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\"\xcd\x01\n" +
@@ -1745,11 +1934,12 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"line_count\x18\x03 \x01(\x05R\tlineCount\x124\n" +
 	"\x06ranges\x18\x04 \x03(\v2\x1c.gitslice.core.v1.BlameRangeR\x06ranges\x122\n" +
 	"\acommits\x18\x05 \x03(\v2\x18.gitslice.core.v1.CommitR\acommits\x12\x1c\n" +
-	"\ttruncated\x18\x06 \x01(\bR\ttruncated2\xb5\a\n" +
+	"\ttruncated\x18\x06 \x01(\bR\ttruncated2\x8b\b\n" +
 	"\x11RepositoryService\x12Z\n" +
 	"\vResolvePath\x12$.gitslice.core.v1.ResolvePathRequest\x1a%.gitslice.core.v1.ResolvePathResponse\x12`\n" +
 	"\rListDirectory\x12&.gitslice.core.v1.ListDirectoryRequest\x1a'.gitslice.core.v1.ListDirectoryResponse\x12Q\n" +
-	"\bReadFile\x12!.gitslice.core.v1.ReadFileRequest\x1a\".gitslice.core.v1.ReadFileResponse\x12I\n" +
+	"\bReadFile\x12!.gitslice.core.v1.ReadFileRequest\x1a\".gitslice.core.v1.ReadFileResponse\x12T\n" +
+	"\tReadFiles\x12\".gitslice.core.v1.ReadFilesRequest\x1a#.gitslice.core.v1.ReadFilesResponse\x12I\n" +
 	"\tGetCommit\x12\".gitslice.core.v1.GetCommitRequest\x1a\x18.gitslice.core.v1.Commit\x12`\n" +
 	"\rResolveCommit\x12&.gitslice.core.v1.ResolveCommitRequest\x1a'.gitslice.core.v1.ResolveCommitResponse\x12Z\n" +
 	"\vListCommits\x12$.gitslice.core.v1.ListCommitsRequest\x1a%.gitslice.core.v1.ListCommitsResponse\x12T\n" +
@@ -1770,7 +1960,7 @@ func file_proto_core_v1_repository_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_repository_proto_rawDescData
 }
 
-var file_proto_core_v1_repository_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_proto_core_v1_repository_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_proto_core_v1_repository_proto_goTypes = []any{
 	(*Ref)(nil),                         // 0: gitslice.core.v1.Ref
 	(*Commit)(nil),                      // 1: gitslice.core.v1.Commit
@@ -1781,64 +1971,71 @@ var file_proto_core_v1_repository_proto_goTypes = []any{
 	(*ListDirectoryResponse)(nil),       // 6: gitslice.core.v1.ListDirectoryResponse
 	(*ReadFileRequest)(nil),             // 7: gitslice.core.v1.ReadFileRequest
 	(*ReadFileResponse)(nil),            // 8: gitslice.core.v1.ReadFileResponse
-	(*GetCommitRequest)(nil),            // 9: gitslice.core.v1.GetCommitRequest
-	(*ResolveCommitRequest)(nil),        // 10: gitslice.core.v1.ResolveCommitRequest
-	(*ResolveCommitResponse)(nil),       // 11: gitslice.core.v1.ResolveCommitResponse
-	(*ListCommitsRequest)(nil),          // 12: gitslice.core.v1.ListCommitsRequest
-	(*ListCommitsResponse)(nil),         // 13: gitslice.core.v1.ListCommitsResponse
-	(*GetRefRequest)(nil),               // 14: gitslice.core.v1.GetRefRequest
-	(*ImportGitRepositoryRequest)(nil),  // 15: gitslice.core.v1.ImportGitRepositoryRequest
-	(*ImportedGitCommit)(nil),           // 16: gitslice.core.v1.ImportedGitCommit
-	(*ImportGitRepositoryResponse)(nil), // 17: gitslice.core.v1.ImportGitRepositoryResponse
-	(*ImportGitRepositoryProgress)(nil), // 18: gitslice.core.v1.ImportGitRepositoryProgress
-	(*BlameFileRequest)(nil),            // 19: gitslice.core.v1.BlameFileRequest
-	(*BlameRange)(nil),                  // 20: gitslice.core.v1.BlameRange
-	(*BlameFileResponse)(nil),           // 21: gitslice.core.v1.BlameFileResponse
-	(*SliceRef)(nil),                    // 22: gitslice.core.v1.SliceRef
-	(*TreeEntry)(nil),                   // 23: gitslice.core.v1.TreeEntry
+	(*ReadFilesRequest)(nil),            // 9: gitslice.core.v1.ReadFilesRequest
+	(*ReadFilesResponse)(nil),           // 10: gitslice.core.v1.ReadFilesResponse
+	(*ReadFilesEntry)(nil),              // 11: gitslice.core.v1.ReadFilesEntry
+	(*GetCommitRequest)(nil),            // 12: gitslice.core.v1.GetCommitRequest
+	(*ResolveCommitRequest)(nil),        // 13: gitslice.core.v1.ResolveCommitRequest
+	(*ResolveCommitResponse)(nil),       // 14: gitslice.core.v1.ResolveCommitResponse
+	(*ListCommitsRequest)(nil),          // 15: gitslice.core.v1.ListCommitsRequest
+	(*ListCommitsResponse)(nil),         // 16: gitslice.core.v1.ListCommitsResponse
+	(*GetRefRequest)(nil),               // 17: gitslice.core.v1.GetRefRequest
+	(*ImportGitRepositoryRequest)(nil),  // 18: gitslice.core.v1.ImportGitRepositoryRequest
+	(*ImportedGitCommit)(nil),           // 19: gitslice.core.v1.ImportedGitCommit
+	(*ImportGitRepositoryResponse)(nil), // 20: gitslice.core.v1.ImportGitRepositoryResponse
+	(*ImportGitRepositoryProgress)(nil), // 21: gitslice.core.v1.ImportGitRepositoryProgress
+	(*BlameFileRequest)(nil),            // 22: gitslice.core.v1.BlameFileRequest
+	(*BlameRange)(nil),                  // 23: gitslice.core.v1.BlameRange
+	(*BlameFileResponse)(nil),           // 24: gitslice.core.v1.BlameFileResponse
+	(*SliceRef)(nil),                    // 25: gitslice.core.v1.SliceRef
+	(*TreeEntry)(nil),                   // 26: gitslice.core.v1.TreeEntry
 }
 var file_proto_core_v1_repository_proto_depIdxs = []int32{
 	2,  // 0: gitslice.core.v1.Commit.git_import:type_name -> gitslice.core.v1.GitImportInfo
-	22, // 1: gitslice.core.v1.ResolvePathRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	23, // 2: gitslice.core.v1.ResolvePathResponse.entry:type_name -> gitslice.core.v1.TreeEntry
-	22, // 3: gitslice.core.v1.ListDirectoryRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	23, // 4: gitslice.core.v1.ListDirectoryResponse.entries:type_name -> gitslice.core.v1.TreeEntry
-	22, // 5: gitslice.core.v1.ReadFileRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	22, // 6: gitslice.core.v1.ResolveCommitRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	1,  // 7: gitslice.core.v1.ResolveCommitResponse.commit:type_name -> gitslice.core.v1.Commit
-	22, // 8: gitslice.core.v1.ListCommitsRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	1,  // 9: gitslice.core.v1.ListCommitsResponse.commits:type_name -> gitslice.core.v1.Commit
-	22, // 10: gitslice.core.v1.ImportGitRepositoryRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
-	16, // 11: gitslice.core.v1.ImportGitRepositoryResponse.commits:type_name -> gitslice.core.v1.ImportedGitCommit
-	17, // 12: gitslice.core.v1.ImportGitRepositoryProgress.result:type_name -> gitslice.core.v1.ImportGitRepositoryResponse
-	22, // 13: gitslice.core.v1.BlameFileRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	20, // 14: gitslice.core.v1.BlameFileResponse.ranges:type_name -> gitslice.core.v1.BlameRange
-	1,  // 15: gitslice.core.v1.BlameFileResponse.commits:type_name -> gitslice.core.v1.Commit
-	3,  // 16: gitslice.core.v1.RepositoryService.ResolvePath:input_type -> gitslice.core.v1.ResolvePathRequest
-	5,  // 17: gitslice.core.v1.RepositoryService.ListDirectory:input_type -> gitslice.core.v1.ListDirectoryRequest
-	7,  // 18: gitslice.core.v1.RepositoryService.ReadFile:input_type -> gitslice.core.v1.ReadFileRequest
-	9,  // 19: gitslice.core.v1.RepositoryService.GetCommit:input_type -> gitslice.core.v1.GetCommitRequest
-	10, // 20: gitslice.core.v1.RepositoryService.ResolveCommit:input_type -> gitslice.core.v1.ResolveCommitRequest
-	12, // 21: gitslice.core.v1.RepositoryService.ListCommits:input_type -> gitslice.core.v1.ListCommitsRequest
-	19, // 22: gitslice.core.v1.RepositoryService.BlameFile:input_type -> gitslice.core.v1.BlameFileRequest
-	14, // 23: gitslice.core.v1.RepositoryService.GetRef:input_type -> gitslice.core.v1.GetRefRequest
-	15, // 24: gitslice.core.v1.RepositoryService.ImportGitRepository:input_type -> gitslice.core.v1.ImportGitRepositoryRequest
-	15, // 25: gitslice.core.v1.RepositoryService.ImportGitRepositoryStream:input_type -> gitslice.core.v1.ImportGitRepositoryRequest
-	4,  // 26: gitslice.core.v1.RepositoryService.ResolvePath:output_type -> gitslice.core.v1.ResolvePathResponse
-	6,  // 27: gitslice.core.v1.RepositoryService.ListDirectory:output_type -> gitslice.core.v1.ListDirectoryResponse
-	8,  // 28: gitslice.core.v1.RepositoryService.ReadFile:output_type -> gitslice.core.v1.ReadFileResponse
-	1,  // 29: gitslice.core.v1.RepositoryService.GetCommit:output_type -> gitslice.core.v1.Commit
-	11, // 30: gitslice.core.v1.RepositoryService.ResolveCommit:output_type -> gitslice.core.v1.ResolveCommitResponse
-	13, // 31: gitslice.core.v1.RepositoryService.ListCommits:output_type -> gitslice.core.v1.ListCommitsResponse
-	21, // 32: gitslice.core.v1.RepositoryService.BlameFile:output_type -> gitslice.core.v1.BlameFileResponse
-	0,  // 33: gitslice.core.v1.RepositoryService.GetRef:output_type -> gitslice.core.v1.Ref
-	17, // 34: gitslice.core.v1.RepositoryService.ImportGitRepository:output_type -> gitslice.core.v1.ImportGitRepositoryResponse
-	18, // 35: gitslice.core.v1.RepositoryService.ImportGitRepositoryStream:output_type -> gitslice.core.v1.ImportGitRepositoryProgress
-	26, // [26:36] is the sub-list for method output_type
-	16, // [16:26] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	25, // 1: gitslice.core.v1.ResolvePathRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	26, // 2: gitslice.core.v1.ResolvePathResponse.entry:type_name -> gitslice.core.v1.TreeEntry
+	25, // 3: gitslice.core.v1.ListDirectoryRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	26, // 4: gitslice.core.v1.ListDirectoryResponse.entries:type_name -> gitslice.core.v1.TreeEntry
+	25, // 5: gitslice.core.v1.ReadFileRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	25, // 6: gitslice.core.v1.ReadFilesRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	11, // 7: gitslice.core.v1.ReadFilesResponse.files:type_name -> gitslice.core.v1.ReadFilesEntry
+	25, // 8: gitslice.core.v1.ResolveCommitRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	1,  // 9: gitslice.core.v1.ResolveCommitResponse.commit:type_name -> gitslice.core.v1.Commit
+	25, // 10: gitslice.core.v1.ListCommitsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	1,  // 11: gitslice.core.v1.ListCommitsResponse.commits:type_name -> gitslice.core.v1.Commit
+	25, // 12: gitslice.core.v1.ImportGitRepositoryRequest.authoring_slice:type_name -> gitslice.core.v1.SliceRef
+	19, // 13: gitslice.core.v1.ImportGitRepositoryResponse.commits:type_name -> gitslice.core.v1.ImportedGitCommit
+	20, // 14: gitslice.core.v1.ImportGitRepositoryProgress.result:type_name -> gitslice.core.v1.ImportGitRepositoryResponse
+	25, // 15: gitslice.core.v1.BlameFileRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	23, // 16: gitslice.core.v1.BlameFileResponse.ranges:type_name -> gitslice.core.v1.BlameRange
+	1,  // 17: gitslice.core.v1.BlameFileResponse.commits:type_name -> gitslice.core.v1.Commit
+	3,  // 18: gitslice.core.v1.RepositoryService.ResolvePath:input_type -> gitslice.core.v1.ResolvePathRequest
+	5,  // 19: gitslice.core.v1.RepositoryService.ListDirectory:input_type -> gitslice.core.v1.ListDirectoryRequest
+	7,  // 20: gitslice.core.v1.RepositoryService.ReadFile:input_type -> gitslice.core.v1.ReadFileRequest
+	9,  // 21: gitslice.core.v1.RepositoryService.ReadFiles:input_type -> gitslice.core.v1.ReadFilesRequest
+	12, // 22: gitslice.core.v1.RepositoryService.GetCommit:input_type -> gitslice.core.v1.GetCommitRequest
+	13, // 23: gitslice.core.v1.RepositoryService.ResolveCommit:input_type -> gitslice.core.v1.ResolveCommitRequest
+	15, // 24: gitslice.core.v1.RepositoryService.ListCommits:input_type -> gitslice.core.v1.ListCommitsRequest
+	22, // 25: gitslice.core.v1.RepositoryService.BlameFile:input_type -> gitslice.core.v1.BlameFileRequest
+	17, // 26: gitslice.core.v1.RepositoryService.GetRef:input_type -> gitslice.core.v1.GetRefRequest
+	18, // 27: gitslice.core.v1.RepositoryService.ImportGitRepository:input_type -> gitslice.core.v1.ImportGitRepositoryRequest
+	18, // 28: gitslice.core.v1.RepositoryService.ImportGitRepositoryStream:input_type -> gitslice.core.v1.ImportGitRepositoryRequest
+	4,  // 29: gitslice.core.v1.RepositoryService.ResolvePath:output_type -> gitslice.core.v1.ResolvePathResponse
+	6,  // 30: gitslice.core.v1.RepositoryService.ListDirectory:output_type -> gitslice.core.v1.ListDirectoryResponse
+	8,  // 31: gitslice.core.v1.RepositoryService.ReadFile:output_type -> gitslice.core.v1.ReadFileResponse
+	10, // 32: gitslice.core.v1.RepositoryService.ReadFiles:output_type -> gitslice.core.v1.ReadFilesResponse
+	1,  // 33: gitslice.core.v1.RepositoryService.GetCommit:output_type -> gitslice.core.v1.Commit
+	14, // 34: gitslice.core.v1.RepositoryService.ResolveCommit:output_type -> gitslice.core.v1.ResolveCommitResponse
+	16, // 35: gitslice.core.v1.RepositoryService.ListCommits:output_type -> gitslice.core.v1.ListCommitsResponse
+	24, // 36: gitslice.core.v1.RepositoryService.BlameFile:output_type -> gitslice.core.v1.BlameFileResponse
+	0,  // 37: gitslice.core.v1.RepositoryService.GetRef:output_type -> gitslice.core.v1.Ref
+	20, // 38: gitslice.core.v1.RepositoryService.ImportGitRepository:output_type -> gitslice.core.v1.ImportGitRepositoryResponse
+	21, // 39: gitslice.core.v1.RepositoryService.ImportGitRepositoryStream:output_type -> gitslice.core.v1.ImportGitRepositoryProgress
+	29, // [29:40] is the sub-list for method output_type
+	18, // [18:29] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_repository_proto_init() }
@@ -1847,15 +2044,15 @@ func file_proto_core_v1_repository_proto_init() {
 		return
 	}
 	file_proto_core_v1_common_proto_init()
-	file_proto_core_v1_repository_proto_msgTypes[10].OneofWrappers = []any{}
-	file_proto_core_v1_repository_proto_msgTypes[12].OneofWrappers = []any{}
+	file_proto_core_v1_repository_proto_msgTypes[13].OneofWrappers = []any{}
+	file_proto_core_v1_repository_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_repository_proto_rawDesc), len(file_proto_core_v1_repository_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

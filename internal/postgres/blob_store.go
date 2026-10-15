@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
 
+	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -23,6 +25,64 @@ func (s *BlobStore) Upsert(ctx context.Context, blobID, contentHash string, size
 		    state = excluded.state
 	`, blobID, contentHash, size, storageLocation)
 	return err
+}
+
+// UpsertMany is Upsert for many blobs in one statement. Rows are deduplicated
+// and sorted by id, so concurrent batches lock rows in the same order.
+func (s *BlobStore) UpsertMany(ctx context.Context, blobs []storage.BlobUpsert) error {
+	byID := make(map[string]storage.BlobUpsert, len(blobs))
+	for _, blob := range blobs {
+		byID[blob.ID] = blob
+	}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	sort.Strings(ids)
+	hashes := make([]string, len(ids))
+	sizes := make([]int64, len(ids))
+	locations := make([]string, len(ids))
+	for i, id := range ids {
+		hashes[i], sizes[i], locations[i] = byID[id].ContentHash, byID[id].Size, byID[id].StorageLocation
+	}
+	_, err := s.db.ExecContext(ctx, `
+		insert into blobs(id, content_hash, size, storage_location, state)
+		select id, content_hash, size, storage_location, 'available'
+		from unnest($1::text[], $2::text[], $3::bigint[], $4::text[]) as b(id, content_hash, size, storage_location)
+		on conflict (id) do update
+		set content_hash = excluded.content_hash,
+		    size = excluded.size,
+		    storage_location = excluded.storage_location,
+		    state = excluded.state
+	`, ids, hashes, sizes, locations)
+	return err
+}
+
+func (s *BlobStore) GetByIDs(ctx context.Context, blobIDs []string) (map[string]*corev1.BlobRecord, error) {
+	out := map[string]*corev1.BlobRecord{}
+	if len(blobIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select id, content_hash, size, storage_location, state
+		from blobs
+		where id = any($1)
+	`, blobIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var blob corev1.BlobRecord
+		if err := rows.Scan(&blob.Id, &blob.ContentHash, &blob.Size, &blob.StorageLocation, &blob.State); err != nil {
+			return nil, err
+		}
+		out[blob.Id] = &blob
+	}
+	return out, rows.Err()
 }
 
 func (s *BlobStore) GetByID(ctx context.Context, blobID string) (*corev1.BlobRecord, error) {
@@ -151,12 +211,24 @@ func getBlobTx(ctx context.Context, tx *sql.Tx, blobID string) (*corev1.BlobReco
 }
 
 func (s *BlobStore) SetGitBlobIDs(ctx context.Context, ids map[string]string) error {
-	for contentHash, gitID := range ids {
-		if _, err := s.db.ExecContext(ctx, `update blobs set git_blob_id = $2 where content_hash = $1`, contentHash, gitID); err != nil {
-			return err
-		}
+	if len(ids) == 0 {
+		return nil
 	}
-	return nil
+	hashes := make([]string, 0, len(ids))
+	for contentHash := range ids {
+		hashes = append(hashes, contentHash)
+	}
+	sort.Strings(hashes)
+	gitIDs := make([]string, len(hashes))
+	for i, contentHash := range hashes {
+		gitIDs[i] = ids[contentHash]
+	}
+	_, err := s.db.ExecContext(ctx, `
+		update blobs set git_blob_id = v.git_blob_id
+		from unnest($1::text[], $2::text[]) as v(content_hash, git_blob_id)
+		where blobs.content_hash = v.content_hash
+	`, hashes, gitIDs)
+	return err
 }
 
 func (s *BlobStore) GitBlobIDs(ctx context.Context, contentHashes []string) (map[string]string, error) {

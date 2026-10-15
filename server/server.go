@@ -122,6 +122,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
+	resolveSubject = cachedSubjectResolver(resolveSubject, time.Now)
 	db.SetTreeStore(treestore.New(objectStore))
 	if cfg.RunMigrations {
 		if err := db.Migrate(ctx); err != nil {

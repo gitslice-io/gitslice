@@ -22,6 +22,7 @@ const (
 	RepositoryService_ResolvePath_FullMethodName               = "/gitslice.core.v1.RepositoryService/ResolvePath"
 	RepositoryService_ListDirectory_FullMethodName             = "/gitslice.core.v1.RepositoryService/ListDirectory"
 	RepositoryService_ReadFile_FullMethodName                  = "/gitslice.core.v1.RepositoryService/ReadFile"
+	RepositoryService_ReadFiles_FullMethodName                 = "/gitslice.core.v1.RepositoryService/ReadFiles"
 	RepositoryService_GetCommit_FullMethodName                 = "/gitslice.core.v1.RepositoryService/GetCommit"
 	RepositoryService_ResolveCommit_FullMethodName             = "/gitslice.core.v1.RepositoryService/ResolveCommit"
 	RepositoryService_ListCommits_FullMethodName               = "/gitslice.core.v1.RepositoryService/ListCommits"
@@ -38,6 +39,10 @@ type RepositoryServiceClient interface {
 	ResolvePath(ctx context.Context, in *ResolvePathRequest, opts ...grpc.CallOption) (*ResolvePathResponse, error)
 	ListDirectory(ctx context.Context, in *ListDirectoryRequest, opts ...grpc.CallOption) (*ListDirectoryResponse, error)
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error)
+	// ReadFiles reads many files at one commit in one call, so a checkout pays
+	// one round trip and one authorization per batch rather than per file. The
+	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
+	ReadFiles(ctx context.Context, in *ReadFilesRequest, opts ...grpc.CallOption) (*ReadFilesResponse, error)
 	GetCommit(ctx context.Context, in *GetCommitRequest, opts ...grpc.CallOption) (*Commit, error)
 	ResolveCommit(ctx context.Context, in *ResolveCommitRequest, opts ...grpc.CallOption) (*ResolveCommitResponse, error)
 	ListCommits(ctx context.Context, in *ListCommitsRequest, opts ...grpc.CallOption) (*ListCommitsResponse, error)
@@ -78,6 +83,15 @@ func (c *repositoryServiceClient) ListDirectory(ctx context.Context, in *ListDir
 func (c *repositoryServiceClient) ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error) {
 	out := new(ReadFileResponse)
 	err := c.cc.Invoke(ctx, RepositoryService_ReadFile_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *repositoryServiceClient) ReadFiles(ctx context.Context, in *ReadFilesRequest, opts ...grpc.CallOption) (*ReadFilesResponse, error) {
+	out := new(ReadFilesResponse)
+	err := c.cc.Invoke(ctx, RepositoryService_ReadFiles_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +191,10 @@ type RepositoryServiceServer interface {
 	ResolvePath(context.Context, *ResolvePathRequest) (*ResolvePathResponse, error)
 	ListDirectory(context.Context, *ListDirectoryRequest) (*ListDirectoryResponse, error)
 	ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error)
+	// ReadFiles reads many files at one commit in one call, so a checkout pays
+	// one round trip and one authorization per batch rather than per file. The
+	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
+	ReadFiles(context.Context, *ReadFilesRequest) (*ReadFilesResponse, error)
 	GetCommit(context.Context, *GetCommitRequest) (*Commit, error)
 	ResolveCommit(context.Context, *ResolveCommitRequest) (*ResolveCommitResponse, error)
 	ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error)
@@ -200,6 +218,9 @@ func (UnimplementedRepositoryServiceServer) ListDirectory(context.Context, *List
 }
 func (UnimplementedRepositoryServiceServer) ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReadFile not implemented")
+}
+func (UnimplementedRepositoryServiceServer) ReadFiles(context.Context, *ReadFilesRequest) (*ReadFilesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadFiles not implemented")
 }
 func (UnimplementedRepositoryServiceServer) GetCommit(context.Context, *GetCommitRequest) (*Commit, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCommit not implemented")
@@ -284,6 +305,24 @@ func _RepositoryService_ReadFile_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RepositoryServiceServer).ReadFile(ctx, req.(*ReadFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RepositoryService_ReadFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RepositoryServiceServer).ReadFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RepositoryService_ReadFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RepositoryServiceServer).ReadFiles(ctx, req.(*ReadFilesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -435,6 +474,10 @@ var RepositoryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReadFile",
 			Handler:    _RepositoryService_ReadFile_Handler,
+		},
+		{
+			MethodName: "ReadFiles",
+			Handler:    _RepositoryService_ReadFiles_Handler,
 		},
 		{
 			MethodName: "GetCommit",

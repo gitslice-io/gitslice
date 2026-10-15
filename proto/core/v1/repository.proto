@@ -10,6 +10,10 @@ service RepositoryService {
   rpc ResolvePath(ResolvePathRequest) returns (ResolvePathResponse);
   rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  // ReadFiles reads many files at one commit in one call, so a checkout pays
+  // one round trip and one authorization per batch rather than per file. The
+  // files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
+  rpc ReadFiles(ReadFilesRequest) returns (ReadFilesResponse);
   rpc GetCommit(GetCommitRequest) returns (Commit);
   rpc ResolveCommit(ResolveCommitRequest) returns (ResolveCommitResponse);
   rpc ListCommits(ListCommitsRequest) returns (ListCommitsResponse);
@@ -103,6 +107,25 @@ message ReadFileRequest {
 message ReadFileResponse {
   bytes data = 1;
   int64 offset = 2;
+  string content_hash = 3;
+}
+message ReadFilesRequest {
+  string commit_id = 1;
+  // At most 1000 paths.
+  repeated string paths = 2;
+  // Optional immutable tree root, as in ReadFileRequest.
+  string root_tree_id = 3;
+  // Optional slice projection: authorization is evaluated once through this
+  // slice, and every path must be included by it.
+  SliceRef slice = 4;
+}
+message ReadFilesResponse {
+  // In the order of the request's paths.
+  repeated ReadFilesEntry files = 1;
+}
+message ReadFilesEntry {
+  string path = 1;
+  bytes data = 2;
   string content_hash = 3;
 }
 

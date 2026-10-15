@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/blob.proto.
  */
 export const file_proto_core_v1_blob: GenFile = /*@__PURE__*/
-  fileDesc("Chhwcm90by9jb3JlL3YxL2Jsb2IucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiWQoUR2V0QmxvYlN0YXR1c1JlcXVlc3QSFgoOY29udGVudF9oYXNoZXMYASADKAkSKQoFc2xpY2UYAiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmImUKCkJsb2JSZWNvcmQSCgoCaWQYASABKAkSFAoMY29udGVudF9oYXNoGAIgASgJEgwKBHNpemUYAyABKAMSGAoQc3RvcmFnZV9sb2NhdGlvbhgEIAEoCRINCgVzdGF0ZRgFIAEoCSJEChVHZXRCbG9iU3RhdHVzUmVzcG9uc2USKwoFYmxvYnMYASADKAsyHC5naXRzbGljZS5jb3JlLnYxLkJsb2JSZWNvcmQiYgoRVXBsb2FkQmxvYlJlcXVlc3QSFAoMY29udGVudF9oYXNoGAEgASgJEgwKBGRhdGEYAiABKAwSKQoFc2xpY2UYAyABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIm0KDlVwbG9hZEJsb2JJbml0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIUCgxjb250ZW50X2hhc2gYAiABKAkSEQoEc2l6ZRgDIAEoA0gAiAEBQgcKBV9zaXplIl4KD1VwbG9hZEJsb2JDaHVuaxIwCgRpbml0GAEgASgLMiAuZ2l0c2xpY2UuY29yZS52MS5VcGxvYWRCbG9iSW5pdEgAEg4KBGRhdGEYAiABKAxIAEIJCgdwYXlsb2FkIkkKElVwbG9hZEJsb2JSZXNwb25zZRIPCgdibG9iX2lkGAEgASgJEhQKDGNvbnRlbnRfaGFzaBgCIAEoCRIMCgRzaXplGAMgASgDIngKFVJlYWRCbG9iU3RyZWFtUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSFAoMY29udGVudF9oYXNoGAIgASgJEg4KBm9mZnNldBgDIAEoAxIOCgZsZW5ndGgYBCABKAMiQwoNUmVhZEJsb2JDaHVuaxIMCgRkYXRhGAEgASgMEg4KBm9mZnNldBgCIAEoAxIUCgxjb250ZW50X2hhc2gYAyABKAkyhQMKC0Jsb2JTZXJ2aWNlEmAKDUdldEJsb2JTdGF0dXMSJi5naXRzbGljZS5jb3JlLnYxLkdldEJsb2JTdGF0dXNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5HZXRCbG9iU3RhdHVzUmVzcG9uc2USVwoKVXBsb2FkQmxvYhIjLmdpdHNsaWNlLmNvcmUudjEuVXBsb2FkQmxvYlJlcXVlc3QaJC5naXRzbGljZS5jb3JlLnYxLlVwbG9hZEJsb2JSZXNwb25zZRJdChBVcGxvYWRCbG9iU3RyZWFtEiEuZ2l0c2xpY2UuY29yZS52MS5VcGxvYWRCbG9iQ2h1bmsaJC5naXRzbGljZS5jb3JlLnYxLlVwbG9hZEJsb2JSZXNwb25zZSgBElwKDlJlYWRCbG9iU3RyZWFtEicuZ2l0c2xpY2UuY29yZS52MS5SZWFkQmxvYlN0cmVhbVJlcXVlc3QaHy5naXRzbGljZS5jb3JlLnYxLlJlYWRCbG9iQ2h1bmswAUIrWilnaXRzbGljZS5pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z", [file_proto_core_v1_common]);
+  fileDesc("Chhwcm90by9jb3JlL3YxL2Jsb2IucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiWQoUR2V0QmxvYlN0YXR1c1JlcXVlc3QSFgoOY29udGVudF9oYXNoZXMYASADKAkSKQoFc2xpY2UYAiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmImUKCkJsb2JSZWNvcmQSCgoCaWQYASABKAkSFAoMY29udGVudF9oYXNoGAIgASgJEgwKBHNpemUYAyABKAMSGAoQc3RvcmFnZV9sb2NhdGlvbhgEIAEoCRINCgVzdGF0ZRgFIAEoCSJEChVHZXRCbG9iU3RhdHVzUmVzcG9uc2USKwoFYmxvYnMYASADKAsyHC5naXRzbGljZS5jb3JlLnYxLkJsb2JSZWNvcmQiYgoRVXBsb2FkQmxvYlJlcXVlc3QSFAoMY29udGVudF9oYXNoGAEgASgJEgwKBGRhdGEYAiABKAwSKQoFc2xpY2UYAyABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIm0KDlVwbG9hZEJsb2JJbml0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIUCgxjb250ZW50X2hhc2gYAiABKAkSEQoEc2l6ZRgDIAEoA0gAiAEBQgcKBV9zaXplIl4KD1VwbG9hZEJsb2JDaHVuaxIwCgRpbml0GAEgASgLMiAuZ2l0c2xpY2UuY29yZS52MS5VcGxvYWRCbG9iSW5pdEgAEg4KBGRhdGEYAiABKAxIAEIJCgdwYXlsb2FkIkkKElVwbG9hZEJsb2JSZXNwb25zZRIPCgdibG9iX2lkGAEgASgJEhQKDGNvbnRlbnRfaGFzaBgCIAEoCRIMCgRzaXplGAMgASgDInIKElVwbG9hZEJsb2JzUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSMQoFYmxvYnMYAiADKAsyIi5naXRzbGljZS5jb3JlLnYxLlVwbG9hZEJsb2JzRW50cnkiNgoQVXBsb2FkQmxvYnNFbnRyeRIUCgxjb250ZW50X2hhc2gYASABKAkSDAoEZGF0YRgCIAEoDCJKChNVcGxvYWRCbG9ic1Jlc3BvbnNlEjMKBWJsb2JzGAEgAygLMiQuZ2l0c2xpY2UuY29yZS52MS5VcGxvYWRCbG9iUmVzcG9uc2UieAoVUmVhZEJsb2JTdHJlYW1SZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIUCgxjb250ZW50X2hhc2gYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmxlbmd0aBgEIAEoAyJDCg1SZWFkQmxvYkNodW5rEgwKBGRhdGEYASABKAwSDgoGb2Zmc2V0GAIgASgDEhQKDGNvbnRlbnRfaGFzaBgDIAEoCTLhAwoLQmxvYlNlcnZpY2USYAoNR2V0QmxvYlN0YXR1cxImLmdpdHNsaWNlLmNvcmUudjEuR2V0QmxvYlN0YXR1c1JlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkdldEJsb2JTdGF0dXNSZXNwb25zZRJXCgpVcGxvYWRCbG9iEiMuZ2l0c2xpY2UuY29yZS52MS5VcGxvYWRCbG9iUmVxdWVzdBokLmdpdHNsaWNlLmNvcmUudjEuVXBsb2FkQmxvYlJlc3BvbnNlEloKC1VwbG9hZEJsb2JzEiQuZ2l0c2xpY2UuY29yZS52MS5VcGxvYWRCbG9ic1JlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLlVwbG9hZEJsb2JzUmVzcG9uc2USXQoQVXBsb2FkQmxvYlN0cmVhbRIhLmdpdHNsaWNlLmNvcmUudjEuVXBsb2FkQmxvYkNodW5rGiQuZ2l0c2xpY2UuY29yZS52MS5VcGxvYWRCbG9iUmVzcG9uc2UoARJcCg5SZWFkQmxvYlN0cmVhbRInLmdpdHNsaWNlLmNvcmUudjEuUmVhZEJsb2JTdHJlYW1SZXF1ZXN0Gh8uZ2l0c2xpY2UuY29yZS52MS5SZWFkQmxvYkNodW5rMAFCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
 
 /**
  * @generated from message gitslice.core.v1.GetBlobStatusRequest
@@ -201,6 +201,71 @@ export const UploadBlobResponseSchema: GenMessage<UploadBlobResponse> = /*@__PUR
   messageDesc(file_proto_core_v1_blob, 6);
 
 /**
+ * @generated from message gitslice.core.v1.UploadBlobsRequest
+ */
+export type UploadBlobsRequest = Message<"gitslice.core.v1.UploadBlobsRequest"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.UploadBlobsEntry blobs = 2;
+   */
+  blobs: UploadBlobsEntry[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.UploadBlobsRequest.
+ * Use `create(UploadBlobsRequestSchema)` to create a new message.
+ */
+export const UploadBlobsRequestSchema: GenMessage<UploadBlobsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_blob, 7);
+
+/**
+ * @generated from message gitslice.core.v1.UploadBlobsEntry
+ */
+export type UploadBlobsEntry = Message<"gitslice.core.v1.UploadBlobsEntry"> & {
+  /**
+   * Optional; when set it must match the bytes.
+   *
+   * @generated from field: string content_hash = 1;
+   */
+  contentHash: string;
+
+  /**
+   * @generated from field: bytes data = 2;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message gitslice.core.v1.UploadBlobsEntry.
+ * Use `create(UploadBlobsEntrySchema)` to create a new message.
+ */
+export const UploadBlobsEntrySchema: GenMessage<UploadBlobsEntry> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_blob, 8);
+
+/**
+ * @generated from message gitslice.core.v1.UploadBlobsResponse
+ */
+export type UploadBlobsResponse = Message<"gitslice.core.v1.UploadBlobsResponse"> & {
+  /**
+   * In the order of the request's blobs.
+   *
+   * @generated from field: repeated gitslice.core.v1.UploadBlobResponse blobs = 1;
+   */
+  blobs: UploadBlobResponse[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.UploadBlobsResponse.
+ * Use `create(UploadBlobsResponseSchema)` to create a new message.
+ */
+export const UploadBlobsResponseSchema: GenMessage<UploadBlobsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_blob, 9);
+
+/**
  * @generated from message gitslice.core.v1.ReadBlobStreamRequest
  */
 export type ReadBlobStreamRequest = Message<"gitslice.core.v1.ReadBlobStreamRequest"> & {
@@ -230,7 +295,7 @@ export type ReadBlobStreamRequest = Message<"gitslice.core.v1.ReadBlobStreamRequ
  * Use `create(ReadBlobStreamRequestSchema)` to create a new message.
  */
 export const ReadBlobStreamRequestSchema: GenMessage<ReadBlobStreamRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_blob, 7);
+  messageDesc(file_proto_core_v1_blob, 10);
 
 /**
  * @generated from message gitslice.core.v1.ReadBlobChunk
@@ -257,7 +322,7 @@ export type ReadBlobChunk = Message<"gitslice.core.v1.ReadBlobChunk"> & {
  * Use `create(ReadBlobChunkSchema)` to create a new message.
  */
 export const ReadBlobChunkSchema: GenMessage<ReadBlobChunk> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_blob, 8);
+  messageDesc(file_proto_core_v1_blob, 11);
 
 /**
  * @generated from service gitslice.core.v1.BlobService
@@ -278,6 +343,17 @@ export const BlobService: GenService<{
     methodKind: "unary";
     input: typeof UploadBlobRequestSchema;
     output: typeof UploadBlobResponseSchema;
+  },
+  /**
+   * UploadBlobs uploads many small blobs into one slice in one call: at most
+   * 1000 blobs totalling 64 MiB. Larger blobs use UploadBlobStream.
+   *
+   * @generated from rpc gitslice.core.v1.BlobService.UploadBlobs
+   */
+  uploadBlobs: {
+    methodKind: "unary";
+    input: typeof UploadBlobsRequestSchema;
+    output: typeof UploadBlobsResponseSchema;
   },
   /**
    * @generated from rpc gitslice.core.v1.BlobService.UploadBlobStream

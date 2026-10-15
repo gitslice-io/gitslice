@@ -42,6 +42,9 @@ const (
 	// RepositoryServiceReadFileProcedure is the fully-qualified name of the RepositoryService's
 	// ReadFile RPC.
 	RepositoryServiceReadFileProcedure = "/gitslice.core.v1.RepositoryService/ReadFile"
+	// RepositoryServiceReadFilesProcedure is the fully-qualified name of the RepositoryService's
+	// ReadFiles RPC.
+	RepositoryServiceReadFilesProcedure = "/gitslice.core.v1.RepositoryService/ReadFiles"
 	// RepositoryServiceGetCommitProcedure is the fully-qualified name of the RepositoryService's
 	// GetCommit RPC.
 	RepositoryServiceGetCommitProcedure = "/gitslice.core.v1.RepositoryService/GetCommit"
@@ -70,6 +73,10 @@ type RepositoryServiceClient interface {
 	ResolvePath(context.Context, *connect.Request[v1.ResolvePathRequest]) (*connect.Response[v1.ResolvePathResponse], error)
 	ListDirectory(context.Context, *connect.Request[v1.ListDirectoryRequest]) (*connect.Response[v1.ListDirectoryResponse], error)
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
+	// ReadFiles reads many files at one commit in one call, so a checkout pays
+	// one round trip and one authorization per batch rather than per file. The
+	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
+	ReadFiles(context.Context, *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error)
 	GetCommit(context.Context, *connect.Request[v1.GetCommitRequest]) (*connect.Response[v1.Commit], error)
 	ResolveCommit(context.Context, *connect.Request[v1.ResolveCommitRequest]) (*connect.Response[v1.ResolveCommitResponse], error)
 	ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error)
@@ -108,6 +115,12 @@ func NewRepositoryServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			httpClient,
 			baseURL+RepositoryServiceReadFileProcedure,
 			connect.WithSchema(repositoryServiceMethods.ByName("ReadFile")),
+			connect.WithClientOptions(opts...),
+		),
+		readFiles: connect.NewClient[v1.ReadFilesRequest, v1.ReadFilesResponse](
+			httpClient,
+			baseURL+RepositoryServiceReadFilesProcedure,
+			connect.WithSchema(repositoryServiceMethods.ByName("ReadFiles")),
 			connect.WithClientOptions(opts...),
 		),
 		getCommit: connect.NewClient[v1.GetCommitRequest, v1.Commit](
@@ -160,6 +173,7 @@ type repositoryServiceClient struct {
 	resolvePath               *connect.Client[v1.ResolvePathRequest, v1.ResolvePathResponse]
 	listDirectory             *connect.Client[v1.ListDirectoryRequest, v1.ListDirectoryResponse]
 	readFile                  *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
+	readFiles                 *connect.Client[v1.ReadFilesRequest, v1.ReadFilesResponse]
 	getCommit                 *connect.Client[v1.GetCommitRequest, v1.Commit]
 	resolveCommit             *connect.Client[v1.ResolveCommitRequest, v1.ResolveCommitResponse]
 	listCommits               *connect.Client[v1.ListCommitsRequest, v1.ListCommitsResponse]
@@ -182,6 +196,11 @@ func (c *repositoryServiceClient) ListDirectory(ctx context.Context, req *connec
 // ReadFile calls gitslice.core.v1.RepositoryService.ReadFile.
 func (c *repositoryServiceClient) ReadFile(ctx context.Context, req *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error) {
 	return c.readFile.CallUnary(ctx, req)
+}
+
+// ReadFiles calls gitslice.core.v1.RepositoryService.ReadFiles.
+func (c *repositoryServiceClient) ReadFiles(ctx context.Context, req *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error) {
+	return c.readFiles.CallUnary(ctx, req)
 }
 
 // GetCommit calls gitslice.core.v1.RepositoryService.GetCommit.
@@ -224,6 +243,10 @@ type RepositoryServiceHandler interface {
 	ResolvePath(context.Context, *connect.Request[v1.ResolvePathRequest]) (*connect.Response[v1.ResolvePathResponse], error)
 	ListDirectory(context.Context, *connect.Request[v1.ListDirectoryRequest]) (*connect.Response[v1.ListDirectoryResponse], error)
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
+	// ReadFiles reads many files at one commit in one call, so a checkout pays
+	// one round trip and one authorization per batch rather than per file. The
+	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
+	ReadFiles(context.Context, *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error)
 	GetCommit(context.Context, *connect.Request[v1.GetCommitRequest]) (*connect.Response[v1.Commit], error)
 	ResolveCommit(context.Context, *connect.Request[v1.ResolveCommitRequest]) (*connect.Response[v1.ResolveCommitResponse], error)
 	ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error)
@@ -258,6 +281,12 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 		RepositoryServiceReadFileProcedure,
 		svc.ReadFile,
 		connect.WithSchema(repositoryServiceMethods.ByName("ReadFile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	repositoryServiceReadFilesHandler := connect.NewUnaryHandler(
+		RepositoryServiceReadFilesProcedure,
+		svc.ReadFiles,
+		connect.WithSchema(repositoryServiceMethods.ByName("ReadFiles")),
 		connect.WithHandlerOptions(opts...),
 	)
 	repositoryServiceGetCommitHandler := connect.NewUnaryHandler(
@@ -310,6 +339,8 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 			repositoryServiceListDirectoryHandler.ServeHTTP(w, r)
 		case RepositoryServiceReadFileProcedure:
 			repositoryServiceReadFileHandler.ServeHTTP(w, r)
+		case RepositoryServiceReadFilesProcedure:
+			repositoryServiceReadFilesHandler.ServeHTTP(w, r)
 		case RepositoryServiceGetCommitProcedure:
 			repositoryServiceGetCommitHandler.ServeHTTP(w, r)
 		case RepositoryServiceResolveCommitProcedure:
@@ -343,6 +374,10 @@ func (UnimplementedRepositoryServiceHandler) ListDirectory(context.Context, *con
 
 func (UnimplementedRepositoryServiceHandler) ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.ReadFile is not implemented"))
+}
+
+func (UnimplementedRepositoryServiceHandler) ReadFiles(context.Context, *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.ReadFiles is not implemented"))
 }
 
 func (UnimplementedRepositoryServiceHandler) GetCommit(context.Context, *connect.Request[v1.GetCommitRequest]) (*connect.Response[v1.Commit], error) {

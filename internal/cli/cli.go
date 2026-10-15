@@ -44,6 +44,7 @@ import (
 	"gitslice.io/gitslice/internal/treestore"
 	"gitslice.io/gitslice/internal/usernames"
 	"gitslice.io/gitslice/proto/core/v1"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -7883,9 +7884,19 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 		hashes = append(hashes, hash)
 	}
 	sort.Strings(hashes)
-	uploaded, err := uploadBlobsConcurrently(ctx, hashes, concurrency, func(hash string) (*corev1.UploadBlobResponse, error) {
-		return uploadLocalBlob(ctx, blobClient, sliceRef, missing[hash])
-	})
+	blobs := make([]pendingBlobUpload, 0, len(hashes))
+	for _, hash := range hashes {
+		file := missing[hash]
+		blobs = append(blobs, pendingBlobUpload{
+			hash: hash,
+			size: file.Size,
+			read: func() ([]byte, error) { return os.ReadFile(file.LocalPath) },
+			uploadOne: func() (*corev1.UploadBlobResponse, error) {
+				return uploadLocalBlob(ctx, blobClient, sliceRef, file)
+			},
+		})
+	}
+	uploaded, err := uploadBlobsInBatches(ctx, blobClient, sliceRef, blobs, concurrency)
 	records := make(map[string]*corev1.BlobRecord, len(uploaded))
 	for hash, upload := range uploaded {
 		if upload == nil {
@@ -11598,6 +11609,17 @@ func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn
 			return hydrateResult{}, err
 		}
 	}
+	if err := hydrator.materialize(ctx); err != nil {
+		return hydrateResult{}, err
+	}
+	// The files just written need not be hashed by the next scan.
+	if len(hydrator.stats) > 0 {
+		cache := readStatCache(root)
+		for rel, entry := range hydrator.stats {
+			cache.Files[rel] = entry
+		}
+		writeStatCache(root, cache.Files)
+	}
 	if err := r.writeBaseSnapshot(hydrator.base); err != nil {
 		return hydrateResult{}, err
 	}
@@ -11615,6 +11637,12 @@ type workspaceHydrator struct {
 	base     BaseSnapshot
 	result   hydrateResult
 	progress *progressReporter
+	// pending are the files hydratePath found; materialize writes them.
+	pending []*corev1.TreeEntry
+	// stats are the written files' stat cache entries, by relative path.
+	stats map[string]statCacheEntry
+	// mu guards base and result while materialize's batches write files.
+	mu sync.Mutex
 }
 
 func (h *workspaceHydrator) hydratePath(ctx context.Context, globalPath string) error {
@@ -11669,34 +11697,176 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 	return nil
 }
 
-func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeEntry) error {
+func (h *workspaceHydrator) hydrateFile(_ context.Context, entry *corev1.TreeEntry) error {
+	h.pending = append(h.pending, entry)
+	return nil
+}
+
+const (
+	hydrateBatchFiles   = 256
+	hydrateBatchBytes   = 4 << 20
+	hydrateBatchWorkers = 4
+)
+
+// materialize writes the files hydratePath found. Files the client cache has
+// are copied from it and large files are streamed one by one; the rest are
+// fetched in batches (ReadFiles), a few batches at a time, so a checkout does
+// not pay a round trip per file (design/28_benchmarks.md).
+func (h *workspaceHydrator) materialize(ctx context.Context) error {
+	misses := map[string][]*corev1.TreeEntry{}
+	var order []string
+	for _, entry := range h.pending {
+		if entry.ContentHash == "" {
+			return fmt.Errorf("file %s has no content hash", entry.Path)
+		}
+		if entry.Size > blobStreamThresholdBytes {
+			if err := h.writeLargeFile(ctx, entry); err != nil {
+				return err
+			}
+			continue
+		}
+		if h.cache.Exists(entry.ContentHash) {
+			data, err := h.cache.Read(entry.ContentHash)
+			if err != nil {
+				return err
+			}
+			h.result.CacheHits++
+			if err := h.writeFile(entry, data); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, seen := misses[entry.ContentHash]; !seen {
+			order = append(order, entry.ContentHash)
+		}
+		misses[entry.ContentHash] = append(misses[entry.ContentHash], entry)
+	}
+	h.pending = nil
+
+	var batches [][]string
+	var batch []string
+	var batchBytes int64
+	for _, hash := range order {
+		size := misses[hash][0].Size
+		if len(batch) > 0 && (len(batch) >= hydrateBatchFiles || batchBytes+size > hydrateBatchBytes) {
+			batches = append(batches, batch)
+			batch, batchBytes = nil, 0
+		}
+		batch = append(batch, hash)
+		batchBytes += size
+	}
+	if len(batch) > 0 {
+		batches = append(batches, batch)
+	}
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(hydrateBatchWorkers)
+	for _, hashes := range batches {
+		group.Go(func() error { return h.fetchBatch(groupCtx, hashes, misses) })
+	}
+	return group.Wait()
+}
+
+// fetchBatch reads one file per content hash, caches it, and writes it to
+// every path that has it.
+func (h *workspaceHydrator) fetchBatch(ctx context.Context, hashes []string, misses map[string][]*corev1.TreeEntry) error {
+	paths := make([]string, len(hashes))
+	for i, hash := range hashes {
+		paths[i] = misses[hash][0].Path
+	}
+	data := make([][]byte, len(paths))
+	res, err := h.repo.ReadFiles(ctx, &corev1.ReadFilesRequest{CommitId: h.commitID, Paths: paths})
+	switch code := grpcstatus.Code(err); {
+	case code == codes.Unimplemented || code == codes.ResourceExhausted:
+		// A server older than ReadFiles, or a batch over its byte limit: read
+		// the files one at a time.
+		for i, p := range paths {
+			read, err := h.repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: h.commitID, Path: p})
+			if err != nil {
+				return err
+			}
+			data[i] = read.Data
+		}
+	case err != nil:
+		return err
+	default:
+		if len(res.GetFiles()) != len(paths) {
+			return fmt.Errorf("server returned %d of %d files", len(res.GetFiles()), len(paths))
+		}
+		for i, file := range res.GetFiles() {
+			data[i] = file.GetData()
+		}
+	}
+	for i, hash := range hashes {
+		cached, err := h.cache.PutBytes(data[i])
+		if err != nil {
+			return err
+		}
+		if cached.ContentHash != hash {
+			return fmt.Errorf("hydrated content hash mismatch for %s: got %s, want %s", paths[i], cached.ContentHash, hash)
+		}
+		h.mu.Lock()
+		h.result.CacheMisses++
+		h.mu.Unlock()
+		for _, entry := range misses[hash] {
+			if err := h.writeFile(entry, data[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (h *workspaceHydrator) fileTarget(entry *corev1.TreeEntry) (string, string, uint32, error) {
 	rel, err := workspaceRelPath(h.ws, entry.Path)
 	if err != nil {
-		return err
+		return "", "", 0, err
 	}
 	target := filepath.Join(h.root, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return err
+		return "", "", 0, err
 	}
 	mode := uint32(entry.Mode)
 	if mode == 0 {
 		mode = 0o100644
 	}
-	var size int64
-	if entry.Size > blobStreamThresholdBytes && entry.ContentHash != "" {
-		size, err = h.hydrateLargeFile(ctx, entry, target, mode)
-		if err != nil {
-			return err
+	return rel, target, mode, nil
+}
+
+func (h *workspaceHydrator) writeFile(entry *corev1.TreeEntry, data []byte) error {
+	rel, target, mode, err := h.fileTarget(entry)
+	if err != nil {
+		return err
+	}
+	if _, err := writeWorkspaceFile(target, mode, bytes.NewReader(data)); err != nil {
+		return err
+	}
+	h.recordFile(entry, rel, target, mode, int64(len(data)))
+	return nil
+}
+
+func (h *workspaceHydrator) writeLargeFile(ctx context.Context, entry *corev1.TreeEntry) error {
+	rel, target, mode, err := h.fileTarget(entry)
+	if err != nil {
+		return err
+	}
+	size, err := h.hydrateLargeFile(ctx, entry, target, mode)
+	if err != nil {
+		return err
+	}
+	h.recordFile(entry, rel, target, mode, size)
+	return nil
+}
+
+func (h *workspaceHydrator) recordFile(entry *corev1.TreeEntry, rel, target string, mode uint32, size int64) {
+	info, statErr := os.Lstat(target)
+	h.mu.Lock()
+	if statErr == nil {
+		if stat, ok := statCacheEntryFor(info, entry.ContentHash); ok {
+			if h.stats == nil {
+				h.stats = map[string]statCacheEntry{}
+			}
+			h.stats[rel] = stat
 		}
-	} else {
-		data, err := h.cachedFileBytes(ctx, entry)
-		if err != nil {
-			return err
-		}
-		if _, err := writeWorkspaceFile(target, mode, bytes.NewReader(data)); err != nil {
-			return err
-		}
-		size = int64(len(data))
 	}
 	h.base.Files[entry.Path] = BaseSnapshotFile{
 		Path:        entry.Path,
@@ -11706,8 +11876,8 @@ func (h *workspaceHydrator) hydrateFile(ctx context.Context, entry *corev1.TreeE
 		Size:        size,
 	}
 	h.result.FileCount++
+	h.mu.Unlock()
 	h.progress.Add(1)
-	return nil
 }
 
 func (h *workspaceHydrator) hydrateLargeFile(ctx context.Context, entry *corev1.TreeEntry, target string, mode uint32) (int64, error) {
@@ -11795,29 +11965,6 @@ func writeWorkspaceFile(target string, mode uint32, r io.Reader) (int64, error) 
 		return n, err
 	}
 	return n, nil
-}
-
-func (h *workspaceHydrator) cachedFileBytes(ctx context.Context, entry *corev1.TreeEntry) ([]byte, error) {
-	if entry.ContentHash == "" {
-		return nil, fmt.Errorf("file %s has no content hash", entry.Path)
-	}
-	if h.cache.Exists(entry.ContentHash) {
-		h.result.CacheHits++
-		return h.cache.Read(entry.ContentHash)
-	}
-	read, err := h.repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: h.commitID, Path: entry.Path})
-	if err != nil {
-		return nil, err
-	}
-	cached, err := h.cache.PutBytes(read.Data)
-	if err != nil {
-		return nil, err
-	}
-	if cached.ContentHash != entry.ContentHash {
-		return nil, fmt.Errorf("hydrated content hash mismatch for %s: got %s, want %s", entry.Path, cached.ContentHash, entry.ContentHash)
-	}
-	h.result.CacheMisses++
-	return read.Data, nil
 }
 
 func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {
@@ -12041,7 +12188,30 @@ type workspaceScanCandidate struct {
 	relPath    string
 	mode       uint32
 	size       int64
+	modTime    time.Time
 	linkTarget *string // set for symlinks; hashed instead of the file they point to
+}
+
+// recordStatCache records the scanned files' stats and hashes, leaving out
+// files modified too close to the scan to be trusted later. It writes the
+// cache only when something changed.
+func recordStatCache(root string, known statCache, candidates []workspaceScanCandidate, objects []clientcache.Object, scanStarted time.Time) {
+	recordBefore := scanStarted.Add(-statCacheClockSlack)
+	recorded := make(map[string]statCacheEntry, len(candidates))
+	changed := false
+	for i, candidate := range candidates {
+		if candidate.linkTarget != nil || !candidate.modTime.Before(recordBefore) {
+			continue
+		}
+		entry := statCacheEntry{Size: candidate.size, ModTimeNs: candidate.modTime.UnixNano(), Mode: candidate.mode, ContentHash: objects[i].ContentHash}
+		if old, ok := known.Files[candidate.relPath]; !ok || old != entry {
+			changed = true
+		}
+		recorded[candidate.relPath] = entry
+	}
+	if changed || len(recorded) != len(known.Files) {
+		writeStatCache(root, recorded)
+	}
 }
 
 // scanWorkspaceFiles hashes the workspace's files. Untracked paths matched by
@@ -12072,6 +12242,7 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	ignore := newWorkspaceIgnore(root, ws, append([]map[string]BaseSnapshotFile{base.Files}, tracked...)...)
 	candidates := []workspaceScanCandidate{}
 	walkStarted := time.Now()
+	known := readStatCache(root)
 	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -12130,6 +12301,7 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 			relPath:    rel,
 			mode:       mode,
 			size:       info.Size(),
+			modTime:    info.ModTime(),
 		})
 		stats.ByteCount += info.Size()
 		return nil
@@ -12140,10 +12312,22 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 		return nil, stats, err
 	}
 
-	paths := make([]string, len(candidates))
+	// Files whose recorded stat still matches are not read again.
+	objects := make([]clientcache.Object, len(candidates))
+	var toHash []int
+	for i, candidate := range candidates {
+		if candidate.linkTarget == nil {
+			if hash, ok := known.hash(candidate.relPath, candidate.size, candidate.modTime, candidate.mode); ok && cache.Exists(hash) {
+				objects[i] = clientcache.Object{ContentHash: hash, Size: candidate.size}
+				continue
+			}
+		}
+		toHash = append(toHash, i)
+	}
+	paths := make([]string, len(toHash))
 	links := map[string]string{}
-	for i := range candidates {
-		paths[i] = candidates[i].absPath
+	for j, i := range toHash {
+		paths[j] = candidates[i].absPath
 		if candidates[i].linkTarget != nil {
 			links[candidates[i].absPath] = *candidates[i].linkTarget
 		}
@@ -12159,11 +12343,15 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	}
 	stats.HashWorkers = boundedCaptureHashConcurrency(concurrency, len(paths))
 	hashStarted := time.Now()
-	objects, err := hashWorkspaceFiles(ctx, paths, stats.HashWorkers, hashFile)
+	hashed, err := hashWorkspaceFiles(ctx, paths, stats.HashWorkers, hashFile)
 	stats.HashDuration = time.Since(hashStarted)
 	if err != nil {
 		return nil, stats, err
 	}
+	for j, i := range toHash {
+		objects[i] = hashed[j]
+	}
+	recordStatCache(root, known, candidates, objects, walkStarted)
 
 	files := make(map[string]workingFile, len(candidates))
 	for i, candidate := range candidates {
@@ -12333,9 +12521,148 @@ func attachBlobIDsWithStats(ctx context.Context, blobClient corev1.BlobServiceCl
 }
 
 func uploadCachedBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hashes []string, concurrency int) (map[string]*corev1.UploadBlobResponse, error) {
-	return uploadBlobsConcurrently(ctx, hashes, concurrency, func(hash string) (*corev1.UploadBlobResponse, error) {
-		return uploadCachedBlob(ctx, blobClient, sliceRef, cache, hash)
+	blobs := make([]pendingBlobUpload, 0, len(hashes))
+	for _, hash := range hashes {
+		cachePath, err := cache.Path(hash)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(cachePath)
+		if err != nil {
+			return nil, fmt.Errorf("stat cached object %s: %w", hash, err)
+		}
+		blobs = append(blobs, pendingBlobUpload{
+			hash: hash,
+			size: info.Size(),
+			read: func() ([]byte, error) { return cache.Read(hash) },
+			uploadOne: func() (*corev1.UploadBlobResponse, error) {
+				return uploadCachedBlob(ctx, blobClient, sliceRef, cache, hash)
+			},
+		})
+	}
+	return uploadBlobsInBatches(ctx, blobClient, sliceRef, blobs, concurrency)
+}
+
+const (
+	uploadBatchBlobs = 256
+	uploadBatchBytes = 4 << 20
+)
+
+// pendingBlobUpload is one blob for uploadBlobsInBatches: read gives a small
+// blob's bytes for a batch; uploadOne uploads it alone (large blobs, or a
+// server without UploadBlobs).
+type pendingBlobUpload struct {
+	hash      string
+	size      int64
+	read      func() ([]byte, error)
+	uploadOne func() (*corev1.UploadBlobResponse, error)
+}
+
+var errBlobBatchesUnsupported = errors.New("server does not take blob batches")
+
+// uploadBlobsInBatches uploads small blobs a batch per UploadBlobs call and
+// large ones one at a time, up to concurrency calls at once, so a capture
+// does not pay a round trip and an authorization per file
+// (design/28_benchmarks.md). Against a server without UploadBlobs it uploads
+// the rest a blob per call, as before. It returns what was uploaded, and the
+// first error.
+func uploadBlobsInBatches(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, blobs []pendingBlobUpload, concurrency int) (map[string]*corev1.UploadBlobResponse, error) {
+	uploaded := make(map[string]*corev1.UploadBlobResponse, len(blobs))
+	if len(blobs) == 0 {
+		return uploaded, nil
+	}
+	var jobs [][]pendingBlobUpload
+	var batch []pendingBlobUpload
+	var batchBytes int64
+	for _, blob := range blobs {
+		if blob.size > blobStreamThresholdBytes {
+			jobs = append(jobs, []pendingBlobUpload{blob})
+			continue
+		}
+		if len(batch) > 0 && (len(batch) >= uploadBatchBlobs || batchBytes+blob.size > uploadBatchBytes) {
+			jobs = append(jobs, batch)
+			batch, batchBytes = nil, 0
+		}
+		batch = append(batch, blob)
+		batchBytes += blob.size
+	}
+	if len(batch) > 0 {
+		jobs = append(jobs, batch)
+	}
+
+	progress := startProgress(ctx, "uploading", "files", len(blobs))
+	defer progress.Finish()
+	var mu sync.Mutex
+	record := func(hash string, response *corev1.UploadBlobResponse) {
+		mu.Lock()
+		uploaded[hash] = response
+		mu.Unlock()
+		progress.Add(1)
+	}
+	uploadEach := func(job []pendingBlobUpload) error {
+		for _, blob := range job {
+			response, err := blob.uploadOne()
+			if err != nil {
+				return err
+			}
+			record(blob.hash, response)
+		}
+		return nil
+	}
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(boundedUploadConcurrency(concurrency, len(jobs)))
+	for _, job := range jobs {
+		group.Go(func() error {
+			if err := groupCtx.Err(); err != nil {
+				return err
+			}
+			if len(job) == 1 && job[0].size > blobStreamThresholdBytes {
+				return uploadEach(job)
+			}
+			req := &corev1.UploadBlobsRequest{Slice: sliceRef, Blobs: make([]*corev1.UploadBlobsEntry, len(job))}
+			for i, blob := range job {
+				data, err := blob.read()
+				if err != nil {
+					return err
+				}
+				req.Blobs[i] = &corev1.UploadBlobsEntry{ContentHash: blob.hash, Data: data}
+			}
+			res, err := blobClient.UploadBlobs(groupCtx, req)
+			if grpcstatus.Code(err) == codes.Unimplemented {
+				return errBlobBatchesUnsupported
+			}
+			if err != nil {
+				return err
+			}
+			if len(res.GetBlobs()) != len(job) {
+				return fmt.Errorf("server recorded %d of %d blobs", len(res.GetBlobs()), len(job))
+			}
+			for i, blob := range job {
+				record(blob.hash, res.GetBlobs()[i])
+			}
+			return nil
+		})
+	}
+	err := group.Wait()
+	if !errors.Is(err, errBlobBatchesUnsupported) {
+		return uploaded, err
+	}
+	progress.Finish()
+	byHash := map[string]pendingBlobUpload{}
+	var rest []string
+	for _, blob := range blobs {
+		if _, done := uploaded[blob.hash]; !done {
+			byHash[blob.hash] = blob
+			rest = append(rest, blob.hash)
+		}
+	}
+	more, err := uploadBlobsConcurrently(ctx, rest, concurrency, func(hash string) (*corev1.UploadBlobResponse, error) {
+		return byHash[hash].uploadOne()
 	})
+	for hash, response := range more {
+		uploaded[hash] = response
+	}
+	return uploaded, err
 }
 
 func uploadCachedBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hash string) (*corev1.UploadBlobResponse, error) {

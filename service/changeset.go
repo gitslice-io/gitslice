@@ -288,6 +288,25 @@ func requireEditBlobsAccessible(ctx context.Context, blobs storage.BlobStore, sl
 	unavailable := func(path string) error {
 		return status.Errorf(codes.FailedPrecondition, "content for %s is not available to this slice; upload the blob first", path)
 	}
+	// Resolve the blob ids in one query when the store can; any it misses are
+	// looked up (and reported) one by one below.
+	if batch, ok := blobs.(storage.BlobBatchStore); ok {
+		var ids []string
+		for _, edit := range edits {
+			if edit != nil && edit.BlobId != "" {
+				ids = append(ids, edit.BlobId)
+			}
+		}
+		if len(ids) > 0 {
+			found, err := batch.GetByIDs(ctx, ids)
+			if err != nil {
+				return grpcError(err)
+			}
+			for id, blob := range found {
+				resolvedBlobIDs[id] = blob.ContentHash
+			}
+		}
+	}
 
 	for _, edit := range edits {
 		if edit == nil {
@@ -927,16 +946,28 @@ func (s *ChangesetService) getChangesetForWriteOrAuthor(ctx context.Context, sub
 
 func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slice, baseCommitID, baseTreeID string, edits []*corev1.FileEdit, requireBlob bool) (*corev1.ValidateWorkspaceDiffResponse, error) {
 	changed := map[string]struct{}{}
-	for _, edit := range edits {
+	normalizedEdits := make([]*corev1.FileEdit, len(edits))
+	for i, edit := range edits {
 		normalized, err := normalizeEdit(edit, requireBlob)
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
-		if requireBlob {
-			if err := v.hydrateBlobMetadata(ctx, normalized); err != nil {
-				return nil, err
-			}
+		normalizedEdits[i] = normalized
+	}
+	if requireBlob {
+		if err := v.hydrateBlobsMetadata(ctx, normalizedEdits); err != nil {
+			return nil, err
 		}
+	}
+	// Path bases are read from the base tree, resolved once, rather than
+	// looked up path by path.
+	if baseTreeID == "" && baseCommitID != "" {
+		if rootTreeID, err := v.Repository.RootTreeForCommit(ctx, baseCommitID); err == nil {
+			baseTreeID = rootTreeID
+		}
+	}
+	for i, edit := range edits {
+		normalized := normalizedEdits[i]
 		edit.Op = normalized.Op
 		edit.Path = normalized.Path
 		edit.OldPath = normalized.OldPath
@@ -989,6 +1020,44 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		ReadSet:   readSet,
 		WriteSet:  writeSet,
 	}, nil
+}
+
+// hydrateBlobsMetadata is hydrateBlobMetadata for many edits, reading their
+// blobs in one query when the store can.
+func (v diffValidator) hydrateBlobsMetadata(ctx context.Context, edits []*corev1.FileEdit) error {
+	batch, ok := v.Blobs.(storage.BlobBatchStore)
+	if !ok {
+		for _, edit := range edits {
+			if err := v.hydrateBlobMetadata(ctx, edit); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	var ids []string
+	for _, edit := range edits {
+		if edit != nil && edit.Op != "delete" && edit.Op != "rename" && edit.Op != "mkdir" {
+			ids = append(ids, edit.BlobId)
+		}
+	}
+	blobs, err := batch.GetByIDs(ctx, ids)
+	if err != nil {
+		return grpcError(err)
+	}
+	for _, edit := range edits {
+		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.Op == "mkdir" {
+			continue
+		}
+		blob := blobs[edit.BlobId]
+		if blob == nil {
+			return grpcError(storage.ErrNotFound)
+		}
+		if edit.ContentHash != "" && edit.ContentHash != blob.ContentHash {
+			return status.Errorf(codes.InvalidArgument, "content hash does not match blob %s", edit.BlobId)
+		}
+		edit.ContentHash = blob.ContentHash
+	}
+	return nil
 }
 
 func (v diffValidator) hydrateBlobMetadata(ctx context.Context, edit *corev1.FileEdit) error {

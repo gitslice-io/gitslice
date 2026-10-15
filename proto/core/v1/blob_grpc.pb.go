@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion7
 const (
 	BlobService_GetBlobStatus_FullMethodName    = "/gitslice.core.v1.BlobService/GetBlobStatus"
 	BlobService_UploadBlob_FullMethodName       = "/gitslice.core.v1.BlobService/UploadBlob"
+	BlobService_UploadBlobs_FullMethodName      = "/gitslice.core.v1.BlobService/UploadBlobs"
 	BlobService_UploadBlobStream_FullMethodName = "/gitslice.core.v1.BlobService/UploadBlobStream"
 	BlobService_ReadBlobStream_FullMethodName   = "/gitslice.core.v1.BlobService/ReadBlobStream"
 )
@@ -31,6 +32,9 @@ const (
 type BlobServiceClient interface {
 	GetBlobStatus(ctx context.Context, in *GetBlobStatusRequest, opts ...grpc.CallOption) (*GetBlobStatusResponse, error)
 	UploadBlob(ctx context.Context, in *UploadBlobRequest, opts ...grpc.CallOption) (*UploadBlobResponse, error)
+	// UploadBlobs uploads many small blobs into one slice in one call: at most
+	// 1000 blobs totalling 64 MiB. Larger blobs use UploadBlobStream.
+	UploadBlobs(ctx context.Context, in *UploadBlobsRequest, opts ...grpc.CallOption) (*UploadBlobsResponse, error)
 	UploadBlobStream(ctx context.Context, opts ...grpc.CallOption) (BlobService_UploadBlobStreamClient, error)
 	ReadBlobStream(ctx context.Context, in *ReadBlobStreamRequest, opts ...grpc.CallOption) (BlobService_ReadBlobStreamClient, error)
 }
@@ -55,6 +59,15 @@ func (c *blobServiceClient) GetBlobStatus(ctx context.Context, in *GetBlobStatus
 func (c *blobServiceClient) UploadBlob(ctx context.Context, in *UploadBlobRequest, opts ...grpc.CallOption) (*UploadBlobResponse, error) {
 	out := new(UploadBlobResponse)
 	err := c.cc.Invoke(ctx, BlobService_UploadBlob_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blobServiceClient) UploadBlobs(ctx context.Context, in *UploadBlobsRequest, opts ...grpc.CallOption) (*UploadBlobsResponse, error) {
+	out := new(UploadBlobsResponse)
+	err := c.cc.Invoke(ctx, BlobService_UploadBlobs_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +146,9 @@ func (x *blobServiceReadBlobStreamClient) Recv() (*ReadBlobChunk, error) {
 type BlobServiceServer interface {
 	GetBlobStatus(context.Context, *GetBlobStatusRequest) (*GetBlobStatusResponse, error)
 	UploadBlob(context.Context, *UploadBlobRequest) (*UploadBlobResponse, error)
+	// UploadBlobs uploads many small blobs into one slice in one call: at most
+	// 1000 blobs totalling 64 MiB. Larger blobs use UploadBlobStream.
+	UploadBlobs(context.Context, *UploadBlobsRequest) (*UploadBlobsResponse, error)
 	UploadBlobStream(BlobService_UploadBlobStreamServer) error
 	ReadBlobStream(*ReadBlobStreamRequest, BlobService_ReadBlobStreamServer) error
 }
@@ -146,6 +162,9 @@ func (UnimplementedBlobServiceServer) GetBlobStatus(context.Context, *GetBlobSta
 }
 func (UnimplementedBlobServiceServer) UploadBlob(context.Context, *UploadBlobRequest) (*UploadBlobResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UploadBlob not implemented")
+}
+func (UnimplementedBlobServiceServer) UploadBlobs(context.Context, *UploadBlobsRequest) (*UploadBlobsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UploadBlobs not implemented")
 }
 func (UnimplementedBlobServiceServer) UploadBlobStream(BlobService_UploadBlobStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method UploadBlobStream not implemented")
@@ -197,6 +216,24 @@ func _BlobService_UploadBlob_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BlobServiceServer).UploadBlob(ctx, req.(*UploadBlobRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlobService_UploadBlobs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UploadBlobsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlobServiceServer).UploadBlobs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlobService_UploadBlobs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlobServiceServer).UploadBlobs(ctx, req.(*UploadBlobsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -262,6 +299,10 @@ var BlobService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UploadBlob",
 			Handler:    _BlobService_UploadBlob_Handler,
+		},
+		{
+			MethodName: "UploadBlobs",
+			Handler:    _BlobService_UploadBlobs_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

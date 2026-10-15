@@ -191,6 +191,10 @@ func (a connectRepositoryAdapter) ReadFile(ctx context.Context, req *connect.Req
 	return connectResponse(a.svc.ReadFile(ctx, req.Msg))
 }
 
+func (a connectRepositoryAdapter) ReadFiles(ctx context.Context, req *connect.Request[corev1.ReadFilesRequest]) (*connect.Response[corev1.ReadFilesResponse], error) {
+	return connectResponse(a.svc.ReadFiles(ctx, req.Msg))
+}
+
 func (a connectRepositoryAdapter) GetCommit(ctx context.Context, req *connect.Request[corev1.GetCommitRequest]) (*connect.Response[corev1.Commit], error) {
 	return connectResponse(a.svc.GetCommit(ctx, req.Msg))
 }
@@ -229,6 +233,10 @@ func (a connectBlobAdapter) GetBlobStatus(ctx context.Context, req *connect.Requ
 
 func (a connectBlobAdapter) UploadBlob(ctx context.Context, req *connect.Request[corev1.UploadBlobRequest]) (*connect.Response[corev1.UploadBlobResponse], error) {
 	return connectResponse(a.svc.UploadBlob(ctx, req.Msg))
+}
+
+func (a connectBlobAdapter) UploadBlobs(ctx context.Context, req *connect.Request[corev1.UploadBlobsRequest]) (*connect.Response[corev1.UploadBlobsResponse], error) {
+	return connectResponse(a.svc.UploadBlobs(ctx, req.Msg))
 }
 
 func (a connectBlobAdapter) UploadBlobStream(ctx context.Context, stream *connect.ClientStream[corev1.UploadBlobChunk]) (*connect.Response[corev1.UploadBlobResponse], error) {
