@@ -1,0 +1,229 @@
+package cli
+
+// schemaSetupCommands describes sign-in, upgrade, diagnostics, feedback, settings and RPC tools.
+func schemaSetupCommands() []map[string]any {
+	return []map[string]any{
+		{
+			"use":            "gs auth login",
+			"summary":        "log in via the Clerk browser flow",
+			"flags":          []string{"--server", "--clerk", "--clerk-token", "--web-url"},
+			"writes_stdout":  true,
+			"machine_output": []string{"server_addr", "subject_id"},
+		},
+		{
+			"use":            "gs upgrade",
+			"summary":        "replace gs with the latest release (checksum-verified); --check only reports",
+			"flags":          []string{"--check", "--version", "--force", "--path"},
+			"writes_stdout":  true,
+			"machine_output": []string{"current", "latest", "target", "path", "upgraded", "up_to_date"},
+		},
+		{
+			"use":            "gs doctor [account/slice]",
+			"summary":        "check version, config, server, sign-in, workspace and slice access, with a fix for each problem; exits 1 when a check fails",
+			"args":           []string{"account/slice"},
+			"writes_stdout":  true,
+			"machine_output": []string{"ok", "checks"},
+		},
+		{
+			"use":            "gs feedback [message]",
+			"summary":        "send feedback to the Gitslice team (also gs feedback send); gs adds its version, OS and workspace",
+			"args":           []string{"message"},
+			"flags":          []string{"--category", "--stdin", "--context"},
+			"writes_stdout":  true,
+			"machine_output": []string{"id", "subject_id", "account", "body", "category", "context", "status", "created_at"},
+		},
+		{
+			"use":            "gs feedback list",
+			"summary":        "list your feedback and the team's answers (--mine), or, for the Gitslice team, everyone's",
+			"flags":          []string{"--mine", "--status", "--limit", "--cursor"},
+			"writes_stdout":  true,
+			"machine_output": []string{"feedback", "next_cursor"},
+		},
+		{
+			"use":            "gs feedback resolve <feedback-id>",
+			"summary":        "answer feedback and mark it resolved, or --reopen it (the Gitslice team)",
+			"args":           []string{"feedback-id"},
+			"flags":          []string{"--note", "--reopen"},
+			"writes_stdout":  true,
+			"machine_output": []string{"id", "status", "resolution", "resolved_by", "resolved_at"},
+		},
+		{
+			"use":            "gs auth status",
+			"summary":        "show current authentication status after validating the local token, with every account and shared slice the subject can reach",
+			"writes_stdout":  true,
+			"machine_output": []string{"signed_in", "server_addr", "subject_id", "accounts", "memberships", "shared_slices", "active_account", "reason"},
+		},
+		{
+			"use":            "gs auth token",
+			"summary":        "print the validated bearer token for scripts and Git-compatible flows",
+			"writes_stdout":  true,
+			"machine_output": []string{"token", "server_addr", "subject_id"},
+		},
+		{
+			"use":            "gs auth logout",
+			"summary":        "clear saved authentication credentials",
+			"writes_stdout":  true,
+			"machine_output": []string{"signed_in", "was_signed_in", "server_addr", "config_path"},
+		},
+		{
+			"use":            "gs context",
+			"summary":        "show resolved server, auth, workspace, and active slice context",
+			"aliases":        []string{"gs ctx"},
+			"writes_stdout":  true,
+			"machine_output": []string{"cwd", "config_path", "server_addr", "signed_in", "subject_id", "auth_reason", "workspace", "active_slice", "active_slice_source"},
+		},
+		{
+			"use":            "gs config list",
+			"summary":        "list local CLI configuration without exposing secrets",
+			"aliases":        []string{"gs cfg list"},
+			"writes_stdout":  true,
+			"machine_output": []string{"config_path", "server_addr", "subject_id", "token_present"},
+		},
+		{
+			"use":            "gs config get <key>",
+			"summary":        "get one local CLI configuration value",
+			"aliases":        []string{"gs cfg get <key>"},
+			"args":           []string{"key"},
+			"writes_stdout":  true,
+			"machine_output": []string{"<key>"},
+		},
+		{
+			"use":            "gs config set <key> <value>",
+			"summary":        "set one local CLI configuration value",
+			"aliases":        []string{"gs cfg set <key> <value>"},
+			"args":           []string{"key", "value"},
+			"writes_stdout":  true,
+			"machine_output": []string{"config_path", "server_addr", "subject_id", "token_present"},
+		},
+		{
+			"use":            "gs alias list",
+			"summary":        "list local command aliases",
+			"writes_stdout":  true,
+			"machine_output": []string{"aliases"},
+		},
+		{
+			"use":            "gs alias set <name> <command>",
+			"summary":        "create or update a local command alias",
+			"args":           []string{"name", "command"},
+			"writes_stdout":  true,
+			"machine_output": []string{"name", "expansion"},
+		},
+		{
+			"use":            "gs alias delete <name>",
+			"summary":        "delete a local command alias",
+			"aliases":        []string{"gs alias remove <name>", "gs alias rm <name>"},
+			"args":           []string{"name"},
+			"writes_stdout":  true,
+			"machine_output": []string{"name", "deleted"},
+		},
+		{
+			"use":            "gs rpc list",
+			"summary":        "list generated core RPC methods",
+			"writes_stdout":  true,
+			"machine_output": []string{"methods"},
+		},
+		{
+			"use":            "gs rpc call <service>/<method>",
+			"summary":        "call a generated unary core RPC with a JSON request",
+			"args":           []string{"service/method"},
+			"flags":          []string{"--request", "--server", "--unauthenticated"},
+			"writes_stdout":  true,
+			"machine_output": []string{"RPC response fields"},
+		},
+	}
+}
+
+// schemaHistoryCommands describes the commands that read history: browse, log, blame and show.
+func schemaHistoryCommands() []map[string]any {
+	return []map[string]any{
+		{
+			"use":            "gs browse [account:slice | /account/path | workspace/path | web-page]",
+			"summary":        "open or print the web UI link for a slice, source path, or page",
+			"args":           []string{"target"},
+			"flags":          []string{"--path", "--web-url", "--print"},
+			"writes_stdout":  true,
+			"machine_output": []string{"url"},
+		},
+		{
+			"use":            "gs log [-- <path>]",
+			"summary":        "list native commits with short ids by default",
+			"args":           []string{"path"},
+			"flags":          []string{"--limit", "--path", "--slice", "--page-token", "--no-follow-moves", "--follow", "--all", "--full", "--oneline", "--name-only", "--stat", "--patch"},
+			"writes_stdout":  true,
+			"machine_output": []string{"scope", "commits", "next_page_token"},
+		},
+		{
+			"use":            "gs blame <path>",
+			"summary":        "show which commit and changeset last changed each line of a file, following moves",
+			"args":           []string{"path"},
+			"flags":          []string{"--lines", "--slice"},
+			"writes_stdout":  true,
+			"machine_output": []string{"commit_id", "path", "line_count", "truncated", "ranges", "commits"},
+		},
+		{
+			"use":            "gs show <commit-id-or-prefix>",
+			"summary":        "show a native commit resolved from a full id or short prefix",
+			"args":           []string{"commit-id-or-prefix"},
+			"flags":          []string{"--full", "--name-only", "--stat", "--patch"},
+			"writes_stdout":  true,
+			"machine_output": []string{"id", "short_id", "parent_ids", "root_tree_id", "author", "message", "created_at", "changed_paths"},
+		},
+	}
+}
+
+// schemaWorkspaceCommands describes the workspace commands: init, sync, status, diff and ci.
+func schemaWorkspaceCommands() []map[string]any {
+	return []map[string]any{
+		{
+			"use":            "gs init <slice|account:slice>",
+			"summary":        "bind the current directory to one slice and hydrate its files",
+			"args":           []string{"slice|account:slice"},
+			"writes_stdout":  true,
+			"machine_output": []string{"workspace", "slice_id", "base_commit_id", "client_object_cache", "hydrated"},
+		},
+		{
+			"use":            "gs workspace hydrate <path> [path...]",
+			"summary":        "hydrate workspace files through the client object cache",
+			"aliases":        []string{"gs ws hydrate <path> [path...]"},
+			"args":           []string{"path"},
+			"writes_stdout":  true,
+			"machine_output": []string{"workspace", "base_commit_id", "client_object_cache", "hydrated"},
+		},
+		{
+			"use":            "gs sync",
+			"summary":        "sync the workspace to the latest remote base",
+			"flags":          []string{"--merge"},
+			"writes_stdout":  true,
+			"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "merged_paths", "conflict_paths", "merge_strategy", "changeset_id", "patchset_id"},
+		},
+		{
+			"use":            "gs workspace sync",
+			"summary":        "sync the workspace to the latest remote base",
+			"aliases":        []string{"gs ws sync"},
+			"flags":          []string{"--merge"},
+			"writes_stdout":  true,
+			"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "merged_paths", "conflict_paths", "merge_strategy", "changeset_id", "patchset_id"},
+		},
+		{
+			"use":            "gs status",
+			"summary":        "show workspace changes against the local base snapshot",
+			"aliases":        []string{"gs st"},
+			"writes_stdout":  true,
+			"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "conflict_count", "conflict_paths", "changeset_id", "patchset_id"},
+		},
+		{
+			"use":            "gs diff [commit-id-or-prefix] [commit-id-or-prefix]",
+			"summary":        "show workspace, changeset, or native commit diffs",
+			"args":           []string{"commit-id-or-prefix"},
+			"flags":          []string{"--from", "--to", "--name-only", "--stat"},
+			"writes_stdout":  true,
+			"machine_output": []string{"workspace", "base_commit_id", "from_commit_id", "to_commit_id", "changed_path_count", "changed_paths", "diff"},
+		},
+		{
+			"use":            "gs ci",
+			"summary":        "run applicable workspace checks locally without uploading results",
+			"writes_stdout":  true,
+			"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "results"},
+		},
+	}
+}
