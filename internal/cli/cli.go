@@ -4947,6 +4947,15 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 				continue
 			}
 			output.RestackedChangesets = append(output.RestackedChangesets, cs.Id)
+			// Files both the changeset and the new head changed, in ways the
+			// restack could not merge, carry conflict markers.
+			if patchset := currentPatchset(cs); patchset != nil {
+				for _, conflict := range patchset.GetConflicts() {
+					output.ConflictPaths = append(output.ConflictPaths, conflict.GetPath())
+					output.ConflictCount++
+					output.Status = "conflicts"
+				}
+			}
 			if cs.Id == state.CurrentChangesetID {
 				state.CurrentPatchsetID = cs.CurrentPatchsetId
 			}
@@ -8587,7 +8596,15 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 	if err != nil {
 		return err
 	}
-	return r.writeSubmitDependencies(opts, res)
+	if err := r.writeSubmitDependencies(opts, res); err != nil {
+		return err
+	}
+	// Something the server would not submit is a failed submit, as with
+	// gs create --submit: a script must not read it as landed.
+	if res.Status == "partial" {
+		return userError("submit_blocked", "could not submit every changeset", "Fix what blocks it (above), then run gs submit again.")
+	}
+	return nil
 }
 
 // submitActivePath submits the active changeset and the changesets it is

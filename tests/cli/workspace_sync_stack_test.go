@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,4 +142,61 @@ func workspaceState(t *testing.T, workspace string) workspaceStateFile {
 		t.Fatal(err)
 	}
 	return state
+}
+
+// TestSyncMergesUpstreamChangesToTheSameFile: syncing a draft onto a head that
+// changed a file the draft also edits merges the two. Sync used to put the
+// draft's copy over the upstream change, so submitting reverted it. Edits to
+// the same lines become a conflict patchset, written with markers, that cannot
+// be submitted until a new patchset resolves it.
+func TestSyncMergesUpstreamChangesToTheSameFile(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspaceA, workspaceB := t.TempDir(), t.TempDir()
+	loginTestCLI(t, ts, home, workspaceA)
+	runCLI(t, home, workspaceA, "workspace", "init", "acme/payment")
+	lines := func(ls ...string) string { return strings.Join(ls, "\n") + "\n" }
+	const file = "acme/payment/shared.txt"
+	writeWorkspaceFile(t, workspaceA, file, lines("one", "two", "three", "four", "five", "six", "seven"))
+	runCLI(t, home, workspaceA, "create", "--message", "shared file", "--all", "--submit")
+
+	// Different lines: the sync merges them, and submitting keeps both.
+	draft := t.TempDir()
+	runCLI(t, home, draft, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, draft, file, lines("ONE", "two", "three", "four", "five", "six", "seven"))
+	runCLI(t, home, draft, "create", "--message", "draft edits line one", "--all")
+	runCLI(t, home, workspaceB, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspaceB, file, lines("one", "two", "three", "four", "five", "six", "SEVEN"))
+	runCLI(t, home, workspaceB, "create", "--message", "upstream edits line seven", "--all", "--submit")
+	runCLI(t, home, draft, "sync")
+	merged := lines("ONE", "two", "three", "four", "five", "six", "SEVEN")
+	assertWorkspaceFile(t, draft, file, merged)
+	runCLI(t, home, draft, "submit")
+	verify := t.TempDir()
+	runCLI(t, home, verify, "workspace", "init", "acme/payment")
+	assertWorkspaceFile(t, verify, file, merged)
+
+	// The same line: a conflict with markers; it cannot be submitted until a
+	// new patchset resolves it.
+	conflicted := t.TempDir()
+	runCLI(t, home, conflicted, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, conflicted, file, lines("ONE", "two", "three", "mine", "five", "six", "SEVEN"))
+	runCLI(t, home, conflicted, "create", "--message", "draft edits line four", "--all")
+	upstream := t.TempDir()
+	runCLI(t, home, upstream, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, upstream, file, lines("ONE", "two", "three", "theirs", "five", "six", "SEVEN"))
+	runCLI(t, home, upstream, "create", "--message", "upstream edits line four", "--all", "--submit")
+	if out := runCLI(t, home, conflicted, "sync"); !strings.Contains(out, "conflicts: 1 path(s)\n  /acme/payment/shared.txt") {
+		t.Fatalf("sync should name the conflict:\n%s", out)
+	}
+	assertWorkspaceFile(t, conflicted, file, lines("ONE", "two", "three", "<<<<<<< changeset", "mine", "=======", "theirs", ">>>>>>> upstream", "five", "six", "SEVEN"))
+	if out, err := runCLIResult(home, conflicted, "submit"); err == nil || !strings.Contains(err.Error(), "unresolved patchset conflicts") {
+		t.Fatalf("submitting unresolved conflicts: %v\n%s", err, out)
+	}
+	writeWorkspaceFile(t, conflicted, file, lines("ONE", "two", "three", "both", "five", "six", "SEVEN"))
+	runCLI(t, home, conflicted, "modify", "--all")
+	runCLI(t, home, conflicted, "submit")
+	final := t.TempDir()
+	runCLI(t, home, final, "workspace", "init", "acme/payment")
+	assertWorkspaceFile(t, final, file, lines("ONE", "two", "three", "both", "five", "six", "SEVEN"))
 }

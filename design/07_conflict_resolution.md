@@ -326,6 +326,33 @@ This keeps conflict resolution auditable without introducing Git's hidden
 interrupted-operation state. The durable changeset history shows both the rebase
 attempt and the user-authored resolution.
 
+## 7.3 Restacking A Dependency Tree
+
+`gs sync` of a workspace whose draft lives in a dependency tree (`gs
+create`) restacks the tree on the server (`ChangesetStackService.Restack`):
+each changeset gets a patchset on the new head (a root) or on its parent's new
+patchset. A patchset's edits are whole files, so they cannot be replayed as
+they are: a file the new base changed since the patchset's own base would be
+overwritten with the patchset's copy, and submitting it would silently revert
+the upstream change (it did, until 2026-10-15). Restack therefore compares
+each edited path's recorded base (`PathBase.entry_fingerprint`) with the new
+base:
+
+- unchanged upstream: the edit is replayed;
+- a text file both sides changed: a three-way line merge
+  (`diffutil.Merge3`, base, the patchset's version, the new base's). A clean
+  merge becomes the edit. Overlapping changes are written with conflict
+  markers (`<<<<<<< changeset`, `=======`, `>>>>>>> upstream`) and the path
+  is a conflict;
+- anything else both sides changed (binary or over 4 MiB, deleted on one side,
+  added on both, a move): a conflict that keeps the patchset's version.
+
+Conflicts make the new patchset a `conflict` patchset: it keeps every edit,
+so the workspace shows the markers, and it cannot be submitted (`unresolved
+patchset conflicts`) until a new patchset (`gs modify`) replaces it. A
+patchset's unresolved conflicts are carried through later restacks. `gs sync`
+lists the conflicted paths.
+
 ## 8. Interaction With Overlapping Slices
 
 Overlapping slices do not duplicate files. They project the same global path.

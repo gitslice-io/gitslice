@@ -228,18 +228,20 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 			if strings.TrimSpace(req.TargetBaseCommitId) == "" {
 				continue
 			}
-			refreshed, conflicted, err := s.restackUpdateOrConflict(ctx, changesetService, cs, &corev1.UpdateChangesetRequest{
+			update, err := s.rebasedUpdate(ctx, cs, current, req.TargetBaseCommitId, "", &corev1.UpdateChangesetRequest{
 				ChangesetId:               cs.Id,
 				ExpectedCurrentPatchsetId: cs.CurrentPatchsetId,
 				BaseCommitId:              req.TargetBaseCommitId,
 				BaseKind:                  "commit",
-				FileEdits:                 cloneFileEdits(current.FileEdits),
-				PatchsetKind:              current.Kind,
 			})
 			if err != nil {
 				return nil, err
 			}
-			if conflicted {
+			refreshed, conflicted, err := s.restackUpdateOrConflict(ctx, changesetService, cs, update)
+			if err != nil {
+				return nil, err
+			}
+			if conflicted || len(update.Conflicts) > 0 {
 				response.Status = "conflicts"
 			}
 			response.Entries = append(response.Entries, refreshed)
@@ -256,20 +258,22 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 		if current.BasePatchsetId == parentPatchset.Id && entry.State != "needs_restack" {
 			continue
 		}
-		refreshed, conflicted, err := s.restackUpdateOrConflict(ctx, changesetService, cs, &corev1.UpdateChangesetRequest{
+		update, err := s.rebasedUpdate(ctx, cs, current, cs.BaseCommitId, parentPatchset.ResultTreeId, &corev1.UpdateChangesetRequest{
 			ChangesetId:               cs.Id,
 			ExpectedCurrentPatchsetId: cs.CurrentPatchsetId,
 			BaseCommitId:              cs.BaseCommitId,
 			BaseKind:                  "patchset",
 			BasePatchsetId:            parentPatchset.Id,
 			ExpectedParentPatchsetId:  parentPatchset.Id,
-			FileEdits:                 cloneFileEdits(current.FileEdits),
-			PatchsetKind:              current.Kind,
 		})
 		if err != nil {
 			return nil, err
 		}
-		if conflicted {
+		refreshed, conflicted, err := s.restackUpdateOrConflict(ctx, changesetService, cs, update)
+		if err != nil {
+			return nil, err
+		}
+		if conflicted || len(update.Conflicts) > 0 {
 			response.Status = "conflicts"
 		}
 		response.Entries = append(response.Entries, refreshed)
@@ -291,6 +295,33 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 		}
 	}
 	return response, nil
+}
+
+// rebasedUpdate fills an update that moves a changeset's patchset onto a new
+// base with its edits taken there (rebaseEdits). Conflicts found, and those
+// the patchset still has unresolved, make it a conflict patchset, which
+// cannot be submitted until a new patchset resolves them.
+func (s *ChangesetStackService) rebasedUpdate(ctx context.Context, cs *corev1.Changeset, current *corev1.Patchset, newBaseCommitID, newBaseTreeID string, update *corev1.UpdateChangesetRequest) (*corev1.UpdateChangesetRequest, error) {
+	edits, conflicts, err := s.rebaseEdits(ctx, cs, current, newBaseCommitID, newBaseTreeID)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, conflict := range conflicts {
+		seen[conflict.GetPath()] = true
+	}
+	for _, unresolved := range current.GetConflicts() {
+		if unresolved != nil && !seen[unresolved.GetPath()] {
+			conflicts = append(conflicts, unresolved)
+		}
+	}
+	update.FileEdits = edits
+	update.PatchsetKind = current.Kind
+	if len(conflicts) > 0 {
+		update.Conflicts = conflicts
+		update.PatchsetKind = "conflict"
+	}
+	return update, nil
 }
 
 func (s *ChangesetStackService) restackUpdateOrConflict(ctx context.Context, changesetService ChangesetService, cs *corev1.Changeset, req *corev1.UpdateChangesetRequest) (*corev1.Changeset, bool, error) {
