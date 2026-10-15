@@ -45,6 +45,9 @@ const (
 	// RepositoryServiceReadFilesProcedure is the fully-qualified name of the RepositoryService's
 	// ReadFiles RPC.
 	RepositoryServiceReadFilesProcedure = "/gitslice.core.v1.RepositoryService/ReadFiles"
+	// RepositoryServiceCheckoutProcedure is the fully-qualified name of the RepositoryService's
+	// Checkout RPC.
+	RepositoryServiceCheckoutProcedure = "/gitslice.core.v1.RepositoryService/Checkout"
 	// RepositoryServiceGetCommitProcedure is the fully-qualified name of the RepositoryService's
 	// GetCommit RPC.
 	RepositoryServiceGetCommitProcedure = "/gitslice.core.v1.RepositoryService/GetCommit"
@@ -77,6 +80,11 @@ type RepositoryServiceClient interface {
 	// one round trip and one authorization per batch rather than per file. The
 	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
 	ReadFiles(context.Context, *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error)
+	// Checkout streams what a new workspace of a slice needs in one call: the
+	// slice and the commit (header), everything under the slice's included
+	// paths (entries), and, when asked, the content of its files (contents)
+	// (design/28_benchmarks.md).
+	Checkout(context.Context, *connect.Request[v1.CheckoutRequest]) (*connect.ServerStreamForClient[v1.CheckoutResponse], error)
 	GetCommit(context.Context, *connect.Request[v1.GetCommitRequest]) (*connect.Response[v1.Commit], error)
 	ResolveCommit(context.Context, *connect.Request[v1.ResolveCommitRequest]) (*connect.Response[v1.ResolveCommitResponse], error)
 	ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error)
@@ -121,6 +129,12 @@ func NewRepositoryServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			httpClient,
 			baseURL+RepositoryServiceReadFilesProcedure,
 			connect.WithSchema(repositoryServiceMethods.ByName("ReadFiles")),
+			connect.WithClientOptions(opts...),
+		),
+		checkout: connect.NewClient[v1.CheckoutRequest, v1.CheckoutResponse](
+			httpClient,
+			baseURL+RepositoryServiceCheckoutProcedure,
+			connect.WithSchema(repositoryServiceMethods.ByName("Checkout")),
 			connect.WithClientOptions(opts...),
 		),
 		getCommit: connect.NewClient[v1.GetCommitRequest, v1.Commit](
@@ -174,6 +188,7 @@ type repositoryServiceClient struct {
 	listDirectory             *connect.Client[v1.ListDirectoryRequest, v1.ListDirectoryResponse]
 	readFile                  *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
 	readFiles                 *connect.Client[v1.ReadFilesRequest, v1.ReadFilesResponse]
+	checkout                  *connect.Client[v1.CheckoutRequest, v1.CheckoutResponse]
 	getCommit                 *connect.Client[v1.GetCommitRequest, v1.Commit]
 	resolveCommit             *connect.Client[v1.ResolveCommitRequest, v1.ResolveCommitResponse]
 	listCommits               *connect.Client[v1.ListCommitsRequest, v1.ListCommitsResponse]
@@ -201,6 +216,11 @@ func (c *repositoryServiceClient) ReadFile(ctx context.Context, req *connect.Req
 // ReadFiles calls gitslice.core.v1.RepositoryService.ReadFiles.
 func (c *repositoryServiceClient) ReadFiles(ctx context.Context, req *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error) {
 	return c.readFiles.CallUnary(ctx, req)
+}
+
+// Checkout calls gitslice.core.v1.RepositoryService.Checkout.
+func (c *repositoryServiceClient) Checkout(ctx context.Context, req *connect.Request[v1.CheckoutRequest]) (*connect.ServerStreamForClient[v1.CheckoutResponse], error) {
+	return c.checkout.CallServerStream(ctx, req)
 }
 
 // GetCommit calls gitslice.core.v1.RepositoryService.GetCommit.
@@ -247,6 +267,11 @@ type RepositoryServiceHandler interface {
 	// one round trip and one authorization per batch rather than per file. The
 	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
 	ReadFiles(context.Context, *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error)
+	// Checkout streams what a new workspace of a slice needs in one call: the
+	// slice and the commit (header), everything under the slice's included
+	// paths (entries), and, when asked, the content of its files (contents)
+	// (design/28_benchmarks.md).
+	Checkout(context.Context, *connect.Request[v1.CheckoutRequest], *connect.ServerStream[v1.CheckoutResponse]) error
 	GetCommit(context.Context, *connect.Request[v1.GetCommitRequest]) (*connect.Response[v1.Commit], error)
 	ResolveCommit(context.Context, *connect.Request[v1.ResolveCommitRequest]) (*connect.Response[v1.ResolveCommitResponse], error)
 	ListCommits(context.Context, *connect.Request[v1.ListCommitsRequest]) (*connect.Response[v1.ListCommitsResponse], error)
@@ -287,6 +312,12 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 		RepositoryServiceReadFilesProcedure,
 		svc.ReadFiles,
 		connect.WithSchema(repositoryServiceMethods.ByName("ReadFiles")),
+		connect.WithHandlerOptions(opts...),
+	)
+	repositoryServiceCheckoutHandler := connect.NewServerStreamHandler(
+		RepositoryServiceCheckoutProcedure,
+		svc.Checkout,
+		connect.WithSchema(repositoryServiceMethods.ByName("Checkout")),
 		connect.WithHandlerOptions(opts...),
 	)
 	repositoryServiceGetCommitHandler := connect.NewUnaryHandler(
@@ -341,6 +372,8 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 			repositoryServiceReadFileHandler.ServeHTTP(w, r)
 		case RepositoryServiceReadFilesProcedure:
 			repositoryServiceReadFilesHandler.ServeHTTP(w, r)
+		case RepositoryServiceCheckoutProcedure:
+			repositoryServiceCheckoutHandler.ServeHTTP(w, r)
 		case RepositoryServiceGetCommitProcedure:
 			repositoryServiceGetCommitHandler.ServeHTTP(w, r)
 		case RepositoryServiceResolveCommitProcedure:
@@ -378,6 +411,10 @@ func (UnimplementedRepositoryServiceHandler) ReadFile(context.Context, *connect.
 
 func (UnimplementedRepositoryServiceHandler) ReadFiles(context.Context, *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.ReadFiles is not implemented"))
+}
+
+func (UnimplementedRepositoryServiceHandler) Checkout(context.Context, *connect.Request[v1.CheckoutRequest], *connect.ServerStream[v1.CheckoutResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.Checkout is not implemented"))
 }
 
 func (UnimplementedRepositoryServiceHandler) GetCommit(context.Context, *connect.Request[v1.GetCommitRequest]) (*connect.Response[v1.Commit], error) {

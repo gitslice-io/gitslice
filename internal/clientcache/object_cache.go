@@ -35,6 +35,18 @@ func (c *ObjectCache) Root() string {
 	return c.root
 }
 
+// Empty reports whether the cache holds no objects (a fresh machine or
+// sandbox), from a single directory read.
+func (c *ObjectCache) Empty() bool {
+	f, err := os.Open(filepath.Join(c.root, "objects"))
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+	names, _ := f.Readdirnames(1)
+	return len(names) == 0
+}
+
 func (c *ObjectCache) PutBytes(data []byte) (Object, error) {
 	return c.PutReader(bytes.NewReader(data))
 }

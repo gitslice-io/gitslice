@@ -4588,20 +4588,33 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err != nil {
 		return err
 	}
-	// The slice and the ref head are independent; ask for both at once.
+	// One streamed call gives the slice, the head, the listing and, into an
+	// empty cache, the files; a server without Checkout is asked in separate
+	// calls.
+	checkout, err := receiveCheckout(callCtx, conn, ref, cache)
+	if err != nil && grpcstatus.Code(err) != codes.Unimplemented {
+		return err
+	}
 	var slice *corev1.Slice
-	var refRecord *corev1.Ref
-	group, groupCtx := errgroup.WithContext(callCtx)
-	group.Go(func() (err error) {
-		slice, err = corev1.NewSliceServiceClient(conn).ResolveSlice(groupCtx, &corev1.ResolveSliceRequest{Ref: ref})
-		return err
-	})
-	group.Go(func() (err error) {
-		refRecord, err = corev1.NewRepositoryServiceClient(conn).GetRef(groupCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
-		return err
-	})
-	if err := group.Wait(); err != nil {
-		return err
+	var commitID string
+	if checkout != nil {
+		slice, commitID = checkout.slice, checkout.commitID
+	} else {
+		// The slice and the ref head are independent; ask for both at once.
+		var refRecord *corev1.Ref
+		group, groupCtx := errgroup.WithContext(callCtx)
+		group.Go(func() (err error) {
+			slice, err = corev1.NewSliceServiceClient(conn).ResolveSlice(groupCtx, &corev1.ResolveSliceRequest{Ref: ref})
+			return err
+		})
+		group.Go(func() (err error) {
+			refRecord, err = corev1.NewRepositoryServiceClient(conn).GetRef(groupCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+			return err
+		})
+		if err := group.Wait(); err != nil {
+			return err
+		}
+		commitID = refRecord.CommitId
 	}
 	workspace := WorkspaceConfig{
 		Account:        ref.Account,
@@ -4609,19 +4622,24 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 		SliceID:        slice.Id,
 		DefinitionHash: slice.DefinitionHash,
 		IncludedPaths:  slice.Definition.IncludedPaths,
-		BaseCommitID:   refRecord.CommitId,
+		BaseCommitID:   commitID,
 		ConversationID: strings.TrimSpace(opts.AgentConversationID),
 	}
 	if err := r.writeWorkspaceConfig(workspace); err != nil {
 		return err
 	}
-	if err := r.writeWorkspaceState(WorkspaceState{BaseCommitID: refRecord.CommitId}); err != nil {
+	if err := r.writeWorkspaceState(WorkspaceState{BaseCommitID: commitID}); err != nil {
 		return err
 	}
-	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: refRecord.CommitId, Files: map[string]BaseSnapshotFile{}}); err != nil {
+	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: commitID, Files: map[string]BaseSnapshotFile{}}); err != nil {
 		return err
 	}
-	hydrated, err := r.hydrateWorkspacePaths(callCtx, conn, workspace, refRecord.CommitId, workspace.IncludedPaths, cache)
+	var hydrated hydrateResult
+	if checkout != nil {
+		hydrated, err = r.hydrateListing(callCtx, conn, workspace, checkout, cache)
+	} else {
+		hydrated, err = r.hydrateWorkspacePaths(callCtx, conn, workspace, commitID, workspace.IncludedPaths, cache)
+	}
 	if err != nil {
 		return err
 	}
@@ -4629,7 +4647,7 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 		return r.writeJSONOutput(opts, map[string]any{
 			"workspace":           ref.Account + ":" + ref.Slice,
 			"slice_id":            slice.Id,
-			"base_commit_id":      refRecord.CommitId,
+			"base_commit_id":      commitID,
 			"client_object_cache": cache.Root(),
 			"hydrated":            hydrated,
 		})
@@ -11665,6 +11683,97 @@ func entryKindName(kind corev1.EntryKind) string {
 }
 
 func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn, ws WorkspaceConfig, commitID string, requested []string, cache *clientcache.ObjectCache) (hydrateResult, error) {
+	return r.hydrateWith(ctx, conn, ws, commitID, cache, func(h *workspaceHydrator) error {
+		for _, requestedPath := range requested {
+			globalPath, err := workspaceInputToGlobalPath(ws, requestedPath)
+			if err != nil {
+				return err
+			}
+			if err := h.hydratePath(ctx, globalPath); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// receivedCheckout is what a Checkout stream gave: the slice, the commit and
+// the listing; any file content it sent is in the client cache.
+type receivedCheckout struct {
+	slice    *corev1.Slice
+	commitID string
+	entries  []*corev1.TreeEntry
+	// fetched are the contents the stream brought, now in the cache.
+	fetched map[string]bool
+}
+
+// receiveCheckout reads a Checkout stream (design/28_benchmarks.md). It asks
+// for the files too only when the client cache is empty (a fresh machine or
+// sandbox): a warm cache fetches just what it lacks, afterwards. Content goes
+// into the cache, checked against its hash. A server without Checkout
+// answers Unimplemented.
+func receiveCheckout(ctx context.Context, conn *grpc.ClientConn, ref *corev1.SliceRef, cache *clientcache.ObjectCache) (*receivedCheckout, error) {
+	stream, err := corev1.NewRepositoryServiceClient(conn).Checkout(ctx, &corev1.CheckoutRequest{Slice: ref, IncludeContent: cache.Empty()}, grpc.UseCompressor(gzip.Name))
+	if err != nil {
+		return nil, err
+	}
+	out := &receivedCheckout{fetched: map[string]bool{}}
+	for {
+		msg, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch part := msg.GetPart().(type) {
+		case *corev1.CheckoutResponse_Header:
+			out.slice, out.commitID = part.Header.GetSlice(), part.Header.GetCommitId()
+		case *corev1.CheckoutResponse_Entries:
+			out.entries = append(out.entries, part.Entries.GetEntries()...)
+		case *corev1.CheckoutResponse_Contents:
+			for _, content := range part.Contents.GetContents() {
+				cached, err := cache.PutBytes(content.GetData())
+				if err != nil {
+					return nil, err
+				}
+				if cached.ContentHash != content.GetContentHash() {
+					return nil, fmt.Errorf("checkout content hash mismatch: got %s, want %s", cached.ContentHash, content.GetContentHash())
+				}
+				out.fetched[cached.ContentHash] = true
+			}
+		}
+	}
+	if out.slice == nil || out.slice.GetDefinition() == nil || out.commitID == "" {
+		return nil, fmt.Errorf("checkout stream ended without its header")
+	}
+	return out, nil
+}
+
+// hydrateListing writes the files of a listing Checkout streamed: everything
+// under the workspace's included paths.
+func (r Runner) hydrateListing(ctx context.Context, conn *grpc.ClientConn, ws WorkspaceConfig, checkout *receivedCheckout, cache *clientcache.ObjectCache) (hydrateResult, error) {
+	entries := checkout.entries
+	return r.hydrateWith(ctx, conn, ws, checkout.commitID, cache, func(h *workspaceHydrator) error {
+		h.fetched = checkout.fetched
+		for _, included := range ws.IncludedPaths {
+			prefix := strings.TrimSuffix(included, "/") + "/"
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.GetPath(), prefix) {
+					if err := h.makeDirectory(included); err != nil {
+						return err
+					}
+					break
+				}
+			}
+		}
+		return h.addListed(ctx, entries, true)
+	})
+}
+
+// hydrateWith writes the files add queues (and those it lists below them),
+// then records them in the base snapshot and the stat cache.
+func (r Runner) hydrateWith(ctx context.Context, conn *grpc.ClientConn, ws WorkspaceConfig, commitID string, cache *clientcache.ObjectCache, add func(*workspaceHydrator) error) (hydrateResult, error) {
 	base, err := r.readBaseSnapshot()
 	if err != nil {
 		return hydrateResult{}, err
@@ -11692,14 +11801,8 @@ func (r Runner) hydrateWorkspacePaths(ctx context.Context, conn *grpc.ClientConn
 		progress: startProgress(ctx, "hydrating", "files", 0),
 	}
 	defer hydrator.progress.Finish()
-	for _, requestedPath := range requested {
-		globalPath, err := workspaceInputToGlobalPath(ws, requestedPath)
-		if err != nil {
-			return hydrateResult{}, err
-		}
-		if err := hydrator.hydratePath(ctx, globalPath); err != nil {
-			return hydrateResult{}, err
-		}
+	if err := add(&hydrator); err != nil {
+		return hydrateResult{}, err
 	}
 	if err := hydrator.materialize(ctx); err != nil {
 		return hydrateResult{}, err
@@ -11733,6 +11836,9 @@ type workspaceHydrator struct {
 	pending []*corev1.TreeEntry
 	// stats are the written files' stat cache entries, by relative path.
 	stats map[string]statCacheEntry
+	// fetched are contents just downloaded into the cache (by Checkout);
+	// they count as misses, not hits (true until counted).
+	fetched map[string]bool
 	// mu guards base and result while materialize's batches write files.
 	mu sync.Mutex
 }
@@ -11858,7 +11964,14 @@ func (h *workspaceHydrator) materialize(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			h.result.CacheHits++
+			// Content Checkout just brought is a miss, once per content, as
+			// a batch counts it.
+			if first, fetched := h.fetched[entry.ContentHash]; !fetched {
+				h.result.CacheHits++
+			} else if first {
+				h.result.CacheMisses++
+				h.fetched[entry.ContentHash] = false
+			}
 			if err := h.writeFile(entry, data); err != nil {
 				return err
 			}

@@ -3,6 +3,7 @@ syntax = "proto3";
 package gitslice.core.v1;
 
 import "proto/core/v1/common.proto";
+import "proto/core/v1/slice.proto";
 
 option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
 
@@ -14,6 +15,11 @@ service RepositoryService {
   // one round trip and one authorization per batch rather than per file. The
   // files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
   rpc ReadFiles(ReadFilesRequest) returns (ReadFilesResponse);
+  // Checkout streams what a new workspace of a slice needs in one call: the
+  // slice and the commit (header), everything under the slice's included
+  // paths (entries), and, when asked, the content of its files (contents)
+  // (design/28_benchmarks.md).
+  rpc Checkout(CheckoutRequest) returns (stream CheckoutResponse);
   rpc GetCommit(GetCommitRequest) returns (Commit);
   rpc ResolveCommit(ResolveCommitRequest) returns (ResolveCommitResponse);
   rpc ListCommits(ListCommitsRequest) returns (ListCommitsResponse);
@@ -116,6 +122,38 @@ message ReadFileResponse {
   bytes data = 1;
   int64 offset = 2;
   string content_hash = 3;
+}
+message CheckoutRequest {
+  SliceRef slice = 1;
+  // The commit to check out; the head of the target ref when empty.
+  string commit_id = 2;
+  // Stream file content after the entries: files up to 4 MiB, up to a total
+  // the server sets. The client fetches whatever is not sent (ReadFiles,
+  // ReadBlobStream).
+  bool include_content = 3;
+}
+message CheckoutResponse {
+  oneof part {
+    CheckoutHeader header = 1;
+    CheckoutEntries entries = 2;
+    CheckoutContents contents = 3;
+  }
+}
+// The first message.
+message CheckoutHeader {
+  Slice slice = 1;
+  string commit_id = 2;
+}
+message CheckoutEntries {
+  repeated TreeEntry entries = 1;
+}
+message CheckoutContents {
+  repeated CheckoutContent contents = 1;
+}
+// One file's content, once per content hash however many paths share it.
+message CheckoutContent {
+  string content_hash = 1;
+  bytes data = 2;
 }
 message ReadFilesRequest {
   string commit_id = 1;

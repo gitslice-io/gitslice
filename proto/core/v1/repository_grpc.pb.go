@@ -23,6 +23,7 @@ const (
 	RepositoryService_ListDirectory_FullMethodName             = "/gitslice.core.v1.RepositoryService/ListDirectory"
 	RepositoryService_ReadFile_FullMethodName                  = "/gitslice.core.v1.RepositoryService/ReadFile"
 	RepositoryService_ReadFiles_FullMethodName                 = "/gitslice.core.v1.RepositoryService/ReadFiles"
+	RepositoryService_Checkout_FullMethodName                  = "/gitslice.core.v1.RepositoryService/Checkout"
 	RepositoryService_GetCommit_FullMethodName                 = "/gitslice.core.v1.RepositoryService/GetCommit"
 	RepositoryService_ResolveCommit_FullMethodName             = "/gitslice.core.v1.RepositoryService/ResolveCommit"
 	RepositoryService_ListCommits_FullMethodName               = "/gitslice.core.v1.RepositoryService/ListCommits"
@@ -43,6 +44,11 @@ type RepositoryServiceClient interface {
 	// one round trip and one authorization per batch rather than per file. The
 	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
 	ReadFiles(ctx context.Context, in *ReadFilesRequest, opts ...grpc.CallOption) (*ReadFilesResponse, error)
+	// Checkout streams what a new workspace of a slice needs in one call: the
+	// slice and the commit (header), everything under the slice's included
+	// paths (entries), and, when asked, the content of its files (contents)
+	// (design/28_benchmarks.md).
+	Checkout(ctx context.Context, in *CheckoutRequest, opts ...grpc.CallOption) (RepositoryService_CheckoutClient, error)
 	GetCommit(ctx context.Context, in *GetCommitRequest, opts ...grpc.CallOption) (*Commit, error)
 	ResolveCommit(ctx context.Context, in *ResolveCommitRequest, opts ...grpc.CallOption) (*ResolveCommitResponse, error)
 	ListCommits(ctx context.Context, in *ListCommitsRequest, opts ...grpc.CallOption) (*ListCommitsResponse, error)
@@ -96,6 +102,38 @@ func (c *repositoryServiceClient) ReadFiles(ctx context.Context, in *ReadFilesRe
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *repositoryServiceClient) Checkout(ctx context.Context, in *CheckoutRequest, opts ...grpc.CallOption) (RepositoryService_CheckoutClient, error) {
+	stream, err := c.cc.NewStream(ctx, &RepositoryService_ServiceDesc.Streams[0], RepositoryService_Checkout_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &repositoryServiceCheckoutClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type RepositoryService_CheckoutClient interface {
+	Recv() (*CheckoutResponse, error)
+	grpc.ClientStream
+}
+
+type repositoryServiceCheckoutClient struct {
+	grpc.ClientStream
+}
+
+func (x *repositoryServiceCheckoutClient) Recv() (*CheckoutResponse, error) {
+	m := new(CheckoutResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func (c *repositoryServiceClient) GetCommit(ctx context.Context, in *GetCommitRequest, opts ...grpc.CallOption) (*Commit, error) {
@@ -153,7 +191,7 @@ func (c *repositoryServiceClient) ImportGitRepository(ctx context.Context, in *I
 }
 
 func (c *repositoryServiceClient) ImportGitRepositoryStream(ctx context.Context, in *ImportGitRepositoryRequest, opts ...grpc.CallOption) (RepositoryService_ImportGitRepositoryStreamClient, error) {
-	stream, err := c.cc.NewStream(ctx, &RepositoryService_ServiceDesc.Streams[0], RepositoryService_ImportGitRepositoryStream_FullMethodName, opts...)
+	stream, err := c.cc.NewStream(ctx, &RepositoryService_ServiceDesc.Streams[1], RepositoryService_ImportGitRepositoryStream_FullMethodName, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -195,6 +233,11 @@ type RepositoryServiceServer interface {
 	// one round trip and one authorization per batch rather than per file. The
 	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
 	ReadFiles(context.Context, *ReadFilesRequest) (*ReadFilesResponse, error)
+	// Checkout streams what a new workspace of a slice needs in one call: the
+	// slice and the commit (header), everything under the slice's included
+	// paths (entries), and, when asked, the content of its files (contents)
+	// (design/28_benchmarks.md).
+	Checkout(*CheckoutRequest, RepositoryService_CheckoutServer) error
 	GetCommit(context.Context, *GetCommitRequest) (*Commit, error)
 	ResolveCommit(context.Context, *ResolveCommitRequest) (*ResolveCommitResponse, error)
 	ListCommits(context.Context, *ListCommitsRequest) (*ListCommitsResponse, error)
@@ -221,6 +264,9 @@ func (UnimplementedRepositoryServiceServer) ReadFile(context.Context, *ReadFileR
 }
 func (UnimplementedRepositoryServiceServer) ReadFiles(context.Context, *ReadFilesRequest) (*ReadFilesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReadFiles not implemented")
+}
+func (UnimplementedRepositoryServiceServer) Checkout(*CheckoutRequest, RepositoryService_CheckoutServer) error {
+	return status.Errorf(codes.Unimplemented, "method Checkout not implemented")
 }
 func (UnimplementedRepositoryServiceServer) GetCommit(context.Context, *GetCommitRequest) (*Commit, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCommit not implemented")
@@ -325,6 +371,27 @@ func _RepositoryService_ReadFiles_Handler(srv interface{}, ctx context.Context, 
 		return srv.(RepositoryServiceServer).ReadFiles(ctx, req.(*ReadFilesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _RepositoryService_Checkout_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(CheckoutRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(RepositoryServiceServer).Checkout(m, &repositoryServiceCheckoutServer{stream})
+}
+
+type RepositoryService_CheckoutServer interface {
+	Send(*CheckoutResponse) error
+	grpc.ServerStream
+}
+
+type repositoryServiceCheckoutServer struct {
+	grpc.ServerStream
+}
+
+func (x *repositoryServiceCheckoutServer) Send(m *CheckoutResponse) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 func _RepositoryService_GetCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -505,6 +572,11 @@ var RepositoryService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Checkout",
+			Handler:       _RepositoryService_Checkout_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "ImportGitRepositoryStream",
 			Handler:       _RepositoryService_ImportGitRepositoryStream_Handler,

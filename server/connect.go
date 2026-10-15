@@ -223,6 +223,10 @@ func (a connectRepositoryAdapter) ImportGitRepositoryStream(ctx context.Context,
 	return connectError(a.svc.ImportGitRepositoryStream(req.Msg, connectRepositoryImportStream{ctx: ctx, stream: stream}))
 }
 
+func (a connectRepositoryAdapter) Checkout(ctx context.Context, req *connect.Request[corev1.CheckoutRequest], stream *connect.ServerStream[corev1.CheckoutResponse]) error {
+	return connectError(a.svc.Checkout(req.Msg, connectRepositoryCheckoutStream{ctx: ctx, stream: stream}))
+}
+
 type connectBlobAdapter struct {
 	svc *service.BlobService
 }
@@ -507,6 +511,20 @@ func (s connectRepositoryImportStream) Context() context.Context {
 }
 
 func (s connectRepositoryImportStream) Send(msg *corev1.ImportGitRepositoryProgress) error {
+	return s.stream.Send(msg)
+}
+
+type connectRepositoryCheckoutStream struct {
+	connectGRPCServerStream
+	ctx    context.Context
+	stream *connect.ServerStream[corev1.CheckoutResponse]
+}
+
+func (s connectRepositoryCheckoutStream) Context() context.Context {
+	return s.ctx
+}
+
+func (s connectRepositoryCheckoutStream) Send(msg *corev1.CheckoutResponse) error {
 	return s.stream.Send(msg)
 }
 
