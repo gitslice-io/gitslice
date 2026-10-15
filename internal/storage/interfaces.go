@@ -161,7 +161,12 @@ func AccountRoleRank(role string) int {
 
 type BlobStore interface {
 	Upsert(ctx context.Context, blobID, contentHash string, size int64, storageLocation string) error
+	// UpsertMany is Upsert for many blobs at once.
+	UpsertMany(ctx context.Context, blobs []BlobUpsert) error
 	GetByID(ctx context.Context, blobID string) (*corev1.BlobRecord, error)
+	// GetByIDs returns the blobs with the given ids, keyed by id; ids no blob
+	// has are left out.
+	GetByIDs(ctx context.Context, blobIDs []string) (map[string]*corev1.BlobRecord, error)
 	GetByContentHash(ctx context.Context, hashes []string) ([]*corev1.BlobRecord, error)
 	AssociateSlices(ctx context.Context, sliceID string, contentHashes []string) error
 	SliceAssociations(ctx context.Context, sliceID string, contentHashes []string) (map[string]bool, error)
@@ -179,21 +184,12 @@ type BlobStore interface {
 	BlobsByGitIDs(ctx context.Context, gitBlobIDs []string) (map[string]*corev1.BlobRecord, error)
 }
 
-// BlobUpsert is one blob row for BlobBatchStore.UpsertMany.
+// BlobUpsert is one blob for BlobStore.UpsertMany.
 type BlobUpsert struct {
 	ID              string
 	ContentHash     string
 	Size            int64
 	StorageLocation string
-}
-
-// BlobBatchStore is a BlobStore that records and reads many blobs in one
-// statement. Stores without it are used a blob at a time.
-type BlobBatchStore interface {
-	UpsertMany(ctx context.Context, blobs []BlobUpsert) error
-	// GetByIDs returns the blobs with the given ids, keyed by id; ids no blob
-	// has are left out.
-	GetByIDs(ctx context.Context, blobIDs []string) (map[string]*corev1.BlobRecord, error)
 }
 
 type ChangesetStore interface {

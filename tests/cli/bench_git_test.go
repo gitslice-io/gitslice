@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -68,37 +69,12 @@ func TestBenchmarkAgainstGit(t *testing.T) {
 				return home
 			}
 			gitEnv := benchGitEnv(t)
-			// Before each timed step, let the server finish indexing in the
-			// background, flush the disk, and wait for an idle machine, so no
-			// step pays for the one before it.
 			db, err := sql.Open("pgx", databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer db.Close()
-			settle := func() {
-				t.Helper()
-				deadline := time.Now().Add(10 * time.Minute)
-				for {
-					var pending int
-					if err := db.QueryRow(`select count(*) from outbox where processed_at is null`).Scan(&pending); err != nil {
-						t.Fatal(err)
-					}
-					if pending == 0 {
-						break
-					}
-					if time.Now().After(deadline) {
-						t.Fatalf("background indexing still has %d rows pending", pending)
-					}
-					time.Sleep(50 * time.Millisecond)
-				}
-				// Flush what earlier steps wrote, so a step that syncs (git
-				// writing a pack) does not wait behind their writeback.
-				if syncPath, err := exec.LookPath("sync"); err == nil {
-					_ = exec.Command(syncPath).Run()
-				}
-				benchWaitForIdleCPU(t)
-			}
+			settle := func() { benchSettle(t, db) }
 
 			// Import: the fixture is on disk; the clock covers adding it and
 			// landing it (gs: create, upload, submit until published; git:
@@ -190,16 +166,36 @@ func TestBenchmarkAgainstGit(t *testing.T) {
 	} {
 		fmt.Fprintf(&table, "| %s | %s | %s |\n", s.label, benchMedian(samples["git/"+s.key]), benchMedian(samples["gs/"+s.key]))
 	}
-	for _, name := range slices.Sorted(func(yield func(string) bool) {
-		for name := range samples {
-			if !yield(name) {
-				return
-			}
-		}
-	}) {
+	for _, name := range slices.Sorted(maps.Keys(samples)) {
 		fmt.Fprintf(&table, "\n%s samples: %s", name, benchSamples(samples[name]))
 	}
 	t.Log("\n" + table.String())
+}
+
+// benchSettle runs before each timed step, so no step pays for the one
+// before it: it lets the server finish indexing in the background, flushes
+// what earlier steps wrote (else a step that syncs, git writing a pack, waits
+// behind their writeback), and waits for the machine to go idle.
+func benchSettle(t *testing.T, db *sql.DB) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Minute)
+	for {
+		var pending int
+		if err := db.QueryRow(`select count(*) from outbox where processed_at is null`).Scan(&pending); err != nil {
+			t.Fatal(err)
+		}
+		if pending == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background indexing still has %d rows pending", pending)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if syncPath, err := exec.LookPath("sync"); err == nil {
+		_ = exec.Command(syncPath).Run()
+	}
+	benchWaitForIdleCPU(t)
 }
 
 // benchWaitForIdleCPU waits (up to two minutes) until the machine is mostly

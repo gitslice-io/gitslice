@@ -66,35 +66,11 @@ func (s *BlobService) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStat
 }
 
 func (s *BlobService) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequest) (*corev1.UploadBlobResponse, error) {
-	subjectID, err := requireSubject(ctx)
+	stored, err := s.uploadBlobs(ctx, req.Slice, []*corev1.UploadBlobsEntry{{ContentHash: req.ContentHash, Data: req.Data}})
 	if err != nil {
 		return nil, err
 	}
-	if req.Slice == nil {
-		return nil, status.Error(codes.InvalidArgument, "slice is required")
-	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionWrite)
-	if err != nil {
-		return nil, err
-	}
-	contentHash := objectid.RawContentHash(req.Data)
-	if req.ContentHash != "" && req.ContentHash != contentHash {
-		return nil, status.Error(codes.InvalidArgument, "content hash does not match blob bytes")
-	}
-	blobID := objectid.BlobID(req.Data)
-	key := filesystem.BlobKey(contentHash)
-	if err := s.ObjectStore.Put(ctx, key, bytes.NewReader(req.Data)); err != nil {
-		return nil, grpcError(err)
-	}
-	if err := s.Blobs.Upsert(ctx, blobID, contentHash, int64(len(req.Data)), key); err != nil {
-		return nil, grpcError(err)
-	}
-	s.recordGitBlobID(ctx, contentHash, objectid.GitBlobID(req.Data))
-	if err := s.Blobs.AssociateSlices(ctx, slice.Id, []string{contentHash}); err != nil {
-		return nil, grpcError(err)
-	}
-	recordBlobUpload(int64(len(req.Data)))
-	return &corev1.UploadBlobResponse{BlobId: blobID, ContentHash: contentHash, Size: int64(len(req.Data))}, nil
+	return stored[0], nil
 }
 
 const (
@@ -103,17 +79,8 @@ const (
 	uploadBlobsWrites   = 8
 )
 
-// UploadBlobs is UploadBlob for many blobs in one call (design/28_benchmarks.md):
-// one slice authorization, concurrent object writes, and one statement each to
-// record the blobs, their Git ids and their slice.
+// UploadBlobs is UploadBlob for many blobs in one call (design/28_benchmarks.md).
 func (s *BlobService) UploadBlobs(ctx context.Context, req *corev1.UploadBlobsRequest) (*corev1.UploadBlobsResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if req.Slice == nil {
-		return nil, status.Error(codes.InvalidArgument, "slice is required")
-	}
 	if len(req.GetBlobs()) > uploadBlobsMaxBlobs {
 		return nil, status.Errorf(codes.InvalidArgument, "upload at most %d blobs per call", uploadBlobsMaxBlobs)
 	}
@@ -124,27 +91,48 @@ func (s *BlobService) UploadBlobs(ctx context.Context, req *corev1.UploadBlobsRe
 	if total > uploadBlobsMaxBytes {
 		return nil, status.Errorf(codes.ResourceExhausted, "these blobs total %d bytes, more than the %d a call may upload; use UploadBlobStream for large blobs", total, uploadBlobsMaxBytes)
 	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionWrite)
+	stored, err := s.uploadBlobs(ctx, req.Slice, req.GetBlobs())
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.UploadBlobsResponse{Blobs: stored}, nil
+}
+
+// uploadBlobs stores blobs into a slice the caller can write: one slice
+// authorization, each distinct blob written once (concurrently), and one
+// statement each to record the blobs, their Git ids and their slice.
+func (s *BlobService) uploadBlobs(ctx context.Context, sliceRef *corev1.SliceRef, blobs []*corev1.UploadBlobsEntry) ([]*corev1.UploadBlobResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if sliceRef == nil {
+		return nil, status.Error(codes.InvalidArgument, "slice is required")
+	}
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, sliceRef, authz.ActionWrite)
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]*corev1.UploadBlobResponse, len(req.GetBlobs()))
-	// Each distinct blob is written once, however often it appears.
-	firstIndex := map[string]int{}
-	rows := []storage.BlobUpsert{}
+	out := make([]*corev1.UploadBlobResponse, len(blobs))
+	data := map[string][]byte{}
+	var rows []storage.BlobUpsert
 	gitIDs := map[string]string{}
-	hashes := []string{}
-	for i, blob := range req.GetBlobs() {
+	var hashes []string
+	for i, blob := range blobs {
 		contentHash := objectid.RawContentHash(blob.GetData())
 		if blob.GetContentHash() != "" && blob.GetContentHash() != contentHash {
-			return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("content hash %s does not match the bytes of blob %d", blob.GetContentHash(), i))
+			message := "content hash does not match blob bytes"
+			if len(blobs) > 1 {
+				message = fmt.Sprintf("content hash %s does not match the bytes of blob %d", blob.GetContentHash(), i)
+			}
+			return nil, status.Error(codes.InvalidArgument, message)
 		}
 		out[i] = &corev1.UploadBlobResponse{BlobId: objectid.BlobID(blob.GetData()), ContentHash: contentHash, Size: int64(len(blob.GetData()))}
-		if _, seen := firstIndex[contentHash]; seen {
+		if _, seen := data[contentHash]; seen {
 			continue
 		}
-		firstIndex[contentHash] = i
+		data[contentHash] = blob.GetData()
 		rows = append(rows, storage.BlobUpsert{ID: out[i].BlobId, ContentHash: contentHash, Size: out[i].Size, StorageLocation: filesystem.BlobKey(contentHash)})
 		if gitID := objectid.GitBlobID(blob.GetData()); gitID != "" {
 			gitIDs[contentHash] = gitID
@@ -155,48 +143,35 @@ func (s *BlobService) UploadBlobs(ctx context.Context, req *corev1.UploadBlobsRe
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(uploadBlobsWrites)
 	for _, contentHash := range hashes {
-		data := req.GetBlobs()[firstIndex[contentHash]].GetData()
 		group.Go(func() error {
-			return s.ObjectStore.Put(groupCtx, filesystem.BlobKey(contentHash), bytes.NewReader(data))
+			return s.ObjectStore.Put(groupCtx, filesystem.BlobKey(contentHash), bytes.NewReader(data[contentHash]))
 		})
 	}
 	if err := group.Wait(); err != nil {
 		return nil, grpcError(err)
 	}
-	if batch, ok := s.Blobs.(storage.BlobBatchStore); ok {
-		if err := batch.UpsertMany(ctx, rows); err != nil {
-			return nil, grpcError(err)
-		}
-	} else {
-		for _, row := range rows {
-			if err := s.Blobs.Upsert(ctx, row.ID, row.ContentHash, row.Size, row.StorageLocation); err != nil {
-				return nil, grpcError(err)
-			}
-		}
+	if err := s.Blobs.UpsertMany(ctx, rows); err != nil {
+		return nil, grpcError(err)
 	}
-	if len(gitIDs) > 0 {
-		if err := s.Blobs.SetGitBlobIDs(ctx, gitIDs); err != nil {
-			slog.Warn("could not record blobs' git ids; the backfill will", "blobs", len(gitIDs), "error", err)
-		}
-	}
+	s.recordGitBlobIDs(ctx, gitIDs)
 	if err := s.Blobs.AssociateSlices(ctx, slice.Id, hashes); err != nil {
 		return nil, grpcError(err)
 	}
 	for _, row := range rows {
 		recordBlobUpload(row.Size)
 	}
-	return &corev1.UploadBlobsResponse{Blobs: out}, nil
+	return out, nil
 }
 
-// recordGitBlobID stores a blob's Git id. The id is metadata that can be
-// recomputed, so a failure here must not fail the upload: the backfill picks
-// the blob up later.
-func (s *BlobService) recordGitBlobID(ctx context.Context, contentHash, gitID string) {
-	if gitID == "" {
+// recordGitBlobIDs stores blobs' Git ids, keyed by content hash. The ids are
+// metadata that can be recomputed, so a failure here must not fail the
+// upload: the backfill picks the blobs up later.
+func (s *BlobService) recordGitBlobIDs(ctx context.Context, gitIDs map[string]string) {
+	if len(gitIDs) == 0 {
 		return
 	}
-	if err := s.Blobs.SetGitBlobIDs(ctx, map[string]string{contentHash: gitID}); err != nil {
-		slog.Warn("could not record a blob's git id; the backfill will", "content_hash", contentHash, "error", err)
+	if err := s.Blobs.SetGitBlobIDs(ctx, gitIDs); err != nil {
+		slog.Warn("could not record blobs' git ids; the backfill will", "blobs", len(gitIDs), "error", err)
 	}
 }
 

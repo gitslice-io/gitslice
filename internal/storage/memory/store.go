@@ -1108,6 +1108,27 @@ func (s *BlobStore) Upsert(ctx context.Context, blobID, contentHash string, size
 	return nil
 }
 
+func (s *BlobStore) UpsertMany(ctx context.Context, blobs []storage.BlobUpsert) error {
+	for _, blob := range blobs {
+		if err := s.Upsert(ctx, blob.ID, blob.ContentHash, blob.Size, blob.StorageLocation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *BlobStore) GetByIDs(ctx context.Context, blobIDs []string) (map[string]*corev1.BlobRecord, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := map[string]*corev1.BlobRecord{}
+	for _, id := range blobIDs {
+		if blob := s.b.blobs[id]; blob != nil {
+			out[id] = cloneBlob(blob)
+		}
+	}
+	return out, nil
+}
+
 func (s *BlobStore) GetByID(ctx context.Context, blobID string) (*corev1.BlobRecord, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

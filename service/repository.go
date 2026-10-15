@@ -381,14 +381,14 @@ func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRe
 }
 
 const (
-	readFilesMaxPaths   = 1000
-	readFilesMaxBytes   = 32 << 20
-	readFilesBatchReads = 16
+	readFilesMaxPaths    = 1000
+	readFilesMaxBytes    = 32 << 20
+	readFilesObjectReads = 16
 )
 
 // ReadFiles reads many files in one call (design/28_benchmarks.md): it
-// authorizes once through the slice, or once per account, then resolves the
-// entries and reads their objects concurrently.
+// authorizes once through the slice, or once per account, resolves the
+// entries in the (cached) tree, and reads their objects concurrently.
 func (s *RepositoryService) ReadFiles(ctx context.Context, req *corev1.ReadFilesRequest) (*corev1.ReadFilesResponse, error) {
 	subjectID := optionalSubject(ctx)
 	if len(req.GetPaths()) > readFilesMaxPaths {
@@ -415,8 +415,10 @@ func (s *RepositoryService) ReadFiles(ctx context.Context, req *corev1.ReadFiles
 	} else {
 		reads := pathReads{auth: s.Auth, slices: s.Slices, subjectID: subjectID}
 		for _, p := range canonical {
-			if err := reads.check(ctx, p); err != nil {
-				return nil, err
+			if account := accountSlugForRepositoryPath(p); account != "" {
+				if err := reads.check(ctx, account, p); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -431,23 +433,13 @@ func (s *RepositoryService) ReadFiles(ctx context.Context, req *corev1.ReadFiles
 		}
 	}
 	entries := make([]*storage.FileEntry, len(canonical))
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.SetLimit(readFilesBatchReads)
-	for i, p := range canonical {
-		group.Go(func() error {
-			entry, err := s.Repository.GetFileAtTree(groupCtx, rootTreeID, p)
-			if err != nil {
-				return grpcError(err)
-			}
-			entries[i] = entry
-			return nil
-		})
-	}
-	if err := group.Wait(); err != nil {
-		return nil, err
-	}
 	var total int64
-	for _, entry := range entries {
+	for i, p := range canonical {
+		entry, err := s.Repository.GetFileAtTree(ctx, rootTreeID, p)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		entries[i] = entry
 		total += entry.Size
 	}
 	if total > readFilesMaxBytes {
@@ -455,8 +447,8 @@ func (s *RepositoryService) ReadFiles(ctx context.Context, req *corev1.ReadFiles
 	}
 
 	files := make([]*corev1.ReadFilesEntry, len(entries))
-	group, groupCtx = errgroup.WithContext(ctx)
-	group.SetLimit(readFilesBatchReads)
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(readFilesObjectReads)
 	for i, entry := range entries {
 		group.Go(func() error {
 			rc, err := s.ObjectStore.Get(groupCtx, filesystem.BlobKey(entry.ContentHash), 0, 0)
@@ -478,8 +470,12 @@ func (s *RepositoryService) ReadFiles(ctx context.Context, req *corev1.ReadFiles
 	return &corev1.ReadFilesResponse{Files: files}, nil
 }
 
-// pathReads authorizes path reads for one subject as ensurePathRead does,
-// asking about each account once rather than once per path.
+// pathReads authorizes one subject's reads of paths: as a member of the
+// path's account, or, signed in, through a slice that includes the path and
+// that they can read (public, or shared with them;
+// design/26_slice_members.md). Anonymous readers of a public slice read
+// through the slice itself. It asks about each account once, however many
+// paths it checks.
 type pathReads struct {
 	auth      storage.AuthStore
 	slices    storage.SliceStore
@@ -487,11 +483,7 @@ type pathReads struct {
 	accounts  map[string]error
 }
 
-func (r *pathReads) check(ctx context.Context, p string) error {
-	account := accountSlugForRepositoryPath(p)
-	if account == "" {
-		return nil
-	}
+func (r *pathReads) check(ctx context.Context, account, p string) error {
 	if r.accounts == nil {
 		r.accounts = map[string]error{}
 	}
@@ -521,23 +513,10 @@ func (s *RepositoryService) ensureRepositoryPathRead(ctx context.Context, subjec
 	return ensurePathRead(ctx, s.Auth, s.Slices, subjectID, account, p)
 }
 
-// ensurePathRead lets the subject read path p in account: as a member of the
-// account, or, signed in, through a slice that includes p and that they can
-// read (public, or shared with them; design/26_slice_members.md). Anonymous
-// readers of a public slice read through the slice itself.
+// ensurePathRead lets the subject read path p in account (pathReads).
 func ensurePathRead(ctx context.Context, auth storage.AuthStore, sliceStore storage.SliceStore, subjectID, account, p string) error {
-	err := authorizeAccount(ctx, auth, subjectID, account, authz.ActionRead)
-	if err == nil || strings.TrimSpace(subjectID) == "" {
-		return err
-	}
-	ok, lookupErr := readableThroughSlice(ctx, auth, sliceStore, subjectID, p)
-	if lookupErr != nil {
-		return lookupErr
-	}
-	if ok {
-		return nil
-	}
-	return err
+	reads := pathReads{auth: auth, slices: sliceStore, subjectID: subjectID}
+	return reads.check(ctx, account, p)
 }
 
 func (s *RepositoryService) readableAccountPrefixes(ctx context.Context, subjectID string) ([]string, error) {

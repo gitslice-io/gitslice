@@ -752,9 +752,6 @@ func (s *Store) readSharedNode(ctx context.Context, treeID string) (Node, error)
 }
 
 func (s *Store) decodeNode(ctx context.Context, treeID string) (Node, error) {
-	if treeID == "" {
-		treeID = EmptyRootID()
-	}
 	if treeID == EmptyRootID() {
 		return Node{Version: "gitslice.tree.v1"}, nil
 	}

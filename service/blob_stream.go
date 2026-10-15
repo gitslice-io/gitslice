@@ -107,7 +107,9 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 	if err := s.Blobs.Upsert(ctx, blobID, contentHash, size, finalKey); err != nil {
 		return grpcError(err)
 	}
-	s.recordGitBlobID(ctx, contentHash, writer.GitBlobID())
+	if gitID := writer.GitBlobID(); gitID != "" {
+		s.recordGitBlobIDs(ctx, map[string]string{contentHash: gitID})
+	}
 	if err := s.Blobs.AssociateSlices(ctx, slice.Id, []string{contentHash}); err != nil {
 		return grpcError(err)
 	}

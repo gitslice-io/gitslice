@@ -11659,7 +11659,8 @@ func (h *workspaceHydrator) hydratePath(ctx context.Context, globalPath string) 
 	}
 	switch entry.Kind {
 	case corev1.EntryKind_ENTRY_KIND_FILE:
-		return h.hydrateFile(ctx, entry)
+		h.queueFile(entry)
+		return nil
 	case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
 		return h.hydrateDirectory(ctx, entry.Path)
 	default:
@@ -11685,9 +11686,7 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 		}
 		switch entry.Kind {
 		case corev1.EntryKind_ENTRY_KIND_FILE:
-			if err := h.hydrateFile(ctx, entry); err != nil {
-				return err
-			}
+			h.queueFile(entry)
 		case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
 			if err := h.hydrateDirectory(ctx, entry.Path); err != nil {
 				return err
@@ -11697,9 +11696,9 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 	return nil
 }
 
-func (h *workspaceHydrator) hydrateFile(_ context.Context, entry *corev1.TreeEntry) error {
+// queueFile adds a file for materialize to write.
+func (h *workspaceHydrator) queueFile(entry *corev1.TreeEntry) {
 	h.pending = append(h.pending, entry)
-	return nil
 }
 
 const (
@@ -12599,16 +12598,6 @@ func uploadBlobsInBatches(ctx context.Context, blobClient corev1.BlobServiceClie
 		mu.Unlock()
 		progress.Add(1)
 	}
-	uploadEach := func(job []pendingBlobUpload) error {
-		for _, blob := range job {
-			response, err := blob.uploadOne()
-			if err != nil {
-				return err
-			}
-			record(blob.hash, response)
-		}
-		return nil
-	}
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(boundedUploadConcurrency(concurrency, len(jobs)))
 	for _, job := range jobs {
@@ -12617,7 +12606,12 @@ func uploadBlobsInBatches(ctx context.Context, blobClient corev1.BlobServiceClie
 				return err
 			}
 			if len(job) == 1 && job[0].size > blobStreamThresholdBytes {
-				return uploadEach(job)
+				response, err := job[0].uploadOne()
+				if err != nil {
+					return err
+				}
+				record(job[0].hash, response)
+				return nil
 			}
 			req := &corev1.UploadBlobsRequest{Slice: sliceRef, Blobs: make([]*corev1.UploadBlobsEntry, len(job))}
 			for i, blob := range job {
