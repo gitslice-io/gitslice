@@ -4589,33 +4589,12 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 		return err
 	}
 	// One streamed call gives the slice, the head, the listing and, into an
-	// empty cache, the files; a server without Checkout is asked in separate
-	// calls.
+	// empty cache, the files.
 	checkout, err := receiveCheckout(callCtx, conn, ref, cache)
-	if err != nil && grpcstatus.Code(err) != codes.Unimplemented {
+	if err != nil {
 		return err
 	}
-	var slice *corev1.Slice
-	var commitID string
-	if checkout != nil {
-		slice, commitID = checkout.slice, checkout.commitID
-	} else {
-		// The slice and the ref head are independent; ask for both at once.
-		var refRecord *corev1.Ref
-		group, groupCtx := errgroup.WithContext(callCtx)
-		group.Go(func() (err error) {
-			slice, err = corev1.NewSliceServiceClient(conn).ResolveSlice(groupCtx, &corev1.ResolveSliceRequest{Ref: ref})
-			return err
-		})
-		group.Go(func() (err error) {
-			refRecord, err = corev1.NewRepositoryServiceClient(conn).GetRef(groupCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
-			return err
-		})
-		if err := group.Wait(); err != nil {
-			return err
-		}
-		commitID = refRecord.CommitId
-	}
+	slice, commitID := checkout.slice, checkout.commitID
 	workspace := WorkspaceConfig{
 		Account:        ref.Account,
 		Slice:          ref.Slice,
@@ -4634,12 +4613,7 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: commitID, Files: map[string]BaseSnapshotFile{}}); err != nil {
 		return err
 	}
-	var hydrated hydrateResult
-	if checkout != nil {
-		hydrated, err = r.hydrateListing(callCtx, conn, workspace, checkout, cache)
-	} else {
-		hydrated, err = r.hydrateWorkspacePaths(callCtx, conn, workspace, commitID, workspace.IncludedPaths, cache)
-	}
+	hydrated, err := r.hydrateListing(callCtx, conn, workspace, checkout, cache)
 	if err != nil {
 		return err
 	}
@@ -8014,71 +7988,6 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 		}
 	}
 	return records, err
-}
-
-func uploadBlobsConcurrently(ctx context.Context, hashes []string, concurrency int, upload func(string) (*corev1.UploadBlobResponse, error)) (map[string]*corev1.UploadBlobResponse, error) {
-	if len(hashes) == 0 {
-		return map[string]*corev1.UploadBlobResponse{}, nil
-	}
-	concurrency = boundedUploadConcurrency(concurrency, len(hashes))
-	progress := startProgress(ctx, "uploading", "files", len(hashes))
-	defer progress.Finish()
-	type result struct {
-		hash     string
-		response *corev1.UploadBlobResponse
-		err      error
-	}
-	jobs := make(chan string)
-	results := make(chan result, len(hashes))
-	var wg sync.WaitGroup
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for hash := range jobs {
-				if err := ctx.Err(); err != nil {
-					results <- result{hash: hash, err: err}
-					continue
-				}
-				response, err := upload(hash)
-				results <- result{hash: hash, response: response, err: err}
-			}
-		}()
-	}
-	go func() {
-		defer close(jobs)
-		for _, hash := range hashes {
-			select {
-			case <-ctx.Done():
-				return
-			case jobs <- hash:
-			}
-		}
-	}()
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	uploaded := make(map[string]*corev1.UploadBlobResponse, len(hashes))
-	var firstErr error
-	for result := range results {
-		progress.Add(1)
-		if result.err != nil {
-			if firstErr == nil {
-				firstErr = result.err
-			}
-			continue
-		}
-		uploaded[result.hash] = result.response
-	}
-	if firstErr != nil {
-		return uploaded, firstErr
-	}
-	if err := ctx.Err(); err != nil {
-		return uploaded, err
-	}
-	return uploaded, nil
 }
 
 func uploadLocalBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, file localUploadFile) (*corev1.UploadBlobResponse, error) {
@@ -11727,8 +11636,7 @@ type receivedCheckout struct {
 // receiveCheckout reads a Checkout stream (design/28_benchmarks.md). It asks
 // for the files too only when the client cache is empty (a fresh machine or
 // sandbox): a warm cache fetches just what it lacks, afterwards. Content goes
-// into the cache, checked against its hash. A server without Checkout
-// answers Unimplemented.
+// into the cache, checked against its hash.
 func receiveCheckout(ctx context.Context, conn *grpc.ClientConn, ref *corev1.SliceRef, cache *clientcache.ObjectCache) (*receivedCheckout, error) {
 	stream, err := corev1.NewRepositoryServiceClient(conn).Checkout(ctx, &corev1.CheckoutRequest{Slice: ref, IncludeContent: cache.Empty()}, grpc.UseCompressor(gzip.Name))
 	if err != nil {
@@ -11784,7 +11692,7 @@ func (r Runner) hydrateListing(ctx context.Context, conn *grpc.ClientConn, ws Wo
 				}
 			}
 		}
-		return h.addListed(ctx, entries, true)
+		return h.addListed(entries)
 	})
 }
 
@@ -11861,78 +11769,43 @@ type workspaceHydrator struct {
 }
 
 func (h *workspaceHydrator) hydratePath(ctx context.Context, globalPath string) error {
-	// Listing the path says what is there (a file lists as itself) and, from
-	// a server with recursive listing, everything under it, in one call.
-	entries, recursive, err := h.list(ctx, globalPath)
-	if err == nil && len(entries) > 0 {
-		if len(entries) == 1 && entries[0].Kind == corev1.EntryKind_ENTRY_KIND_FILE && entries[0].Path == globalPath {
-			h.queueFile(entries[0])
-			return nil
-		}
-		if err := h.makeDirectory(globalPath); err != nil {
-			return err
-		}
-		return h.addListed(ctx, entries, recursive)
-	}
-	// Nothing listed (an empty directory, or nothing there) or an error:
-	// resolve the path to tell which.
-	resolved, err := h.repo.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: h.commitID, Path: globalPath})
+	// One recursive listing says what is at the path (a file lists as
+	// itself) and everything under it (design/28_benchmarks.md).
+	entries, recursive, err := listDirectoryPages(ctx, h.repo, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 10000, Recursive: true})
 	if err != nil {
-		if grpcstatus.Code(err) == codes.NotFound {
-			return nil
-		}
 		return err
 	}
-	entry := resolved.Entry
-	if entry == nil {
+	if !recursive {
+		return fmt.Errorf("the server listed %s one level only; upgrade the server", globalPath)
+	}
+	if len(entries) == 1 && entries[0].Kind == corev1.EntryKind_ENTRY_KIND_FILE && entries[0].Path == globalPath {
+		h.queueFile(entries[0])
 		return nil
 	}
-	switch entry.Kind {
-	case corev1.EntryKind_ENTRY_KIND_FILE:
-		h.queueFile(entry)
-		return nil
-	case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
-		return h.hydrateDirectory(ctx, entry.Path)
-	default:
-		return fmt.Errorf("unsupported entry kind for %s", globalPath)
+	if len(entries) == 0 {
+		// An empty directory, or nothing there.
+		resolved, err := h.repo.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: h.commitID, Path: globalPath})
+		if grpcstatus.Code(err) == codes.NotFound || (err == nil && resolved.GetEntry().GetKind() != corev1.EntryKind_ENTRY_KIND_DIRECTORY) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
-}
-
-// list lists everything under a path in one listing (design/28_benchmarks.md);
-// recursive is false from a server that lists one level.
-func (h *workspaceHydrator) list(ctx context.Context, globalPath string) ([]*corev1.TreeEntry, bool, error) {
-	return listDirectoryPages(ctx, h.repo, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 10000, Recursive: true})
-}
-
-func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath string) error {
 	if err := h.makeDirectory(globalPath); err != nil {
 		return err
 	}
-	entries, recursive, err := h.list(ctx, globalPath)
-	if err != nil {
-		return err
-	}
-	return h.addListed(ctx, entries, recursive)
+	return h.addListed(entries)
 }
 
-// addListed queues a listing's files and creates its directories; each
-// directory of a one-level listing is listed in turn.
-func (h *workspaceHydrator) addListed(ctx context.Context, entries []*corev1.TreeEntry, recursive bool) error {
+// addListed queues a recursive listing's files and creates its directories.
+func (h *workspaceHydrator) addListed(entries []*corev1.TreeEntry) error {
 	for _, entry := range entries {
-		if entry == nil {
-			continue
-		}
-		switch entry.Kind {
+		switch entry.GetKind() {
 		case corev1.EntryKind_ENTRY_KIND_FILE:
 			h.queueFile(entry)
 		case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
-			if !recursive {
-				if err := h.hydrateDirectory(ctx, entry.Path); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := h.makeDirectory(entry.Path); err != nil {
+			if err := h.makeDirectory(entry.GetPath()); err != nil {
 				return err
 			}
 		}
@@ -12031,33 +11904,17 @@ func (h *workspaceHydrator) fetchBatch(ctx context.Context, hashes []string, mis
 	for i, hash := range hashes {
 		paths[i] = misses[hash][0].Path
 	}
-	data := make([][]byte, len(paths))
-	// Compressed: source shrinks several times, and only servers with
-	// ReadFiles see the call.
+	// Compressed: source shrinks several times.
 	res, err := h.repo.ReadFiles(ctx, &corev1.ReadFilesRequest{CommitId: h.commitID, Paths: paths}, grpc.UseCompressor(gzip.Name))
-	switch code := grpcstatus.Code(err); {
-	case code == codes.Unimplemented || code == codes.ResourceExhausted:
-		// A server older than ReadFiles, or a batch over its byte limit: read
-		// the files one at a time.
-		for i, p := range paths {
-			read, err := h.repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: h.commitID, Path: p})
-			if err != nil {
-				return err
-			}
-			data[i] = read.Data
-		}
-	case err != nil:
+	if err != nil {
 		return err
-	default:
-		if len(res.GetFiles()) != len(paths) {
-			return fmt.Errorf("server returned %d of %d files", len(res.GetFiles()), len(paths))
-		}
-		for i, file := range res.GetFiles() {
-			data[i] = file.GetData()
-		}
+	}
+	if len(res.GetFiles()) != len(paths) {
+		return fmt.Errorf("server returned %d of %d files", len(res.GetFiles()), len(paths))
 	}
 	for i, hash := range hashes {
-		cached, err := h.cache.PutBytes(data[i])
+		data := res.GetFiles()[i].GetData()
+		cached, err := h.cache.PutBytes(data)
 		if err != nil {
 			return err
 		}
@@ -12068,7 +11925,7 @@ func (h *workspaceHydrator) fetchBatch(ctx context.Context, hashes []string, mis
 		h.result.CacheMisses++
 		h.mu.Unlock()
 		for _, entry := range misses[hash] {
-			if err := h.writeFile(entry, data[i]); err != nil {
+			if err := h.writeFile(entry, data); err != nil {
 				return err
 			}
 		}
@@ -12803,10 +12660,11 @@ func uploadCachedBlobs(ctx context.Context, blobClient corev1.BlobServiceClient,
 	return uploadBlobsInBatches(ctx, blobClient, sliceRef, blobs, concurrency)
 }
 
-const (
-	uploadBatchBlobs = 256
-	uploadBatchBytes = 4 << 20
-)
+const uploadBatchBytes = 4 << 20
+
+// uploadBatchBlobs is how many blobs one UploadBlobs call takes at most (a
+// variable so tests can make batches small).
+var uploadBatchBlobs = 256
 
 // pendingBlobUpload is one blob for uploadBlobsInBatches: read gives a small
 // blob's bytes for a batch; uploadOne uploads it alone (large blobs, or a
@@ -12818,14 +12676,11 @@ type pendingBlobUpload struct {
 	uploadOne func() (*corev1.UploadBlobResponse, error)
 }
 
-var errBlobBatchesUnsupported = errors.New("server does not take blob batches")
-
 // uploadBlobsInBatches uploads small blobs a batch per UploadBlobs call and
 // large ones one at a time, up to concurrency calls at once, so a capture
 // does not pay a round trip and an authorization per file
-// (design/28_benchmarks.md). Against a server without UploadBlobs it uploads
-// the rest a blob per call, as before. It returns what was uploaded, and the
-// first error.
+// (design/28_benchmarks.md). It returns what was uploaded, and the first
+// error.
 func uploadBlobsInBatches(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, blobs []pendingBlobUpload, concurrency int) (map[string]*corev1.UploadBlobResponse, error) {
 	uploaded := make(map[string]*corev1.UploadBlobResponse, len(blobs))
 	if len(blobs) == 0 {
@@ -12883,9 +12738,6 @@ func uploadBlobsInBatches(ctx context.Context, blobClient corev1.BlobServiceClie
 				req.Blobs[i] = &corev1.UploadBlobsEntry{ContentHash: blob.hash, Data: data}
 			}
 			res, err := blobClient.UploadBlobs(groupCtx, req, grpc.UseCompressor(gzip.Name))
-			if grpcstatus.Code(err) == codes.Unimplemented {
-				return errBlobBatchesUnsupported
-			}
 			if err != nil {
 				return err
 			}
@@ -12898,26 +12750,7 @@ func uploadBlobsInBatches(ctx context.Context, blobClient corev1.BlobServiceClie
 			return nil
 		})
 	}
-	err := group.Wait()
-	if !errors.Is(err, errBlobBatchesUnsupported) {
-		return uploaded, err
-	}
-	progress.Finish()
-	byHash := map[string]pendingBlobUpload{}
-	var rest []string
-	for _, blob := range blobs {
-		if _, done := uploaded[blob.hash]; !done {
-			byHash[blob.hash] = blob
-			rest = append(rest, blob.hash)
-		}
-	}
-	more, err := uploadBlobsConcurrently(ctx, rest, concurrency, func(hash string) (*corev1.UploadBlobResponse, error) {
-		return byHash[hash].uploadOne()
-	})
-	for hash, response := range more {
-		uploaded[hash] = response
-	}
-	return uploaded, err
+	return uploaded, group.Wait()
 }
 
 func uploadCachedBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hash string) (*corev1.UploadBlobResponse, error) {

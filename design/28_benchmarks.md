@@ -93,9 +93,10 @@ round trip. So the client opens 4 MiB stream and 16 MiB connection windows
 (the server's upload buffers match), compresses `ReadFiles` and
 `UploadBlobs` with gzip (source shrinks about 3.5 times; 9.8 MB of
 `gitslice/gitslice` is 2.8 MB), asks for the slice and the ref head at once,
-and lists each included path without resolving it first. For comparison,
-`git clone --depth 1` of the GitHub mirror takes 1.5 s from the same
-machine.
+and lists each included path without resolving it first: 4.3 s. Checkout
+then made it one call: 2.7 s from an empty client cache, 1.7 s from a warm
+one. For comparison, `git clone --depth 1` of the GitHub mirror takes 1.5 s
+from the same machine.
 
 ## What the first run found
 
@@ -129,15 +130,18 @@ at 10,000 files. Nothing was slow by itself; everything was per file:
   authorization, concurrent object writes, and one statement each to record
   the blobs, their Git ids and their slice. Captures and `gs fs upload` send
   small blobs in batches of up to 256 blobs or 4 MiB.
-- Both clients fall back to the per-file calls when the server does not
-  implement the batch ones (`Unimplemented`), so a new CLI works with an older
-  server.
 - `ListDirectory` takes `recursive`: everything under a path inside an
   account (or inside the slice), paged by path, up to 10,000 entries a page.
   The tree store reads it a level at a time, each level's directories
-  concurrently. Checkout lists each included path once instead of once per
-  directory; a server that answers one level (`recursive` unset in the
-  response) is walked a directory at a time, as before.
+  concurrently. Hydrating a path lists it once instead of once per directory.
+- `RepositoryService.Checkout` streams what `gs init` needs in one call: the
+  slice and the head commit, everything under the slice's included paths,
+  and, when the client's object cache is empty (a fresh machine or sandbox),
+  the files' content (each distinct content once, files up to 4 MiB, 256 MiB
+  in all), gzip-compressed. A warm cache asks for the listing only and
+  fetches what it lacks with `ReadFiles`.
+- The CLI needs a server with these calls; it no longer falls back to the
+  per-file ones.
 - Changeset validation reads all edits' blobs in one query and resolves the
   base tree once, walking it for each path.
 - The tree store keeps decoded nodes (`internal/treestore/node_cache.go`): a

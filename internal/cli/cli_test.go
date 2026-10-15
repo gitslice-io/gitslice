@@ -1982,7 +1982,7 @@ func TestAttachBlobIDsUploadsSmallBlobsInBatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const files = uploadBatchBlobs + 10
+	files := uploadBatchBlobs + 10
 	edits := make([]*corev1.FileEdit, 0, files)
 	for i := 0; i < files; i++ {
 		cached, err := cache.PutBytes([]byte(fmt.Sprintf("content-%d", i)))
@@ -1991,7 +1991,7 @@ func TestAttachBlobIDsUploadsSmallBlobsInBatches(t *testing.T) {
 		}
 		edits = append(edits, &corev1.FileEdit{Op: "upsert", Path: fmt.Sprintf("/acme/payment/%d.txt", i), ContentHash: cached.ContentHash})
 	}
-	client := &fakeBlobClient{status: map[string]*corev1.BlobRecord{}, batches: true}
+	client := &fakeBlobClient{status: map[string]*corev1.BlobRecord{}}
 	if err := attachBlobIDs(context.Background(), client, &corev1.SliceRef{Account: "acme", Slice: "payment"}, cache, edits); err != nil {
 		t.Fatal(err)
 	}
@@ -2005,7 +2005,11 @@ func TestAttachBlobIDsUploadsSmallBlobsInBatches(t *testing.T) {
 	}
 }
 
+// TestAttachBlobIDsUploadsMissingHashesConcurrently: batches go up a few at
+// a time (here one blob per batch, three at once).
 func TestAttachBlobIDsUploadsMissingHashesConcurrently(t *testing.T) {
+	defer func(size int) { uploadBatchBlobs = size }(uploadBatchBlobs)
+	uploadBatchBlobs = 1
 	cache, err := clientcache.New(filepath.Join(t.TempDir(), "cache"))
 	if err != nil {
 		t.Fatal(err)
@@ -2065,11 +2069,8 @@ func TestAttachBlobIDsUploadsMissingHashesConcurrently(t *testing.T) {
 
 type fakeBlobClient struct {
 	corev1.BlobServiceClient
-	mu     sync.Mutex
-	status map[string]*corev1.BlobRecord
-	// batches makes the fake take UploadBlobs; without it the fake is a
-	// server older than UploadBlobs.
-	batches        bool
+	mu             sync.Mutex
+	status         map[string]*corev1.BlobRecord
 	batchCalls     int
 	uploads        int
 	currentUploads int
@@ -2596,14 +2597,33 @@ func (f *fakeBlobClient) GetBlobStatus(ctx context.Context, req *corev1.GetBlobS
 
 func (f *fakeBlobClient) UploadBlobs(ctx context.Context, req *corev1.UploadBlobsRequest, opts ...grpc.CallOption) (*corev1.UploadBlobsResponse, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.batches {
-		return nil, status.Error(codes.Unimplemented, "unknown method UploadBlobs")
-	}
 	f.batchCalls++
+	f.uploads += len(req.Blobs)
+	f.currentUploads++
+	if f.currentUploads > f.maximumUploads {
+		f.maximumUploads = f.currentUploads
+	}
+	started := f.uploadStarted
+	release := f.uploadRelease
+	f.mu.Unlock()
+	if started != nil {
+		started <- struct{}{}
+	}
+	if release != nil {
+		select {
+		case <-ctx.Done():
+			f.mu.Lock()
+			f.currentUploads--
+			f.mu.Unlock()
+			return nil, ctx.Err()
+		case <-release:
+		}
+	}
+	f.mu.Lock()
+	f.currentUploads--
+	f.mu.Unlock()
 	out := &corev1.UploadBlobsResponse{}
 	for _, blob := range req.Blobs {
-		f.uploads++
 		out.Blobs = append(out.Blobs, &corev1.UploadBlobResponse{BlobId: objectid.BlobID(blob.Data), ContentHash: objectid.RawContentHash(blob.Data), Size: int64(len(blob.Data))})
 	}
 	return out, nil
