@@ -1190,12 +1190,8 @@ func (s *RepositoryStore) getFileFromMaterializedHead(ctx context.Context, targe
 	if !ok || lookupPath == "/" {
 		return nil, false, nil
 	}
-	head, ok, err := s.materializedHeadCommit(ctx, targetRef)
-	if err != nil || !ok || head != commitID {
-		return nil, false, nil
-	}
-	entry, ok, err := s.materializedPathEntry(ctx, targetRef, lookupPath)
-	if err != nil {
+	entry, ok, handled, err := s.materializedPathEntryAt(ctx, targetRef, commitID, lookupPath)
+	if err != nil || !handled {
 		return nil, false, nil
 	}
 	if !ok || entry.Kind != "file" {
@@ -1221,12 +1217,8 @@ func (s *RepositoryStore) getEntryFromMaterializedHead(ctx context.Context, targ
 	if !ok || lookupPath == "/" {
 		return nil, false, nil
 	}
-	head, ok, err := s.materializedHeadCommit(ctx, targetRef)
-	if err != nil || !ok || head != commitID {
-		return nil, false, nil
-	}
-	entry, ok, err := s.materializedPathEntry(ctx, targetRef, lookupPath)
-	if err != nil || !ok {
+	entry, ok, handled, err := s.materializedPathEntryAt(ctx, targetRef, commitID, lookupPath)
+	if err != nil || !handled || !ok {
 		return nil, false, nil
 	}
 	if entry.Kind != "file" {
@@ -1246,25 +1238,38 @@ func (s *RepositoryStore) getEntryFromMaterializedHead(ctx context.Context, targ
 	}, true, nil
 }
 
-func (s *RepositoryStore) materializedPathEntry(ctx context.Context, targetRef, p string) (materializedPathEntry, bool, error) {
+// materializedPathEntryAt reads p from the flat index (current_path_entities)
+// when the index reflects commitID; handled is false when it does not. The
+// marker and the entry are read in one statement, so one snapshot: read
+// separately, a commit published between the two reads could be served as
+// commitID's.
+func (s *RepositoryStore) materializedPathEntryAt(ctx context.Context, targetRef, commitID, p string) (entry materializedPathEntry, found, handled bool, err error) {
 	if targetRef == "" {
 		targetRef = DefaultTargetRef
 	}
-	var entry materializedPathEntry
-	var contentHash, blobID sql.NullString
+	var markerCommitID string
+	var entryPath, kind, contentHash, blobID sql.NullString
 	var mode, size sql.NullInt64
-	err := s.db.QueryRowContext(ctx, `
-		select cpe.path, cpe.kind, cpe.content_hash, cpe.mode, b.id, b.size
-		from current_path_entities cpe
+	err = s.db.QueryRowContext(ctx, `
+		select h.commit_id, cpe.path, cpe.kind, cpe.content_hash, cpe.mode, b.id, b.size
+		from ref_materialized_heads h
+		left join current_path_entities cpe on cpe.target_ref = h.target_ref and cpe.path = $2
 		left join blobs b on b.content_hash = cpe.content_hash
-		where cpe.target_ref = $1 and cpe.path = $2
-	`, targetRef, p).Scan(&entry.Path, &entry.Kind, &contentHash, &mode, &blobID, &size)
+		where h.target_ref = $1
+	`, targetRef, p).Scan(&markerCommitID, &entryPath, &kind, &contentHash, &mode, &blobID, &size)
 	if errors.Is(err, sql.ErrNoRows) {
-		return materializedPathEntry{}, false, nil
+		return materializedPathEntry{}, false, false, nil
 	}
 	if err != nil {
-		return materializedPathEntry{}, false, err
+		return materializedPathEntry{}, false, false, err
 	}
+	if markerCommitID != commitID {
+		return materializedPathEntry{}, false, false, nil
+	}
+	if !entryPath.Valid {
+		return materializedPathEntry{}, false, true, nil
+	}
+	entry.Path, entry.Kind = entryPath.String, kind.String
 	entry.ContentHash = contentHash.String
 	if mode.Valid && mode.Int64 > 0 {
 		entry.Mode = uint32(mode.Int64)
@@ -1274,7 +1279,7 @@ func (s *RepositoryStore) materializedPathEntry(ctx context.Context, targetRef, 
 		entry.Size = size.Int64
 		entry.BlobOK = true
 	}
-	return entry, true, nil
+	return entry, true, true, nil
 }
 
 func (entry materializedPathEntry) completeFile() bool {

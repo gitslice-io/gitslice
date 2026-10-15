@@ -85,9 +85,17 @@ The benchmark has no network, so it cannot show round trips. Checking out
 `gitslice/gitslice` (779 files) from gitslice.io, from a cold client cache,
 took 455 s with v0.4.6 and 61.5 s once file reads and uploads were batched:
 the rest was listing, 110 `ListDirectory` calls one after another, each a
-round trip plus a cold tree read. Recursive listing removes those; for
-comparison, `git clone --depth 1` of the GitHub mirror takes 1.5 s from the
-same machine.
+round trip plus a cold tree read. Recursive listing removes those (61.5 s to
+8 s). What remained was the network: from that machine (about 200 ms from
+the API) each call costs a round trip, and with gRPC's default 64 KiB
+HTTP/2 window a large response (the listing, the files) arrived 64 KiB per
+round trip. So the client opens 4 MiB stream and 16 MiB connection windows
+(the server's upload buffers match), compresses `ReadFiles` and
+`UploadBlobs` with gzip (source shrinks about 3.5 times; 9.8 MB of
+`gitslice/gitslice` is 2.8 MB), asks for the slice and the ref head at once,
+and lists each included path without resolving it first. For comparison,
+`git clone --depth 1` of the GitHub mirror takes 1.5 s from the same
+machine.
 
 ## What the first run found
 

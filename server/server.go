@@ -33,6 +33,9 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	// Registers gzip, so clients can compress batch calls (ReadFiles,
+	// UploadBlobs) and their responses.
+	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/health"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -335,7 +338,12 @@ func NewCombinedGRPCGatewayHandler(grpcServer *grpc.Server, gateway http.Handler
 			return
 		}
 		gateway.ServeHTTP(w, r)
-	}), &http2.Server{})
+	}), &http2.Server{
+		// Receive windows for uploads (UploadBlobs, blob streams); the
+		// defaults (1 MiB) cap a batch upload at a window per round trip.
+		MaxUploadBufferPerStream:     4 << 20,
+		MaxUploadBufferPerConnection: 16 << 20,
+	})
 }
 
 // subjectResolver maps a verified bearer token to an internal subject ID. It

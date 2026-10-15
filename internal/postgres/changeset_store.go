@@ -4025,33 +4025,19 @@ func (s *ChangesetStore) initialAcceptedPathHeadsTx(ctx context.Context, tx *sql
 	if targetRef == "" {
 		targetRef = DefaultTargetRef
 	}
-	materializedCommitID, ok, err := materializedHeadCommitTx(ctx, tx, targetRef)
-	if err != nil {
-		return nil, err
-	}
-	if ok && materializedCommitID == currentCommitID {
-		return s.initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx, tx, targetRef, currentCommitID, paths)
+	heads, handled, err := s.initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx, tx, targetRef, currentCommitID, paths)
+	if err != nil || handled {
+		return heads, err
 	}
 	return s.initialAcceptedPathHeadsFromTreeTx(ctx, tx, currentCommitID, paths)
 }
 
-func materializedHeadCommitTx(ctx context.Context, tx *sql.Tx, targetRef string) (string, bool, error) {
-	var commitID string
-	err := tx.QueryRowContext(ctx, `
-		select commit_id
-		from ref_materialized_heads
-		where target_ref = $1
-	`, targetRef).Scan(&commitID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return commitID, true, nil
-}
-
-func (s *ChangesetStore) initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx context.Context, tx *sql.Tx, targetRef, currentCommitID string, paths []string) ([]PathHead, error) {
+// initialAcceptedPathHeadsFromCurrentEntitiesTx reads the paths' heads from
+// the flat index when it reflects currentCommitID; handled is false when it
+// does not. The marker and the entries are read in one statement, so one
+// snapshot (the transaction is read committed): read separately, entries of a
+// commit published between the two reads could be taken as currentCommitID's.
+func (s *ChangesetStore) initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx context.Context, tx *sql.Tx, targetRef, currentCommitID string, paths []string) ([]PathHead, bool, error) {
 	type currentHeadRow struct {
 		path        string
 		kind        string
@@ -4061,29 +4047,41 @@ func (s *ChangesetStore) initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx conte
 		size        int64
 	}
 	rows, err := tx.QueryContext(ctx, `
-		select cpe.path,
-		       cpe.kind,
+		select h.commit_id,
+		       cpe.path,
+		       coalesce(cpe.kind, ''),
 		       coalesce(cpe.content_hash, ''),
 		       coalesce(cpe.mode, 0),
 		       coalesce(b.id, ''),
 		       coalesce(b.size, 0)
-		from current_path_entities cpe
+		from ref_materialized_heads h
+		left join current_path_entities cpe on cpe.target_ref = h.target_ref and cpe.path = any($2)
 		left join blobs b on b.content_hash = cpe.content_hash
-		where cpe.target_ref = $1
-		  and cpe.path = any($2)
+		where h.target_ref = $1
 	`, targetRef, paths)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
+	marked := false
 	found := make(map[string]struct{}, len(paths))
 	fallbackPaths := make([]string, 0)
 	heads := make([]PathHead, 0, len(paths))
 	for rows.Next() {
 		var row currentHeadRow
-		if err := rows.Scan(&row.path, &row.kind, &row.contentHash, &row.mode, &row.blobID, &row.size); err != nil {
-			return nil, err
+		var markerCommitID string
+		var entryPath sql.NullString
+		if err := rows.Scan(&markerCommitID, &entryPath, &row.kind, &row.contentHash, &row.mode, &row.blobID, &row.size); err != nil {
+			return nil, false, err
 		}
+		if markerCommitID != currentCommitID {
+			return nil, false, nil
+		}
+		marked = true
+		if !entryPath.Valid {
+			continue
+		}
+		row.path = entryPath.String
 		found[row.path] = struct{}{}
 		if row.kind != "file" || row.contentHash == "" || row.blobID == "" || row.mode <= 0 {
 			fallbackPaths = append(fallbackPaths, row.path)
@@ -4098,7 +4096,10 @@ func (s *ChangesetStore) initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx conte
 		}))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if !marked {
+		return nil, false, nil
 	}
 	for _, p := range paths {
 		if _, ok := found[p]; ok {
@@ -4113,11 +4114,11 @@ func (s *ChangesetStore) initialAcceptedPathHeadsFromCurrentEntitiesTx(ctx conte
 	if len(fallbackPaths) > 0 {
 		fallbackHeads, err := s.initialAcceptedPathHeadsFromTreeTx(ctx, tx, currentCommitID, fallbackPaths)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		heads = append(heads, fallbackHeads...)
 	}
-	return heads, nil
+	return heads, true, nil
 }
 
 func (s *ChangesetStore) initialAcceptedPathHeadsFromTreeTx(ctx context.Context, tx *sql.Tx, currentCommitID string, paths []string) ([]PathHead, error) {

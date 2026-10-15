@@ -50,6 +50,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	grpcstatus "google.golang.org/grpc/status"
@@ -4551,12 +4552,19 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err != nil {
 		return err
 	}
-	slice, err := corev1.NewSliceServiceClient(conn).ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
-	if err != nil {
+	// The slice and the ref head are independent; ask for both at once.
+	var slice *corev1.Slice
+	var refRecord *corev1.Ref
+	group, groupCtx := errgroup.WithContext(callCtx)
+	group.Go(func() (err error) {
+		slice, err = corev1.NewSliceServiceClient(conn).ResolveSlice(groupCtx, &corev1.ResolveSliceRequest{Ref: ref})
 		return err
-	}
-	refRecord, err := corev1.NewRepositoryServiceClient(conn).GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
-	if err != nil {
+	})
+	group.Go(func() (err error) {
+		refRecord, err = corev1.NewRepositoryServiceClient(conn).GetRef(groupCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+		return err
+	})
+	if err := group.Wait(); err != nil {
 		return err
 	}
 	workspace := WorkspaceConfig{
@@ -11657,6 +11665,21 @@ type workspaceHydrator struct {
 }
 
 func (h *workspaceHydrator) hydratePath(ctx context.Context, globalPath string) error {
+	// Listing the path says what is there (a file lists as itself) and, from
+	// a server with recursive listing, everything under it, in one call.
+	entries, recursive, err := h.list(ctx, globalPath)
+	if err == nil && len(entries) > 0 {
+		if len(entries) == 1 && entries[0].Kind == corev1.EntryKind_ENTRY_KIND_FILE && entries[0].Path == globalPath {
+			h.queueFile(entries[0])
+			return nil
+		}
+		if err := h.makeDirectory(globalPath); err != nil {
+			return err
+		}
+		return h.addListed(ctx, entries, recursive)
+	}
+	// Nothing listed (an empty directory, or nothing there) or an error:
+	// resolve the path to tell which.
 	resolved, err := h.repo.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: h.commitID, Path: globalPath})
 	if err != nil {
 		if grpcstatus.Code(err) == codes.NotFound {
@@ -11679,21 +11702,26 @@ func (h *workspaceHydrator) hydratePath(ctx context.Context, globalPath string) 
 	}
 }
 
+// list lists everything under a path in one listing (design/28_benchmarks.md);
+// recursive is false from a server that lists one level.
+func (h *workspaceHydrator) list(ctx context.Context, globalPath string) ([]*corev1.TreeEntry, bool, error) {
+	return listDirectoryPages(ctx, h.repo, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 10000, Recursive: true})
+}
+
 func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath string) error {
-	rel, err := workspaceRelPath(h.ws, globalPath)
+	if err := h.makeDirectory(globalPath); err != nil {
+		return err
+	}
+	entries, recursive, err := h.list(ctx, globalPath)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(rel)), 0o755); err != nil {
-		return err
-	}
-	// One listing of everything under the directory, rather than a call per
-	// directory (design/28_benchmarks.md); a server that lists one level is
-	// walked a directory at a time.
-	entries, recursive, err := listDirectoryPages(ctx, h.repo, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 10000, Recursive: true})
-	if err != nil {
-		return err
-	}
+	return h.addListed(ctx, entries, recursive)
+}
+
+// addListed queues a listing's files and creates its directories; each
+// directory of a one-level listing is listed in turn.
+func (h *workspaceHydrator) addListed(ctx context.Context, entries []*corev1.TreeEntry, recursive bool) error {
 	for _, entry := range entries {
 		if entry == nil {
 			continue
@@ -11708,16 +11736,20 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 				}
 				continue
 			}
-			dirRel, err := workspaceRelPath(h.ws, entry.Path)
-			if err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(dirRel)), 0o755); err != nil {
+			if err := h.makeDirectory(entry.Path); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func (h *workspaceHydrator) makeDirectory(globalPath string) error {
+	rel, err := workspaceRelPath(h.ws, globalPath)
+	if err != nil {
+		return err
+	}
+	return os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(rel)), 0o755)
 }
 
 // queueFile adds a file for materialize to write.
@@ -11797,7 +11829,9 @@ func (h *workspaceHydrator) fetchBatch(ctx context.Context, hashes []string, mis
 		paths[i] = misses[hash][0].Path
 	}
 	data := make([][]byte, len(paths))
-	res, err := h.repo.ReadFiles(ctx, &corev1.ReadFilesRequest{CommitId: h.commitID, Paths: paths})
+	// Compressed: source shrinks several times, and only servers with
+	// ReadFiles see the call.
+	res, err := h.repo.ReadFiles(ctx, &corev1.ReadFilesRequest{CommitId: h.commitID, Paths: paths}, grpc.UseCompressor(gzip.Name))
 	switch code := grpcstatus.Code(err); {
 	case code == codes.Unimplemented || code == codes.ResourceExhausted:
 		// A server older than ReadFiles, or a batch over its byte limit: read
@@ -12645,7 +12679,7 @@ func uploadBlobsInBatches(ctx context.Context, blobClient corev1.BlobServiceClie
 				}
 				req.Blobs[i] = &corev1.UploadBlobsEntry{ContentHash: blob.hash, Data: data}
 			}
-			res, err := blobClient.UploadBlobs(groupCtx, req)
+			res, err := blobClient.UploadBlobs(groupCtx, req, grpc.UseCompressor(gzip.Name))
 			if grpcstatus.Code(err) == codes.Unimplemented {
 				return errBlobBatchesUnsupported
 			}
@@ -13833,6 +13867,11 @@ func dialAgentStream(ctx context.Context, addr string) (*grpc.ClientConn, error)
 	}))
 }
 
+const (
+	clientStreamWindow = 4 << 20
+	clientConnWindow   = 16 << 20
+)
+
 func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.DialOption) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -13851,6 +13890,11 @@ func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.Dial
 			grpc.MaxCallRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 			grpc.MaxCallSendMsgSize(rpclimits.MaxUnaryMessageBytes),
 		),
+		// HTTP/2 flow-control windows large enough that a big response
+		// (a checkout's listing and files) streams at the link's speed
+		// rather than 64 KiB per round trip.
+		grpc.WithInitialWindowSize(clientStreamWindow),
+		grpc.WithInitialConnWindowSize(clientConnWindow),
 		grpc.WithBlock(),
 	}
 	options = append(options, extraOptions...)
