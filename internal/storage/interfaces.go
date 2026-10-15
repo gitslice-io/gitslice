@@ -266,6 +266,9 @@ type RepositoryStore interface {
 	GetFileAtTree(ctx context.Context, rootTreeID, p string) (*FileEntry, error)
 	GetEntryAtTree(ctx context.Context, rootTreeID, p string) (*TreeEntry, error)
 	ListDirectoryAtTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error)
+	// ListTreeAtTree lists everything under p, files and directories, sorted
+	// by path.
+	ListTreeAtTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error)
 	GetOrCreateGitImport(ctx context.Context, subjectID, source, mountPath string, sliceRef *corev1.SliceRef, sliceID, targetRef, mode string, totalCommits int) (*GitImportRecord, error)
 	GetGitImport(ctx context.Context, source, mountPath, sliceID, targetRef, mode string) (*GitImportRecord, error)
 	ListGitImportCommits(ctx context.Context, importID string) ([]GitImportedCommitRecord, error)

@@ -1119,6 +1119,21 @@ func (s *RepositoryStore) ListDirectoryAtTree(ctx context.Context, rootTreeID, p
 	return s.listDirectoryFromTree(ctx, rootTreeID, p)
 }
 
+func (s *RepositoryStore) ListTreeAtTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error) {
+	if s.trees == nil {
+		return nil, fmt.Errorf("tree store is not configured")
+	}
+	entries, err := s.trees.ListTree(ctx, rootTreeID, p)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TreeEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, treeEntryFromTree(entry))
+	}
+	return out, nil
+}
+
 func (s *RepositoryStore) GetEntry(ctx context.Context, commitID, p string) (*TreeEntry, error) {
 	if entry, handled, err := s.getEntryFromMaterializedHead(ctx, DefaultTargetRef, commitID, p); handled {
 		return entry, err

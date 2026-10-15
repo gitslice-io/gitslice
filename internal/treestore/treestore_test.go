@@ -416,3 +416,41 @@ func walkTreeKeysFromBase(t *testing.T, objects *memoryObjectStore, rootTreeID s
 	walk(rootTreeID)
 	return keys
 }
+
+func TestListTreeListsEverythingUnderAPath(t *testing.T) {
+	ctx := context.Background()
+	store := New(newMemoryObjectStore())
+	var edits []FileEdit
+	for _, p := range []string{"/acme/a.txt", "/acme/src/b.go", "/acme/src/deep/c.go", "/other/d.txt"} {
+		edits = append(edits, FileEdit{Op: "upsert", Path: p, File: &FileEntry{Path: p, BlobID: "blob", ContentHash: "sha256:" + p, Mode: 0o100644, Size: 1}})
+	}
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), edits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := func(p string) []string {
+		t.Helper()
+		entries, err := store.ListTree(ctx, root, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			out = append(out, entry.Kind+" "+entry.Path)
+		}
+		return out
+	}
+	want := []string{"file /acme/a.txt", "directory /acme/src", "file /acme/src/b.go", "directory /acme/src/deep", "file /acme/src/deep/c.go"}
+	if got := list("/acme"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListTree(/acme) = %v, want %v", got, want)
+	}
+	if got := list("/"); len(got) != 8 || got[0] != "directory /acme" || got[7] != "file /other/d.txt" {
+		t.Fatalf("ListTree(/) = %v", got)
+	}
+	if got := list("/acme/src/b.go"); !reflect.DeepEqual(got, []string{"file /acme/src/b.go"}) {
+		t.Fatalf("ListTree of a file = %v", got)
+	}
+	if got := list("/missing"); len(got) != 0 {
+		t.Fatalf("ListTree of a missing path = %v", got)
+	}
+}

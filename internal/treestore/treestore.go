@@ -255,6 +255,74 @@ func (s *Store) ListDirectory(ctx context.Context, rootTreeID, p string) ([]Tree
 	return out, nil
 }
 
+const treeListConcurrency = 16
+
+// ListTree lists everything under p, files and directories, sorted by path.
+// It reads the tree a level at a time, each level's directories
+// concurrently, so a cold listing costs about the tree's depth in object
+// reads rather than its number of directories.
+func (s *Store) ListTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error) {
+	parts, err := splitPath(p)
+	if err != nil {
+		return nil, err
+	}
+	type dir struct{ treeID, path string }
+	level := []dir{{treeID: rootTreeID, path: ""}}
+	if len(parts) > 0 {
+		entry, err := s.entryAt(ctx, rootTreeID, parts)
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		fullPath := "/" + strings.Join(parts, "/")
+		switch entry.Kind {
+		case "file":
+			return []TreeEntry{treeEntryFromNodeEntry(fullPath, entry)}, nil
+		case "directory":
+			level = []dir{{treeID: entry.TreeID, path: fullPath}}
+		default:
+			return nil, nil
+		}
+	}
+	var mu sync.Mutex
+	var out []TreeEntry
+	for len(level) > 0 {
+		var next []dir
+		group, groupCtx := errgroup.WithContext(ctx)
+		group.SetLimit(treeListConcurrency)
+		for _, d := range level {
+			group.Go(func() error {
+				node, err := s.readSharedNode(groupCtx, d.treeID)
+				if err != nil {
+					return err
+				}
+				entries := make([]TreeEntry, 0, len(node.Entries))
+				var children []dir
+				for _, entry := range node.Entries {
+					childPath := d.path + "/" + entry.Name
+					entries = append(entries, treeEntryFromNodeEntry(childPath, entry))
+					if entry.Kind == "directory" {
+						children = append(children, dir{treeID: entry.TreeID, path: childPath})
+					}
+				}
+				mu.Lock()
+				out = append(out, entries...)
+				next = append(next, children...)
+				mu.Unlock()
+				return nil
+			})
+		}
+		if err := group.Wait(); err != nil {
+			return nil, err
+		}
+		level = next
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
+}
+
 func (s *Store) ListFiles(ctx context.Context, rootTreeID, prefix string) ([]FileEntry, error) {
 	parts, err := splitPath(prefix)
 	if err != nil {

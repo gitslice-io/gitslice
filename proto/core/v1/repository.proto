@@ -84,11 +84,19 @@ message ListDirectoryRequest {
   // Optional immutable tree root. When set, the read resolves against this tree
   // instead of commit_id. This is used for patchset preview trees.
   string root_tree_id = 6;
+  // List everything under path, files and directories, in path order and
+  // paged by path, rather than its direct entries. Honored for paths inside
+  // an account (and, with slice, inside the slice); the response says
+  // whether it was.
+  bool recursive = 7;
 }
 
 message ListDirectoryResponse {
   repeated TreeEntry entries = 1;
   string next_cursor = 2;
+  // The listing is recursive. Servers older than recursive listing leave it
+  // unset and list one level.
+  bool recursive = 3;
 }
 
 message ReadFileRequest {

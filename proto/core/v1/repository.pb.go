@@ -406,7 +406,12 @@ type ListDirectoryRequest struct {
 	Slice *SliceRef `protobuf:"bytes,5,opt,name=slice,proto3" json:"slice,omitempty"`
 	// Optional immutable tree root. When set, the read resolves against this tree
 	// instead of commit_id. This is used for patchset preview trees.
-	RootTreeId    string `protobuf:"bytes,6,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
+	RootTreeId string `protobuf:"bytes,6,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
+	// List everything under path, files and directories, in path order and
+	// paged by path, rather than its direct entries. Honored for paths inside
+	// an account (and, with slice, inside the slice); the response says
+	// whether it was.
+	Recursive     bool `protobuf:"varint,7,opt,name=recursive,proto3" json:"recursive,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -483,10 +488,20 @@ func (x *ListDirectoryRequest) GetRootTreeId() string {
 	return ""
 }
 
+func (x *ListDirectoryRequest) GetRecursive() bool {
+	if x != nil {
+		return x.Recursive
+	}
+	return false
+}
+
 type ListDirectoryResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Entries       []*TreeEntry           `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
-	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Entries    []*TreeEntry           `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	NextCursor string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	// The listing is recursive. Servers older than recursive listing leave it
+	// unset and list one level.
+	Recursive     bool `protobuf:"varint,3,opt,name=recursive,proto3" json:"recursive,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -533,6 +548,13 @@ func (x *ListDirectoryResponse) GetNextCursor() string {
 		return x.NextCursor
 	}
 	return ""
+}
+
+func (x *ListDirectoryResponse) GetRecursive() bool {
+	if x != nil {
+		return x.Recursive
+	}
+	return false
 }
 
 type ReadFileRequest struct {
@@ -1820,7 +1842,7 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"rootTreeId\x120\n" +
 	"\x05slice\x18\x04 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"H\n" +
 	"\x13ResolvePathResponse\x121\n" +
-	"\x05entry\x18\x01 \x01(\v2\x1b.gitslice.core.v1.TreeEntryR\x05entry\"\xd0\x01\n" +
+	"\x05entry\x18\x01 \x01(\v2\x1b.gitslice.core.v1.TreeEntryR\x05entry\"\xee\x01\n" +
 	"\x14ListDirectoryRequest\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x16\n" +
@@ -1828,11 +1850,13 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\x120\n" +
 	"\x05slice\x18\x05 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12 \n" +
 	"\froot_tree_id\x18\x06 \x01(\tR\n" +
-	"rootTreeId\"o\n" +
+	"rootTreeId\x12\x1c\n" +
+	"\trecursive\x18\a \x01(\bR\trecursive\"\x8d\x01\n" +
 	"\x15ListDirectoryResponse\x125\n" +
 	"\aentries\x18\x01 \x03(\v2\x1b.gitslice.core.v1.TreeEntryR\aentries\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\"\xc6\x01\n" +
+	"nextCursor\x12\x1c\n" +
+	"\trecursive\x18\x03 \x01(\bR\trecursive\"\xc6\x01\n" +
 	"\x0fReadFileRequest\x12\x1b\n" +
 	"\tcommit_id\x18\x01 \x01(\tR\bcommitId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x16\n" +

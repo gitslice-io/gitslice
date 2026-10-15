@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1569,6 +1570,52 @@ func TestRepositoryListDirectoryPaginationUsesCursor(t *testing.T) {
 	}
 	if first.Entries[0].Name != "file_00.txt" || third.Entries[0].Name != "file_06.txt" {
 		t.Fatalf("unexpected page ordering: first=%#v third=%#v", first.Entries, third.Entries)
+	}
+}
+
+// TestRepositoryListDirectoryRecursive: a recursive listing returns
+// everything under the path in path order, paged by path, and says so; the
+// root is listed a level at a time.
+func TestRepositoryListDirectoryRecursive(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	data := []byte("tree\n")
+	hash := objectid.RawContentHash(data)
+	var files []storage.FileEntry
+	for _, p := range []string{"/acme/tree/a.txt", "/acme/tree/src/b.go", "/acme/tree/src/deep/c.go"} {
+		files = append(files, storage.FileEntry{Path: p, BlobID: objectid.BlobID(data), ContentHash: hash, Mode: 0o100644, Size: int64(len(data))})
+	}
+	mem.PutCommitWithFiles("commit_tree", files, nil)
+
+	var got []string
+	cursor := ""
+	for page := 0; ; page++ {
+		res, err := handlers.Repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: "commit_tree", Path: "/acme/tree", PageSize: 2, Cursor: cursor, Recursive: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !res.Recursive {
+			t.Fatalf("page %d is not marked recursive", page)
+		}
+		for _, entry := range res.Entries {
+			got = append(got, entry.Path)
+		}
+		if res.NextCursor == "" {
+			break
+		}
+		cursor = res.NextCursor
+	}
+	want := []string{"/acme/tree/a.txt", "/acme/tree/src", "/acme/tree/src/b.go", "/acme/tree/src/deep", "/acme/tree/src/deep/c.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("recursive listing = %v, want %v", got, want)
+	}
+
+	root, err := handlers.Repository.ListDirectory(ctx, &corev1.ListDirectoryRequest{CommitId: "commit_tree", Path: "/", Recursive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Recursive {
+		t.Fatalf("the root was listed recursively: %v", root.Entries)
 	}
 }
 

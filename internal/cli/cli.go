@@ -7364,6 +7364,14 @@ func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath
 }
 
 func listDirectoryAll(ctx context.Context, repo corev1.RepositoryServiceClient, req *corev1.ListDirectoryRequest) ([]*corev1.TreeEntry, error) {
+	entries, _, err := listDirectoryPages(ctx, repo, req)
+	return entries, err
+}
+
+// listDirectoryPages reads every page of a listing. recursive reports whether
+// the server listed recursively, as req.Recursive asks; a server older than
+// recursive listing lists one level.
+func listDirectoryPages(ctx context.Context, repo corev1.RepositoryServiceClient, req *corev1.ListDirectoryRequest) ([]*corev1.TreeEntry, bool, error) {
 	if req == nil {
 		req = &corev1.ListDirectoryRequest{}
 	}
@@ -7374,19 +7382,22 @@ func listDirectoryAll(ctx context.Context, repo corev1.RepositoryServiceClient, 
 		PageSize:   req.PageSize,
 		Slice:      req.Slice,
 		RootTreeId: req.RootTreeId,
+		Recursive:  req.Recursive,
 	}
 	var entries []*corev1.TreeEntry
+	recursive := true
 	for {
 		page, err := repo.ListDirectory(ctx, pageReq)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		entries = append(entries, page.Entries...)
+		recursive = recursive && page.Recursive
 		if strings.TrimSpace(page.NextCursor) == "" {
-			return entries, nil
+			return entries, recursive, nil
 		}
 		if page.NextCursor == pageReq.Cursor {
-			return nil, fmt.Errorf("directory pagination did not advance for %s", pageReq.Path)
+			return nil, false, fmt.Errorf("directory pagination did not advance for %s", pageReq.Path)
 		}
 		pageReq.Cursor = page.NextCursor
 	}
@@ -11676,7 +11687,10 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 	if err := os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(rel)), 0o755); err != nil {
 		return err
 	}
-	entries, err := listDirectoryAll(ctx, h.repo, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 1000})
+	// One listing of everything under the directory, rather than a call per
+	// directory (design/28_benchmarks.md); a server that lists one level is
+	// walked a directory at a time.
+	entries, recursive, err := listDirectoryPages(ctx, h.repo, &corev1.ListDirectoryRequest{CommitId: h.commitID, Path: globalPath, PageSize: 10000, Recursive: true})
 	if err != nil {
 		return err
 	}
@@ -11688,7 +11702,17 @@ func (h *workspaceHydrator) hydrateDirectory(ctx context.Context, globalPath str
 		case corev1.EntryKind_ENTRY_KIND_FILE:
 			h.queueFile(entry)
 		case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
-			if err := h.hydrateDirectory(ctx, entry.Path); err != nil {
+			if !recursive {
+				if err := h.hydrateDirectory(ctx, entry.Path); err != nil {
+					return err
+				}
+				continue
+			}
+			dirRel, err := workspaceRelPath(h.ws, entry.Path)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(dirRel)), 0o755); err != nil {
 				return err
 			}
 		}

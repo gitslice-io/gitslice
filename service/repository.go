@@ -162,6 +162,11 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 	if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
 		return nil, err
 	}
+	// The root mixes accounts with different readers, so it is listed a level
+	// at a time.
+	if req.Recursive && accountSlugForRepositoryPath(p) != "" {
+		return s.listTree(ctx, req, p)
+	}
 	entries, err := repositoryListDirectoryAtSource(ctx, s.Repository, req.CommitId, req.RootTreeId, p)
 	if err != nil {
 		return nil, grpcError(err)
@@ -201,6 +206,9 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	if req.Recursive && sliceIncludesPath(slice, p) {
+		return s.listTree(ctx, req, p)
+	}
 	if direct, ok, err := s.sliceContainedDirectoryEntries(ctx, slice, req.CommitId, req.RootTreeId, p); ok || err != nil {
 		if err != nil {
 			return nil, err
@@ -214,6 +222,55 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	}
 	page, nextCursor := paginateDirectoryEntries(projected, req.PageSize, req.Cursor)
 	return &corev1.ListDirectoryResponse{Entries: page, NextCursor: nextCursor}, nil
+}
+
+// sliceIncludesPath reports whether p is inside one of the slice's included
+// paths, so everything under it is in the slice.
+func sliceIncludesPath(slice *corev1.Slice, p string) bool {
+	for _, prefix := range slice.GetDefinition().GetIncludedPaths() {
+		if canonical, err := repositoryReadPath(prefix); err == nil && repositoryPathContains(canonical, p) {
+			return true
+		}
+	}
+	return false
+}
+
+const listTreeMaxPage = 10000
+
+// listTree answers a recursive ListDirectory: everything under p, paged by
+// path (the cursor is the last path of the previous page), up to
+// listTreeMaxPage entries a page. A checkout lists its slice in one or a few
+// calls instead of one per directory (design/28_benchmarks.md).
+func (s *RepositoryService) listTree(ctx context.Context, req *corev1.ListDirectoryRequest, p string) (*corev1.ListDirectoryResponse, error) {
+	rootTreeID := strings.TrimSpace(req.GetRootTreeId())
+	if rootTreeID == "" {
+		var err error
+		if rootTreeID, err = s.Repository.RootTreeForCommit(ctx, req.GetCommitId()); err != nil {
+			return nil, grpcError(err)
+		}
+	}
+	entries, err := s.Repository.ListTreeAtTree(ctx, rootTreeID, p)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	pageSize := int(req.GetPageSize())
+	if pageSize <= 0 || pageSize > listTreeMaxPage {
+		pageSize = listTreeMaxPage
+	}
+	start := 0
+	if cursor := strings.TrimSpace(req.GetCursor()); cursor != "" {
+		start = sort.Search(len(entries), func(i int) bool { return entries[i].Path > cursor })
+	}
+	end := min(start+pageSize, len(entries))
+	out := make([]*corev1.TreeEntry, 0, end-start)
+	for _, entry := range entries[start:end] {
+		out = append(out, treeEntryFromRepositoryEntry(entry))
+	}
+	next := ""
+	if end < len(entries) {
+		next = entries[end-1].Path
+	}
+	return &corev1.ListDirectoryResponse{Entries: out, NextCursor: next, Recursive: true}, nil
 }
 
 func (s *RepositoryService) sliceContainedDirectoryEntries(ctx context.Context, slice *corev1.Slice, commitID, rootTreeID, p string) ([]*corev1.TreeEntry, bool, error) {
@@ -383,7 +440,7 @@ func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRe
 const (
 	readFilesMaxPaths    = 1000
 	readFilesMaxBytes    = 32 << 20
-	readFilesObjectReads = 16
+	readFilesObjectReads = 64
 )
 
 // ReadFiles reads many files in one call (design/28_benchmarks.md): it

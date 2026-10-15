@@ -2293,6 +2293,28 @@ func (s *RepositoryStore) GetEntryAtTree(ctx context.Context, rootTreeID, p stri
 	return treeEntryFromMemorySnapshot(files, dirs, p)
 }
 
+func (s *RepositoryStore) ListTreeAtTree(ctx context.Context, rootTreeID, p string) ([]storage.TreeEntry, error) {
+	s.b.mu.Lock()
+	files, dirs, ok := s.b.filesAndDirsForRootTreeLocked(rootTreeID)
+	s.b.mu.Unlock()
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	var out []storage.TreeEntry
+	var walk func(dir string)
+	walk = func(dir string) {
+		for _, entry := range directoryEntries(dir, files, dirs) {
+			out = append(out, entry)
+			if entry.Kind == "directory" {
+				walk(entry.Path)
+			}
+		}
+	}
+	walk(p)
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out, nil
+}
+
 func (s *RepositoryStore) ListDirectoryAtTree(ctx context.Context, rootTreeID, p string) ([]storage.TreeEntry, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

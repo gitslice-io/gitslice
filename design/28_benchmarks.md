@@ -79,6 +79,16 @@ Read them with the differences in mind:
   process per command (a few milliseconds each).
 - **Storage.** The object store is the local filesystem, not R2.
 
+## Over a real network
+
+The benchmark has no network, so it cannot show round trips. Checking out
+`gitslice/gitslice` (779 files) from gitslice.io, from a cold client cache,
+took 455 s with v0.4.6 and 61.5 s once file reads and uploads were batched:
+the rest was listing, 110 `ListDirectory` calls one after another, each a
+round trip plus a cold tree read. Recursive listing removes those; for
+comparison, `git clone --depth 1` of the GitHub mirror takes 1.5 s from the
+same machine.
+
 ## What the first run found
 
 The first measurement (before the runner waited between steps) had gs at
@@ -114,6 +124,12 @@ at 10,000 files. Nothing was slow by itself; everything was per file:
 - Both clients fall back to the per-file calls when the server does not
   implement the batch ones (`Unimplemented`), so a new CLI works with an older
   server.
+- `ListDirectory` takes `recursive`: everything under a path inside an
+  account (or inside the slice), paged by path, up to 10,000 entries a page.
+  The tree store reads it a level at a time, each level's directories
+  concurrently. Checkout lists each included path once instead of once per
+  directory; a server that answers one level (`recursive` unset in the
+  response) is walked a directory at a time, as before.
 - Changeset validation reads all edits' blobs in one query and resolves the
   base tree once, walking it for each path.
 - The tree store keeps decoded nodes (`internal/treestore/node_cache.go`): a
