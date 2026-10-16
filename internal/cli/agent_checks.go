@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"gitslice.io/gitslice/internal/checkexec"
@@ -34,9 +35,30 @@ func (d *agentDaemon) handleRunChecks(req *corev1.RunChecks) {
 	if account := strings.TrimSpace(req.GetSlice().GetAccount()); account != "" {
 		repo = checkTreeRepoClient{inner: repo, account: account}
 	}
-	for _, spec := range req.GetChecks() {
-		d.handleCheckRunSpec(req, repo, spec)
+	// The checks of one request start in the order listed, and run side by
+	// side up to the daemon's check concurrency (GITSLICE_CHECK_CONCURRENCY);
+	// the slots in handleCheckRunSpec bound them across requests too.
+	specs := req.GetChecks()
+	workers := len(specs)
+	if d.checkSlots != nil && cap(d.checkSlots) < workers {
+		workers = cap(d.checkSlots)
 	}
+	next := make(chan *corev1.CheckRunSpec)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for spec := range next {
+				d.handleCheckRunSpec(req, repo, spec)
+			}
+		}()
+	}
+	for _, spec := range specs {
+		next <- spec
+	}
+	close(next)
+	wg.Wait()
 }
 
 func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient, spec *corev1.CheckRunSpec) {

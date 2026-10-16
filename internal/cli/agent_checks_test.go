@@ -242,3 +242,44 @@ func TestHandleRunChecksHonorsCheckConcurrency(t *testing.T) {
 		t.Fatalf("checks overlapped: %v", got)
 	}
 }
+
+// TestHandleRunChecksRunsOneRequestsChecksSideBySide: with two slots, the two
+// checks of one request run at once. Each waits for the other to start, so run
+// one after the other they would both time out.
+func TestHandleRunChecksRunsOneRequestsChecksSideBySide(t *testing.T) {
+	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{"/": nil}, nil)
+	addr, stop := startFakeCheckRepoServer(t, repo)
+	defer stop()
+
+	sendQueue := &agentSendQueue{
+		ch:   make(chan *corev1.DaemonMessage, 64),
+		done: make(chan struct{}),
+	}
+	d := newTestCheckDaemon(t)
+	d.cfg = UserConfig{ServerAddr: addr}
+	d.baseCtx = context.Background()
+	d.sendQueue = sendQueue
+	d.checkRuns = map[string]context.CancelFunc{}
+	d.checkSlots = make(chan struct{}, 2)
+
+	marks := t.TempDir()
+	spec := func(name, other string) *corev1.CheckRunSpec {
+		return &corev1.CheckRunSpec{
+			RunId: "run-" + name,
+			Name:  name,
+			// Mark the start, then wait up to 5 s for the other check's mark.
+			Command:          fmt.Sprintf("touch %[1]s/%[2]s; for i in $(seq 50); do [ -e %[1]s/%[3]s ] && echo met > %[1]s/%[2]s.ok && exit 0; sleep 0.1; done; exit 1", marks, name, other),
+			MaterializePaths: []string{"/"},
+		}
+	}
+	d.handleRunChecks(&corev1.RunChecks{
+		ResultTreeId: "tree-1",
+		ServerAddr:   addr,
+		Checks:       []*corev1.CheckRunSpec{spec("one", "two"), spec("two", "one")},
+	})
+	for _, name := range []string{"one", "two"} {
+		if _, err := os.Stat(filepath.Join(marks, name+".ok")); err != nil {
+			t.Fatalf("check %s never saw the other one running: the checks ran one after the other", name)
+		}
+	}
+}

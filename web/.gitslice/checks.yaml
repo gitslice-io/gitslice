@@ -5,6 +5,6 @@ version: 1
 checks:
   build:
     description: "Install, type-check, build and test the web app"
-    run: "npm ci && npm run build && npm test"
+    run: "bash scripts/ci-install.sh && npm run build && npm test"
     timeout: "20m"
     network: true
