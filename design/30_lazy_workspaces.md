@@ -45,7 +45,8 @@ gs unmount ~/src/gitslice                     # edits survive; gs mount picks th
 
 - `gs mount <slice> <dir> [--foreground] [--prefetch <glob>...]` mounts a lazy
   workspace at an empty directory. Mounting the same directory again re-attaches
-  the same local state, edits included.
+  the same workspace (found by the mount path in its `mount.json`), edits
+  included.
 - `gs unmount <dir>` flushes and unmounts. Local edits are kept.
 - `gs fetch [path...]` warms the cache for paths (default: everything), for work
   offline or before a build.
@@ -53,6 +54,10 @@ gs unmount ~/src/gitslice                     # edits survive; gs mount picks th
   hits and misses, bytes fetched, fetches in flight and the last error.
 - `gs restore <path>... | --all` drops local edits (new in this design; useful
   for eager workspaces too).
+- `gs mount list [--json]` lists every lazy workspace on the machine: mounted
+  ones, and unmounted ones that still hold local edits, so none is forgotten.
+- `gs mount discard <dir|id>` deletes an unmounted workspace and its local
+  edits, after asking (or with `--yes`).
 
 Every other workspace command works inside a mount unchanged: `status`, `diff`,
 `create`, `modify`, `submit`, `sync`, the stack commands (`switch`, `up`,
@@ -95,7 +100,8 @@ had not yet synced, as on any disk.
 ### Where things live
 
 ```text
-~/.local/share/gitslice/mounts/<id>/      id: hash of the absolute mount path
+~/.local/share/gitslice/mounts/<id>/      id: random, fixed when the workspace is created
+  mount.json       slice, mount path, created and last-mounted times (what gs mount list reads)
   gs/              the workspace's .gs (slice.json, state.json, base snapshot, conflicts)
   manifest         base layer listing for state.base_commit_id
   local/index      local layer journal
@@ -107,6 +113,53 @@ had not yet synced, as on any disk.
 The mount serves `<dir>/.gs` as a pass-through of `gs/`, so every command finds
 its workspace as it does today. Nothing under `.gs` is ever part of an edit
 (changeset 435a3c7d75 already skips `.gs` at any depth).
+
+### Multiple workspaces
+
+Each lazy workspace is its own mount, as each `gs init` workspace is its own
+directory today:
+
+```bash
+gs mount gitslice/gitslice ~/w/fix-auth      # workspace 1
+gs mount gitslice/gitslice ~/w/readme-page   # workspace 2, same slice
+gs mount acme/payments    ~/w/payments       # workspace 3, another slice
+```
+
+Every mount is independent: its own local layer, base commit, active changeset
+and stack, and `gs sync`. An edit in one is not seen in another until it lands
+and the other syncs.
+
+What they share is the content cache, which is keyed by content hash. A second
+mount of a slice serves every file the first one read without a fetch, and
+nothing is stored twice:
+
+| | `gs init` workspace | `gs mount` workspace |
+| --- | --- | --- |
+| Create | copies every file (2.7 s for `gitslice/gitslice`, growing with the slice) | fetches the listing, about 1 s at any size |
+| Disk | a full copy each | the workspace's edits and its listing |
+| Another workspace of the same slice | downloads or copies everything again | reads the shared cache |
+
+So ten parallel workspaces of one slice cost ten listings and whatever each one
+edits, which makes one workspace per task, or per agent, cheap.
+
+A workspace's identity is its state directory, not the mount point being
+mounted: `gs mount list` shows each one with its id, slice, mount path, number
+of local edits and whether it is mounted, and `gs mount --workspace <id> <dir>`
+re-attaches one at another path (after a move, or a reboot that left it
+unmounted). A workspace with local edits is never deleted implicitly; only
+`gs mount discard` deletes one.
+
+Each mount runs its own daemon process. A crash or a hung fetch affects one
+workspace, and the processes are small: the content they serve is on disk in
+the shared cache, and fetches of the same content by two mounts at once are rare
+enough not to coordinate.
+
+**Later: one mount, many workspaces.** One mount could hold many workspaces as
+directories (`~/gs/<name>/...`), with `gs workspace new <name> <slice>` creating
+one instantly and no new mount. That suits the agent daemon, which makes a
+workspace per conversation and would otherwise make a mount per conversation,
+and platforms where mounts are heavy or scarce (macOS, containers that allow
+one FUSE mount). It is not in the phases below; see the open questions.
 
 ### The mount daemon
 
@@ -258,9 +311,9 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
 1. `internal/lazyfs` and the edit-source interface, with eager workspaces moved
    onto it. No FUSE yet; this is where the semantics get settled.
 2. Read-only `gs mount` on Linux: manifest, lazy reads, prefetch, `gs fetch`,
-   `gs mount status`.
+   `gs mount status`, `gs mount list`, `gs mount --workspace`.
 3. Writable local layer, edits from the index, `gs create`/`modify` from it,
-   `gs restore`, crash recovery.
+   `gs restore`, `gs mount discard`, crash recovery.
 4. `gs sync` and stack switching in mounts; macOS; passthrough; prefetch tuning;
    agent daemon support.
 
@@ -291,3 +344,6 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
 4. A size limit or warning for the local layer?
 5. macOS: macFUSE (kernel extension, faster) or FUSE-T (no extension, NFS)?
 6. Once stable, should `gs init` mount by default where FUSE is available?
+7. When to build one mount for many workspaces ("Multiple workspaces"): before
+   the agent daemon uses lazy workspaces, or only if per-conversation mounts
+   prove too heavy?
