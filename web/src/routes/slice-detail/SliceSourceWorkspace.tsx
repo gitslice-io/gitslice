@@ -3,10 +3,12 @@ import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { entryKindLabel } from "../../components/source/sourceUtils";
 import { DirectoryCreateControls, type PendingEdit } from "../../components/source/SliceEditing";
 import { DirectoryHeader } from "./DirectoryHeader";
+import { FolderWithReadme } from "./FolderWithReadme";
+import { findReadmeEntry } from "./readme";
 import { SliceDirectoryTable } from "./SliceDirectoryTable";
 import { EditableFileView } from "./EditableFileView";
 import { SourceSkeleton } from "./skeletons";
-import type { TreeEntry } from "../../api/types";
+import type { SliceRef, TreeEntry } from "../../api/types";
 
 interface SliceSourceWorkspaceProps {
   commitError: Error | null;
@@ -29,6 +31,7 @@ interface SliceSourceWorkspaceProps {
   pendingEdits: PendingEdit[];
   selectedPath: string;
   createDirectory: string;
+  sliceRef?: SliceRef;
 }
 
 export function SliceSourceWorkspace({
@@ -51,7 +54,8 @@ export function SliceSourceWorkspace({
   onStageEdit,
   pathError,
   pendingEdits,
-  selectedPath
+  selectedPath,
+  sliceRef
 }: SliceSourceWorkspaceProps) {
   if (isLatestLoading || isPathLoading) {
     return <SourceSkeleton />;
@@ -98,6 +102,24 @@ export function SliceSourceWorkspace({
         <SliceNotice title="Could not list directory" tone="error">
           {directoryError.message}
         </SliceNotice>
+      );
+    }
+
+    const readme = findReadmeEntry(directoryEntries);
+    if (readme) {
+      return (
+        <FolderWithReadme
+          commitId={commitId}
+          createDirectory={createDirectory}
+          entries={directoryEntries}
+          includedPaths={includedPaths}
+          onOpenHistory={onOpenHistory}
+          onSelectPath={onSelectPath}
+          onStageEdit={onStageEdit}
+          readme={readme}
+          selectedPath={selectedPath}
+          sliceRef={sliceRef}
+        />
       );
     }
 

@@ -19,6 +19,9 @@ interface DirectoryHeaderProps {
   onOpenHistory?: () => void;
   onStageEdit?: (edit: PendingEdit) => void;
   selectedPath: string;
+  // compact leaves out the commit line (it stays in the heading's tooltip), for
+  // pages whose content, such as a README, should come first.
+  compact?: boolean;
   actions?: ReactNode;
   children?: ReactNode;
 }
@@ -32,6 +35,7 @@ export function DirectoryHeader({
   onOpenHistory,
   onStageEdit,
   selectedPath,
+  compact = false,
   actions,
   children
 }: DirectoryHeaderProps) {
@@ -90,15 +94,20 @@ export function DirectoryHeader({
     <div className={cn("border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5", !isRenaming && foldedOnPhone)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="break-all text-base font-semibold text-zinc-950 dark:text-zinc-50">
+          <h2
+            className="break-all text-base font-semibold text-zinc-950 dark:text-zinc-50"
+            title={compact ? `Commit ${commitId}` : undefined}
+          >
             {selectedPath || "Slice root"}
           </h2>
-          <p className="mt-1 hidden text-xs text-slate-500 dark:text-zinc-400 sm:block">
-            Commit{" "}
-            <span className="font-mono text-slate-700 dark:text-zinc-300" title={commitId}>
-              {shortHash(commitId)}
-            </span>
-          </p>
+          {compact ? null : (
+            <p className="mt-1 hidden text-xs text-slate-500 dark:text-zinc-400 sm:block">
+              Commit{" "}
+              <span className="font-mono text-slate-700 dark:text-zinc-300" title={commitId}>
+                {shortHash(commitId)}
+              </span>
+            </p>
+          )}
         </div>
         {historyButton || rightActions ? (
           <div className="flex shrink-0 items-center gap-2">

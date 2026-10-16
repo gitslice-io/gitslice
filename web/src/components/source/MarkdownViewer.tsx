@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { isDarkTheme, renderMermaid, svgDataUrl } from "../../lib/diagram";
+import { resolveRepoLink } from "../../lib/repoLinks";
 import { sanitizeHtml } from "../../lib/sanitize";
 
 interface MarkdownRenderState {
@@ -8,7 +9,18 @@ interface MarkdownRenderState {
   html: string | null;
 }
 
-export function MarkdownViewer({ source }: { source: string }): JSX.Element {
+interface MarkdownViewerProps {
+  source: string;
+  // When the document lives in a repository directory, its relative links open
+  // that path in the app (instead of resolving against the page's own address),
+  // and its relative images, which the app cannot serve yet, show their alt text.
+  links?: {
+    directory: string;
+    onOpenPath(path: string): void;
+  };
+}
+
+export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Element {
   const [rendered, setRendered] = useState<MarkdownRenderState>({
     error: false,
     html: null
@@ -43,6 +55,48 @@ export function MarkdownViewer({ source }: { source: string }): JSX.Element {
   }, [source]);
 
   const container = useRef<HTMLDivElement>(null);
+  const linkDirectory = links?.directory;
+  const openPath = links?.onOpenPath;
+
+  function followRelativeLink(event: MouseEvent<HTMLElement>) {
+    if (
+      !openPath ||
+      linkDirectory === undefined ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    const anchor = (event.target as HTMLElement | null)?.closest("a");
+    const path = anchor ? resolveRepoLink(linkDirectory, anchor.getAttribute("href")) : null;
+    if (!path) {
+      return;
+    }
+    event.preventDefault();
+    openPath(path);
+  }
+
+  // A relative image points at a repository file, which the page cannot serve
+  // as an <img> source, so the alt text stands in for it.
+  useEffect(() => {
+    const root = container.current;
+    if (!root || rendered.html === null || linkDirectory === undefined) {
+      return;
+    }
+    for (const image of Array.from(root.querySelectorAll("img"))) {
+      if (resolveRepoLink(linkDirectory, image.getAttribute("src")) === null) {
+        continue;
+      }
+      const stand = document.createElement("span");
+      stand.className = "text-slate-500 dark:text-zinc-400";
+      stand.textContent = image.getAttribute("alt") ? `[${image.getAttribute("alt")}]` : "";
+      image.replaceWith(stand);
+    }
+  }, [rendered.html, linkDirectory]);
 
   // Fenced ```mermaid blocks become diagrams. The diagram is shown as an image
   // (see lib/diagram), so the block's text is never trusted as markup.
@@ -82,9 +136,9 @@ export function MarkdownViewer({ source }: { source: string }): JSX.Element {
 
   if (rendered.html !== null) {
     return (
-      <div className="p-4" ref={container}>
+      <div className="p-4" onClick={followRelativeLink} ref={container}>
         <div
-          className="prose prose-slate prose-sm max-w-none prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline prose-code:text-zinc-900 dark:prose-code:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100"
+          className="prose prose-slate prose-sm max-w-none [&_:not(pre)>code]:[overflow-wrap:anywhere] prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline prose-code:text-zinc-900 dark:prose-code:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100"
           dangerouslySetInnerHTML={{ __html: rendered.html }}
         />
       </div>

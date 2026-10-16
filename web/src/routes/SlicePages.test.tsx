@@ -354,6 +354,105 @@ describe("slice route pages (render smoke)", () => {
     expectHealthy();
   });
 
+  describe("a folder with a README", () => {
+    const readmeText = "# Hello app\n\nStart with the [guide](docs/guide.md) or [the site](https://example.com).\n\n![logo](logo.png)\n";
+
+    function folderApi(entries: object[], readFile: unknown) {
+      const api = makeApi();
+      routerMock.search = { path: "/nic/app" };
+      api.resolvePath = vi.fn().mockResolvedValue({ entry: { kind: "ENTRY_KIND_DIRECTORY", path: "/nic/app" } });
+      api.listDirectory = vi.fn().mockResolvedValue({ entries });
+      api.readFile = readFile as typeof api.readFile;
+      apiMock.current = api;
+      return api;
+    }
+    const entries = [
+      { kind: "ENTRY_KIND_DIRECTORY", name: "docs", path: "/nic/app/docs" },
+      { kind: "ENTRY_KIND_FILE", name: "README.md", path: "/nic/app/README.md", size: "120" },
+      { kind: "ENTRY_KIND_FILE", name: "main.go", path: "/nic/app/main.go", size: "40", contentHash: "sha256:abcdef0123456789" }
+    ];
+
+    it("shows the README first, with the files in a compact list beside it", async () => {
+      const api = folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+      renderRoute(<SliceDetailPage />);
+      expect(await screen.findByRole("heading", { name: "Hello app" })).toBeInTheDocument();
+      expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/README.md" }));
+
+      // The files are there, as names only: no kind, size or hash columns, no
+      // commit line.
+      const files = screen.getByRole("complementary", { name: "Files" });
+      expect(within(files).getByRole("button", { name: "docs/" })).toBeInTheDocument();
+      expect(within(files).getByRole("button", { name: "main.go" })).toBeInTheDocument();
+      expect(screen.queryByText("Content hash")).toBeNull();
+      expect(screen.queryByText(/^Commit$/)).toBeNull();
+      // A relative image cannot be served, so its alt text stands in.
+      expect(screen.queryByRole("img", { name: "logo" })).toBeNull();
+      expect(screen.getByText("[logo]")).toBeInTheDocument();
+      expectHealthy();
+    });
+
+    it("opens relative links inside the slice and leaves other links to the browser", async () => {
+      folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+      renderRoute(<SliceDetailPage />);
+      const guide = await screen.findByRole("link", { name: "guide" });
+      fireEvent.click(guide);
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ search: { path: "/nic/app/docs/guide.md" } })
+      );
+
+      routerMock.navigate.mockClear();
+      const external = screen.getByRole("link", { name: "the site" });
+      const clicked = fireEvent.click(external);
+      expect(clicked).toBe(true); // not prevented: the browser follows it
+      expect(routerMock.navigate).not.toHaveBeenCalled();
+    });
+
+    it("offers Edit to writers and Open to readers", async () => {
+      folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+      renderRoute(<SliceDetailPage />);
+      const open = await screen.findByRole("button", { name: "Open" });
+      fireEvent.click(open);
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ search: { path: "/nic/app/README.md" } })
+      );
+    });
+
+    it("links a README that is too large instead of loading it", async () => {
+      const readFile = vi.fn();
+      const big = entries.map((entry) => (entry.name === "README.md" ? { ...entry, size: String(300 * 1024) } : entry));
+      folderApi(big, readFile);
+      renderRoute(<SliceDetailPage />);
+      expect(await screen.findByText(/too large to show here/)).toBeInTheDocument();
+      expect(readFile).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/README.md" }));
+      expect(within(screen.getByRole("complementary", { name: "Files" })).getByRole("button", { name: "main.go" })).toBeInTheDocument();
+    });
+
+    it("says when the README cannot be loaded and still lists the files", async () => {
+      folderApi(entries, vi.fn().mockRejectedValue(new Error("boom")));
+      renderRoute(<SliceDetailPage />);
+      expect(await screen.findByRole("alert")).toHaveTextContent("Could not load README.md: boom");
+      expect(within(screen.getByRole("complementary", { name: "Files" })).getByRole("button", { name: "main.go" })).toBeInTheDocument();
+    });
+
+    it("keeps the file table when the folder has no README", async () => {
+      const api = folderApi(entries.filter((entry) => entry.name !== "README.md"), vi.fn());
+      renderRoute(<SliceDetailPage />);
+      expect(await screen.findByText("Content hash")).toBeInTheDocument();
+      expect(screen.getByText(/^Commit$/)).toBeInTheDocument();
+      expect(api.readFile).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/README.md" }));
+    });
+
+    it("folds the files on a phone until asked for", async () => {
+      folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+      renderRoute(<SliceDetailPage />);
+      await screen.findByRole("heading", { name: "Hello app" });
+      const toggle = screen.getByRole("button", { name: /Files \(3\)/ });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+    });
+  });
+
   it("lists an account's slices on its page", async () => {
     routerMock.params = { account: "gitslice" };
     const api = makeApi();

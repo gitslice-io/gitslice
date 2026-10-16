@@ -486,6 +486,7 @@ export function SliceDetailPage() {
                 pathError={pathQuery.error}
                 pendingEdits={pendingEdits}
                 selectedPath={selectedPath}
+                sliceRef={sliceRef}
               />
             </div>
           </div>
