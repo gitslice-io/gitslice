@@ -1,6 +1,8 @@
 # 30. Lazy Workspaces: `gs mount`
 
-Status: proposed (2026-10-16).
+Status: phase 1 implemented (2026-10-16): `internal/lazyfs` and the CLI's edit
+source (`internal/cli/edit_source.go`, `edit_source_overlay.go`). Phases 2-4
+are proposed.
 
 ## Goal
 

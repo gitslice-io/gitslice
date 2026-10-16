@@ -21,6 +21,10 @@ The current MVP prototype is Go-based and uses:
 - `internal/objectstore/filesystem`: prototype-only filesystem object store.
 - `internal/treestore`: immutable tree-node storage on top of the object store.
 - `internal/gitcompat`: Git read compatibility layer and projection cache.
+- `internal/lazyfs`: the two-layer model of a lazy workspace (read-only base,
+  local layer of the user's changes) behind `gs mount`
+  (`design/30_lazy_workspaces.md`). No FUSE in it; its reference-model and
+  crash tests set the file system semantics.
 - `tests/cli`: real server plus CLI e2e tests.
 - `tests/rpc`: real server plus direct RPC e2e tests.
 - `tests/load`: opt-in load and contention tests behind the `load` build tag.

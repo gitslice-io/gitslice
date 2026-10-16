@@ -97,55 +97,33 @@ func (r Runner) snapshotEditsReviewed(ctx context.Context, conn *grpc.ClientConn
 
 func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool, hashConcurrency, uploadConcurrency int, review editReview) ([]*corev1.FileEdit, map[string]workingFile, snapshotEditsStats, error) {
 	var stats snapshotEditsStats
-	current, scanStats, err := r.scanWorkspaceFilesWithStats(ctx, ws, hashConcurrency, base.Files)
-	stats.Scan = scanStats
+	found, err := r.editSourceFor(ws).edits(ctx, base, hashConcurrency)
+	stats.Scan = found.scan
+	stats.DiffDuration = found.diffDuration
 	if err != nil {
 		return nil, nil, stats, err
 	}
-	var blobClient corev1.BlobServiceClient
-	callCtx := ctx
-	if upload {
-		if conn == nil {
-			return nil, nil, stats, fmt.Errorf("connection is required for blob upload")
-		}
-		blobClient = corev1.NewBlobServiceClient(conn)
-		callCtx = authContext(ctx, cfg)
-	}
-	cache, err := r.objectCache()
-	if err != nil {
-		return nil, nil, stats, err
-	}
-	diffStarted := time.Now()
-	var edits []*corev1.FileEdit
-	for p, file := range current {
-		baseFile, ok := base.Files[p]
-		if ok && baseFile.ContentHash == file.ContentHash && sameWorkspaceMode(baseFile.Mode, file.Mode) {
-			continue
-		}
-		edit := &corev1.FileEdit{Op: "upsert", Path: p, ContentHash: file.ContentHash, Mode: file.Mode}
-		edits = append(edits, edit)
-	}
-	for p := range base.Files {
-		if _, ok := current[p]; !ok {
-			edits = append(edits, &corev1.FileEdit{Op: "delete", Path: p})
-		}
-	}
-	stats.DiffDuration = time.Since(diffStarted)
+	edits := found.edits
 	if review != nil {
-		sortFileEdits(edits)
 		if err := review(edits); err != nil {
 			return nil, nil, stats, err
 		}
 	}
 	if upload {
-		blobStats, err := attachBlobIDsWithStats(callCtx, blobClient, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits, uploadConcurrency)
+		if conn == nil {
+			return nil, nil, stats, fmt.Errorf("connection is required for blob upload")
+		}
+		cache, err := r.objectCache()
+		if err != nil {
+			return nil, nil, stats, err
+		}
+		blobStats, err := attachBlobIDsWithStats(authContext(ctx, cfg), corev1.NewBlobServiceClient(conn), &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits, uploadConcurrency)
 		stats.Blobs = blobStats
 		if err != nil {
-			return edits, current, stats, err
+			return edits, found.files, stats, err
 		}
 	}
-	sortFileEdits(edits)
-	return edits, current, stats, nil
+	return edits, found.files, stats, nil
 }
 
 // sameWorkspaceMode compares a base mode with a scanned one. A symlink the

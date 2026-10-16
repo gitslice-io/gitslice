@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -181,7 +180,7 @@ func (r Runner) workspaceDiffText(ctx context.Context, cfg UserConfig, ws Worksp
 		}
 		newFile := diffutil.File{Path: p}
 		if file, ok := current[p]; ok {
-			data, err := os.ReadFile(file.AbsPath)
+			data, err := readWorkingFile(file, cache)
 			if err != nil {
 				return "", err
 			}

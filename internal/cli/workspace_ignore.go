@@ -28,6 +28,10 @@ type workspaceIgnore struct {
 	dirIgnored  map[string]bool         // memoized directory decisions
 	tracked     map[string]struct{}     // workspace-relative tracked files
 	trackedDirs map[string]struct{}     // workspace-relative ancestors of tracked files
+	// read returns the .gitignore of a workspace-relative directory ("" for
+	// the root), or nil. It reads the disk unless set: a lazy workspace reads
+	// through its layers.
+	read func(dir string) []byte
 }
 
 type ignoreRule struct {
@@ -134,7 +138,12 @@ func (ig *workspaceIgnore) rulesFor(dir string) []ignoreRule {
 		return rules
 	}
 	// A missing or unreadable .gitignore contributes no rules.
-	data, _ := os.ReadFile(filepath.Join(ig.root, filepath.FromSlash(dir), ".gitignore"))
+	var data []byte
+	if ig.read != nil {
+		data = ig.read(dir)
+	} else {
+		data, _ = os.ReadFile(filepath.Join(ig.root, filepath.FromSlash(dir), ".gitignore"))
+	}
 	rules := parseGitignore(data)
 	ig.rules[dir] = rules
 	return rules
