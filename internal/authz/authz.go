@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"gitslice.io/gitslice/internal/storage"
@@ -43,6 +44,9 @@ func (a Authorizer) Authorize(ctx context.Context, subjectID string, slice *core
 	case ActionRead, ActionWrite, ActionAdmin:
 	default:
 		return storage.ErrInvalid
+	}
+	if action == ActionWrite && slice.Archived {
+		return fmt.Errorf("%w: slice %s/%s is archived and read-only; unarchive it to change it", storage.ErrConflict, slice.Ref.Account, slice.Ref.Slice)
 	}
 	// The account's role decides first; a role on the slice itself
 	// (design/26_slice_members.md) can only add to it.

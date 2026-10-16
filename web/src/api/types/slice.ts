@@ -6,6 +6,10 @@ export interface Slice {
   definition?: SliceDefinition;
   definitionHash?: string;
   ciDaemonId?: string;
+  // Archived slices are read-only and left out of listings.
+  archived?: boolean;
+  // Names the slice had before it was renamed; they still open it.
+  formerNames?: string[];
 }
 
 export interface SliceDefinition {
@@ -29,6 +33,7 @@ export interface ListSlicesRequest {
   account?: string;
   cursor?: string;
   pageSize?: number;
+  includeArchived?: boolean;
 }
 
 export interface ListSlicesResponse {

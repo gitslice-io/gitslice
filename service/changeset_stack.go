@@ -488,7 +488,7 @@ func (s *ChangesetStackService) getAuthorizedStack(ctx context.Context, subjectI
 	if stack.AuthoringSlice == nil {
 		return nil, status.Error(codes.FailedPrecondition, "stack has no authoring slice")
 	}
-	slice, err := s.Slices.Resolve(ctx, stack.AuthoringSlice)
+	slice, err := resolveAuthoringSlice(ctx, s.Slices, stack.AuthoringSlice, action)
 	if err != nil {
 		return nil, grpcError(err)
 	}

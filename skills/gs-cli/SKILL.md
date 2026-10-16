@@ -156,6 +156,8 @@ gs status --json
 
 Workspace-aware commands discover `.gs/` by walking up from subdirectories. Keep edits under the materialized path for the bound slice. For a slice that includes `/acme/payment`, edit files under `acme/payment/...` inside the workspace.
 
+Run commands from inside the workspace you made, not from a copy of it. A directory that has its own `.gs/` is another workspace: `gs create` and `gs status` skip it with a warning, and `.gs/` at any depth is never committed. A file's path in a changeset is its path in the workspace; nothing re-bases paths (`--root` starts a new dependency tree, it does not change paths).
+
 ## Concurrent Agent Workspaces
 
 For concurrent agent work, treat a local `gs` workspace as a disposable per-task checkout bound to one slice. Do not let two active jobs mutate the same workspace directory, `.gs/` metadata, or active changeset state at the same time.
@@ -198,6 +200,8 @@ gs status --json
 ```
 
 To create and land in one step, use `gs create --message "describe the change" --all --submit --json`: it waits for required checks that have not reported (up to `--watch-timeout`, default 15m), submits, and waits for the changeset to land. If something else blocks it (a failing check, missing approvals), the changeset stays created, the command exits 1 with `submit_blocked`, and `submit.results[].blocked_reason` says why.
+
+Before it uploads, `gs create` lists the new directories that get 20 or more added files (on stderr). It asks before adding 100 or more files to one new directory when a person is at the terminal, and with no one to ask it refuses only when the files sit under the slice's own path a second time (`repeated_slice_path`, for example `/acme/app/acme/app/...`, a slice copied into itself). Pass `--yes` to go ahead anyway.
 
 When nothing changed, `gs create` creates nothing and fails with `nothing_to_change`. In scheduled jobs (a daily sync), add `--if-changed`: an unchanged workspace is then a no-op that exits 0 (`{"created": false, "reason": "nothing_to_change"}` with `--json`), so `gs create --all --message "daily sync" --if-changed --submit` lands only real changes. `--allow-empty` creates an empty changeset on purpose.
 
@@ -260,6 +264,17 @@ gs slice create nic/tools --include /nic/tools --visibility private --json
 gs slice update nic/tools --include /nic/tools --required-approvals 1 --json
 gs slice delete nic/tools --yes --json
 ```
+
+To rename, hide or retire a slice:
+
+```bash
+gs slice rename nic/tools utils --json     # the old name keeps resolving and stays reserved
+gs slice archive nic/utils --json          # hidden from `gs slice list`, read-only; history stays
+gs slice list nic --archived --json        # include archived slices
+gs slice unarchive nic/utils --json
+```
+
+A renamed slice keeps its history, members, settings and changesets. Git URLs, `go get` paths and workspaces made under the old name keep working. `gs slice delete` also removes a slice that has changesets when none is open and its paths are covered by another slice or hold no files: the changesets stay (`history_kept` in the JSON), and the name stays reserved.
 
 If a command accepts a slice reference, prefer canonical `<account>/<slice>` in scripts. Bare slice slugs are CLI sugar and require a signed-in account. The reserved `home` slice covers `/account`, not `/account/home`.
 
@@ -382,6 +397,7 @@ gs adds `gs_version`, `os`, `arch` and the workspace slice; add the failing comm
 - `permission_denied`: the signed-in subject has no role on the slice (in its account, or shared with it), or lacks write access. The owner of an agent account gains access by claiming it at `https://gitslice.io/claims`; anyone else asks an owner to share the slice (`gs slice share <slice> <username>`).
 - `not in a gitslice workspace`: run `gs context --json`; initialize an empty directory with `gs init <account>/<slice>`.
 - `workspace init requires an empty directory`: create a fresh empty directory.
+- `workspace_damaged`: a directory on the way up has a `.gs/` without `slice.json`, so that workspace lost its binding. Restore `.gs/slice.json`, or move your files out and `gs init` a new empty directory; do not run `gs init` or `gs sync` inside it.
 - `outside_slice`: move the edit under the workspace's bound slice or create another workspace for the intended slice.
 - `workspace has local changes` before sync: inspect `gs status --json`; create a changeset first if the sync policy requires it.
 - `unresolved sync conflicts`: resolve markers/side files, then run `gs cs update --json` and retry submit.

@@ -27,7 +27,7 @@ type captureDiagnostics struct {
 	TotalDuration  time.Duration
 }
 
-func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, title string, empty emptyChangesetOptions) error {
+func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, title string, empty emptyChangesetOptions, review reviewOptions) error {
 	if err := empty.validate(); err != nil {
 		return err
 	}
@@ -44,7 +44,11 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	if err := r.guardChangesetCreate(ctx, cfg, state, changesetClient); err != nil {
 		return err
 	}
-	edits, _, err := r.snapshotEdits(ctx, conn, cfg, ws, true)
+	base, err := r.readBaseSnapshot()
+	if err != nil {
+		return err
+	}
+	edits, _, err := r.snapshotEditsReviewed(ctx, conn, cfg, ws, base, r.reviewEdits(opts, ws, base, review))
 	if err != nil {
 		return err
 	}
@@ -313,7 +317,7 @@ type createSubmitOptions struct {
 	timeout time.Duration
 }
 
-func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool, submit createSubmitOptions, empty emptyChangesetOptions) error {
+func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool, submit createSubmitOptions, empty emptyChangesetOptions, review reviewOptions) error {
 	_ = all
 	if err := empty.validate(); err != nil {
 		return err
@@ -380,7 +384,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 	if err != nil {
 		return err
 	}
-	edits, _, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, true)
+	edits, _, err := r.snapshotEditsReviewed(ctx, conn, cfg, ws, base, r.reviewEdits(opts, ws, base, review))
 	if err != nil {
 		return err
 	}

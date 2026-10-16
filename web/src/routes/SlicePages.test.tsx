@@ -312,6 +312,48 @@ describe("slice route pages (render smoke)", () => {
     expect(within(other).getByText("gitslice")).toBeInTheDocument();
   });
 
+  it("moves a renamed slice's old address to the current one", async () => {
+    routerMock.params = { account: "nic", slice: "bot-channels" };
+    routerMock.search = { path: "readme.md" };
+    const api = makeApi();
+    api.resolveSlice = vi.fn().mockResolvedValue({
+      id: "slice_nic_bot_channels",
+      ref: { account: "nic", slice: "botparley" },
+      formerNames: ["bot-channels"],
+      definition: { includedPaths: ["/nic/botparley"], visibility: "private" }
+    });
+    apiMock.current = api;
+    renderRoute(<SliceDetailPage />);
+    await waitFor(() => expect(api.resolveSlice).toHaveBeenCalled());
+    await flushAsync();
+    expect(routerMock.navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { account: "nic", slice: "botparley" },
+        replace: true,
+        search: { path: "/readme.md" },
+        to: "/slices/$account/$slice"
+      })
+    );
+    expectHealthy();
+  });
+
+  it("says when a slice is archived", async () => {
+    const api = makeApi();
+    api.resolveSlice = vi.fn().mockResolvedValue({
+      id: "slice_nic_home",
+      ref: { account: "nic", slice: "home" },
+      archived: true,
+      definition: { includedPaths: ["/nic"], visibility: "private" }
+    });
+    apiMock.current = api;
+    renderRoute(<SliceDetailPage />);
+    await waitFor(() => expect(api.resolveSlice).toHaveBeenCalled());
+    await flushAsync();
+    expect(screen.getByText("This slice is archived")).toBeInTheDocument();
+    expect(routerMock.navigate).not.toHaveBeenCalled();
+    expectHealthy();
+  });
+
   it("lists an account's slices on its page", async () => {
     routerMock.params = { account: "gitslice" };
     const api = makeApi();

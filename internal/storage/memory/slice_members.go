@@ -46,8 +46,8 @@ func (b *backend) sliceMemberLocked(sliceID, subjectID string, m memSliceMember)
 	}
 }
 
-func (s *SliceStore) ListVisible(ctx context.Context, account, subjectID, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(account, after, limit, true, strings.TrimSpace(subjectID))
+func (s *SliceStore) ListVisible(ctx context.Context, account, subjectID, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
+	return s.list(account, after, limit, true, strings.TrimSpace(subjectID), includeArchived)
 }
 
 func (s *SliceStore) ListMembers(ctx context.Context, sliceID string) ([]storage.SliceMember, error) {
@@ -106,7 +106,7 @@ func (s *SliceStore) ListShared(ctx context.Context, subjectID string) ([]storag
 	for sliceID, members := range s.b.sliceMembers {
 		m, ok := members[strings.TrimSpace(subjectID)]
 		slice := s.b.slices[sliceID]
-		if !ok || slice == nil {
+		if !ok || slice == nil || s.b.retiredSlices[sliceID] || slice.Archived {
 			continue
 		}
 		out = append(out, storage.SharedSlice{Slice: cloneSlice(slice), Role: m.role})

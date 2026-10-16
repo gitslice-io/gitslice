@@ -15,16 +15,18 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	}
 	createTitle := "CLI changeset"
 	csCreateEmpty := emptyChangesetOptions{}
+	csCreateReview := reviewOptions{}
 	csCreateCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a changeset from workspace edits",
-		Args:  noArgs("gs cs create [--title title] [--if-changed | --allow-empty]"),
+		Args:  noArgs("gs cs create [--title title] [--if-changed | --allow-empty] [--yes]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runChangesetCreate(cmd.Context(), *opts, createTitle, csCreateEmpty)
+			return r.runChangesetCreate(cmd.Context(), *opts, createTitle, csCreateEmpty, csCreateReview)
 		},
 	}
 	csCreateCmd.Flags().StringVar(&createTitle, "title", createTitle, "changeset title")
 	csCreateEmpty.addFlags(csCreateCmd)
+	csCreateReview.addFlags(csCreateCmd)
 	captureTitle := "agent changeset"
 	captureNoChecks := false
 	csCaptureCmd := &cobra.Command{

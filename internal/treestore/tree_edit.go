@@ -170,6 +170,9 @@ func (s *Store) applyBatch(ctx context.Context, treeID string, edits []batchEdit
 		return "", false, err
 	}
 	childEdits := map[string][]batchEdit{}
+	// deleted is set when a delete removed an entry here, or emptied a
+	// directory below, which is then removed too.
+	deleted := false
 	for _, edit := range edits {
 		if len(edit.parts) == 0 {
 			continue
@@ -178,7 +181,10 @@ func (s *Store) applyBatch(ctx context.Context, treeID string, edits []batchEdit
 		if len(edit.parts) == 1 {
 			switch edit.op {
 			case "delete":
-				node.Entries = removeEntry(node.Entries, name)
+				if _, exists := findEntry(node.Entries, name); exists {
+					node.Entries = removeEntry(node.Entries, name)
+					deleted = true
+				}
 			case "mkdir":
 				existing, ok := findEntry(node.Entries, name)
 				if ok && existing.Kind != "directory" {
@@ -208,32 +214,32 @@ func (s *Store) applyBatch(ctx context.Context, treeID string, edits []batchEdit
 	for name, edits := range childEdits {
 		child, ok := findEntry(node.Entries, name)
 		childTreeID := EmptyRootID()
+		onlyDeletes := true
+		for _, edit := range edits {
+			if edit.op != "delete" {
+				onlyDeletes = false
+				break
+			}
+		}
 		if ok {
 			if child.Kind != "directory" {
-				onlyDeletes := true
-				for _, edit := range edits {
-					if edit.op != "delete" {
-						onlyDeletes = false
-						break
-					}
-				}
 				if onlyDeletes {
 					continue
 				}
 				return "", false, fmt.Errorf("%s is not a directory", name)
 			}
 			childTreeID = child.TreeID
+		} else if onlyDeletes {
+			// Nothing to delete below a directory that is not there.
+			continue
 		}
-		newChildTreeID, childEmpty, err := s.applyBatch(ctx, childTreeID, edits)
+		newChildTreeID, childEmptied, err := s.applyBatch(ctx, childTreeID, edits)
 		if err != nil {
 			return "", false, err
 		}
-		if childEmpty {
-			node.Entries = upsertEntry(node.Entries, Entry{
-				Name:   name,
-				Kind:   "directory",
-				TreeID: newChildTreeID,
-			})
+		if childEmptied {
+			node.Entries = removeEntry(node.Entries, name)
+			deleted = true
 			continue
 		}
 		node.Entries = upsertEntry(node.Entries, Entry{
@@ -246,5 +252,5 @@ func (s *Store) applyBatch(ctx context.Context, treeID string, edits []batchEdit
 	if err != nil {
 		return "", false, err
 	}
-	return newTreeID, len(node.Entries) == 0, nil
+	return newTreeID, deleted && len(node.Entries) == 0, nil
 }

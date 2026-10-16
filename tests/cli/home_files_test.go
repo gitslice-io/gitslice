@@ -123,11 +123,15 @@ func TestCLIFileAndShellMutationsStayInHome(t *testing.T) {
 		"mv note.txt final.txt",
 		"cat final.txt",
 		"rm final.txt",
-		"ls /file-user/shell",
+		"ls /file-user",
 		"quit",
 	}, "\n")+"\n", "shell")
 	if stderr != "" {
 		t.Fatalf("expected empty shell stderr, got:\n%s", stderr)
+	}
+	// Removing the last file under a directory removes the directory.
+	if _, afterRemove, ok := strings.Cut(stdout, "ok removed through changeset"); !ok || strings.Contains(afterRemove, "shell/") || !strings.Contains(afterRemove, "docs/") {
+		t.Fatalf("the emptied shell/ directory should be gone from the listing that follows the rm:\n%s", stdout)
 	}
 	for _, want := range []string{
 		"archive/",

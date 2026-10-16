@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -216,5 +219,100 @@ func TestShouldSkipAgentMetadataOnlyAtWorkspaceRoot(t *testing.T) {
 				t.Fatalf("shouldSkip(%q) = %t, want %t", tt.rel, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestShouldSkipGsStateAtAnyDepth(t *testing.T) {
+	for rel, want := range map[string]bool{
+		".gs":                        true,
+		"acme/app/.gs":               true,
+		"acme/app/nested/.gs":        true,
+		"acme/app/.gsignore":         false,
+		"acme/app/gs/main.go":        false,
+		"acme/app/.gitslice-example": false,
+	} {
+		if got := shouldSkip(rel, nil); got != want {
+			t.Errorf("shouldSkip(%q) = %t, want %t", rel, got, want)
+		}
+	}
+}
+
+// TestScanWorkspaceFilesLeavesOutAnotherWorkspace: a directory with its own
+// .gs is another workspace, as when a workspace is copied into this one. Its
+// files are not scanned (they would add a second copy of its slice), unless
+// the base already tracks files there, and its .gs never is.
+func TestScanWorkspaceFilesLeavesOutAnotherWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(workspace, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".gs/slice.json", "{}")
+	write("acme/app/main.go", "package main\n")
+	write("acme/app/copy/.gs/slice.json", "{}")
+	write("acme/app/copy/acme/app/main.go", "package main\n")
+	write("acme/app/vendored/.gs/slice.json", "{}")
+	write("acme/app/vendored/lib.go", "package vendored\n")
+
+	ws := WorkspaceConfig{Account: "acme", Slice: "app", IncludedPaths: []string{"/acme/app"}}
+	var stderr bytes.Buffer
+	r := Runner{Home: t.TempDir(), Dir: workspace, Stderr: &stderr}
+	tracked := map[string]BaseSnapshotFile{
+		"/acme/app/vendored/lib.go": {Path: "/acme/app/vendored/lib.go", RelPath: "acme/app/vendored/lib.go"},
+	}
+	files, err := r.scanWorkspaceFiles(ws, tracked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for p := range files {
+		got = append(got, p)
+	}
+	sort.Strings(got)
+	want := []string{"/acme/app/main.go", "/acme/app/vendored/lib.go"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("scanned %v, want %v", got, want)
+	}
+	if out := stderr.String(); !strings.Contains(out, "skipping acme/app/copy: it is another gs workspace") || strings.Contains(out, "vendored") {
+		t.Fatalf("stderr = %q, want a warning about acme/app/copy only", out)
+	}
+}
+
+// TestWorkspaceRootStopsAtADamagedWorkspace: a .gs directory without its
+// slice.json is not walked past, or gs init and gs sync would start a second
+// workspace inside it.
+func TestWorkspaceRootStopsAtADamagedWorkspace(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "acme", "app")
+	if err := os.MkdirAll(filepath.Join(root, ".gs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gs", "state.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := Runner{Home: t.TempDir(), Dir: sub}
+	if _, err := r.workspaceRoot(); !isUserErrorCode(err, "workspace_damaged") {
+		t.Fatalf("workspaceRoot = %v, want workspace_damaged", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, ".gs", "slice.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.workspaceRoot(); err != nil || got != root {
+		t.Fatalf("workspaceRoot with slice.json = %q, %v; want %q", got, err, root)
+	}
+
+	// Outside any workspace nothing changes.
+	if _, err := (Runner{Home: t.TempDir(), Dir: t.TempDir()}).workspaceRoot(); !isUserErrorCode(err, "not_in_workspace") {
+		t.Fatalf("workspaceRoot outside a workspace = %v, want not_in_workspace", err)
 	}
 }

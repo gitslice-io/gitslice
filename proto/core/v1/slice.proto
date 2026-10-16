@@ -17,7 +17,20 @@ service SliceService {
   rpc SetSliceSecret(SetSliceSecretRequest) returns (Empty);
   rpc DeleteSliceSecret(DeleteSliceSecretRequest) returns (Empty);
   rpc ListSliceSecrets(ListSliceSecretsRequest) returns (ListSliceSecretsResponse);
+  // DeleteSlice removes a slice. One that has changesets is removed too when
+  // none of them is open and every path it includes is still covered by
+  // another slice: the changesets stay (history stays on the paths) and the
+  // name stays reserved.
   rpc DeleteSlice(DeleteSliceRequest) returns (DeleteSliceResponse);
+  // RenameSlice gives a slice a new name in its account. History, members,
+  // settings and changesets move with it. The old name keeps resolving to the
+  // slice (Git URLs, Go import paths, workspaces) and stays reserved, so no
+  // other slice can take it. Requires admin access to the slice's account.
+  rpc RenameSlice(RenameSliceRequest) returns (Slice);
+  // SetSliceArchived hides a slice from listings and makes it read-only
+  // (archived), or restores it. Its history stays readable and its name stays
+  // reserved. Requires admin access to the slice's account.
+  rpc SetSliceArchived(SetSliceArchivedRequest) returns (Slice);
   // CreateTag names a native commit for this slice, for releases. Tags are
   // immutable: creating an existing name again succeeds only for the same
   // commit. Requires write access. The Git projection publishes each tag as
@@ -73,6 +86,10 @@ message Slice {
   SliceDefinition definition = 3;
   string definition_hash = 4;
   string ci_daemon_id = 5;
+  // Archived slices are read-only and left out of listings unless asked for.
+  bool archived = 6;
+  // Names the slice had before it was renamed. They still resolve to it.
+  repeated string former_names = 7;
 }
 
 message SliceDefinition {
@@ -116,6 +133,8 @@ message ListSlicesRequest {
   string account = 1;
   string cursor = 2;
   int32 page_size = 3;
+  // Include archived slices, which are left out otherwise.
+  bool include_archived = 4;
 }
 
 message ListSlicesResponse {
@@ -171,6 +190,19 @@ message DeleteSliceRequest {
 
 message DeleteSliceResponse {
   string slice_id = 1;
+  // True when the slice had changesets: they remain, so the slice's history
+  // stays readable on the paths it covered.
+  bool history_kept = 2;
+}
+
+message RenameSliceRequest {
+  SliceRef slice = 1;
+  string new_name = 2;
+}
+
+message SetSliceArchivedRequest {
+  SliceRef slice = 1;
+  bool archived = 2;
 }
 
 message SliceMember {

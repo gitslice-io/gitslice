@@ -108,6 +108,11 @@ func (s *Store) setEntry(ctx context.Context, treeID string, parts []string, ent
 	return s.writeNode(ctx, node)
 }
 
+// deletePath removes the entry at parts and reports whether that left the
+// node empty. A directory emptied by a delete is removed from its parent, as
+// Git has no empty directories, and the removal can empty the parent in turn.
+// A delete that removes nothing never empties a node, so an empty directory
+// made on purpose (mkdir) stays until something under it is deleted.
 func (s *Store) deletePath(ctx context.Context, treeID string, parts []string) (string, bool, error) {
 	if len(parts) == 0 {
 		return treeID, false, nil
@@ -118,7 +123,7 @@ func (s *Store) deletePath(ctx context.Context, treeID string, parts []string) (
 	}
 	entry, ok := findEntry(node.Entries, parts[0])
 	if !ok {
-		return treeID, len(node.Entries) == 0, nil
+		return treeID, false, nil
 	}
 	if len(parts) == 1 {
 		node.Entries = removeEntry(node.Entries, parts[0])
@@ -126,19 +131,18 @@ func (s *Store) deletePath(ctx context.Context, treeID string, parts []string) (
 		return newTreeID, len(node.Entries) == 0, err
 	}
 	if entry.Kind != "directory" {
-		return treeID, len(node.Entries) == 0, nil
+		return treeID, false, nil
 	}
-	newChildTreeID, childEmpty, err := s.deletePath(ctx, entry.TreeID, parts[1:])
+	newChildTreeID, childEmptied, err := s.deletePath(ctx, entry.TreeID, parts[1:])
 	if err != nil {
 		return "", false, err
 	}
-	if childEmpty {
-		entry.TreeID = newChildTreeID
-		node.Entries = upsertEntry(node.Entries, entry)
+	if childEmptied {
+		node.Entries = removeEntry(node.Entries, parts[0])
 	} else {
 		entry.TreeID = newChildTreeID
 		node.Entries = upsertEntry(node.Entries, entry)
 	}
 	newTreeID, err := s.writeNode(ctx, node)
-	return newTreeID, len(node.Entries) == 0, err
+	return newTreeID, childEmptied && len(node.Entries) == 0, err
 }

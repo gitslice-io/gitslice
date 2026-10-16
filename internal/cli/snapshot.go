@@ -80,15 +80,22 @@ func (r Runner) snapshotEditsWithStats(ctx context.Context, conn *grpc.ClientCon
 	if err != nil {
 		return nil, nil, snapshotEditsStats{}, err
 	}
-	return r.snapshotEditsAgainstBaseWithStats(ctx, conn, cfg, ws, base, upload, hashConcurrency, uploadConcurrency)
+	return r.snapshotEditsAgainstBaseWithStats(ctx, conn, cfg, ws, base, upload, hashConcurrency, uploadConcurrency, nil)
 }
 
 func (r Runner) snapshotEditsAgainstBase(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {
-	edits, current, _, err := r.snapshotEditsAgainstBaseWithStats(ctx, conn, cfg, ws, base, upload, defaultCaptureHashConcurrency(), defaultUploadConcurrency())
+	edits, current, _, err := r.snapshotEditsAgainstBaseWithStats(ctx, conn, cfg, ws, base, upload, defaultCaptureHashConcurrency(), defaultUploadConcurrency(), nil)
 	return edits, current, err
 }
 
-func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool, hashConcurrency, uploadConcurrency int) ([]*corev1.FileEdit, map[string]workingFile, snapshotEditsStats, error) {
+// snapshotEditsReviewed is snapshotEditsAgainstBase that uploads, after
+// review has looked at the edits and before any blob is sent.
+func (r Runner) snapshotEditsReviewed(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, review editReview) ([]*corev1.FileEdit, map[string]workingFile, error) {
+	edits, current, _, err := r.snapshotEditsAgainstBaseWithStats(ctx, conn, cfg, ws, base, true, defaultCaptureHashConcurrency(), defaultUploadConcurrency(), review)
+	return edits, current, err
+}
+
+func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool, hashConcurrency, uploadConcurrency int, review editReview) ([]*corev1.FileEdit, map[string]workingFile, snapshotEditsStats, error) {
 	var stats snapshotEditsStats
 	current, scanStats, err := r.scanWorkspaceFilesWithStats(ctx, ws, hashConcurrency, base.Files)
 	stats.Scan = scanStats
@@ -124,6 +131,12 @@ func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grp
 		}
 	}
 	stats.DiffDuration = time.Since(diffStarted)
+	if review != nil {
+		sortFileEdits(edits)
+		if err := review(edits); err != nil {
+			return nil, nil, stats, err
+		}
+	}
 	if upload {
 		blobStats, err := attachBlobIDsWithStats(callCtx, blobClient, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits, uploadConcurrency)
 		stats.Blobs = blobStats

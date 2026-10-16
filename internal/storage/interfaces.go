@@ -309,13 +309,14 @@ type SliceStore interface {
 	Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error)
 	Get(ctx context.Context, sliceID string) (*corev1.Slice, error)
 	// List lists an account's slices in name order, up to limit, starting after
-	// the slice named after ("" for the first page).
-	List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error)
+	// the slice named after ("" for the first page). Archived slices are left
+	// out unless includeArchived is set; retired ones are never listed.
+	List(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error)
 	// ListPublic lists the account's public slices the same way, whoever is asking.
-	ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error)
+	ListPublic(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error)
 	// ListVisible lists the account's slices someone outside the account can
 	// see: the public ones and those shared with subjectID.
-	ListVisible(ctx context.Context, account, subjectID, after string, limit int) ([]*corev1.Slice, error)
+	ListVisible(ctx context.Context, account, subjectID, after string, limit int, includeArchived bool) ([]*corev1.Slice, error)
 	// ListMembers lists the people and agents given a role on the slice.
 	ListMembers(ctx context.Context, sliceID string) ([]SliceMember, error)
 	// SetMember gives the subject a role on the slice, or changes it.
@@ -331,7 +332,25 @@ type SliceStore interface {
 	DeleteSliceSecret(ctx context.Context, sliceID, name string) error
 	ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error)
 	GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error)
+	// Delete removes a slice that authored no changesets, or returns
+	// ErrConflict.
 	Delete(ctx context.Context, sliceID string) error
+	// Retire removes a slice that has changesets: they stay, and so does the
+	// slice's name, but it no longer resolves, lists or covers paths. It
+	// returns ErrConflict while a changeset is open.
+	Retire(ctx context.Context, sliceID string) error
+	// ChangesetCounts returns how many changesets the slice authored, and how
+	// many of those are open (neither landed nor abandoned).
+	ChangesetCounts(ctx context.Context, sliceID string) (total, open int, err error)
+	// ResolveRetired finds a retired slice by the name it had, so the
+	// changesets it authored can still be read. ErrNotFound for any other slice.
+	ResolveRetired(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error)
+	// Rename gives the slice a new name. The old name keeps resolving to the
+	// slice (Slice.FormerNames) and stays reserved. ErrConflict if the name is
+	// taken or reserved by another slice.
+	Rename(ctx context.Context, sliceID, newName string) (*corev1.Slice, error)
+	// SetArchived archives the slice or restores it; either is idempotent.
+	SetArchived(ctx context.Context, sliceID string, archived bool) (*corev1.Slice, error)
 	CoveringIDsByPath(ctx context.Context, paths []string) (map[string][]string, error)
 	// CreateTag records an immutable tag. It returns the stored tag and whether
 	// it was created; an existing tag with the same commit is returned as is,

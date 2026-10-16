@@ -454,3 +454,128 @@ func TestListTreeListsEverythingUnderAPath(t *testing.T) {
 		t.Fatalf("ListTree of a missing path = %v", got)
 	}
 }
+
+func treeFile(p string) FileEdit {
+	return FileEdit{Op: "upsert", Path: p, File: &FileEntry{Path: p, BlobID: "blob-" + p, ContentHash: "sha256:" + p, Mode: 0o100644, Size: 1}}
+}
+
+func treeHasDirectory(t *testing.T, store *Store, root, p string) bool {
+	t.Helper()
+	entry, err := store.GetEntry(context.Background(), root, p)
+	if errors.Is(err, ErrNotFound) {
+		return false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entry.Kind == "directory"
+}
+
+// TestDeleteRemovesDirectoriesItEmpties: deleting the last file under a
+// directory removes the directory, and any parent that empties with it, in
+// both the batched and the sequential edit paths. A directory made on purpose
+// stays until something under it is deleted, and a delete that removes
+// nothing leaves the tree as it was.
+func TestDeleteRemovesDirectoriesItEmpties(t *testing.T) {
+	ctx := context.Background()
+	for _, tt := range []struct {
+		name       string
+		sequential bool
+	}{{"batched", false}, {"sequential", true}} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := New(newMemoryObjectStore())
+			root, err := store.ApplyEdits(ctx, EmptyRootID(), []FileEdit{
+				treeFile("/acme/payment/keep.go"),
+				treeFile("/acme/payment/dir/sub/a.txt"),
+				treeFile("/acme/payment/dir/other/b.txt"),
+				{Op: "mkdir", Path: "/acme/payment/empty"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			del := func(root string, paths ...string) string {
+				t.Helper()
+				var edits []FileEdit
+				for _, p := range paths {
+					edits = append(edits, FileEdit{Op: "delete", Path: p})
+				}
+				if tt.sequential {
+					// A repeated path makes ApplyEdits take the sequential path.
+					edits = append(edits, edits[0])
+				}
+				next, err := store.ApplyEdits(ctx, root, edits)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return next
+			}
+
+			root = del(root, "/acme/payment/dir/sub/a.txt")
+			if treeHasDirectory(t, store, root, "/acme/payment/dir/sub") {
+				t.Fatal("dir/sub is empty and should be gone")
+			}
+			if !treeHasDirectory(t, store, root, "/acme/payment/dir") || !treeHasDirectory(t, store, root, "/acme/payment/empty") {
+				t.Fatal("dir (still has other/) and the deliberate empty directory should stay")
+			}
+
+			// Deleting what is not there changes nothing.
+			if again := del(root, "/acme/payment/empty/missing.txt"); again != root {
+				t.Fatal("a delete that removed nothing changed the tree")
+			}
+			if again := del(root, "/acme/payment/nothing/missing.txt"); again != root || treeHasDirectory(t, store, again, "/acme/payment/nothing") {
+				t.Fatal("a delete below a missing directory changed the tree")
+			}
+
+			root = del(root, "/acme/payment/dir/other/b.txt")
+			if treeHasDirectory(t, store, root, "/acme/payment/dir") {
+				t.Fatal("dir emptied through its last child and should be gone")
+			}
+			if _, err := store.GetFile(ctx, root, "/acme/payment/keep.go"); err != nil {
+				t.Fatalf("keep.go: %v", err)
+			}
+			if !treeHasDirectory(t, store, root, "/acme/payment/empty") {
+				t.Fatal("the deliberate empty directory should still be there")
+			}
+
+			root = del(root, "/acme/payment/keep.go")
+			if !treeHasDirectory(t, store, root, "/acme/payment/empty") {
+				t.Fatal("the deliberate empty directory keeps /acme/payment alive")
+			}
+		})
+	}
+}
+
+func TestDeleteOfTheLastFileEmptiesTheRoot(t *testing.T) {
+	ctx := context.Background()
+	store := New(newMemoryObjectStore())
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), []FileEdit{treeFile("/acme/payment/dir/a.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = store.ApplyEdits(ctx, root, []FileEdit{{Op: "delete", Path: "/acme/payment/dir/a.txt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != EmptyRootID() {
+		t.Fatalf("root = %s, want the empty root", root)
+	}
+}
+
+func TestRenameOutOfADirectoryRemovesItWhenEmptied(t *testing.T) {
+	ctx := context.Background()
+	store := New(newMemoryObjectStore())
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), []FileEdit{treeFile("/acme/payment/solo/f.go"), treeFile("/acme/payment/other.go")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = store.ApplyEdits(ctx, root, []FileEdit{{Op: "rename", OldPath: "/acme/payment/solo/f.go", Path: "/acme/payment/g.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if treeHasDirectory(t, store, root, "/acme/payment/solo") {
+		t.Fatal("solo emptied by the rename and should be gone")
+	}
+	if _, err := store.GetFile(ctx, root, "/acme/payment/g.go"); err != nil {
+		t.Fatalf("g.go: %v", err)
+	}
+}

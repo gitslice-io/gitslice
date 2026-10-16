@@ -664,6 +664,9 @@ gs slice info <slice|account/slice>
 gs slice paths <slice|account/slice>
 gs slice update <slice|account/slice> [--include /account/path] [--visibility account|public]
 gs slice delete <slice|account/slice> --yes
+gs slice rename <slice|account/slice> <new-name>
+gs slice archive <slice|account/slice>
+gs slice unarchive <slice|account/slice>
 ```
 
 `gs slice create` creates a native slice under an account where the signed-in
@@ -681,8 +684,11 @@ global target ref; only `home` slices may include the account root itself.
 the CLI derives the personal account slug from a signed-up subject such as
 `user_nic`.
 
-`gs slice delete` is metadata-only and requires `--yes`. Deleting a slice with
-existing changesets is rejected by the server.
+`gs slice delete` requires `--yes`. A slice with no changesets is removed. One
+with changesets is removed too when none is open and every path it includes is
+covered by another slice or holds no files; the changesets stay and the name
+stays reserved. `gs slice rename`, `archive` and `unarchive` are described in
+`design/29_slice_lifecycle.md`.
 
 `gs init <slice|account/slice>` binds the workspace to one slice:
 
@@ -855,7 +861,11 @@ the local `~/` directory. JSON output omits this human diagnostic and reports
 the resolved path in the `path` field.
 
 Empty directories are first-class tree entries for these commands. Creating a
-directory does not create a placeholder file.
+directory does not create a placeholder file. A directory that was made on
+purpose stays until something under it is deleted; deleting the last file under
+a directory removes the directory too, and any parent that empties with it, as
+Git does (a delete that removes nothing never empties a directory). Before
+2026-10-16 an emptied directory stayed on the server.
 
 `gs fs upload <local-path> <absolute-remote-path>` copies a local regular file
 or directory into the signed-in user's home slice. File uploads target the exact

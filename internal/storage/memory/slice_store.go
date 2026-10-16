@@ -17,6 +17,9 @@ func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.S
 	if _, ok := s.b.sliceRefs[sliceRefKey(ref)]; ok {
 		return nil, storage.ErrConflict
 	}
+	if _, ok := s.b.sliceAliases[sliceRefKey(ref)]; ok {
+		return nil, fmt.Errorf("%w: slice name %s is reserved: a slice was renamed from it", storage.ErrConflict, sliceRefKey(ref))
+	}
 	return s.b.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks, subjectID)
 }
 
@@ -29,6 +32,10 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 	defer s.b.mu.Unlock()
 	id := s.b.sliceRefs[sliceRefKey(ref)]
 	if id == "" {
+		// A renamed slice still answers to its earlier names.
+		id = s.b.sliceAliases[sliceRefKey(ref)]
+	}
+	if id == "" || s.b.retiredSlices[id] {
 		return nil, storage.ErrNotFound
 	}
 	return cloneSlice(s.b.slices[id]), nil
@@ -44,17 +51,17 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 	return cloneSlice(slice), nil
 }
 
-func (s *SliceStore) List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(account, after, limit, false, "")
+func (s *SliceStore) List(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
+	return s.list(account, after, limit, false, "", includeArchived)
 }
 
-func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(account, after, limit, true, "")
+func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
+	return s.list(account, after, limit, true, "", includeArchived)
 }
 
 // list lists an account's slices: all of them, or with publicOnly the public
 // ones and those shared with sharedWith.
-func (s *SliceStore) list(account, after string, limit int, publicOnly bool, sharedWith string) ([]*corev1.Slice, error) {
+func (s *SliceStore) list(account, after string, limit int, publicOnly bool, sharedWith string, includeArchived bool) ([]*corev1.Slice, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if limit <= 0 {
@@ -62,6 +69,9 @@ func (s *SliceStore) list(account, after string, limit int, publicOnly bool, sha
 	}
 	var out []*corev1.Slice
 	for _, slice := range s.b.slices {
+		if s.b.retiredSlices[slice.Id] || (slice.Archived && !includeArchived) {
+			continue
+		}
 		_, shared := s.b.sliceMembers[slice.Id][sharedWith]
 		if slice.Ref.Account == account && slice.Ref.Slice > after && (!publicOnly || slice.GetDefinition().GetVisibility() == "public" || (sharedWith != "" && shared)) {
 			out = append(out, cloneSlice(slice))
@@ -202,6 +212,11 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 		return storage.ErrNotFound
 	}
 	delete(s.b.sliceRefs, sliceRefKey(slice.Ref))
+	for key, id := range s.b.sliceAliases {
+		if id == sliceID {
+			delete(s.b.sliceAliases, key)
+		}
+	}
 	delete(s.b.slices, sliceID)
 	delete(s.b.sliceDefinitionVersions, sliceID)
 	delete(s.b.sliceSecrets, sliceID)
@@ -213,6 +228,9 @@ func (s *SliceStore) CoveringIDsByPath(ctx context.Context, changedPaths []strin
 	defer s.b.mu.Unlock()
 	byPrefix := map[string][]string{}
 	for _, slice := range s.b.slices {
+		if s.b.retiredSlices[slice.Id] {
+			continue
+		}
 		for _, prefix := range slice.Definition.IncludedPaths {
 			byPrefix[prefix] = append(byPrefix[prefix], slice.Id)
 		}

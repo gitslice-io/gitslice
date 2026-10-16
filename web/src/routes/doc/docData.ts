@@ -239,6 +239,8 @@ export const commandGroups = [
       ["gs slice members <slice>", "Who the slice is shared with; gs slice unshare and gs slice leave end it."],
       ["gs slice create", "Create a slice definition."],
       ["gs slice update", "Change included paths or policy (e.g. --required-check)."],
+      ["gs slice rename <slice> <new-name>", "Rename a slice. The old name keeps resolving and stays reserved."],
+      ["gs slice archive <slice>", "Hide a slice from listings and make it read-only (gs slice unarchive restores it)."],
       ["gs slice set-ci-daemon", "Designate the daemon that runs out-of-slice checks."],
       ["gs slice history", "Inspect slice definition versions."]
     ]

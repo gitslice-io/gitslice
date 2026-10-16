@@ -29,19 +29,21 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceCreateCmd.Flags().IntVar(&sliceCreateRequiredApprovals, "required-approvals", sliceCreateRequiredApprovals, "distinct non-author approvals required before submit")
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateRequiredChecks, "required-check", nil, "check name required to pass before submit; repeat for multiple checks")
 	sliceListShared := false
+	sliceListArchived := false
 	sliceListCmd := &cobra.Command{
 		Use:   "list [account]",
 		Short: "List slices in an account, and those shared with you",
-		Args:  maxArgs(1, "gs slice list [account] [--shared]"),
+		Args:  maxArgs(1, "gs slice list [account] [--shared] [--archived]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			account := ""
 			if len(args) > 0 {
 				account = args[0]
 			}
-			return r.runSliceList(cmd.Context(), *opts, account, sliceListShared)
+			return r.runSliceList(cmd.Context(), *opts, account, sliceListShared, sliceListArchived)
 		},
 	}
 	sliceListCmd.Flags().BoolVar(&sliceListShared, "shared", false, "only the slices shared with you from other accounts")
+	sliceListCmd.Flags().BoolVar(&sliceListArchived, "archived", false, "include archived slices")
 	sliceInfoCmd := &cobra.Command{
 		Use:   "info <slice|account:slice>",
 		Short: "Show slice metadata",
@@ -94,7 +96,10 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceDeleteCmd := &cobra.Command{
 		Use:   "delete <slice|account:slice>",
 		Short: "Delete a slice",
-		Args:  exactArgs(1, "gs slice delete <slice|account:slice> --yes"),
+		Long: "Delete a slice. A slice that has changesets can be deleted too when none of them is open and every path it " +
+			"includes is covered by another slice or holds no files: the changesets stay, so history stays readable " +
+			"on the paths, and the name stays reserved. To hide a slice but keep it, use gs slice archive.",
+		Args: exactArgs(1, "gs slice delete <slice|account:slice> --yes"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceDelete(cmd.Context(), *opts, args[0], sliceDeleteYes)
 		},
@@ -140,6 +145,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceSecretCmd.AddCommand(sliceSecretSetCmd, sliceSecretRemoveCmd, sliceSecretListCmd)
 	sliceCmd.AddCommand(r.sliceMemberCommands(opts)...)
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceSecretCmd, sliceDeleteCmd)
+	sliceCmd.AddCommand(r.sliceLifecycleCommands(opts)...)
 
 	return sliceCmd
 }

@@ -263,7 +263,7 @@ func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID,
 	if cs.AuthoringSlice == nil {
 		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
 	}
-	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
+	slice, err := resolveAuthoringSlice(ctx, s.Slices, cs.AuthoringSlice, action)
 	if err != nil {
 		return nil, grpcError(err)
 	}

@@ -278,6 +278,13 @@ func (r Runner) workspaceRoot() (string, error) {
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
+		// A .gs without its slice.json is a workspace that lost its binding.
+		// Walking past it would make the next gs init or gs sync start a second
+		// workspace inside it.
+		if info, err := os.Stat(filepath.Join(dir, ".gs")); err == nil && info.IsDir() {
+			return "", userError("workspace_damaged", "found "+filepath.Join(dir, ".gs")+" without slice.json, so this workspace has lost its slice binding",
+				"Restore .gs/slice.json, or move the files you want to keep out and run gs init <slice|account:slice> in a new empty directory.")
+		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return "", userError("not_in_workspace", "not in a gitslice workspace", "Run gs init <slice|account:slice>.")

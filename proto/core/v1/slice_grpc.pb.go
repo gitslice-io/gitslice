@@ -30,6 +30,8 @@ const (
 	SliceService_DeleteSliceSecret_FullMethodName           = "/gitslice.core.v1.SliceService/DeleteSliceSecret"
 	SliceService_ListSliceSecrets_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceSecrets"
 	SliceService_DeleteSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/DeleteSlice"
+	SliceService_RenameSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/RenameSlice"
+	SliceService_SetSliceArchived_FullMethodName            = "/gitslice.core.v1.SliceService/SetSliceArchived"
 	SliceService_CreateTag_FullMethodName                   = "/gitslice.core.v1.SliceService/CreateTag"
 	SliceService_ListTags_FullMethodName                    = "/gitslice.core.v1.SliceService/ListTags"
 	SliceService_ListSliceMembers_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceMembers"
@@ -52,7 +54,20 @@ type SliceServiceClient interface {
 	SetSliceSecret(ctx context.Context, in *SetSliceSecretRequest, opts ...grpc.CallOption) (*Empty, error)
 	DeleteSliceSecret(ctx context.Context, in *DeleteSliceSecretRequest, opts ...grpc.CallOption) (*Empty, error)
 	ListSliceSecrets(ctx context.Context, in *ListSliceSecretsRequest, opts ...grpc.CallOption) (*ListSliceSecretsResponse, error)
+	// DeleteSlice removes a slice. One that has changesets is removed too when
+	// none of them is open and every path it includes is still covered by
+	// another slice: the changesets stay (history stays on the paths) and the
+	// name stays reserved.
 	DeleteSlice(ctx context.Context, in *DeleteSliceRequest, opts ...grpc.CallOption) (*DeleteSliceResponse, error)
+	// RenameSlice gives a slice a new name in its account. History, members,
+	// settings and changesets move with it. The old name keeps resolving to the
+	// slice (Git URLs, Go import paths, workspaces) and stays reserved, so no
+	// other slice can take it. Requires admin access to the slice's account.
+	RenameSlice(ctx context.Context, in *RenameSliceRequest, opts ...grpc.CallOption) (*Slice, error)
+	// SetSliceArchived hides a slice from listings and makes it read-only
+	// (archived), or restores it. Its history stays readable and its name stays
+	// reserved. Requires admin access to the slice's account.
+	SetSliceArchived(ctx context.Context, in *SetSliceArchivedRequest, opts ...grpc.CallOption) (*Slice, error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -179,6 +194,24 @@ func (c *sliceServiceClient) DeleteSlice(ctx context.Context, in *DeleteSliceReq
 	return out, nil
 }
 
+func (c *sliceServiceClient) RenameSlice(ctx context.Context, in *RenameSliceRequest, opts ...grpc.CallOption) (*Slice, error) {
+	out := new(Slice)
+	err := c.cc.Invoke(ctx, SliceService_RenameSlice_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) SetSliceArchived(ctx context.Context, in *SetSliceArchivedRequest, opts ...grpc.CallOption) (*Slice, error) {
+	out := new(Slice)
+	err := c.cc.Invoke(ctx, SliceService_SetSliceArchived_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sliceServiceClient) CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*Tag, error) {
 	out := new(Tag)
 	err := c.cc.Invoke(ctx, SliceService_CreateTag_FullMethodName, in, out, opts...)
@@ -247,7 +280,20 @@ type SliceServiceServer interface {
 	SetSliceSecret(context.Context, *SetSliceSecretRequest) (*Empty, error)
 	DeleteSliceSecret(context.Context, *DeleteSliceSecretRequest) (*Empty, error)
 	ListSliceSecrets(context.Context, *ListSliceSecretsRequest) (*ListSliceSecretsResponse, error)
+	// DeleteSlice removes a slice. One that has changesets is removed too when
+	// none of them is open and every path it includes is still covered by
+	// another slice: the changesets stay (history stays on the paths) and the
+	// name stays reserved.
 	DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error)
+	// RenameSlice gives a slice a new name in its account. History, members,
+	// settings and changesets move with it. The old name keeps resolving to the
+	// slice (Git URLs, Go import paths, workspaces) and stays reserved, so no
+	// other slice can take it. Requires admin access to the slice's account.
+	RenameSlice(context.Context, *RenameSliceRequest) (*Slice, error)
+	// SetSliceArchived hides a slice from listings and makes it read-only
+	// (archived), or restores it. Its history stays readable and its name stays
+	// reserved. Requires admin access to the slice's account.
+	SetSliceArchived(context.Context, *SetSliceArchivedRequest) (*Slice, error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -303,6 +349,12 @@ func (UnimplementedSliceServiceServer) ListSliceSecrets(context.Context, *ListSl
 }
 func (UnimplementedSliceServiceServer) DeleteSlice(context.Context, *DeleteSliceRequest) (*DeleteSliceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteSlice not implemented")
+}
+func (UnimplementedSliceServiceServer) RenameSlice(context.Context, *RenameSliceRequest) (*Slice, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenameSlice not implemented")
+}
+func (UnimplementedSliceServiceServer) SetSliceArchived(context.Context, *SetSliceArchivedRequest) (*Slice, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetSliceArchived not implemented")
 }
 func (UnimplementedSliceServiceServer) CreateTag(context.Context, *CreateTagRequest) (*Tag, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateTag not implemented")
@@ -532,6 +584,42 @@ func _SliceService_DeleteSlice_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_RenameSlice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenameSliceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).RenameSlice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_RenameSlice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).RenameSlice(ctx, req.(*RenameSliceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_SetSliceArchived_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSliceArchivedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).SetSliceArchived(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_SetSliceArchived_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).SetSliceArchived(ctx, req.(*SetSliceArchivedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SliceService_CreateTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateTagRequest)
 	if err := dec(in); err != nil {
@@ -690,6 +778,14 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSlice",
 			Handler:    _SliceService_DeleteSlice_Handler,
+		},
+		{
+			MethodName: "RenameSlice",
+			Handler:    _SliceService_RenameSlice_Handler,
+		},
+		{
+			MethodName: "SetSliceArchived",
+			Handler:    _SliceService_SetSliceArchived_Handler,
 		},
 		{
 			MethodName: "CreateTag",

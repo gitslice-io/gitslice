@@ -151,6 +151,20 @@ export function SliceDetailPage() {
     slice?.definition?.includedPaths ?? [],
   );
 
+  // A renamed slice still opens under its old name; move to the current one.
+  const currentSliceName = slice?.ref?.slice ?? "";
+  useEffect(() => {
+    if (!currentSliceName || !routeSlice || currentSliceName === routeSlice || !sliceRouteParams) {
+      return;
+    }
+    void navigate({
+      params: sliceRouteParams as never,
+      replace: true,
+      search: (selectedPath ? { path: selectedPath } : {}) as never,
+      to: "/slices/$account/$slice",
+    });
+  }, [currentSliceName, navigate, routeSlice, selectedPath, sliceRouteParams]);
+
   useEffect(() => {
     if (!sliceId) {
       return;
@@ -342,6 +356,14 @@ export function SliceDetailPage() {
             name={selectedPath.split("/").filter(Boolean).pop() ?? selectedPath}
             onBack={() => selectPath("")}
           />
+        ) : null}
+        {slice.archived ? (
+          <div className="mb-3">
+            <SliceNotice title="This slice is archived">
+              It is read-only and hidden from listings. Its history is still here. An account owner can restore it with{" "}
+              <code>gs slice unarchive {sliceLabel}</code>.
+            </SliceNotice>
+          </div>
         ) : null}
         <PageHeader
           // Under the phone bar the header scrolls away instead of sticking,

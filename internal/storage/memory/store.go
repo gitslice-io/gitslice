@@ -76,6 +76,8 @@ type backend struct {
 
 	slices                  map[string]*corev1.Slice
 	sliceRefs               map[string]string
+	sliceAliases            map[string]string // earlier name -> slice id
+	retiredSlices           map[string]bool
 	sliceDefinitionVersions map[string][]*corev1.SliceDefinitionVersion
 	sliceTags               map[string]map[string]storage.SliceTag
 	sliceSecrets            map[string]map[string]string
@@ -174,6 +176,8 @@ func New() *Stores {
 		commitDirs:              map[string]map[string]struct{}{},
 		slices:                  map[string]*corev1.Slice{},
 		sliceRefs:               map[string]string{},
+		sliceAliases:            map[string]string{},
+		retiredSlices:           map[string]bool{},
 		sliceDefinitionVersions: map[string][]*corev1.SliceDefinitionVersion{},
 		sliceTags:               map[string]map[string]storage.SliceTag{},
 		sliceSecrets:            map[string]map[string]string{},

@@ -14,12 +14,16 @@ func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 	createSubmit := false
 	createWatchTimeout := "15m"
 	createEmpty := emptyChangesetOptions{}
+	createReview := reviewOptions{}
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a changeset from workspace edits",
 		Long: "Create a changeset from workspace edits. With --submit, also submit it: gs create waits for " +
-			"required checks that have no result yet (up to --watch-timeout), submits, and waits for it to land.",
-		Args: noArgs("gs create --message title [--all] [--submit] [--if-changed | --allow-empty] [--base changeset] [--sibling] [--root]"),
+			"required checks that have no result yet (up to --watch-timeout), submits, and waits for it to land. " +
+			"A file's path in the changeset is its path in the workspace; no flag re-bases paths. When files would be " +
+			"added to a directory that is new, gs create lists those directories first, and asks before adding " +
+			"100 or more files to one (--yes skips the question); it refuses when files would repeat the slice's own path.",
+		Args: noArgs("gs create --message title [--all] [--submit] [--if-changed | --allow-empty] [--base changeset] [--sibling] [--root] [--yes]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			submit := createSubmitOptions{}
 			if createSubmit {
@@ -29,17 +33,18 @@ func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 				}
 				submit = createSubmitOptions{enabled: true, timeout: timeout}
 			}
-			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll, submit, createEmpty)
+			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll, submit, createEmpty, createReview)
 		},
 	}
 	createCmd.Flags().StringVar(&createMessage, "message", createMessage, "changeset title")
 	createCmd.Flags().StringVar(&createParent, "base", createParent, "base changeset id or handle")
-	createCmd.Flags().BoolVar(&createRoot, "root", createRoot, "create a new root changeset")
+	createCmd.Flags().BoolVar(&createRoot, "root", createRoot, "start a new dependency tree instead of stacking on the active changeset (file paths are not affected)")
 	createCmd.Flags().BoolVar(&createSibling, "sibling", createSibling, "create a sibling of the active changeset")
 	createCmd.Flags().BoolVar(&createAll, "all", createAll, "snapshot all current workspace edits")
 	createCmd.Flags().BoolVar(&createSubmit, "submit", createSubmit, "submit the changeset once required checks pass, and wait for it to land")
 	createCmd.Flags().StringVar(&createWatchTimeout, "watch-timeout", createWatchTimeout, "with --submit, how long to wait for required checks and for the changeset to land")
 	createEmpty.addFlags(createCmd)
+	createReview.addFlags(createCmd)
 
 	modifyMessage := ""
 	modifyNoRestack := false

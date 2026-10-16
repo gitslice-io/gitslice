@@ -48,7 +48,7 @@ func TestSliceDefinitionValidation(t *testing.T) {
 
 func TestSliceStoreListPublic(t *testing.T) {
 	ctx, store := newPostgresTestStore(t)
-	before, err := store.Slices().ListPublic(ctx, "acme", "", 50)
+	before, err := store.Slices().ListPublic(ctx, "acme", "", 50, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,14 +58,14 @@ func TestSliceStoreListPublic(t *testing.T) {
 		}
 		t.Fatalf("ListPublic returned a non-public slice: %#v", slice)
 	}
-	all, err := store.Slices().List(ctx, "acme", "", 50)
+	all, err := store.Slices().List(ctx, "acme", "", 50, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Slices().Create(ctx, "user_alice", &corev1.SliceRef{Account: "acme", Slice: "open"}, []string{"/acme/open"}, "public", 0, nil); err != nil {
 		t.Fatal(err)
 	}
-	after, err := store.Slices().ListPublic(ctx, "acme", "", 50)
+	after, err := store.Slices().ListPublic(ctx, "acme", "", 50, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,18 +73,18 @@ func TestSliceStoreListPublic(t *testing.T) {
 		t.Fatalf("ListPublic after creating a public slice = %#v", after)
 	}
 	// A page starts after the named slice.
-	rest, err := store.Slices().ListPublic(ctx, "acme", "open", 50)
+	rest, err := store.Slices().ListPublic(ctx, "acme", "open", 50, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sliceNamed(rest, "open") {
 		t.Fatalf("a page after \"open\" must not include it: %#v", rest)
 	}
-	one, err := store.Slices().List(ctx, "acme", "", 1)
+	one, err := store.Slices().List(ctx, "acme", "", 1, false)
 	if err != nil || len(one) != 1 {
 		t.Fatalf("a limit of 1 gave %d slices (%v)", len(one), err)
 	}
-	allAfter, err := store.Slices().List(ctx, "acme", "", 50)
+	allAfter, err := store.Slices().List(ctx, "acme", "", 50, false)
 	if err != nil {
 		t.Fatal(err)
 	}

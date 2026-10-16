@@ -294,6 +294,14 @@ func (a connectSliceAdapter) UpdateSliceDefinition(ctx context.Context, req *con
 	return connectResponse(a.svc.UpdateSliceDefinition(ctx, req.Msg))
 }
 
+func (a connectSliceAdapter) RenameSlice(ctx context.Context, req *connect.Request[corev1.RenameSliceRequest]) (*connect.Response[corev1.Slice], error) {
+	return connectResponse(a.svc.RenameSlice(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) SetSliceArchived(ctx context.Context, req *connect.Request[corev1.SetSliceArchivedRequest]) (*connect.Response[corev1.Slice], error) {
+	return connectResponse(a.svc.SetSliceArchived(ctx, req.Msg))
+}
+
 func (a connectSliceAdapter) SetSliceCIDaemon(ctx context.Context, req *connect.Request[corev1.SetSliceCIDaemonRequest]) (*connect.Response[corev1.Slice], error) {
 	return connectResponse(a.svc.SetSliceCIDaemon(ctx, req.Msg))
 }

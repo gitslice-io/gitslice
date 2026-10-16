@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -87,6 +88,8 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	candidates := []workspaceScanCandidate{}
 	walkStarted := time.Now()
 	known := readStatCache(root)
+	trackedDirs := trackedDirectories(append([]map[string]BaseSnapshotFile{base.Files}, tracked...)...)
+	var nested []string
 	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -109,6 +112,13 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 			return nil
 		}
 		if entry.IsDir() {
+			if _, err := os.Stat(filepath.Join(p, ".gs", "slice.json")); err == nil && !trackedDirs[rel] {
+				// Another workspace's files belong to that workspace;
+				// adding them here would put a second copy of its slice
+				// under this one.
+				nested = append(nested, rel)
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		info, err := entry.Info()
@@ -154,6 +164,9 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	stats.FileCount = len(candidates)
 	if err != nil {
 		return nil, stats, err
+	}
+	for _, dir := range nested {
+		fmt.Fprintf(r.stderr(), "warning: skipping %s: it is another gs workspace (it has its own .gs); its files are not part of this one\n", dir)
 	}
 
 	// Files whose recorded stat still matches are not read again.
@@ -279,8 +292,27 @@ func hashWorkspaceFiles(ctx context.Context, paths []string, concurrency int, ha
 	return objects, nil
 }
 
+// trackedDirectories returns the workspace-relative directories that hold at
+// least one tracked file.
+func trackedDirectories(snapshots ...map[string]BaseSnapshotFile) map[string]bool {
+	dirs := map[string]bool{}
+	for _, files := range snapshots {
+		for _, file := range files {
+			for dir := path.Dir(file.RelPath); dir != "." && dir != "/" && dir != "" && !dirs[dir]; dir = path.Dir(dir) {
+				dirs[dir] = true
+			}
+		}
+	}
+	return dirs
+}
+
 func shouldSkip(rel string, _ fs.DirEntry) bool {
 	if !strings.Contains(rel, "/") && (rel == ".agent-meta.json" || strings.HasPrefix(rel, ".agent-meta-") && strings.HasSuffix(rel, ".tmp")) {
+		return true
+	}
+	// A workspace's .gs holds its local state, and a copied or nested
+	// workspace has one too, at any depth. None of it is source.
+	if name := rel[strings.LastIndex(rel, "/")+1:]; name == ".gs" {
 		return true
 	}
 	first := rel

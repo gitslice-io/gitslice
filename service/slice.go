@@ -104,8 +104,8 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 		list = s.Slices.List
 	case subjectID != "":
 		// Outside the account: the public slices and any shared with them.
-		list = func(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-			return s.Slices.ListVisible(ctx, account, subjectID, after, limit)
+		list = func(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
+			return s.Slices.ListVisible(ctx, account, subjectID, after, limit, includeArchived)
 		}
 	}
 	pageSize := int(req.PageSize)
@@ -114,7 +114,7 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 	}
 	pageSize = min(pageSize, maxSlicePageSize)
 	// One more than a page tells whether another page follows.
-	slices, err := list(ctx, account, req.Cursor, pageSize+1)
+	slices, err := list(ctx, account, req.Cursor, pageSize+1, req.IncludeArchived)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -287,10 +287,20 @@ func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceR
 	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
 		return nil, err
 	}
-	if err := s.Slices.Delete(ctx, req.SliceId); err != nil {
+	total, _, err := s.Slices.ChangesetCounts(ctx, req.SliceId)
+	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.DeleteSliceResponse{SliceId: req.SliceId}, nil
+	if total == 0 {
+		if err := s.Slices.Delete(ctx, req.SliceId); err != nil {
+			return nil, grpcError(err)
+		}
+		return &corev1.DeleteSliceResponse{SliceId: req.SliceId}, nil
+	}
+	if err := s.retireSlice(ctx, slice); err != nil {
+		return nil, err
+	}
+	return &corev1.DeleteSliceResponse{SliceId: req.SliceId, HistoryKept: true}, nil
 }
 
 // addedIncludedPaths returns the requested included paths that are not already

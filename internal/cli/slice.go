@@ -27,6 +27,8 @@ type sliceOutput struct {
 	RequiredApprovals int32    `json:"required_approvals"`
 	RequiredChecks    []string `json:"required_checks"`
 	DefinitionHash    string   `json:"definition_hash"`
+	Archived          bool     `json:"archived,omitempty"`
+	FormerNames       []string `json:"former_names,omitempty"`
 	WebURL            string   `json:"web_url,omitempty"`
 }
 
@@ -91,7 +93,7 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 	return writeSliceText(r.Stdout, slice)
 }
 
-func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account string, sharedOnly bool) error {
+func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account string, sharedOnly, includeArchived bool) error {
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
@@ -130,7 +132,7 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 			return err
 		}
 	}
-	slices, err := listAllSlices(callCtx, corev1.NewSliceServiceClient(conn), account)
+	slices, err := listAllSlicesIncluding(callCtx, corev1.NewSliceServiceClient(conn), account, includeArchived)
 	if err != nil {
 		return err
 	}
@@ -156,7 +158,11 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 	} else {
 		fmt.Fprintf(r.Stdout, "slices for account %s:\n", account)
 		for _, slice := range out {
-			fmt.Fprintf(r.Stdout, "  %s\n", slice.Ref)
+			if slice.Archived {
+				fmt.Fprintf(r.Stdout, "  %s (archived)\n", slice.Ref)
+			} else {
+				fmt.Fprintf(r.Stdout, "  %s\n", slice.Ref)
+			}
 			fmt.Fprintf(r.Stdout, "    visibility: %s\n", slice.Visibility)
 			fmt.Fprintf(r.Stdout, "    included paths: %s\n", strings.Join(slice.IncludedPaths, ", "))
 			fmt.Fprintf(r.Stdout, "    required approvals: %d\n", slice.RequiredApprovals)
@@ -372,20 +378,24 @@ func (r Runner) runSliceDelete(ctx context.Context, opts commandOptions, sliceRe
 	if err != nil {
 		return err
 	}
-	_, err = client.DeleteSlice(callCtx, &corev1.DeleteSliceRequest{SliceId: slice.Id})
+	deleted, err := client.DeleteSlice(callCtx, &corev1.DeleteSliceRequest{SliceId: slice.Id})
 	if err != nil {
 		return err
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
-			"slice_id": slice.Id,
-			"ref":      sliceRefLabel(slice.Ref),
+			"slice_id":     slice.Id,
+			"ref":          sliceRefLabel(slice.Ref),
+			"history_kept": deleted.GetHistoryKept(),
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "deleted slice %s\n", sliceRefLabel(slice.Ref))
+	if deleted.GetHistoryKept() {
+		fmt.Fprintln(r.Stdout, "its changesets remain, so its history stays readable on the paths it covered; the name stays reserved")
+	}
 	return nil
 }
 
@@ -417,6 +427,12 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 	fmt.Fprintf(w, "id: %s\n", out.ID)
 	fmt.Fprintf(w, "version: %d\n", out.Version)
 	fmt.Fprintf(w, "visibility: %s\n", out.Visibility)
+	if out.Archived {
+		fmt.Fprintln(w, "archived: yes (read-only; gs slice unarchive restores it)")
+	}
+	if len(out.FormerNames) > 0 {
+		fmt.Fprintf(w, "former_names: %s\n", strings.Join(out.FormerNames, ", "))
+	}
 	if out.CIDaemonID != "" {
 		fmt.Fprintf(w, "ci_daemon_id: %s\n", out.CIDaemonID)
 	} else {
@@ -444,6 +460,8 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		ID:             slice.Id,
 		DefinitionHash: slice.DefinitionHash,
 		CIDaemonID:     slice.CiDaemonId,
+		Archived:       slice.Archived,
+		FormerNames:    append([]string(nil), slice.FormerNames...),
 		WebURL:         webSliceResourceURL(slice.Ref),
 	}
 	if slice.Ref != nil {
@@ -553,10 +571,16 @@ func normalizeCLISlug(value, name string) (string, error) {
 
 // listAllSlices reads every page of an account's slices.
 func listAllSlices(ctx context.Context, client corev1.SliceServiceClient, account string) ([]*corev1.Slice, error) {
+	return listAllSlicesIncluding(ctx, client, account, false)
+}
+
+// listAllSlicesIncluding lists an account's slices; archived ones only when
+// includeArchived is set.
+func listAllSlicesIncluding(ctx context.Context, client corev1.SliceServiceClient, account string, includeArchived bool) ([]*corev1.Slice, error) {
 	var all []*corev1.Slice
 	cursor := ""
 	for {
-		page, err := client.ListSlices(ctx, &corev1.ListSlicesRequest{Account: account, Cursor: cursor, PageSize: 100})
+		page, err := client.ListSlices(ctx, &corev1.ListSlicesRequest{Account: account, Cursor: cursor, PageSize: 100, IncludeArchived: includeArchived})
 		if err != nil {
 			return nil, err
 		}

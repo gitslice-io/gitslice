@@ -64,6 +64,12 @@ const (
 	// SliceServiceDeleteSliceProcedure is the fully-qualified name of the SliceService's DeleteSlice
 	// RPC.
 	SliceServiceDeleteSliceProcedure = "/gitslice.core.v1.SliceService/DeleteSlice"
+	// SliceServiceRenameSliceProcedure is the fully-qualified name of the SliceService's RenameSlice
+	// RPC.
+	SliceServiceRenameSliceProcedure = "/gitslice.core.v1.SliceService/RenameSlice"
+	// SliceServiceSetSliceArchivedProcedure is the fully-qualified name of the SliceService's
+	// SetSliceArchived RPC.
+	SliceServiceSetSliceArchivedProcedure = "/gitslice.core.v1.SliceService/SetSliceArchived"
 	// SliceServiceCreateTagProcedure is the fully-qualified name of the SliceService's CreateTag RPC.
 	SliceServiceCreateTagProcedure = "/gitslice.core.v1.SliceService/CreateTag"
 	// SliceServiceListTagsProcedure is the fully-qualified name of the SliceService's ListTags RPC.
@@ -94,7 +100,20 @@ type SliceServiceClient interface {
 	SetSliceSecret(context.Context, *connect.Request[v1.SetSliceSecretRequest]) (*connect.Response[v1.Empty], error)
 	DeleteSliceSecret(context.Context, *connect.Request[v1.DeleteSliceSecretRequest]) (*connect.Response[v1.Empty], error)
 	ListSliceSecrets(context.Context, *connect.Request[v1.ListSliceSecretsRequest]) (*connect.Response[v1.ListSliceSecretsResponse], error)
+	// DeleteSlice removes a slice. One that has changesets is removed too when
+	// none of them is open and every path it includes is still covered by
+	// another slice: the changesets stay (history stays on the paths) and the
+	// name stays reserved.
 	DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error)
+	// RenameSlice gives a slice a new name in its account. History, members,
+	// settings and changesets move with it. The old name keeps resolving to the
+	// slice (Git URLs, Go import paths, workspaces) and stays reserved, so no
+	// other slice can take it. Requires admin access to the slice's account.
+	RenameSlice(context.Context, *connect.Request[v1.RenameSliceRequest]) (*connect.Response[v1.Slice], error)
+	// SetSliceArchived hides a slice from listings and makes it read-only
+	// (archived), or restores it. Its history stays readable and its name stays
+	// reserved. Requires admin access to the slice's account.
+	SetSliceArchived(context.Context, *connect.Request[v1.SetSliceArchivedRequest]) (*connect.Response[v1.Slice], error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -191,6 +210,18 @@ func NewSliceServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(sliceServiceMethods.ByName("DeleteSlice")),
 			connect.WithClientOptions(opts...),
 		),
+		renameSlice: connect.NewClient[v1.RenameSliceRequest, v1.Slice](
+			httpClient,
+			baseURL+SliceServiceRenameSliceProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("RenameSlice")),
+			connect.WithClientOptions(opts...),
+		),
+		setSliceArchived: connect.NewClient[v1.SetSliceArchivedRequest, v1.Slice](
+			httpClient,
+			baseURL+SliceServiceSetSliceArchivedProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("SetSliceArchived")),
+			connect.WithClientOptions(opts...),
+		),
 		createTag: connect.NewClient[v1.CreateTagRequest, v1.Tag](
 			httpClient,
 			baseURL+SliceServiceCreateTagProcedure,
@@ -243,6 +274,8 @@ type sliceServiceClient struct {
 	deleteSliceSecret           *connect.Client[v1.DeleteSliceSecretRequest, v1.Empty]
 	listSliceSecrets            *connect.Client[v1.ListSliceSecretsRequest, v1.ListSliceSecretsResponse]
 	deleteSlice                 *connect.Client[v1.DeleteSliceRequest, v1.DeleteSliceResponse]
+	renameSlice                 *connect.Client[v1.RenameSliceRequest, v1.Slice]
+	setSliceArchived            *connect.Client[v1.SetSliceArchivedRequest, v1.Slice]
 	createTag                   *connect.Client[v1.CreateTagRequest, v1.Tag]
 	listTags                    *connect.Client[v1.ListTagsRequest, v1.ListTagsResponse]
 	listSliceMembers            *connect.Client[v1.ListSliceMembersRequest, v1.ListSliceMembersResponse]
@@ -306,6 +339,16 @@ func (c *sliceServiceClient) DeleteSlice(ctx context.Context, req *connect.Reque
 	return c.deleteSlice.CallUnary(ctx, req)
 }
 
+// RenameSlice calls gitslice.core.v1.SliceService.RenameSlice.
+func (c *sliceServiceClient) RenameSlice(ctx context.Context, req *connect.Request[v1.RenameSliceRequest]) (*connect.Response[v1.Slice], error) {
+	return c.renameSlice.CallUnary(ctx, req)
+}
+
+// SetSliceArchived calls gitslice.core.v1.SliceService.SetSliceArchived.
+func (c *sliceServiceClient) SetSliceArchived(ctx context.Context, req *connect.Request[v1.SetSliceArchivedRequest]) (*connect.Response[v1.Slice], error) {
+	return c.setSliceArchived.CallUnary(ctx, req)
+}
+
 // CreateTag calls gitslice.core.v1.SliceService.CreateTag.
 func (c *sliceServiceClient) CreateTag(ctx context.Context, req *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {
 	return c.createTag.CallUnary(ctx, req)
@@ -348,7 +391,20 @@ type SliceServiceHandler interface {
 	SetSliceSecret(context.Context, *connect.Request[v1.SetSliceSecretRequest]) (*connect.Response[v1.Empty], error)
 	DeleteSliceSecret(context.Context, *connect.Request[v1.DeleteSliceSecretRequest]) (*connect.Response[v1.Empty], error)
 	ListSliceSecrets(context.Context, *connect.Request[v1.ListSliceSecretsRequest]) (*connect.Response[v1.ListSliceSecretsResponse], error)
+	// DeleteSlice removes a slice. One that has changesets is removed too when
+	// none of them is open and every path it includes is still covered by
+	// another slice: the changesets stay (history stays on the paths) and the
+	// name stays reserved.
 	DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error)
+	// RenameSlice gives a slice a new name in its account. History, members,
+	// settings and changesets move with it. The old name keeps resolving to the
+	// slice (Git URLs, Go import paths, workspaces) and stays reserved, so no
+	// other slice can take it. Requires admin access to the slice's account.
+	RenameSlice(context.Context, *connect.Request[v1.RenameSliceRequest]) (*connect.Response[v1.Slice], error)
+	// SetSliceArchived hides a slice from listings and makes it read-only
+	// (archived), or restores it. Its history stays readable and its name stays
+	// reserved. Requires admin access to the slice's account.
+	SetSliceArchived(context.Context, *connect.Request[v1.SetSliceArchivedRequest]) (*connect.Response[v1.Slice], error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -441,6 +497,18 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(sliceServiceMethods.ByName("DeleteSlice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sliceServiceRenameSliceHandler := connect.NewUnaryHandler(
+		SliceServiceRenameSliceProcedure,
+		svc.RenameSlice,
+		connect.WithSchema(sliceServiceMethods.ByName("RenameSlice")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceSetSliceArchivedHandler := connect.NewUnaryHandler(
+		SliceServiceSetSliceArchivedProcedure,
+		svc.SetSliceArchived,
+		connect.WithSchema(sliceServiceMethods.ByName("SetSliceArchived")),
+		connect.WithHandlerOptions(opts...),
+	)
 	sliceServiceCreateTagHandler := connect.NewUnaryHandler(
 		SliceServiceCreateTagProcedure,
 		svc.CreateTag,
@@ -501,6 +569,10 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 			sliceServiceListSliceSecretsHandler.ServeHTTP(w, r)
 		case SliceServiceDeleteSliceProcedure:
 			sliceServiceDeleteSliceHandler.ServeHTTP(w, r)
+		case SliceServiceRenameSliceProcedure:
+			sliceServiceRenameSliceHandler.ServeHTTP(w, r)
+		case SliceServiceSetSliceArchivedProcedure:
+			sliceServiceSetSliceArchivedHandler.ServeHTTP(w, r)
 		case SliceServiceCreateTagProcedure:
 			sliceServiceCreateTagHandler.ServeHTTP(w, r)
 		case SliceServiceListTagsProcedure:
@@ -564,6 +636,14 @@ func (UnimplementedSliceServiceHandler) ListSliceSecrets(context.Context, *conne
 
 func (UnimplementedSliceServiceHandler) DeleteSlice(context.Context, *connect.Request[v1.DeleteSliceRequest]) (*connect.Response[v1.DeleteSliceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.DeleteSlice is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) RenameSlice(context.Context, *connect.Request[v1.RenameSliceRequest]) (*connect.Response[v1.Slice], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.RenameSlice is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) SetSliceArchived(context.Context, *connect.Request[v1.SetSliceArchivedRequest]) (*connect.Response[v1.Slice], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceArchived is not implemented"))
 }
 
 func (UnimplementedSliceServiceHandler) CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {

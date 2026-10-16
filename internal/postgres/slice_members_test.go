@@ -30,7 +30,7 @@ func TestSliceMembersStore(t *testing.T) {
 	if _, err := auth.SliceRole(ctx, "user_dave", "slice_acme_payment"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("role before sharing: %v", err)
 	}
-	if visible, err := slices.ListVisible(ctx, "acme", "user_dave", "", 50); err != nil || len(visible) != 0 {
+	if visible, err := slices.ListVisible(ctx, "acme", "user_dave", "", 50, false); err != nil || len(visible) != 0 {
 		t.Fatalf("visible before sharing = %v, %v", visible, err)
 	}
 
@@ -52,7 +52,7 @@ func TestSliceMembersStore(t *testing.T) {
 	if err != nil || len(members) != 1 || members[0].SubjectID != "user_dave" {
 		t.Fatalf("members = %+v, %v", members, err)
 	}
-	visible, err := slices.ListVisible(ctx, "acme", "user_dave", "", 50)
+	visible, err := slices.ListVisible(ctx, "acme", "user_dave", "", 50, false)
 	if err != nil || len(visible) != 1 || visible[0].Ref.Slice != "payment" {
 		t.Fatalf("visible = %+v, %v", visible, err)
 	}

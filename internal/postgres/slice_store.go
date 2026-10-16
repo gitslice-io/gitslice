@@ -55,6 +55,14 @@ func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.S
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
+	var aliasOf string
+	err = tx.QueryRowContext(ctx, `select slice_id from slice_aliases where account_id = $1 and slug = $2`, accountID, ref.Slice).Scan(&aliasOf)
+	if err == nil {
+		return nil, fmt.Errorf("%w: slice name %s/%s is reserved: a slice was renamed from it", ErrConflict, ref.Account, ref.Slice)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
 
 	id := sliceID(ref.Account, ref.Slice)
 	includedJSON, err := encodeJSON(includedPaths)
@@ -96,40 +104,64 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 	}
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
+		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       slices.archived_at is not null
 		from slices
 		join accounts on accounts.id = slices.account_id
-		where accounts.slug = $1 and slices.slug = $2
+		where accounts.slug = $1 and slices.slug = $2 and slices.deleted_at is null
 	`, ref.Account, ref.Slice)
-	return scanSlice(row)
+	slice, err := scanSlice(row)
+	if errors.Is(err, ErrNotFound) {
+		// A renamed slice still answers to its earlier names.
+		row = s.db.QueryRowContext(ctx, `
+			select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
+			       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+			       slices.archived_at is not null
+			from slice_aliases
+			join slices on slices.id = slice_aliases.slice_id
+			join accounts on accounts.id = slices.account_id
+			where accounts.slug = $1 and slice_aliases.slug = $2 and slices.deleted_at is null
+		`, ref.Account, ref.Slice)
+		slice, err = scanSlice(row)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.withFormerNames(ctx, slice)
 }
 
 func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
+		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       slices.archived_at is not null
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where slices.id = $1
 	`, sliceID)
-	return scanSlice(row)
+	slice, err := scanSlice(row)
+	if err != nil {
+		return nil, err
+	}
+	return s.withFormerNames(ctx, slice)
 }
 
-func (s *SliceStore) List(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, after, limit, false, "")
+func (s *SliceStore) List(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
+	return s.list(ctx, account, after, limit, false, "", includeArchived)
 }
 
-func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, after, limit, true, "")
+func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
+	return s.list(ctx, account, after, limit, true, "", includeArchived)
 }
 
-func (s *SliceStore) ListVisible(ctx context.Context, account, subjectID, after string, limit int) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, after, limit, true, strings.TrimSpace(subjectID))
+func (s *SliceStore) ListVisible(ctx context.Context, account, subjectID, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
+	return s.list(ctx, account, after, limit, true, strings.TrimSpace(subjectID), includeArchived)
 }
 
 // list lists an account's slices: all of them, or with publicOnly the public
-// ones and those shared with sharedWith.
-func (s *SliceStore) list(ctx context.Context, account, after string, limit int, publicOnly bool, sharedWith string) ([]*corev1.Slice, error) {
+// ones and those shared with sharedWith. Retired slices are never listed, and
+// archived ones only with includeArchived.
+func (s *SliceStore) list(ctx context.Context, account, after string, limit int, publicOnly bool, sharedWith string, includeArchived bool) ([]*corev1.Slice, error) {
 	account, err := normalizeSlug(account, "account")
 	if err != nil {
 		return nil, err
@@ -139,16 +171,18 @@ func (s *SliceStore) list(ctx context.Context, account, after string, limit int,
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks
+		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       slices.archived_at is not null
 		from slices
 		join accounts on accounts.id = slices.account_id
-		where accounts.slug = $1 and slices.slug > $4
+		where accounts.slug = $1 and slices.slug > $4 and slices.deleted_at is null
+		  and ($6 or slices.archived_at is null)
 		  and (not $3 or slices.visibility = 'public' or ($5 <> '' and exists (
 			select 1 from slice_members sm where sm.slice_id = slices.id and sm.subject_id = $5
 		  )))
 		order by slices.slug
 		limit $2
-	`, account, limit, publicOnly, after, sharedWith)
+	`, account, limit, publicOnly, after, sharedWith, includeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +332,9 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	if changesets > 0 {
 		return fmt.Errorf("%w: slice has changesets", ErrConflict)
 	}
+	if _, err := tx.ExecContext(ctx, `delete from slice_aliases where slice_id = $1`, sliceID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `delete from slice_included_paths where slice_id = $1`, sliceID); err != nil {
 		return err
 	}
@@ -432,11 +469,12 @@ func scanSliceDefinitionVersion(row scanner) (*corev1.SliceDefinitionVersion, er
 func scanSlice(row scanner) (*corev1.Slice, error) {
 	var (
 		id, account, slug, definitionHash, ciDaemonID, visibility string
+		archived                                                  bool
 		version                                                   int64
 		requiredApprovals                                         int32
 		includedJSON, requiredChecksJSON                          []byte
 	)
-	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON)
+	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON, &archived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -456,6 +494,7 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 		Ref:            &corev1.SliceRef{Account: account, Slice: slug},
 		DefinitionHash: definitionHash,
 		CiDaemonId:     ciDaemonID,
+		Archived:       archived,
 		Definition: &corev1.SliceDefinition{
 			SliceId:           id,
 			Version:           version,
