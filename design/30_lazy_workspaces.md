@@ -188,10 +188,12 @@ removes ignored files.
 ### Agents
 
 The agent daemon's conversation workspaces can be lazy too, which matters most
-for agents in fresh sandboxes. The daemon's end-of-turn capture is an explicit
-command the daemon runs on the user's behalf, so it stays as it is; the mount
-itself still never uploads. Whether a mounted conversation workspace should
-capture each turn or only on request is an open question below.
+for agents in fresh sandboxes. Decided (2026-10-16): a mounted conversation
+workspace still captures at the end of every turn, exactly as an eager one does.
+That capture is a command the daemon runs on its owner's behalf, the same as a
+person running `gs modify`; the mount itself still never uploads, and nothing
+is sent while the turn runs. In a mount the capture reads the local index, so it
+costs the turn's edits rather than a walk of the workspace.
 
 ### Platforms
 
@@ -280,8 +282,8 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
 
 ## Open questions
 
-1. Should a mounted agent conversation workspace still capture at the end of
-   every turn, or only when the agent or its owner runs `gs create`?
+1. ~~Should a mounted agent conversation workspace still capture at the end of
+   every turn?~~ Yes; see "Agents".
 2. Default prefetch: small siblings on first read (proposed), whole directories
    on `readdir`, or nothing until asked?
 3. Should ignored build output stay in the local layer, or go to a scratch
