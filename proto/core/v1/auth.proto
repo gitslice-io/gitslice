@@ -24,6 +24,16 @@ service AuthService {
   // ListOwnedAgents lists the self-registered agents whose accounts the caller
   // owns (typically after AcceptClaim), with basic activity.
   rpc ListOwnedAgents(ListOwnedAgentsRequest) returns (ListOwnedAgentsResponse);
+  // ListApiKeys lists an agent's API keys (never their secrets). The caller is
+  // the agent itself, or an owner of the agent's account (after AcceptClaim).
+  rpc ListApiKeys(ListApiKeysRequest) returns (ListApiKeysResponse);
+  // CreateApiKey issues a new API key for an agent and returns its secret once.
+  // This is how a lost key is replaced: an owner of the agent's account creates
+  // one and hands it to the agent, then revokes the lost one. Same callers as
+  // ListApiKeys.
+  rpc CreateApiKey(CreateApiKeyRequest) returns (CreateApiKeyResponse);
+  // RevokeApiKey ends an API key at once. Same callers as ListApiKeys.
+  rpc RevokeApiKey(RevokeApiKeyRequest) returns (RevokeApiKeyResponse);
   // CreateOrganization creates an organization account (with a private home
   // slice). Any signed-in user with a personal account may create one and
   // becomes its only owner; names reserved for sign-up are refused, and a user
@@ -330,4 +340,53 @@ message UpdateAccountProfileRequest {
   string display_name = 2;
   string description = 3;
   string website = 4;
+}
+
+// ApiKey describes one of an agent's API keys. It never carries the secret.
+message ApiKey {
+  string id = 1;
+  string name = 2;
+  string created_at = 3;
+  // Empty until the key is first used.
+  string last_used_at = 4;
+  // Empty unless the key has an expiry.
+  string expires_at = 5;
+  // Empty unless the key was revoked.
+  string revoked_at = 6;
+}
+
+message ListApiKeysRequest {
+  // The agent's account (username). Empty means the caller.
+  string agent = 1;
+}
+
+message ListApiKeysResponse {
+  string agent_subject_id = 1;
+  string account = 2;
+  repeated ApiKey keys = 3;
+}
+
+message CreateApiKeyRequest {
+  // The agent's account (username). Empty means the caller.
+  string agent = 1;
+  // A label for the key, up to 64 characters. Defaults to "key".
+  string name = 2;
+}
+
+message CreateApiKeyResponse {
+  ApiKey key = 1;
+  // The key itself. Returned only here, once; the server keeps only a hash.
+  string secret = 2;
+  string agent_subject_id = 3;
+  string account = 4;
+}
+
+message RevokeApiKeyRequest {
+  // The agent's account (username). Empty means the caller.
+  string agent = 1;
+  string key_id = 2;
+}
+
+message RevokeApiKeyResponse {
+  ApiKey key = 1;
 }

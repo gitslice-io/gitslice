@@ -29,6 +29,9 @@ const (
 	AuthService_ListPendingClaims_FullMethodName       = "/gitslice.core.v1.AuthService/ListPendingClaims"
 	AuthService_AcceptClaim_FullMethodName             = "/gitslice.core.v1.AuthService/AcceptClaim"
 	AuthService_ListOwnedAgents_FullMethodName         = "/gitslice.core.v1.AuthService/ListOwnedAgents"
+	AuthService_ListApiKeys_FullMethodName             = "/gitslice.core.v1.AuthService/ListApiKeys"
+	AuthService_CreateApiKey_FullMethodName            = "/gitslice.core.v1.AuthService/CreateApiKey"
+	AuthService_RevokeApiKey_FullMethodName            = "/gitslice.core.v1.AuthService/RevokeApiKey"
 	AuthService_CreateOrganization_FullMethodName      = "/gitslice.core.v1.AuthService/CreateOrganization"
 	AuthService_ListAccountMembers_FullMethodName      = "/gitslice.core.v1.AuthService/ListAccountMembers"
 	AuthService_SetAccountMember_FullMethodName        = "/gitslice.core.v1.AuthService/SetAccountMember"
@@ -65,6 +68,16 @@ type AuthServiceClient interface {
 	// ListOwnedAgents lists the self-registered agents whose accounts the caller
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(ctx context.Context, in *ListOwnedAgentsRequest, opts ...grpc.CallOption) (*ListOwnedAgentsResponse, error)
+	// ListApiKeys lists an agent's API keys (never their secrets). The caller is
+	// the agent itself, or an owner of the agent's account (after AcceptClaim).
+	ListApiKeys(ctx context.Context, in *ListApiKeysRequest, opts ...grpc.CallOption) (*ListApiKeysResponse, error)
+	// CreateApiKey issues a new API key for an agent and returns its secret once.
+	// This is how a lost key is replaced: an owner of the agent's account creates
+	// one and hands it to the agent, then revokes the lost one. Same callers as
+	// ListApiKeys.
+	CreateApiKey(ctx context.Context, in *CreateApiKeyRequest, opts ...grpc.CallOption) (*CreateApiKeyResponse, error)
+	// RevokeApiKey ends an API key at once. Same callers as ListApiKeys.
+	RevokeApiKey(ctx context.Context, in *RevokeApiKeyRequest, opts ...grpc.CallOption) (*RevokeApiKeyResponse, error)
 	// CreateOrganization creates an organization account (with a private home
 	// slice). Any signed-in user with a personal account may create one and
 	// becomes its only owner; names reserved for sign-up are refused, and a user
@@ -202,6 +215,33 @@ func (c *authServiceClient) ListOwnedAgents(ctx context.Context, in *ListOwnedAg
 	return out, nil
 }
 
+func (c *authServiceClient) ListApiKeys(ctx context.Context, in *ListApiKeysRequest, opts ...grpc.CallOption) (*ListApiKeysResponse, error) {
+	out := new(ListApiKeysResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListApiKeys_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) CreateApiKey(ctx context.Context, in *CreateApiKeyRequest, opts ...grpc.CallOption) (*CreateApiKeyResponse, error) {
+	out := new(CreateApiKeyResponse)
+	err := c.cc.Invoke(ctx, AuthService_CreateApiKey_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) RevokeApiKey(ctx context.Context, in *RevokeApiKeyRequest, opts ...grpc.CallOption) (*RevokeApiKeyResponse, error) {
+	out := new(RevokeApiKeyResponse)
+	err := c.cc.Invoke(ctx, AuthService_RevokeApiKey_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *authServiceClient) CreateOrganization(ctx context.Context, in *CreateOrganizationRequest, opts ...grpc.CallOption) (*CreateOrganizationResponse, error) {
 	out := new(CreateOrganizationResponse)
 	err := c.cc.Invoke(ctx, AuthService_CreateOrganization_FullMethodName, in, out, opts...)
@@ -324,6 +364,16 @@ type AuthServiceServer interface {
 	// ListOwnedAgents lists the self-registered agents whose accounts the caller
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *ListOwnedAgentsRequest) (*ListOwnedAgentsResponse, error)
+	// ListApiKeys lists an agent's API keys (never their secrets). The caller is
+	// the agent itself, or an owner of the agent's account (after AcceptClaim).
+	ListApiKeys(context.Context, *ListApiKeysRequest) (*ListApiKeysResponse, error)
+	// CreateApiKey issues a new API key for an agent and returns its secret once.
+	// This is how a lost key is replaced: an owner of the agent's account creates
+	// one and hands it to the agent, then revokes the lost one. Same callers as
+	// ListApiKeys.
+	CreateApiKey(context.Context, *CreateApiKeyRequest) (*CreateApiKeyResponse, error)
+	// RevokeApiKey ends an API key at once. Same callers as ListApiKeys.
+	RevokeApiKey(context.Context, *RevokeApiKeyRequest) (*RevokeApiKeyResponse, error)
 	// CreateOrganization creates an organization account (with a private home
 	// slice). Any signed-in user with a personal account may create one and
 	// becomes its only owner; names reserved for sign-up are refused, and a user
@@ -396,6 +446,15 @@ func (UnimplementedAuthServiceServer) AcceptClaim(context.Context, *AcceptClaimR
 }
 func (UnimplementedAuthServiceServer) ListOwnedAgents(context.Context, *ListOwnedAgentsRequest) (*ListOwnedAgentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListOwnedAgents not implemented")
+}
+func (UnimplementedAuthServiceServer) ListApiKeys(context.Context, *ListApiKeysRequest) (*ListApiKeysResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListApiKeys not implemented")
+}
+func (UnimplementedAuthServiceServer) CreateApiKey(context.Context, *CreateApiKeyRequest) (*CreateApiKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateApiKey not implemented")
+}
+func (UnimplementedAuthServiceServer) RevokeApiKey(context.Context, *RevokeApiKeyRequest) (*RevokeApiKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevokeApiKey not implemented")
 }
 func (UnimplementedAuthServiceServer) CreateOrganization(context.Context, *CreateOrganizationRequest) (*CreateOrganizationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateOrganization not implemented")
@@ -618,6 +677,60 @@ func _AuthService_ListOwnedAgents_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AuthServiceServer).ListOwnedAgents(ctx, req.(*ListOwnedAgentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ListApiKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListApiKeysRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListApiKeys(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListApiKeys_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListApiKeys(ctx, req.(*ListApiKeysRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_CreateApiKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateApiKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).CreateApiKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_CreateApiKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).CreateApiKey(ctx, req.(*CreateApiKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_RevokeApiKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeApiKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RevokeApiKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RevokeApiKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RevokeApiKey(ctx, req.(*RevokeApiKeyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -866,6 +979,18 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListOwnedAgents",
 			Handler:    _AuthService_ListOwnedAgents_Handler,
+		},
+		{
+			MethodName: "ListApiKeys",
+			Handler:    _AuthService_ListApiKeys_Handler,
+		},
+		{
+			MethodName: "CreateApiKey",
+			Handler:    _AuthService_CreateApiKey_Handler,
+		},
+		{
+			MethodName: "RevokeApiKey",
+			Handler:    _AuthService_RevokeApiKey_Handler,
 		},
 		{
 			MethodName: "CreateOrganization",

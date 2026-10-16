@@ -62,6 +62,14 @@ const (
 	// AuthServiceListOwnedAgentsProcedure is the fully-qualified name of the AuthService's
 	// ListOwnedAgents RPC.
 	AuthServiceListOwnedAgentsProcedure = "/gitslice.core.v1.AuthService/ListOwnedAgents"
+	// AuthServiceListApiKeysProcedure is the fully-qualified name of the AuthService's ListApiKeys RPC.
+	AuthServiceListApiKeysProcedure = "/gitslice.core.v1.AuthService/ListApiKeys"
+	// AuthServiceCreateApiKeyProcedure is the fully-qualified name of the AuthService's CreateApiKey
+	// RPC.
+	AuthServiceCreateApiKeyProcedure = "/gitslice.core.v1.AuthService/CreateApiKey"
+	// AuthServiceRevokeApiKeyProcedure is the fully-qualified name of the AuthService's RevokeApiKey
+	// RPC.
+	AuthServiceRevokeApiKeyProcedure = "/gitslice.core.v1.AuthService/RevokeApiKey"
 	// AuthServiceCreateOrganizationProcedure is the fully-qualified name of the AuthService's
 	// CreateOrganization RPC.
 	AuthServiceCreateOrganizationProcedure = "/gitslice.core.v1.AuthService/CreateOrganization"
@@ -118,6 +126,16 @@ type AuthServiceClient interface {
 	// ListOwnedAgents lists the self-registered agents whose accounts the caller
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error)
+	// ListApiKeys lists an agent's API keys (never their secrets). The caller is
+	// the agent itself, or an owner of the agent's account (after AcceptClaim).
+	ListApiKeys(context.Context, *connect.Request[v1.ListApiKeysRequest]) (*connect.Response[v1.ListApiKeysResponse], error)
+	// CreateApiKey issues a new API key for an agent and returns its secret once.
+	// This is how a lost key is replaced: an owner of the agent's account creates
+	// one and hands it to the agent, then revokes the lost one. Same callers as
+	// ListApiKeys.
+	CreateApiKey(context.Context, *connect.Request[v1.CreateApiKeyRequest]) (*connect.Response[v1.CreateApiKeyResponse], error)
+	// RevokeApiKey ends an API key at once. Same callers as ListApiKeys.
+	RevokeApiKey(context.Context, *connect.Request[v1.RevokeApiKeyRequest]) (*connect.Response[v1.RevokeApiKeyResponse], error)
 	// CreateOrganization creates an organization account (with a private home
 	// slice). Any signed-in user with a personal account may create one and
 	// becomes its only owner; names reserved for sign-up are refused, and a user
@@ -228,6 +246,24 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("ListOwnedAgents")),
 			connect.WithClientOptions(opts...),
 		),
+		listApiKeys: connect.NewClient[v1.ListApiKeysRequest, v1.ListApiKeysResponse](
+			httpClient,
+			baseURL+AuthServiceListApiKeysProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ListApiKeys")),
+			connect.WithClientOptions(opts...),
+		),
+		createApiKey: connect.NewClient[v1.CreateApiKeyRequest, v1.CreateApiKeyResponse](
+			httpClient,
+			baseURL+AuthServiceCreateApiKeyProcedure,
+			connect.WithSchema(authServiceMethods.ByName("CreateApiKey")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeApiKey: connect.NewClient[v1.RevokeApiKeyRequest, v1.RevokeApiKeyResponse](
+			httpClient,
+			baseURL+AuthServiceRevokeApiKeyProcedure,
+			connect.WithSchema(authServiceMethods.ByName("RevokeApiKey")),
+			connect.WithClientOptions(opts...),
+		),
 		createOrganization: connect.NewClient[v1.CreateOrganizationRequest, v1.CreateOrganizationResponse](
 			httpClient,
 			baseURL+AuthServiceCreateOrganizationProcedure,
@@ -309,6 +345,9 @@ type authServiceClient struct {
 	listPendingClaims       *connect.Client[v1.ListPendingClaimsRequest, v1.ListPendingClaimsResponse]
 	acceptClaim             *connect.Client[v1.AcceptClaimRequest, v1.AcceptClaimResponse]
 	listOwnedAgents         *connect.Client[v1.ListOwnedAgentsRequest, v1.ListOwnedAgentsResponse]
+	listApiKeys             *connect.Client[v1.ListApiKeysRequest, v1.ListApiKeysResponse]
+	createApiKey            *connect.Client[v1.CreateApiKeyRequest, v1.CreateApiKeyResponse]
+	revokeApiKey            *connect.Client[v1.RevokeApiKeyRequest, v1.RevokeApiKeyResponse]
 	createOrganization      *connect.Client[v1.CreateOrganizationRequest, v1.CreateOrganizationResponse]
 	listAccountMembers      *connect.Client[v1.ListAccountMembersRequest, v1.ListAccountMembersResponse]
 	setAccountMember        *connect.Client[v1.SetAccountMemberRequest, v1.SetAccountMemberResponse]
@@ -370,6 +409,21 @@ func (c *authServiceClient) AcceptClaim(ctx context.Context, req *connect.Reques
 // ListOwnedAgents calls gitslice.core.v1.AuthService.ListOwnedAgents.
 func (c *authServiceClient) ListOwnedAgents(ctx context.Context, req *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error) {
 	return c.listOwnedAgents.CallUnary(ctx, req)
+}
+
+// ListApiKeys calls gitslice.core.v1.AuthService.ListApiKeys.
+func (c *authServiceClient) ListApiKeys(ctx context.Context, req *connect.Request[v1.ListApiKeysRequest]) (*connect.Response[v1.ListApiKeysResponse], error) {
+	return c.listApiKeys.CallUnary(ctx, req)
+}
+
+// CreateApiKey calls gitslice.core.v1.AuthService.CreateApiKey.
+func (c *authServiceClient) CreateApiKey(ctx context.Context, req *connect.Request[v1.CreateApiKeyRequest]) (*connect.Response[v1.CreateApiKeyResponse], error) {
+	return c.createApiKey.CallUnary(ctx, req)
+}
+
+// RevokeApiKey calls gitslice.core.v1.AuthService.RevokeApiKey.
+func (c *authServiceClient) RevokeApiKey(ctx context.Context, req *connect.Request[v1.RevokeApiKeyRequest]) (*connect.Response[v1.RevokeApiKeyResponse], error) {
+	return c.revokeApiKey.CallUnary(ctx, req)
 }
 
 // CreateOrganization calls gitslice.core.v1.AuthService.CreateOrganization.
@@ -448,6 +502,16 @@ type AuthServiceHandler interface {
 	// ListOwnedAgents lists the self-registered agents whose accounts the caller
 	// owns (typically after AcceptClaim), with basic activity.
 	ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error)
+	// ListApiKeys lists an agent's API keys (never their secrets). The caller is
+	// the agent itself, or an owner of the agent's account (after AcceptClaim).
+	ListApiKeys(context.Context, *connect.Request[v1.ListApiKeysRequest]) (*connect.Response[v1.ListApiKeysResponse], error)
+	// CreateApiKey issues a new API key for an agent and returns its secret once.
+	// This is how a lost key is replaced: an owner of the agent's account creates
+	// one and hands it to the agent, then revokes the lost one. Same callers as
+	// ListApiKeys.
+	CreateApiKey(context.Context, *connect.Request[v1.CreateApiKeyRequest]) (*connect.Response[v1.CreateApiKeyResponse], error)
+	// RevokeApiKey ends an API key at once. Same callers as ListApiKeys.
+	RevokeApiKey(context.Context, *connect.Request[v1.RevokeApiKeyRequest]) (*connect.Response[v1.RevokeApiKeyResponse], error)
 	// CreateOrganization creates an organization account (with a private home
 	// slice). Any signed-in user with a personal account may create one and
 	// becomes its only owner; names reserved for sign-up are refused, and a user
@@ -554,6 +618,24 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("ListOwnedAgents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceListApiKeysHandler := connect.NewUnaryHandler(
+		AuthServiceListApiKeysProcedure,
+		svc.ListApiKeys,
+		connect.WithSchema(authServiceMethods.ByName("ListApiKeys")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceCreateApiKeyHandler := connect.NewUnaryHandler(
+		AuthServiceCreateApiKeyProcedure,
+		svc.CreateApiKey,
+		connect.WithSchema(authServiceMethods.ByName("CreateApiKey")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceRevokeApiKeyHandler := connect.NewUnaryHandler(
+		AuthServiceRevokeApiKeyProcedure,
+		svc.RevokeApiKey,
+		connect.WithSchema(authServiceMethods.ByName("RevokeApiKey")),
+		connect.WithHandlerOptions(opts...),
+	)
 	authServiceCreateOrganizationHandler := connect.NewUnaryHandler(
 		AuthServiceCreateOrganizationProcedure,
 		svc.CreateOrganization,
@@ -642,6 +724,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceAcceptClaimHandler.ServeHTTP(w, r)
 		case AuthServiceListOwnedAgentsProcedure:
 			authServiceListOwnedAgentsHandler.ServeHTTP(w, r)
+		case AuthServiceListApiKeysProcedure:
+			authServiceListApiKeysHandler.ServeHTTP(w, r)
+		case AuthServiceCreateApiKeyProcedure:
+			authServiceCreateApiKeyHandler.ServeHTTP(w, r)
+		case AuthServiceRevokeApiKeyProcedure:
+			authServiceRevokeApiKeyHandler.ServeHTTP(w, r)
 		case AuthServiceCreateOrganizationProcedure:
 			authServiceCreateOrganizationHandler.ServeHTTP(w, r)
 		case AuthServiceListAccountMembersProcedure:
@@ -711,6 +799,18 @@ func (UnimplementedAuthServiceHandler) AcceptClaim(context.Context, *connect.Req
 
 func (UnimplementedAuthServiceHandler) ListOwnedAgents(context.Context, *connect.Request[v1.ListOwnedAgentsRequest]) (*connect.Response[v1.ListOwnedAgentsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListOwnedAgents is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListApiKeys(context.Context, *connect.Request[v1.ListApiKeysRequest]) (*connect.Response[v1.ListApiKeysResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListApiKeys is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CreateApiKey(context.Context, *connect.Request[v1.CreateApiKeyRequest]) (*connect.Response[v1.CreateApiKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.CreateApiKey is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) RevokeApiKey(context.Context, *connect.Request[v1.RevokeApiKeyRequest]) (*connect.Response[v1.RevokeApiKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.RevokeApiKey is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) CreateOrganization(context.Context, *connect.Request[v1.CreateOrganizationRequest]) (*connect.Response[v1.CreateOrganizationResponse], error) {

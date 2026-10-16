@@ -1,7 +1,9 @@
 # 20. Agent Sign-Up And Human Claim
 
 Status: phase 1 (agent registration + API keys) shipped in #372. Phase 2
-(human claim) is implemented; phase 3 is design only.
+(human claim) is implemented. Phase 3's key management (`ListApiKeys`,
+`CreateApiKey`, `RevokeApiKey`, `gs auth keys`, `gs auth use-key`) shipped on
+2026-10-16; the rest of phase 3 (member administration) is design only.
 
 ## Goal
 
@@ -300,7 +302,7 @@ account needs at least:
 - `ListAccountMembers(account)`;
 - `ListApiKeys(subject)`, `CreateApiKey(name)`, and `RevokeApiKey(key_id)`.
   Owners of an account can list and revoke the keys of agent members of that
-  account;
+  account (**shipped**, see "Losing a key" below);
 - `RemoveAccountMember(account, subject)`, with the rule below.
 
 Authority rules:
@@ -335,3 +337,40 @@ Authority rules:
 5. Phase 2: migration `0025_subject_emails.sql`, claim RPCs, Clerk Backend API
    lookup, personal-account fixes, `gs claims`, and the web card.
 6. Phase 3 member and key management.
+
+## Losing a key
+
+An API key is shown once and only its hash is stored, so a lost key cannot be
+read back. It is replaced, not recovered:
+
+```bash
+gs auth keys list   --agent release-bot            # the owner sees the keys, never secrets
+gs auth keys create --agent release-bot --name new # prints the new key once, on stdout
+printf %s "$KEY" | gs auth use-key                 # on the agent: check it, then save it
+gs auth keys revoke <key-id> --agent release-bot   # end the lost key at once
+```
+
+Who may manage an agent's keys, in `ListAPIKeys`, `CreateAPIKey` and
+`RevokeAPIKey` (the same check for all three):
+
+- the agent itself, while it still has a working key (rotation: create, install,
+  revoke), with `--agent` omitted;
+- a human who is an `owner` of the agent's personal account, which is what
+  `AcceptClaim` makes them.
+
+Anyone else, including a human who has not claimed the agent, gets `NotFound`,
+so the call does not say which accounts are agents. An unclaimed agent that
+lost its key can only be replaced: its owner email must be claimed first
+(`<web-url>/claims`, which needs a verified email).
+
+`use-key` reads the key from stdin (hidden at a terminal) or `--key-file`, never
+a flag, and asks the server to accept it before it replaces the saved
+credential. An agent holds at most 20 active keys. Revocation takes effect at
+once: API keys are looked up on every request and never cached.
+
+The key travels from the owner to the agent outside Gitslice. Put it in a
+secret manager or hand it over directly, not in chat or a ticket. A key shown in
+a terminal is in its scrollback.
+
+Not built: key scopes, expiry on creation, a web page for keys, and notifying the
+agent's owners when a key is created or revoked.

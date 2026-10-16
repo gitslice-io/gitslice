@@ -108,6 +108,8 @@ An agent with no human available to sign in can register itself, when the server
 gs auth register-agent --username release-bot --email owner@example.com --server 127.0.0.1:50051
 ```
 
+An API key is shown once, so a lost one cannot be read back. It is replaced: the human who claimed the agent (`gs claims accept <agent-subject-id>`) runs `gs auth keys create --agent release-bot` (the key is the only thing printed on stdout), hands it to the agent privately, the agent runs `printf %s "$KEY" | gs auth use-key`, and the human then runs `gs auth keys revoke <key-id> --agent release-bot` for the lost key (`gs auth keys list --agent release-bot` shows the ids and when each was last used). An agent that still has a working key can rotate it the same way with no `--agent`. A human who has not claimed the agent gets `agent_not_found`.
+
 To share a link, use `gs browse --print <account:slice | /account/path | workspace-path>` rather than hand-building URLs: it maps to the web app's real `/slices/<account>/<slice>?path=` route, checks that the slice and path exist, and warns on stderr when the slice is private.
 
 Keep gs current with `gs upgrade` (`gs upgrade --check` only reports whether a newer release exists). Once a day gs also prints a one-line notice on stderr when a newer release is out (not with `--json` or `--quiet`; `GS_NO_UPDATE_CHECK=1` turns it off). It downloads the release for this platform from `https://gitslice.io/releases`, verifies its checksum, and replaces the running gs only if the new one starts and reports the expected version.

@@ -172,6 +172,11 @@ export const commandGroups = [
         "gs auth register-agent --username <name> --email <owner>",
         "Agents: sign up with no browser and save an API key."
       ],
+      [
+        "gs auth keys create --agent <name>",
+        "Owners: make a new API key for an agent that lost its key (printed once). gs auth keys list and revoke manage the rest."
+      ],
+      ["gs auth use-key", "Agents: sign in with a key an owner created, read from stdin or --key-file."],
       ["gs claims list", "List agents registered with your verified email."],
       ["gs claims accept <agent-id>", "Become a co-owner of an agent's account."]
     ]

@@ -445,12 +445,8 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 				return nil, fmt.Errorf("%w: registration token was already used for a different agent", storage.ErrConflict)
 			}
 			// The memory store does not track key usage; revoke all prior keys.
-			for hash, owner := range s.b.apiKeys {
-				if owner == agentID {
-					delete(s.b.apiKeys, hash)
-				}
-			}
-			s.b.apiKeys[memoryTokenHash(token)] = agentID
+			s.b.revokeAgentKeysLocked(agentID)
+			s.b.addAPIKeyLocked(agentID, "default", token)
 			return &storage.RegisteredAgent{SubjectID: agentID, Account: reg.account, APIKey: token, Resumed: true}, nil
 		}
 	}
@@ -467,7 +463,7 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 		reg.registrationTokenHash = memoryTokenHash(registrationToken)
 	}
 	s.b.agentRegistrations[subjectID] = reg
-	s.b.apiKeys[memoryTokenHash(token)] = subjectID
+	s.b.addAPIKeyLocked(subjectID, "default", token)
 	return &storage.RegisteredAgent{SubjectID: subjectID, Account: username, APIKey: token}, nil
 }
 

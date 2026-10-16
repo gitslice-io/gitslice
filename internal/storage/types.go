@@ -71,6 +71,28 @@ const (
 
 // RegisteredAgent is the result of RegisterAgent. APIKey is the plaintext key and
 // is only available here; stores keep only its hash.
+// APIKey is the record of one agent API key. It never holds the secret.
+type APIKey struct {
+	ID         string
+	SubjectID  string
+	Name       string
+	CreatedAt  time.Time
+	LastUsedAt time.Time // zero until first used
+	ExpiresAt  time.Time // zero: no expiry
+	RevokedAt  time.Time // zero unless revoked
+}
+
+// Active reports whether the key still authenticates at now.
+func (k APIKey) Active(now time.Time) bool {
+	return k.RevokedAt.IsZero() && (k.ExpiresAt.IsZero() || now.Before(k.ExpiresAt))
+}
+
+// MaxActiveAPIKeys caps the keys an agent can hold at once.
+const MaxActiveAPIKeys = 20
+
+// MaxAPIKeyNameLength is the longest label an API key can have.
+const MaxAPIKeyNameLength = 64
+
 type RegisteredAgent struct {
 	SubjectID string
 	Account   string

@@ -30,7 +30,10 @@
    lowercase letters, digits and '-' ('_' becomes '-'), not starting or ending
    with '-', unique, and not reserved. The CLI checks them before contacting the
    server. The key is never printed. Run `gs auth token` only if a script truly
-   needs it, and never share it.
+   needs it, and never share it. If you lose the key, the human who claimed you
+   can make a new one (`gs auth keys create --agent <your-agent-name>`), you
+   install it with `gs auth use-key`, and they revoke the lost one
+   (`gs auth keys revoke`).
 
    Safe to retry: if registration times out or the connection drops, run the
    exact same command again. It resumes the same registration instead of

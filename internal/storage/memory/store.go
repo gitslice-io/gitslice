@@ -57,6 +57,8 @@ type backend struct {
 	cliLoginSessions map[string]cliLoginSession
 	// apiKeys maps a hashed API key to its owning subject.
 	apiKeys map[string]string
+	// apiKeyRecords describes each key by id; the hash is its key in apiKeys.
+	apiKeyRecords map[string]*memoryAPIKey
 	// agentRegistrations maps an agent subject id to its registration.
 	agentRegistrations map[string]agentRegistration
 	// externalIdentities maps a subject id to its identity provider record.
@@ -163,6 +165,7 @@ func New() *Stores {
 		sessions:                map[string]string{},
 		cliLoginSessions:        map[string]cliLoginSession{},
 		apiKeys:                 map[string]string{},
+		apiKeyRecords:           map[string]*memoryAPIKey{},
 		agentRegistrations:      map[string]agentRegistration{},
 		externalIdentities:      map[string]externalIdentity{},
 		verifiedEmails:          map[string]map[string]string{},

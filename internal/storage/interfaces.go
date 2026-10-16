@@ -50,6 +50,18 @@ type AuthStore interface {
 	// (admin membership, home slice), records the owner email that may later
 	// claim co-ownership, and issues the agent's first API key.
 	RegisterAgent(ctx context.Context, in RegisterAgentInput) (*RegisteredAgent, error)
+	// ListAPIKeys lists the API keys of the agent whose personal account is
+	// agentAccount ("" means actorID itself), newest first. actorID must be that
+	// agent or an owner of its account (ErrUnauthorized otherwise); ErrNotFound
+	// if the account is not an agent's.
+	ListAPIKeys(ctx context.Context, actorID, agentAccount string) (agentSubjectID, account string, keys []APIKey, err error)
+	// CreateAPIKey issues a new key for the agent and returns it with its
+	// secret, which is not stored. Same callers as ListAPIKeys. ErrConflict once
+	// the agent holds MaxActiveAPIKeys active keys.
+	CreateAPIKey(ctx context.Context, actorID, agentAccount, name string) (key APIKey, secret, agentSubjectID, account string, err error)
+	// RevokeAPIKey ends a key at once (idempotent). Same callers as ListAPIKeys;
+	// ErrNotFound if the key is not the agent's.
+	RevokeAPIKey(ctx context.Context, actorID, agentAccount, keyID string) (APIKey, error)
 	// SubjectForToken resolves a bearer token to a subject. Tokens starting with
 	// APIKeyPrefix resolve against unrevoked, unexpired API keys; all others
 	// against login sessions.

@@ -123,6 +123,18 @@ func (a connectAuthAdapter) AcceptClaim(ctx context.Context, req *connect.Reques
 	return connectResponse(a.svc.AcceptClaim(ctx, req.Msg))
 }
 
+func (a connectAuthAdapter) ListApiKeys(ctx context.Context, req *connect.Request[corev1.ListApiKeysRequest]) (*connect.Response[corev1.ListApiKeysResponse], error) {
+	return connectResponse(a.svc.ListApiKeys(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) CreateApiKey(ctx context.Context, req *connect.Request[corev1.CreateApiKeyRequest]) (*connect.Response[corev1.CreateApiKeyResponse], error) {
+	return connectResponse(a.svc.CreateApiKey(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) RevokeApiKey(ctx context.Context, req *connect.Request[corev1.RevokeApiKeyRequest]) (*connect.Response[corev1.RevokeApiKeyResponse], error) {
+	return connectResponse(a.svc.RevokeApiKey(ctx, req.Msg))
+}
+
 func (a connectAuthAdapter) ListOwnedAgents(ctx context.Context, req *connect.Request[corev1.ListOwnedAgentsRequest]) (*connect.Response[corev1.ListOwnedAgentsResponse], error) {
 	return connectResponse(a.svc.ListOwnedAgents(ctx, req.Msg))
 }
