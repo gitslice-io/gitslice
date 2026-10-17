@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,6 +40,12 @@ type mountRecord struct {
 	Files      int    `json:"files"`
 	CreatedAt  string `json:"created_at"`
 	MountedAt  string `json:"mounted_at,omitempty"`
+	// The slice's definition, for the workspace's .gs/slice.json.
+	SliceID        string   `json:"slice_id,omitempty"`
+	DefinitionHash string   `json:"definition_hash,omitempty"`
+	IncludedPaths  []string `json:"included_paths,omitempty"`
+	// ReadOnly mounts refuse writes.
+	ReadOnly bool `json:"read_only,omitempty"`
 }
 
 func (rec mountRecord) ref() *corev1.SliceRef {
@@ -79,8 +86,15 @@ func (r Runner) readMountRecord(id string) (mountRecord, error) {
 	return rec, err
 }
 
+// writeMountRecord replaces mount.json atomically: the daemon rewrites it
+// while commands may be reading it.
 func (r Runner) writeMountRecord(rec mountRecord) error {
-	return writeJSONFile(filepath.Join(r.mountStateDir(rec.ID), "mount.json"), rec, 0o600)
+	path := filepath.Join(r.mountStateDir(rec.ID), "mount.json")
+	tmp := path + ".tmp"
+	if err := writeJSONFile(tmp, rec, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // mountRecords lists every lazy workspace on this machine, by mount path.
@@ -439,4 +453,131 @@ func fetchConcurrently(ctx context.Context, conn *grpc.ClientConn, slice *corev1
 	}
 	wg.Wait()
 	return files, total, firstErr
+}
+
+// A lazy workspace's .gs lives in its state directory (served at <mount>/.gs),
+// with the files gs init writes plus lazy.json, which names the workspace so
+// commands know to ask its mount for edits instead of walking the tree.
+
+type lazyMarker struct {
+	ID string `json:"id"`
+}
+
+func (r Runner) mountGsDir(id string) string { return filepath.Join(r.mountStateDir(id), "gs") }
+
+// writeLazyWorkspaceState writes the workspace files a new lazy workspace
+// starts with, as gs init would: its slice, its state and its base snapshot.
+func (r Runner) writeLazyWorkspaceState(rec mountRecord, manifest *lazyfs.Manifest) error {
+	dir := r.mountGsDir(rec.ID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(dir, "slice.json")); err == nil {
+		return nil // already there: the workspace's own state wins
+	}
+	ws := WorkspaceConfig{
+		Account:        rec.Account,
+		Slice:          rec.Slice,
+		SliceID:        rec.SliceID,
+		DefinitionHash: rec.DefinitionHash,
+		IncludedPaths:  rec.IncludedPaths,
+		BaseCommitID:   rec.BaseCommit,
+	}
+	base := BaseSnapshot{CommitID: rec.BaseCommit, Files: map[string]BaseSnapshotFile{}}
+	manifest.Files(func(entry lazyfs.BaseEntry) {
+		base.Files[entry.Path] = BaseSnapshotFile{Path: entry.Path, RelPath: strings.TrimPrefix(entry.Path, "/"), ContentHash: entry.ContentHash, Mode: entry.Mode, Size: entry.Size}
+	})
+	for name, value := range map[string]any{
+		"base_snapshot.json": base,
+		"state.json":         WorkspaceState{BaseCommitID: rec.BaseCommit},
+		"lazy.json":          lazyMarker{ID: rec.ID},
+		"slice.json":         ws, // last: its presence means the rest is there
+	} {
+		if err := writeJSONFile(filepath.Join(dir, name), value, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// lazyWorkspaceID returns the id of the lazy workspace rooted at root, or "".
+func lazyWorkspaceID(root string) string {
+	var marker lazyMarker
+	if err := readJSONFile(filepath.Join(root, ".gs", "lazy.json"), &marker); err != nil {
+		return ""
+	}
+	return marker.ID
+}
+
+// refuseInLazyWorkspace stops a command that rewrites workspace files, which
+// lazy workspaces do not support yet (design/30_lazy_workspaces.md, phase 4).
+func (r Runner) refuseInLazyWorkspace(what string) error {
+	root, err := r.workspaceRoot()
+	if err != nil || lazyWorkspaceID(root) == "" {
+		return nil
+	}
+	return userError("lazy_workspace_unsupported", what+" does not work in a lazy workspace (gs mount) yet",
+		"Land your changes with gs create --submit, then start from a fresh mount: gs unmount "+root+"; gs mount discard "+root+"; gs mount <slice> "+root+". Or use a gs init workspace.")
+}
+
+// daemonLayerView reads a mounted lazy workspace's layers through its daemon,
+// which owns them: the edits over the control socket, files through the mount.
+type daemonLayerView struct {
+	id        string
+	manifest  *lazyfs.Manifest
+	mountRoot string
+}
+
+func (v daemonLayerView) Edits() ([]lazyfs.Edit, error) {
+	reply, err := callMountDaemon(v.id, mountControlRequest{Op: "edits"})
+	if err != nil {
+		return nil, userError("lazy_workspace_not_mounted", "cannot reach the mount of this lazy workspace: "+err.Error(), "Mount it again: gs mount <slice> "+v.mountRoot+".")
+	}
+	return reply.Edits, nil
+}
+
+func (v daemonLayerView) Base() *lazyfs.Manifest { return v.manifest }
+
+func (v daemonLayerView) ReadFile(ctx context.Context, p string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(v.mountRoot, filepath.FromSlash(strings.TrimPrefix(p, "/"))))
+}
+
+// mountControlRequest and mountControlReply are the daemon's control
+// protocol: one JSON request and one JSON reply per connection.
+type mountControlRequest struct {
+	Op    string   `json:"op"` // "status", "edits", "restore" or "unmount"
+	Paths []string `json:"paths,omitempty"`
+}
+
+type mountControlReply struct {
+	PID          int           `json:"pid"`
+	MountedAt    string        `json:"mounted_at"`
+	Opens        int64         `json:"opens"`
+	Fetches      int64         `json:"fetches"`
+	FetchedFiles int64         `json:"fetched_files"`
+	FetchedBytes int64         `json:"fetched_bytes"`
+	Errors       int64         `json:"errors"`
+	LastError    string        `json:"last_error,omitempty"`
+	Edits        []lazyfs.Edit `json:"edits,omitempty"`
+	Error        string        `json:"error,omitempty"`
+}
+
+func callMountDaemon(id string, req mountControlRequest) (mountControlReply, error) {
+	var reply mountControlReply
+	conn, err := net.DialTimeout("unix", mountControlPath(id), 2*time.Second)
+	if err != nil {
+		return reply, err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return reply, err
+	}
+	if err := json.NewDecoder(conn).Decode(&reply); err != nil {
+		return reply, err
+	}
+	if reply.Error != "" {
+		return reply, errors.New(reply.Error)
+	}
+	return reply, nil
 }

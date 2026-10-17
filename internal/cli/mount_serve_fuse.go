@@ -38,17 +38,34 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 		return err
 	}
 	defer layer.Close()
+	if err := r.writeLazyWorkspaceState(rec, manifest); err != nil {
+		return err
+	}
 	conn, err := dial(ctx, rec.ServerAddr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	// The control socket listens before the mount appears, so a command run
+	// right after gs mount always finds it (connections wait until served).
+	socket := mountControlPath(rec.ID)
+	var listener net.Listener
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err == nil {
+		_ = os.Remove(socket)
+		if l, err := net.Listen("unix", socket); err == nil {
+			listener = l
+			defer os.Remove(socket)
+			defer listener.Close()
+		}
+	}
 	fetcher := &mountFetcher{r: r, conn: conn, slice: rec.ref(), commitID: rec.BaseCommit, manifest: manifest, cache: cache, inflight: map[string]*fetchCall{}}
 	mounted, err := fusefs.Mount(rec.MountPath, layer, fetcher, fusefs.Options{
-		FsName: "gitslice:" + rec.Account + "/" + rec.Slice,
-		UID:    uint32(os.Getuid()),
-		GID:    uint32(os.Getgid()),
-		Debug:  debug,
+		FsName:   "gitslice:" + rec.Account + "/" + rec.Slice,
+		UID:      uint32(os.Getuid()),
+		GID:      uint32(os.Getgid()),
+		Debug:    debug,
+		ReadOnly: rec.ReadOnly,
+		GsDir:    r.mountGsDir(rec.ID),
 	})
 	if err != nil {
 		return userError("mount_failed", "cannot mount "+rec.MountPath+": "+err.Error(), "gs mount needs FUSE: on Linux /dev/fuse and fusermount3 (package fuse3), on macOS macFUSE. Without it, use gs init.")
@@ -58,19 +75,36 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 	_ = r.writeMountRecord(rec)
 
 	unmount := func() { _ = mounted.Server.Unmount() }
-	socket := mountControlPath(rec.ID)
-	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err == nil {
-		_ = os.Remove(socket)
-		if listener, err := net.Listen("unix", socket); err == nil {
-			defer os.Remove(socket)
-			defer listener.Close()
-			go serveMountControl(listener, func() mountControlStatus {
+	if listener != nil {
+		{
+			go serveMountControl(listener, func(req mountControlRequest) mountControlReply {
 				stats := mounted.Stats()
 				fetcher.mu.Lock()
 				files, bytes := fetcher.files, fetcher.bytes
 				fetcher.mu.Unlock()
-				return mountControlStatus{PID: os.Getpid(), MountedAt: mountedAt.Format(time.RFC3339), Opens: stats.Opens, Fetches: stats.Fetches, FetchedFiles: files, FetchedBytes: bytes, Errors: stats.Errors, LastError: stats.LastError}
-			}, unmount)
+				reply := mountControlReply{PID: os.Getpid(), MountedAt: mountedAt.Format(time.RFC3339), Opens: stats.Opens, Fetches: stats.Fetches, FetchedFiles: files, FetchedBytes: bytes, Errors: stats.Errors, LastError: stats.LastError}
+				switch req.Op {
+				case "edits":
+					// Hashing a local file also puts it in the client cache,
+					// where gs create uploads it from.
+					edits, err := layer.Edits()
+					if err != nil {
+						reply.Error = err.Error()
+					}
+					reply.Edits = edits
+				case "restore":
+					for _, p := range req.Paths {
+						if err := layer.Restore(p); err != nil {
+							reply.Error = err.Error()
+							break
+						}
+						mounted.Invalidate(p)
+					}
+				case "unmount":
+					go unmount()
+				}
+				return reply
+			})
 		}
 	}
 	signals := make(chan os.Signal, 1)
@@ -94,7 +128,7 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 	return nil
 }
 
-func serveMountControl(listener net.Listener, status func() mountControlStatus, unmount func()) {
+func serveMountControl(listener net.Listener, handle func(mountControlRequest) mountControlReply) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -102,15 +136,12 @@ func serveMountControl(listener net.Listener, status func() mountControlStatus, 
 		}
 		go func(conn net.Conn) {
 			defer conn.Close()
-			_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+			_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
 			var req mountControlRequest
 			if err := json.NewDecoder(conn).Decode(&req); err != nil {
 				return
 			}
-			_ = json.NewEncoder(conn).Encode(status())
-			if req.Op == "unmount" {
-				go unmount()
-			}
+			_ = json.NewEncoder(conn).Encode(handle(req))
 		}(conn)
 	}
 }

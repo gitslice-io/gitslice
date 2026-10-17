@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"time"
 )
 
 // Attr describes a path in the merged view.
@@ -17,6 +18,10 @@ type Attr struct {
 	Local       bool
 	ContentHash string
 	Target      string // symlinks
+	// ModTime is a local file's modification time; zero for base content.
+	ModTime time.Time
+	// LocalPath is the file holding a local file's content.
+	LocalPath string
 }
 
 // DirEntry is one entry of a directory listing.
@@ -26,7 +31,7 @@ type DirEntry struct {
 }
 
 func (n node) attr() Attr {
-	return Attr{Kind: n.kind, Mode: n.mode, Size: n.size, Local: n.local != "", ContentHash: n.hash, Target: n.target}
+	return Attr{Kind: n.kind, Mode: n.mode, Size: n.size, Local: n.local != "", ContentHash: n.hash, Target: n.target, ModTime: n.modTime}
 }
 
 // Stat returns the attributes of p. It never reads content.
@@ -41,7 +46,11 @@ func (f *FS) Stat(p string) (Attr, error) {
 	if err != nil {
 		return Attr{}, err
 	}
-	return n.attr(), nil
+	attr := n.attr()
+	if n.local != "" {
+		attr.LocalPath = f.localPath(n.local)
+	}
+	return attr, nil
 }
 
 // ReadDir lists the directory p, sorted by name. It never reads content.

@@ -122,6 +122,9 @@ func (r Runner) requireAgentWorkspaceDir() error {
 }
 
 func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, requested []string) error {
+	if err := r.refuseInLazyWorkspace("gs workspace hydrate"); err != nil {
+		return err
+	}
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err

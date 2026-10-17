@@ -87,7 +87,7 @@ func mountTest(t *testing.T) (string, *fakeFetcher, *Mounted) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	mounted, err := Mount(dir, layer, fetcher, Options{FsName: "gitslice:test", UID: uint32(os.Getuid()), GID: uint32(os.Getgid())})
+	mounted, err := Mount(dir, layer, fetcher, Options{FsName: "gitslice:test", UID: uint32(os.Getuid()), GID: uint32(os.Getgid()), ReadOnly: true})
 	if err != nil {
 		t.Skipf("cannot mount FUSE here: %v", err)
 	}

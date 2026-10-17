@@ -97,7 +97,11 @@ func (r Runner) snapshotEditsReviewed(ctx context.Context, conn *grpc.ClientConn
 
 func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, upload bool, hashConcurrency, uploadConcurrency int, review editReview) ([]*corev1.FileEdit, map[string]workingFile, snapshotEditsStats, error) {
 	var stats snapshotEditsStats
-	found, err := r.editSourceFor(ws).edits(ctx, base, hashConcurrency)
+	source, err := r.editSourceFor(ws)
+	if err != nil {
+		return nil, nil, stats, err
+	}
+	found, err := source.edits(ctx, base, hashConcurrency)
 	stats.Scan = found.scan
 	stats.DiffDuration = found.diffDuration
 	if err != nil {

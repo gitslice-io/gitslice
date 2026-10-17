@@ -46,6 +46,9 @@ const (
 )
 
 func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error {
+	if err := r.refuseInLazyWorkspace("gs sync"); err != nil {
+		return err
+	}
 	mergeStrategy, err := normalizeWorkspaceSyncMergeStrategy(opts.SyncMerge)
 	if err != nil {
 		return err

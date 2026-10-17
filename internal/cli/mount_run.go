@@ -2,11 +2,9 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,34 +14,31 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-// mountControlRequest and mountControlStatus are the daemon's control protocol:
-// one JSON request and one JSON reply per connection.
-type mountControlRequest struct {
-	Op string `json:"op"` // "status" or "unmount"
-}
-
-type mountControlStatus struct {
-	PID          int    `json:"pid"`
-	MountedAt    string `json:"mounted_at"`
-	Opens        int64  `json:"opens"`
-	Fetches      int64  `json:"fetches"`
-	FetchedFiles int64  `json:"fetched_files"`
-	FetchedBytes int64  `json:"fetched_bytes"`
-	Errors       int64  `json:"errors"`
-	LastError    string `json:"last_error,omitempty"`
-}
-
-func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dirArg, workspaceID string, foreground, debug bool) error {
+func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dirArg, workspaceID string, foreground, debug bool, readOnly *bool) error {
 	dir, err := filepath.Abs(dirArg)
 	if err != nil {
 		return err
 	}
-	if isMounted(dir) {
-		return userError("already_mounted", dir+" is already a mount point", "Run gs mount list, or gs unmount "+dir+" first.")
-	}
 	rec, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID)
 	if err != nil {
 		return err
+	}
+	if isMounted(dir) {
+		if _, err := callMountDaemon(rec.ID, mountControlRequest{Op: "status"}); err == nil || foreground {
+			return userError("already_mounted", dir+" is already a mount point", "Run gs mount list, or gs unmount "+dir+" first.")
+		}
+		// The daemon is gone and left its mount behind ("transport endpoint
+		// is not connected"): clear it and serve the workspace again. Its
+		// local layer is on disk, edits included.
+		if err := forceUnmount(dir); err != nil {
+			return userError("stale_mount", "a dead mount is left at "+dir+": "+err.Error(), "Run fusermount3 -u "+dir+" and try again.")
+		}
+	}
+	if readOnly != nil && *readOnly != rec.ReadOnly {
+		rec.ReadOnly = *readOnly
+		if err := r.writeMountRecord(rec); err != nil {
+			return err
+		}
 	}
 	if err := prepareMountDir(dir); err != nil {
 		return err
@@ -62,7 +57,11 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "ref": rec.Account + ":" + rec.Slice, "mount_path": rec.MountPath, "base_commit": rec.BaseCommit, "files": rec.Files})
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "mounted %s:%s at %s (read-only; %d files, fetched on first read)\n", rec.Account, rec.Slice, rec.MountPath, rec.Files)
+		mode := "edits stay on this machine until gs create"
+		if rec.ReadOnly {
+			mode = "read-only"
+		}
+		fmt.Fprintf(r.Stdout, "mounted %s:%s at %s (%d files, fetched on first read; %s)\n", rec.Account, rec.Slice, rec.MountPath, rec.Files, mode)
 		fmt.Fprintf(r.Stdout, "workspace %s; gs unmount %s to stop\n", rec.ID, rec.MountPath)
 	}
 	return nil
@@ -131,16 +130,26 @@ func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID s
 		}
 	}
 	rec = mountRecord{
-		ID:         id,
-		Account:    checkout.slice.GetRef().GetAccount(),
-		Slice:      checkout.slice.GetRef().GetSlice(),
-		MountPath:  dir,
-		ServerAddr: cfg.ServerAddr,
-		BaseCommit: checkout.commitID,
-		Files:      files,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		ID:             id,
+		Account:        checkout.slice.GetRef().GetAccount(),
+		Slice:          checkout.slice.GetRef().GetSlice(),
+		MountPath:      dir,
+		ServerAddr:     cfg.ServerAddr,
+		BaseCommit:     checkout.commitID,
+		Files:          files,
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		SliceID:        checkout.slice.GetId(),
+		DefinitionHash: checkout.slice.GetDefinitionHash(),
+		IncludedPaths:  checkout.slice.GetDefinition().GetIncludedPaths(),
 	}
-	return rec, r.writeMountRecord(rec)
+	if err := r.writeMountRecord(rec); err != nil {
+		return rec, err
+	}
+	manifest, err := readManifest(filepath.Join(state, "manifest"), rec.BaseCommit)
+	if err != nil {
+		return rec, err
+	}
+	return rec, r.writeLazyWorkspaceState(rec, manifest)
 }
 
 // prepareMountDir makes dir, or checks that it is an empty directory.
@@ -158,21 +167,6 @@ func prepareMountDir(dir string) error {
 	return nil
 }
 
-func callMountDaemon(id string, op string) (mountControlStatus, error) {
-	var status mountControlStatus
-	conn, err := net.DialTimeout("unix", mountControlPath(id), 2*time.Second)
-	if err != nil {
-		return status, err
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-	if err := json.NewEncoder(conn).Encode(mountControlRequest{Op: op}); err != nil {
-		return status, err
-	}
-	err = json.NewDecoder(conn).Decode(&status)
-	return status, err
-}
-
 func (r Runner) runUnmount(ctx context.Context, opts commandOptions, selector string) error {
 	rec, err := r.findMountRecord(selector)
 	if err != nil {
@@ -181,7 +175,7 @@ func (r Runner) runUnmount(ctx context.Context, opts commandOptions, selector st
 	if !isMounted(rec.MountPath) {
 		return userError("not_mounted", rec.MountPath+" is not mounted", "Its workspace is kept; gs mount list shows it.")
 	}
-	if _, err := callMountDaemon(rec.ID, "unmount"); err != nil {
+	if _, err := callMountDaemon(rec.ID, mountControlRequest{Op: "unmount"}); err != nil {
 		// No daemon to ask (it died): unmount directly.
 		if err := forceUnmount(rec.MountPath); err != nil {
 			return err
@@ -254,24 +248,38 @@ func (r Runner) runMountStatus(ctx context.Context, opts commandOptions, selecto
 		return err
 	}
 	mounted := isMounted(rec.MountPath)
-	var status *mountControlStatus
+	var status *mountControlReply
+	localEdits := -1
 	if mounted {
-		if got, err := callMountDaemon(rec.ID, "status"); err == nil {
+		if got, err := callMountDaemon(rec.ID, mountControlRequest{Op: "status"}); err == nil {
 			status = &got
+		}
+		if got, err := callMountDaemon(rec.ID, mountControlRequest{Op: "edits"}); err == nil {
+			localEdits = len(got.Edits)
 		}
 	}
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "ref": rec.Account + ":" + rec.Slice, "mount_path": rec.MountPath, "mounted": mounted, "base_commit": rec.BaseCommit, "files": rec.Files, "daemon": status})
+		payload := map[string]any{"id": rec.ID, "ref": rec.Account + ":" + rec.Slice, "mount_path": rec.MountPath, "mounted": mounted, "read_only": rec.ReadOnly, "base_commit": rec.BaseCommit, "files": rec.Files, "daemon": status}
+		if localEdits >= 0 {
+			payload["local_edits"] = localEdits
+		}
+		return r.writeJSONOutput(opts, payload)
 	}
 	if opts.Quiet {
 		return nil
 	}
 	state := "not mounted"
-	if mounted {
+	switch {
+	case mounted && rec.ReadOnly:
 		state = "mounted read-only"
+	case mounted:
+		state = "mounted"
 	}
 	fmt.Fprintf(r.Stdout, "%s:%s at %s: %s\n", rec.Account, rec.Slice, rec.MountPath, state)
 	fmt.Fprintf(r.Stdout, "workspace %s, base commit %s, %d files\n", rec.ID, shortCommit(rec.BaseCommit), rec.Files)
+	if localEdits >= 0 {
+		fmt.Fprintf(r.Stdout, "%d local edit(s), on this machine only until gs create (gs status lists them)\n", localEdits)
+	}
 	if status != nil {
 		fmt.Fprintf(r.Stdout, "opens %d, of which %d fetched; %d files (%s) fetched in all\n", status.Opens, status.Fetches, status.FetchedFiles, humanBytes(status.FetchedBytes))
 		if status.Errors > 0 {
@@ -366,6 +374,74 @@ func (r Runner) runMountFetch(ctx context.Context, opts commandOptions, workspac
 	}
 	if !opts.Quiet {
 		fmt.Fprintf(r.Stdout, "fetched %d files (%s); %d were already here\n", fetched, humanBytes(bytes), cached)
+	}
+	return nil
+}
+
+// runRestore drops local edits in a lazy workspace, so the base shows again.
+func (r Runner) runRestore(ctx context.Context, opts commandOptions, args []string, all bool) error {
+	if all == (len(args) > 0) {
+		return userError("invalid_args", "name paths to restore, or pass --all", "Usage: gs restore <path>... | gs restore --all")
+	}
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return err
+	}
+	id := lazyWorkspaceID(root)
+	if id == "" {
+		return userError("restore_unsupported", "gs restore works in lazy workspaces (gs mount) for now", "In a gs init workspace, copy the file back from gs show or check out again.")
+	}
+	req := mountControlRequest{Op: "restore", Paths: []string{"/"}}
+	if !all {
+		req.Paths = nil
+		for _, arg := range args {
+			abs := arg
+			if !filepath.IsAbs(abs) {
+				abs = filepath.Join(r.cwd(), arg)
+			}
+			rel, err := filepath.Rel(root, filepath.Clean(abs))
+			if err != nil || strings.HasPrefix(rel, "..") || rel == ".gs" || strings.HasPrefix(rel, ".gs"+string(filepath.Separator)) {
+				return userError("outside_workspace", arg+" is not a path of this workspace", "Name paths inside "+root+".")
+			}
+			if rel == "." {
+				req.Paths = append(req.Paths, "/")
+			} else {
+				req.Paths = append(req.Paths, "/"+filepath.ToSlash(rel))
+			}
+		}
+	}
+	if _, err := callMountDaemon(id, req); err != nil {
+		return userError("restore_failed", err.Error(), "Is the workspace mounted? gs mount status "+root)
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"restored": req.Paths})
+	}
+	if !opts.Quiet {
+		fmt.Fprintf(r.Stdout, "restored %s from the base\n", strings.Join(req.Paths, ", "))
+	}
+	return nil
+}
+
+// runMountDiscard deletes an unmounted lazy workspace and its local edits.
+func (r Runner) runMountDiscard(ctx context.Context, opts commandOptions, selector string, yes bool) error {
+	rec, err := r.findMountRecord(selector)
+	if err != nil {
+		return err
+	}
+	if isMounted(rec.MountPath) {
+		return userError("still_mounted", rec.MountPath+" is mounted", "Run gs unmount "+rec.MountPath+" first.")
+	}
+	if !yes {
+		return userError("confirmation_required", "discarding deletes the workspace and every local edit in it, which no changeset holds", "Run gs mount discard "+selector+" --yes to confirm.")
+	}
+	if err := os.RemoveAll(r.mountStateDir(rec.ID)); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "discarded": true})
+	}
+	if !opts.Quiet {
+		fmt.Fprintf(r.Stdout, "discarded lazy workspace %s (%s:%s at %s)\n", rec.ID, rec.Account, rec.Slice, rec.MountPath)
 	}
 	return nil
 }

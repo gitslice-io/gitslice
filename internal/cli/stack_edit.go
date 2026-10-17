@@ -9,6 +9,9 @@ import (
 )
 
 func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, onto string, order int64) error {
+	if err := r.refuseInLazyWorkspace("gs move"); err != nil {
+		return err
+	}
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -119,6 +122,9 @@ func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, on
 }
 
 func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, title string) error {
+	if err := r.refuseInLazyWorkspace("gs detach"); err != nil {
+		return err
+	}
 	entry = strings.TrimSpace(entry)
 	if entry == "" {
 		return userError("invalid_args", "detach requires a changeset", "Run gs detach <changeset>.")

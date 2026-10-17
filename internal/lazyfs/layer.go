@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Content reads and stores file content by its content hash.
@@ -367,14 +368,15 @@ func newLocalName() (string, error) {
 
 // node is a path in the merged view.
 type node struct {
-	kind   Kind
-	mode   uint32
-	size   int64
-	hash   string // base files and symlinks, references
-	local  string // a local file's name under files/
-	target string // symlinks
-	base   bool   // the base layer shows through
-	opaque bool
+	kind    Kind
+	mode    uint32
+	size    int64
+	modTime time.Time // local files
+	hash    string    // base files and symlinks, references
+	local   string    // a local file's name under files/
+	target  string    // symlinks
+	base    bool      // the base layer shows through
+	opaque  bool
 }
 
 // baseVisibleLocked reports whether the base layer shows through at p: no
@@ -399,11 +401,11 @@ func (f *FS) lookupLocked(p string) (node, bool) {
 		case entryWhiteout:
 			return node{}, false
 		case entryFile:
-			size := int64(0)
+			size, modTime := int64(0), time.Time{}
 			if info, err := os.Stat(f.localPath(entry.Local)); err == nil {
-				size = info.Size()
+				size, modTime = info.Size(), info.ModTime()
 			}
-			return node{kind: KindFile, mode: entry.Mode, size: size, local: entry.Local}, true
+			return node{kind: KindFile, mode: entry.Mode, size: size, modTime: modTime, local: entry.Local}, true
 		case entryRef:
 			return node{kind: KindFile, mode: entry.Mode, size: entry.Size, hash: entry.Hash}, true
 		case entryDir:

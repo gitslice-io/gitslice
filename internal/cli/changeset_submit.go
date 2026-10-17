@@ -143,6 +143,12 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	if status == "" {
 		status = "submitted"
 	}
+	// A lazy workspace keeps its base until it can move its layers along
+	// (design/30_lazy_workspaces.md, phase 4); rescanning it would fetch
+	// every file of the slice.
+	if root, err := r.workspaceRoot(); err == nil && lazyWorkspaceID(root) != "" {
+		hasWorkspace = false
+	}
 	if status == "submitted" && usingWorkspaceCurrent && hasWorkspace {
 		state.BaseCommitID = refCommitID
 		if err := r.writeWorkspaceState(state); err != nil {

@@ -51,6 +51,9 @@ func (r Runner) runStackShow(ctx context.Context, opts commandOptions, requested
 }
 
 func (r Runner) runStackRestack(ctx context.Context, opts commandOptions, entry string, children, all bool) error {
+	if err := r.refuseInLazyWorkspace("gs restack"); err != nil {
+		return err
+	}
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -144,6 +147,9 @@ func (r Runner) runStackRestack(ctx context.Context, opts commandOptions, entry 
 }
 
 func (r Runner) runStackSwitch(ctx context.Context, opts commandOptions, entry string) error {
+	if err := r.refuseInLazyWorkspace("Switching changesets"); err != nil {
+		return err
+	}
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -303,6 +309,9 @@ func (r Runner) activeStack(ctx context.Context) (UserConfig, WorkspaceConfig, W
 }
 
 func (r Runner) materializeWorkspaceSnapshot(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, snapshot BaseSnapshot) error {
+	if err := r.refuseInLazyWorkspace("Rewriting the workspace's files"); err != nil {
+		return err
+	}
 	root, err := r.workspaceRoot()
 	if err != nil {
 		return err

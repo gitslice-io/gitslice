@@ -1,8 +1,11 @@
 # 30. Lazy Workspaces: `gs mount`
 
-Status: phases 1 and 2 implemented (2026-10-17): `internal/lazyfs`, the CLI's
-edit source, and a read-only `gs mount` (`internal/lazyfs/fusefs`,
-`internal/cli/mount*.go`). Phases 3 and 4 are proposed. Measurements are at the
+Status: phases 1 to 3 implemented (2026-10-17): `internal/lazyfs`, the CLI's
+edit source, and a writable `gs mount` whose edits stay local until `gs create`
+(`internal/lazyfs/fusefs`, `internal/cli/mount*.go`), with `gs restore` and
+`gs mount discard`. Phase 4 (sync and changeset switching in a mount, macOS,
+the agent daemon) is proposed; until then those commands refuse in a mount, and
+a lazy workspace keeps its base after a change lands. Measurements are at the
 end.
 
 ## Goal

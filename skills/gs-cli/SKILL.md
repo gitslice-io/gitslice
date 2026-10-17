@@ -156,14 +156,18 @@ gs init nic/home --json
 gs status --json
 ```
 
-To read or build a large slice without checking it all out, mount it lazily (Linux and macOS with FUSE; read-only in this release). The listing arrives in about a second at any size, and a file's content is fetched on first read, with the small files beside it:
+To work in a large slice without checking it all out, mount it lazily (Linux and macOS with FUSE). The listing arrives in about a second at any size, and a file's content is fetched on first read, with the small files beside it. Edit with any tool: edits stay in the workspace's local layer, on this machine, until `gs create` or `gs modify` uploads them.
 
 ```bash
 gs mount acme/payment ~/w/payment      # gs mount list, gs mount status, gs unmount ~/w/payment
-gs fetch                                # inside it: fetch everything now, for offline work or a build
+cd ~/w/payment/acme/payment
+gs status; gs diff                      # as in a gs init workspace; nothing is uploaded
+gs restore path/to/file                 # drop a local edit (or --all)
+gs create --all --message "..." --submit
+gs fetch                                # fetch everything now, for offline work or a build
 ```
 
-Edit in a `gs init` workspace for now; writable mounts, where edits stay local until `gs create`, come next (design/30_lazy_workspaces.md).
+`gs sync` and switching between changesets do not work in a mount yet: after a change lands, start a fresh mount (`gs unmount <dir>`, `gs mount discard <dir> --yes`, `gs mount <slice> <dir>`) or use a `gs init` workspace (design/30_lazy_workspaces.md).
 
 Workspace-aware commands discover `.gs/` by walking up from subdirectories. Keep edits under the materialized path for the bound slice. For a slice that includes `/acme/payment`, edit files under `acme/payment/...` inside the workspace.
 

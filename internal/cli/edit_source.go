@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gitslice.io/gitslice/internal/clientcache"
@@ -33,10 +34,26 @@ type workspaceEdits struct {
 	diffDuration time.Duration
 }
 
-// editSourceFor returns the edit source for a workspace. Every workspace is
-// eager today.
-func (r Runner) editSourceFor(ws WorkspaceConfig) editSource {
-	return walkEditSource{r: r, ws: ws}
+// editSourceFor returns the edit source for a workspace: a walk for an eager
+// one, the local layer (through its mount daemon) for a lazy one.
+func (r Runner) editSourceFor(ws WorkspaceConfig) (editSource, error) {
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return nil, err
+	}
+	id := lazyWorkspaceID(root)
+	if id == "" {
+		return walkEditSource{r: r, ws: ws}, nil
+	}
+	rec, err := r.readMountRecord(id)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := readManifest(filepath.Join(r.mountStateDir(id), "manifest"), rec.BaseCommit)
+	if err != nil {
+		return nil, err
+	}
+	return overlayEditSource{fs: daemonLayerView{id: id, manifest: manifest, mountRoot: root}, ws: ws, mountRoot: root}, nil
 }
 
 // walkEditSource finds edits by hashing every file of an eager workspace (the

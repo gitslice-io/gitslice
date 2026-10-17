@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -22,8 +23,20 @@ import (
 // where the two bases differ. Untracked files that .gitignore covers are left
 // out, as a walk leaves them out.
 type overlayEditSource struct {
-	fs *lazyfs.FS
+	fs layerView
 	ws WorkspaceConfig
+	// mountRoot, when the layers are mounted, is where commands read a
+	// changed file's content (through the mount, which fetches what a moved
+	// base file needs); otherwise the local layer's file, or the cache.
+	mountRoot string
+}
+
+// layerView is what an overlay edit source needs of a lazy workspace's
+// layers: a *lazyfs.FS, or a mounted workspace's daemon (daemonLayerView).
+type layerView interface {
+	Edits() ([]lazyfs.Edit, error)
+	Base() *lazyfs.Manifest
+	ReadFile(ctx context.Context, p string) ([]byte, error)
 }
 
 type overlayState struct {
@@ -104,9 +117,13 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 			found.edits = append(found.edits, &corev1.FileEdit{Op: "delete", Path: p})
 		case state.exists && (!tracked || baseFile.ContentHash != state.hash || !sameWorkspaceMode(baseFile.Mode, state.mode)):
 			found.edits = append(found.edits, &corev1.FileEdit{Op: "upsert", Path: p, ContentHash: state.hash, Mode: state.mode})
+			absPath := state.localPath
+			if s.mountRoot != "" {
+				absPath = filepath.Join(s.mountRoot, filepath.FromSlash(rel))
+			}
 			found.files[p] = workingFile{
 				BaseSnapshotFile: BaseSnapshotFile{Path: p, RelPath: rel, ContentHash: state.hash, Mode: state.mode},
-				AbsPath:          state.localPath,
+				AbsPath:          absPath,
 			}
 		}
 	}
