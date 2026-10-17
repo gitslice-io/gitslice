@@ -24,7 +24,8 @@ The current MVP prototype is Go-based and uses:
 - `internal/lazyfs`: the two-layer model of a lazy workspace (read-only base,
   local layer of the user's changes) behind `gs mount`
   (`design/30_lazy_workspaces.md`). No FUSE in it; its reference-model and
-  crash tests set the file system semantics.
+  crash tests set the file system semantics. `internal/lazyfs/fusefs` serves it
+  over FUSE (go-fuse) for `gs mount`, Linux and macOS only.
 - `tests/cli`: real server plus CLI e2e tests.
 - `tests/rpc`: real server plus direct RPC e2e tests.
 - `tests/load`: opt-in load and contention tests behind the `load` build tag.

@@ -1,8 +1,9 @@
 # 30. Lazy Workspaces: `gs mount`
 
-Status: phase 1 implemented (2026-10-16): `internal/lazyfs` and the CLI's edit
-source (`internal/cli/edit_source.go`, `edit_source_overlay.go`). Phases 2-4
-are proposed.
+Status: phases 1 and 2 implemented (2026-10-17): `internal/lazyfs`, the CLI's
+edit source, and a read-only `gs mount` (`internal/lazyfs/fusefs`,
+`internal/cli/mount*.go`). Phases 3 and 4 are proposed. Measurements are at the
+end.
 
 ## Goal
 
@@ -349,3 +350,22 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
 7. When to build one mount for many workspaces ("Multiple workspaces"): before
    the agent daemon uses lazy workspaces, or only if per-conversation mounts
    prove too heavy?
+
+## Measurements (phase 2)
+
+`gs mount gitslice/gitslice` (1,068 files) against gitslice.io from the
+design/28 machine (about 200 ms away), with an empty client cache:
+
+| Step | Time |
+| --- | --- |
+| Mount: listing, daemon start, kernel mount | 1.96 s |
+| First read of an uncached file | 1.1 s (one round trip, with 15 small files beside it) |
+| Another file in the same directory | 2 ms (prefetched) |
+| `go build ./cmd/gs`, cold | opened 856 files; 28 round trips fetched 385 files (3.2 MiB) |
+| `go build ./cmd/gs`, warm, from the mount / from a checkout | 0.64 s / 0.69 s |
+| `grep -r` over the tree, warm, from the mount / from a checkout | 0.14 s / 0.05 s |
+
+The prefetch of small files beside the one read (the default proposed in open
+question 2) keeps a cold build to a few dozen round trips. Once content is
+cached, builds run as fast as from a checkout; walks of the whole tree pay
+FUSE's per-entry cost, about 3x on this kernel (5.15, without passthrough).

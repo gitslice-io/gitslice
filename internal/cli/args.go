@@ -43,6 +43,15 @@ func maxArgs(max int, usage string) cobra.PositionalArgs {
 	}
 }
 
+func rangeArgs(min, max int, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) >= min && len(args) <= max {
+			return nil
+		}
+		return userError("invalid_args", fmt.Sprintf("expected %d to %d argument(s), got %d", min, max, len(args)), "Usage: "+usage)
+	}
+}
+
 func minArgs(want int, usage string) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) >= want {

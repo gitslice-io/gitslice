@@ -156,6 +156,15 @@ gs init nic/home --json
 gs status --json
 ```
 
+To read or build a large slice without checking it all out, mount it lazily (Linux and macOS with FUSE; read-only in this release). The listing arrives in about a second at any size, and a file's content is fetched on first read, with the small files beside it:
+
+```bash
+gs mount acme/payment ~/w/payment      # gs mount list, gs mount status, gs unmount ~/w/payment
+gs fetch                                # inside it: fetch everything now, for offline work or a build
+```
+
+Edit in a `gs init` workspace for now; writable mounts, where edits stay local until `gs create`, come next (design/30_lazy_workspaces.md).
+
 Workspace-aware commands discover `.gs/` by walking up from subdirectories. Keep edits under the materialized path for the bound slice. For a slice that includes `/acme/payment`, edit files under `acme/payment/...` inside the workspace.
 
 Run commands from inside the workspace you made, not from a copy of it. A directory that has its own `.gs/` is another workspace: `gs create` and `gs status` skip it with a warning, and `.gs/` at any depth is never committed. A file's path in a changeset is its path in the workspace; nothing re-bases paths (`--root` starts a new dependency tree, it does not change paths).

@@ -57,7 +57,17 @@ type receivedCheckout struct {
 // sandbox): a warm cache fetches just what it lacks, afterwards. Content goes
 // into the cache, checked against its hash.
 func receiveCheckout(ctx context.Context, conn *grpc.ClientConn, ref *corev1.SliceRef, cache *clientcache.ObjectCache) (*receivedCheckout, error) {
-	stream, err := corev1.NewRepositoryServiceClient(conn).Checkout(ctx, &corev1.CheckoutRequest{Slice: ref, IncludeContent: cache.Empty()}, grpc.UseCompressor(gzip.Name))
+	return receiveCheckoutStream(ctx, conn, ref, cache, cache.Empty())
+}
+
+// receiveCheckoutListing reads the listing only, never the content: what a
+// lazy workspace needs (design/30_lazy_workspaces.md).
+func receiveCheckoutListing(ctx context.Context, conn *grpc.ClientConn, ref *corev1.SliceRef, cache *clientcache.ObjectCache) (*receivedCheckout, error) {
+	return receiveCheckoutStream(ctx, conn, ref, cache, false)
+}
+
+func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *corev1.SliceRef, cache *clientcache.ObjectCache, includeContent bool) (*receivedCheckout, error) {
+	stream, err := corev1.NewRepositoryServiceClient(conn).Checkout(ctx, &corev1.CheckoutRequest{Slice: ref, IncludeContent: includeContent}, grpc.UseCompressor(gzip.Name))
 	if err != nil {
 		return nil, err
 	}

@@ -144,6 +144,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	)
 	for _, commands := range [][]*cobra.Command{
 		r.workspaceCommands(opts),
+		r.mountCommands(opts),
 		r.statusCommands(opts),
 		r.historyCommands(opts),
 		r.stackCommands(opts),
