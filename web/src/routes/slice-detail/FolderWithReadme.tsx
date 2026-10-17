@@ -23,7 +23,8 @@ interface FolderWithReadmeProps {
 
 // FolderWithReadme is a folder page whose README is its introduction: the README
 // takes the main column under a slim header, and the files sit in a narrow
-// column beside it (on a phone, under it, folded until asked for).
+// column beside it (on a phone, above it, folded until asked for, so they are
+// easy to reach without scrolling past the README).
 export function FolderWithReadme({
   commitId,
   createDirectory,
@@ -48,16 +49,9 @@ export function FolderWithReadme({
         selectedPath={selectedPath}
       />
       <div className="grid lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <FolderReadme
-          canEdit={Boolean(onStageEdit)}
-          commitId={commitId}
-          entry={readme}
-          onSelectPath={onSelectPath}
-          sliceRef={sliceRef}
-        />
         <aside
           aria-label="Files"
-          className="min-w-0 border-t border-slate-200 dark:border-zinc-800 lg:border-l lg:border-t-0"
+          className="min-w-0 border-b border-slate-200 dark:border-zinc-800 lg:col-start-2 lg:row-start-1 lg:border-b-0 lg:border-l"
         >
           <button
             aria-expanded={filesOpen}
@@ -90,6 +84,13 @@ export function FolderWithReadme({
             />
           </div>
         </aside>
+        <FolderReadme
+          canEdit={Boolean(onStageEdit)}
+          commitId={commitId}
+          entry={readme}
+          onSelectPath={onSelectPath}
+          sliceRef={sliceRef}
+        />
       </div>
     </SlicePanel>
   );
