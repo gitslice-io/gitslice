@@ -311,7 +311,7 @@ func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, reque
 		printPathStatColor(r.Stdout, res.ChangedPaths, r.colorEnabled(opts))
 		return nil
 	}
-	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(res.Diff, r.colorEnabled(opts)))
+	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(res.Diff, opts.diffContext()), r.colorEnabled(opts)))
 	return err
 }
 

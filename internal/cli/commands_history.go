@@ -62,6 +62,7 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 	logCmd.Flags().BoolVar(&logStat, "stat", logStat, "show a compact changed-path summary under each commit")
 	logCmd.Flags().BoolVarP(&logPatch, "patch", "p", logPatch, "show patches for each commit")
 
+	showContext := 0
 	showFull := false
 	showNameOnly := false
 	showStat := false
@@ -71,7 +72,7 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 		Short: "Show a native commit",
 		Args:  exactArgs(1, "gs show <commit-id-or-prefix>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runCommitShow(cmd.Context(), *opts, args[0], commitShowOptions{
+			return r.runCommitShow(cmd.Context(), diffContextOptions(cmd, *opts, showContext), args[0], commitShowOptions{
 				Full:     showFull,
 				NameOnly: showNameOnly,
 				Stat:     showStat,
@@ -83,7 +84,9 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 	showCmd.Flags().BoolVar(&showNameOnly, "name-only", showNameOnly, "show only changed path names")
 	showCmd.Flags().BoolVar(&showStat, "stat", showStat, "show a compact changed-path summary")
 	showCmd.Flags().BoolVarP(&showPatch, "patch", "p", showPatch, "show the commit patch")
+	addDiffContextFlag(showCmd, &showContext)
 
+	diffContext := 0
 	diffNameOnly := false
 	diffStat := false
 	diffFrom := ""
@@ -93,13 +96,14 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 		Short: "Show workspace, changeset, or commit diffs",
 		Args:  maxArgs(2, "gs diff [commit-id-or-prefix] [commit-id-or-prefix] [--from patchset --to patchset]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runDiff(cmd.Context(), *opts, args, diffFrom, diffTo, diffNameOnly, diffStat)
+			return r.runDiff(cmd.Context(), diffContextOptions(cmd, *opts, diffContext), args, diffFrom, diffTo, diffNameOnly, diffStat)
 		},
 	}
 	diffCmd.Flags().StringVar(&diffFrom, "from", diffFrom, "patchset number or id to diff from")
 	diffCmd.Flags().StringVar(&diffTo, "to", diffTo, "patchset number or id to diff to")
 	diffCmd.Flags().BoolVar(&diffNameOnly, "name-only", diffNameOnly, "show only changed path names")
 	diffCmd.Flags().BoolVar(&diffStat, "stat", diffStat, "show a compact changed-path summary")
+	addDiffContextFlag(diffCmd, &diffContext)
 
 	ciCmd := &cobra.Command{
 		Use:   "ci",

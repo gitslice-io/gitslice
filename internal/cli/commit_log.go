@@ -190,7 +190,7 @@ func (r Runner) runCommitShow(ctx context.Context, opts commandOptions, commitID
 		if err != nil {
 			return err
 		}
-		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(diffText, color))
+		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, opts.diffContext()), color))
 		return err
 	}
 	printCommitDetails(r.Stdout, commit, showOpts.Full, color)

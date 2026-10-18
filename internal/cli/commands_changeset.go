@@ -155,6 +155,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	csDiffPatchset := ""
 	csDiffFrom := ""
 	csDiffTo := ""
+	csDiffContext := 0
 	csDiffNameOnly := false
 	csDiffStat := false
 	csDiffCmd := &cobra.Command{
@@ -166,7 +167,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 			if len(args) > 0 {
 				id = args[0]
 			}
-			return r.runChangesetDiff(cmd.Context(), *opts, id, csDiffPatchset, csDiffFrom, csDiffTo, csDiffNameOnly, csDiffStat)
+			return r.runChangesetDiff(cmd.Context(), diffContextOptions(cmd, *opts, csDiffContext), id, csDiffPatchset, csDiffFrom, csDiffTo, csDiffNameOnly, csDiffStat)
 		},
 	}
 	csDiffCmd.Flags().StringVar(&csDiffPatchset, "patchset", csDiffPatchset, "patchset number or id to diff against its base")
@@ -174,6 +175,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	csDiffCmd.Flags().StringVar(&csDiffTo, "to", csDiffTo, "patchset number or id to diff to")
 	csDiffCmd.Flags().BoolVar(&csDiffNameOnly, "name-only", csDiffNameOnly, "show only changed path names")
 	csDiffCmd.Flags().BoolVar(&csDiffStat, "stat", csDiffStat, "show a compact changed-path summary")
+	addDiffContextFlag(csDiffCmd, &csDiffContext)
 	csApproveCmd := &cobra.Command{
 		Use:   "approve <changeset>",
 		Short: "Approve the current patchset of a changeset",

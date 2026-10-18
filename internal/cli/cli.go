@@ -35,6 +35,10 @@ type commandOptions struct {
 	// NoSubmit leaves the changeset a gs fs write creates open for review
 	// instead of landing it.
 	NoSubmit bool
+	// DiffContext is -U/--unified of the diff commands: the unchanged lines
+	// shown around each change. DiffContextSet tells it was given.
+	DiffContext    int
+	DiffContextSet bool
 }
 
 func (o commandOptions) jsonOutput() bool {

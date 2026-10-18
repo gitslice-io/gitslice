@@ -75,7 +75,7 @@ func (r Runner) runCommitDiff(ctx context.Context, opts commandOptions, commitAr
 		printPathStatColor(r.Stdout, changed, color)
 		return nil
 	}
-	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(diffText, color))
+	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, opts.diffContext()), color))
 	return err
 }
 
@@ -153,7 +153,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(diffText, r.colorEnabled(opts)))
+	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, opts.diffContext()), r.colorEnabled(opts)))
 	return err
 }
 

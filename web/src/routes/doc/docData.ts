@@ -206,7 +206,7 @@ export const commandGroups = [
       ["gs mount <account>:<slice> <dir>", "Mount a slice lazily (FUSE): content is fetched on first read; edits stay local until gs create. gs sync and changeset switching move the mount without fetching; --prefetch <glob> warms files in the background."],
       ["gs shell", "Open the server-backed file shell."],
       ["gs status", "Show pending workspace edits."],
-      ["gs diff", "Inspect pending content changes."],
+      ["gs diff", "Inspect pending content changes, three lines of context around each (-U N to change)."],
       ["gs ci", "Run the slice's checks against your pending edits, locally."],
       ["gs log", "Read recent accepted history."],
       ["gs blame <path>", "Which commit and changeset last changed each line (--lines 10,20, --json)."],

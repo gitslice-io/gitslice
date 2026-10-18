@@ -210,7 +210,7 @@ Normal workspace loop:
 ```bash
 gs context --json
 gs status --json
-gs diff --name-only
+gs diff --name-only                     # gs diff, gs cs diff and gs show -p print 3 lines of context around each change; -U N changes it, --unified=-1 shows whole files
 gs create --message "describe the change" --all --json
 gs diff --stat
 gs submit --json
