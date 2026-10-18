@@ -160,7 +160,25 @@ func TestDaemonsShowToTheAgentsOwnersAndCanBeRenamed(t *testing.T) {
 		t.Fatalf("the daemon's slices = %+v", d)
 	}
 
+	// Someone with a slice of their own cannot send its checks, and its
+	// secrets, to a daemon that is not theirs, whatever its name or id.
+	mallory := grpcAuthContext(ts.loginViaGRPC(t, "mallory"))
+	malloryHome := &corev1.SliceRef{Account: "mallory", Slice: "home"}
+	if _, err := slices.SetSliceCIDaemon(mallory, &corev1.SetSliceCIDaemonRequest{Slice: malloryHome, DaemonId: ciID}); grpcstatus.Code(err) != codes.NotFound {
+		t.Fatalf("naming another person's daemon code = %v; want NotFound", grpcstatus.Code(err))
+	}
+	if got, err := slices.ResolveSlice(mallory, &corev1.ResolveSliceRequest{Ref: malloryHome}); err != nil || got.CiDaemonId != "" {
+		t.Fatalf("after the refused request, mallory/home = %+v, %v", got, err)
+	}
+	// The agent itself, which registered the daemon, may name it for its own slice.
+	if _, err := slices.SetSliceCIDaemon(agentCtx, &corev1.SetSliceCIDaemonRequest{Slice: &corev1.SliceRef{Account: "ci-bot", Slice: "home"}, DaemonId: otherID}); err != nil {
+		t.Fatalf("the agent naming its own daemon: %v", err)
+	}
+
 	// Clearing the name shows the registered one again.
+	if _, err := slices.SetSliceCIDaemon(owner, &corev1.SetSliceCIDaemonRequest{Slice: &corev1.SliceRef{Account: "ci-bot", Slice: "home"}, DaemonId: ciID}); err != nil {
+		t.Fatal(err)
+	}
 	cleared, err := agents.RenameDaemon(owner, &corev1.RenameDaemonRequest{DaemonId: ciID})
 	if err != nil || cleared.DisplayName != "" {
 		t.Fatalf("clearing the name = %+v, %v", cleared, err)

@@ -3,9 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sliceRef string, daemonID string) error {
@@ -22,6 +25,9 @@ func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sl
 		Slice:    ref,
 		DaemonId: daemonID,
 	})
+	if grpcstatus.Code(err) == codes.NotFound && strings.Contains(err.Error(), "daemon not found") {
+		return userError("daemon_not_found", "there is no daemon "+daemonID+" that you can use", "A CI daemon runs a slice's checks and holds its secrets, so only the daemons you registered, or that belong to an account you own or administer, can be named. gs agent status lists them; the owner of any other daemon has to hand it to you.")
+	}
 	if err != nil {
 		return err
 	}

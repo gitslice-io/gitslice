@@ -167,10 +167,17 @@ among an account's daemons, compared without regard to case, against both
 display names and registered names (`AlreadyExists` otherwise). Anyone who may
 not manage a daemon gets `NotFound`, so ids reveal nothing.
 
-Not covered: `SetSliceCIDaemon` accepts any daemon id from an owner of the
-slice's account, without checking that they may use that daemon. Under the
-trusted-registrants model (design/17) that has been accepted, but a daemon's
-owner cannot refuse a slice that names their daemon.
+A daemon runs the checks of every slice that names it, with that slice's
+secrets, so only a daemon's owner may offer it to a slice. `SetSliceCIDaemon`
+therefore needs the caller to be an owner or admin of the slice's account (as
+before) **and** to be able to manage the daemon: they registered it, or own or
+administer the account it is registered under. For anyone else the daemon is
+`NotFound`, as for an id that does not exist. Clearing the daemon, or saving
+the one the slice already has, needs nothing more. Until 2026-10-18 the second
+condition was missing: anyone who owned a slice could name any daemon whose id
+they had seen (a public slice shows its CI daemon id) and run checks on that
+machine. Slices that named a daemon before then keep it; only changing it is
+checked.
 
 ## Phasing
 

@@ -17,6 +17,7 @@ type SliceService struct {
 	Auth       storage.AuthStore
 	Repository storage.RepositoryStore
 	Slices     storage.SliceStore
+	Agents     storage.AgentStore
 	Analytics  analytics.Client
 }
 
@@ -200,6 +201,19 @@ func (s *SliceService) SetSliceCIDaemon(ctx context.Context, req *corev1.SetSlic
 	}
 	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
+	}
+	// A CI daemon runs the slice's checks and receives its secrets, so the
+	// people who may name one are those who may manage it: they registered it,
+	// or own or administer the account it is registered under. Anyone else gets
+	// NotFound, as for an id that does not exist. Clearing it, or naming the
+	// daemon the slice already has, needs nothing more.
+	if daemonID := strings.TrimSpace(req.DaemonId); daemonID != "" && daemonID != current.CiDaemonId {
+		if s.Agents == nil {
+			return nil, status.Error(codes.FailedPrecondition, "agent daemons are not available")
+		}
+		if _, _, err := manageableDaemon(ctx, s.Auth, s.Agents, subjectID, daemonID); err != nil {
+			return nil, err
+		}
 	}
 	updated, err := s.Slices.SetCIDaemon(ctx, current.Id, req.DaemonId)
 	if err != nil {

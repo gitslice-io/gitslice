@@ -79,6 +79,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			Auth:       stores.Auth,
 			Repository: stores.Repository,
 			Slices:     stores.Slices,
+			Agents:     stores.Agents,
 			Analytics:  analyticsClient,
 		},
 		Workspace: &WorkspaceService{

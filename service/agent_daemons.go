@@ -113,14 +113,23 @@ func normalizeDaemonDisplayName(name string) (string, error) {
 // administers its account, and whether the subject registered it. Anyone else
 // gets NotFound, so daemon ids do not reveal which exist.
 func (s *AgentService) manageableDaemon(ctx context.Context, subjectID, daemonID string) (*corev1.AgentDaemon, bool, error) {
-	daemon, err := s.Agents.GetDaemon(ctx, daemonID)
+	return manageableDaemon(ctx, s.Auth, s.Agents, subjectID, daemonID)
+}
+
+// manageableDaemon is the daemon a subject may manage and use: one they
+// registered, or one registered under an account they own or administer.
+// Renaming it and making it a slice's CI daemon both need this, because a
+// daemon runs the code and holds the secrets of the slices that name it, and
+// only its owner may offer it to them.
+func manageableDaemon(ctx context.Context, auth storage.AuthStore, agents storage.AgentStore, subjectID, daemonID string) (*corev1.AgentDaemon, bool, error) {
+	daemon, err := agents.GetDaemon(ctx, daemonID)
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil, false, status.Error(codes.NotFound, "daemon not found")
 	}
 	if err != nil {
 		return nil, false, grpcError(err)
 	}
-	owner, err := s.Agents.DaemonSubject(ctx, daemonID)
+	owner, err := agents.DaemonSubject(ctx, daemonID)
 	if err != nil {
 		return nil, false, grpcError(err)
 	}
@@ -128,7 +137,7 @@ func (s *AgentService) manageableDaemon(ctx context.Context, subjectID, daemonID
 		return daemon, true, nil
 	}
 	if daemon.Account != "" {
-		ok, err := canAuthorizeAccount(ctx, s.Auth, subjectID, daemon.Account, authz.ActionAdmin)
+		ok, err := canAuthorizeAccount(ctx, auth, subjectID, daemon.Account, authz.ActionAdmin)
 		if err != nil {
 			return nil, false, err
 		}

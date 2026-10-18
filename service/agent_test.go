@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,7 +11,9 @@ import (
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestAgentServicePersistsRuntimeDeltas(t *testing.T) {
@@ -431,3 +434,71 @@ func (s *fakeAgentConnectStream) SetTrailer(metadata.MD)       {}
 func (s *fakeAgentConnectStream) Context() context.Context     { return s.ctx }
 func (s *fakeAgentConnectStream) SendMsg(any) error            { return nil }
 func (s *fakeAgentConnectStream) RecvMsg(any) error            { return nil }
+
+// TestSetSliceCIDaemonNeedsADaemonTheCallerMayManage: a CI daemon runs a
+// slice's checks and receives its secrets, so an owner of a slice cannot name
+// a daemon that belongs to someone else.
+func TestSetSliceCIDaemonNeedsADaemonTheCallerMayManage(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	alice := authctx.WithSubjectID(context.Background(), "user_alice")
+	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "payment"}
+	slice := mem.PutSlice(sliceRef, []string{"/acme/payment"}, "private")
+
+	mine, err := mem.Agents.RegisterDaemon(alice, storage.AgentDaemonInput{SubjectID: "user_alice", Account: "acme", Name: "alice-ci", Runtime: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Someone else's daemon, registered under an account alice has no part in.
+	bob := authctx.WithSubjectID(context.Background(), "user_bob")
+	theirs, err := mem.Agents.RegisterDaemon(bob, storage.AgentDaemonInput{SubjectID: "user_bob", Account: "bob", Name: "bob-ci", Runtime: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := func(daemonID string) error {
+		_, err := handlers.Slice.SetSliceCIDaemon(alice, &corev1.SetSliceCIDaemonRequest{Slice: sliceRef, DaemonId: daemonID})
+		return err
+	}
+	current := func() string {
+		t.Helper()
+		got, err := mem.Slices.Get(alice, slice.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.CiDaemonId
+	}
+
+	// Another person's daemon looks exactly like one that does not exist.
+	for _, id := range []string{theirs.Id, "agent_does_not_exist"} {
+		err := set(id)
+		if status.Code(err) != codes.NotFound || !strings.Contains(err.Error(), "daemon not found") {
+			t.Fatalf("naming %s: err = %v, want NotFound daemon not found", id, err)
+		}
+	}
+	if got := current(); got != "" {
+		t.Fatalf("a refused request left CI daemon %q", got)
+	}
+
+	// Her own is fine, and clearing always is.
+	if err := set(mine.Id); err != nil || current() != mine.Id {
+		t.Fatalf("naming her own daemon: err = %v, current = %q", err, current())
+	}
+	if err := set(""); err != nil || current() != "" {
+		t.Fatalf("clearing: err = %v, current = %q", err, current())
+	}
+
+	// A slice that already names a daemon keeps it when its owner saves the
+	// same value, even if they could not name it now.
+	if _, err := mem.Slices.SetCIDaemon(alice, slice.Id, theirs.Id); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(theirs.Id); err != nil || current() != theirs.Id {
+		t.Fatalf("saving the unchanged daemon: err = %v, current = %q", err, current())
+	}
+	// But she cannot move it to another one she may not use, and can move it to hers.
+	if err := set("agent_does_not_exist"); status.Code(err) != codes.NotFound {
+		t.Fatalf("moving to a daemon that is not hers: err = %v", err)
+	}
+	if err := set(mine.Id); err != nil || current() != mine.Id {
+		t.Fatalf("moving to her own daemon: err = %v, current = %q", err, current())
+	}
+}
