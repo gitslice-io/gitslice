@@ -119,6 +119,65 @@ keeps its access. Its slices then appear on your home page next to yours.
 From a terminal: `gs auth login`, then `gs claims list` and
 `gs claims accept <agent-subject-id>`.
 
+## Checks and CI
+
+Checks live in `<folder>/.gitslice/checks.yaml`, run on each applicable
+patchset, and can be required before `gs submit` accepts a changeset. A check
+uses `image` for a container image or `build` to create that image from the
+tree; those settings are mutually exclusive. A build accepts `dockerfile`,
+`context`, `inputs`, and `timeout`. The daemon rebuilds only when the
+Dockerfile or an input changes, and retains the two newest images for each
+Dockerfile. Only the Dockerfile and listed inputs are sent to the build, so list
+dependency manifests such as `go.mod`, `go.sum`, and `package-lock.json`,
+and install dependencies in the image.
+
+    defaults:
+      build:
+        dockerfile: ci/Dockerfile
+        context: "."
+        inputs: [go.mod, go.sum, web/package-lock.json]
+        timeout: "30m"
+
+Top-level `services` names fresh containers a check can run beside itself. A
+service has `image`, `env`, `ready`, `ready_timeout`, and `memory`; a check
+selects them with `services: [name]`. Services need a containerized (`image` or
+`build`) check. Each run gets a private network and reaches each service at its
+name; it is internal unless the check sets `network: true`.
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_HOST_AUTH_METHOD: trust }
+        ready: "pg_isready -U postgres -h 127.0.0.1"
+        ready_timeout: "60s"
+        memory: "1g"
+    checks:
+      e2e:
+        build: { dockerfile: ci/Dockerfile, inputs: [go.mod, go.sum] }
+        services: [postgres]
+        env:
+          GITSLICE_TEST_DATABASE_URL: "postgres://postgres@postgres:5432/postgres?sslmode=disable"
+        run: "go test ./tests/..."
+
+Containers run as the CI daemon's user. `cache` paths are folders under that
+daemon's cache directory.
+
+Run a CI-only daemon on any machine with `gs` and, when checks use `image` or
+`build`, Docker or Podman:
+
+    gs auth login
+    gs agent doctor --ci
+    gs agent install --ci --name my-ci
+    gs agent expose my-ci <account>:<slice>
+
+Then a slice owner selects it:
+
+    gs slice set-ci-daemon <account>:<slice> <daemon-id>
+
+Remove its user service with `gs agent uninstall my-ci`. CI-only daemons never
+host conversations. When the selected CI daemon is offline, its runs stay
+queued; the Checks panel and `gs submit` say that checks are waiting for it.
+
 ## Large slices: lazy workspaces
 
 `gs init` downloads every file of the slice. For a big slice, on Linux or macOS

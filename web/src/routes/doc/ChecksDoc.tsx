@@ -180,6 +180,115 @@ checks:
       </section>
 
       <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+          Build the check image from your tree
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          Use <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">build</code>{" "}
+          instead of <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">image</code>{" "}
+          when the environment belongs in the revision. They are mutually
+          exclusive. The daemon builds the image from the tree and reuses it
+          until the Dockerfile or an input changes.
+        </p>
+        <CommandBlock>{[
+          "defaults:",
+          "  build:",
+          "    dockerfile: ci/Dockerfile",
+          '    context: "."',
+          "    inputs:",
+          "      - go.mod",
+          "      - go.sum",
+          "      - web/package-lock.json",
+          '    timeout: "30m"'
+        ].join("\n")}</CommandBlock>
+        <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          Only the Dockerfile and listed <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">inputs</code>{" "}
+          are sent to the build. Include dependency manifests such as{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">go.mod</code>,{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">go.sum</code>,
+          and <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">package-lock.json</code>{" "}
+          there, then install dependencies in the image so later runs reuse
+          them. To bound disk use, the daemon keeps the two newest images for
+          each Dockerfile.
+        </p>
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+          Add services for a check
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          Define a top-level <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">services</code>{" "}
+          map, then list service names on a check. A service accepts{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">image</code>,{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">env</code>,{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">ready</code>,{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">ready_timeout</code>,
+          and <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">memory</code>.
+        </p>
+        <CommandBlock>{[
+          "services:",
+          "  postgres:",
+          "    image: postgres:16-alpine",
+          "    env: { POSTGRES_HOST_AUTH_METHOD: trust }",
+          '    ready: "pg_isready -U postgres -h 127.0.0.1"',
+          '    ready_timeout: "60s"',
+          '    memory: "1g"',
+          "",
+          "checks:",
+          "  e2e:",
+          "    build:",
+          "      dockerfile: ci/Dockerfile",
+          "      inputs: [go.mod, go.sum]",
+          "    services: [postgres]",
+          "    env:",
+          '      GITSLICE_TEST_DATABASE_URL: "postgres://postgres@postgres:5432/postgres?sslmode=disable"',
+          '    run: "go test ./tests/..."'
+        ].join("\n")}</CommandBlock>
+        <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          Every run gets fresh service containers on a private network and
+          reaches each service by its name (for example, <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">postgres</code>). The network is
+          internal unless the check sets <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">network: true</code>.
+          Services need a containerized check, using <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">image</code>{" "}
+          or <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">build</code>.
+        </p>
+        <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          Containers run as the daemon&apos;s user. A check&apos;s <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">cache</code>{" "}
+          paths are folders under that daemon&apos;s cache directory, so they are
+          writable and can be cleaned up there.
+        </p>
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
+          Run a CI daemon on any machine
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          A CI-only daemon runs checks and is never offered for conversations.
+          It needs only <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs</code>{" "}
+          and, when checks use <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">image</code>{" "}
+          or <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">build</code>, Docker or Podman.
+        </p>
+        <CommandBlock>{[
+          "gs auth login",
+          "gs agent doctor --ci",
+          "gs agent install --ci --name my-ci",
+          "gs agent expose my-ci <account>:<slice>",
+          "",
+          "# A slice owner chooses the exposed daemon.",
+          "gs slice set-ci-daemon <account>:<slice> <daemon-id>",
+          "",
+          "# Remove the user service when it is no longer needed.",
+          "gs agent uninstall my-ci"
+        ].join("\n")}</CommandBlock>
+        <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          When this daemon is offline, its runs remain queued. The Checks panel
+          and <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs submit</code>{" "}
+          say that the daemon is offline and checks begin when it reconnects.
+        </p>
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
         <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">Add checks</h2>
         <ol className="mt-4 space-y-5">
           {[

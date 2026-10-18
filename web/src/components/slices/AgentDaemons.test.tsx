@@ -69,6 +69,18 @@ describe("AgentDaemons", () => {
     expect(screen.getByText(/last seen/)).toBeInTheDocument();
   });
 
+  it("labels CI-only daemons as checks only", async () => {
+    apiMock.current = {
+      listDaemons: vi.fn().mockResolvedValue({
+        daemons: [{ ...ownCi, runtime: "ci" }]
+      })
+    };
+    renderDaemons();
+
+    expect(await screen.findByText(/checks only 0\.4\.8/)).toBeInTheDocument();
+    expect(screen.queryByText(/codex 0\.4\.8/)).not.toBeInTheDocument();
+  });
+
   it("says how to start a daemon when there are none", async () => {
     apiMock.current = { listDaemons: vi.fn().mockResolvedValue({ daemons: [] }) };
     renderDaemons();

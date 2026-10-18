@@ -42,6 +42,10 @@ type Result struct {
 	SetupMs  int64
 	Cached   bool
 	RunMs    int64
+	// Unrunnable is set when this machine cannot run the check at all (it
+	// needs a container runtime and has none), as opposed to the check
+	// failing. Such a result says nothing about the change.
+	Unrunnable bool
 }
 
 // requireContainerChecks reports whether host-mode execution is disabled for
@@ -59,13 +63,24 @@ func Run(ctx context.Context, workspaceRoot string, spec checks.CheckSpec) (Resu
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
-	if strings.TrimSpace(spec.Image) != "" || len(spec.Setup) > 0 {
+	if containerized(spec) {
 		return runContainer(ctx, workspaceRoot, spec, timeout)
+	}
+	if len(spec.Services) > 0 {
+		return Result{
+			Status:   "errored",
+			ExitCode: -1,
+			Summary:  "services need a containerized check (image or build)",
+		}, nil
 	}
 	if requireContainerChecks() {
 		return Result{}, fmt.Errorf("check %q must declare an image or setup: host-mode execution is disabled on this daemon", spec.Name)
 	}
 	return runHost(ctx, workspaceRoot, spec, timeout)
+}
+
+func containerized(spec checks.CheckSpec) bool {
+	return strings.TrimSpace(spec.Image) != "" || spec.Build != nil || len(spec.Setup) > 0
 }
 
 func runHost(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, timeout time.Duration) (Result, error) {
@@ -81,16 +96,53 @@ func runHost(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, t
 	return runCommand(ctx, cmd, timeout, nil)
 }
 
+// containerRun is what a check's container needs beyond its spec.
+type containerRun struct {
+	user      []string          // --user / --userns arguments
+	home      bool              // give the check a HOME it can write
+	network   string            // the run's services network, if any
+	cacheDirs map[string]string // container cache path -> host folder
+}
+
 func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, timeout time.Duration) (Result, error) {
-	runtime, ok := containerRuntime()
-	if !ok {
+	rt := DetectRuntime(ctx)
+	if !rt.OK() {
 		return Result{
-			Status:   "errored",
-			ExitCode: -1,
-			Summary:  "container runtime not found (install docker or podman)",
+			Status:     "errored",
+			ExitCode:   -1,
+			Summary:    oneLine(rt.Err.Error()),
+			Unrunnable: true,
 		}, nil
 	}
+	root, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		return Result{}, fmt.Errorf("resolve workspace root: %w", err)
+	}
+
+	var notes []string
+	var setupMs int64
+	cached := false
 	image := strings.TrimSpace(spec.Image)
+	if spec.Build != nil {
+		built, err := resolveBuiltImage(root, spec.Scope, spec.Build)
+		if err != nil {
+			return Result{
+				Status:   "errored",
+				ExitCode: -1,
+				Summary:  oneLine(err.Error()),
+				Log:      err.Error(),
+			}, nil
+		}
+		buildMs, buildCached, note, result, err := ensureBuiltImage(ctx, rt, built, spec.Build.Timeout)
+		if err != nil {
+			return Result{}, err
+		}
+		if result != nil {
+			return *result, nil
+		}
+		image, setupMs, cached = built.Tag, buildMs, buildCached
+		notes = append(notes, note)
+	}
 	if image == "" {
 		return Result{
 			Status:   "errored",
@@ -98,43 +150,83 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 			Summary:  "container image is required when setup is configured",
 		}, nil
 	}
-	var setupMs int64
-	cached := false
 	if len(spec.Setup) > 0 {
-		preparedImage, preparedSetupMs, preparedCached, result, err := prepareContainerImage(ctx, runtime, image, spec.Setup, timeout)
+		preparedImage, preparedSetupMs, preparedCached, result, err := prepareContainerImage(ctx, rt.Path, image, spec.Setup, timeout)
 		if err != nil {
 			return Result{}, err
 		}
 		if result != nil {
+			result.SetupMs += setupMs
 			return *result, nil
 		}
 		image = preparedImage
-		setupMs = preparedSetupMs
-		cached = preparedCached
+		setupMs += preparedSetupMs
+		// Cached means every image this check needed was reused.
+		cached = preparedCached && (cached || spec.Build == nil)
 	}
-	root, err := filepath.Abs(workspaceRoot)
-	if err != nil {
-		return Result{}, fmt.Errorf("resolve workspace root: %w", err)
+
+	run := containerRun{user: userArgs(rt)}
+	run.home = needsHome(ctx, rt, image)
+	if run.cacheDirs, err = checkCacheDirs(spec); err != nil {
+		return Result{}, err
+	}
+	if len(spec.Services) > 0 {
+		services, note, result, err := startServices(ctx, rt, spec)
+		if err != nil {
+			return Result{}, err
+		}
+		if result != nil {
+			result.SetupMs = setupMs
+			result.Log = withNotes(notes, result.Log)
+			return *result, nil
+		}
+		defer services.stop()
+		run.network = services.network
+		notes = append(notes, note)
 	}
 
 	containerName, err := newContainerName()
 	if err != nil {
 		return Result{}, err
 	}
-	args, err := containerRunArgs(root, image, containerName, spec)
+	args, err := containerRunArgs(root, image, containerName, spec, run)
 	if err != nil {
 		return Result{}, err
 	}
 
-	cmd := exec.CommandContext(ctx, runtime, args...)
+	cmd := exec.CommandContext(ctx, rt.Path, args...)
 	cmd.Env = containerClientEnv(spec.Env)
 	cleanup := func() {
-		removeContainer(runtime, containerName)
+		removeContainer(rt.Path, containerName)
 	}
 	result, err := runCommand(ctx, cmd, timeout, cleanup)
 	result.SetupMs = setupMs
 	result.Cached = cached
+	result.Log = withNotes(notes, result.Log)
 	return result, err
+}
+
+// withNotes puts what the daemon did before the check ran (built or reused
+// an image, started services) at the top of its log.
+func withNotes(notes []string, log string) string {
+	var b strings.Builder
+	for _, note := range notes {
+		if strings.TrimSpace(note) != "" {
+			b.WriteString("[gitslice] " + note + "\n")
+		}
+	}
+	if b.Len() == 0 {
+		return log
+	}
+	return b.String() + log
+}
+
+func oneLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration, cleanup func()) (Result, error) {
@@ -283,11 +375,19 @@ func preparedImageTag(image string, setup []string) string {
 var newContainerName = randomContainerName
 
 func randomContainerName() (string, error) {
+	suffix, err := randomSuffix()
+	if err != nil {
+		return "", err
+	}
+	return containerNamePrefix + suffix, nil
+}
+
+func randomSuffix() (string, error) {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", fmt.Errorf("generate container name: %w", err)
 	}
-	return containerNamePrefix + hex.EncodeToString(b[:]), nil
+	return hex.EncodeToString(b[:]), nil
 }
 
 func setupDockerfile(image string, setup []string) string {
@@ -299,7 +399,7 @@ func setupDockerfile(image string, setup []string) string {
 	return b.String()
 }
 
-func containerRunArgs(root, image, containerName string, spec checks.CheckSpec) ([]string, error) {
+func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, run containerRun) ([]string, error) {
 	cachePaths, err := normalizedContainerCachePaths(spec.Cache)
 	if err != nil {
 		return nil, err
@@ -314,20 +414,55 @@ func containerRunArgs(root, image, containerName string, spec checks.CheckSpec) 
 		"--pids-limit=" + defaultContainerPIDsLimit,
 		"--memory=" + containerLimitValue(spec.Memory, DefaultContainerMemory),
 		"--cpus=" + containerLimitValue(spec.CPUs, DefaultContainerCPUs),
-		"-v", root + ":" + containerWorkspacePath,
 	}
+	args = append(args, run.user...)
+	args = append(args, "-v", root+":"+containerWorkspacePath)
 	for _, cachePath := range cachePaths {
-		args = append(args, "-v", checkCacheVolumeName(spec.Name, cachePath)+":"+cachePath)
+		hostDir, ok := run.cacheDirs[cachePath]
+		if !ok {
+			return nil, fmt.Errorf("no cache folder for %s", cachePath)
+		}
+		args = append(args, "-v", hostDir+":"+cachePath)
 	}
 	args = append(args, "-w", containerWorkingDir(spec.WorkingDir))
-	if !spec.Network {
+	switch {
+	case run.network != "":
+		args = append(args, "--network="+run.network)
+	case !spec.Network:
 		args = append(args, "--network=none")
+	}
+	if _, ok := spec.Env["HOME"]; run.home && !ok {
+		args = append(args, "-e", "HOME="+containerHome)
 	}
 	for _, key := range sortedEnvKeys(spec.Env) {
 		args = append(args, "-e", key)
 	}
 	args = append(args, image, "sh", "-c", spec.Run)
 	return args, nil
+}
+
+// checkCacheDirs creates the host folders behind a check's cache paths.
+// They are folders the daemon's user owns rather than named volumes, so a
+// check running as that user can write them, and whoever frees disk can
+// see them.
+func checkCacheDirs(spec checks.CheckSpec) (map[string]string, error) {
+	cachePaths, err := normalizedContainerCachePaths(spec.Cache)
+	if err != nil || len(cachePaths) == 0 {
+		return nil, err
+	}
+	base, err := CacheRoot()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(cachePaths))
+	for _, cachePath := range cachePaths {
+		dir := filepath.Join(base, checkCacheDirName(spec.Scope, cachePath))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create cache folder for %s: %w", cachePath, err)
+		}
+		out[cachePath] = dir
+	}
+	return out, nil
 }
 
 func removeContainer(runtime, name string) {
@@ -376,9 +511,13 @@ func normalizedContainerCachePaths(values []string) ([]string, error) {
 	return out, nil
 }
 
-func checkCacheVolumeName(checkName, cachePath string) string {
-	sum := sha256.Sum256([]byte(checkName + "\x00" + cachePath))
-	return "gitslice-cache-" + hex.EncodeToString(sum[:])[:24]
+// checkCacheDirName names the folder behind one cache path. Checks of one
+// slice that cache the same path share it (a Go build cache serves vet,
+// test and build alike, and is safe to share); two slices on one daemon
+// never do.
+func checkCacheDirName(scope, cachePath string) string {
+	sum := sha256.Sum256([]byte(scope + "\x00" + cachePath))
+	return hex.EncodeToString(sum[:])[:24]
 }
 
 func workspaceDir(workspaceRoot, logicalDir string) (string, error) {
@@ -451,16 +590,6 @@ func sortedEnvKeys(env map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func containerRuntime() (string, bool) {
-	if path, err := exec.LookPath("docker"); err == nil {
-		return path, true
-	}
-	if path, err := exec.LookPath("podman"); err == nil {
-		return path, true
-	}
-	return "", false
 }
 
 // logHeadBytes is how much of a check's output is kept from the start; the

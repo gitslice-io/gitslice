@@ -23,6 +23,7 @@ import (
 
 const (
 	defaultAgentRuntime = "codex"
+	ciAgentRuntime      = "ci"
 	agentSendBuffer     = 128
 	agentHeartbeat      = 15 * time.Second
 	// The server sends Ping messages every 20s. A 50s inbound gap is safely above
@@ -46,6 +47,8 @@ const (
 type agentStartOptions struct {
 	Name        string
 	Runtime     string
+	RuntimeSet  bool
+	CI          bool
 	IdleTimeout time.Duration
 	// Lazy mounts each conversation's workspace (gs mount) instead of
 	// checking it out, where FUSE is available.
@@ -111,8 +114,9 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start a local agent daemon",
-		Args:  noArgs("gs agent start [--name NAME] [--runtime codex]"),
+		Args:  noArgs("gs agent start [--name NAME] [--runtime codex] [--ci]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			start.RuntimeSet = cmd.Flags().Changed("runtime")
 			return r.runAgentStart(cmd.Context(), *opts, start)
 		},
 	}
@@ -120,6 +124,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	startCmd.Flags().StringVar(&start.Runtime, "runtime", start.Runtime, "agent runtime")
 	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
 	startCmd.Flags().BoolVar(&start.Lazy, "lazy", start.Lazy, "mount each conversation's workspace lazily (gs mount) instead of checking it out; falls back to a checkout without FUSE")
+	startCmd.Flags().BoolVar(&start.CI, "ci", false, "run checks only: no conversations, no agent runtime, any directory")
 
 	statusSlice := ""
 	statusCmd := &cobra.Command{
@@ -192,11 +197,27 @@ You can rename the daemons you started and those of agents you own.`,
 	}
 	renameCmd.Flags().BoolVar(&renameClear, "clear", false, "drop the name, showing the registered one again")
 
-	agentCmd.AddCommand(startCmd, statusCmd, stopCmd, renameCmd, exposeCmd, unexposeCmd)
+	agentCmd.AddCommand(startCmd, statusCmd, stopCmd, renameCmd, exposeCmd, unexposeCmd, r.agentDoctorCommand(opts), r.agentInstallCommand(opts), r.agentUninstallCommand(opts))
 	return agentCmd
 }
 
 func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agentStartOptions) error {
+	if in.CI && in.Lazy {
+		return userError("invalid_args", "--ci cannot be used with --lazy", "Run checks-only daemons without --lazy.")
+	}
+	if in.CI && in.RuntimeSet {
+		return userError("invalid_args", "--ci cannot be used with --runtime", "Checks-only daemons always register runtime ci.")
+	}
+	if in.CI {
+		checks := r.agentDoctorChecks(ctx, true)
+		if !opts.Quiet {
+			for _, check := range checks {
+				if check.Status != "ok" {
+					fmt.Fprintf(r.stderr(), "%s  %s  %s\n", check.Status, check.Name, check.Detail)
+				}
+			}
+		}
+	}
 	idleTimeout := in.IdleTimeout
 	if idleTimeout <= 0 {
 		if value, ok := os.LookupEnv("GITSLICE_AGENT_IDLE_TIMEOUT"); ok {
@@ -210,17 +231,23 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 	if err != nil {
 		return err
 	}
-	if err := r.requireAgentWorkspaceDir(); err != nil {
-		return err
+	if !in.CI {
+		if err := r.requireAgentWorkspaceDir(); err != nil {
+			return err
+		}
 	}
 
-	runtimeName := strings.TrimSpace(in.Runtime)
-	if runtimeName == "" {
-		runtimeName = defaultAgentRuntime
-	}
-	runtime, err := agentRuntimeForName(runtimeName)
-	if err != nil {
-		return err
+	runtimeName := ciAgentRuntime
+	var runtime agentRuntime
+	if !in.CI {
+		runtimeName = strings.TrimSpace(in.Runtime)
+		if runtimeName == "" {
+			runtimeName = defaultAgentRuntime
+		}
+		runtime, err = agentRuntimeForName(runtimeName)
+		if err != nil {
+			return err
+		}
 	}
 
 	root := r.cwd()
@@ -245,8 +272,10 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		checkSlots:      checkSlotsFromEnv(),
 		lazy:            in.Lazy,
 	}
-	daemon.reattachLazyWorkspaces(agentCtx)
-	daemon.loadExistingConversations()
+	if !in.CI {
+		daemon.reattachLazyWorkspaces(agentCtx)
+		daemon.loadExistingConversations()
+	}
 	daemon.lastActivity = time.Now()
 	if idleTimeout > 0 {
 		go daemon.runIdleMonitor(agentCtx, cancel, idleTimeout)
@@ -542,7 +571,7 @@ func pickDaemon(daemons []*corev1.AgentDaemon, selector string) (*corev1.AgentDa
 func (r Runner) runAgentStop(opts commandOptions) error {
 	out := map[string]string{
 		"status": "manual",
-		"hint":   "agent daemons stop when their gs agent start process receives Ctrl-C",
+		"hint":   "agent daemons stop when their gs agent start process receives Ctrl-C; installed daemons stop with gs agent uninstall <name>",
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
@@ -550,7 +579,7 @@ func (r Runner) runAgentStop(opts commandOptions) error {
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintln(r.Stdout, "agent daemons stop when their gs agent start process receives Ctrl-C")
+	fmt.Fprintln(r.Stdout, "agent daemons stop when their gs agent start process receives Ctrl-C; installed daemons stop with gs agent uninstall <name>")
 	return nil
 }
 

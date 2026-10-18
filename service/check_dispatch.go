@@ -665,7 +665,36 @@ func checkRunSpecFromPlan(runID string, spec checks.CheckSpec, secrets map[strin
 		Memory:           spec.Memory,
 		Cpus:             spec.CPUs,
 		TimeoutMs:        spec.Timeout.Milliseconds(),
+		Build:            checkImageBuildToProto(spec.Build),
+		Services:         checkServicesToProto(spec.Services),
 	}
+}
+
+func checkImageBuildToProto(build *checks.ImageBuild) *corev1.CheckImageBuild {
+	if build == nil {
+		return nil
+	}
+	return &corev1.CheckImageBuild{
+		ContextDir: build.ContextDir,
+		Dockerfile: build.Dockerfile,
+		Inputs:     append([]string(nil), build.Inputs...),
+		TimeoutMs:  build.Timeout.Milliseconds(),
+	}
+}
+
+func checkServicesToProto(services []checks.ServiceSpec) []*corev1.CheckServiceContainer {
+	out := make([]*corev1.CheckServiceContainer, 0, len(services))
+	for _, service := range services {
+		out = append(out, &corev1.CheckServiceContainer{
+			Name:           service.Name,
+			Image:          service.Image,
+			Env:            copyStringMap(service.Env),
+			Ready:          service.Ready,
+			ReadyTimeoutMs: service.ReadyTimeout.Milliseconds(),
+			Memory:         service.Memory,
+		})
+	}
+	return out
 }
 
 func mergeCheckEnv(checkEnv, secrets map[string]string) map[string]string {

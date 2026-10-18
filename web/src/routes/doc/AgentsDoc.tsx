@@ -70,6 +70,12 @@ gs claims accept <agent-subject-id>`}</CommandBlock>
             CLI, which must be installed and on your PATH.
           </li>
           <li>
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">CI only:</span>{" "}
+            use <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs agent start --ci</code>{" "}
+            or <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs agent install --ci</code>{" "}
+            for a daemon that runs checks but cannot host conversations.
+          </li>
+          <li>
             <span className="font-semibold text-zinc-950 dark:text-zinc-50">Conversations:</span>{" "}
             open a slice&apos;s Agents page and start a conversation. Each one runs
             in its own workspace sub-directory bound to that slice, so multiple

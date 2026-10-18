@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -109,7 +108,9 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 		return
 	}
 
-	result, err := checkexec.Run(runCtx, tempDir, checkSpecFromProto(spec))
+	checkSpec := checkSpecFromProto(spec)
+	checkSpec.Scope = req.GetSliceId()
+	result, err := checkexec.Run(runCtx, tempDir, checkSpec)
 	if err != nil {
 		result = checkexec.Result{
 			Status:   "errored",
@@ -163,7 +164,39 @@ func checkSpecFromProto(spec *corev1.CheckRunSpec) checks.CheckSpec {
 		Memory:           spec.GetMemory(),
 		CPUs:             spec.GetCpus(),
 		Timeout:          timeout,
+		Build:            checkImageBuildFromProto(spec.GetBuild()),
+		Services:         checkServicesFromProto(spec.GetServices()),
 	}
+}
+
+func checkImageBuildFromProto(build *corev1.CheckImageBuild) *checks.ImageBuild {
+	if build == nil || strings.TrimSpace(build.GetDockerfile()) == "" {
+		return nil
+	}
+	return &checks.ImageBuild{
+		ContextDir: build.GetContextDir(),
+		Dockerfile: build.GetDockerfile(),
+		Inputs:     append([]string(nil), build.GetInputs()...),
+		Timeout:    time.Duration(build.GetTimeoutMs()) * time.Millisecond,
+	}
+}
+
+func checkServicesFromProto(services []*corev1.CheckServiceContainer) []checks.ServiceSpec {
+	var out []checks.ServiceSpec
+	for _, service := range services {
+		if service == nil {
+			continue
+		}
+		out = append(out, checks.ServiceSpec{
+			Name:         service.GetName(),
+			Image:        service.GetImage(),
+			Env:          copyCheckEnv(service.GetEnv()),
+			Ready:        service.GetReady(),
+			ReadyTimeout: time.Duration(service.GetReadyTimeoutMs()) * time.Millisecond,
+			Memory:       service.GetMemory(),
+		})
+	}
+	return out
 }
 
 func copyCheckEnv(in map[string]string) map[string]string {
@@ -254,12 +287,12 @@ func (d *agentDaemon) checkBaseContext() context.Context {
 	return context.Background()
 }
 
+// detectContainerRuntimes lists the container runtime the daemon can run
+// checks in: one whose daemon answers, not merely one on the PATH.
 func detectContainerRuntimes() []string {
-	var out []string
-	for _, name := range []string{"docker", "podman"} {
-		if _, err := exec.LookPath(name); err == nil {
-			out = append(out, name)
-		}
+	rt := checkexec.DetectRuntime(context.Background())
+	if !rt.OK() {
+		return nil
 	}
-	return out
+	return []string{rt.Name}
 }

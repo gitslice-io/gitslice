@@ -11,6 +11,7 @@ import { RpcError } from "../../api/client";
 import type { CheckRun, CheckRunLog } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
+import { formatRelativeTime } from "../../lib/time";
 import { errorMessage } from "./status";
 
 const CHECK_POLL_INTERVAL_MS = 3500;
@@ -143,6 +144,7 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
           const canRerun = Boolean(runId && isTerminalCheckStatus(run.status));
           const rerunning =
             rerunMutation.isPending && rerunMutation.variables === runId;
+          const offlineDaemonMessage = queuedOfflineDaemonMessage(run);
           return (
             <div
               className={cn(
@@ -182,6 +184,11 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
                   {run.summary ? (
                     <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-600 dark:text-zinc-400">
                       {run.summary}
+                    </p>
+                  ) : null}
+                  {offlineDaemonMessage ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                      {offlineDaemonMessage}
                     </p>
                   ) : null}
                 </div>
@@ -387,6 +394,23 @@ function shouldShowExitCode(run: CheckRun) {
 
 function isTerminalCheckStatus(status?: string) {
   return terminalCheckStatuses.has(normalizeCheckStatus(status));
+}
+
+// queuedOfflineDaemonMessage says what a queued run waits for when its daemon
+// is offline. JSON leaves daemonOnline out when it is false, and a server
+// that predates daemon status leaves daemonLastSeenAt empty too, so a run says
+// nothing unless the server reported when its daemon was last seen.
+function queuedOfflineDaemonMessage(run: CheckRun) {
+  if (
+    normalizeCheckStatus(run.status) !== "queued" ||
+    !run.daemonId ||
+    run.daemonOnline ||
+    !run.daemonLastSeenAt
+  ) {
+    return "";
+  }
+  const daemon = run.daemonName || run.daemonId;
+  return `Waiting for ${daemon}, offline, last seen ${formatRelativeTime(run.daemonLastSeenAt)}`;
 }
 
 function normalizeCheckStatus(status?: string) {

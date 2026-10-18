@@ -11,5 +11,5 @@ export function daemonName(daemon: AgentDaemon | undefined, fallback = ""): stri
 // slice's CI daemon, but only the identity that registered a daemon can host
 // conversations on it.
 export function canHostConversations(daemon: AgentDaemon): boolean {
-  return daemon.mine !== false;
+  return daemon.mine !== false && daemon.runtime?.toLowerCase() !== "ci";
 }

@@ -50,6 +50,8 @@ func TestRunAllowsHostModeByDefault(t *testing.T) {
 func TestRunWithImageUsesContainerWhenRequired(t *testing.T) {
 	t.Setenv("GITSLICE_CHECKS_REQUIRE_CONTAINER", "1")
 	t.Setenv("PATH", t.TempDir())
+	forgetRuntime()
+	t.Cleanup(forgetRuntime)
 
 	result, err := Run(context.Background(), t.TempDir(), checks.CheckSpec{
 		Name:  "security/check",
@@ -62,7 +64,7 @@ func TestRunWithImageUsesContainerWhenRequired(t *testing.T) {
 		}
 		t.Fatalf("Run() unexpected error = %v", err)
 	}
-	if result.Status != "errored" || !strings.Contains(result.Summary, "container runtime not found") {
+	if result.Status != "errored" || !strings.Contains(result.Summary, "no container runtime found") || !result.Unrunnable {
 		t.Fatalf("result = %#v, want missing container runtime result", result)
 	}
 }

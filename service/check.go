@@ -16,9 +16,43 @@ type CheckService struct {
 	Changesets storage.ChangesetStore
 	Slices     storage.SliceStore
 	Checks     storage.CheckStore
+	// Agents and hub say whether a run's daemon is connected, so a queued
+	// run can say what it waits for.
+	Agents storage.AgentStore
 
 	checkLogs  *checkLogHub
 	dispatcher *checkDispatcher
+	hub        *agentHub
+}
+
+// annotateDaemons fills in whether each run's daemon is online and when it
+// was last seen. A lookup that fails leaves the run as stored.
+func (s *CheckService) annotateDaemons(ctx context.Context, runs ...*corev1.CheckRun) {
+	if s == nil || s.Agents == nil {
+		return
+	}
+	seen := map[string]*corev1.AgentDaemon{}
+	for _, run := range runs {
+		daemonID := strings.TrimSpace(run.GetDaemonId())
+		if daemonID == "" {
+			continue
+		}
+		daemon, ok := seen[daemonID]
+		if !ok {
+			daemon, _ = s.Agents.GetDaemon(ctx, daemonID)
+			seen[daemonID] = daemon
+		}
+		if daemon == nil {
+			continue
+		}
+		run.DaemonLastSeenAt = daemon.GetLastSeenAt()
+		run.DaemonOnline = daemon.GetStatus() == "online"
+		if s.hub != nil {
+			if _, connected := s.hub.daemon(daemonID); connected {
+				run.DaemonOnline = true
+			}
+		}
+	}
 }
 
 func (s *CheckService) ListCheckRuns(ctx context.Context, req *corev1.ListCheckRunsRequest) (*corev1.ListCheckRunsResponse, error) {
@@ -37,6 +71,7 @@ func (s *CheckService) ListCheckRuns(ctx context.Context, req *corev1.ListCheckR
 		if err != nil {
 			return nil, grpcError(err)
 		}
+		s.annotateDaemons(ctx, runs...)
 		return &corev1.ListCheckRunsResponse{Runs: runs}, nil
 	}
 
@@ -50,6 +85,7 @@ func (s *CheckService) ListCheckRuns(ctx context.Context, req *corev1.ListCheckR
 	if _, err := s.authorizedChangeset(ctx, subjectID, runs[0].GetChangesetId()); err != nil {
 		return nil, err
 	}
+	s.annotateDaemons(ctx, runs...)
 	return &corev1.ListCheckRunsResponse{Runs: runs}, nil
 }
 
@@ -69,6 +105,7 @@ func (s *CheckService) GetCheckRun(ctx context.Context, req *corev1.GetCheckRunR
 	if _, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId()); err != nil {
 		return nil, err
 	}
+	s.annotateDaemons(ctx, run)
 	return run, nil
 }
 

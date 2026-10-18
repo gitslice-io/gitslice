@@ -18,10 +18,33 @@ type File struct {
 	Version  int
 	Defaults Defaults
 	Checks   map[string]Check // keyed by local name
+	// Services are the containers a check may start beside itself, keyed by
+	// the host name the check reaches each one at.
+	Services map[string]Service
+}
+
+// Build is an image the daemon builds from a Dockerfile in the tree, and
+// reuses for as long as the Dockerfile and its inputs are unchanged.
+type Build struct {
+	Context    string        // folder-relative or "/"-absolute; default the checks.yaml folder
+	Dockerfile string        // relative to Context
+	Inputs     []string      // files and folders the build reads, relative to Context
+	Timeout    time.Duration // optional
+}
+
+// Service is a container started for each run of a check that names it, on a
+// network private to that run.
+type Service struct {
+	Image        string
+	Env          map[string]string
+	Ready        string        // command run inside the service until it passes
+	ReadyTimeout time.Duration // optional
+	Memory       string
 }
 
 type Defaults struct {
 	Image   string
+	Build   *Build
 	Setup   []string
 	Cache   []string      // absolute container paths; check-level cache replaces defaults
 	Timeout time.Duration // parsed from a Go duration string, optional
@@ -35,7 +58,9 @@ type Check struct {
 	Description string
 	Run         string            // required
 	Image       string            // optional; overrides Defaults.Image
+	Build       *Build            // optional; image built from the tree, instead of Image
 	Setup       []string          // optional image preparation commands
+	Services    []string          // optional; names in File.Services
 	Cache       []string          // optional absolute container paths; replaces Defaults.Cache
 	Paths       []string          // optional trigger globs
 	Include     []string          // optional extra materialize prefixes
@@ -48,13 +73,30 @@ type Check struct {
 }
 
 type rawFile struct {
-	Version  *int                `yaml:"version"`
-	Defaults rawDefaults         `yaml:"defaults"`
-	Checks   map[string]rawCheck `yaml:"checks"`
+	Version  *int                  `yaml:"version"`
+	Defaults rawDefaults           `yaml:"defaults"`
+	Checks   map[string]rawCheck   `yaml:"checks"`
+	Services map[string]rawService `yaml:"services"`
+}
+
+type rawBuild struct {
+	Context    string   `yaml:"context"`
+	Dockerfile string   `yaml:"dockerfile"`
+	Inputs     []string `yaml:"inputs"`
+	Timeout    string   `yaml:"timeout"`
+}
+
+type rawService struct {
+	Image        string            `yaml:"image"`
+	Env          map[string]string `yaml:"env"`
+	Ready        string            `yaml:"ready"`
+	ReadyTimeout string            `yaml:"ready_timeout"`
+	Memory       string            `yaml:"memory"`
 }
 
 type rawDefaults struct {
 	Image   string            `yaml:"image"`
+	Build   *rawBuild         `yaml:"build"`
 	Setup   []string          `yaml:"setup"`
 	Cache   []string          `yaml:"cache"`
 	Timeout string            `yaml:"timeout"`
@@ -68,7 +110,9 @@ type rawCheck struct {
 	Description string            `yaml:"description"`
 	Run         string            `yaml:"run"`
 	Image       string            `yaml:"image"`
+	Build       *rawBuild         `yaml:"build"`
 	Setup       []string          `yaml:"setup"`
+	Services    []string          `yaml:"services"`
 	Cache       []string          `yaml:"cache"`
 	Paths       []string          `yaml:"paths"`
 	Include     []string          `yaml:"include"`
@@ -90,6 +134,13 @@ func (e *parseError) Error() string {
 }
 
 var localNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// serviceNamePattern keeps service names valid host names, since a check
+// reaches each service by its name.
+var serviceNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// DefaultBuildTimeout bounds an image build that does not declare a timeout.
+const DefaultBuildTimeout = 30 * time.Minute
 
 // Parse parses and validates one .gitslice/checks.yaml file.
 func Parse(data []byte) (*File, error) {
@@ -116,10 +167,16 @@ func Parse(data []byte) (*File, error) {
 		return nil, &parseError{message: err.Error(), checkNames: names}
 	}
 
+	services, err := parseServices(raw.Services)
+	if err != nil {
+		return nil, &parseError{message: err.Error(), checkNames: names}
+	}
+
 	out := &File{
 		Version:  *raw.Version,
 		Defaults: defaults,
 		Checks:   make(map[string]Check, len(raw.Checks)),
+		Services: services,
 	}
 	for _, name := range names {
 		if !localNamePattern.MatchString(name) {
@@ -128,7 +185,7 @@ func Parse(data []byte) (*File, error) {
 				checkNames: []string{name},
 			}
 		}
-		check, err := parseCheck(name, raw.Checks[name], defaults)
+		check, err := parseCheck(name, raw.Checks[name], defaults, services)
 		if err != nil {
 			return nil, &parseError{
 				message:    err.Error(),
@@ -148,8 +205,16 @@ func parseDefaults(raw rawDefaults) (Defaults, error) {
 	if err := validateCacheList("defaults", raw.Cache); err != nil {
 		return Defaults{}, err
 	}
+	if raw.Image != "" && raw.Build != nil {
+		return Defaults{}, fmt.Errorf("defaults: set image or build, not both")
+	}
+	build, err := parseBuild("defaults", raw.Build)
+	if err != nil {
+		return Defaults{}, err
+	}
 	return Defaults{
 		Image:   raw.Image,
+		Build:   build,
 		Setup:   copyStringSlice(raw.Setup),
 		Cache:   normalizeCacheValues(raw.Cache),
 		Timeout: timeout,
@@ -160,7 +225,7 @@ func parseDefaults(raw rawDefaults) (Defaults, error) {
 	}, nil
 }
 
-func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
+func parseCheck(name string, raw rawCheck, defaults Defaults, services map[string]Service) (Check, error) {
 	if strings.TrimSpace(raw.Run) == "" {
 		return Check{}, fmt.Errorf("check %q run is required", name)
 	}
@@ -191,9 +256,30 @@ func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
 		timeout = parsed
 	}
 
-	image := defaults.Image
+	// A check's own image or build replaces whichever of the two the
+	// defaults set.
+	if raw.Image != "" && raw.Build != nil {
+		return Check{}, fmt.Errorf("check %q: set image or build, not both", name)
+	}
+	image, build := defaults.Image, defaults.Build
 	if raw.Image != "" {
-		image = raw.Image
+		image, build = raw.Image, nil
+	}
+	if raw.Build != nil {
+		parsed, err := parseBuild(fmt.Sprintf("check %q", name), raw.Build)
+		if err != nil {
+			return Check{}, err
+		}
+		image, build = "", parsed
+	}
+
+	for _, service := range raw.Services {
+		if _, ok := services[service]; !ok {
+			return Check{}, fmt.Errorf("check %q names service %q, which this file does not define", name, service)
+		}
+	}
+	if len(raw.Services) > 0 && image == "" && build == nil {
+		return Check{}, fmt.Errorf("check %q: services need a containerized check; set image or build", name)
 	}
 
 	setup := defaults.Setup
@@ -233,7 +319,9 @@ func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
 		Description: raw.Description,
 		Run:         raw.Run,
 		Image:       image,
+		Build:       build,
 		Setup:       copyStringSlice(setup),
+		Services:    copyStringSlice(raw.Services),
 		Cache:       normalizeCacheValues(cache),
 		Paths:       normalizePathValues(raw.Paths),
 		Include:     normalizePathValues(raw.Include),
@@ -244,6 +332,97 @@ func parseCheck(name string, raw rawCheck, defaults Defaults) (Check, error) {
 		CPUs:        cpus,
 		Timeout:     timeout,
 	}, nil
+}
+
+func parseBuild(owner string, raw *rawBuild) (*Build, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	owner += " build"
+	if strings.TrimSpace(raw.Dockerfile) == "" {
+		return nil, fmt.Errorf("%s: dockerfile is required", owner)
+	}
+	context := raw.Context
+	if context == "" {
+		context = "."
+	}
+	if err := validateBuildPath(owner, "context", context, true); err != nil {
+		return nil, err
+	}
+	if err := validateBuildPath(owner, "dockerfile", raw.Dockerfile, false); err != nil {
+		return nil, err
+	}
+	for _, input := range raw.Inputs {
+		if err := validateBuildPath(owner, "input", input, false); err != nil {
+			return nil, err
+		}
+	}
+	timeout, err := parseOptionalDuration(owner+" timeout", raw.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	return &Build{
+		Context:    normalizePathValue(context),
+		Dockerfile: path.Clean(normalizePathValue(raw.Dockerfile)),
+		Inputs:     cleanRelativePaths(raw.Inputs),
+		Timeout:    timeout,
+	}, nil
+}
+
+// validateBuildPath keeps a build's paths inside its context: relative, with
+// no .. segment. Only the context itself may be "/"-absolute.
+func validateBuildPath(owner, field, value string, absoluteOK bool) error {
+	normalized := normalizePathValue(strings.TrimSpace(value))
+	if normalized == "" {
+		return fmt.Errorf("%s: %s is empty", owner, field)
+	}
+	if strings.HasPrefix(normalized, "/") && !absoluteOK {
+		return fmt.Errorf("%s: %s %q must be relative to the build context", owner, field, value)
+	}
+	for _, segment := range strings.Split(normalized, "/") {
+		if segment == ".." {
+			return fmt.Errorf("%s: %s %q contains .. segment", owner, field, value)
+		}
+	}
+	return nil
+}
+
+func cleanRelativePaths(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, path.Clean(normalizePathValue(strings.TrimSpace(value))))
+	}
+	return out
+}
+
+func parseServices(raw map[string]rawService) (map[string]Service, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]Service, len(raw))
+	for name, service := range raw {
+		if !serviceNamePattern.MatchString(name) {
+			return nil, fmt.Errorf("service %q: name must be a host name (lowercase letters, digits and -)", name)
+		}
+		if strings.TrimSpace(service.Image) == "" {
+			return nil, fmt.Errorf("service %q: image is required", name)
+		}
+		readyTimeout, err := parseOptionalDuration(fmt.Sprintf("service %q ready_timeout", name), service.ReadyTimeout)
+		if err != nil {
+			return nil, err
+		}
+		out[name] = Service{
+			Image:        strings.TrimSpace(service.Image),
+			Env:          copyEnv(service.Env),
+			Ready:        service.Ready,
+			ReadyTimeout: readyTimeout,
+			Memory:       service.Memory,
+		}
+	}
+	return out, nil
 }
 
 func parseOptionalDuration(field, value string) (time.Duration, error) {

@@ -131,8 +131,10 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			Changesets: stores.Changesets,
 			Slices:     stores.Slices,
 			Checks:     stores.Checks,
+			Agents:     stores.Agents,
 			checkLogs:  checkLogs,
 			dispatcher: checkDispatcher,
+			hub:        hub,
 		},
 		Webhook: newWebhookService(stores),
 		// The server sets who reads feedback (Account, OperatorSubjects).

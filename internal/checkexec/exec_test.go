@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -102,13 +103,17 @@ func TestRunContainerPass(t *testing.T) {
 }
 
 func TestContainerRunArgsHardeningAndCacheVolume(t *testing.T) {
+	cacheDirs := map[string]string{
+		"/go/pkg/mod":           "/cache/a",
+		"/root/.cache/go-build": "/cache/b",
+	}
 	args, err := containerRunArgs("/tmp/workspace", "example:latest", testContainerName, checks.CheckSpec{
 		Name:       "backend/test",
 		Run:        "go test ./...",
 		WorkingDir: "backend",
 		Cache:      []string{"/go/pkg/mod", "/root/.cache/go-build"},
 		Env:        map[string]string{"CGO_ENABLED": "0"},
-	})
+	}, containerRun{user: []string{"--user", "1000:1000"}, cacheDirs: cacheDirs})
 	if err != nil {
 		t.Fatalf("containerRunArgs() error = %v", err)
 	}
@@ -128,9 +133,12 @@ func TestContainerRunArgsHardeningAndCacheVolume(t *testing.T) {
 	if !containsArgPair(args, "--name", testContainerName) {
 		t.Fatalf("containerRunArgs() = %#v, want generated container name", args)
 	}
+	if !containsArgPair(args, "--user", "1000:1000") {
+		t.Fatalf("containerRunArgs() = %#v, want --user 1000:1000", args)
+	}
 	wantCacheMounts := []string{
-		checkCacheVolumeName("backend/test", "/go/pkg/mod") + ":/go/pkg/mod",
-		checkCacheVolumeName("backend/test", "/root/.cache/go-build") + ":/root/.cache/go-build",
+		"/cache/a:/go/pkg/mod",
+		"/cache/b:/root/.cache/go-build",
 	}
 	for _, want := range wantCacheMounts {
 		if !containsArgPair(args, "-v", want) {
@@ -149,7 +157,7 @@ func TestContainerRunArgsEnvByNameOnly(t *testing.T) {
 			"Z_SECRET": "top-secret-token",
 			"A_TOKEN":  "alpha=secret",
 		},
-	})
+	}, containerRun{})
 	if err != nil {
 		t.Fatalf("containerRunArgs() error = %v", err)
 	}
@@ -174,7 +182,7 @@ func TestContainerRunArgsResourceOverrides(t *testing.T) {
 		Network: true,
 		Memory:  "8g",
 		CPUs:    "4",
-	})
+	}, containerRun{})
 	if err != nil {
 		t.Fatalf("containerRunArgs() error = %v", err)
 	}
@@ -245,39 +253,31 @@ func TestRunContainerTimeoutRemovesContainer(t *testing.T) {
 	}
 }
 
-func TestRunContainerCacheVolumePersists(t *testing.T) {
-	runtime, ok := testContainerRuntime()
-	if !ok {
-		t.Skip("docker/podman not on PATH")
-	}
-	image := os.Getenv("CHECKEXEC_TEST_IMAGE")
-	if image == "" {
-		image = "alpine:3.20"
-	}
-	if err := exec.Command(runtime, "image", "inspect", image).Run(); err != nil {
-		t.Skipf("container image %s unavailable locally: %v", image, err)
-	}
+func TestRunContainerCacheFolderPersists(t *testing.T) {
+	image := requireLocalImage(t, "busybox")
+	cacheDir := t.TempDir()
+	t.Setenv("GITSLICE_CHECK_CACHE_DIR", cacheDir)
 
 	cachePath := "/gitslice-cache"
 	spec := checks.CheckSpec{
 		Name:    "cache-persistence",
+		Scope:   "slice-a",
 		Image:   image,
 		Cache:   []string{cachePath},
-		Run:     "mkdir -p /gitslice-cache && printf persisted > /gitslice-cache/marker",
+		Run:     "printf persisted > /gitslice-cache/marker",
 		Timeout: 30 * time.Second,
 	}
-	volume := checkCacheVolumeName(spec.Name, cachePath)
-	removeTestVolume(t, runtime, volume)
-	t.Cleanup(func() {
-		removeTestVolume(t, runtime, volume)
-	})
-
 	first, err := Run(context.Background(), t.TempDir(), spec)
 	if err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
 	if first.Status != "passed" || first.ExitCode != 0 {
 		t.Fatalf("first result = %#v, want passed exit 0", first)
+	}
+	// The cache is a folder the daemon's user owns, so it can clear it.
+	marker := filepath.Join(cacheDir, checkCacheDirName("slice-a", cachePath), "marker")
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "persisted" {
+		t.Fatalf("cache marker = %q, %v; want persisted", data, err)
 	}
 
 	spec.Run = `test "$(cat /gitslice-cache/marker)" = persisted`
@@ -287,6 +287,24 @@ func TestRunContainerCacheVolumePersists(t *testing.T) {
 	}
 	if second.Status != "passed" || second.ExitCode != 0 {
 		t.Fatalf("second result = %#v, want passed exit 0", second)
+	}
+
+	// Another check of the slice shares the cache; another slice running
+	// the same check starts with an empty one.
+	spec.Name = "other-check"
+	shared, err := Run(context.Background(), t.TempDir(), spec)
+	if err != nil || shared.Status != "passed" {
+		t.Fatalf("other-check result = %#v, %v; want the shared cache", shared, err)
+	}
+
+	spec.Scope = "slice-b"
+	spec.Run = `test ! -e /gitslice-cache/marker`
+	other, err := Run(context.Background(), t.TempDir(), spec)
+	if err != nil {
+		t.Fatalf("other-slice Run() error = %v", err)
+	}
+	if other.Status != "passed" {
+		t.Fatalf("other-slice result = %#v, want an empty cache", other)
 	}
 }
 
@@ -337,6 +355,20 @@ func TestRunContainerSetupBuildsAndReusesPreparedImage(t *testing.T) {
 	if second.SetupMs != 0 {
 		t.Fatalf("second SetupMs = %d, want 0 for cached image", second.SetupMs)
 	}
+}
+
+// requireLocalImage skips unless a container runtime answers and has image
+// without pulling it.
+func requireLocalImage(t *testing.T, image string) string {
+	t.Helper()
+	rt := DetectRuntime(context.Background())
+	if !rt.OK() {
+		t.Skipf("no container runtime: %v", rt.Err)
+	}
+	if err := exec.Command(rt.Path, "image", "inspect", image).Run(); err != nil {
+		t.Skipf("container image %s unavailable locally: %v", image, err)
+	}
+	return image
 }
 
 func testContainerRuntime() (string, bool) {

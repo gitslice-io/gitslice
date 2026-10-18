@@ -15,6 +15,11 @@ type Runner struct {
 	Stdin  io.Reader
 	Dir    string
 	Home   string
+	// AgentDoctorProbes and AgentService are optional host-operation seams for
+	// the agent preflight and user-service commands. They are primarily useful
+	// to unit tests; nil uses the real machine.
+	AgentDoctorProbes *agentDoctorProbes
+	AgentService      *agentServiceProbes
 }
 
 type commandOptions struct {

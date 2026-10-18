@@ -294,6 +294,20 @@ gs slice unarchive nic/utils --json
 
 A renamed slice keeps its history, members, settings and changesets. Git URLs, `go get` paths and workspaces made under the old name keep working. `gs slice delete` also removes a slice that has changesets when none is open and its paths are covered by another slice or hold no files: the changesets stay (`history_kept` in the JSON), and the name stays reserved.
 
+### CI daemon on any machine
+
+A slice's checks (`.gitslice/checks.yaml`) run on its CI daemon. Any machine with `gs` and Docker or Podman can be one; checks that declare `image` or `build` need nothing else, and a `build` image is built once and reused until its Dockerfile or inputs change:
+
+```bash
+gs agent doctor --ci                       # what this machine is missing
+gs agent install --ci --name my-ci         # a user service (systemd or launchd) that restarts itself
+gs agent expose my-ci nic/tools            # let the slice's owners choose it
+gs slice set-ci-daemon nic/tools <daemon-id>
+gs agent uninstall my-ci
+```
+
+`gs agent start --ci` runs one in the foreground instead. While a slice's CI daemon is offline its checks stay queued, and `gs submit --watch` says so.
+
 If a command accepts a slice reference, prefer canonical `<account>/<slice>` in scripts. Bare slice slugs are CLI sugar and require a signed-in account. The reserved `home` slice covers `/account`, not `/account/home`.
 
 ## Organizations

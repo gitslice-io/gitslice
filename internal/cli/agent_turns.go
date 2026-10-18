@@ -15,6 +15,10 @@ import (
 
 func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1.StartConversation) {
 	conversationID := strings.TrimSpace(start.GetConversationId())
+	if d.runtime == nil {
+		d.sendSystemError(ctx, conversationID, fmt.Errorf("this daemon runs checks only (gs agent start --ci); start a conversation on another daemon"))
+		return
+	}
 	conv, err := d.createConversation(conversationID)
 	if err != nil {
 		d.sendSystemError(ctx, conversationID, err)

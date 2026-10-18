@@ -8,6 +8,10 @@ export interface CheckRun {
   daemonId?: string;
   // The name daemonId is shown by.
   daemonName?: string;
+  // Whether the daemon assigned to this run currently has a live connection.
+  daemonOnline?: boolean;
+  // When that daemon last connected, for explaining queued offline runs.
+  daemonLastSeenAt?: string;
   provenance?: string;
   attempt?: number;
   status?: string;

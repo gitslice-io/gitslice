@@ -60,6 +60,7 @@ describe("ChecksPanel", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it("asks signed-out viewers to sign in instead of showing an error", async () => {
@@ -132,6 +133,73 @@ describe("ChecksPanel", () => {
     await waitFor(() =>
       expect(apiMock.current.listCheckRuns).toHaveBeenCalledTimes(2)
     );
+  });
+
+  it("explains when a queued check is waiting for an offline daemon", async () => {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    apiMock.current = {
+      listCheckRuns: vi.fn().mockResolvedValue({
+        runs: [
+          {
+            checkName: "e2e",
+            daemonId: "agent_ci",
+            daemonLastSeenAt: fiveMinutesAgo,
+            daemonName: "Main CI",
+            // JSON leaves daemonOnline out when it is false.
+            id: "run_queued",
+            status: "queued"
+          }
+        ]
+      }),
+      rerunCheck: vi.fn(),
+      streamCheckRun: vi.fn(async function* () {})
+    };
+
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    expect(
+      await screen.findByText("Waiting for Main CI, offline, last seen 5m ago")
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing when the server does not report daemon status", async () => {
+    apiMock.current = {
+      listCheckRuns: vi.fn().mockResolvedValue({
+        runs: [{ checkName: "e2e", daemonId: "agent_ci", daemonName: "Main CI", id: "run_queued", status: "queued" }]
+      }),
+      rerunCheck: vi.fn(),
+      streamCheckRun: vi.fn(async function* () {})
+    };
+
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    await screen.findByRole("button", { name: /e2e/i });
+    expect(screen.queryByText(/^Waiting for Main CI/)).not.toBeInTheDocument();
+  });
+
+  it("does not show an offline notice for a queued daemon that is online", async () => {
+    apiMock.current = {
+      listCheckRuns: vi.fn().mockResolvedValue({
+        runs: [
+          {
+            checkName: "e2e",
+            daemonId: "agent_ci",
+            daemonLastSeenAt: "2026-10-18T18:55:00Z",
+            daemonName: "Main CI",
+            daemonOnline: true,
+            id: "run_queued",
+            status: "queued"
+          }
+        ]
+      }),
+      rerunCheck: vi.fn(),
+      streamCheckRun: vi.fn(async function* () {})
+    };
+
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    await screen.findByRole("button", { name: /e2e/i });
+    expect(screen.queryByText(/^Waiting for Main CI/)).not.toBeInTheDocument();
   });
 });
 

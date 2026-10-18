@@ -263,6 +263,31 @@ message CheckRunSpec {
   repeated string cache = 11;
   string memory = 12;
   string cpus = 13;
+  // build, when set, replaces image: the daemon builds the image from the
+  // materialized tree and reuses it while its inputs are unchanged.
+  CheckImageBuild build = 14;
+  // services run beside the check on a network private to the run.
+  repeated CheckServiceContainer services = 15;
+}
+
+message CheckImageBuild {
+  // context_dir is a repo-relative directory ("/" for the root); dockerfile
+  // and inputs are relative to it.
+  string context_dir = 1;
+  string dockerfile = 2;
+  repeated string inputs = 3;
+  int64 timeout_ms = 4;
+}
+
+message CheckServiceContainer {
+  // name is the host name the check reaches the service at.
+  string name = 1;
+  string image = 2;
+  map<string,string> env = 3;
+  // ready runs inside the service until it passes.
+  string ready = 4;
+  int64 ready_timeout_ms = 5;
+  string memory = 6;
 }
 
 message CancelCheckRun {

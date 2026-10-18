@@ -73,6 +73,7 @@ export function NewConversationDialog({
 
   const onlineDaemons = useMemo(
     () =>
+      // canHostConversations also excludes CI-only (runtime "ci") daemons.
       (daemonsQuery.data ?? []).filter((daemon) => daemon.status === "online" && canHostConversations(daemon)),
     [daemonsQuery.data]
   );

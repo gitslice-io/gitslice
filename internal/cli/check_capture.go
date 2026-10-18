@@ -25,6 +25,8 @@ type WorkspaceCheckResult struct {
 	RunMs      int64  `json:"run_ms,omitempty"`
 	Cached     bool   `json:"cached,omitempty"`
 	OutOfSlice bool   `json:"out_of_slice,omitempty"`
+	// Unrunnable: this machine cannot run the check (no container runtime).
+	Unrunnable bool `json:"unrunnable,omitempty"`
 }
 
 type ciOutput struct {
@@ -92,11 +94,14 @@ func (r Runner) captureBundledCheckRuns(ctx context.Context, opts commandOptions
 		return nil, err
 	}
 
-	bundled := make([]*corev1.BundledCheckRun, 0, len(results))
-	for _, result := range results {
-		run := bundledCheckRunFromWorkspaceResult(result)
-		bundled = append(bundled, run)
+	bundled, leftToCI := bundleWorkspaceResults(results)
+	for _, run := range bundled {
 		r.printCaptureCheckSummary(opts, run)
+	}
+	for _, result := range leftToCI {
+		if !opts.Quiet && !opts.jsonOutput() {
+			fmt.Fprintf(r.Stdout, "check %s: left to the CI daemon (%s)\n", result.Name, oneLineSummary(result.Summary))
+		}
 	}
 	return bundled, nil
 }
@@ -213,6 +218,7 @@ func runWorkspaceChecks(ctx context.Context, root string, includedPaths, changed
 			workspaceResult.Log = result.Log
 			workspaceResult.SetupMs = result.SetupMs
 			workspaceResult.Cached = result.Cached
+			workspaceResult.Unrunnable = result.Unrunnable
 			workspaceResult.RunMs = result.RunMs
 			if workspaceResult.RunMs == 0 && elapsedMs > workspaceResult.SetupMs {
 				workspaceResult.RunMs = elapsedMs - workspaceResult.SetupMs
@@ -221,6 +227,21 @@ func runWorkspaceChecks(ctx context.Context, root string, includedPaths, changed
 		results = append(results, workspaceResult)
 	}
 	return results, nil
+}
+
+// bundleWorkspaceResults picks the results a capture sends with its
+// patchset. A check this machine cannot run is left to the slice's CI
+// daemon: bundling its error would keep the daemon from running it.
+func bundleWorkspaceResults(results []WorkspaceCheckResult) (bundled []*corev1.BundledCheckRun, leftToCI []WorkspaceCheckResult) {
+	bundled = make([]*corev1.BundledCheckRun, 0, len(results))
+	for _, result := range results {
+		if result.Unrunnable {
+			leftToCI = append(leftToCI, result)
+			continue
+		}
+		bundled = append(bundled, bundledCheckRunFromWorkspaceResult(result))
+	}
+	return bundled, leftToCI
 }
 
 func bundledCheckRunFromWorkspaceResult(result WorkspaceCheckResult) *corev1.BundledCheckRun {

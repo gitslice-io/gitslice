@@ -187,6 +187,8 @@ checks:
 | `checks` | yes | Map of **local name → spec**. |
 | `run` | yes | Command, executed via the daemon's shell. |
 | `image` | no | Container image. Present ⇒ containerized; absent ⇒ host exec (subject to daemon policy). |
+| `build` | no | Instead of `image`: `dockerfile`, `context`, `inputs`, `timeout`. The daemon builds the image from the tree and reuses it until the Dockerfile or an input changes (design/31). |
+| `services` | no | Names from the file's top-level `services` map (image, env, ready, ready_timeout, memory): containers started beside the check on a network private to the run, reachable by name (design/31). |
 | `paths` | no | Trigger globs, folder-relative or `/`-absolute. Check runs only if the patchset diff touches ≥1 match; empty ⇒ any change under the folder. |
 | `include` | no | Extra paths added to the materialization beyond the defining folder (folder-relative or `/`-absolute). See **Materialization scope** below. |
 | `working_dir` | no | cwd for `run`, folder-relative or `/`-absolute. Default `.` (the defining folder). |

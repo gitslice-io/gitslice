@@ -1641,8 +1641,13 @@ type CheckRunSpec struct {
 	Cache            []string               `protobuf:"bytes,11,rep,name=cache,proto3" json:"cache,omitempty"`
 	Memory           string                 `protobuf:"bytes,12,opt,name=memory,proto3" json:"memory,omitempty"`
 	Cpus             string                 `protobuf:"bytes,13,opt,name=cpus,proto3" json:"cpus,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// build, when set, replaces image: the daemon builds the image from the
+	// materialized tree and reuses it while its inputs are unchanged.
+	Build *CheckImageBuild `protobuf:"bytes,14,opt,name=build,proto3" json:"build,omitempty"`
+	// services run beside the check on a network private to the run.
+	Services      []*CheckServiceContainer `protobuf:"bytes,15,rep,name=services,proto3" json:"services,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CheckRunSpec) Reset() {
@@ -1766,6 +1771,176 @@ func (x *CheckRunSpec) GetCpus() string {
 	return ""
 }
 
+func (x *CheckRunSpec) GetBuild() *CheckImageBuild {
+	if x != nil {
+		return x.Build
+	}
+	return nil
+}
+
+func (x *CheckRunSpec) GetServices() []*CheckServiceContainer {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+type CheckImageBuild struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// context_dir is a repo-relative directory ("/" for the root); dockerfile
+	// and inputs are relative to it.
+	ContextDir    string   `protobuf:"bytes,1,opt,name=context_dir,json=contextDir,proto3" json:"context_dir,omitempty"`
+	Dockerfile    string   `protobuf:"bytes,2,opt,name=dockerfile,proto3" json:"dockerfile,omitempty"`
+	Inputs        []string `protobuf:"bytes,3,rep,name=inputs,proto3" json:"inputs,omitempty"`
+	TimeoutMs     int64    `protobuf:"varint,4,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckImageBuild) Reset() {
+	*x = CheckImageBuild{}
+	mi := &file_proto_core_v1_agent_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckImageBuild) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckImageBuild) ProtoMessage() {}
+
+func (x *CheckImageBuild) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_agent_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckImageBuild.ProtoReflect.Descriptor instead.
+func (*CheckImageBuild) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *CheckImageBuild) GetContextDir() string {
+	if x != nil {
+		return x.ContextDir
+	}
+	return ""
+}
+
+func (x *CheckImageBuild) GetDockerfile() string {
+	if x != nil {
+		return x.Dockerfile
+	}
+	return ""
+}
+
+func (x *CheckImageBuild) GetInputs() []string {
+	if x != nil {
+		return x.Inputs
+	}
+	return nil
+}
+
+func (x *CheckImageBuild) GetTimeoutMs() int64 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
+type CheckServiceContainer struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the host name the check reaches the service at.
+	Name  string            `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Image string            `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
+	Env   map[string]string `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// ready runs inside the service until it passes.
+	Ready          string `protobuf:"bytes,4,opt,name=ready,proto3" json:"ready,omitempty"`
+	ReadyTimeoutMs int64  `protobuf:"varint,5,opt,name=ready_timeout_ms,json=readyTimeoutMs,proto3" json:"ready_timeout_ms,omitempty"`
+	Memory         string `protobuf:"bytes,6,opt,name=memory,proto3" json:"memory,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *CheckServiceContainer) Reset() {
+	*x = CheckServiceContainer{}
+	mi := &file_proto_core_v1_agent_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckServiceContainer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckServiceContainer) ProtoMessage() {}
+
+func (x *CheckServiceContainer) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_agent_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckServiceContainer.ProtoReflect.Descriptor instead.
+func (*CheckServiceContainer) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *CheckServiceContainer) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CheckServiceContainer) GetImage() string {
+	if x != nil {
+		return x.Image
+	}
+	return ""
+}
+
+func (x *CheckServiceContainer) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *CheckServiceContainer) GetReady() string {
+	if x != nil {
+		return x.Ready
+	}
+	return ""
+}
+
+func (x *CheckServiceContainer) GetReadyTimeoutMs() int64 {
+	if x != nil {
+		return x.ReadyTimeoutMs
+	}
+	return 0
+}
+
+func (x *CheckServiceContainer) GetMemory() string {
+	if x != nil {
+		return x.Memory
+	}
+	return ""
+}
+
 type CancelCheckRun struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -1775,7 +1950,7 @@ type CancelCheckRun struct {
 
 func (x *CancelCheckRun) Reset() {
 	*x = CancelCheckRun{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[20]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1787,7 +1962,7 @@ func (x *CancelCheckRun) String() string {
 func (*CancelCheckRun) ProtoMessage() {}
 
 func (x *CancelCheckRun) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[20]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1800,7 +1975,7 @@ func (x *CancelCheckRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelCheckRun.ProtoReflect.Descriptor instead.
 func (*CancelCheckRun) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{20}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CancelCheckRun) GetRunId() string {
@@ -1820,7 +1995,7 @@ type CheckRunAck struct {
 
 func (x *CheckRunAck) Reset() {
 	*x = CheckRunAck{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[21]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1832,7 +2007,7 @@ func (x *CheckRunAck) String() string {
 func (*CheckRunAck) ProtoMessage() {}
 
 func (x *CheckRunAck) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[21]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1845,7 +2020,7 @@ func (x *CheckRunAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckRunAck.ProtoReflect.Descriptor instead.
 func (*CheckRunAck) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{21}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CheckRunAck) GetRunId() string {
@@ -1878,7 +2053,7 @@ type CheckRunUpdate struct {
 
 func (x *CheckRunUpdate) Reset() {
 	*x = CheckRunUpdate{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[22]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1890,7 +2065,7 @@ func (x *CheckRunUpdate) String() string {
 func (*CheckRunUpdate) ProtoMessage() {}
 
 func (x *CheckRunUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[22]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1903,7 +2078,7 @@ func (x *CheckRunUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckRunUpdate.ProtoReflect.Descriptor instead.
 func (*CheckRunUpdate) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{22}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CheckRunUpdate) GetRunId() string {
@@ -1974,7 +2149,7 @@ type ListDaemonsRequest struct {
 
 func (x *ListDaemonsRequest) Reset() {
 	*x = ListDaemonsRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[23]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1986,7 +2161,7 @@ func (x *ListDaemonsRequest) String() string {
 func (*ListDaemonsRequest) ProtoMessage() {}
 
 func (x *ListDaemonsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[23]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1999,7 +2174,7 @@ func (x *ListDaemonsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDaemonsRequest.ProtoReflect.Descriptor instead.
 func (*ListDaemonsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{23}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ListDaemonsRequest) GetForSlice() *SliceRef {
@@ -2019,7 +2194,7 @@ type ExposeDaemonRequest struct {
 
 func (x *ExposeDaemonRequest) Reset() {
 	*x = ExposeDaemonRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[24]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2031,7 +2206,7 @@ func (x *ExposeDaemonRequest) String() string {
 func (*ExposeDaemonRequest) ProtoMessage() {}
 
 func (x *ExposeDaemonRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[24]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2044,7 +2219,7 @@ func (x *ExposeDaemonRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExposeDaemonRequest.ProtoReflect.Descriptor instead.
 func (*ExposeDaemonRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{24}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ExposeDaemonRequest) GetDaemonId() string {
@@ -2071,7 +2246,7 @@ type UnexposeDaemonRequest struct {
 
 func (x *UnexposeDaemonRequest) Reset() {
 	*x = UnexposeDaemonRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[25]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2083,7 +2258,7 @@ func (x *UnexposeDaemonRequest) String() string {
 func (*UnexposeDaemonRequest) ProtoMessage() {}
 
 func (x *UnexposeDaemonRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[25]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2096,7 +2271,7 @@ func (x *UnexposeDaemonRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnexposeDaemonRequest.ProtoReflect.Descriptor instead.
 func (*UnexposeDaemonRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{25}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *UnexposeDaemonRequest) GetDaemonId() string {
@@ -2122,7 +2297,7 @@ type ListDaemonsResponse struct {
 
 func (x *ListDaemonsResponse) Reset() {
 	*x = ListDaemonsResponse{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[26]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2134,7 +2309,7 @@ func (x *ListDaemonsResponse) String() string {
 func (*ListDaemonsResponse) ProtoMessage() {}
 
 func (x *ListDaemonsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[26]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2147,7 +2322,7 @@ func (x *ListDaemonsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDaemonsResponse.ProtoReflect.Descriptor instead.
 func (*ListDaemonsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{26}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ListDaemonsResponse) GetDaemons() []*AgentDaemon {
@@ -2168,7 +2343,7 @@ type CreateConversationRequest struct {
 
 func (x *CreateConversationRequest) Reset() {
 	*x = CreateConversationRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[27]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2180,7 +2355,7 @@ func (x *CreateConversationRequest) String() string {
 func (*CreateConversationRequest) ProtoMessage() {}
 
 func (x *CreateConversationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[27]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2193,7 +2368,7 @@ func (x *CreateConversationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateConversationRequest.ProtoReflect.Descriptor instead.
 func (*CreateConversationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{27}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *CreateConversationRequest) GetDaemonId() string {
@@ -2227,7 +2402,7 @@ type ListConversationsRequest struct {
 
 func (x *ListConversationsRequest) Reset() {
 	*x = ListConversationsRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[28]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2239,7 +2414,7 @@ func (x *ListConversationsRequest) String() string {
 func (*ListConversationsRequest) ProtoMessage() {}
 
 func (x *ListConversationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[28]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2252,7 +2427,7 @@ func (x *ListConversationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConversationsRequest.ProtoReflect.Descriptor instead.
 func (*ListConversationsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{28}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListConversationsRequest) GetSlice() *SliceRef {
@@ -2278,7 +2453,7 @@ type ListConversationsResponse struct {
 
 func (x *ListConversationsResponse) Reset() {
 	*x = ListConversationsResponse{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[29]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2290,7 +2465,7 @@ func (x *ListConversationsResponse) String() string {
 func (*ListConversationsResponse) ProtoMessage() {}
 
 func (x *ListConversationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[29]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2303,7 +2478,7 @@ func (x *ListConversationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConversationsResponse.ProtoReflect.Descriptor instead.
 func (*ListConversationsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{29}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListConversationsResponse) GetConversations() []*Conversation {
@@ -2322,7 +2497,7 @@ type GetConversationRequest struct {
 
 func (x *GetConversationRequest) Reset() {
 	*x = GetConversationRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[30]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2334,7 +2509,7 @@ func (x *GetConversationRequest) String() string {
 func (*GetConversationRequest) ProtoMessage() {}
 
 func (x *GetConversationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[30]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2347,7 +2522,7 @@ func (x *GetConversationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConversationRequest.ProtoReflect.Descriptor instead.
 func (*GetConversationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{30}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *GetConversationRequest) GetConversationId() string {
@@ -2367,7 +2542,7 @@ type SendAgentMessageRequest struct {
 
 func (x *SendAgentMessageRequest) Reset() {
 	*x = SendAgentMessageRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[31]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2379,7 +2554,7 @@ func (x *SendAgentMessageRequest) String() string {
 func (*SendAgentMessageRequest) ProtoMessage() {}
 
 func (x *SendAgentMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[31]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2392,7 +2567,7 @@ func (x *SendAgentMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendAgentMessageRequest.ProtoReflect.Descriptor instead.
 func (*SendAgentMessageRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{31}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SendAgentMessageRequest) GetConversationId() string {
@@ -2418,7 +2593,7 @@ type SendAgentMessageResponse struct {
 
 func (x *SendAgentMessageResponse) Reset() {
 	*x = SendAgentMessageResponse{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[32]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2430,7 +2605,7 @@ func (x *SendAgentMessageResponse) String() string {
 func (*SendAgentMessageResponse) ProtoMessage() {}
 
 func (x *SendAgentMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[32]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2443,7 +2618,7 @@ func (x *SendAgentMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendAgentMessageResponse.ProtoReflect.Descriptor instead.
 func (*SendAgentMessageResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{32}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SendAgentMessageResponse) GetEvent() *ConversationEvent {
@@ -2463,7 +2638,7 @@ type StreamConversationRequest struct {
 
 func (x *StreamConversationRequest) Reset() {
 	*x = StreamConversationRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[33]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2475,7 +2650,7 @@ func (x *StreamConversationRequest) String() string {
 func (*StreamConversationRequest) ProtoMessage() {}
 
 func (x *StreamConversationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[33]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2488,7 +2663,7 @@ func (x *StreamConversationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamConversationRequest.ProtoReflect.Descriptor instead.
 func (*StreamConversationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{33}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *StreamConversationRequest) GetConversationId() string {
@@ -2523,7 +2698,7 @@ type GetConversationEventsRequest struct {
 
 func (x *GetConversationEventsRequest) Reset() {
 	*x = GetConversationEventsRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[34]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2535,7 +2710,7 @@ func (x *GetConversationEventsRequest) String() string {
 func (*GetConversationEventsRequest) ProtoMessage() {}
 
 func (x *GetConversationEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[34]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2548,7 +2723,7 @@ func (x *GetConversationEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConversationEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetConversationEventsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{34}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *GetConversationEventsRequest) GetConversationId() string {
@@ -2589,7 +2764,7 @@ type GetConversationEventsResponse struct {
 
 func (x *GetConversationEventsResponse) Reset() {
 	*x = GetConversationEventsResponse{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[35]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2601,7 +2776,7 @@ func (x *GetConversationEventsResponse) String() string {
 func (*GetConversationEventsResponse) ProtoMessage() {}
 
 func (x *GetConversationEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[35]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2614,7 +2789,7 @@ func (x *GetConversationEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetConversationEventsResponse.ProtoReflect.Descriptor instead.
 func (*GetConversationEventsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *GetConversationEventsResponse) GetConversation() *Conversation {
@@ -2640,7 +2815,7 @@ type CloseConversationRequest struct {
 
 func (x *CloseConversationRequest) Reset() {
 	*x = CloseConversationRequest{}
-	mi := &file_proto_core_v1_agent_proto_msgTypes[36]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2652,7 +2827,7 @@ func (x *CloseConversationRequest) String() string {
 func (*CloseConversationRequest) ProtoMessage() {}
 
 func (x *CloseConversationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_agent_proto_msgTypes[36]
+	mi := &file_proto_core_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2665,7 +2840,7 @@ func (x *CloseConversationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseConversationRequest.ProtoReflect.Descriptor instead.
 func (*CloseConversationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_proto_core_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *CloseConversationRequest) GetConversationId() string {
@@ -2810,7 +2985,7 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\bslice_id\x18\x05 \x01(\tR\asliceId\x12\x1f\n" +
 	"\vserver_addr\x18\x06 \x01(\tR\n" +
 	"serverAddr\x126\n" +
-	"\x06checks\x18\a \x03(\v2\x1e.gitslice.core.v1.CheckRunSpecR\x06checks\"\xbb\x03\n" +
+	"\x06checks\x18\a \x03(\v2\x1e.gitslice.core.v1.CheckRunSpecR\x06checks\"\xb9\x04\n" +
 	"\fCheckRunSpec\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -2827,7 +3002,28 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	" \x03(\tR\x05setup\x12\x14\n" +
 	"\x05cache\x18\v \x03(\tR\x05cache\x12\x16\n" +
 	"\x06memory\x18\f \x01(\tR\x06memory\x12\x12\n" +
-	"\x04cpus\x18\r \x01(\tR\x04cpus\x1a6\n" +
+	"\x04cpus\x18\r \x01(\tR\x04cpus\x127\n" +
+	"\x05build\x18\x0e \x01(\v2!.gitslice.core.v1.CheckImageBuildR\x05build\x12C\n" +
+	"\bservices\x18\x0f \x03(\v2'.gitslice.core.v1.CheckServiceContainerR\bservices\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x01\n" +
+	"\x0fCheckImageBuild\x12\x1f\n" +
+	"\vcontext_dir\x18\x01 \x01(\tR\n" +
+	"contextDir\x12\x1e\n" +
+	"\n" +
+	"dockerfile\x18\x02 \x01(\tR\n" +
+	"dockerfile\x12\x16\n" +
+	"\x06inputs\x18\x03 \x03(\tR\x06inputs\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\x04 \x01(\x03R\ttimeoutMs\"\x95\x02\n" +
+	"\x15CheckServiceContainer\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05image\x18\x02 \x01(\tR\x05image\x12B\n" +
+	"\x03env\x18\x03 \x03(\v20.gitslice.core.v1.CheckServiceContainer.EnvEntryR\x03env\x12\x14\n" +
+	"\x05ready\x18\x04 \x01(\tR\x05ready\x12(\n" +
+	"\x10ready_timeout_ms\x18\x05 \x01(\x03R\x0ereadyTimeoutMs\x12\x16\n" +
+	"\x06memory\x18\x06 \x01(\tR\x06memory\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"'\n" +
@@ -2912,7 +3108,7 @@ func file_proto_core_v1_agent_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_agent_proto_rawDescData
 }
 
-var file_proto_core_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_proto_core_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_proto_core_v1_agent_proto_goTypes = []any{
 	(*AgentDaemon)(nil),                   // 0: gitslice.core.v1.AgentDaemon
 	(*RenameDaemonRequest)(nil),           // 1: gitslice.core.v1.RenameDaemonRequest
@@ -2934,35 +3130,38 @@ var file_proto_core_v1_agent_proto_goTypes = []any{
 	(*EventAck)(nil),                      // 17: gitslice.core.v1.EventAck
 	(*RunChecks)(nil),                     // 18: gitslice.core.v1.RunChecks
 	(*CheckRunSpec)(nil),                  // 19: gitslice.core.v1.CheckRunSpec
-	(*CancelCheckRun)(nil),                // 20: gitslice.core.v1.CancelCheckRun
-	(*CheckRunAck)(nil),                   // 21: gitslice.core.v1.CheckRunAck
-	(*CheckRunUpdate)(nil),                // 22: gitslice.core.v1.CheckRunUpdate
-	(*ListDaemonsRequest)(nil),            // 23: gitslice.core.v1.ListDaemonsRequest
-	(*ExposeDaemonRequest)(nil),           // 24: gitslice.core.v1.ExposeDaemonRequest
-	(*UnexposeDaemonRequest)(nil),         // 25: gitslice.core.v1.UnexposeDaemonRequest
-	(*ListDaemonsResponse)(nil),           // 26: gitslice.core.v1.ListDaemonsResponse
-	(*CreateConversationRequest)(nil),     // 27: gitslice.core.v1.CreateConversationRequest
-	(*ListConversationsRequest)(nil),      // 28: gitslice.core.v1.ListConversationsRequest
-	(*ListConversationsResponse)(nil),     // 29: gitslice.core.v1.ListConversationsResponse
-	(*GetConversationRequest)(nil),        // 30: gitslice.core.v1.GetConversationRequest
-	(*SendAgentMessageRequest)(nil),       // 31: gitslice.core.v1.SendAgentMessageRequest
-	(*SendAgentMessageResponse)(nil),      // 32: gitslice.core.v1.SendAgentMessageResponse
-	(*StreamConversationRequest)(nil),     // 33: gitslice.core.v1.StreamConversationRequest
-	(*GetConversationEventsRequest)(nil),  // 34: gitslice.core.v1.GetConversationEventsRequest
-	(*GetConversationEventsResponse)(nil), // 35: gitslice.core.v1.GetConversationEventsResponse
-	(*CloseConversationRequest)(nil),      // 36: gitslice.core.v1.CloseConversationRequest
-	nil,                                   // 37: gitslice.core.v1.CheckRunSpec.EnvEntry
-	(*SliceRef)(nil),                      // 38: gitslice.core.v1.SliceRef
+	(*CheckImageBuild)(nil),               // 20: gitslice.core.v1.CheckImageBuild
+	(*CheckServiceContainer)(nil),         // 21: gitslice.core.v1.CheckServiceContainer
+	(*CancelCheckRun)(nil),                // 22: gitslice.core.v1.CancelCheckRun
+	(*CheckRunAck)(nil),                   // 23: gitslice.core.v1.CheckRunAck
+	(*CheckRunUpdate)(nil),                // 24: gitslice.core.v1.CheckRunUpdate
+	(*ListDaemonsRequest)(nil),            // 25: gitslice.core.v1.ListDaemonsRequest
+	(*ExposeDaemonRequest)(nil),           // 26: gitslice.core.v1.ExposeDaemonRequest
+	(*UnexposeDaemonRequest)(nil),         // 27: gitslice.core.v1.UnexposeDaemonRequest
+	(*ListDaemonsResponse)(nil),           // 28: gitslice.core.v1.ListDaemonsResponse
+	(*CreateConversationRequest)(nil),     // 29: gitslice.core.v1.CreateConversationRequest
+	(*ListConversationsRequest)(nil),      // 30: gitslice.core.v1.ListConversationsRequest
+	(*ListConversationsResponse)(nil),     // 31: gitslice.core.v1.ListConversationsResponse
+	(*GetConversationRequest)(nil),        // 32: gitslice.core.v1.GetConversationRequest
+	(*SendAgentMessageRequest)(nil),       // 33: gitslice.core.v1.SendAgentMessageRequest
+	(*SendAgentMessageResponse)(nil),      // 34: gitslice.core.v1.SendAgentMessageResponse
+	(*StreamConversationRequest)(nil),     // 35: gitslice.core.v1.StreamConversationRequest
+	(*GetConversationEventsRequest)(nil),  // 36: gitslice.core.v1.GetConversationEventsRequest
+	(*GetConversationEventsResponse)(nil), // 37: gitslice.core.v1.GetConversationEventsResponse
+	(*CloseConversationRequest)(nil),      // 38: gitslice.core.v1.CloseConversationRequest
+	nil,                                   // 39: gitslice.core.v1.CheckRunSpec.EnvEntry
+	nil,                                   // 40: gitslice.core.v1.CheckServiceContainer.EnvEntry
+	(*SliceRef)(nil),                      // 41: gitslice.core.v1.SliceRef
 }
 var file_proto_core_v1_agent_proto_depIdxs = []int32{
-	38, // 0: gitslice.core.v1.AgentDaemon.ci_slices:type_name -> gitslice.core.v1.SliceRef
-	38, // 1: gitslice.core.v1.AgentDaemon.exposed_to:type_name -> gitslice.core.v1.SliceRef
-	38, // 2: gitslice.core.v1.Conversation.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 0: gitslice.core.v1.AgentDaemon.ci_slices:type_name -> gitslice.core.v1.SliceRef
+	41, // 1: gitslice.core.v1.AgentDaemon.exposed_to:type_name -> gitslice.core.v1.SliceRef
+	41, // 2: gitslice.core.v1.Conversation.slice:type_name -> gitslice.core.v1.SliceRef
 	5,  // 3: gitslice.core.v1.DaemonMessage.register:type_name -> gitslice.core.v1.RegisterDaemon
 	6,  // 4: gitslice.core.v1.DaemonMessage.heartbeat:type_name -> gitslice.core.v1.Heartbeat
 	7,  // 5: gitslice.core.v1.DaemonMessage.event:type_name -> gitslice.core.v1.AgentEvent
 	8,  // 6: gitslice.core.v1.DaemonMessage.started:type_name -> gitslice.core.v1.ConversationStarted
-	22, // 7: gitslice.core.v1.DaemonMessage.check_update:type_name -> gitslice.core.v1.CheckRunUpdate
+	24, // 7: gitslice.core.v1.DaemonMessage.check_update:type_name -> gitslice.core.v1.CheckRunUpdate
 	12, // 8: gitslice.core.v1.ServerMessage.registered:type_name -> gitslice.core.v1.DaemonRegistered
 	13, // 9: gitslice.core.v1.ServerMessage.start:type_name -> gitslice.core.v1.StartConversation
 	14, // 10: gitslice.core.v1.ServerMessage.user_message:type_name -> gitslice.core.v1.DeliverUserMessage
@@ -2972,51 +3171,54 @@ var file_proto_core_v1_agent_proto_depIdxs = []int32{
 	11, // 14: gitslice.core.v1.ServerMessage.close:type_name -> gitslice.core.v1.CloseWorkspace
 	10, // 15: gitslice.core.v1.ServerMessage.reconcile:type_name -> gitslice.core.v1.ReconcileWorkspaces
 	18, // 16: gitslice.core.v1.ServerMessage.run_checks:type_name -> gitslice.core.v1.RunChecks
-	20, // 17: gitslice.core.v1.ServerMessage.cancel_check:type_name -> gitslice.core.v1.CancelCheckRun
-	21, // 18: gitslice.core.v1.ServerMessage.check_ack:type_name -> gitslice.core.v1.CheckRunAck
-	38, // 19: gitslice.core.v1.StartConversation.slice:type_name -> gitslice.core.v1.SliceRef
-	38, // 20: gitslice.core.v1.RunChecks.slice:type_name -> gitslice.core.v1.SliceRef
+	22, // 17: gitslice.core.v1.ServerMessage.cancel_check:type_name -> gitslice.core.v1.CancelCheckRun
+	23, // 18: gitslice.core.v1.ServerMessage.check_ack:type_name -> gitslice.core.v1.CheckRunAck
+	41, // 19: gitslice.core.v1.StartConversation.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 20: gitslice.core.v1.RunChecks.slice:type_name -> gitslice.core.v1.SliceRef
 	19, // 21: gitslice.core.v1.RunChecks.checks:type_name -> gitslice.core.v1.CheckRunSpec
-	37, // 22: gitslice.core.v1.CheckRunSpec.env:type_name -> gitslice.core.v1.CheckRunSpec.EnvEntry
-	38, // 23: gitslice.core.v1.ListDaemonsRequest.for_slice:type_name -> gitslice.core.v1.SliceRef
-	38, // 24: gitslice.core.v1.ExposeDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	38, // 25: gitslice.core.v1.UnexposeDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	0,  // 26: gitslice.core.v1.ListDaemonsResponse.daemons:type_name -> gitslice.core.v1.AgentDaemon
-	38, // 27: gitslice.core.v1.CreateConversationRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	38, // 28: gitslice.core.v1.ListConversationsRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	2,  // 29: gitslice.core.v1.ListConversationsResponse.conversations:type_name -> gitslice.core.v1.Conversation
-	3,  // 30: gitslice.core.v1.SendAgentMessageResponse.event:type_name -> gitslice.core.v1.ConversationEvent
-	2,  // 31: gitslice.core.v1.GetConversationEventsResponse.conversation:type_name -> gitslice.core.v1.Conversation
-	3,  // 32: gitslice.core.v1.GetConversationEventsResponse.events:type_name -> gitslice.core.v1.ConversationEvent
-	4,  // 33: gitslice.core.v1.AgentService.Connect:input_type -> gitslice.core.v1.DaemonMessage
-	23, // 34: gitslice.core.v1.AgentService.ListDaemons:input_type -> gitslice.core.v1.ListDaemonsRequest
-	1,  // 35: gitslice.core.v1.AgentService.RenameDaemon:input_type -> gitslice.core.v1.RenameDaemonRequest
-	24, // 36: gitslice.core.v1.AgentService.ExposeDaemon:input_type -> gitslice.core.v1.ExposeDaemonRequest
-	25, // 37: gitslice.core.v1.AgentService.UnexposeDaemon:input_type -> gitslice.core.v1.UnexposeDaemonRequest
-	27, // 38: gitslice.core.v1.AgentService.CreateConversation:input_type -> gitslice.core.v1.CreateConversationRequest
-	28, // 39: gitslice.core.v1.AgentService.ListConversations:input_type -> gitslice.core.v1.ListConversationsRequest
-	30, // 40: gitslice.core.v1.AgentService.GetConversation:input_type -> gitslice.core.v1.GetConversationRequest
-	31, // 41: gitslice.core.v1.AgentService.SendAgentMessage:input_type -> gitslice.core.v1.SendAgentMessageRequest
-	33, // 42: gitslice.core.v1.AgentService.StreamConversation:input_type -> gitslice.core.v1.StreamConversationRequest
-	34, // 43: gitslice.core.v1.AgentService.GetConversationEvents:input_type -> gitslice.core.v1.GetConversationEventsRequest
-	36, // 44: gitslice.core.v1.AgentService.CloseConversation:input_type -> gitslice.core.v1.CloseConversationRequest
-	9,  // 45: gitslice.core.v1.AgentService.Connect:output_type -> gitslice.core.v1.ServerMessage
-	26, // 46: gitslice.core.v1.AgentService.ListDaemons:output_type -> gitslice.core.v1.ListDaemonsResponse
-	0,  // 47: gitslice.core.v1.AgentService.RenameDaemon:output_type -> gitslice.core.v1.AgentDaemon
-	0,  // 48: gitslice.core.v1.AgentService.ExposeDaemon:output_type -> gitslice.core.v1.AgentDaemon
-	0,  // 49: gitslice.core.v1.AgentService.UnexposeDaemon:output_type -> gitslice.core.v1.AgentDaemon
-	2,  // 50: gitslice.core.v1.AgentService.CreateConversation:output_type -> gitslice.core.v1.Conversation
-	29, // 51: gitslice.core.v1.AgentService.ListConversations:output_type -> gitslice.core.v1.ListConversationsResponse
-	2,  // 52: gitslice.core.v1.AgentService.GetConversation:output_type -> gitslice.core.v1.Conversation
-	32, // 53: gitslice.core.v1.AgentService.SendAgentMessage:output_type -> gitslice.core.v1.SendAgentMessageResponse
-	3,  // 54: gitslice.core.v1.AgentService.StreamConversation:output_type -> gitslice.core.v1.ConversationEvent
-	35, // 55: gitslice.core.v1.AgentService.GetConversationEvents:output_type -> gitslice.core.v1.GetConversationEventsResponse
-	2,  // 56: gitslice.core.v1.AgentService.CloseConversation:output_type -> gitslice.core.v1.Conversation
-	45, // [45:57] is the sub-list for method output_type
-	33, // [33:45] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	39, // 22: gitslice.core.v1.CheckRunSpec.env:type_name -> gitslice.core.v1.CheckRunSpec.EnvEntry
+	20, // 23: gitslice.core.v1.CheckRunSpec.build:type_name -> gitslice.core.v1.CheckImageBuild
+	21, // 24: gitslice.core.v1.CheckRunSpec.services:type_name -> gitslice.core.v1.CheckServiceContainer
+	40, // 25: gitslice.core.v1.CheckServiceContainer.env:type_name -> gitslice.core.v1.CheckServiceContainer.EnvEntry
+	41, // 26: gitslice.core.v1.ListDaemonsRequest.for_slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 27: gitslice.core.v1.ExposeDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 28: gitslice.core.v1.UnexposeDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	0,  // 29: gitslice.core.v1.ListDaemonsResponse.daemons:type_name -> gitslice.core.v1.AgentDaemon
+	41, // 30: gitslice.core.v1.CreateConversationRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 31: gitslice.core.v1.ListConversationsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	2,  // 32: gitslice.core.v1.ListConversationsResponse.conversations:type_name -> gitslice.core.v1.Conversation
+	3,  // 33: gitslice.core.v1.SendAgentMessageResponse.event:type_name -> gitslice.core.v1.ConversationEvent
+	2,  // 34: gitslice.core.v1.GetConversationEventsResponse.conversation:type_name -> gitslice.core.v1.Conversation
+	3,  // 35: gitslice.core.v1.GetConversationEventsResponse.events:type_name -> gitslice.core.v1.ConversationEvent
+	4,  // 36: gitslice.core.v1.AgentService.Connect:input_type -> gitslice.core.v1.DaemonMessage
+	25, // 37: gitslice.core.v1.AgentService.ListDaemons:input_type -> gitslice.core.v1.ListDaemonsRequest
+	1,  // 38: gitslice.core.v1.AgentService.RenameDaemon:input_type -> gitslice.core.v1.RenameDaemonRequest
+	26, // 39: gitslice.core.v1.AgentService.ExposeDaemon:input_type -> gitslice.core.v1.ExposeDaemonRequest
+	27, // 40: gitslice.core.v1.AgentService.UnexposeDaemon:input_type -> gitslice.core.v1.UnexposeDaemonRequest
+	29, // 41: gitslice.core.v1.AgentService.CreateConversation:input_type -> gitslice.core.v1.CreateConversationRequest
+	30, // 42: gitslice.core.v1.AgentService.ListConversations:input_type -> gitslice.core.v1.ListConversationsRequest
+	32, // 43: gitslice.core.v1.AgentService.GetConversation:input_type -> gitslice.core.v1.GetConversationRequest
+	33, // 44: gitslice.core.v1.AgentService.SendAgentMessage:input_type -> gitslice.core.v1.SendAgentMessageRequest
+	35, // 45: gitslice.core.v1.AgentService.StreamConversation:input_type -> gitslice.core.v1.StreamConversationRequest
+	36, // 46: gitslice.core.v1.AgentService.GetConversationEvents:input_type -> gitslice.core.v1.GetConversationEventsRequest
+	38, // 47: gitslice.core.v1.AgentService.CloseConversation:input_type -> gitslice.core.v1.CloseConversationRequest
+	9,  // 48: gitslice.core.v1.AgentService.Connect:output_type -> gitslice.core.v1.ServerMessage
+	28, // 49: gitslice.core.v1.AgentService.ListDaemons:output_type -> gitslice.core.v1.ListDaemonsResponse
+	0,  // 50: gitslice.core.v1.AgentService.RenameDaemon:output_type -> gitslice.core.v1.AgentDaemon
+	0,  // 51: gitslice.core.v1.AgentService.ExposeDaemon:output_type -> gitslice.core.v1.AgentDaemon
+	0,  // 52: gitslice.core.v1.AgentService.UnexposeDaemon:output_type -> gitslice.core.v1.AgentDaemon
+	2,  // 53: gitslice.core.v1.AgentService.CreateConversation:output_type -> gitslice.core.v1.Conversation
+	31, // 54: gitslice.core.v1.AgentService.ListConversations:output_type -> gitslice.core.v1.ListConversationsResponse
+	2,  // 55: gitslice.core.v1.AgentService.GetConversation:output_type -> gitslice.core.v1.Conversation
+	34, // 56: gitslice.core.v1.AgentService.SendAgentMessage:output_type -> gitslice.core.v1.SendAgentMessageResponse
+	3,  // 57: gitslice.core.v1.AgentService.StreamConversation:output_type -> gitslice.core.v1.ConversationEvent
+	37, // 58: gitslice.core.v1.AgentService.GetConversationEvents:output_type -> gitslice.core.v1.GetConversationEventsResponse
+	2,  // 59: gitslice.core.v1.AgentService.CloseConversation:output_type -> gitslice.core.v1.Conversation
+	48, // [48:60] is the sub-list for method output_type
+	36, // [36:48] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_agent_proto_init() }
@@ -3051,7 +3253,7 @@ func file_proto_core_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_agent_proto_rawDesc), len(file_proto_core_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   38,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

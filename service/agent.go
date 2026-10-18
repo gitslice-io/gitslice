@@ -248,8 +248,16 @@ func (s *AgentService) CreateConversation(ctx context.Context, req *corev1.Creat
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requireOwnedDaemon(ctx, subjectID, req.DaemonId); err != nil {
+	daemon, err := s.ownedDaemon(ctx, subjectID, req.DaemonId)
+	if err != nil {
 		return nil, err
+	}
+	if daemon.GetRuntime() == ciDaemonRuntime {
+		name := daemon.GetDisplayName()
+		if name == "" {
+			name = daemon.GetName()
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "daemon %s runs checks only (gs agent start --ci); start the conversation on another daemon", name)
 	}
 	conv, err := s.Agents.CreateConversation(ctx, storage.ConversationInput{
 		DaemonID:  req.DaemonId,
@@ -529,15 +537,19 @@ func (s *AgentService) annotateConversation(c *corev1.Conversation) {
 	c.DaemonOnline = ok
 }
 
-func (s *AgentService) requireOwnedDaemon(ctx context.Context, subjectID, daemonID string) error {
+// ciDaemonRuntime is the runtime a daemon started with gs agent start --ci
+// registers: it runs checks and takes no conversations.
+const ciDaemonRuntime = "ci"
+
+func (s *AgentService) ownedDaemon(ctx context.Context, subjectID, daemonID string) (*corev1.AgentDaemon, error) {
 	daemons, err := s.Agents.ListDaemons(ctx, subjectID)
 	if err != nil {
-		return grpcError(err)
+		return nil, grpcError(err)
 	}
 	for _, d := range daemons {
 		if d.Id == daemonID {
-			return nil
+			return d, nil
 		}
 	}
-	return status.Error(codes.NotFound, "daemon not found")
+	return nil, status.Error(codes.NotFound, "daemon not found")
 }

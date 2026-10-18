@@ -77,6 +77,7 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
   const shown = daemonName(daemon);
   const renamed = Boolean(daemon.displayName) && daemon.displayName !== daemon.name;
   const online = daemon.status === "online";
+  const runtime = daemon.runtime?.toLowerCase() === "ci" ? "checks only" : daemon.runtime;
   const ciSlices = daemon.ciSlices ?? [];
   const exposedTo = daemon.exposedTo ?? [];
   const manageable = daemon.manageable !== false;
@@ -152,7 +153,7 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
         </span>
       </div>
       <p className="mt-1 truncate text-xs text-slate-500 dark:text-zinc-400">
-        {[daemon.runtime, daemon.version].filter(Boolean).join(" ") || "runtime unknown"}
+        {[runtime, daemon.version].filter(Boolean).join(" ") || "runtime unknown"}
         {daemon.account ? ` · ${daemon.account}` : ""}
         {renamed ? ` · starts as ${daemon.name}` : ""}
       </p>

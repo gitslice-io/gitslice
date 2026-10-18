@@ -38,9 +38,14 @@ type CheckRun struct {
 	DurationMs  int64                  `protobuf:"varint,13,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
 	CreatedAt   string                 `protobuf:"bytes,14,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// daemon_name is the name daemon_id is shown by; "" when there is none.
-	DaemonName    string `protobuf:"bytes,15,opt,name=daemon_name,json=daemonName,proto3" json:"daemon_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DaemonName string `protobuf:"bytes,15,opt,name=daemon_name,json=daemonName,proto3" json:"daemon_name,omitempty"`
+	// daemon_online says whether daemon_id is connected now, and
+	// daemon_last_seen_at when it last was, so a queued run can say what it
+	// waits for.
+	DaemonOnline     bool   `protobuf:"varint,16,opt,name=daemon_online,json=daemonOnline,proto3" json:"daemon_online,omitempty"`
+	DaemonLastSeenAt string `protobuf:"bytes,17,opt,name=daemon_last_seen_at,json=daemonLastSeenAt,proto3" json:"daemon_last_seen_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CheckRun) Reset() {
@@ -174,6 +179,20 @@ func (x *CheckRun) GetCreatedAt() string {
 func (x *CheckRun) GetDaemonName() string {
 	if x != nil {
 		return x.DaemonName
+	}
+	return ""
+}
+
+func (x *CheckRun) GetDaemonOnline() bool {
+	if x != nil {
+		return x.DaemonOnline
+	}
+	return false
+}
+
+func (x *CheckRun) GetDaemonLastSeenAt() string {
+	if x != nil {
+		return x.DaemonLastSeenAt
 	}
 	return ""
 }
@@ -494,7 +513,7 @@ var File_proto_core_v1_check_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/core/v1/check.proto\x12\x10gitslice.core.v1\"\xc4\x03\n" +
+	"\x19proto/core/v1/check.proto\x12\x10gitslice.core.v1\"\x98\x04\n" +
 	"\bCheckRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x1f\n" +
@@ -520,7 +539,9 @@ const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x0e \x01(\tR\tcreatedAt\x12\x1f\n" +
 	"\vdaemon_name\x18\x0f \x01(\tR\n" +
-	"daemonName\"\x83\x01\n" +
+	"daemonName\x12#\n" +
+	"\rdaemon_online\x18\x10 \x01(\bR\fdaemonOnline\x12-\n" +
+	"\x13daemon_last_seen_at\x18\x11 \x01(\tR\x10daemonLastSeenAt\"\x83\x01\n" +
 	"\vCheckRunLog\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x03R\x03seq\x12\x16\n" +

@@ -28,6 +28,11 @@ message CheckRun {
   string created_at = 14;
   // daemon_name is the name daemon_id is shown by; "" when there is none.
   string daemon_name = 15;
+  // daemon_online says whether daemon_id is connected now, and
+  // daemon_last_seen_at when it last was, so a queued run can say what it
+  // waits for.
+  bool daemon_online = 16;
+  string daemon_last_seen_at = 17;
 }
 
 message CheckRunLog {

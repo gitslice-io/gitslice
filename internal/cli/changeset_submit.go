@@ -44,15 +44,19 @@ var submitRetryInterval = 5 * time.Second
 func (r Runner) submitWhenChecksReport(ctx context.Context, opts commandOptions, conn *grpc.ClientConn, cfg UserConfig, state WorkspaceState, timeout time.Duration) (*corev1.SubmitStackResponse, error) {
 	deadline := time.Now().Add(timeout)
 	waitingFor := ""
+	var daemons *checkDaemonWatch
+	if !opts.Quiet && !opts.jsonOutput() {
+		daemons = newCheckDaemonWatch(r.stderr())
+	}
 	for {
 		res, err := r.submitActivePath(ctx, conn, cfg, state, true, time.Until(deadline))
 		if err != nil {
 			return nil, err
 		}
-		check := ""
+		check, checkChangeset := "", ""
 		for _, result := range res.Results {
 			if match := pendingCheckPattern.FindStringSubmatch(result.BlockedReason); match != nil {
-				check = match[1]
+				check, checkChangeset = match[1], result.ChangesetId
 				break
 			}
 		}
@@ -63,6 +67,7 @@ func (r Runner) submitWhenChecksReport(ctx context.Context, opts commandOptions,
 		if check != waitingFor && !opts.Quiet && !opts.jsonOutput() {
 			fmt.Fprintf(r.stderr(), "waiting for required check %q to pass...\n", check)
 		}
+		daemons.look(ctx, conn, cfg, checkChangeset, check, check != waitingFor)
 		waitingFor = check
 		select {
 		case <-ctx.Done():
@@ -110,6 +115,10 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	// watch timeout), as gs create --submit does.
 	deadline := time.Now().Add(watchTimeout)
 	waitingFor := ""
+	var daemons *checkDaemonWatch
+	if !opts.Quiet && !opts.jsonOutput() {
+		daemons = newCheckDaemonWatch(r.stderr())
+	}
 	for watch && err != nil {
 		match := pendingCheckPattern.FindStringSubmatch(grpcstatus.Convert(err).Message())
 		remaining := time.Until(deadline)
@@ -119,6 +128,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		if match[1] != waitingFor && !opts.Quiet && !opts.jsonOutput() {
 			fmt.Fprintf(r.stderr(), "waiting for required check %q to pass...\n", match[1])
 		}
+		daemons.look(ctx, conn, cfg, changesetID, match[1], match[1] != waitingFor)
 		waitingFor = match[1]
 		select {
 		case <-ctx.Done():

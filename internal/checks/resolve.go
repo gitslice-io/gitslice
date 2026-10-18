@@ -29,7 +29,9 @@ type CheckSpec struct {
 	Name             string // qualified id, "<dir>/<name>"; root dir => "<name>"
 	Run              string
 	Image            string
+	Build            *ImageBuild // set instead of Image when the image is built from the tree
 	Setup            []string
+	Services         []ServiceSpec
 	Cache            []string
 	WorkingDir       string // logical path
 	MaterializePaths []string
@@ -39,6 +41,29 @@ type CheckSpec struct {
 	CPUs             string
 	Timeout          time.Duration
 	OutOfSlice       bool
+	// Scope is set by whoever runs the check, not by the checks file: the
+	// slice it runs for. Caches and built images of different scopes are
+	// kept apart.
+	Scope string
+}
+
+// ImageBuild is a Build resolved against the tree: ContextDir is a logical
+// repo path ("/" for the root), Dockerfile and Inputs are relative to it.
+type ImageBuild struct {
+	ContextDir string
+	Dockerfile string
+	Inputs     []string
+	Timeout    time.Duration
+}
+
+// ServiceSpec is a service a check runs beside, by the name it is reached at.
+type ServiceSpec struct {
+	Name         string
+	Image        string
+	Env          map[string]string
+	Ready        string
+	ReadyTimeout time.Duration
+	Memory       string
 }
 
 type SkippedCheck struct{ Name, Reason string }
@@ -113,7 +138,7 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 				continue
 			}
 			produced[name] = struct{}{}
-			plan.addCheck(found.dir, localName, found.file.Checks[localName], cleanChanged, cleanIncluded)
+			plan.addCheck(found.dir, localName, found.file.Checks[localName], found.file.Services, cleanChanged, cleanIncluded)
 		}
 	}
 
@@ -134,6 +159,7 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 			return nil, fmt.Errorf("read checks file %s: %w", checksPath, err)
 		}
 		var check Check
+		var services map[string]Service
 		defined := false
 		if err == nil {
 			file, parseErr := Parse(data)
@@ -142,6 +168,7 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 				continue
 			}
 			check, defined = file.Checks[localName]
+			services = file.Services
 		}
 		if !defined {
 			plan.Errored = append(plan.Errored, ErroredCheck{
@@ -150,7 +177,7 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 			})
 			continue
 		}
-		plan.addCheck(dir, localName, check, cleanChanged, cleanIncluded)
+		plan.addCheck(dir, localName, check, services, cleanChanged, cleanIncluded)
 	}
 
 	return plan, nil
@@ -158,7 +185,7 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 
 // addCheck sorts one defined check into Runnable, Skipped or Errored for the
 // changed paths.
-func (plan *Plan) addCheck(dir, localName string, check Check, changedPaths, includedPaths []string) {
+func (plan *Plan) addCheck(dir, localName string, check Check, services map[string]Service, changedPaths, includedPaths []string) {
 	name := qualifiedID(dir, localName)
 	matches, err := checkMatchesChangedPaths(dir, check.Paths, changedPaths)
 	if err != nil {
@@ -173,7 +200,7 @@ func (plan *Plan) addCheck(dir, localName string, check Check, changedPaths, inc
 		plan.Skipped = append(plan.Skipped, SkippedCheck{Name: name, Reason: reason})
 		return
 	}
-	spec, err := buildCheckSpec(dir, localName, check, includedPaths)
+	spec, err := buildCheckSpec(dir, localName, check, services, includedPaths)
 	if err != nil {
 		plan.Errored = append(plan.Errored, ErroredCheck{Name: name, Reason: err.Error()})
 		return
@@ -190,7 +217,7 @@ func splitQualifiedID(id string) (string, string) {
 	return "", id
 }
 
-func buildCheckSpec(definingDir, localName string, check Check, includedPaths []string) (CheckSpec, error) {
+func buildCheckSpec(definingDir, localName string, check Check, services map[string]Service, includedPaths []string) (CheckSpec, error) {
 	workingDir, err := resolveLogicalPath(definingDir, check.WorkingDir)
 	if err != nil {
 		return CheckSpec{}, fmt.Errorf("resolve working_dir: %w", err)
@@ -204,13 +231,44 @@ func buildCheckSpec(definingDir, localName string, check Check, includedPaths []
 		}
 		materializePaths = append(materializePaths, resolved)
 	}
+	// The daemon builds the image from the tree, so the Dockerfile and its
+	// inputs are materialized like includes.
+	var build *ImageBuild
+	if check.Build != nil {
+		resolved, err := resolveImageBuild(definingDir, check.Build)
+		if err != nil {
+			return CheckSpec{}, err
+		}
+		build = resolved
+		for _, rel := range append([]string{build.Dockerfile}, build.Inputs...) {
+			materializePaths = append(materializePaths, joinLogical(build.ContextDir, rel))
+		}
+	}
 	materializePaths = collapsePrefixes(materializePaths)
+
+	var serviceSpecs []ServiceSpec
+	for _, name := range check.Services {
+		service, ok := services[name]
+		if !ok {
+			return CheckSpec{}, fmt.Errorf("service %q is not defined", name)
+		}
+		serviceSpecs = append(serviceSpecs, ServiceSpec{
+			Name:         name,
+			Image:        service.Image,
+			Env:          copyEnv(service.Env),
+			Ready:        service.Ready,
+			ReadyTimeout: service.ReadyTimeout,
+			Memory:       service.Memory,
+		})
+	}
 
 	return CheckSpec{
 		Name:             qualifiedID(definingDir, localName),
 		Run:              check.Run,
 		Image:            check.Image,
+		Build:            build,
 		Setup:            copyStringSlice(check.Setup),
+		Services:         serviceSpecs,
 		Cache:            copyStringSlice(check.Cache),
 		WorkingDir:       workingDir,
 		MaterializePaths: materializePaths,
@@ -221,6 +279,31 @@ func buildCheckSpec(definingDir, localName string, check Check, includedPaths []
 		Timeout:          check.Timeout,
 		OutOfSlice:       materializeOutOfSlice(materializePaths, includedPaths),
 	}, nil
+}
+
+func resolveImageBuild(definingDir string, b *Build) (*ImageBuild, error) {
+	contextDir, err := resolveLogicalPath(definingDir, b.Context)
+	if err != nil {
+		return nil, fmt.Errorf("resolve build context: %w", err)
+	}
+	timeout := b.Timeout
+	if timeout == 0 {
+		timeout = DefaultBuildTimeout
+	}
+	return &ImageBuild{
+		ContextDir: contextDir,
+		Dockerfile: b.Dockerfile,
+		Inputs:     copyStringSlice(b.Inputs),
+		Timeout:    timeout,
+	}, nil
+}
+
+// joinLogical joins a context-relative path onto a logical directory.
+func joinLogical(dir, rel string) string {
+	if dir == "" || dir == "/" {
+		return rel
+	}
+	return path.Join(dir, rel)
 }
 
 func checkMatchesChangedPaths(definingDir string, patterns []string, changedPaths []string) (bool, error) {
