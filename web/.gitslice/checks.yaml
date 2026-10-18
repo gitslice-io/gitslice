@@ -1,10 +1,15 @@
 # Web checks for the Gitslice source hosted on Gitslice; mirrors the "web" job
-# in .github/workflows/ci.yml. Runs in web/ on the CI daemon host or via gs ci.
+# in .github/workflows/ci.yml. Runs in the image web/ci/Dockerfile builds, which
+# has the app's npm dependencies installed (design/31_ci_daemon.md).
 version: 1
 
 checks:
   build:
-    description: "Install, type-check, build and test the web app"
-    run: "bash scripts/ci-install.sh && npm run build && npm test"
+    description: "Type-check, build and test the web app"
+    build:
+      dockerfile: ci/Dockerfile
+      inputs: [package.json, package-lock.json]
+    # The image's install, unless the tree brings its own (gs ci in a
+    # workspace that ran npm ci).
+    run: "[ -e node_modules ] || ln -s /deps/node_modules node_modules; npm run build && npm test"
     timeout: "20m"
-    network: true

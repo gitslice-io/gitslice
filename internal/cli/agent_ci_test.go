@@ -334,3 +334,26 @@ func TestAgentInstallPrintAndInvalidName(t *testing.T) {
 		t.Fatalf("invalid name error = %v", err)
 	}
 }
+
+// Injected probes that leave out the account's home write under HOME, so a
+// test cannot reach the real account's systemd folder.
+func TestAgentInstallWithoutAccountHomeProbeStaysUnderHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", "")
+	p := &agentServiceProbes{
+		osName:       "linux",
+		executable:   func() (string, error) { return "/opt/gs", nil },
+		evalSymlinks: func(path string) (string, error) { return path, nil },
+		lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
+		environ:      func() []string { return []string{"PATH=/tools"} },
+		userName:     func() string { return "ci-user" },
+		command:      func(context.Context, string, ...string) ([]byte, error) { return nil, nil },
+	}
+	r := Runner{Home: home, Dir: t.TempDir(), AgentService: p}
+	if err := r.runAgentInstall(context.Background(), commandOptions{Quiet: true}, agentInstallOptions{Name: "guarded", CI: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "systemd", "user", "gs-agent-guarded.service")); err != nil {
+		t.Fatalf("unit not under HOME: %v", err)
+	}
+}

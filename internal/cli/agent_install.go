@@ -93,9 +93,9 @@ func (r Runner) agentServiceProbes() agentServiceProbes {
 	if r.AgentService.userName != nil {
 		p.userName = r.AgentService.userName
 	}
-	if r.AgentService.userHome != nil {
-		p.userHome = r.AgentService.userHome
-	}
+	// Injected probes without an account home use HOME, so a test that
+	// forgets one cannot write into the real account's service folders.
+	p.userHome = r.AgentService.userHome
 	return p
 }
 

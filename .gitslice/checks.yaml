@@ -1,20 +1,35 @@
 # Checks for the Gitslice source when it is hosted on Gitslice
-# (design/17_continuous_integration.md, design/21_self_hosting.md). They mirror
-# .github/workflows/ci.yml and run on the host of the slice's CI daemon, or
-# locally with `gs ci`, so Go and Node toolchains are expected there.
+# (design/17_continuous_integration.md, design/21_self_hosting.md,
+# design/31_ci_daemon.md). They mirror .github/workflows/ci.yml and run in the
+# image ci/Dockerfile builds, so a CI daemon needs only gs and Docker or Podman;
+# it builds the image once and reuses it until ci/Dockerfile, go.mod or go.sum
+# change.
 version: 1
 
 defaults:
   timeout: "20m"
+  build:
+    dockerfile: ci/Dockerfile
+    inputs: [go.mod, go.sum]
+  # Shared by every check here, so vet, test and build reuse each other's
+  # compiled packages across runs.
+  cache: ["/cache/go-build"]
   env:
     # A check runs on a fresh copy of the tree without any VCS metadata.
     # -buildvcs=false: go build (also inside the e2e tests) would otherwise
     # stamp from whatever .git sits above that copy, and fail when that is not
-    # a real repository (a stray /tmp/.git broke every build on the CI host).
+    # a real repository.
     # -trimpath: compiled files would otherwise record the copy's random path,
-    # so every run filled the shared Go build cache with new entries (4.8 GB
-    # in a day on the CI host).
+    # so every run filled the Go build cache with new entries.
     GOFLAGS: "-mod=readonly -buildvcs=false -trimpath"
+
+services:
+  # A fresh, empty database for each e2e run.
+  postgres:
+    image: postgres:16
+    env:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ready: "pg_isready -U postgres -h 127.0.0.1"
 
 checks:
   gofmt:
@@ -41,8 +56,9 @@ checks:
 
   e2e:
     description: "PostgreSQL storage, CLI and RPC end-to-end tests"
-    # GITSLICE_TEST_DATABASE_URL comes from a slice secret
-    # (gs slice secret set ...). Fail loudly instead of letting the tests skip.
-    run: 'test -n "$GITSLICE_TEST_DATABASE_URL" || { echo "set the GITSLICE_TEST_DATABASE_URL slice secret" >&2; exit 1; }; go test -count=1 ./internal/postgres ./tests/cli ./tests/rpc'
+    services: [postgres]
+    # Set in the command, not under env: a slice secret of the same name
+    # would win over env and point elsewhere.
+    run: 'GITSLICE_TEST_DATABASE_URL="postgres://postgres@postgres:5432/postgres?sslmode=disable" go test -count=1 ./internal/postgres ./tests/cli ./tests/rpc'
     paths: ["**/*.go", "go.mod", "go.sum", "internal/postgres/migrations/**"]
     timeout: "30m"

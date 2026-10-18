@@ -4,8 +4,11 @@ Status: implemented (2026-10-18): `build` and `services` in checks.yaml
 (`internal/checks`), image builds, services and user mapping in
 `internal/checkexec`, `gs agent start --ci`, `gs agent doctor` and
 `gs agent install` (`internal/cli/agent_doctor.go`, `agent_install.go`), daemon
-status on check runs. The gitslice slice's own checks switch to `ci/Dockerfile`
-after the server is deployed (Rollout). Builds on design/17 (agent-run checks)
+status on check runs. Since v0.4.11 the gitslice slice's own checks run in
+images built from the tree: Go checks in `ci/Dockerfile` (with a Postgres
+service for e2e), the web check in `web/ci/Dockerfile`. Each rebuilds only
+when its own dependency files change, and the web check stays inside a
+web-only slice. Builds on design/17 (agent-run checks)
 and design/16 (daemon exposure).
 
 ## Problem
@@ -199,4 +202,6 @@ gs agent expose my-ci acme:web
    `build` and `services` before any `checks.yaml` uses them); release `gs`.
 2. Upgrade the CI daemons.
 3. Switch `gitslice/gitslice`'s checks to `build` + a Postgres service, and
-   drop the `GITSLICE_TEST_DATABASE_URL` slice secret.
+   drop the `GITSLICE_TEST_DATABASE_URL` slice secret. The e2e check sets the
+   URL in its command rather than under `env`, because a slice secret of the
+   same name wins over `env`.
