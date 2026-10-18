@@ -19,6 +19,7 @@ import {
   MobileDetailsToggle,
 } from "../components/MobileDetails";
 import { PageHeader } from "../components/PageHeader";
+import { SliceDescription } from "../components/slices/SliceDescriptionPanel";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -411,6 +412,16 @@ export function SliceDetailPage() {
             </>
           }
         />
+
+        {slice.description ? (
+          <SliceDescription
+            className={cn(
+              "mt-2 max-w-3xl whitespace-pre-line text-sm leading-6 text-slate-600 dark:text-zinc-400",
+              selectedPath && "max-lg:hidden",
+            )}
+            text={slice.description}
+          />
+        ) : null}
 
         <>
           <div

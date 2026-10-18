@@ -189,3 +189,44 @@ func TestDeleteSliceWithoutChangesetsIsRemovedForGood(t *testing.T) {
 		t.Fatal("the slice should be gone")
 	}
 }
+
+func TestSliceDescriptionCanBeSetByOwnersOnly(t *testing.T) {
+	mem, handlers, _, ctx := lifecycleFixture(t, "/acme/games/a.txt")
+	mem.AddPersonalAccount("user_bob", "bob")
+	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "games"}, []string{"/acme/games"}, "public")
+	ref := &corev1.SliceRef{Account: "acme", Slice: "games"}
+
+	got, err := handlers.Slice.SetSliceDescription(ctx, &corev1.SetSliceDescriptionRequest{Slice: ref, Description: "  A mirror of MacNativeGames by ly05010419.\r\nCredit to the original authors.  "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Description != "A mirror of MacNativeGames by ly05010419.\nCredit to the original authors." {
+		t.Fatalf("description = %q", got.Description)
+	}
+	resolved, err := handlers.Slice.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil || resolved.Description != got.Description {
+		t.Fatalf("resolved = %v, %v", resolved, err)
+	}
+
+	_, err = handlers.Slice.SetSliceDescription(authctx.WithSubjectID(context.Background(), "user_bob"), &corev1.SetSliceDescriptionRequest{Slice: ref, Description: "mine now"})
+	wantCodeContaining(t, err, codes.PermissionDenied, "")
+	_, err = handlers.Slice.SetSliceDescription(ctx, &corev1.SetSliceDescriptionRequest{Slice: ref, Description: strings.Repeat("é", maxSliceDescriptionRunes+1)})
+	wantCodeContaining(t, err, codes.InvalidArgument, "limit is 500")
+	_, err = handlers.Slice.SetSliceDescription(ctx, &corev1.SetSliceDescriptionRequest{Slice: ref, Description: "bell\a"})
+	wantCodeContaining(t, err, codes.InvalidArgument, "control character")
+
+	cleared, err := handlers.Slice.SetSliceDescription(ctx, &corev1.SetSliceDescriptionRequest{Slice: ref})
+	if err != nil || cleared.Description != "" {
+		t.Fatalf("clear = %v, %v", cleared, err)
+	}
+}
+
+func TestCreateSliceWithDescription(t *testing.T) {
+	_, handlers, _, ctx := lifecycleFixture(t, "/acme/games/a.txt")
+	created, err := handlers.Slice.CreateSlice(ctx, &corev1.CreateSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "games"}, IncludedPaths: []string{"/acme/games"}, Visibility: "public", Description: "Games"})
+	if err != nil || created.Description != "Games" {
+		t.Fatalf("created = %v, %v", created, err)
+	}
+	_, err = handlers.Slice.CreateSlice(ctx, &corev1.CreateSliceRequest{Ref: &corev1.SliceRef{Account: "acme", Slice: "games2"}, IncludedPaths: []string{"/acme/games"}, Visibility: "public", Description: strings.Repeat("x", 501)})
+	wantCodeContaining(t, err, codes.InvalidArgument, "limit is 500")
+}

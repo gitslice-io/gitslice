@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
@@ -25,6 +26,19 @@ type RepositoryService struct {
 	// Blames stores blame snapshots (design/27_blame.md); optional.
 	Blames    storage.BlameStore
 	validator diffValidator
+
+	// importClones keeps clones between attempts of a deep import.
+	importClonesOnce sync.Once
+	importClones     *importCloneCache
+}
+
+func (s *RepositoryService) importCloneCache() *importCloneCache {
+	s.importClonesOnce.Do(func() {
+		if s.importClones == nil {
+			s.importClones = newImportCloneCache()
+		}
+	})
+	return s.importClones
 }
 
 func (s *RepositoryService) ResolvePath(ctx context.Context, req *corev1.ResolvePathRequest) (*corev1.ResolvePathResponse, error) {

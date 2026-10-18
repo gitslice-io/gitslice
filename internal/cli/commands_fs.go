@@ -132,6 +132,7 @@ func (r Runner) importCommand(opts *commandOptions) *cobra.Command {
 	importDeep := false
 	importMaxCommits := 0
 	importResume := true
+	importRetries := defaultImportRetries
 	importCmd := &cobra.Command{
 		Use:   "import <source>",
 		Short: "Import a Git repository under a mounted path",
@@ -141,7 +142,7 @@ func (r Runner) importCommand(opts *commandOptions) *cobra.Command {
 			if importDeep {
 				mode = "deep"
 			}
-			return r.runImportGitRepository(cmd.Context(), *opts, args[0], importMountPath, importSlice, mode, importMaxCommits, importResume)
+			return r.runImportGitRepository(cmd.Context(), *opts, args[0], importMountPath, importSlice, mode, importMaxCommits, importResume, importRetries)
 		},
 	}
 	importCmd.Flags().StringVar(&importMountPath, "mount", importMountPath, "absolute Gitslice path where the repository should be mounted")
@@ -150,6 +151,7 @@ func (r Runner) importCommand(opts *commandOptions) *cobra.Command {
 	importCmd.Flags().BoolVar(&importDeep, "deep", importDeep, "import every reachable Git commit")
 	importCmd.Flags().IntVar(&importMaxCommits, "max-commits", importMaxCommits, "maximum recent commits to import in deep mode")
 	importCmd.Flags().BoolVar(&importResume, "resume", importResume, "resume previously completed commits for the same import")
+	importCmd.Flags().IntVar(&importRetries, "retries", importRetries, "when the connection drops, reconnect and resume up to this many times in a row without progress (0 = never)")
 
 	return importCmd
 }

@@ -366,6 +366,8 @@ type SliceStore interface {
 	Rename(ctx context.Context, sliceID, newName string) (*corev1.Slice, error)
 	// SetArchived archives the slice or restores it; either is idempotent.
 	SetArchived(ctx context.Context, sliceID string, archived bool) (*corev1.Slice, error)
+	// SetDescription sets the slice's description; "" clears it.
+	SetDescription(ctx context.Context, sliceID, description string) (*corev1.Slice, error)
 	CoveringIDsByPath(ctx context.Context, paths []string) (map[string][]string, error)
 	// CreateTag records an immutable tag. It returns the stored tag and whether
 	// it was created; an existing tag with the same commit is returned as is,

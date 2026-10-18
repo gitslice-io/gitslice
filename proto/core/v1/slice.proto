@@ -31,6 +31,9 @@ service SliceService {
   // (archived), or restores it. Its history stays readable and its name stays
   // reserved. Requires admin access to the slice's account.
   rpc SetSliceArchived(SetSliceArchivedRequest) returns (Slice);
+  // SetSliceDescription sets or, with "", clears a slice's description.
+  // Owners and admins of its account may change it.
+  rpc SetSliceDescription(SetSliceDescriptionRequest) returns (Slice);
   // CreateTag names a native commit for this slice, for releases. Tags are
   // immutable: creating an existing name again succeeds only for the same
   // commit. Requires write access. The Git projection publishes each tag as
@@ -93,6 +96,9 @@ message Slice {
   // ci_daemon_name is the name the CI daemon is shown by (its display name,
   // else the name it registered with); "" when there is none.
   string ci_daemon_name = 8;
+  // description is a short note shown on the slice's page, such as what it
+  // holds or which project it mirrors; "" when there is none.
+  string description = 9;
 }
 
 message SliceDefinition {
@@ -122,6 +128,7 @@ message CreateSliceRequest {
   string visibility = 3;
   int32 required_approvals = 4;
   repeated string required_checks = 5;
+  string description = 6;
 }
 
 message ResolveSliceRequest {
@@ -206,6 +213,11 @@ message RenameSliceRequest {
 message SetSliceArchivedRequest {
   SliceRef slice = 1;
   bool archived = 2;
+}
+
+message SetSliceDescriptionRequest {
+  SliceRef slice = 1;
+  string description = 2;
 }
 
 message SliceMember {

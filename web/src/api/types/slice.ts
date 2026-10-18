@@ -13,6 +13,8 @@ export interface Slice {
   archived?: boolean;
   // Names the slice had before it was renamed; they still open it.
   formerNames?: string[];
+  // A short note shown on the slice's page; empty when there is none.
+  description?: string;
 }
 
 export interface SliceDefinition {
@@ -63,6 +65,11 @@ export interface UpdateSliceDefinitionRequest {
 export interface SetSliceCIDaemonRequest {
   slice?: SliceRef;
   daemonId?: string;
+}
+
+export interface SetSliceDescriptionRequest {
+  slice?: SliceRef;
+  description?: string;
 }
 
 /** A person or agent given a role on one slice (design/26_slice_members.md). */

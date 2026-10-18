@@ -70,6 +70,9 @@ const (
 	// SliceServiceSetSliceArchivedProcedure is the fully-qualified name of the SliceService's
 	// SetSliceArchived RPC.
 	SliceServiceSetSliceArchivedProcedure = "/gitslice.core.v1.SliceService/SetSliceArchived"
+	// SliceServiceSetSliceDescriptionProcedure is the fully-qualified name of the SliceService's
+	// SetSliceDescription RPC.
+	SliceServiceSetSliceDescriptionProcedure = "/gitslice.core.v1.SliceService/SetSliceDescription"
 	// SliceServiceCreateTagProcedure is the fully-qualified name of the SliceService's CreateTag RPC.
 	SliceServiceCreateTagProcedure = "/gitslice.core.v1.SliceService/CreateTag"
 	// SliceServiceListTagsProcedure is the fully-qualified name of the SliceService's ListTags RPC.
@@ -114,6 +117,9 @@ type SliceServiceClient interface {
 	// (archived), or restores it. Its history stays readable and its name stays
 	// reserved. Requires admin access to the slice's account.
 	SetSliceArchived(context.Context, *connect.Request[v1.SetSliceArchivedRequest]) (*connect.Response[v1.Slice], error)
+	// SetSliceDescription sets or, with "", clears a slice's description.
+	// Owners and admins of its account may change it.
+	SetSliceDescription(context.Context, *connect.Request[v1.SetSliceDescriptionRequest]) (*connect.Response[v1.Slice], error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -222,6 +228,12 @@ func NewSliceServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(sliceServiceMethods.ByName("SetSliceArchived")),
 			connect.WithClientOptions(opts...),
 		),
+		setSliceDescription: connect.NewClient[v1.SetSliceDescriptionRequest, v1.Slice](
+			httpClient,
+			baseURL+SliceServiceSetSliceDescriptionProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("SetSliceDescription")),
+			connect.WithClientOptions(opts...),
+		),
 		createTag: connect.NewClient[v1.CreateTagRequest, v1.Tag](
 			httpClient,
 			baseURL+SliceServiceCreateTagProcedure,
@@ -276,6 +288,7 @@ type sliceServiceClient struct {
 	deleteSlice                 *connect.Client[v1.DeleteSliceRequest, v1.DeleteSliceResponse]
 	renameSlice                 *connect.Client[v1.RenameSliceRequest, v1.Slice]
 	setSliceArchived            *connect.Client[v1.SetSliceArchivedRequest, v1.Slice]
+	setSliceDescription         *connect.Client[v1.SetSliceDescriptionRequest, v1.Slice]
 	createTag                   *connect.Client[v1.CreateTagRequest, v1.Tag]
 	listTags                    *connect.Client[v1.ListTagsRequest, v1.ListTagsResponse]
 	listSliceMembers            *connect.Client[v1.ListSliceMembersRequest, v1.ListSliceMembersResponse]
@@ -349,6 +362,11 @@ func (c *sliceServiceClient) SetSliceArchived(ctx context.Context, req *connect.
 	return c.setSliceArchived.CallUnary(ctx, req)
 }
 
+// SetSliceDescription calls gitslice.core.v1.SliceService.SetSliceDescription.
+func (c *sliceServiceClient) SetSliceDescription(ctx context.Context, req *connect.Request[v1.SetSliceDescriptionRequest]) (*connect.Response[v1.Slice], error) {
+	return c.setSliceDescription.CallUnary(ctx, req)
+}
+
 // CreateTag calls gitslice.core.v1.SliceService.CreateTag.
 func (c *sliceServiceClient) CreateTag(ctx context.Context, req *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {
 	return c.createTag.CallUnary(ctx, req)
@@ -405,6 +423,9 @@ type SliceServiceHandler interface {
 	// (archived), or restores it. Its history stays readable and its name stays
 	// reserved. Requires admin access to the slice's account.
 	SetSliceArchived(context.Context, *connect.Request[v1.SetSliceArchivedRequest]) (*connect.Response[v1.Slice], error)
+	// SetSliceDescription sets or, with "", clears a slice's description.
+	// Owners and admins of its account may change it.
+	SetSliceDescription(context.Context, *connect.Request[v1.SetSliceDescriptionRequest]) (*connect.Response[v1.Slice], error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -509,6 +530,12 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(sliceServiceMethods.ByName("SetSliceArchived")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sliceServiceSetSliceDescriptionHandler := connect.NewUnaryHandler(
+		SliceServiceSetSliceDescriptionProcedure,
+		svc.SetSliceDescription,
+		connect.WithSchema(sliceServiceMethods.ByName("SetSliceDescription")),
+		connect.WithHandlerOptions(opts...),
+	)
 	sliceServiceCreateTagHandler := connect.NewUnaryHandler(
 		SliceServiceCreateTagProcedure,
 		svc.CreateTag,
@@ -573,6 +600,8 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 			sliceServiceRenameSliceHandler.ServeHTTP(w, r)
 		case SliceServiceSetSliceArchivedProcedure:
 			sliceServiceSetSliceArchivedHandler.ServeHTTP(w, r)
+		case SliceServiceSetSliceDescriptionProcedure:
+			sliceServiceSetSliceDescriptionHandler.ServeHTTP(w, r)
 		case SliceServiceCreateTagProcedure:
 			sliceServiceCreateTagHandler.ServeHTTP(w, r)
 		case SliceServiceListTagsProcedure:
@@ -644,6 +673,10 @@ func (UnimplementedSliceServiceHandler) RenameSlice(context.Context, *connect.Re
 
 func (UnimplementedSliceServiceHandler) SetSliceArchived(context.Context, *connect.Request[v1.SetSliceArchivedRequest]) (*connect.Response[v1.Slice], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceArchived is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) SetSliceDescription(context.Context, *connect.Request[v1.SetSliceDescriptionRequest]) (*connect.Response[v1.Slice], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceDescription is not implemented"))
 }
 
 func (UnimplementedSliceServiceHandler) CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {

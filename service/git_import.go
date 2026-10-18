@@ -75,9 +75,18 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	}); err != nil {
 		return nil, err
 	}
-	repoDir, cleanup, err := cloneForImport(ctx, source, mode, int(req.MaxCommits), localSource)
+	// A full deep import of a remote repository keeps its clone between
+	// attempts: a client on a flaky link resumes from the kept clone instead
+	// of cloning the whole history again each time.
+	var repoDir string
+	var cleanup func()
+	if mode == "deep" && req.MaxCommits == 0 && !localSource {
+		repoDir, cleanup, err = s.importCloneCache().acquire(ctx, source, false)
+	} else {
+		repoDir, cleanup, err = cloneForImport(ctx, source, mode, int(req.MaxCommits), localSource)
+	}
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "clone git repository: %v", err)
+		return nil, cloneError(ctx, err)
 	}
 	defer cleanup()
 	if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{

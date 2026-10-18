@@ -24,6 +24,7 @@ import {
 } from "../components/slices/SlicePageParts";
 import { SliceWebhooksPanel } from "../components/slices/SliceWebhooksPanel";
 import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
+import { SliceDescriptionPanel } from "../components/slices/SliceDescriptionPanel";
 import { canAdmin, membershipFor } from "../lib/accounts";
 import { daemonName } from "../lib/daemons";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
@@ -233,6 +234,10 @@ export function SliceSettingsPage() {
       <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
         Edit the supported slice definition fields only.
       </p>
+
+      <div className="mt-8">
+        <SliceDescriptionPanel slice={slice} />
+      </div>
 
       <form className="mt-8 space-y-6" onSubmit={saveDefinition}>
         <SlicePanel>

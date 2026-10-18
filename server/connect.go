@@ -314,6 +314,10 @@ func (a connectSliceAdapter) SetSliceArchived(ctx context.Context, req *connect.
 	return connectResponse(a.svc.SetSliceArchived(ctx, req.Msg))
 }
 
+func (a connectSliceAdapter) SetSliceDescription(ctx context.Context, req *connect.Request[corev1.SetSliceDescriptionRequest]) (*connect.Response[corev1.Slice], error) {
+	return connectResponse(a.svc.SetSliceDescription(ctx, req.Msg))
+}
+
 func (a connectSliceAdapter) SetSliceCIDaemon(ctx context.Context, req *connect.Request[corev1.SetSliceCIDaemonRequest]) (*connect.Response[corev1.Slice], error) {
 	return connectResponse(a.svc.SetSliceCIDaemon(ctx, req.Msg))
 }

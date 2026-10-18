@@ -280,6 +280,7 @@ gs slice info nic/home --json
 gs slice paths nic/home --json
 gs slice create nic/tools --include /nic/tools --visibility private --json
 gs slice update nic/tools --include /nic/tools --required-approvals 1 --json
+gs slice update nic/tools --description "Mirror of example/tools; credit to its authors"   # shown on the slice page; "" clears
 gs slice delete nic/tools --yes --json
 ```
 

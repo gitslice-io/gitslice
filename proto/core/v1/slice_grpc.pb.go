@@ -32,6 +32,7 @@ const (
 	SliceService_DeleteSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/DeleteSlice"
 	SliceService_RenameSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/RenameSlice"
 	SliceService_SetSliceArchived_FullMethodName            = "/gitslice.core.v1.SliceService/SetSliceArchived"
+	SliceService_SetSliceDescription_FullMethodName         = "/gitslice.core.v1.SliceService/SetSliceDescription"
 	SliceService_CreateTag_FullMethodName                   = "/gitslice.core.v1.SliceService/CreateTag"
 	SliceService_ListTags_FullMethodName                    = "/gitslice.core.v1.SliceService/ListTags"
 	SliceService_ListSliceMembers_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceMembers"
@@ -68,6 +69,9 @@ type SliceServiceClient interface {
 	// (archived), or restores it. Its history stays readable and its name stays
 	// reserved. Requires admin access to the slice's account.
 	SetSliceArchived(ctx context.Context, in *SetSliceArchivedRequest, opts ...grpc.CallOption) (*Slice, error)
+	// SetSliceDescription sets or, with "", clears a slice's description.
+	// Owners and admins of its account may change it.
+	SetSliceDescription(ctx context.Context, in *SetSliceDescriptionRequest, opts ...grpc.CallOption) (*Slice, error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -212,6 +216,15 @@ func (c *sliceServiceClient) SetSliceArchived(ctx context.Context, in *SetSliceA
 	return out, nil
 }
 
+func (c *sliceServiceClient) SetSliceDescription(ctx context.Context, in *SetSliceDescriptionRequest, opts ...grpc.CallOption) (*Slice, error) {
+	out := new(Slice)
+	err := c.cc.Invoke(ctx, SliceService_SetSliceDescription_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sliceServiceClient) CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*Tag, error) {
 	out := new(Tag)
 	err := c.cc.Invoke(ctx, SliceService_CreateTag_FullMethodName, in, out, opts...)
@@ -294,6 +307,9 @@ type SliceServiceServer interface {
 	// (archived), or restores it. Its history stays readable and its name stays
 	// reserved. Requires admin access to the slice's account.
 	SetSliceArchived(context.Context, *SetSliceArchivedRequest) (*Slice, error)
+	// SetSliceDescription sets or, with "", clears a slice's description.
+	// Owners and admins of its account may change it.
+	SetSliceDescription(context.Context, *SetSliceDescriptionRequest) (*Slice, error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -355,6 +371,9 @@ func (UnimplementedSliceServiceServer) RenameSlice(context.Context, *RenameSlice
 }
 func (UnimplementedSliceServiceServer) SetSliceArchived(context.Context, *SetSliceArchivedRequest) (*Slice, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetSliceArchived not implemented")
+}
+func (UnimplementedSliceServiceServer) SetSliceDescription(context.Context, *SetSliceDescriptionRequest) (*Slice, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetSliceDescription not implemented")
 }
 func (UnimplementedSliceServiceServer) CreateTag(context.Context, *CreateTagRequest) (*Tag, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateTag not implemented")
@@ -620,6 +639,24 @@ func _SliceService_SetSliceArchived_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_SetSliceDescription_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSliceDescriptionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).SetSliceDescription(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_SetSliceDescription_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).SetSliceDescription(ctx, req.(*SetSliceDescriptionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SliceService_CreateTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateTagRequest)
 	if err := dec(in); err != nil {
@@ -786,6 +823,10 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetSliceArchived",
 			Handler:    _SliceService_SetSliceArchived_Handler,
+		},
+		{
+			MethodName: "SetSliceDescription",
+			Handler:    _SliceService_SetSliceDescription_Handler,
 		},
 		{
 			MethodName: "CreateTag",

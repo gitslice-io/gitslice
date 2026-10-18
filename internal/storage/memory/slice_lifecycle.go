@@ -75,6 +75,18 @@ func aliasName(key string) string {
 	return key
 }
 
+// SetDescription sets the slice's description; see storage.SliceStore.
+func (s *SliceStore) SetDescription(ctx context.Context, sliceID, description string) (*corev1.Slice, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	slice := s.b.slices[sliceID]
+	if slice == nil || s.b.retiredSlices[sliceID] {
+		return nil, storage.ErrNotFound
+	}
+	slice.Description = description
+	return cloneSlice(slice), nil
+}
+
 // SetArchived archives the slice or restores it; see storage.SliceStore.
 func (s *SliceStore) SetArchived(ctx context.Context, sliceID string, archived bool) (*corev1.Slice, error) {
 	s.b.mu.Lock()

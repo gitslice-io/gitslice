@@ -40,9 +40,18 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 	if err := s.validateIncludedPathsExist(ctx, ref, includedPaths); err != nil {
 		return nil, err
 	}
+	description, err := normalizeSliceDescription(req.Description)
+	if err != nil {
+		return nil, err
+	}
 	slice, err := s.Slices.Create(ctx, subjectID, ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if slice != nil && description != "" {
+		if slice, err = s.Slices.SetDescription(ctx, slice.Id, description); err != nil {
+			return nil, grpcError(err)
+		}
 	}
 	if slice != nil {
 		captureAnalytics(ctx, s.Analytics, analytics.EventSliceCreated, map[string]any{

@@ -108,8 +108,11 @@ everything you have.
 
 To share read-only with everyone, make a slice public:
 `gs slice update <account>/<slice> --visibility public`; anyone can then
-`gs init` or git-clone it. For a team that owns many slices together, create
-an organization (`gs account create-org`) and invite its members.
+`gs init` or git-clone it. `gs slice update <account>/<slice> --description
+"..."` sets the short note shown on its page, for example which project a
+mirror comes from and who to credit (up to 500 characters; `""` clears it).
+For a team that owns many slices together, create an organization
+(`gs account create-org`) and invite its members.
 
 ## For the human owner
 

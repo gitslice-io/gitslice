@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
@@ -68,6 +70,56 @@ func (s *SliceService) SetSliceArchived(ctx context.Context, req *corev1.SetSlic
 		return nil, grpcError(err)
 	}
 	return updated, nil
+}
+
+// maxSliceDescriptionRunes bounds a slice description: a note for its page,
+// not a README.
+const maxSliceDescriptionRunes = 500
+
+// SetSliceDescription sets or clears a slice's description.
+func (s *SliceService) SetSliceDescription(ctx context.Context, req *corev1.SetSliceDescriptionRequest) (*corev1.Slice, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := normalizeServiceSliceRef(req.Slice)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.Slices.Resolve(ctx, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
+		return nil, err
+	}
+	description, err := normalizeSliceDescription(req.Description)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := s.Slices.SetDescription(ctx, current.Id, description)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return updated, nil
+}
+
+// normalizeSliceDescription trims a description and refuses one that is too
+// long or holds control characters other than line breaks and tabs.
+func normalizeSliceDescription(description string) (string, error) {
+	description = strings.TrimSpace(strings.ReplaceAll(description, "\r\n", "\n"))
+	if n := utf8.RuneCountInString(description); n > maxSliceDescriptionRunes {
+		return "", status.Errorf(codes.InvalidArgument, "description is %d characters; the limit is %d", n, maxSliceDescriptionRunes)
+	}
+	if !utf8.ValidString(description) {
+		return "", status.Error(codes.InvalidArgument, "description is not valid UTF-8")
+	}
+	for _, r := range description {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return "", status.Errorf(codes.InvalidArgument, "description holds a control character (%U)", r)
+		}
+	}
+	return description, nil
 }
 
 // retireSlice removes a slice that has changesets. Its history stays on the

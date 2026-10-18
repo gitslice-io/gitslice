@@ -16,18 +16,20 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceCreateRequiredApprovals := 0
 	var sliceCreateIncludes []string
 	var sliceCreateRequiredChecks []string
+	sliceCreateDescription := ""
 	sliceCreateCmd := &cobra.Command{
 		Use:   "create <slice|account:slice>",
 		Short: "Create a slice",
-		Args:  exactArgs(1, "gs slice create <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-check name]"),
+		Args:  exactArgs(1, "gs slice create <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-check name] [--description text]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility, sliceCreateRequiredApprovals, sliceCreateRequiredChecks)
+			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility, sliceCreateRequiredApprovals, sliceCreateRequiredChecks, sliceCreateDescription)
 		},
 	}
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateIncludes, "include", nil, "included global path; repeat for multiple paths")
 	sliceCreateCmd.Flags().StringVar(&sliceCreateVisibility, "visibility", sliceCreateVisibility, "slice visibility: private or public")
 	sliceCreateCmd.Flags().IntVar(&sliceCreateRequiredApprovals, "required-approvals", sliceCreateRequiredApprovals, "distinct non-author approvals required before submit")
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateRequiredChecks, "required-check", nil, "check name required to pass before submit; repeat for multiple checks")
+	sliceCreateCmd.Flags().StringVar(&sliceCreateDescription, "description", "", "a short note shown on the slice's page, such as what it holds or which project it mirrors (up to 500 characters)")
 	sliceListShared := false
 	sliceListArchived := false
 	sliceListCmd := &cobra.Command{
@@ -75,16 +77,21 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceUpdateClearRequiredChecks := false
 	var sliceUpdateIncludes []string
 	var sliceUpdateRequiredChecks []string
+	sliceUpdateDescription := ""
 	sliceUpdateCmd := &cobra.Command{
 		Use:   "update <slice|account:slice>",
-		Short: "Update slice included paths, visibility, or submit settings",
-		Args:  exactArgs(1, "gs slice update <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-check name]"),
+		Short: "Update slice included paths, visibility, submit settings or description",
+		Args:  exactArgs(1, "gs slice update <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-check name] [--description text]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			visibilityChanged := cmd.Flags().Changed("visibility")
 			includesChanged := cmd.Flags().Changed("include")
 			requiredApprovalsChanged := cmd.Flags().Changed("required-approvals")
 			requiredChecksChanged := cmd.Flags().Changed("required-check")
-			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged, sliceUpdateRequiredApprovals, requiredApprovalsChanged, sliceUpdateRequiredChecks, requiredChecksChanged, sliceUpdateClearRequiredChecks)
+			var description *string
+			if cmd.Flags().Changed("description") {
+				description = &sliceUpdateDescription
+			}
+			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged, sliceUpdateRequiredApprovals, requiredApprovalsChanged, sliceUpdateRequiredChecks, requiredChecksChanged, sliceUpdateClearRequiredChecks, description)
 		},
 	}
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateIncludes, "include", nil, "replacement included global path; repeat for multiple paths")
@@ -92,6 +99,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceUpdateCmd.Flags().IntVar(&sliceUpdateRequiredApprovals, "required-approvals", sliceUpdateRequiredApprovals, "replacement distinct non-author approvals required before submit")
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateRequiredChecks, "required-check", nil, "replacement required check name; repeat for multiple checks")
 	sliceUpdateCmd.Flags().BoolVar(&sliceUpdateClearRequiredChecks, "clear-required-checks", sliceUpdateClearRequiredChecks, "remove all required checks")
+	sliceUpdateCmd.Flags().StringVar(&sliceUpdateDescription, "description", "", "replacement description shown on the slice's page; --description '' clears it")
 	sliceDeleteYes := false
 	sliceDeleteCmd := &cobra.Command{
 		Use:   "delete <slice|account:slice>",

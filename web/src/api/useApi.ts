@@ -120,6 +120,7 @@ import type {
   SendAgentMessageRequest,
   SendAgentMessageResponse,
   SetSliceCIDaemonRequest,
+  SetSliceDescriptionRequest,
   Slice,
   StreamConversationRequest,
   StreamCheckRunRequest,
@@ -201,6 +202,7 @@ export interface ApiClient {
     request: UpdateSliceDefinitionRequest
   ): Promise<SliceDefinition>;
   setSliceCIDaemon(request: SetSliceCIDaemonRequest): Promise<Slice>;
+  setSliceDescription(request: SetSliceDescriptionRequest): Promise<Slice>;
   createChangeset(request: CreateChangesetRequest): Promise<Changeset>;
   listChangesets(
     request: ListChangesetsRequest

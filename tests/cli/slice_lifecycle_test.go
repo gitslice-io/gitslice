@@ -169,3 +169,36 @@ func TestSliceDeleteWithChangesetsKeepsHistory(t *testing.T) {
 	runCLI(t, home, verify, "workspace", "init", "acme/payment")
 	assertWorkspaceFile(t, verify, "acme/payment/scratch/notes.txt", "notes\n")
 }
+
+// TestSliceDescription sets a slice's description when creating it, shows it,
+// replaces and clears it, as someone crediting the project they mirror would.
+func TestSliceDescription(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	loginTestCLI(t, ts, home, workspace)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, workspace, "acme/payment/games/readme.md", "# games\n")
+	runCLI(t, home, workspace, "create", "--all", "--message", "add games", "--submit")
+	runCLI(t, home, workspace, "slice", "create", "acme/games", "--include", "/acme/payment/games", "--description", "A mirror of MacNativeGames")
+
+	if info := runCLI(t, home, workspace, "slice", "info", "acme/games"); !strings.Contains(info, "description: A mirror of MacNativeGames\n") {
+		t.Fatalf("info:\n%s", info)
+	}
+	out := runCLI(t, home, workspace, "slice", "update", "acme/games", "--description", "Credit: ly05010419", "--json")
+	var updated struct {
+		Description string `json:"description"`
+		Version     int64  `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(out), &updated); err != nil {
+		t.Fatalf("update json: %v\n%s", err, out)
+	}
+	// A description is not part of the definition: no new version.
+	if updated.Description != "Credit: ly05010419" || updated.Version != 1 {
+		t.Fatalf("updated = %+v", updated)
+	}
+	runCLI(t, home, workspace, "slice", "update", "acme/games", "--description", "")
+	if info := runCLI(t, home, workspace, "slice", "info", "acme/games"); strings.Contains(info, "description:") {
+		t.Fatalf("info after clearing:\n%s", info)
+	}
+}

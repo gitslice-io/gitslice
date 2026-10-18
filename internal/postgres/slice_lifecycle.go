@@ -100,6 +100,21 @@ func (s *SliceStore) Rename(ctx context.Context, sliceID, newName string) (*core
 	return s.Get(ctx, sliceID)
 }
 
+// SetDescription sets the slice's description ("" clears it).
+func (s *SliceStore) SetDescription(ctx context.Context, sliceID, description string) (*corev1.Slice, error) {
+	res, err := s.db.ExecContext(ctx, `
+		update slices set description = $2, updated_at = now()
+		where id = $1 and deleted_at is null
+	`, sliceID, description)
+	if err != nil {
+		return nil, err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return nil, ErrNotFound
+	}
+	return s.Get(ctx, sliceID)
+}
+
 // SetArchived archives the slice or restores it. Setting the state it is
 // already in is not an error.
 func (s *SliceStore) SetArchived(ctx context.Context, sliceID string, archived bool) (*corev1.Slice, error) {
@@ -179,7 +194,7 @@ func (s *SliceStore) ResolveRetired(ctx context.Context, ref *corev1.SliceRef) (
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null
+		       slices.archived_at is not null, slices.description
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1 and slices.slug = $2 and slices.deleted_at is not null
