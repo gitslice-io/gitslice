@@ -34,6 +34,8 @@ type workspaceSyncOutput struct {
 	PatchsetID           string   `json:"patchset_id,omitempty"`
 	PatchsetNumber       int64    `json:"patchset_number,omitempty"`
 	RestackedChangesets  []string `json:"updated_changesets,omitempty"`
+	LandedChangesetID    string   `json:"landed_changeset_id,omitempty"`
+	LandedStackID        string   `json:"landed_stack_id,omitempty"`
 }
 
 const (
@@ -93,8 +95,13 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	}
 	localDirtyPaths := changedPathsFromSnapshot(base, current)
 	var activeStack *corev1.ChangesetStack
+	var landedChangesetID, landedStackID string
 	if state.ActiveStackID != "" {
 		activeStack, err = corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
+		if err != nil {
+			return err
+		}
+		landed, err := stackLanded(callCtx, corev1.NewChangesetServiceClient(conn), activeStack, state.CurrentChangesetID)
 		if err != nil {
 			return err
 		}
@@ -115,6 +122,14 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		}
 		current = workingFilesFromSnapshot(base)
 		localDirtyPaths = nil
+		if landed {
+			// The workspace's changesets are part of the head's history now:
+			// move to the head and forget the closed tree. Restacking it
+			// would only move the closed tree's base.
+			landedChangesetID, landedStackID = state.CurrentChangesetID, state.ActiveStackID
+			activeStack = nil
+			state.ActiveStackID, state.CurrentChangesetID, state.CurrentPatchsetID = "", "", ""
+		}
 	}
 	changesetClient := corev1.NewChangesetServiceClient(conn)
 	var activeChangeset *corev1.Changeset
@@ -189,6 +204,8 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		ConflictPaths:        workspaceConflictPaths(plan.Conflicts),
 		ConflictCount:        len(plan.Conflicts),
 		MergeStrategy:        mergeStrategy,
+		LandedChangesetID:    landedChangesetID,
+		LandedStackID:        landedStackID,
 	}
 	if oldBaseCommitID == newBaseCommitID && len(plan.UpdatedPaths) == 0 && len(plan.Conflicts) == 0 {
 		output.Status = "up_to_date"
@@ -313,6 +330,13 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		return userError("workspace_synced", "workspace sync changed local state", "Run gs status to inspect the workspace.")
 	}
 	fmt.Fprintf(r.Stdout, "synced %s from %s to %s\n", output.Workspace, shortID(oldBaseCommitID), shortID(newBaseCommitID))
+	if output.LandedStackID != "" {
+		landed := "dependency tree " + output.LandedStackID
+		if output.LandedChangesetID != "" {
+			landed = firstNonEmpty(storage.ShortChangesetID(output.LandedChangesetID), output.LandedChangesetID)
+		}
+		fmt.Fprintf(r.Stdout, "%s landed; workspace is now on the latest commit\n", landed)
+	}
 	if output.UpdatedPathCount > 0 {
 		fmt.Fprintf(r.Stdout, "updated %d remote path(s)\n", output.UpdatedPathCount)
 	}
@@ -623,4 +647,39 @@ func (r Runner) syncLazyWorkspace(ctx context.Context, repo corev1.RepositorySer
 		return mountResolution{Keep: true}
 	})
 	return err
+}
+
+// stackLanded reports whether a workspace's dependency tree is done: the
+// server marks it closed (every changeset in it landed or was abandoned) and
+// the workspace's own changeset, when it has one, landed. A workspace whose
+// changeset was abandoned keeps its tree, so sync does not drop the abandoned
+// edits. When the workspace's changeset cannot be read (deleted, or no longer
+// visible to this identity) the tree is not treated as landed, and sync goes on
+// as it would for any other tree.
+func stackLanded(ctx context.Context, client corev1.ChangesetServiceClient, stack *corev1.ChangesetStack, currentChangesetID string) (bool, error) {
+	if stack == nil || len(stack.Entries) == 0 || stack.Status != "closed" {
+		return false, nil
+	}
+	currentChangesetID = strings.TrimSpace(currentChangesetID)
+	if currentChangesetID == "" {
+		return true, nil
+	}
+	var current *corev1.Changeset
+	for _, entry := range stack.Entries {
+		if entry != nil && entry.ChangesetId == currentChangesetID {
+			current = entry.Changeset
+		}
+	}
+	if current == nil || current.Status == "" {
+		var err error
+		current, err = client.GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: currentChangesetID})
+		switch grpcstatus.Code(err) {
+		case codes.OK:
+		case codes.NotFound, codes.PermissionDenied:
+			return false, nil
+		default:
+			return false, err
+		}
+	}
+	return current.Status == "submitted", nil
 }
