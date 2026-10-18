@@ -24,7 +24,9 @@ import (
 	"gitslice.io/gitslice/internal/lazyfs"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/encoding/gzip"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 // Lazy workspaces (design/30_lazy_workspaces.md): gs mount shows a slice at a
@@ -326,11 +328,15 @@ type mountFetcher struct {
 
 	mu       sync.Mutex
 	commitID string
-	manifest *lazyfs.Manifest
-	byHash   map[string]lazyfs.BaseEntry // a base file with each content hash, built when first needed
-	inflight map[string]*fetchCall       // by content hash
-	files    int64
-	bytes    int64
+	// downUntil is when fetches try the server again after one gave up on an
+	// unreachable server; until then they fail at once, so a program reading
+	// many uncached files offline is not held up by each one.
+	downUntil time.Time
+	manifest  *lazyfs.Manifest
+	byHash    map[string]lazyfs.BaseEntry // a base file with each content hash, built when first needed
+	inflight  map[string]*fetchCall       // by content hash
+	files     int64
+	bytes     int64
 }
 
 type fetchCall struct {
@@ -371,6 +377,10 @@ func (f *mountFetcher) fetchContent(p, hash string, size int64) (bool, error) {
 		<-call.done
 		return false, call.err
 	}
+	if wait := time.Until(f.downUntil); wait > 0 {
+		f.mu.Unlock()
+		return false, fmt.Errorf("the server is not reachable (trying again in %s): %w", wait.Round(time.Second), errServerUnreachable)
+	}
 	commitID := f.commitID
 	batch := f.planLocked(p, hash, size)
 	call := &fetchCall{done: make(chan struct{})}
@@ -382,7 +392,16 @@ func (f *mountFetcher) fetchContent(p, hash string, size int64) (bool, error) {
 	// One reader giving up must not fail the others waiting on this fetch.
 	fetchCtx, cancel := context.WithTimeout(context.Background(), mountFetchTimeout)
 	defer cancel()
-	files, bytes, err := f.fetch(fetchCtx, commitID, batch)
+	// A dropped connection is retried, over a few seconds: what a retry fetches
+	// again is only what the cache lacks.
+	var files int
+	var bytes int64
+	err := retryUnavailable(fetchCtx, fetchRetryBackoff, func() error {
+		n, size, err := f.fetch(fetchCtx, commitID, batch)
+		files += n
+		bytes += size
+		return err
+	})
 
 	f.mu.Lock()
 	for _, entry := range batch {
@@ -390,11 +409,22 @@ func (f *mountFetcher) fetchContent(p, hash string, size int64) (bool, error) {
 	}
 	f.files += int64(files)
 	f.bytes += bytes
+	if grpcstatus.Code(err) == codes.Unavailable {
+		f.downUntil = time.Now().Add(mountOutageWindow)
+	}
 	f.mu.Unlock()
 	call.err = err
 	close(call.done)
 	return err == nil, err
 }
+
+// fetchRetryBackoff paces the retries of a fetch whose connection dropped, and
+// mountOutageWindow is how long fetches then fail at once instead of trying.
+var fetchRetryBackoff = []time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second}
+
+const mountOutageWindow = 5 * time.Second
+
+var errServerUnreachable = errors.New("server unreachable")
 
 // planLocked picks what to fetch for the content with hash: the base file
 // at p with the small files beside it that are not cached yet or already

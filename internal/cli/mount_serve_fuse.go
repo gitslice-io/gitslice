@@ -43,7 +43,9 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 	if err != nil {
 		return err
 	}
-	conn, err := dial(ctx, rec.ServerAddr)
+	// The mount works from local state, so it starts without the server: only
+	// a read of content the cache lacks needs it.
+	conn, err := dialLazy(rec.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -189,12 +191,17 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 					}
 					reply.Edits = edits
 				case "restore":
+					before, _ := layer.Edits()
 					for _, p := range req.Paths {
 						if err := layer.Restore(p); err != nil {
 							reply.Error = err.Error()
 							break
 						}
 						mounted.Invalidate(p)
+					}
+					// Changed is how many edits the restore dropped.
+					if after, _ := layer.Edits(); len(before) > len(after) {
+						reply.Changed = len(before) - len(after)
 					}
 				case "unmount":
 					go unmount()

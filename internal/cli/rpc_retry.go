@@ -112,6 +112,27 @@ func retryUnaryInterceptor(ctx context.Context, method string, req, reply any, c
 	return err
 }
 
+// retryUnavailable runs fn, and again after each pause in backoff while it
+// fails with Unavailable: for calls the unary interceptor does not cover
+// (server streams, such as Checkout and ReadBlobStream) and for work that is
+// safe to start over, because it only reads and caches. It returns the last
+// error.
+func retryUnavailable(ctx context.Context, backoff []time.Duration, fn func() error) error {
+	err := fn()
+	for _, pause := range backoff {
+		if grpcstatus.Code(err) != codes.Unavailable {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(pause):
+		}
+		err = fn()
+	}
+	return err
+}
+
 // explainUnavailable turns an Unavailable error from a call into a message
 // that says what happened and what to do, or returns nil for any other error.
 func explainUnavailable(err error) error {

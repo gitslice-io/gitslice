@@ -32,6 +32,14 @@ func mounted(dir string) bool {
 	return false
 }
 
+// isolateClientCache lets each home keep its own content cache even when the
+// environment names a shared one, so a test can tell what a mount fetched.
+func isolateClientCache(t *testing.T) {
+	t.Helper()
+	t.Setenv("GS_CLIENT_CACHE_DIR", "")
+	t.Setenv("GITSLICE_CLIENT_CACHE_DIR", "")
+}
+
 // startMount serves gs mount --foreground in the background and waits for the
 // mount to come up. The returned channel reports when it ends.
 func startMount(t *testing.T, home, cwd string, args ...string) <-chan error {
@@ -234,9 +242,22 @@ func TestMountKeepsEditsLocalUntilCreate(t *testing.T) {
 		t.Fatal("gs status or gs diff uploaded content")
 	}
 
-	// gs restore drops a local edit.
+	// gs restore drops a local edit, and says how many it dropped.
 	must(os.WriteFile(filepath.Join(app, "README.md"), []byte("scratch\n"), 0o644))
-	runCLI(t, home, app, "restore", "README.md")
+	if out := runCLI(t, home, app, "restore", "README.md"); !strings.Contains(out, "restored 1 edit under README.md") {
+		t.Fatalf("gs restore of one edit: %q", out)
+	}
+	if out := runCLI(t, home, app, "restore", "README.md"); !strings.Contains(out, "nothing to restore: no local edits under README.md") {
+		t.Fatalf("gs restore of a path with no edits: %q", out)
+	}
+
+	// A mount cannot be made inside this one: its .gs would hide the outer one.
+	if _, stderr := runCLIFails(t, home, app, "mount", "acme/payment", filepath.Join(app, "nested")); !strings.Contains(stderr, "inside the gitslice workspace") {
+		t.Fatalf("gs mount inside a mount: %s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(app, "nested")); err == nil {
+		t.Fatal("the refused mount made a directory inside the mount")
+	}
 	if data, _ := os.ReadFile(filepath.Join(app, "README.md")); string(data) != "# Payment\n" {
 		t.Fatalf("README.md after gs restore = %q", data)
 	}
@@ -281,6 +302,7 @@ func TestMountKeepsEditsLocalUntilCreate(t *testing.T) {
 // and switches between the changesets of a dependency tree, checking each
 // time that the mount shows what a gs init workspace would.
 func TestMountSyncsAndSwitchesThroughItsLayers(t *testing.T) {
+	isolateClientCache(t)
 	if _, err := os.Stat("/dev/fuse"); err != nil {
 		t.Skip("no /dev/fuse here")
 	}
@@ -546,5 +568,130 @@ func TestMountSyncMergesAChangesetOutsideATree(t *testing.T) {
 	}
 	if got := read("conflict.txt"); got != lines("alpha", "BETA resolved") {
 		t.Fatalf("conflict.txt after landing = %q", got)
+	}
+}
+
+// TestMountRefusesDirectoriesItCannotUse: a directory that cannot be mounted
+// is refused before anything is made for it, so it leaves no workspace in
+// gs mount list and no directory behind.
+func TestMountRefusesDirectoriesItCannotUse(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	loginTestCLI(t, ts, home, workspace)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	noWorkspaces := func(when string) {
+		t.Helper()
+		if list := runCLI(t, home, workspace, "mount", "list"); !strings.Contains(list, "no lazy workspaces") {
+			t.Fatalf("gs mount list %s:\n%s", when, list)
+		}
+	}
+
+	full := t.TempDir()
+	writeWorkspaceFile(t, full, "keep.txt", "mine\n")
+	if _, stderr := runCLIFails(t, home, workspace, "mount", "acme/payment", full); !strings.Contains(stderr, "is not empty") {
+		t.Fatalf("mounting into a non-empty folder: %s", stderr)
+	}
+	noWorkspaces("after a non-empty folder")
+
+	inside := filepath.Join(workspace, "acme", "payment", "mnt")
+	if _, stderr := runCLIFails(t, home, workspace, "mount", "acme/payment", inside); !strings.Contains(stderr, "inside the gitslice workspace") {
+		t.Fatalf("mounting inside a gs init workspace: %s", stderr)
+	}
+	if _, err := os.Stat(inside); err == nil {
+		t.Fatal("the refused mount made a directory inside the workspace")
+	}
+	noWorkspaces("after mounting inside a workspace")
+}
+
+// TestMountWorksWithoutTheServer: a mount starts and serves what the cache has
+// while the server cannot be reached; reading anything else fails with an I/O
+// error, after a few retries the first time and at once while the outage lasts.
+func TestMountWorksWithoutTheServer(t *testing.T) {
+	isolateClientCache(t)
+	if _, err := os.Stat("/dev/fuse"); err != nil {
+		t.Skip("no /dev/fuse here")
+	}
+	if _, err := exec.LookPath("fusermount3"); err != nil {
+		if _, err := exec.LookPath("fusermount"); err != nil {
+			t.Skip("no fusermount here")
+		}
+	}
+	ts := startTestServer(t)
+	home := t.TempDir()
+	upstream := t.TempDir()
+	loginTestCLI(t, ts, home, upstream)
+	runCLI(t, home, upstream, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, upstream, "acme/payment/src/main.go", "package main\n")
+	writeWorkspaceFile(t, upstream, "acme/payment/docs/guide.md", "# Guide\n")
+	runCLI(t, home, upstream, "create", "--message", "files to mount", "--all", "--submit")
+
+	mountHome := t.TempDir()
+	loginTestCLI(t, ts, mountHome, upstream)
+	dir := filepath.Join(t.TempDir(), "payment")
+	startMount(t, mountHome, upstream, "acme/payment", dir)
+	app := filepath.Join(dir, "acme", "payment")
+	if data, err := os.ReadFile(filepath.Join(app, "src", "main.go")); err != nil || string(data) != "package main\n" {
+		t.Fatalf("read main.go online = %q, %v", data, err)
+	}
+	runCLI(t, mountHome, upstream, "unmount", dir)
+
+	// The server goes away: point the workspace at an address nothing listens on.
+	var list struct {
+		Workspaces []struct {
+			ID string `json:"id"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, mountHome, upstream, "mount", "list", "--json")), &list); err != nil || len(list.Workspaces) != 1 {
+		t.Fatalf("gs mount list --json = %+v, %v", list, err)
+	}
+	recordPath := filepath.Join(mountHome, ".local", "share", "gitslice", "mounts", list.Workspaces[0].ID, "mount.json")
+	var record map[string]any
+	data, err := os.ReadFile(recordPath)
+	if err != nil || json.Unmarshal(data, &record) != nil {
+		t.Fatalf("reading %s: %v", recordPath, err)
+	}
+	record["server_addr"] = "127.0.0.1:1"
+	data, _ = json.Marshal(record)
+	if err := os.WriteFile(recordPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	startMount(t, mountHome, upstream, "acme/payment", dir)
+	if took := time.Since(started); took > 8*time.Second {
+		t.Fatalf("remounting without the server took %s; it should not wait for the server", took)
+	}
+	if data, err := os.ReadFile(filepath.Join(app, "src", "main.go")); err != nil || string(data) != "package main\n" {
+		t.Fatalf("read the cached main.go offline = %q, %v", data, err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "src", "offline.go"), []byte("package main // offline\n"), 0o644); err != nil {
+		t.Fatalf("writing offline: %v", err)
+	}
+
+	// Content the cache lacks cannot be had: the first read retries for a few
+	// seconds, the next ones fail at once.
+	started = time.Now()
+	if _, err := os.ReadFile(filepath.Join(app, "docs", "guide.md")); err == nil {
+		t.Fatal("read an uncached file offline without error")
+	}
+	if took := time.Since(started); took > 30*time.Second {
+		t.Fatalf("the first offline read took %s", took)
+	}
+	started = time.Now()
+	if _, err := os.ReadFile(filepath.Join(app, "docs", "guide.md")); err == nil {
+		t.Fatal("read an uncached file offline without error")
+	}
+	if took := time.Since(started); took > 2*time.Second {
+		t.Fatalf("the second offline read took %s; it should fail at once during the outage", took)
+	}
+	var status struct {
+		Daemon struct {
+			Errors    int    `json:"errors"`
+			LastError string `json:"last_error"`
+		} `json:"daemon"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, mountHome, app, "mount", "status", "--json")), &status); err != nil || status.Daemon.Errors == 0 || status.Daemon.LastError == "" {
+		t.Fatalf("gs mount status after failed reads = %+v, %v", status, err)
 	}
 }

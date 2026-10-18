@@ -102,9 +102,27 @@ const (
 	clientConnWindow   = 16 << 20
 )
 
+// dialLazy is dial without waiting for the server: the connection is made when
+// the first call needs it, and a call made while the server is unreachable
+// fails with Unavailable. A long-lived process that can work from local state,
+// such as a lazy workspace's mount daemon, uses it so it starts offline.
+func dialLazy(addr string) (*grpc.ClientConn, error) {
+	target, options := dialOptions(addr)
+	return grpc.DialContext(context.Background(), target, options...)
+}
+
 func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.DialOption) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	target, options := dialOptions(addr)
+	options = append(options, grpc.WithBlock())
+	options = append(options, extraOptions...)
+	return grpc.DialContext(ctx, target, options...)
+}
+
+// dialOptions returns the target and the options every connection to the
+// server uses, except whether to wait for it.
+func dialOptions(addr string) (string, []grpc.DialOption) {
 	target, useTLS := resolveDialTarget(addr)
 	creds := insecure.NewCredentials()
 	if useTLS {
@@ -125,11 +143,9 @@ func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.Dial
 		// rather than 64 KiB per round trip.
 		grpc.WithInitialWindowSize(clientStreamWindow),
 		grpc.WithInitialConnWindowSize(clientConnWindow),
-		grpc.WithBlock(),
 		grpc.WithChainUnaryInterceptor(retryUnaryInterceptor),
 	}
-	options = append(options, extraOptions...)
-	return grpc.DialContext(ctx, target, options...)
+	return target, options
 }
 
 // resolveDialTarget strips any scheme from a server address and decides whether

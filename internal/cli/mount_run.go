@@ -15,7 +15,7 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dirArg, workspaceID string, foreground, debug bool, readOnly *bool, prefetch []string) error {
+func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dirArg, workspaceID string, foreground, debug bool, readOnly *bool, prefetch []string) (err error) {
 	for _, pattern := range prefetch {
 		if !doublestar.ValidatePattern(pattern) {
 			return userError("invalid_args", "invalid --prefetch pattern "+pattern, "Use a glob relative to the mount, such as 'acme/app/**/*.go'.")
@@ -25,9 +25,25 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 	if err != nil {
 		return err
 	}
-	rec, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(opts.AgentConversationID))
+	// Refuse a directory that cannot be mounted before anything is created, so
+	// a refusal leaves no workspace behind.
+	if !isMounted(dir) {
+		if err := checkMountDir(dir); err != nil {
+			return err
+		}
+	}
+	rec, created, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(opts.AgentConversationID))
 	if err != nil {
 		return err
+	}
+	if created {
+		// A workspace this call made has no edits: if it cannot be mounted, it
+		// is not worth keeping in gs mount list.
+		defer func() {
+			if err != nil {
+				_ = os.RemoveAll(r.mountStateDir(rec.ID))
+			}
+		}()
 	}
 	if isMounted(dir) {
 		if _, err := callMountDaemon(rec.ID, mountControlRequest{Op: "status"}); err == nil || foreground {
@@ -81,59 +97,66 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 
 // mountRecordFor returns the workspace to mount at dir: the one named, the one
 // last mounted at dir, or a new one for the slice.
-func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID, conversationID string) (mountRecord, error) {
-	var rec mountRecord
+func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID, conversationID string) (rec mountRecord, created bool, err error) {
 	if workspaceID != "" {
 		found, err := r.readMountRecord(workspaceID)
 		if err != nil {
-			return rec, userError("not_a_lazy_workspace", "no lazy workspace "+workspaceID, "Run gs mount list.")
+			return rec, false, userError("not_a_lazy_workspace", "no lazy workspace "+workspaceID, "Run gs mount list.")
 		}
 		found.MountPath = dir
-		return found, r.writeMountRecord(found)
+		return found, false, r.writeMountRecord(found)
 	}
 	records, err := r.mountRecords()
 	if err != nil {
-		return rec, err
+		return rec, false, err
 	}
 	for _, existing := range records {
 		if existing.MountPath == dir {
 			if sliceArg != "" && !strings.EqualFold(strings.ReplaceAll(sliceArg, "/", ":"), existing.Account+":"+existing.Slice) && !strings.EqualFold(sliceArg, existing.Slice) {
-				return rec, userError("mount_path_in_use", dir+" belongs to the lazy workspace of "+existing.Account+":"+existing.Slice, "Use another directory, or gs mount "+existing.Account+":"+existing.Slice+" "+dir+" to re-attach it.")
+				return rec, false, userError("mount_path_in_use", dir+" belongs to the lazy workspace of "+existing.Account+":"+existing.Slice, "Use another directory, or gs mount "+existing.Account+":"+existing.Slice+" "+dir+" to re-attach it.")
 			}
-			return existing, nil
+			return existing, false, nil
 		}
 	}
 	if sliceArg == "" {
-		return rec, userError("slice_required", "no lazy workspace at "+dir, "Run gs mount <slice|account:slice> "+dir+".")
+		return rec, false, userError("slice_required", "no lazy workspace at "+dir, "Run gs mount <slice|account:slice> "+dir+".")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
-		return rec, err
+		return rec, false, err
 	}
 	defer conn.Close()
 	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceArg)
 	if err != nil {
-		return rec, err
+		return rec, false, err
 	}
 	cache, err := r.objectCache()
 	if err != nil {
-		return rec, err
+		return rec, false, err
 	}
-	checkout, err := receiveCheckoutListing(callCtx, conn, ref, cache)
-	if err != nil {
-		return rec, err
+	var checkout *receivedCheckout
+	if err = retryUnavailable(callCtx, listingRetryBackoff, func() (err error) {
+		checkout, err = receiveCheckoutListing(callCtx, conn, ref, cache)
+		return err
+	}); err != nil {
+		return rec, false, err
 	}
 	entries := manifestEntries(checkout.entries)
 	id, err := newMountID()
 	if err != nil {
-		return rec, err
+		return rec, false, err
 	}
 	state := r.mountStateDir(id)
 	if err := os.MkdirAll(state, 0o700); err != nil {
-		return rec, err
+		return rec, false, err
 	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(state)
+		}
+	}()
 	if err := writeManifest(r.mountManifestPath(id, checkout.commitID), entries); err != nil {
-		return rec, err
+		return rec, false, err
 	}
 	files := 0
 	for _, entry := range entries {
@@ -155,14 +178,42 @@ func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID, 
 		IncludedPaths:  checkout.slice.GetDefinition().GetIncludedPaths(),
 		ConversationID: conversationID,
 	}
-	if err := r.writeMountRecord(rec); err != nil {
-		return rec, err
+	if err = r.writeMountRecord(rec); err != nil {
+		return rec, false, err
 	}
 	manifest, err := r.loadMountManifest(rec)
 	if err != nil {
-		return rec, err
+		return rec, false, err
 	}
-	return rec, r.writeLazyWorkspaceState(rec, manifest)
+	if err = r.writeLazyWorkspaceState(rec, manifest); err != nil {
+		return rec, false, err
+	}
+	return rec, true, nil
+}
+
+// listingRetryBackoff paces the retries of the listing a new mount fetches.
+var listingRetryBackoff = []time.Duration{250 * time.Millisecond, 750 * time.Millisecond, 2 * time.Second}
+
+// checkMountDir checks that dir can be mounted before anything is made for it:
+// it is not inside a workspace (a gs init checkout or another mount, whose .gs
+// the new mount would hide from every command run in it), and it either does
+// not exist or is an empty directory.
+func checkMountDir(dir string) error {
+	if root, err := workspaceRootFrom(filepath.Dir(dir)); err == nil {
+		return userError("already_in_workspace", "cannot mount inside the gitslice workspace at "+root, "Mount at a directory outside any workspace.")
+	} else if !isUserErrorCode(err, "not_in_workspace") {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return userError("mount_dir_unusable", "cannot use "+dir+": "+err.Error(), "Mount at an empty directory.")
+	case len(entries) > 0:
+		return userError("mount_dir_not_empty", dir+" is not empty", "Mount at an empty directory.")
+	}
+	return nil
 }
 
 // prepareMountDir makes dir, or checks that it is an empty directory.
@@ -448,14 +499,26 @@ func (r Runner) runRestore(ctx context.Context, opts commandOptions, args []stri
 			}
 		}
 	}
-	if _, err := callMountDaemon(id, req); err != nil {
+	reply, err := callMountDaemon(id, req)
+	if err != nil {
 		return userError("restore_failed", err.Error(), "Is the workspace mounted? gs mount status "+root)
 	}
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"restored": req.Paths})
+		return r.writeJSONOutput(opts, map[string]any{"restored": req.Paths, "dropped": reply.Changed})
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "restored %s from the base\n", strings.Join(req.Paths, ", "))
+		scope := ""
+		if !all {
+			scope = " under " + strings.Join(args, ", ")
+		}
+		switch reply.Changed {
+		case 0:
+			fmt.Fprintf(r.Stdout, "nothing to restore: no local edits%s\n", scope)
+		case 1:
+			fmt.Fprintf(r.Stdout, "restored 1 edit%s from the base\n", scope)
+		default:
+			fmt.Fprintf(r.Stdout, "restored %d edits%s from the base\n", reply.Changed, scope)
+		}
 	}
 	return nil
 }

@@ -51,7 +51,10 @@ gs unmount ~/src/gitslice                     # edits survive; gs mount picks th
 ```
 
 - `gs mount <slice> <dir> [--foreground] [--prefetch <glob>...]` mounts a lazy
-  workspace at an empty directory. Mounting the same directory again re-attaches
+  workspace at an empty directory, which must not be inside a `gs init`
+  workspace or another mount (its `.gs` would hide theirs). A directory that
+  cannot be used is refused before anything is made, so it leaves nothing in
+  `gs mount list`. Mounting the same directory again re-attaches
   the same workspace (found by the mount path in its `mount.json`), edits
   included. `--prefetch` patterns (relative to the mount) are kept in
   `mount.json`: the daemon fetches matching files in the background when it
@@ -187,8 +190,16 @@ serves file system requests and nothing else:
   the file, and small siblings in the same directory (under 64 KiB, at most 256
   files or 4 MiB, as `gs init` batches today), with `ReadFiles`; files over 4 MiB
   stream through `ReadBlobStream`. Fetches for the same hash are shared. A read
-  waits for its content; after 60 s, or offline, it fails with `EIO` and
-  `gs mount status` says which path and why.
+  waits for its content. A dropped connection is retried for a few seconds
+  (a fetch starts over, and only fetches what the cache still lacks); a fetch that gives
+  up on an unreachable server makes the next ones fail at once for five seconds,
+  so a program reading many uncached files offline is not held up by each. A
+  read that fails, after 60 s at most, gets `EIO` and `gs mount status` says
+  which path and why.
+- The daemon does not wait for the server when it starts: it connects when the
+  first fetch needs it. A mount, a remount, and every read the cache can
+  answer work offline; `gs fetch` ahead of time is what makes a tree readable
+  offline. Creating a new mount needs the server, for its listing.
 - The first write to a base file copies it up: it fetches the content unless the
   file is opened with `O_TRUNC`, writes `local/files/<path>`, and records a file
   entry. `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `symlink`, `chmod` and

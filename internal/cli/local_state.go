@@ -271,7 +271,12 @@ func (r Runner) userConfigPath() string {
 }
 
 func (r Runner) workspaceRoot() (string, error) {
-	dir := r.cwd()
+	return workspaceRootFrom(r.cwd())
+}
+
+// workspaceRootFrom finds the gitslice workspace that contains dir, walking up
+// from it.
+func workspaceRootFrom(dir string) (string, error) {
 	for {
 		if _, err := os.Stat(filepath.Join(dir, ".gs", "slice.json")); err == nil {
 			return dir, nil
