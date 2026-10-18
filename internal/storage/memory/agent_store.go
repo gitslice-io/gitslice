@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/objectid"
@@ -46,6 +47,7 @@ func (s *AgentStore) RegisterDaemon(ctx context.Context, in storage.AgentDaemonI
 		CreatedAt:  now,
 	}
 	s.b.agentDaemons[id] = d
+	s.b.agentDaemonOwner[id] = in.SubjectID
 	return cloneDaemon(d), nil
 }
 
@@ -75,11 +77,61 @@ func (s *AgentStore) ListDaemons(ctx context.Context, subjectID string) ([]*core
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	var out []*corev1.AgentDaemon
-	for _, d := range s.b.agentDaemons {
-		out = append(out, cloneDaemon(d))
+	for id, d := range s.b.agentDaemons {
+		if s.b.agentDaemonOwner[id] == subjectID {
+			out = append(out, cloneDaemon(d))
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
 	return out, nil
+}
+
+func (s *AgentStore) ListDaemonsForAccounts(ctx context.Context, accounts []string) ([]*corev1.AgentDaemon, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	wanted := map[string]bool{}
+	for _, account := range accounts {
+		wanted[account] = true
+	}
+	var out []*corev1.AgentDaemon
+	for _, d := range s.b.agentDaemons {
+		if wanted[d.Account] {
+			out = append(out, cloneDaemon(d))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	return out, nil
+}
+
+func (s *AgentStore) DaemonSubject(ctx context.Context, daemonID string) (string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if _, ok := s.b.agentDaemons[daemonID]; !ok {
+		return "", storage.ErrNotFound
+	}
+	return s.b.agentDaemonOwner[daemonID], nil
+}
+
+func (s *AgentStore) RenameDaemon(ctx context.Context, daemonID, displayName string) (*corev1.AgentDaemon, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	d, ok := s.b.agentDaemons[daemonID]
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	if displayName != "" {
+		for id, other := range s.b.agentDaemons {
+			shown := other.DisplayName
+			if shown == "" {
+				shown = other.Name
+			}
+			if id != daemonID && other.Account == d.Account && strings.EqualFold(shown, displayName) {
+				return nil, storage.ErrConflict
+			}
+		}
+	}
+	d.DisplayName = displayName
+	return cloneDaemon(d), nil
 }
 
 func (s *AgentStore) CreateConversation(ctx context.Context, in storage.ConversationInput) (*corev1.Conversation, error) {

@@ -72,6 +72,10 @@ func (r Runner) enhanceCommandError(err error) error {
 		return r.unauthenticatedError(err)
 	case codes.PermissionDenied:
 		return r.permissionDeniedError(err)
+	case codes.Unavailable:
+		if explained := explainUnavailable(err); explained != nil {
+			return explained
+		}
 	}
 	return err
 }

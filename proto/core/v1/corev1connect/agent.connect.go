@@ -38,6 +38,9 @@ const (
 	// AgentServiceListDaemonsProcedure is the fully-qualified name of the AgentService's ListDaemons
 	// RPC.
 	AgentServiceListDaemonsProcedure = "/gitslice.core.v1.AgentService/ListDaemons"
+	// AgentServiceRenameDaemonProcedure is the fully-qualified name of the AgentService's RenameDaemon
+	// RPC.
+	AgentServiceRenameDaemonProcedure = "/gitslice.core.v1.AgentService/RenameDaemon"
 	// AgentServiceCreateConversationProcedure is the fully-qualified name of the AgentService's
 	// CreateConversation RPC.
 	AgentServiceCreateConversationProcedure = "/gitslice.core.v1.AgentService/CreateConversation"
@@ -67,7 +70,14 @@ type AgentServiceClient interface {
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(context.Context) *connect.BidiStreamForClient[v1.DaemonMessage, v1.ServerMessage]
 	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
+	// ListDaemons lists the daemons the caller registered and those registered
+	// under accounts the caller owns or administers (an agent's daemons, once its
+	// owner has claimed it).
 	ListDaemons(context.Context, *connect.Request[v1.ListDaemonsRequest]) (*connect.Response[v1.ListDaemonsResponse], error)
+	// RenameDaemon sets the name a daemon is shown by. The name it registered
+	// with (gs agent start --name) is unchanged, so a restart finds the same
+	// daemon.
+	RenameDaemon(context.Context, *connect.Request[v1.RenameDaemonRequest]) (*connect.Response[v1.AgentDaemon], error)
 	CreateConversation(context.Context, *connect.Request[v1.CreateConversationRequest]) (*connect.Response[v1.Conversation], error)
 	ListConversations(context.Context, *connect.Request[v1.ListConversationsRequest]) (*connect.Response[v1.ListConversationsResponse], error)
 	GetConversation(context.Context, *connect.Request[v1.GetConversationRequest]) (*connect.Response[v1.Conversation], error)
@@ -103,6 +113,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceListDaemonsProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("ListDaemons")),
+			connect.WithClientOptions(opts...),
+		),
+		renameDaemon: connect.NewClient[v1.RenameDaemonRequest, v1.AgentDaemon](
+			httpClient,
+			baseURL+AgentServiceRenameDaemonProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("RenameDaemon")),
 			connect.WithClientOptions(opts...),
 		),
 		createConversation: connect.NewClient[v1.CreateConversationRequest, v1.Conversation](
@@ -154,6 +170,7 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 type agentServiceClient struct {
 	connect               *connect.Client[v1.DaemonMessage, v1.ServerMessage]
 	listDaemons           *connect.Client[v1.ListDaemonsRequest, v1.ListDaemonsResponse]
+	renameDaemon          *connect.Client[v1.RenameDaemonRequest, v1.AgentDaemon]
 	createConversation    *connect.Client[v1.CreateConversationRequest, v1.Conversation]
 	listConversations     *connect.Client[v1.ListConversationsRequest, v1.ListConversationsResponse]
 	getConversation       *connect.Client[v1.GetConversationRequest, v1.Conversation]
@@ -171,6 +188,11 @@ func (c *agentServiceClient) Connect(ctx context.Context) *connect.BidiStreamFor
 // ListDaemons calls gitslice.core.v1.AgentService.ListDaemons.
 func (c *agentServiceClient) ListDaemons(ctx context.Context, req *connect.Request[v1.ListDaemonsRequest]) (*connect.Response[v1.ListDaemonsResponse], error) {
 	return c.listDaemons.CallUnary(ctx, req)
+}
+
+// RenameDaemon calls gitslice.core.v1.AgentService.RenameDaemon.
+func (c *agentServiceClient) RenameDaemon(ctx context.Context, req *connect.Request[v1.RenameDaemonRequest]) (*connect.Response[v1.AgentDaemon], error) {
+	return c.renameDaemon.CallUnary(ctx, req)
 }
 
 // CreateConversation calls gitslice.core.v1.AgentService.CreateConversation.
@@ -214,7 +236,14 @@ type AgentServiceHandler interface {
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(context.Context, *connect.BidiStream[v1.DaemonMessage, v1.ServerMessage]) error
 	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
+	// ListDaemons lists the daemons the caller registered and those registered
+	// under accounts the caller owns or administers (an agent's daemons, once its
+	// owner has claimed it).
 	ListDaemons(context.Context, *connect.Request[v1.ListDaemonsRequest]) (*connect.Response[v1.ListDaemonsResponse], error)
+	// RenameDaemon sets the name a daemon is shown by. The name it registered
+	// with (gs agent start --name) is unchanged, so a restart finds the same
+	// daemon.
+	RenameDaemon(context.Context, *connect.Request[v1.RenameDaemonRequest]) (*connect.Response[v1.AgentDaemon], error)
 	CreateConversation(context.Context, *connect.Request[v1.CreateConversationRequest]) (*connect.Response[v1.Conversation], error)
 	ListConversations(context.Context, *connect.Request[v1.ListConversationsRequest]) (*connect.Response[v1.ListConversationsResponse], error)
 	GetConversation(context.Context, *connect.Request[v1.GetConversationRequest]) (*connect.Response[v1.Conversation], error)
@@ -246,6 +275,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceListDaemonsProcedure,
 		svc.ListDaemons,
 		connect.WithSchema(agentServiceMethods.ByName("ListDaemons")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceRenameDaemonHandler := connect.NewUnaryHandler(
+		AgentServiceRenameDaemonProcedure,
+		svc.RenameDaemon,
+		connect.WithSchema(agentServiceMethods.ByName("RenameDaemon")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceCreateConversationHandler := connect.NewUnaryHandler(
@@ -296,6 +331,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceConnectHandler.ServeHTTP(w, r)
 		case AgentServiceListDaemonsProcedure:
 			agentServiceListDaemonsHandler.ServeHTTP(w, r)
+		case AgentServiceRenameDaemonProcedure:
+			agentServiceRenameDaemonHandler.ServeHTTP(w, r)
 		case AgentServiceCreateConversationProcedure:
 			agentServiceCreateConversationHandler.ServeHTTP(w, r)
 		case AgentServiceListConversationsProcedure:
@@ -325,6 +362,10 @@ func (UnimplementedAgentServiceHandler) Connect(context.Context, *connect.BidiSt
 
 func (UnimplementedAgentServiceHandler) ListDaemons(context.Context, *connect.Request[v1.ListDaemonsRequest]) (*connect.Response[v1.ListDaemonsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AgentService.ListDaemons is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) RenameDaemon(context.Context, *connect.Request[v1.RenameDaemonRequest]) (*connect.Response[v1.AgentDaemon], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AgentService.RenameDaemon is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) CreateConversation(context.Context, *connect.Request[v1.CreateConversationRequest]) (*connect.Response[v1.Conversation], error) {

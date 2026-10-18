@@ -6,6 +6,9 @@ export interface Slice {
   definition?: SliceDefinition;
   definitionHash?: string;
   ciDaemonId?: string;
+  // The name the CI daemon is shown by (its display name, else the name it
+  // registered with); empty when the slice has none.
+  ciDaemonName?: string;
   // Archived slices are read-only and left out of listings.
   archived?: boolean;
   // Names the slice had before it was renamed; they still open it.

@@ -6,6 +6,8 @@ export interface CheckRun {
   patchsetId?: string;
   checkName?: string;
   daemonId?: string;
+  // The name daemonId is shown by.
+  daemonName?: string;
   provenance?: string;
   attempt?: number;
   status?: string;

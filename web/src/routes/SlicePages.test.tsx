@@ -756,6 +756,33 @@ describe("slice route pages (render smoke)", () => {
     );
   });
 
+  it("names the slice's CI daemon, even for someone who cannot list it", async () => {
+    const api = makeApi();
+    api.resolveSlice = vi.fn().mockResolvedValue({
+      id: "slice_nic_home",
+      ref: { account: "nic", slice: "home" },
+      definition: {
+        sliceId: "slice_nic_home",
+        version: "2",
+        includedPaths: ["/nic"],
+        visibility: "public",
+        requiredApprovals: 0,
+        requiredChecks: []
+      },
+      definitionHash: "sha256:abc",
+      ciDaemonId: "agent_f83ad2fa",
+      ciDaemonName: "Main CI"
+    });
+    // The viewer lists no daemons: the agent that runs CI is not theirs.
+    api.listDaemons = vi.fn().mockResolvedValue({ daemons: [] });
+    apiMock.current = api;
+
+    renderRoute(<SliceSettingsPage />);
+
+    expect(await screen.findByText("Main CI")).toBeInTheDocument();
+    expect(screen.getByText("agent_f83ad2fa")).toBeInTheDocument();
+  });
+
   it("creates a changeset and redirects after a folder operation", async () => {
     authMock.current = { isLoaded: true, isSignedIn: true };
     const api = makeApi();

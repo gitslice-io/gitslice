@@ -284,7 +284,10 @@ type Slice struct {
 	// Archived slices are read-only and left out of listings unless asked for.
 	Archived bool `protobuf:"varint,6,opt,name=archived,proto3" json:"archived,omitempty"`
 	// Names the slice had before it was renamed. They still resolve to it.
-	FormerNames   []string `protobuf:"bytes,7,rep,name=former_names,json=formerNames,proto3" json:"former_names,omitempty"`
+	FormerNames []string `protobuf:"bytes,7,rep,name=former_names,json=formerNames,proto3" json:"former_names,omitempty"`
+	// ci_daemon_name is the name the CI daemon is shown by (its display name,
+	// else the name it registered with); "" when there is none.
+	CiDaemonName  string `protobuf:"bytes,8,opt,name=ci_daemon_name,json=ciDaemonName,proto3" json:"ci_daemon_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -366,6 +369,13 @@ func (x *Slice) GetFormerNames() []string {
 		return x.FormerNames
 	}
 	return nil
+}
+
+func (x *Slice) GetCiDaemonName() string {
+	if x != nil {
+		return x.CiDaemonName
+	}
+	return ""
 }
 
 type SliceDefinition struct {
@@ -1930,7 +1940,7 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x0fListTagsRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"=\n" +
 	"\x10ListTagsResponse\x12)\n" +
-	"\x04tags\x18\x01 \x03(\v2\x15.gitslice.core.v1.TagR\x04tags\"\x92\x02\n" +
+	"\x04tags\x18\x01 \x03(\v2\x15.gitslice.core.v1.TagR\x04tags\"\xb8\x02\n" +
 	"\x05Slice\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
 	"\x03ref\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\x12A\n" +
@@ -1941,7 +1951,8 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\fci_daemon_id\x18\x05 \x01(\tR\n" +
 	"ciDaemonId\x12\x1a\n" +
 	"\barchived\x18\x06 \x01(\bR\barchived\x12!\n" +
-	"\fformer_names\x18\a \x03(\tR\vformerNames\"\xe5\x01\n" +
+	"\fformer_names\x18\a \x03(\tR\vformerNames\x12$\n" +
+	"\x0eci_daemon_name\x18\b \x01(\tR\fciDaemonName\"\xe5\x01\n" +
 	"\x0fSliceDefinition\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12%\n" +

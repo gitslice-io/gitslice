@@ -10,6 +10,7 @@ import { AccountAvatar } from "../components/AccountSwitcher";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import { AccountPeople } from "../components/slices/AccountPeople";
+import { AgentDaemons } from "../components/slices/AgentDaemons";
 import { OwnedAgents } from "../components/slices/OwnedAgents";
 import {
   SliceLoadingBlock,
@@ -266,6 +267,9 @@ function YourAccounts({ memberships }: { memberships: readonly Membership[] }) {
       })}
       <div className="mt-10">
         <OwnedAgents />
+      </div>
+      <div className="mt-10">
+        <AgentDaemons />
       </div>
     </>
   );

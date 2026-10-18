@@ -35,6 +35,34 @@ func (s *SliceStore) SetCIDaemon(ctx context.Context, sliceID, daemonID string) 
 	return s.Get(ctx, sliceID)
 }
 
+func (s *SliceStore) ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]*corev1.Slice, error) {
+	if len(daemonIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
+		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       slices.archived_at is not null
+		from slices
+		join accounts on accounts.id = slices.account_id
+		where slices.ci_daemon_id = any($1) and slices.deleted_at is null
+		order by accounts.slug, slices.slug
+	`, daemonIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.Slice
+	for rows.Next() {
+		slice, err := scanSlice(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, slice)
+	}
+	return out, rows.Err()
+}
+
 func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value string) error {
 	sliceID = strings.TrimSpace(sliceID)
 	if sliceID == "" {

@@ -47,6 +47,34 @@ describe("AgentsTab", () => {
     );
   });
 
+  it("offers only the daemons the viewer can start conversations on, by the name they are shown by", async () => {
+    const api = makeApi();
+    vi.mocked(api.listDaemons).mockResolvedValue({
+      daemons: [
+        { id: "daemon_1", name: "laptop", displayName: "Codex laptop", runtime: "codex", status: "online", mine: true },
+        // An agent's daemon the viewer co-owns: listed for CI and renaming, but
+        // conversations run only on daemons the viewer registered.
+        { id: "daemon_bot", name: "grok-bot-ci", runtime: "codex", status: "online", mine: false },
+      ],
+    });
+
+    renderWithClient(
+      <AgentsTab api={api} slice={{ account: "nic", slice: "home" }} />,
+    );
+
+    const sidebar = await screen.findByRole("complementary", {
+      name: "Agent conversations",
+    });
+    expect(within(sidebar).getByText("Codex laptop")).toBeInTheDocument();
+    expect(within(sidebar).queryByText("grok-bot-ci")).not.toBeInTheDocument();
+    fireEvent.click(
+      within(sidebar).getByRole("button", { name: "New conversation" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "New conversation" });
+    const options = within(within(dialog).getByLabelText("Agent daemon")).getAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual(["Codex laptop"]);
+  });
+
   it("toggles the conversation sidebar and opens the create form in a dialog", async () => {
     const api = makeApi();
 

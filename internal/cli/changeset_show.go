@@ -32,6 +32,8 @@ type changesetCheckOutput struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	RunID  string `json:"run_id"`
+	// Daemon is the name of the daemon that ran the check, if one did.
+	Daemon string `json:"daemon,omitempty"`
 }
 
 // currentPatchsetChecks lists the latest run of each check on the patchset.
@@ -55,7 +57,7 @@ func currentPatchsetChecks(ctx context.Context, conn *grpc.ClientConn, changeset
 	}
 	out := make([]changesetCheckOutput, 0, len(latest))
 	for name, run := range latest {
-		out = append(out, changesetCheckOutput{Name: name, Status: run.GetStatus(), RunID: run.GetId()})
+		out = append(out, changesetCheckOutput{Name: name, Status: run.GetStatus(), RunID: run.GetId(), Daemon: run.GetDaemonName()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -116,6 +118,10 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 	if len(output.Checks) > 0 {
 		fmt.Fprintln(r.Stdout, "checks:")
 		for _, check := range output.Checks {
+			if check.Daemon != "" {
+				fmt.Fprintf(r.Stdout, "  %s: %s (on %s)\n", check.Name, check.Status, check.Daemon)
+				continue
+			}
 			fmt.Fprintf(r.Stdout, "  %s: %s\n", check.Name, check.Status)
 		}
 	}

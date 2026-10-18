@@ -23,6 +23,7 @@ type sliceOutput struct {
 	Version           int64    `json:"version"`
 	Visibility        string   `json:"visibility"`
 	CIDaemonID        string   `json:"ci_daemon_id,omitempty"`
+	CIDaemonName      string   `json:"ci_daemon_name,omitempty"`
 	IncludedPaths     []string `json:"included_paths"`
 	RequiredApprovals int32    `json:"required_approvals"`
 	RequiredChecks    []string `json:"required_checks"`
@@ -435,6 +436,9 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 	}
 	if out.CIDaemonID != "" {
 		fmt.Fprintf(w, "ci_daemon_id: %s\n", out.CIDaemonID)
+		if out.CIDaemonName != "" {
+			fmt.Fprintf(w, "ci_daemon: %s\n", out.CIDaemonName)
+		}
 	} else {
 		fmt.Fprintln(w, "ci_daemon_id: none")
 	}
@@ -460,6 +464,7 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		ID:             slice.Id,
 		DefinitionHash: slice.DefinitionHash,
 		CIDaemonID:     slice.CiDaemonId,
+		CIDaemonName:   slice.CiDaemonName,
 		Archived:       slice.Archived,
 		FormerNames:    append([]string(nil), slice.FormerNames...),
 		WebURL:         webSliceResourceURL(slice.Ref),

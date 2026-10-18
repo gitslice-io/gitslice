@@ -45,6 +45,8 @@ describe("ChecksPanel", () => {
             id: "run_failed",
             patchsetId: "ps_2",
             provenance: "ci",
+            daemonId: "agent_f83a",
+            daemonName: "Main CI",
             status: "failed",
             summary: "golangci-lint failed."
           }
@@ -85,6 +87,10 @@ describe("ChecksPanel", () => {
     expect(within(lint).getByText("Failed")).toBeInTheDocument();
     expect(within(lint).getByText("ci")).toBeInTheDocument();
     expect(within(lint).getByText("exit 1")).toBeInTheDocument();
+    // A run that a daemon ran says which, by name; one that ran in the author's
+    // workspace has none.
+    expect(within(lint).getByText("on Main CI")).toBeInTheDocument();
+    expect(within(unitTests).queryByText(/^on /)).not.toBeInTheDocument();
     expect(within(lint).getByText("golangci-lint failed.")).toBeInTheDocument();
     await waitFor(() =>
       expect(apiMock.current.listCheckRuns).toHaveBeenCalledWith({

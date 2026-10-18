@@ -17,6 +17,8 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 const (
@@ -56,6 +58,35 @@ type agentDaemonOutput struct {
 	Runtime    string `json:"runtime"`
 	Status     string `json:"status"`
 	LastSeenAt string `json:"last_seen_at"`
+	// DisplayName is the name gs agent rename gave the daemon, if any. Name
+	// stays the one it registers with (gs agent start --name).
+	DisplayName string `json:"display_name,omitempty"`
+	Account     string `json:"account,omitempty"`
+	// Mine is true for the daemons this identity registered. The others
+	// belong to agents whose account it administers.
+	Mine bool `json:"mine"`
+	// CISlices are the slices that use the daemon as their CI daemon.
+	CISlices []string `json:"ci_slices,omitempty"`
+}
+
+// shownName is the name a daemon is shown by.
+func (d agentDaemonOutput) shownName() string { return firstNonEmpty(d.DisplayName, d.Name) }
+
+func agentDaemonToOutput(daemon *corev1.AgentDaemon) agentDaemonOutput {
+	out := agentDaemonOutput{
+		ID:          daemon.GetId(),
+		Name:        daemon.GetName(),
+		DisplayName: daemon.GetDisplayName(),
+		Account:     daemon.GetAccount(),
+		Runtime:     daemon.GetRuntime(),
+		Status:      daemon.GetStatus(),
+		LastSeenAt:  daemon.GetLastSeenAt(),
+		Mine:        daemon.GetMine(),
+	}
+	for _, ref := range daemon.GetCiSlices() {
+		out.CISlices = append(out.CISlices, sliceRefLabel(ref))
+	}
+	return out
 }
 
 type agentStatusOutput struct {
@@ -77,7 +108,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 			return r.runAgentStart(cmd.Context(), *opts, start)
 		},
 	}
-	startCmd.Flags().StringVar(&start.Name, "name", start.Name, "daemon name")
+	startCmd.Flags().StringVar(&start.Name, "name", start.Name, "name the daemon registers with; starting again with the same name finds the same daemon, with the slices that use it and the name gs agent rename gave it")
 	startCmd.Flags().StringVar(&start.Runtime, "runtime", start.Runtime, "agent runtime")
 	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
 	startCmd.Flags().BoolVar(&start.Lazy, "lazy", start.Lazy, "mount each conversation's workspace lazily (gs mount) instead of checking it out; falls back to a checkout without FUSE")
@@ -100,7 +131,32 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 		},
 	}
 
-	agentCmd.AddCommand(startCmd, statusCmd, stopCmd)
+	renameClear := false
+	renameCmd := &cobra.Command{
+		Use:   "rename <daemon> [new-name]",
+		Short: "Name an agent daemon, shown in the web app, slice settings and check runs",
+		Long: `Give an agent daemon a name to be shown by. The daemon is found by its id or by
+the name it shows (gs agent status lists them). The name it registers with, gs
+agent start --name, is unchanged, so restarting the daemon finds the same one and
+keeps the new name. Names are unique among an account's daemons, up to 64
+characters. --clear shows the registered name again.
+
+You can rename the daemons you started and those of agents you own.`,
+		Args: rangeArgs(1, 2, "gs agent rename <daemon> <new-name>  |  gs agent rename <daemon> --clear"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			newName := ""
+			if len(args) == 2 {
+				newName = args[1]
+			}
+			if (len(args) == 2) == renameClear {
+				return userError("invalid_args", "give a new name, or --clear to drop the name", "Usage: gs agent rename <daemon> <new-name> | gs agent rename <daemon> --clear")
+			}
+			return r.runAgentRename(cmd.Context(), *opts, args[0], newName)
+		},
+	}
+	renameCmd.Flags().BoolVar(&renameClear, "clear", false, "drop the name, showing the registered one again")
+
+	agentCmd.AddCommand(startCmd, statusCmd, stopCmd, renameCmd)
 	return agentCmd
 }
 
@@ -289,13 +345,7 @@ func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions) error {
 	}
 	out := agentStatusOutput{Daemons: make([]agentDaemonOutput, 0, len(res.GetDaemons()))}
 	for _, daemon := range res.GetDaemons() {
-		out.Daemons = append(out.Daemons, agentDaemonOutput{
-			ID:         daemon.GetId(),
-			Name:       daemon.GetName(),
-			Runtime:    daemon.GetRuntime(),
-			Status:     daemon.GetStatus(),
-			LastSeenAt: daemon.GetLastSeenAt(),
-		})
+		out.Daemons = append(out.Daemons, agentDaemonToOutput(daemon))
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
@@ -308,11 +358,87 @@ func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(r.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tRUNTIME\tSTATUS\tLAST_SEEN")
+	fmt.Fprintln(w, "ID\tNAME\tACCOUNT\tRUNTIME\tSTATUS\tLAST_SEEN\tCI_FOR")
 	for _, daemon := range out.Daemons {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", daemon.ID, daemon.Name, daemon.Runtime, daemon.Status, daemon.LastSeenAt)
+		name := daemon.shownName()
+		if daemon.DisplayName != "" && daemon.DisplayName != daemon.Name {
+			name += " (" + daemon.Name + ")"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", daemon.ID, name, daemon.Account, daemon.Runtime, daemon.Status, daemon.LastSeenAt, firstNonEmpty(strings.Join(daemon.CISlices, ", "), "-"))
 	}
 	return w.Flush()
+}
+
+// runAgentRename sets, or with an empty name clears, the name a daemon is
+// shown by.
+func (r Runner) runAgentRename(ctx context.Context, opts commandOptions, selector, newName string) error {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client := corev1.NewAgentServiceClient(conn)
+	callCtx := authContext(ctx, cfg)
+	res, err := client.ListDaemons(callCtx, &corev1.ListDaemonsRequest{})
+	if err != nil {
+		return err
+	}
+	daemon, err := pickDaemon(res.GetDaemons(), selector)
+	if err != nil {
+		return err
+	}
+	renamed, err := client.RenameDaemon(callCtx, &corev1.RenameDaemonRequest{DaemonId: daemon.GetId(), DisplayName: newName})
+	if err != nil {
+		if grpcstatus.Code(err) == codes.AlreadyExists {
+			return userError("name_taken", grpcstatus.Convert(err).Message(), "Pick another name; gs agent status lists the account's daemons.")
+		}
+		return err
+	}
+	out := agentDaemonToOutput(renamed)
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if renamed.GetDisplayName() == "" {
+		fmt.Fprintf(r.Stdout, "%s is shown as %s again\n", renamed.GetId(), renamed.GetName())
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "%s is now shown as %s (it still registers as %s)\n", renamed.GetId(), renamed.GetDisplayName(), renamed.GetName())
+	return nil
+}
+
+// pickDaemon finds the daemon a user named: by id, else by the name it is
+// shown by or the one it registered with.
+func pickDaemon(daemons []*corev1.AgentDaemon, selector string) (*corev1.AgentDaemon, error) {
+	selector = strings.TrimSpace(selector)
+	for _, d := range daemons {
+		if d.GetId() == selector {
+			return d, nil
+		}
+	}
+	var matches []*corev1.AgentDaemon
+	for _, d := range daemons {
+		if strings.EqualFold(d.GetDisplayName(), selector) || strings.EqualFold(d.GetName(), selector) {
+			matches = append(matches, d)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return nil, userError("daemon_not_found", "no agent daemon "+selector, "gs agent status lists the daemons you can rename; use the id from its first column.")
+	}
+	ids := make([]string, len(matches))
+	for i, d := range matches {
+		ids[i] = d.GetId() + " (" + d.GetAccount() + ")"
+	}
+	return nil, userError("ambiguous_daemon", selector+" names more than one daemon: "+strings.Join(ids, ", "), "Use the daemon's id.")
 }
 
 func (r Runner) runAgentStop(opts commandOptions) error {

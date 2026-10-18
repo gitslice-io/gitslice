@@ -9,6 +9,22 @@ export interface AgentDaemon {
   status?: string;
   lastSeenAt?: string;
   createdAt?: string;
+  // What gs agent rename (or the Agent daemons list) set; show it in place of
+  // name when present. name stays what the daemon registers with.
+  displayName?: string;
+  // The slices that use this daemon as their CI daemon, among those the viewer
+  // can read.
+  ciSlices?: SliceRef[];
+  // True when the viewer registered the daemon. Only those can host the
+  // viewer's conversations; the others are listed because the viewer administers
+  // their account.
+  mine?: boolean;
+}
+
+export interface RenameDaemonRequest {
+  daemonId?: string;
+  // "" shows the registered name again.
+  displayName?: string;
 }
 
 export interface Conversation {

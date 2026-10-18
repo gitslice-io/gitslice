@@ -340,6 +340,9 @@ type SliceStore interface {
 	ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error)
 	UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error)
+	// ListByCIDaemon lists the slices (not retired) that use one of the
+	// daemons as their CI daemon.
+	ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]*corev1.Slice, error)
 	SetSliceSecret(ctx context.Context, sliceID, name, value string) error
 	DeleteSliceSecret(ctx context.Context, sliceID, name string) error
 	ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error)
@@ -489,7 +492,16 @@ type AgentStore interface {
 	RegisterDaemon(ctx context.Context, in AgentDaemonInput) (*corev1.AgentDaemon, error)
 	SetDaemonStatus(ctx context.Context, daemonID, status string) error
 	GetDaemon(ctx context.Context, daemonID string) (*corev1.AgentDaemon, error)
+	// ListDaemons lists the daemons the subject registered.
 	ListDaemons(ctx context.Context, subjectID string) ([]*corev1.AgentDaemon, error)
+	// ListDaemonsForAccounts lists the daemons registered under the accounts.
+	ListDaemonsForAccounts(ctx context.Context, accounts []string) ([]*corev1.AgentDaemon, error)
+	// DaemonSubject returns the subject that registered the daemon.
+	DaemonSubject(ctx context.Context, daemonID string) (string, error)
+	// RenameDaemon sets the name a daemon is shown by ("" clears it), keeping
+	// the name it registered with. ErrConflict when another daemon of the
+	// account is shown by that name.
+	RenameDaemon(ctx context.Context, daemonID, displayName string) (*corev1.AgentDaemon, error)
 
 	CreateConversation(ctx context.Context, in ConversationInput) (*corev1.Conversation, error)
 	GetConversation(ctx context.Context, conversationID string) (*corev1.Conversation, error)

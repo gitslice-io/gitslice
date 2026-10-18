@@ -178,7 +178,7 @@ func (s *SliceStore) ResolveRetired(ctx context.Context, ref *corev1.SliceRef) (
 	}
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
 		       slices.archived_at is not null
 		from slices
 		join accounts on accounts.id = slices.account_id

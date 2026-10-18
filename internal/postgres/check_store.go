@@ -122,7 +122,7 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 
 func (s *CheckStore) GetCheckRun(ctx context.Context, runID string) (*corev1.CheckRun, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), provenance,
+		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
 		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
 		from check_runs
 		where id = $1
@@ -137,7 +137,7 @@ func (s *CheckStore) ListCheckRuns(ctx context.Context, changesetID, patchsetID 
 		return nil, fmt.Errorf("%w: changeset_id or patchset_id is required", storage.ErrInvalid)
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), provenance,
+		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
 		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
 		from check_runs
 		where superseded_by_run_id is null
@@ -170,7 +170,7 @@ func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, statu
 		return nil, fmt.Errorf("%w: daemon_id is required", storage.ErrInvalid)
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), provenance,
+		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
 		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
 		from check_runs
 		where superseded_by_run_id is null
@@ -225,7 +225,7 @@ func (s *CheckStore) CancelOpenCheckRunsBeforePatchset(ctx context.Context, chan
 		  and patchset_id <> $2
 		  and superseded_by_run_id is null
 		  and status in ('queued', 'running')
-		returning id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), provenance,
+		returning id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
 		          attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
 	`, changesetID, currentPatchsetID)
 	if err != nil {
@@ -432,7 +432,7 @@ func scanCheckRun(row rowScanner) (*corev1.CheckRun, error) {
 		durationMS            sql.NullInt64
 		createdAt             time.Time
 	)
-	if err := row.Scan(&run.Id, &run.ChangesetId, &run.PatchsetId, &run.CheckName, &run.DaemonId, &run.Provenance, &run.Attempt, &run.Status, &exitCode, &run.Summary, &startedAt, &finishedAt, &durationMS, &createdAt); err != nil {
+	if err := row.Scan(&run.Id, &run.ChangesetId, &run.PatchsetId, &run.CheckName, &run.DaemonId, &run.DaemonName, &run.Provenance, &run.Attempt, &run.Status, &exitCode, &run.Summary, &startedAt, &finishedAt, &durationMS, &createdAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, storage.ErrNotFound
 		}

@@ -273,7 +273,14 @@ export const commandGroups = [
         "gs agent start",
         "Run a local agent daemon in an empty directory (codex runtime)."
       ],
-      ["gs agent status", "List your agent daemons and whether they are online."],
+      [
+        "gs agent status",
+        "List your agent daemons, and those of agents you own, with their status and the slices that use each as their CI daemon."
+      ],
+      [
+        "gs agent rename <daemon> <name>",
+        "Name a daemon; the name shows in the web app, slice settings and check runs. --clear drops it."
+      ],
       ["gs agent stop", "How to stop a running daemon (Ctrl-C)."],
       [
         "gs cs conversation",

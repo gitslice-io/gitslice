@@ -122,7 +122,10 @@ Postgres log. The daemon is the only place agent code runs.
   sub-directory `./conversations/<conversation_id>/`, hydrated as a `gs`
   workspace bound to the conversation's slice, where `codex exec` runs. Codex
   stdout/events are streamed back as `AgentEvent`s.
-- `gs agent status` / `gs agent stop` — local management.
+- `gs agent status` / `gs agent stop` — local management. `status` lists the
+  daemons you registered and those of agents you co-own (see "Naming and seeing
+  daemons").
+- `gs agent rename <daemon> <name>` — see "Naming and seeing daemons".
 
 A `Runtime` interface abstracts the agent process; `codexRuntime` is the first
 implementation (wrapping `codex exec`, reusing the patterns in CLAUDE.md).
@@ -135,6 +138,39 @@ It lists the subject's online daemons and the slice's conversations, with a chat
 panel. Sends via `SendAgentMessage`; receives via `StreamConversation` (fetch +
 ReadableStream); loads history from `GetConversation` / `ListConversations`. The
 reusable chat UI lives in `web/src/components/slices/AgentsTab.tsx`.
+
+## Naming and seeing daemons
+
+A daemon registers under the name it was started with (`gs agent start --name`)
+and the account of the identity that started it; a restart with the same name
+finds the same daemon row, so slices keep pointing at it. That name is its
+identity, so renaming cannot change it. Instead a daemon has a **display name**
+(`agent_daemons.label`), set by `RenameDaemon` and shown wherever the daemon is
+named: `gs agent status`, the web app, a slice's CI daemon (`Slice.ci_daemon_name`)
+and the check runs it ran (`CheckRun.daemon_name`). Both are joined in when the
+slice or run is read, so a rename shows everywhere at once and to people who cannot
+list the daemon. Clearing the display name shows the registered one again.
+
+`ListDaemons` returns the daemons the caller registered (`mine`) and those
+registered under accounts the caller owns or administers. That is how a person
+who has claimed an agent (design/20) sees the agent's daemons: they used to see
+only daemons registered under their own identity, so an agent's CI daemon was
+invisible to its owner, in the CI daemon picker too. Seeing a daemon grants
+three things: renaming it (also allowed to the identity that registered it),
+choosing it as a slice's CI daemon, and seeing which readable slices use it.
+It does **not** grant conversations on it: `CreateConversation` still needs the
+caller to have registered the daemon, so the web's conversation pickers offer
+only `mine` daemons.
+
+Display names are 1 to 64 characters without control characters, and unique
+among an account's daemons, compared without regard to case, against both
+display names and registered names (`AlreadyExists` otherwise). Anyone who may
+not manage a daemon gets `NotFound`, so ids reveal nothing.
+
+Not covered: `SetSliceCIDaemon` accepts any daemon id from an owner of the
+slice's account, without checking that they may use that daemon. Under the
+trusted-registrants model (design/17) that has been accepted, but a daemon's
+owner cannot refuse a slice that names their daemon.
 
 ## Phasing
 

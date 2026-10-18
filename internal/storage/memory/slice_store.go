@@ -38,7 +38,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 	if id == "" || s.b.retiredSlices[id] {
 		return nil, storage.ErrNotFound
 	}
-	return cloneSlice(s.b.slices[id]), nil
+	return s.withCIDaemonName(cloneSlice(s.b.slices[id])), nil
 }
 
 func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
@@ -48,7 +48,7 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 	if slice == nil {
 		return nil, storage.ErrNotFound
 	}
-	return cloneSlice(slice), nil
+	return s.withCIDaemonName(cloneSlice(slice)), nil
 }
 
 func (s *SliceStore) List(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
@@ -74,7 +74,7 @@ func (s *SliceStore) list(account, after string, limit int, publicOnly bool, sha
 		}
 		_, shared := s.b.sliceMembers[slice.Id][sharedWith]
 		if slice.Ref.Account == account && slice.Ref.Slice > after && (!publicOnly || slice.GetDefinition().GetVisibility() == "public" || (sharedWith != "" && shared)) {
-			out = append(out, cloneSlice(slice))
+			out = append(out, s.withCIDaemonName(cloneSlice(slice)))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Ref.Slice < out[j].Ref.Slice })
@@ -133,7 +133,41 @@ func (s *SliceStore) SetCIDaemon(ctx context.Context, sliceID, daemonID string) 
 		return nil, storage.ErrNotFound
 	}
 	current.CiDaemonId = strings.TrimSpace(daemonID)
-	return cloneSlice(current), nil
+	return s.withCIDaemonName(cloneSlice(current)), nil
+}
+
+func (s *SliceStore) ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]*corev1.Slice, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	wanted := map[string]bool{}
+	for _, id := range daemonIDs {
+		wanted[id] = true
+	}
+	var out []*corev1.Slice
+	for _, slice := range s.b.slices {
+		if wanted[slice.CiDaemonId] && !s.b.retiredSlices[slice.Id] {
+			out = append(out, s.withCIDaemonName(cloneSlice(slice)))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Ref.Account != out[j].Ref.Account {
+			return out[i].Ref.Account < out[j].Ref.Account
+		}
+		return out[i].Ref.Slice < out[j].Ref.Slice
+	})
+	return out, nil
+}
+
+// withCIDaemonName fills in the name the slice's CI daemon is shown by. The
+// caller holds the lock.
+func (s *SliceStore) withCIDaemonName(slice *corev1.Slice) *corev1.Slice {
+	if d := s.b.agentDaemons[slice.CiDaemonId]; d != nil {
+		slice.CiDaemonName = d.DisplayName
+		if slice.CiDaemonName == "" {
+			slice.CiDaemonName = d.Name
+		}
+	}
+	return slice
 }
 
 func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value string) error {

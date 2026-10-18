@@ -135,3 +135,71 @@ func openRPCCheckStore(t *testing.T, ts *testRPCServer) storage.CheckStore {
 	t.Cleanup(func() { _ = db.Close() })
 	return db.Checks()
 }
+
+// A check run names the daemon that ran it by the name the daemon is shown by,
+// and follows a rename.
+func TestRPCCheckRunShowsItsDaemonByName(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+	checks := corev1.NewCheckServiceClient(conn)
+	agents := corev1.NewAgentServiceClient(conn)
+
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream, err := agents.Connect(streamCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Register{Register: &corev1.RegisterDaemon{Name: "ci-runner", Runtime: "codex", Version: "0.1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := stream.Recv()
+	if err != nil || reg.GetRegistered().GetDaemonId() == "" {
+		t.Fatalf("register: %v, %v", reg, err)
+	}
+	daemonID := reg.GetRegistered().GetDaemonId()
+
+	sliceRef := createSubmitRequirementSlice(t, ctx, clients, slices, "check-run-daemon-name", 0, []string{"unit"})
+	changesetID, patchsetID := createDirectPatchsetForSlice(t, ctx, clients, sliceRef, "/acme/payment/check-run-daemon-name/change.go", "package daemonname\nconst V = 1\n", "check run daemon name")
+	store := openRPCCheckStore(t, ts)
+	run, err := store.CreateCheckRun(context.Background(), storage.CheckRunInput{
+		ChangesetID: changesetID,
+		PatchsetID:  patchsetID,
+		CheckName:   "unit",
+		DaemonID:    daemonID,
+		Provenance:  "ci",
+		Status:      "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.DaemonName != "ci-runner" {
+		t.Fatalf("a new run's daemon name = %q, want the name the daemon registered with", run.DaemonName)
+	}
+	shown := func() string {
+		t.Helper()
+		list, err := checks.ListCheckRuns(ctx, &corev1.ListCheckRunsRequest{ChangesetId: changesetID})
+		if err != nil || len(list.Runs) != 1 {
+			t.Fatalf("ListCheckRuns = %v, %v", list, err)
+		}
+		got, err := checks.GetCheckRun(ctx, &corev1.GetCheckRunRequest{RunId: run.Id})
+		if err != nil || got.DaemonId != daemonID || got.DaemonName != list.Runs[0].DaemonName {
+			t.Fatalf("GetCheckRun = %+v, %v; ListCheckRuns shows %q", got, err, list.Runs[0].DaemonName)
+		}
+		return got.DaemonName
+	}
+	if got := shown(); got != "ci-runner" {
+		t.Fatalf("daemon shown on the run = %q", got)
+	}
+	if _, err := agents.RenameDaemon(ctx, &corev1.RenameDaemonRequest{DaemonId: daemonID, DisplayName: "Main CI"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := shown(); got != "Main CI" {
+		t.Fatalf("daemon shown on the run after a rename = %q", got)
+	}
+}

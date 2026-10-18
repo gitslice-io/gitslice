@@ -102,6 +102,7 @@ type backend struct {
 	entityChanges  map[string][]storage.HistoryEntityRef
 
 	agentDaemons     map[string]*corev1.AgentDaemon
+	agentDaemonOwner map[string]string // daemon id -> the subject that registered it
 	agentConvs       map[string]*corev1.Conversation
 	agentEvents      map[string][]*corev1.ConversationEvent
 	agentConvNextSeq map[string]int64
@@ -198,6 +199,7 @@ func New() *Stores {
 		entitiesByPath:          map[string]storage.CurrentPathEntity{},
 		entityChanges:           map[string][]storage.HistoryEntityRef{},
 		agentDaemons:            map[string]*corev1.AgentDaemon{},
+		agentDaemonOwner:        map[string]string{},
 		agentConvs:              map[string]*corev1.Conversation{},
 		agentEvents:             map[string][]*corev1.ConversationEvent{},
 		agentConvNextSeq:        map[string]int64{},

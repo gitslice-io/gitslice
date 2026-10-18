@@ -126,6 +126,7 @@ func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.Dial
 		grpc.WithInitialWindowSize(clientStreamWindow),
 		grpc.WithInitialConnWindowSize(clientConnWindow),
 		grpc.WithBlock(),
+		grpc.WithChainUnaryInterceptor(retryUnaryInterceptor),
 	}
 	options = append(options, extraOptions...)
 	return grpc.DialContext(ctx, target, options...)

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation, Slice, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { canHostConversations, daemonName } from "../../lib/daemons";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { useSelection } from "../../state/selection";
 import { Popup } from "../Popup";
@@ -72,7 +73,7 @@ export function NewConversationDialog({
 
   const onlineDaemons = useMemo(
     () =>
-      (daemonsQuery.data ?? []).filter((daemon) => daemon.status === "online"),
+      (daemonsQuery.data ?? []).filter((daemon) => daemon.status === "online" && canHostConversations(daemon)),
     [daemonsQuery.data]
   );
 
@@ -235,7 +236,7 @@ export function NewConversationDialog({
             ) : onlineDaemons.length ? (
               onlineDaemons.map((daemon) => (
                 <option key={daemon.id ?? daemon.name} value={daemon.id ?? ""}>
-                  {daemon.name || daemon.id}
+                  {daemonName(daemon)}
                 </option>
               ))
             ) : (

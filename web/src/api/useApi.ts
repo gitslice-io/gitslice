@@ -4,6 +4,7 @@ import { useCallback, useMemo } from "react";
 import { createApiClient, defaultApiBaseUrl } from "./client";
 import type {
   AbandonChangesetRequest,
+  AgentDaemon,
   ApproveChangesetRequest,
   ApproveChangesetResponse,
   Changeset,
@@ -70,6 +71,7 @@ import type {
   GetStackRequest,
   ListDaemonsRequest,
   ListDaemonsResponse,
+  RenameDaemonRequest,
   CreateWebhookRequest,
   ListWebhooksRequest,
   ListWebhooksResponse,
@@ -249,6 +251,7 @@ export interface ApiClient {
     request: RedeliverWebhookDeliveryRequest
   ): Promise<WebhookDelivery>;
   listDaemons(request: ListDaemonsRequest): Promise<ListDaemonsResponse>;
+  renameDaemon(request: RenameDaemonRequest): Promise<AgentDaemon>;
   createConversation(request: CreateConversationRequest): Promise<Conversation>;
   listConversations(
     request: ListConversationsRequest

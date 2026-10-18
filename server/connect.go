@@ -446,6 +446,10 @@ func (a connectAgentAdapter) ListDaemons(ctx context.Context, req *connect.Reque
 	return connectResponse(a.svc.ListDaemons(ctx, req.Msg))
 }
 
+func (a connectAgentAdapter) RenameDaemon(ctx context.Context, req *connect.Request[corev1.RenameDaemonRequest]) (*connect.Response[corev1.AgentDaemon], error) {
+	return connectResponse(a.svc.RenameDaemon(ctx, req.Msg))
+}
+
 func (a connectAgentAdapter) CreateConversation(ctx context.Context, req *connect.Request[corev1.CreateConversationRequest]) (*connect.Response[corev1.Conversation], error) {
 	return connectResponse(a.svc.CreateConversation(ctx, req.Msg))
 }

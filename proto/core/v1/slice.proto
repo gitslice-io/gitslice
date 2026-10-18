@@ -90,6 +90,9 @@ message Slice {
   bool archived = 6;
   // Names the slice had before it was renamed. They still resolve to it.
   repeated string former_names = 7;
+  // ci_daemon_name is the name the CI daemon is shown by (its display name,
+  // else the name it registered with); "" when there is none.
+  string ci_daemon_name = 8;
 }
 
 message SliceDefinition {

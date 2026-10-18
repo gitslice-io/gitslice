@@ -233,18 +233,6 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 	}}})
 }
 
-func (s *AgentService) ListDaemons(ctx context.Context, _ *corev1.ListDaemonsRequest) (*corev1.ListDaemonsResponse, error) {
-	subjectID, err := requireSubject(ctx)
-	if err != nil {
-		return nil, err
-	}
-	daemons, err := s.Agents.ListDaemons(ctx, subjectID)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	return &corev1.ListDaemonsResponse{Daemons: daemons}, nil
-}
-
 func (s *AgentService) CreateConversation(ctx context.Context, req *corev1.CreateConversationRequest) (*corev1.Conversation, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {

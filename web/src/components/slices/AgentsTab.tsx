@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AgentDaemon, Conversation, SliceRef } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
+import { canHostConversations, daemonName } from "../../lib/daemons";
 import { Popup } from "../Popup";
 import { AgentConversation } from "./AgentConversation";
 import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
@@ -41,7 +42,7 @@ export function AgentsTab({
 
   const daemons = daemonsQuery.data ?? [];
   const onlineDaemons = useMemo(
-    () => daemons.filter((daemon) => daemon.status === "online"),
+    () => daemons.filter((daemon) => daemon.status === "online" && canHostConversations(daemon)),
     [daemons],
   );
   const conversations = useMemo(
@@ -464,7 +465,7 @@ export function AgentsTab({
                     key={daemon.id ?? daemon.name}
                     value={daemon.id ?? ""}
                   >
-                    {daemon.name || daemon.id}
+                    {daemonName(daemon)}
                   </option>
                 ))}
               </select>
@@ -516,7 +517,7 @@ function DaemonRow({ daemon }: { daemon: AgentDaemon }) {
     <div className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3">
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 break-words text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-          {daemon.name || daemon.id || "Unnamed agent"}
+          {daemonName(daemon, "Unnamed agent")}
         </p>
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700 dark:text-emerald-300">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />

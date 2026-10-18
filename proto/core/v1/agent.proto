@@ -17,7 +17,14 @@ service AgentService {
   rpc Connect(stream DaemonMessage) returns (stream ServerMessage);
 
   // Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
+  // ListDaemons lists the daemons the caller registered and those registered
+  // under accounts the caller owns or administers (an agent's daemons, once its
+  // owner has claimed it).
   rpc ListDaemons(ListDaemonsRequest) returns (ListDaemonsResponse);
+  // RenameDaemon sets the name a daemon is shown by. The name it registered
+  // with (gs agent start --name) is unchanged, so a restart finds the same
+  // daemon.
+  rpc RenameDaemon(RenameDaemonRequest) returns (AgentDaemon);
   rpc CreateConversation(CreateConversationRequest) returns (Conversation);
   rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
   rpc GetConversation(GetConversationRequest) returns (Conversation);
@@ -41,6 +48,24 @@ message AgentDaemon {
   string status = 6; // "online" | "offline"
   string last_seen_at = 7;
   string created_at = 8;
+  // display_name is what RenameDaemon set, "" if never renamed. Show
+  // display_name when set, else name.
+  string display_name = 9;
+  // ci_slices are the slices that use this daemon as their CI daemon, among
+  // those the caller can read.
+  repeated SliceRef ci_slices = 10;
+  // mine is true when the caller registered the daemon. Only those can host the
+  // caller's conversations; the others are listed because the caller
+  // administers their account (to rename them, or make them a slice's CI
+  // daemon).
+  bool mine = 11;
+}
+
+message RenameDaemonRequest {
+  string daemon_id = 1;
+  // display_name is 1 to 64 characters; "" clears it, so the registered name
+  // shows again.
+  string display_name = 2;
 }
 
 message Conversation {

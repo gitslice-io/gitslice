@@ -165,6 +165,14 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
                     </span>
                     <CheckStatusBadge status={run.status} />
                     <ProvenanceTag provenance={run.provenance} />
+                    {run.daemonName ? (
+                      <span
+                        className="truncate text-xs text-slate-500 dark:text-zinc-400"
+                        title={`ran on ${run.daemonName}`}
+                      >
+                        on {run.daemonName}
+                      </span>
+                    ) : null}
                     {shouldShowExitCode(run) ? (
                       <span className="rounded bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
                         exit {run.exitCode}

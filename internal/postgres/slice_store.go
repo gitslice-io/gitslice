@@ -104,7 +104,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 	}
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
 		       slices.archived_at is not null
 		from slices
 		join accounts on accounts.id = slices.account_id
@@ -115,7 +115,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 		// A renamed slice still answers to its earlier names.
 		row = s.db.QueryRowContext(ctx, `
 			select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-			       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+			       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
 			       slices.archived_at is not null
 			from slice_aliases
 			join slices on slices.id = slice_aliases.slice_id
@@ -133,7 +133,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
 		       slices.archived_at is not null
 		from slices
 		join accounts on accounts.id = slices.account_id
@@ -171,7 +171,7 @@ func (s *SliceStore) list(ctx context.Context, account, after string, limit int,
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
 		       slices.archived_at is not null
 		from slices
 		join accounts on accounts.id = slices.account_id
@@ -468,13 +468,13 @@ func scanSliceDefinitionVersion(row scanner) (*corev1.SliceDefinitionVersion, er
 
 func scanSlice(row scanner) (*corev1.Slice, error) {
 	var (
-		id, account, slug, definitionHash, ciDaemonID, visibility string
-		archived                                                  bool
-		version                                                   int64
-		requiredApprovals                                         int32
-		includedJSON, requiredChecksJSON                          []byte
+		id, account, slug, definitionHash, ciDaemonID, ciDaemonName, visibility string
+		archived                                                                bool
+		version                                                                 int64
+		requiredApprovals                                                       int32
+		includedJSON, requiredChecksJSON                                        []byte
 	)
-	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON, &archived)
+	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &ciDaemonName, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON, &archived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -494,6 +494,7 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 		Ref:            &corev1.SliceRef{Account: account, Slice: slug},
 		DefinitionHash: definitionHash,
 		CiDaemonId:     ciDaemonID,
+		CiDaemonName:   ciDaemonName,
 		Archived:       archived,
 		Definition: &corev1.SliceDefinition{
 			SliceId:           id,

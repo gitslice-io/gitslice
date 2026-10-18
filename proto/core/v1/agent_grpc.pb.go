@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion7
 const (
 	AgentService_Connect_FullMethodName               = "/gitslice.core.v1.AgentService/Connect"
 	AgentService_ListDaemons_FullMethodName           = "/gitslice.core.v1.AgentService/ListDaemons"
+	AgentService_RenameDaemon_FullMethodName          = "/gitslice.core.v1.AgentService/RenameDaemon"
 	AgentService_CreateConversation_FullMethodName    = "/gitslice.core.v1.AgentService/CreateConversation"
 	AgentService_ListConversations_FullMethodName     = "/gitslice.core.v1.AgentService/ListConversations"
 	AgentService_GetConversation_FullMethodName       = "/gitslice.core.v1.AgentService/GetConversation"
@@ -38,7 +39,14 @@ type AgentServiceClient interface {
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (AgentService_ConnectClient, error)
 	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
+	// ListDaemons lists the daemons the caller registered and those registered
+	// under accounts the caller owns or administers (an agent's daemons, once its
+	// owner has claimed it).
 	ListDaemons(ctx context.Context, in *ListDaemonsRequest, opts ...grpc.CallOption) (*ListDaemonsResponse, error)
+	// RenameDaemon sets the name a daemon is shown by. The name it registered
+	// with (gs agent start --name) is unchanged, so a restart finds the same
+	// daemon.
+	RenameDaemon(ctx context.Context, in *RenameDaemonRequest, opts ...grpc.CallOption) (*AgentDaemon, error)
 	CreateConversation(ctx context.Context, in *CreateConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
 	ListConversations(ctx context.Context, in *ListConversationsRequest, opts ...grpc.CallOption) (*ListConversationsResponse, error)
 	GetConversation(ctx context.Context, in *GetConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
@@ -95,6 +103,15 @@ func (x *agentServiceConnectClient) Recv() (*ServerMessage, error) {
 func (c *agentServiceClient) ListDaemons(ctx context.Context, in *ListDaemonsRequest, opts ...grpc.CallOption) (*ListDaemonsResponse, error) {
 	out := new(ListDaemonsResponse)
 	err := c.cc.Invoke(ctx, AgentService_ListDaemons_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) RenameDaemon(ctx context.Context, in *RenameDaemonRequest, opts ...grpc.CallOption) (*AgentDaemon, error) {
+	out := new(AgentDaemon)
+	err := c.cc.Invoke(ctx, AgentService_RenameDaemon_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +212,14 @@ type AgentServiceServer interface {
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(AgentService_ConnectServer) error
 	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
+	// ListDaemons lists the daemons the caller registered and those registered
+	// under accounts the caller owns or administers (an agent's daemons, once its
+	// owner has claimed it).
 	ListDaemons(context.Context, *ListDaemonsRequest) (*ListDaemonsResponse, error)
+	// RenameDaemon sets the name a daemon is shown by. The name it registered
+	// with (gs agent start --name) is unchanged, so a restart finds the same
+	// daemon.
+	RenameDaemon(context.Context, *RenameDaemonRequest) (*AgentDaemon, error)
 	CreateConversation(context.Context, *CreateConversationRequest) (*Conversation, error)
 	ListConversations(context.Context, *ListConversationsRequest) (*ListConversationsResponse, error)
 	GetConversation(context.Context, *GetConversationRequest) (*Conversation, error)
@@ -219,6 +243,9 @@ func (UnimplementedAgentServiceServer) Connect(AgentService_ConnectServer) error
 }
 func (UnimplementedAgentServiceServer) ListDaemons(context.Context, *ListDaemonsRequest) (*ListDaemonsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListDaemons not implemented")
+}
+func (UnimplementedAgentServiceServer) RenameDaemon(context.Context, *RenameDaemonRequest) (*AgentDaemon, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenameDaemon not implemented")
 }
 func (UnimplementedAgentServiceServer) CreateConversation(context.Context, *CreateConversationRequest) (*Conversation, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateConversation not implemented")
@@ -293,6 +320,24 @@ func _AgentService_ListDaemons_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServiceServer).ListDaemons(ctx, req.(*ListDaemonsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_RenameDaemon_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenameDaemonRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).RenameDaemon(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_RenameDaemon_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).RenameDaemon(ctx, req.(*RenameDaemonRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -436,6 +481,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListDaemons",
 			Handler:    _AgentService_ListDaemons_Handler,
+		},
+		{
+			MethodName: "RenameDaemon",
+			Handler:    _AgentService_RenameDaemon_Handler,
 		},
 		{
 			MethodName: "CreateConversation",

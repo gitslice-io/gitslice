@@ -101,7 +101,7 @@ func (s *SliceStore) RemoveMember(ctx context.Context, sliceID, subjectID string
 func (s *SliceStore) ListShared(ctx context.Context, subjectID string) ([]storage.SharedSlice, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
+		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
 		       slices.archived_at is not null, sm.role
 		from slice_members sm
 		join slices on slices.id = sm.slice_id

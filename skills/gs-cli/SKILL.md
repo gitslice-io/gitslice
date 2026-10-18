@@ -29,6 +29,8 @@ For automation, use `--json`, `--jq`, `--template`, `--non-interactive`, and `--
 }
 ```
 
+A dropped connection is retried only for calls that give the same result when repeated: reads, validation and content uploads, three tries in all. When that still fails, the error is `server_unavailable` with `retriable: true` and nothing changed. For anything that writes (creating a changeset, a stack entry, a submit) gs does not retry: the error is `connection_dropped` with `retriable: false`, because the server may have applied the change before the connection dropped. Check what exists (`gs status`, `gs cs list`) before running the command again, so the change is not made twice.
+
 Never print or summarize bearer tokens unless the user explicitly needs a secret-bearing command. Use `gs auth status` for non-secret auth inspection; reserve `gs auth token` for scripts that truly need the token.
 
 ## Orientation

@@ -63,17 +63,75 @@ func (s *AgentStore) SetDaemonStatus(ctx context.Context, daemonID, status strin
 
 func (s *AgentStore) GetDaemon(ctx context.Context, daemonID string) (*corev1.AgentDaemon, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select id, account, name, runtime, version, status, last_seen_at, created_at
+		select id, account, name, runtime, version, status, last_seen_at, created_at, label
 		from agent_daemons where id = $1
 	`, daemonID)
 	return scanDaemon(row)
 }
 
+// DaemonSubject returns the subject that registered the daemon.
+func (s *AgentStore) DaemonSubject(ctx context.Context, daemonID string) (string, error) {
+	var subjectID string
+	err := s.db.QueryRowContext(ctx, `select subject_id from agent_daemons where id = $1`, daemonID).Scan(&subjectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", storage.ErrNotFound
+	}
+	return subjectID, err
+}
+
+// RenameDaemon sets the name a daemon is shown by; "" clears it. It fails with
+// storage.ErrConflict when another daemon of the account is shown by the name.
+func (s *AgentStore) RenameDaemon(ctx context.Context, daemonID, displayName string) (*corev1.AgentDaemon, error) {
+	res, err := s.db.ExecContext(ctx, `
+		update agent_daemons set label = $2
+		where id = $1
+		  and not exists (
+		    select 1 from agent_daemons other
+		    where other.account = agent_daemons.account and other.id <> agent_daemons.id
+		      and $2 <> '' and lower(coalesce(nullif(other.label, ''), other.name)) = lower($2)
+		  )
+	`, daemonID, displayName)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		if _, err := s.GetDaemon(ctx, daemonID); err != nil {
+			return nil, err
+		}
+		return nil, storage.ErrConflict
+	}
+	return s.GetDaemon(ctx, daemonID)
+}
+
 func (s *AgentStore) ListDaemons(ctx context.Context, subjectID string) ([]*corev1.AgentDaemon, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, account, name, runtime, version, status, last_seen_at, created_at
+		select id, account, name, runtime, version, status, last_seen_at, created_at, label
 		from agent_daemons where subject_id = $1 order by created_at asc
 	`, subjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.AgentDaemon
+	for rows.Next() {
+		d, err := scanDaemon(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// ListDaemonsForAccounts lists the daemons registered under the accounts.
+func (s *AgentStore) ListDaemonsForAccounts(ctx context.Context, accounts []string) ([]*corev1.AgentDaemon, error) {
+	if len(accounts) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select id, account, name, runtime, version, status, last_seen_at, created_at, label
+		from agent_daemons where account = any($1) order by created_at asc
+	`, accounts)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +391,7 @@ func scanDaemon(row rowScanner) (*corev1.AgentDaemon, error) {
 		d                     corev1.AgentDaemon
 		lastSeenAt, createdAt time.Time
 	)
-	if err := row.Scan(&d.Id, &d.Account, &d.Name, &d.Runtime, &d.Version, &d.Status, &lastSeenAt, &createdAt); err != nil {
+	if err := row.Scan(&d.Id, &d.Account, &d.Name, &d.Runtime, &d.Version, &d.Status, &lastSeenAt, &createdAt, &d.DisplayName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, storage.ErrNotFound
 		}

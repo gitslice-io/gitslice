@@ -25,6 +25,7 @@ import {
 import { SliceWebhooksPanel } from "../components/slices/SliceWebhooksPanel";
 import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
 import { canAdmin, membershipFor } from "../lib/accounts";
+import { daemonName } from "../lib/daemons";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
@@ -264,6 +265,7 @@ export function SliceSettingsPage() {
 
         <SliceCIDaemonPanel
           currentDaemonId={slice.ciDaemonId ?? ""}
+          currentDaemonName={slice.ciDaemonName ?? ""}
           daemons={daemonsQuery.data ?? []}
           error={
             daemonsQuery.error
@@ -355,6 +357,7 @@ export function SliceSettingsPage() {
 
 function SliceCIDaemonPanel({
   currentDaemonId,
+  currentDaemonName,
   daemons,
   error,
   isLoading,
@@ -364,6 +367,9 @@ function SliceCIDaemonPanel({
   slice
 }: {
   currentDaemonId: string;
+  // The name the server shows the current daemon by, known even to people who
+  // cannot list it.
+  currentDaemonName: string;
   daemons: AgentDaemon[];
   error: string;
   isLoading: boolean;
@@ -390,9 +396,18 @@ function SliceCIDaemonPanel({
           <p className="mt-3 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
             Current
           </p>
-          <code className="mt-1 block break-all font-mono text-xs text-zinc-950 dark:text-zinc-50">
-            {currentDaemonId || "none"}
-          </code>
+          {currentDaemonId ? (
+            <>
+              <p className="mt-1 break-words text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                {currentDaemonName || daemonName(currentDaemon, currentDaemonId)}
+              </p>
+              <code className="mt-0.5 block break-all font-mono text-xs text-slate-500 dark:text-zinc-400">
+                {currentDaemonId}
+              </code>
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-zinc-950 dark:text-zinc-50">none</p>
+          )}
         </div>
 
         <div className="grid gap-2">
@@ -445,7 +460,7 @@ function daemonLabel(daemon: AgentDaemon | undefined, fallback: string) {
   if (!daemon) {
     return fallback;
   }
-  const name = daemon.name || daemon.id || fallback;
+  const name = daemonName(daemon, fallback);
   const runtime = [daemon.runtime, daemon.version].filter(Boolean).join(" ");
   return runtime ? `${name} - ${runtime}` : name;
 }
