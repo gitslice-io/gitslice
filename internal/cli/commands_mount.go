@@ -119,5 +119,14 @@ them all; gs mount discard deletes one.`,
 		},
 	}
 	restoreCmd.Flags().BoolVar(&restoreAll, "all", false, "drop every local edit")
-	return []*cobra.Command{mountCmd, unmountCmd, fetchCmd, restoreCmd}
+	mountdCmd := &cobra.Command{
+		Use:    "mountd",
+		Short:  "Run the mount supervisor, the one process that serves a user's lazy workspaces",
+		Hidden: true,
+		Args:   noArgs("gs mountd"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runMountSupervisor(cmd.Context())
+		},
+	}
+	return []*cobra.Command{mountCmd, unmountCmd, fetchCmd, restoreCmd, mountdCmd}
 }

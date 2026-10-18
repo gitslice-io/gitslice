@@ -695,3 +695,124 @@ func TestMountWorksWithoutTheServer(t *testing.T) {
 		t.Fatalf("gs mount status after failed reads = %+v, %v", status, err)
 	}
 }
+
+// startMountSupervisor runs the mount supervisor (gs mountd) in this process,
+// with its sockets in a directory of its own, and waits for it to listen. The
+// returned channel reports when it ends.
+func startMountSupervisor(t *testing.T, home, cwd string) <-chan error {
+	t.Helper()
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		var out strings.Builder
+		r := cli.Runner{Home: home, Dir: cwd, Stdout: &out, Stderr: &out}
+		done <- r.Run(ctx, []string{"mountd"})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(20 * time.Second):
+		}
+	})
+	for i := 0; i < 100; i++ {
+		if matches, _ := filepath.Glob(filepath.Join(runtimeDir, "gs-mountd-*.sock")); len(matches) > 0 {
+			return done
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the mount supervisor did not start listening")
+	return done
+}
+
+// TestMountSupervisorServesEveryMountInOneProcess: gs mount hands each
+// workspace to one supervisor, which serves them independently, keeps working
+// while another is unmounted, and exits when the last one is.
+func TestMountSupervisorServesEveryMountInOneProcess(t *testing.T) {
+	isolateClientCache(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("GS_MOUNTD_IDLE", "1s")
+	if _, err := os.Stat("/dev/fuse"); err != nil {
+		t.Skip("no /dev/fuse here")
+	}
+	if _, err := exec.LookPath("fusermount3"); err != nil {
+		if _, err := exec.LookPath("fusermount"); err != nil {
+			t.Skip("no fusermount here")
+		}
+	}
+	ts := startTestServer(t)
+	home := t.TempDir()
+	upstream := t.TempDir()
+	loginTestCLI(t, ts, home, upstream)
+	runCLI(t, home, upstream, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, upstream, "acme/payment/README.md", "# Payment\n")
+	writeWorkspaceFile(t, upstream, "acme/payment/src/main.go", "package main\n")
+	runCLI(t, home, upstream, "create", "--message", "files to mount", "--all", "--submit")
+
+	mountHome := t.TempDir()
+	loginTestCLI(t, ts, mountHome, upstream)
+	supervisor := startMountSupervisor(t, mountHome, upstream)
+	root := t.TempDir()
+	dirA, dirB := filepath.Join(root, "a"), filepath.Join(root, "b")
+	for _, dir := range []string{dirA, dirB} {
+		if out := runCLI(t, mountHome, upstream, "mount", "acme/payment", dir); !strings.Contains(out, "mounted acme:payment at "+dir) {
+			t.Fatalf("gs mount %s: %s", dir, out)
+		}
+	}
+	appA, appB := filepath.Join(dirA, "acme", "payment"), filepath.Join(dirB, "acme", "payment")
+
+	// Both serve the slice, from the one process, with layers of their own.
+	for _, app := range []string{appA, appB} {
+		if data, err := os.ReadFile(filepath.Join(app, "src", "main.go")); err != nil || string(data) != "package main\n" {
+			t.Fatalf("read through %s = %q, %v", app, data, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(appA, "src", "edited.go"), []byte("package main // only in a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status := runCLI(t, mountHome, appA, "status"); !strings.Contains(status, "src/edited.go") {
+		t.Fatalf("gs status in the first mount:\n%s", status)
+	}
+	if _, err := os.Stat(filepath.Join(appB, "src", "edited.go")); err == nil {
+		t.Fatal("an edit in one mount showed in the other")
+	}
+	var list struct {
+		Workspaces []struct {
+			Mounted bool `json:"mounted"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, mountHome, upstream, "mount", "list", "--json")), &list); err != nil || len(list.Workspaces) != 2 || !list.Workspaces[0].Mounted || !list.Workspaces[1].Mounted {
+		t.Fatalf("gs mount list --json = %+v, %v", list, err)
+	}
+
+	// Unmounting one leaves the other working, and the supervisor running.
+	runCLI(t, mountHome, upstream, "unmount", dirA)
+	if data, err := os.ReadFile(filepath.Join(appB, "README.md")); err != nil || string(data) != "# Payment\n" {
+		t.Fatalf("the second mount after unmounting the first = %q, %v", data, err)
+	}
+	select {
+	case <-supervisor:
+		t.Fatal("the supervisor exited while a mount was still up")
+	case <-time.After(2 * time.Second):
+	}
+
+	// The last unmount lets it go, after the idle time.
+	runCLI(t, mountHome, upstream, "unmount", dirB)
+	select {
+	case err := <-supervisor:
+		if err != nil {
+			t.Fatalf("the supervisor ended with %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("the supervisor did not exit after its last mount was unmounted")
+	}
+
+	// A new supervisor re-attaches a workspace with its edit.
+	startMountSupervisor(t, mountHome, upstream)
+	runCLI(t, mountHome, upstream, "mount", "acme/payment", dirA)
+	if data, err := os.ReadFile(filepath.Join(appA, "src", "edited.go")); err != nil || string(data) != "package main // only in a\n" {
+		t.Fatalf("the edit after re-attaching = %q, %v", data, err)
+	}
+	runCLI(t, mountHome, upstream, "unmount", dirA)
+}

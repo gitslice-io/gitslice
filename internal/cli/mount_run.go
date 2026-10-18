@@ -78,7 +78,7 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 			}
 		})
 	}
-	if err := r.startMountDaemon(rec); err != nil {
+	if err := r.attachViaSupervisor(rec); err != nil {
 		return err
 	}
 	if opts.jsonOutput() {

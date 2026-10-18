@@ -163,10 +163,21 @@ re-attaches one at another path (after a move, or a reboot that left it
 unmounted). A workspace with local edits is never deleted implicitly; only
 `gs mount discard` deletes one.
 
-Each mount runs its own daemon process. A crash or a hung fetch affects one
-workspace, and the processes are small: the content they serve is on disk in
-the shared cache, and fetches of the same content by two mounts at once are rare
-enough not to coordinate.
+All of a user's mounts are served by one background process, the mount
+supervisor (`gs mountd`, hidden), which the first `gs mount` starts and which
+exits a minute after the last workspace is unmounted (`GS_MOUNTD_IDLE`
+changes the minute). Each workspace is still its own kernel mount with its own
+layers, fetcher and control socket in that process, so one workspace's edits,
+errors and `unmount` never touch another's, and every command that talks to a
+workspace's mount (`status`, `create`, `restore`, `sync`) is unchanged. The
+supervisor has one socket of its own, per state directory, only to attach
+workspaces. What it costs is isolation: a crash of the process drops every mount
+(the dead ones show "transport endpoint is not connected" and `gs mount <dir>`
+clears and re-attaches them), and a new `gs` binary takes effect for mounts only
+when the supervisor next starts, so after `gs upgrade` unmount everything, or
+wait for it to exit. Workspaces still hold their edits on disk throughout.
+`gs mount --foreground` serves one workspace in its own process, as before, and
+mounts made by older versions keep their own daemons until unmounted.
 
 **Later: one mount, many workspaces.** One mount could hold many workspaces as
 directories (`~/gs/<name>/...`), with `gs workspace new <name> <slice>` creating
@@ -177,8 +188,8 @@ one FUSE mount). It is not in the phases below; see the open questions.
 
 ### The mount daemon
 
-`gs mount` starts one daemon per mount (detached unless `--foreground`). It
-serves file system requests and nothing else:
+`gs mount` hands each workspace to the mount supervisor (or serves it in its
+own process with `--foreground`). It serves file system requests and nothing else:
 
 - It is built with a read-only client: its gRPC connection has an interceptor
   that refuses every method but `Checkout`, `ReadFiles`, `ReadBlobStream` and

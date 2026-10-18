@@ -12,6 +12,8 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 	return errMountUnsupported()
 }
 
-func (r Runner) startMountDaemon(rec mountRecord) error { return errMountUnsupported() }
+func (r Runner) attachViaSupervisor(rec mountRecord) error { return errMountUnsupported() }
+
+func (r Runner) runMountSupervisor(ctx context.Context) error { return errMountUnsupported() }
 
 func forceUnmount(dir string) error { return errMountUnsupported() }

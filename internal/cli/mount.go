@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -97,9 +98,9 @@ func (r Runner) mountsRoot() string {
 
 func (r Runner) mountStateDir(id string) string { return filepath.Join(r.mountsRoot(), id) }
 
-// mountControlPath is the daemon's control socket. It lives in a short
-// runtime directory: a socket path is limited to about 100 bytes.
-func mountControlPath(id string) string {
+// mountRuntimeDir is where the mount sockets live, in a short path: a socket
+// path is limited to about 100 bytes.
+func mountRuntimeDir() string {
 	dir := os.Getenv("XDG_RUNTIME_DIR")
 	if dir == "" {
 		// macOS's $TMPDIR alone takes half of the 104 bytes a socket path
@@ -110,7 +111,57 @@ func mountControlPath(id string) string {
 		}
 		dir = filepath.Join(tmp, fmt.Sprintf("gitslice-%d", os.Getuid()))
 	}
-	return filepath.Join(dir, "gs-mount-"+id+".sock")
+	return dir
+}
+
+// mountControlPath is a lazy workspace's control socket, served by whichever
+// process has it mounted.
+func mountControlPath(id string) string {
+	return filepath.Join(mountRuntimeDir(), "gs-mount-"+id+".sock")
+}
+
+// mountSupervisorSocket is the socket of the mount supervisor (gs mountd) for
+// this state directory: one process serves all of a user's mounts.
+func (r Runner) mountSupervisorSocket() string {
+	sum := sha256.Sum256([]byte(r.mountsRoot()))
+	return filepath.Join(mountRuntimeDir(), "gs-mountd-"+hex.EncodeToString(sum[:4])+".sock")
+}
+
+// mountdRequest and mountdReply are the supervisor's own protocol, besides the
+// per-workspace one: it attaches workspaces and says what it serves.
+type mountdRequest struct {
+	Op string `json:"op"` // "attach", "ping" or "list"
+	ID string `json:"id,omitempty"`
+}
+
+type mountdReply struct {
+	PID        int      `json:"pid"`
+	Workspaces []string `json:"workspaces,omitempty"`
+	ErrorCode  string   `json:"error_code,omitempty"`
+	Error      string   `json:"error,omitempty"`
+	Hint       string   `json:"hint,omitempty"`
+}
+
+// callMountd sends one request to the supervisor. An unreachable supervisor
+// is errMountUnreachable; an error it reports comes back as a user error.
+func callMountd(socket string, req mountdRequest) (mountdReply, error) {
+	var reply mountdReply
+	conn, err := net.DialTimeout("unix", socket, 2*time.Second)
+	if err != nil {
+		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(time.Minute))
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return reply, err
+	}
+	if err := json.NewDecoder(conn).Decode(&reply); err != nil {
+		return reply, err
+	}
+	if reply.Error != "" {
+		return reply, commandError{Code: firstNonEmpty(reply.ErrorCode, "mount_failed"), Message: reply.Error, Hint: reply.Hint}
+	}
+	return reply, nil
 }
 
 func newMountID() (string, error) {
