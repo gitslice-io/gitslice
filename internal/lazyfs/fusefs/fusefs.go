@@ -95,6 +95,14 @@ func (m *Mounted) Invalidate(p string) {
 	}
 }
 
+// InvalidatePaths does what Invalidate does for many paths at once: after a
+// sync or a switch moved the layers under the kernel.
+func (m *Mounted) InvalidatePaths(paths []string) {
+	for _, p := range paths {
+		m.Invalidate(p)
+	}
+}
+
 // Stats returns the mount's counters.
 func (m *Mounted) Stats() Stats {
 	m.m.mu.Lock()
@@ -132,7 +140,7 @@ func Mount(dir string, layer *lazyfs.FS, fetcher Fetcher, opts Options) (*Mounte
 	// the mount reaches the kernel anyway, and gs restore invalidates what it
 	// changes behind its back.
 	timeout := time.Second
-	var mountOptions []string
+	mountOptions := platformMountOptions(opts)
 	if opts.ReadOnly {
 		mountOptions = append(mountOptions, "ro")
 	}
@@ -581,12 +589,26 @@ type handle struct {
 }
 
 var (
-	_ gofs.FileReader   = (*handle)(nil)
-	_ gofs.FileWriter   = (*handle)(nil)
-	_ gofs.FileFsyncer  = (*handle)(nil)
-	_ gofs.FileFlusher  = (*handle)(nil)
-	_ gofs.FileReleaser = (*handle)(nil)
+	_ gofs.FilePassthroughFder = (*handle)(nil)
+	_ gofs.FileReader          = (*handle)(nil)
+	_ gofs.FileWriter          = (*handle)(nil)
+	_ gofs.FileFsyncer         = (*handle)(nil)
+	_ gofs.FileFlusher         = (*handle)(nil)
+	_ gofs.FileReleaser        = (*handle)(nil)
 )
+
+// PassthroughFd lets the kernel read and write a local layer file directly,
+// at disk speed, where it supports FUSE passthrough (Linux 6.9 and later, for
+// a privileged mount); go-fuse falls back to serving reads and writes itself
+// when it cannot. Base content is never passed through: its file is in the
+// cache all workspaces share, and the kernel keeps one backing file per inode,
+// so a later open for writing would write to it.
+func (h *handle) PassthroughFd() (int, bool) {
+	if !h.local {
+		return 0, false
+	}
+	return int(h.file.Fd()), true
+}
 
 func (h *handle) Write(ctx context.Context, data []byte, off int64) (uint32, syscall.Errno) {
 	if !h.local {

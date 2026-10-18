@@ -262,9 +262,18 @@ func TestRebaseMergesOnlyWhatBothSidesChanged(t *testing.T) {
 		}
 		return MergeResult{}, fmt.Errorf("unexpected merge of %s", c.Path)
 	}
-	conflicts, err := f.Rebase(context.Background(), base2, merge)
+	result, err := f.Rebase(context.Background(), base2, merge)
 	if err != nil {
 		t.Fatal(err)
+	}
+	conflicts := result.Conflicts
+	for _, p := range []string{"/app/keep.txt", "/app/both.txt", "/app/del.txt", "/gone/added.txt", "/up/new.txt"} {
+		if !containsString(result.Changed, p) {
+			t.Fatalf("Changed %v is missing %s", result.Changed, p)
+		}
+	}
+	if containsString(result.Changed, "/app/edit.txt") {
+		t.Fatalf("Changed %v names /app/edit.txt, which neither side touched in this rebase", result.Changed)
 	}
 	if got := strings.Join(cases, ","); got != "/app/both.txt,/app/del.txt" {
 		t.Fatalf("merged %s; want only both.txt and del.txt", got)

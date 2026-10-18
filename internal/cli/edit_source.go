@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"time"
 
 	"gitslice.io/gitslice/internal/clientcache"
@@ -49,7 +48,7 @@ func (r Runner) editSourceFor(ws WorkspaceConfig) (editSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := readManifest(filepath.Join(r.mountStateDir(id), "manifest"), rec.BaseCommit)
+	manifest, err := r.loadMountManifest(rec)
 	if err != nil {
 		return nil, err
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/lazyfs"
 	"gitslice.io/gitslice/internal/postgres"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -143,13 +144,19 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	if status == "" {
 		status = "submitted"
 	}
-	// A lazy workspace keeps its base until it can move its layers along
-	// (design/30_lazy_workspaces.md, phase 4); rescanning it would fetch
-	// every file of the slice.
-	if root, err := r.workspaceRoot(); err == nil && lazyWorkspaceID(root) != "" {
-		hasWorkspace = false
+	// A lazy workspace moves its layers onto what landed instead of being
+	// rescanned, which would fetch every file of the slice.
+	var lazy *lazyWorkspace
+	if hasWorkspace {
+		if lazy, err = r.currentLazyWorkspace(); err != nil {
+			return err
+		}
 	}
-	if status == "submitted" && usingWorkspaceCurrent && hasWorkspace {
+	if status == "submitted" && usingWorkspaceCurrent && lazy != nil {
+		if err := r.landLazyWorkspace(ctx, conn, cfg, lazy, landedPatchset(cs, expectedPatchsetID), refCommitID, state); err != nil {
+			fmt.Fprintf(r.stderr(), "warning: the changeset landed, but the lazy workspace keeps its old base (%v); run gs sync\n", err)
+		}
+	} else if status == "submitted" && usingWorkspaceCurrent && hasWorkspace {
 		state.BaseCommitID = refCommitID
 		if err := r.writeWorkspaceState(state); err != nil {
 			return err
@@ -487,4 +494,54 @@ func displaySubmitBlockedReason(reason string) string {
 	default:
 		return reason
 	}
+}
+
+// landedPatchset is the patchset a submit landed: the one it expected, else
+// the changeset's current one.
+func landedPatchset(cs *corev1.Changeset, patchsetID string) *corev1.Patchset {
+	for _, patchset := range cs.GetPatchsets() {
+		if patchset.GetId() == patchsetID {
+			return patchset
+		}
+	}
+	return currentPatchset(cs)
+}
+
+// landLazyWorkspace moves a lazy workspace onto the commit its changeset
+// landed in. Local changes the changeset carried leave the local layer: the
+// new base has them, merged with whatever landed meanwhile. Changes made
+// since the last gs create or gs modify stay local.
+func (r Runner) landLazyWorkspace(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, lazy *lazyWorkspace, landed *corev1.Patchset, commitID string, state WorkspaceState) error {
+	manifest, err := r.lazyListingAt(ctx, conn, cfg, lazy, commitID)
+	if err != nil {
+		return err
+	}
+	carried := map[string]string{}
+	for _, edit := range landed.GetFileEdits() {
+		switch edit.GetOp() {
+		case "delete":
+			carried[edit.GetPath()] = "delete"
+		case "mkdir":
+		default:
+			if edit.GetOp() == "rename" {
+				carried[edit.GetOldPath()] = "delete"
+			}
+			if edit.GetContentHash() != "" {
+				carried[edit.GetPath()] = editFingerprint(lazyfs.Edit{Op: "upsert", ContentHash: edit.GetContentHash(), Mode: edit.GetMode()})
+			}
+		}
+	}
+	if _, err := r.rebaseLazyWorkspace(lazy, manifest, func(edit lazyfs.Edit) mountResolution {
+		if carried[edit.Path] == editFingerprint(edit) {
+			return mountResolution{Theirs: true}
+		}
+		return mountResolution{Keep: true}
+	}); err != nil {
+		return err
+	}
+	state.BaseCommitID = commitID
+	if err := r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	return r.writeBaseSnapshot(manifestSnapshot(manifest))
 }

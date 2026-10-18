@@ -156,6 +156,10 @@ type MergeCase struct {
 
 // MergeResult is how a MergeCase resolves.
 type MergeResult struct {
+	// Keep keeps the local change as it is.
+	Keep bool
+	// Theirs takes the new base, dropping the local change.
+	Theirs bool
 	// Delete resolves to no file.
 	Delete bool
 	// Content and Mode are the file otherwise.
@@ -166,20 +170,48 @@ type MergeResult struct {
 	Conflict bool
 }
 
+// RebaseResult is what Rebase did.
+type RebaseResult struct {
+	// Conflicts are the paths merge marked as conflicts, sorted.
+	Conflicts []string
+	// Changed are the paths whose view may have changed, for a file system
+	// adapter to tell the kernel.
+	Changed []string
+}
+
 // MergeFunc resolves a path both sides changed.
 type MergeFunc func(ctx context.Context, c MergeCase) (MergeResult, error)
+
+// rebaseSides returns a path's file in the old base (nil for none, or a
+// directory) and its entry in the new base (nil for none).
+func rebaseSides(p string, oldBase, newBase *Manifest) (before, after *BaseEntry) {
+	if entry, ok := oldBase.Lookup(p); ok && entry.Kind != KindDir {
+		before = &entry
+	}
+	if entry, ok := newBase.Lookup(p); ok {
+		after = &entry
+	}
+	return before, after
+}
+
+// NeedsMerge reports whether Rebase onto newBase asks its MergeFunc about an
+// edit made over oldBase: the new base changed the path, and not to what the
+// edit made it. A caller that resolves merges ahead of time asks the same.
+func NeedsMerge(edit Edit, oldBase, newBase *Manifest) bool {
+	before, after := rebaseSides(edit.Path, oldBase, newBase)
+	return !sameBaseEntry(before, after) && !editMatches(edit, after)
+}
 
 // Rebase moves the workspace onto newBase. Paths the user did not change take
 // the new base with no work at all; changed paths the new base left alone keep
 // the user's change; paths both changed go to merge, unless both ended up the
-// same. It returns the paths merge marked as conflicts. The caller must keep
-// newBase's manifest: Open needs it from now on.
-func (f *FS) Rebase(ctx context.Context, newBase *Manifest, merge MergeFunc) ([]string, error) {
+// same. The caller must keep newBase's manifest: Open needs it from now on.
+func (f *FS) Rebase(ctx context.Context, newBase *Manifest, merge MergeFunc) (RebaseResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	edits, err := f.editsLocked()
 	if err != nil {
-		return nil, err
+		return RebaseResult{}, err
 	}
 	oldBase := f.base
 	next := map[string]*localEntry{}
@@ -188,13 +220,7 @@ func (f *FS) Rebase(ctx context.Context, newBase *Manifest, merge MergeFunc) ([]
 	var written []string
 	for _, edit := range edits {
 		edit := edit
-		var before, after *BaseEntry
-		if entry, ok := oldBase.Lookup(edit.Path); ok && entry.Kind != KindDir {
-			before = &entry
-		}
-		if entry, ok := newBase.Lookup(edit.Path); ok {
-			after = &entry
-		}
+		before, after := rebaseSides(edit.Path, oldBase, newBase)
 		ours := f.entryForEditLocked(edit)
 		switch {
 		case sameBaseEntry(before, after):
@@ -206,21 +232,25 @@ func (f *FS) Rebase(ctx context.Context, newBase *Manifest, merge MergeFunc) ([]
 			result, err := merge(ctx, MergeCase{Path: edit.Path, Base: before, Theirs: after, Ours: &edit})
 			if err != nil {
 				f.discard(written)
-				return nil, err
+				return RebaseResult{}, err
 			}
 			if result.Conflict {
 				conflicts = append(conflicts, edit.Path)
 			}
-			if result.Delete {
+			switch {
+			case result.Keep:
+			case result.Theirs:
+				ours = nil
+			case result.Delete:
 				ours = &localEntry{Kind: entryWhiteout}
-			} else {
+			default:
 				name, err := f.writeLocalLocked(func(w io.Writer) error {
 					_, err := w.Write(result.Content)
 					return err
 				})
 				if err != nil {
 					f.discard(written)
-					return nil, err
+					return RebaseResult{}, err
 				}
 				written = append(written, name)
 				ours = &localEntry{Kind: entryFile, Mode: normalizeFileMode(result.Mode), Local: name}
@@ -285,7 +315,20 @@ func (f *FS) Rebase(ctx context.Context, newBase *Manifest, merge MergeFunc) ([]
 		}
 		next[p] = &localEntry{Kind: entryWhiteout}
 	}
-	// Every kept entry needs its directories.
+	addParentDirs(next, newBase)
+	changed, err := f.replaceLayerLocked(newBase, next, usedLocal)
+	if err != nil {
+		f.discard(written)
+		return RebaseResult{}, err
+	}
+	sort.Strings(conflicts)
+	return RebaseResult{Conflicts: conflicts, Changed: changed}, nil
+}
+
+// addParentDirs gives every entry of next but a whiteout the directories it
+// needs: the base's where they are directories there, entries elsewhere
+// (replacing a whiteout, or a base file the directory takes the place of).
+func addParentDirs(next map[string]*localEntry, base *Manifest) {
 	for p, entry := range next {
 		if entry.Kind == entryWhiteout {
 			continue
@@ -295,31 +338,71 @@ func (f *FS) Rebase(ctx context.Context, newBase *Manifest, merge MergeFunc) ([]
 			if existing != nil && existing.Kind == entryDir {
 				continue
 			}
-			if baseEntry, ok := newBase.Lookup(dir); existing == nil && ok && baseEntry.Kind == KindDir {
+			if baseEntry, ok := base.Lookup(dir); existing == nil && ok && baseEntry.Kind == KindDir {
 				continue
 			}
 			next[dir] = &localEntry{Kind: entryDir}
 		}
 	}
+}
 
-	previous := f.entries
+// replaceLayerLocked makes next the local layer over newBase, on disk first,
+// and deletes the local files of the old layer that next does not use (used
+// names them). It returns the paths whose view may have changed.
+func (f *FS) replaceLayerLocked(newBase *Manifest, next map[string]*localEntry, used map[string]bool) ([]string, error) {
+	oldBase, previous := f.base, f.entries
+	changed := changedPaths(oldBase, previous, newBase, next)
 	f.base = newBase
 	f.reset(next)
 	if err := f.writeSnapshot(newBase.CommitID()); err != nil {
 		f.base = oldBase
 		f.reset(previous)
-		f.discard(written)
 		return nil, err
 	}
 	var garbage []string
 	for _, entry := range previous {
-		if entry.Kind == entryFile && !usedLocal[entry.Local] {
+		if entry.Kind == entryFile && !used[entry.Local] {
 			garbage = append(garbage, entry.Local)
 		}
 	}
 	f.deleteLocal(garbage)
-	sort.Strings(conflicts)
-	return conflicts, nil
+	return changed, nil
+}
+
+// changedPaths lists the paths whose merged view may differ between two
+// states of the layers: every path whose local entry differs, and every path
+// the two bases list differently. Sorted.
+func changedPaths(oldBase *Manifest, oldEntries map[string]*localEntry, newBase *Manifest, newEntries map[string]*localEntry) []string {
+	set := map[string]struct{}{}
+	for p, entry := range oldEntries {
+		if other := newEntries[p]; other == nil || *other != *entry {
+			set[p] = struct{}{}
+		}
+	}
+	for p := range newEntries {
+		if oldEntries[p] == nil {
+			set[p] = struct{}{}
+		}
+	}
+	if oldBase != newBase {
+		for p, entry := range oldBase.entries {
+			if other, ok := newBase.entries[p]; !ok || !sameBaseEntry(&entry, &other) {
+				set[p] = struct{}{}
+			}
+		}
+		for p := range newBase.entries {
+			if _, ok := oldBase.entries[p]; !ok {
+				set[p] = struct{}{}
+			}
+		}
+	}
+	delete(set, "/")
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // entryForEditLocked returns the local entry that makes an edit, reusing the

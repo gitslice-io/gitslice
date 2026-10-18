@@ -8,6 +8,7 @@ import (
 // fetch: lazy workspaces (design/30_lazy_workspaces.md).
 func (r Runner) mountCommands(opts *commandOptions) []*cobra.Command {
 	foreground, workspaceID, debug, readOnly := false, "", false, false
+	var prefetch []string
 	mountCmd := &cobra.Command{
 		Use:   "mount <slice|account:slice> <dir>",
 		Short: "Mount a slice lazily: listing now, file content on first read, edits kept local",
@@ -18,9 +19,13 @@ small files beside it, and kept in the local cache (shared by every workspace on
 this machine).
 
 Edit with any tool. Edits stay in the workspace's local layer, on this machine,
-until you run gs create or gs modify: nothing is uploaded before. gs status and
-gs diff work as in a gs init workspace; gs restore drops local edits. gs sync and
-switching between changesets do not work in a mount yet.
+until you run gs create or gs modify: nothing is uploaded before. Every workspace
+command works as in a gs init workspace; gs restore drops local edits. gs sync
+and switching between changesets (gs switch, up, down) move the mount without
+rewriting or fetching files: files nobody changed take the new base, and a
+changeset's files are fetched when something reads them. --prefetch <glob>
+(relative to the mount, repeatable) fetches matching files in the background,
+now and after every sync.
 
 Mounting the same directory again re-attaches the same workspace, edits
 included; --workspace <id> re-attaches one at another path. gs mount list shows
@@ -37,14 +42,22 @@ them all; gs mount discard deletes one.`,
 			if cmd.Flags().Changed("read-only") {
 				readOnlySetting = &readOnly
 			}
-			return r.runMount(cmd.Context(), *opts, slice, dir, workspaceID, foreground, debug, readOnlySetting)
+			// --prefetch replaces the workspace's patterns only when given.
+			var prefetchSetting []string
+			if cmd.Flags().Changed("prefetch") {
+				prefetchSetting = append([]string{}, prefetch...)
+			}
+			return r.runMount(cmd.Context(), *opts, slice, dir, workspaceID, foreground, debug, readOnlySetting, prefetchSetting)
 		},
 	}
 	mountCmd.Flags().BoolVar(&foreground, "foreground", false, "serve the mount in this process instead of a background daemon")
 	mountCmd.Flags().StringVar(&workspaceID, "workspace", "", "re-attach the lazy workspace with this id (from gs mount list)")
 	mountCmd.Flags().BoolVar(&readOnly, "read-only", false, "refuse writes")
+	mountCmd.Flags().StringArrayVar(&prefetch, "prefetch", nil, "fetch files matching this glob (relative to the mount, such as 'acme/app/**/*.go') in the background; repeatable; kept for later mounts")
 	mountCmd.Flags().BoolVar(&debug, "debug-fuse", false, "log every FUSE request (with --foreground)")
 	_ = mountCmd.Flags().MarkHidden("debug-fuse")
+	mountCmd.Flags().StringVar(&opts.AgentConversationID, "agent-conversation", "", "link changesets in this workspace to an agent conversation id")
+	_ = mountCmd.Flags().MarkHidden("agent-conversation")
 
 	listCmd := &cobra.Command{
 		Use:   "list",

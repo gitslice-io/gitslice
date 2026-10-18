@@ -1,12 +1,12 @@
 # 30. Lazy Workspaces: `gs mount`
 
-Status: phases 1 to 3 implemented (2026-10-17): `internal/lazyfs`, the CLI's
+Status: implemented (2026-10-18). Phases 1 to 3: `internal/lazyfs`, the CLI's
 edit source, and a writable `gs mount` whose edits stay local until `gs create`
 (`internal/lazyfs/fusefs`, `internal/cli/mount*.go`), with `gs restore` and
-`gs mount discard`. Phase 4 (sync and changeset switching in a mount, macOS,
-the agent daemon) is proposed; until then those commands refuse in a mount, and
-a lazy workspace keeps its base after a change lands. Measurements are at the
-end.
+`gs mount discard`. Phase 4: `gs sync`, `gs submit` and changeset switching in
+a mount (`internal/cli/mount_layers.go`), `gs mount --prefetch`, macOS through
+macFUSE (built, not yet run on a Mac), passthrough where the kernel allows it,
+and `gs agent start --lazy`. Measurements are at the end.
 
 ## Goal
 
@@ -46,13 +46,16 @@ gs status                                     # lists local edits; reads nothing
 gs diff                                       # local only
 gs create --message "service: ..."            # now, and only now, content is uploaded
 gs sync                                       # moves the base; untouched files cost nothing
+gs down; gs up                                # switch changesets: references, nothing fetched
 gs unmount ~/src/gitslice                     # edits survive; gs mount picks them up again
 ```
 
 - `gs mount <slice> <dir> [--foreground] [--prefetch <glob>...]` mounts a lazy
   workspace at an empty directory. Mounting the same directory again re-attaches
   the same workspace (found by the mount path in its `mount.json`), edits
-  included.
+  included. `--prefetch` patterns (relative to the mount) are kept in
+  `mount.json`: the daemon fetches matching files in the background when it
+  mounts and after every base move.
 - `gs unmount <dir>` flushes and unmounts. Local edits are kept.
 - `gs fetch [path...]` warms the cache for paths (default: everything), for work
   offline or before a build.
@@ -109,7 +112,9 @@ had not yet synced, as on any disk.
 ~/.local/share/gitslice/mounts/<id>/      id: random, fixed when the workspace is created
   mount.json       slice, mount path, created and last-mounted times (what gs mount list reads)
   gs/              the workspace's .gs (slice.json, state.json, base snapshot, conflicts)
-  manifest         base layer listing for state.base_commit_id
+  manifest-<commit> base layer listing of each base commit in use (the
+                   previous one is kept for one more move, for a command that
+                   read mount.json just before it)
   local/index      local layer journal
   local/files/     content of locally written files
   control.sock     the mount daemon's control socket
@@ -218,8 +223,8 @@ to what is still unsubmitted.
 
 ### Moving the base
 
-`gs sync` fetches the new head's manifest and merges only what both sides
-touched:
+`gs sync` fetches the new head's manifest (one `Checkout` listing) and merges
+only what both sides touched:
 
 1. Paths with no local entry simply take the new base. No content is fetched,
    so a sync after a busy day costs one listing.
@@ -227,14 +232,38 @@ touched:
    eager workspaces use today (line merge by default, `--merge
    manual|ours|theirs`), fetching the three versions. Results go to the local
    layer; conflicts are recorded in `.gs/conflicts.json` as today.
-3. The CLI asks the daemon over `control.sock` to pause file system requests,
-   swaps the manifest and the local index atomically, tells the kernel to drop
-   cached entries and pages for the paths that changed, and resumes. Without a
-   running daemon, the CLI swaps the files directly.
+3. The CLI writes the new manifest to the workspace's state and sends the
+   daemon one `rebase` request over `control.sock` with its decision for every
+   path both sides changed, each tagged with the local change it was decided
+   for. The daemon holds the layer's lock (file system requests wait), rebases
+   (`lazyfs.FS.Rebase`), journals the new layer as one snapshot record, points
+   its fetcher at the new commit, rewrites `mount.json`, and tells the kernel to
+   drop cached entries and pages for the paths that changed. A path that
+   changed again after the CLI decided fails the whole request, which changes
+   nothing; the command says to run it again.
 
-Switching changesets (`gs switch`, `up`, `down`) works the same way: the target
-changeset's patchset becomes reference entries, so switching fetches nothing.
-As in eager workspaces, switching with unsubmitted local edits is refused.
+A crash between the journal and `mount.json` is finished on the next mount:
+the journal names its base commit, and that commit's manifest is on disk.
+
+Switching changesets (`gs switch`, `up`, `down`, `restack`, `move`,
+`detach`) sends a `switch` request instead: the target changeset's files become
+reference entries (`lazyfs.FS.Switch`), so switching fetches nothing but
+symlink targets; the sizes of files neither the cache nor the base knows come
+from one `GetBlobStatus` call. As in eager workspaces, switching with
+uncaptured local edits is refused, and untracked files that `.gitignore`
+covers stay. The request carries the local changes the CLI saw, and the daemon
+refuses it if they changed meanwhile, so a write is never dropped. In a
+dependency tree, `gs sync` restacks on the server and then switches to the
+restacked changeset over the new base, in one request.
+
+A reference's content is fetched by path when the base has it there, from
+another path when the base has it elsewhere (a renamed file), and by its hash
+(`ReadBlobStream`) otherwise: a changeset's file, or a merge the server made.
+
+After a change lands outside a dependency tree (`gs cs submit`), the workspace
+moves onto the landed commit the same way: local changes the changeset carried
+leave the local layer (the base has them now, merged with whatever else
+landed), and later ones stay. In a tree, the next `gs sync` does it.
 
 ### Ignored files and build output
 
@@ -254,15 +283,31 @@ person running `gs modify`; the mount itself still never uploads, and nothing
 is sent while the turn runs. In a mount the capture reads the local index, so it
 costs the turn's edits rather than a walk of the workspace.
 
+`gs agent start --lazy` mounts each new conversation's workspace at its
+directory (`gs mount --agent-conversation <id>`), one mount per conversation.
+Where FUSE is missing it says so and checks out instead. On start, the daemon
+mounts again the conversation workspaces that are not mounted (after a reboot),
+so their files and metadata are there; closing a conversation unmounts its
+workspace, then deletes it, or archives it with its state (re-attach with
+`gs mount --workspace <id>`).
+
 ### Platforms
 
 - **Linux:** FUSE 3 through `github.com/hanwen/go-fuse/v2`, unprivileged with
-  `fusermount3`. Passthrough needs Linux 6.9.
-- **macOS:** the same library over macFUSE, or FUSE-T (an NFS loopback server
-  with no kernel extension). Phase 4.
+  `fusermount3`. Local layer files are offered to the kernel for passthrough
+  (reads and writes at disk speed); go-fuse uses it where the kernel allows it
+  (Linux 6.9 and later, and a mount with `CAP_SYS_ADMIN`) and serves them
+  itself otherwise. Base content is never passed through: its file is in the
+  shared cache, and the kernel keeps one backing file per inode, so a later
+  write would land there.
+- **macOS:** the same library over macFUSE (go-fuse does not speak FUSE-T),
+  mounted with `noappledouble` and `noapplexattr` so Finder's `._*` and
+  `.DS_Store` files never become edits. The mount table is read with
+  `getfsstat`, and the control socket lives under `/tmp` (macOS's `$TMPDIR`
+  would take half of the 104 bytes a socket path may have).
 - **No FUSE** (containers without `/dev/fuse`, Windows): `gs mount` fails with a
-  message that says so and suggests `gs init`. `gs init --lazy=auto` mounts when
-  it can and checks out eagerly when it cannot.
+  message that says so and suggests `gs init`; `gs agent start --lazy` checks
+  out instead.
 
 ### Security
 
@@ -280,11 +325,13 @@ costs the turn's edits rather than a walk of the workspace.
 - `internal/lazyfs`: the two-layer model with no FUSE in it: manifest, local
   index and journal, copy-up, references, whiteouts, edits, rebase onto a new
   manifest. All the semantics are tested here.
-- `internal/lazyfs/fuse`: a thin adapter from go-fuse callbacks to `lazyfs`.
+- `internal/lazyfs/fusefs`: a thin adapter from go-fuse callbacks to `lazyfs`.
 - `internal/cli`: the edit source behind an interface, so `status`, `diff`,
   `create`, `modify` and `sync` read edits from a walk (eager workspaces) or
   from the local index (mounts) with the same code above it. `mount`,
-  `unmount`, `fetch` and `restore` commands.
+  `unmount`, `fetch` and `restore` commands; `mount_layers.go` decides how
+  sync, submit and the stack commands move a mount, and the mount daemon
+  (`mount_serve_fuse.go`) applies it.
 
 ## Testing
 
@@ -321,7 +368,7 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
 3. Writable local layer, edits from the index, `gs create`/`modify` from it,
    `gs restore`, `gs mount discard`, crash recovery.
 4. `gs sync` and stack switching in mounts; macOS; passthrough; prefetch tuning;
-   agent daemon support.
+   agent daemon support. Done; macOS awaits a run on a Mac with macFUSE.
 
 ## Alternatives considered
 
@@ -343,12 +390,14 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
 
 1. ~~Should a mounted agent conversation workspace still capture at the end of
    every turn?~~ Yes; see "Agents".
-2. Default prefetch: small siblings on first read (proposed), whole directories
-   on `readdir`, or nothing until asked?
+2. ~~Default prefetch?~~ Small files beside the one read, in the same request
+   (the phase 2 measurements: 28 round trips for a cold build of `gs`), plus
+   `--prefetch <glob>` for what a user knows they will read.
 3. Should ignored build output stay in the local layer, or go to a scratch
    directory outside the mount by default?
 4. A size limit or warning for the local layer?
-5. macOS: macFUSE (kernel extension, faster) or FUSE-T (no extension, NFS)?
+5. ~~macOS: macFUSE or FUSE-T?~~ macFUSE, the one go-fuse supports. FUSE-T
+   would need a second adapter.
 6. Once stable, should `gs init` mount by default where FUSE is available?
 7. When to build one mount for many workspaces ("Multiple workspaces"): before
    the agent daemon uses lazy workspaces, or only if per-conversation mounts

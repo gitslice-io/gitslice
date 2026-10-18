@@ -38,7 +38,7 @@ func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1
 	// still present on disk. A conv loaded as ready (or readied earlier this run)
 	// whose dir was deleted out from under us must re-hydrate, or codex would
 	// later launch against a missing cmd.Dir and fail with no repair.
-	if conv.isReady() && workspaceDirExists(conv.workdir) {
+	if conv.isReady() && d.workspaceUsable(conv.workdir) {
 		d.persistConversationMeta(conv)
 		_ = d.sendQueue.send(ctx, &corev1.DaemonMessage{
 			Payload: &corev1.DaemonMessage_Started{Started: &corev1.ConversationStarted{

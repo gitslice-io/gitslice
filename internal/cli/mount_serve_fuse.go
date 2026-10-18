@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -25,20 +26,21 @@ import (
 // asked to over the control socket, interrupted, or ctx ends.
 func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, ready func()) error {
 	state := r.mountStateDir(rec.ID)
-	manifest, err := readManifest(filepath.Join(state, "manifest"), rec.BaseCommit)
+	local := filepath.Join(state, "local")
+	// A base move that reached the layers but not mount.json (the daemon
+	// stopped in between) finishes here: the layers name their base.
+	if recorded, err := lazyfs.RecordedBase(local); err == nil && recorded != "" && recorded != rec.BaseCommit {
+		if _, err := os.Stat(r.mountManifestPath(rec.ID, recorded)); err == nil {
+			rec.BaseCommit = recorded
+		}
+	}
+	manifest, err := r.loadMountManifest(rec)
 	if err != nil {
 		return err
 	}
+	rec.Files = manifestFileCount(manifest)
 	cache, err := r.objectCache()
 	if err != nil {
-		return err
-	}
-	layer, err := lazyfs.Open(filepath.Join(state, "local"), manifest, cacheContent{cache: cache}, lazyfs.Options{})
-	if err != nil {
-		return err
-	}
-	defer layer.Close()
-	if err := r.writeLazyWorkspaceState(rec, manifest); err != nil {
 		return err
 	}
 	conn, err := dial(ctx, rec.ServerAddr)
@@ -46,6 +48,15 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 		return err
 	}
 	defer conn.Close()
+	fetcher := newMountFetcher(r, conn, rec.ref(), cache, manifest)
+	layer, err := lazyfs.Open(local, manifest, mountContent{cacheContent: cacheContent{cache: cache}, fetcher: fetcher}, lazyfs.Options{})
+	if err != nil {
+		return err
+	}
+	defer layer.Close()
+	if err := r.writeLazyWorkspaceState(rec, manifest); err != nil {
+		return err
+	}
 	// The control socket listens before the mount appears, so a command run
 	// right after gs mount always finds it (connections wait until served).
 	socket := mountControlPath(rec.ID)
@@ -58,7 +69,6 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 			defer listener.Close()
 		}
 	}
-	fetcher := &mountFetcher{r: r, conn: conn, slice: rec.ref(), commitID: rec.BaseCommit, manifest: manifest, cache: cache, inflight: map[string]*fetchCall{}}
 	mounted, err := fusefs.Mount(rec.MountPath, layer, fetcher, fusefs.Options{
 		FsName:   "gitslice:" + rec.Account + "/" + rec.Slice,
 		UID:      uint32(os.Getuid()),
@@ -75,6 +85,84 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 	_ = r.writeMountRecord(rec)
 
 	unmount := func() { _ = mounted.Server.Unmount() }
+	// prefetch fetches the files the workspace's --prefetch patterns name,
+	// in the background.
+	prefetch := func(manifest *lazyfs.Manifest) {
+		if len(rec.Prefetch) == 0 {
+			return
+		}
+		go func() {
+			entries := prefetchEntries(manifest, rec.Prefetch, cache)
+			if len(entries) == 0 {
+				return
+			}
+			cfg, err := r.readUserConfig()
+			if err != nil {
+				return
+			}
+			started := time.Now()
+			files, bytes, err := fetchConcurrently(authContext(ctx, cfg), conn, rec.ref(), manifest.CommitID(), entries, cache)
+			fetcher.mu.Lock()
+			fetcher.files += int64(files)
+			fetcher.bytes += bytes
+			fetcher.mu.Unlock()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "prefetch: %d of %d files fetched: %v\n", files, len(entries), err)
+				return
+			}
+			fmt.Fprintf(os.Stderr, "prefetch: %d files (%s) in %s\n", files, humanBytes(bytes), time.Since(started).Round(time.Millisecond))
+		}()
+	}
+	// moveLayers runs a rebase or a switch: one at a time, as each replaces
+	// the whole local layer, and with mount.json and the fetcher following.
+	var moveMu sync.Mutex
+	moveLayers := func(req mountControlRequest, reply *mountControlReply) error {
+		moveMu.Lock()
+		defer moveMu.Unlock()
+		newBase := layer.Base()
+		if req.Commit != "" && req.Commit != newBase.CommitID() {
+			m, err := readManifest(r.mountManifestPath(rec.ID, req.Commit), req.Commit)
+			if err != nil {
+				return fmt.Errorf("no listing of %s for this workspace: %w", req.Commit, err)
+			}
+			newBase = m
+		}
+		var changed []string
+		if req.Op == "rebase" {
+			result, err := layer.Rebase(context.Background(), newBase, func(ctx context.Context, c lazyfs.MergeCase) (lazyfs.MergeResult, error) {
+				res, ok := req.Resolutions[c.Path]
+				if !ok || res.Ours != editFingerprint(*c.Ours) {
+					return lazyfs.MergeResult{}, fmt.Errorf("%w: %s", lazyfs.ErrChanged, c.Path)
+				}
+				return res.result(), nil
+			})
+			if err != nil {
+				return err
+			}
+			reply.Conflicts, changed = result.Conflicts, result.Changed
+		} else {
+			var err error
+			if changed, err = layer.Switch(newBase, req.Diff, req.Keep, req.Expect); err != nil {
+				return err
+			}
+		}
+		fetcher.setBase(newBase)
+		if newBase.CommitID() != rec.BaseCommit {
+			previous := rec.BaseCommit
+			rec.BaseCommit, rec.Files = newBase.CommitID(), manifestFileCount(newBase)
+			if err := r.writeMountRecord(rec); err != nil {
+				return err
+			}
+			// The previous listing stays one more move, for a command that
+			// read mount.json just before.
+			r.removeStaleManifests(rec.ID, rec.BaseCommit, previous)
+		}
+		mounted.InvalidatePaths(changed)
+		prefetch(newBase)
+		reply.Changed = len(changed)
+		reply.BaseCommit = newBase.CommitID()
+		return nil
+	}
 	if listener != nil {
 		{
 			go serveMountControl(listener, func(req mountControlRequest) mountControlReply {
@@ -82,8 +170,16 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 				fetcher.mu.Lock()
 				files, bytes := fetcher.files, fetcher.bytes
 				fetcher.mu.Unlock()
-				reply := mountControlReply{PID: os.Getpid(), MountedAt: mountedAt.Format(time.RFC3339), Opens: stats.Opens, Fetches: stats.Fetches, FetchedFiles: files, FetchedBytes: bytes, Errors: stats.Errors, LastError: stats.LastError}
+				reply := mountControlReply{PID: os.Getpid(), MountedAt: mountedAt.Format(time.RFC3339), Opens: stats.Opens, Fetches: stats.Fetches, FetchedFiles: files, FetchedBytes: bytes, Errors: stats.Errors, LastError: stats.LastError, BaseCommit: layer.Base().CommitID()}
 				switch req.Op {
+				case "rebase", "switch":
+					if rec.ReadOnly {
+						reply.Error = "the workspace is mounted read-only"
+						break
+					}
+					if err := moveLayers(req, &reply); err != nil {
+						reply.Error = err.Error()
+					}
 				case "edits":
 					// Hashing a local file also puts it in the client cache,
 					// where gs create uploads it from.
@@ -121,6 +217,7 @@ func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, rea
 		case <-stop:
 		}
 	}()
+	prefetch(manifest)
 	if ready != nil {
 		ready()
 	}
@@ -211,7 +308,10 @@ func daemonLogTail(path string, n int) string {
 func forceUnmount(dir string) error {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "darwin" {
-		cmd = exec.Command("umount", dir)
+		if err := exec.Command("umount", dir).Run(); err == nil {
+			return nil
+		}
+		cmd = exec.Command("diskutil", "unmount", "force", dir)
 	} else if path, err := exec.LookPath("fusermount3"); err == nil {
 		cmd = exec.Command(path, "-u", dir)
 	} else {

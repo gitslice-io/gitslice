@@ -8,15 +8,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"gitslice.io/gitslice/internal/clientcache"
 	"gitslice.io/gitslice/internal/lazyfs"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -46,6 +49,36 @@ type mountRecord struct {
 	IncludedPaths  []string `json:"included_paths,omitempty"`
 	// ReadOnly mounts refuse writes.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// ConversationID links the workspace's changesets to an agent
+	// conversation, as gs init --agent-conversation does.
+	ConversationID string `json:"conversation_id,omitempty"`
+	// Prefetch are glob patterns, relative to the mount, of files the daemon
+	// fetches in the background when it mounts and after the base moves.
+	Prefetch []string `json:"prefetch,omitempty"`
+}
+
+// prefetchEntries returns the base files matching the patterns that the
+// cache does not have, once per content.
+func prefetchEntries(manifest *lazyfs.Manifest, patterns []string, cache *clientcache.ObjectCache) []lazyfs.BaseEntry {
+	var out []lazyfs.BaseEntry
+	seen := map[string]bool{}
+	manifest.Files(func(entry lazyfs.BaseEntry) {
+		if entry.Kind != lazyfs.KindFile || seen[entry.ContentHash] {
+			return
+		}
+		rel := strings.TrimPrefix(entry.Path, "/")
+		for _, pattern := range patterns {
+			if ok, _ := doublestar.Match(pattern, rel); ok {
+				seen[entry.ContentHash] = true
+				if !cache.Exists(entry.ContentHash) {
+					out = append(out, entry)
+				}
+				return
+			}
+		}
+	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
 }
 
 func (rec mountRecord) ref() *corev1.SliceRef {
@@ -67,7 +100,13 @@ func (r Runner) mountStateDir(id string) string { return filepath.Join(r.mountsR
 func mountControlPath(id string) string {
 	dir := os.Getenv("XDG_RUNTIME_DIR")
 	if dir == "" {
-		dir = filepath.Join(os.TempDir(), fmt.Sprintf("gitslice-%d", os.Getuid()))
+		// macOS's $TMPDIR alone takes half of the 104 bytes a socket path
+		// may have there.
+		tmp := os.TempDir()
+		if runtime.GOOS == "darwin" {
+			tmp = "/tmp"
+		}
+		dir = filepath.Join(tmp, fmt.Sprintf("gitslice-%d", os.Getuid()))
 	}
 	return filepath.Join(dir, "gs-mount-"+id+".sock")
 }
@@ -151,26 +190,54 @@ func (r Runner) findMountRecord(selector string) (mountRecord, error) {
 	return best, nil
 }
 
-// isMounted reports whether a file system is mounted at dir.
-func isMounted(dir string) bool {
-	data, err := os.ReadFile("/proc/self/mountinfo")
-	if err != nil {
-		return false
+// Manifests are stored as JSON lines of lazyfs.BaseEntry, one file per base
+// commit: a command that reads the workspace's record and then its manifest
+// finds the manifest that record names even while gs sync moves the base.
+
+// mountManifestPath is the listing of commitID in workspace id's state.
+func (r Runner) mountManifestPath(id, commitID string) string {
+	key := strings.Map(func(c rune) rune {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' {
+			return c
+		}
+		return '_'
+	}, commitID)
+	return filepath.Join(r.mountStateDir(id), "manifest-"+key)
+}
+
+// loadMountManifest reads the manifest of the workspace's base commit.
+// Workspaces made before sync worked in mounts keep it in "manifest".
+func (r Runner) loadMountManifest(rec mountRecord) (*lazyfs.Manifest, error) {
+	m, err := readManifest(r.mountManifestPath(rec.ID, rec.BaseCommit), rec.BaseCommit)
+	if errors.Is(err, fs.ErrNotExist) {
+		return readManifest(filepath.Join(r.mountStateDir(rec.ID), "manifest"), rec.BaseCommit)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) > 4 && unescapeMountPath(fields[4]) == dir {
-			return true
+	return m, err
+}
+
+// removeStaleManifests deletes the listings of every commit but keep.
+func (r Runner) removeStaleManifests(id string, keep ...string) {
+	want := map[string]bool{}
+	for _, commit := range keep {
+		want[filepath.Base(r.mountManifestPath(id, commit))] = true
+	}
+	entries, err := os.ReadDir(r.mountStateDir(id))
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if (name == "manifest" || strings.HasPrefix(name, "manifest-")) && !want[name] {
+			_ = os.Remove(filepath.Join(r.mountStateDir(id), name))
 		}
 	}
-	return false
 }
 
-func unescapeMountPath(p string) string {
-	return strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`).Replace(p)
+func manifestFileCount(manifest *lazyfs.Manifest) int {
+	files := 0
+	manifest.Files(func(lazyfs.BaseEntry) { files++ })
+	return files
 }
-
-// Manifests are stored as JSON lines of lazyfs.BaseEntry.
 
 func writeManifest(path string, entries []lazyfs.BaseEntry) error {
 	tmp := path + ".tmp"
@@ -248,17 +315,20 @@ const (
 	mountFetchConcurrency = 4
 )
 
-// mountFetcher fetches base content into the client cache for a mount.
+// mountFetcher fetches content into the client cache for a mount: base files
+// by path at the base commit, and content the base does not have at that path
+// (a changeset's files after gs switch) by its hash.
 type mountFetcher struct {
-	r        Runner
-	conn     *grpc.ClientConn
-	slice    *corev1.SliceRef
-	commitID string
-	manifest *lazyfs.Manifest
-	cache    *clientcache.ObjectCache
+	r     Runner
+	conn  *grpc.ClientConn
+	slice *corev1.SliceRef
+	cache *clientcache.ObjectCache
 
 	mu       sync.Mutex
-	inflight map[string]*fetchCall // by content hash
+	commitID string
+	manifest *lazyfs.Manifest
+	byHash   map[string]lazyfs.BaseEntry // a base file with each content hash, built when first needed
+	inflight map[string]*fetchCall       // by content hash
 	files    int64
 	bytes    int64
 }
@@ -268,24 +338,41 @@ type fetchCall struct {
 	err  error
 }
 
+func newMountFetcher(r Runner, conn *grpc.ClientConn, slice *corev1.SliceRef, cache *clientcache.ObjectCache, manifest *lazyfs.Manifest) *mountFetcher {
+	return &mountFetcher{r: r, conn: conn, slice: slice, cache: cache, commitID: manifest.CommitID(), manifest: manifest, inflight: map[string]*fetchCall{}}
+}
+
+// setBase points the fetcher at a new base, after gs sync moved the layers.
+func (f *mountFetcher) setBase(manifest *lazyfs.Manifest) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.manifest, f.commitID, f.byHash = manifest, manifest.CommitID(), nil
+}
+
 // Fetch implements fusefs.Fetcher.
 func (f *mountFetcher) Fetch(ctx context.Context, p string, attr lazyfs.Attr) (string, bool, error) {
-	hash := attr.ContentHash
+	fetched, err := f.fetchContent(p, attr.ContentHash, attr.Size)
+	if err != nil {
+		return "", false, err
+	}
+	path, err := f.cache.Path(attr.ContentHash)
+	return path, fetched, err
+}
+
+// fetchContent puts the content with hash in the cache, unless it is there.
+// p is a path that shows it, if known. It reports whether it fetched.
+func (f *mountFetcher) fetchContent(p, hash string, size int64) (bool, error) {
 	if f.cache.Exists(hash) {
-		path, err := f.cache.Path(hash)
-		return path, false, err
+		return false, nil
 	}
 	f.mu.Lock()
 	if call := f.inflight[hash]; call != nil {
 		f.mu.Unlock()
 		<-call.done
-		if call.err != nil {
-			return "", false, call.err
-		}
-		path, err := f.cache.Path(hash)
-		return path, false, err
+		return false, call.err
 	}
-	batch := f.planLocked(p, attr)
+	commitID := f.commitID
+	batch := f.planLocked(p, hash, size)
 	call := &fetchCall{done: make(chan struct{})}
 	for _, entry := range batch {
 		f.inflight[entry.ContentHash] = call
@@ -295,7 +382,7 @@ func (f *mountFetcher) Fetch(ctx context.Context, p string, attr lazyfs.Attr) (s
 	// One reader giving up must not fail the others waiting on this fetch.
 	fetchCtx, cancel := context.WithTimeout(context.Background(), mountFetchTimeout)
 	defer cancel()
-	files, bytes, err := f.fetch(fetchCtx, batch)
+	files, bytes, err := f.fetch(fetchCtx, commitID, batch)
 
 	f.mu.Lock()
 	for _, entry := range batch {
@@ -306,22 +393,35 @@ func (f *mountFetcher) Fetch(ctx context.Context, p string, attr lazyfs.Attr) (s
 	f.mu.Unlock()
 	call.err = err
 	close(call.done)
-	if err != nil {
-		return "", false, err
-	}
-	path, err := f.cache.Path(hash)
-	return path, true, err
+	return err == nil, err
 }
 
-// planLocked picks the file and the small files beside it that are not
-// cached yet or already being fetched.
-func (f *mountFetcher) planLocked(p string, attr lazyfs.Attr) []lazyfs.BaseEntry {
-	batch := []lazyfs.BaseEntry{{Path: p, Kind: lazyfs.KindFile, Size: attr.Size, ContentHash: attr.ContentHash}}
-	if attr.Size > mountLargeFileBytes {
+// planLocked picks what to fetch for the content with hash: the base file
+// at p with the small files beside it that are not cached yet or already
+// being fetched; else a base file elsewhere with the same content (a renamed
+// file); else the content alone, by its hash (an entry with no path).
+func (f *mountFetcher) planLocked(p, hash string, size int64) []lazyfs.BaseEntry {
+	entry, ok := f.manifest.Lookup(p)
+	if !ok || entry.Kind != lazyfs.KindFile || entry.ContentHash != hash {
+		if f.byHash == nil {
+			f.byHash = map[string]lazyfs.BaseEntry{}
+			f.manifest.Files(func(entry lazyfs.BaseEntry) {
+				if entry.Kind == lazyfs.KindFile {
+					f.byHash[entry.ContentHash] = entry
+				}
+			})
+		}
+		if other, ok := f.byHash[hash]; ok {
+			return []lazyfs.BaseEntry{other}
+		}
+		return []lazyfs.BaseEntry{{Kind: lazyfs.KindFile, Size: size, ContentHash: hash}}
+	}
+	batch := []lazyfs.BaseEntry{entry}
+	if entry.Size > mountLargeFileBytes {
 		return batch
 	}
-	total := attr.Size
-	seen := map[string]bool{attr.ContentHash: true}
+	total := entry.Size
+	seen := map[string]bool{hash: true}
 	dir := p[:strings.LastIndex(p, "/")]
 	if dir == "" {
 		dir = "/"
@@ -351,18 +451,35 @@ func joinGlobalPath(dir, name string) string {
 	return dir + "/" + name
 }
 
-// fetch puts the entries' content in the cache, checking every hash.
-func (f *mountFetcher) fetch(ctx context.Context, entries []lazyfs.BaseEntry) (int, int64, error) {
+// fetch puts the entries' content in the cache, checking every hash. The
+// credential is read for every fetch, so gs auth use-key takes effect without
+// a remount.
+func (f *mountFetcher) fetch(ctx context.Context, commitID string, entries []lazyfs.BaseEntry) (int, int64, error) {
 	cfg, err := f.r.readUserConfig()
 	if err != nil {
 		return 0, 0, err
 	}
-	return fetchBaseFiles(authContext(ctx, cfg), f.conn, f.slice, f.commitID, entries, f.cache)
+	return fetchBaseFiles(authContext(ctx, cfg), f.conn, f.slice, commitID, entries, f.cache)
+}
+
+// mountContent is the daemon's lazyfs.Content: cacheContent that fetches
+// what the cache lacks, so the first write to a file nothing has read yet
+// can copy its content up.
+type mountContent struct {
+	cacheContent
+	fetcher *mountFetcher
+}
+
+func (c mountContent) Open(ctx context.Context, hash string) (io.ReadCloser, error) {
+	if _, err := c.fetcher.fetchContent("", hash, 0); err != nil {
+		return nil, err
+	}
+	return c.cacheContent.Open(ctx, hash)
 }
 
 // fetchBaseFiles fetches base files into the cache: small ones in ReadFiles
-// batches, large ones as streams. It returns how many it fetched and their
-// size.
+// batches, large ones, and content known by hash only (no path), as streams.
+// It returns how many it fetched and their size.
 func fetchBaseFiles(ctx context.Context, conn *grpc.ClientConn, slice *corev1.SliceRef, commitID string, entries []lazyfs.BaseEntry, cache *clientcache.ObjectCache) (int, int64, error) {
 	repo := corev1.NewRepositoryServiceClient(conn)
 	blob := corev1.NewBlobServiceClient(conn)
@@ -372,7 +489,7 @@ func fetchBaseFiles(ctx context.Context, conn *grpc.ClientConn, slice *corev1.Sl
 		if cache.Exists(entry.ContentHash) {
 			continue
 		}
-		if entry.Size <= mountLargeFileBytes {
+		if entry.Path != "" && entry.Size <= mountLargeFileBytes {
 			small = append(small, entry)
 			continue
 		}
@@ -385,10 +502,10 @@ func fetchBaseFiles(ctx context.Context, conn *grpc.ClientConn, slice *corev1.Sl
 			return files, total, err
 		}
 		if cached.ContentHash != entry.ContentHash {
-			return files, total, fmt.Errorf("content hash mismatch for %s: got %s, want %s", entry.Path, cached.ContentHash, entry.ContentHash)
+			return files, total, fmt.Errorf("content hash mismatch for %s: got %s, want %s", firstNonEmpty(entry.Path, entry.ContentHash), cached.ContentHash, entry.ContentHash)
 		}
 		files++
-		total += entry.Size
+		total += cached.Size
 	}
 	for start := 0; start < len(small); {
 		end, size := start, int64(0)
@@ -482,11 +599,9 @@ func (r Runner) writeLazyWorkspaceState(rec mountRecord, manifest *lazyfs.Manife
 		DefinitionHash: rec.DefinitionHash,
 		IncludedPaths:  rec.IncludedPaths,
 		BaseCommitID:   rec.BaseCommit,
+		ConversationID: rec.ConversationID,
 	}
-	base := BaseSnapshot{CommitID: rec.BaseCommit, Files: map[string]BaseSnapshotFile{}}
-	manifest.Files(func(entry lazyfs.BaseEntry) {
-		base.Files[entry.Path] = BaseSnapshotFile{Path: entry.Path, RelPath: strings.TrimPrefix(entry.Path, "/"), ContentHash: entry.ContentHash, Mode: entry.Mode, Size: entry.Size}
-	})
+	base := manifestSnapshot(manifest)
 	for name, value := range map[string]any{
 		"base_snapshot.json": base,
 		"state.json":         WorkspaceState{BaseCommitID: rec.BaseCommit},
@@ -509,15 +624,14 @@ func lazyWorkspaceID(root string) string {
 	return marker.ID
 }
 
-// refuseInLazyWorkspace stops a command that rewrites workspace files, which
-// lazy workspaces do not support yet (design/30_lazy_workspaces.md, phase 4).
-func (r Runner) refuseInLazyWorkspace(what string) error {
+// refuseInLazyWorkspace stops a command that has no meaning in a lazy
+// workspace, saying what to run instead.
+func (r Runner) refuseInLazyWorkspace(what, instead string) error {
 	root, err := r.workspaceRoot()
 	if err != nil || lazyWorkspaceID(root) == "" {
 		return nil
 	}
-	return userError("lazy_workspace_unsupported", what+" does not work in a lazy workspace (gs mount) yet",
-		"Land your changes with gs create --submit, then start from a fresh mount: gs unmount "+root+"; gs mount discard "+root+"; gs mount <slice> "+root+". Or use a gs init workspace.")
+	return userError("lazy_workspace_unsupported", what+" does not apply to a lazy workspace (gs mount)", instead)
 }
 
 // daemonLayerView reads a mounted lazy workspace's layers through its daemon,
@@ -530,8 +644,14 @@ type daemonLayerView struct {
 
 func (v daemonLayerView) Edits() ([]lazyfs.Edit, error) {
 	reply, err := callMountDaemon(v.id, mountControlRequest{Op: "edits"})
-	if err != nil {
+	if errors.Is(err, errMountUnreachable) {
 		return nil, userError("lazy_workspace_not_mounted", "cannot reach the mount of this lazy workspace: "+err.Error(), "Mount it again: gs mount <slice> "+v.mountRoot+".")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if reply.BaseCommit != "" && reply.BaseCommit != v.manifest.CommitID() {
+		return nil, userError("workspace_changed", "the lazy workspace moved to another base meanwhile", "Run the command again.")
 	}
 	return reply.Edits, nil
 }
@@ -545,8 +665,44 @@ func (v daemonLayerView) ReadFile(ctx context.Context, p string) ([]byte, error)
 // mountControlRequest and mountControlReply are the daemon's control
 // protocol: one JSON request and one JSON reply per connection.
 type mountControlRequest struct {
-	Op    string   `json:"op"` // "status", "edits", "restore" or "unmount"
+	// Op is "status", "edits", "restore", "rebase", "switch" or "unmount".
+	Op    string   `json:"op"`
 	Paths []string `json:"paths,omitempty"`
+	// Commit, for rebase and switch, is the base commit to move to, whose
+	// manifest gs wrote to the workspace's state first; "" keeps the base.
+	Commit string `json:"commit,omitempty"`
+	// Resolutions, for rebase, decide each path both the local layer and
+	// the new base changed (lazyfs.NeedsMerge).
+	Resolutions map[string]mountResolution `json:"resolutions,omitempty"`
+	// Diff, Keep and Expect are lazyfs.FS.Switch's arguments.
+	Diff   map[string]*lazyfs.BaseEntry `json:"diff,omitempty"`
+	Keep   []string                     `json:"keep,omitempty"`
+	Expect []lazyfs.Edit                `json:"expect,omitempty"`
+}
+
+// mountResolution resolves a path in a rebase, decided by gs for the local
+// change Ours (editFingerprint); a different local change fails the rebase,
+// as it was not decided on.
+type mountResolution struct {
+	Ours     string `json:"ours"`
+	Keep     bool   `json:"keep,omitempty"`
+	Theirs   bool   `json:"theirs,omitempty"`
+	Delete   bool   `json:"delete,omitempty"`
+	Content  []byte `json:"content,omitempty"`
+	Mode     uint32 `json:"mode,omitempty"`
+	Conflict bool   `json:"conflict,omitempty"`
+}
+
+func (res mountResolution) result() lazyfs.MergeResult {
+	return lazyfs.MergeResult{Keep: res.Keep, Theirs: res.Theirs, Delete: res.Delete, Content: res.Content, Mode: res.Mode, Conflict: res.Conflict}
+}
+
+// editFingerprint names a local change: "delete", or its content and mode.
+func editFingerprint(edit lazyfs.Edit) string {
+	if edit.Op == "delete" {
+		return "delete"
+	}
+	return fmt.Sprintf("%s:%o", edit.ContentHash, normalizedSnapshotMode(edit.Mode))
 }
 
 type mountControlReply struct {
@@ -559,14 +715,24 @@ type mountControlReply struct {
 	Errors       int64         `json:"errors"`
 	LastError    string        `json:"last_error,omitempty"`
 	Edits        []lazyfs.Edit `json:"edits,omitempty"`
-	Error        string        `json:"error,omitempty"`
+	// BaseCommit is the layers' base commit.
+	BaseCommit string `json:"base_commit,omitempty"`
+	// Conflicts and Changed report a rebase or a switch: the paths the
+	// rebase marked as conflicts, and how many paths the view changed at.
+	Conflicts []string `json:"conflicts,omitempty"`
+	Changed   int      `json:"changed,omitempty"`
+	Error     string   `json:"error,omitempty"`
 }
+
+// errMountUnreachable is returned when no daemon answers a workspace's
+// control socket: the workspace is not mounted, or its daemon died.
+var errMountUnreachable = errors.New("no mount daemon answers")
 
 func callMountDaemon(id string, req mountControlRequest) (mountControlReply, error) {
 	var reply mountControlReply
 	conn, err := net.DialTimeout("unix", mountControlPath(id), 2*time.Second)
 	if err != nil {
-		return reply, err
+		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))

@@ -76,7 +76,21 @@ func (d *agentDaemon) removeOrArchiveWorkspace(workdir string, deleteWorkspace b
 	if strings.TrimSpace(workdir) == "" {
 		return
 	}
+	// A lazy workspace is unmounted first; its state goes with it, or
+	// follows it into the archive (gs mount --workspace re-attaches it).
+	rec, lazy := d.runner.lazyWorkspaceAt(workdir)
+	if lazy && isMounted(workdir) {
+		if err := unmountLazyWorkspace(rec); err != nil {
+			fmt.Fprintf(d.runner.stderr(), "agent workspace unmount failed for %s: %v\n", workdir, err)
+			return
+		}
+	}
 	if deleteWorkspace {
+		if lazy {
+			if err := os.RemoveAll(d.runner.mountStateDir(rec.ID)); err != nil {
+				fmt.Fprintf(d.runner.stderr(), "agent workspace remove failed for %s: %v\n", workdir, err)
+			}
+		}
 		if err := os.RemoveAll(workdir); err != nil {
 			fmt.Fprintf(d.runner.stderr(), "agent workspace remove failed for %s: %v\n", workdir, err)
 		}
@@ -87,9 +101,61 @@ func (d *agentDaemon) removeOrArchiveWorkspace(workdir string, deleteWorkspace b
 		fmt.Fprintf(d.runner.stderr(), "agent workspace archive mkdir failed: %v\n", err)
 		return
 	}
-	if err := os.Rename(workdir, filepath.Join(archiveDir, filepath.Base(workdir))); err != nil {
+	archived := filepath.Join(archiveDir, filepath.Base(workdir))
+	if err := os.Rename(workdir, archived); err != nil {
 		fmt.Fprintf(d.runner.stderr(), "agent workspace archive failed for %s: %v\n", workdir, err)
+		return
 	}
+	if lazy {
+		rec.MountPath = archived
+		if err := d.runner.writeMountRecord(rec); err != nil {
+			fmt.Fprintf(d.runner.stderr(), "agent workspace archive failed for %s: %v\n", workdir, err)
+		}
+	}
+}
+
+// workspaceUsable reports whether a conversation's workspace is there to
+// work in: its directory exists and, for a lazy workspace, is mounted.
+func (d *agentDaemon) workspaceUsable(workdir string) bool {
+	if !workspaceDirExists(workdir) {
+		return false
+	}
+	if _, lazy := d.runner.lazyWorkspaceAt(workdir); lazy {
+		return isMounted(workdir)
+	}
+	return true
+}
+
+// reattachLazyWorkspaces mounts again the lazy workspaces of this daemon's
+// conversations that are not mounted (after a reboot, or a mount daemon that
+// died), so their files and metadata are there when the conversations load.
+func (d *agentDaemon) reattachLazyWorkspaces(ctx context.Context) {
+	records, err := d.runner.mountRecords()
+	if err != nil {
+		return
+	}
+	conversations := filepath.Join(d.workingDir, "conversations")
+	for _, rec := range records {
+		if filepath.Dir(rec.MountPath) != conversations || isMounted(rec.MountPath) {
+			continue
+		}
+		if out, err := d.runGS(ctx, "", "--quiet", "mount", "--workspace", rec.ID, rec.MountPath); err != nil {
+			fmt.Fprintf(d.runner.stderr(), "agent workspace remount failed for %s: %v: %s\n", rec.MountPath, err, out)
+		}
+	}
+}
+
+// runGS runs this gs binary with the daemon's environment.
+func (d *agentDaemon) runGS(ctx context.Context, dir string, args ...string) (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd.Dir = dir
+	cmd.Env = agentWorkspaceInitEnv(d.runner, d.cfg)
+	output, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(output)), err
 }
 
 func workspaceDirExists(workdir string) bool {
@@ -104,18 +170,31 @@ func (d *agentDaemon) hydrateWorkspace(ctx context.Context, conv *agentConversat
 	if err := os.MkdirAll(conv.workdir, 0o755); err != nil {
 		return err
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
+	_, lazy := d.runner.lazyWorkspaceAt(conv.workdir)
+	if lazy && isMounted(conv.workdir) {
+		return nil
 	}
-	cmd := exec.CommandContext(ctx, exe, "--quiet", "workspace", "init", sliceRef, "--agent-conversation", conv.id)
-	cmd.Dir = conv.workdir
-	cmd.Env = agentWorkspaceInitEnv(d.runner, d.cfg)
-	output, err := cmd.CombinedOutput()
+	if d.lazy || lazy {
+		// Lazy: a mount (re-attached if the conversation had one), whose
+		// edits stay local until the turn's capture, as a checkout's do.
+		output, err := d.runGS(ctx, "", "--quiet", "mount", sliceRef, conv.workdir, "--agent-conversation", conv.id)
+		if err == nil {
+			return nil
+		}
+		if lazy || !strings.Contains(output, "needs FUSE") {
+			return fmt.Errorf("mounting the workspace for %s failed: %w: %s", sliceRef, err, output)
+		}
+		// No FUSE here: forget the workspace the attempt made, and check out.
+		if rec, ok := d.runner.lazyWorkspaceAt(conv.workdir); ok {
+			_ = os.RemoveAll(d.runner.mountStateDir(rec.ID))
+		}
+		fmt.Fprintf(d.runner.stderr(), "lazy workspaces are not available here (%s); checking out instead\n", output)
+	}
+	output, err := d.runGS(ctx, conv.workdir, "--quiet", "workspace", "init", sliceRef, "--agent-conversation", conv.id)
 	if err == nil {
 		return nil
 	}
-	detail := strings.TrimSpace(string(output))
+	detail := strings.TrimSpace(output)
 	if detail == "" {
 		return fmt.Errorf("workspace init failed for %s: %w", sliceRef, err)
 	}

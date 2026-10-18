@@ -63,25 +63,11 @@ func contentHashIfExists(file BaseSnapshotFile, ok bool) string {
 }
 
 func (r Runner) materializeWorkspaceConflict(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remote map[string]remoteWorkspaceFile, conflict WorkspaceConflict) error {
-	baseFile, baseOK := base.Files[conflict.Path]
-	localFile, localOK := current[conflict.Path]
-	remoteFile, remoteOK := remote[conflict.Path]
-	baseData, baseExists, err := r.remoteFileBytes(ctx, repo, cache, oldBaseCommitID, baseFile, baseOK)
-	if err != nil {
+	data, mode, ok, err := r.workspaceConflictContent(ctx, repo, cache, oldBaseCommitID, newBaseCommitID, base, current, remote, conflict)
+	if err != nil || !ok {
 		return err
 	}
-	localData, localExists, err := localWorkspaceFileBytes(localFile, localOK)
-	if err != nil {
-		return err
-	}
-	remoteData, remoteExists, err := r.remoteFileBytes(ctx, repo, cache, newBaseCommitID, remoteFile.BaseSnapshotFile, remoteOK)
-	if err != nil {
-		return err
-	}
-	if !isTextConflictSide(baseData, baseExists) || !isTextConflictSide(localData, localExists) || !isTextConflictSide(remoteData, remoteExists) {
-		return nil
-	}
-	target := localFile.AbsPath
+	target := current[conflict.Path].AbsPath
 	if target == "" {
 		rel, err := workspaceRelPath(ws, conflict.Path)
 		if err != nil {
@@ -92,6 +78,31 @@ func (r Runner) materializeWorkspaceConflict(ctx context.Context, repo corev1.Re
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
+	return os.WriteFile(target, data, fileModeFromSnapshot(mode))
+}
+
+// workspaceConflictContent is a conflicted path's file with conflict markers
+// around the three sides, and its mode. ok is false when a side is binary:
+// the local file then stays as it is.
+func (r Runner) workspaceConflictContent(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remote map[string]remoteWorkspaceFile, conflict WorkspaceConflict) ([]byte, uint32, bool, error) {
+	baseFile, baseOK := base.Files[conflict.Path]
+	localFile, localOK := current[conflict.Path]
+	remoteFile, remoteOK := remote[conflict.Path]
+	baseData, baseExists, err := r.remoteFileBytes(ctx, repo, cache, oldBaseCommitID, baseFile, baseOK)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	localData, localExists, err := localWorkspaceFileBytes(localFile, localOK)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	remoteData, remoteExists, err := r.remoteFileBytes(ctx, repo, cache, newBaseCommitID, remoteFile.BaseSnapshotFile, remoteOK)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if !isTextConflictSide(baseData, baseExists) || !isTextConflictSide(localData, localExists) || !isTextConflictSide(remoteData, remoteExists) {
+		return nil, 0, false, nil
+	}
 	var b strings.Builder
 	b.WriteString("<<<<<<< gitslice local\n")
 	b.WriteString(conflictSideText("local", localData, localExists))
@@ -100,7 +111,7 @@ func (r Runner) materializeWorkspaceConflict(ctx context.Context, repo corev1.Re
 	b.WriteString("=======\n")
 	b.WriteString(conflictSideText("remote", remoteData, remoteExists))
 	b.WriteString(">>>>>>> gitslice remote\n")
-	return os.WriteFile(target, []byte(b.String()), fileModeFromSnapshot(firstNonZeroMode(localFile.Mode, remoteFile.Mode, baseFile.Mode)))
+	return []byte(b.String()), normalizedSnapshotMode(firstNonZeroMode(localFile.Mode, remoteFile.Mode, baseFile.Mode)), true, nil
 }
 
 func (r Runner) materializeStackRestackConflicts(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, conflicts []WorkspaceConflict) error {

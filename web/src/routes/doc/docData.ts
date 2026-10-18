@@ -203,7 +203,7 @@ export const commandGroups = [
     title: "Workspace and source",
     commands: [
       ["gs init <account>:<slice>", "Create a workspace for one slice."],
-      ["gs mount <account>:<slice> <dir>", "Mount a slice lazily (FUSE): content is fetched on first read; edits stay local until gs create."],
+      ["gs mount <account>:<slice> <dir>", "Mount a slice lazily (FUSE): content is fetched on first read; edits stay local until gs create. gs sync and changeset switching move the mount without fetching; --prefetch <glob> warms files in the background."],
       ["gs shell", "Open the server-backed file shell."],
       ["gs status", "Show pending workspace edits."],
       ["gs diff", "Inspect pending content changes."],

@@ -164,10 +164,11 @@ cd ~/w/payment/acme/payment
 gs status; gs diff                      # as in a gs init workspace; nothing is uploaded
 gs restore path/to/file                 # drop a local edit (or --all)
 gs create --all --message "..." --submit
+gs sync                                 # moves the base; files nobody changed cost nothing
 gs fetch                                # fetch everything now, for offline work or a build
 ```
 
-`gs sync` and switching between changesets do not work in a mount yet: after a change lands, start a fresh mount (`gs unmount <dir>`, `gs mount discard <dir> --yes`, `gs mount <slice> <dir>`) or use a `gs init` workspace (design/30_lazy_workspaces.md).
+Every workspace command works in a mount: `gs sync`, `gs submit`, and switching changesets (`gs switch`, `gs up`, `gs down`) move the mount's layers without rewriting or fetching files; a changeset's files are fetched when something reads them. `gs mount --prefetch 'acme/payment/**/*.go' <slice> <dir>` fetches matching files in the background. `gs agent start --lazy` mounts each conversation's workspace instead of checking it out (design/30_lazy_workspaces.md).
 
 Workspace-aware commands discover `.gs/` by walking up from subdirectories. Keep edits under the materialized path for the bound slice. For a slice that includes `/acme/payment`, edit files under `acme/payment/...` inside the workspace.
 

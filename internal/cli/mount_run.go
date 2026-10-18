@@ -10,16 +10,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"gitslice.io/gitslice/internal/lazyfs"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dirArg, workspaceID string, foreground, debug bool, readOnly *bool) error {
+func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dirArg, workspaceID string, foreground, debug bool, readOnly *bool, prefetch []string) error {
+	for _, pattern := range prefetch {
+		if !doublestar.ValidatePattern(pattern) {
+			return userError("invalid_args", "invalid --prefetch pattern "+pattern, "Use a glob relative to the mount, such as 'acme/app/**/*.go'.")
+		}
+	}
 	dir, err := filepath.Abs(dirArg)
 	if err != nil {
 		return err
 	}
-	rec, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID)
+	rec, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(opts.AgentConversationID))
 	if err != nil {
 		return err
 	}
@@ -36,6 +42,12 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 	}
 	if readOnly != nil && *readOnly != rec.ReadOnly {
 		rec.ReadOnly = *readOnly
+		if err := r.writeMountRecord(rec); err != nil {
+			return err
+		}
+	}
+	if prefetch != nil {
+		rec.Prefetch = prefetch
 		if err := r.writeMountRecord(rec); err != nil {
 			return err
 		}
@@ -69,7 +81,7 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 
 // mountRecordFor returns the workspace to mount at dir: the one named, the one
 // last mounted at dir, or a new one for the slice.
-func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID string) (mountRecord, error) {
+func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID, conversationID string) (mountRecord, error) {
 	var rec mountRecord
 	if workspaceID != "" {
 		found, err := r.readMountRecord(workspaceID)
@@ -120,7 +132,7 @@ func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID s
 	if err := os.MkdirAll(state, 0o700); err != nil {
 		return rec, err
 	}
-	if err := writeManifest(filepath.Join(state, "manifest"), entries); err != nil {
+	if err := writeManifest(r.mountManifestPath(id, checkout.commitID), entries); err != nil {
 		return rec, err
 	}
 	files := 0
@@ -141,11 +153,12 @@ func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID s
 		SliceID:        checkout.slice.GetId(),
 		DefinitionHash: checkout.slice.GetDefinitionHash(),
 		IncludedPaths:  checkout.slice.GetDefinition().GetIncludedPaths(),
+		ConversationID: conversationID,
 	}
 	if err := r.writeMountRecord(rec); err != nil {
 		return rec, err
 	}
-	manifest, err := readManifest(filepath.Join(state, "manifest"), rec.BaseCommit)
+	manifest, err := r.loadMountManifest(rec)
 	if err != nil {
 		return rec, err
 	}
@@ -175,8 +188,22 @@ func (r Runner) runUnmount(ctx context.Context, opts commandOptions, selector st
 	if !isMounted(rec.MountPath) {
 		return userError("not_mounted", rec.MountPath+" is not mounted", "Its workspace is kept; gs mount list shows it.")
 	}
+	if err := unmountLazyWorkspace(rec); err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "mount_path": rec.MountPath, "unmounted": true})
+	}
+	if !opts.Quiet {
+		fmt.Fprintf(r.Stdout, "unmounted %s; the workspace is kept (gs mount %s:%s %s re-attaches it)\n", rec.MountPath, rec.Account, rec.Slice, rec.MountPath)
+	}
+	return nil
+}
+
+// unmountLazyWorkspace asks rec's daemon to unmount, or unmounts directly
+// when it is gone, and waits until the mount is.
+func unmountLazyWorkspace(rec mountRecord) error {
 	if _, err := callMountDaemon(rec.ID, mountControlRequest{Op: "unmount"}); err != nil {
-		// No daemon to ask (it died): unmount directly.
 		if err := forceUnmount(rec.MountPath); err != nil {
 			return err
 		}
@@ -187,13 +214,21 @@ func (r Runner) runUnmount(ctx context.Context, opts commandOptions, selector st
 	if isMounted(rec.MountPath) {
 		return userError("unmount_failed", rec.MountPath+" is still mounted", "A program may be using it (lsof +D "+rec.MountPath+"); close it and try again.")
 	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "mount_path": rec.MountPath, "unmounted": true})
-	}
-	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "unmounted %s; the workspace is kept (gs mount %s:%s %s re-attaches it)\n", rec.MountPath, rec.Account, rec.Slice, rec.MountPath)
-	}
 	return nil
+}
+
+// lazyWorkspaceAt returns the lazy workspace last mounted at dir.
+func (r Runner) lazyWorkspaceAt(dir string) (mountRecord, bool) {
+	records, err := r.mountRecords()
+	if err != nil {
+		return mountRecord{}, false
+	}
+	for _, rec := range records {
+		if rec.MountPath == dir {
+			return rec, true
+		}
+	}
+	return mountRecord{}, false
 }
 
 type mountListEntry struct {
@@ -259,7 +294,7 @@ func (r Runner) runMountStatus(ctx context.Context, opts commandOptions, selecto
 		}
 	}
 	if opts.jsonOutput() {
-		payload := map[string]any{"id": rec.ID, "ref": rec.Account + ":" + rec.Slice, "mount_path": rec.MountPath, "mounted": mounted, "read_only": rec.ReadOnly, "base_commit": rec.BaseCommit, "files": rec.Files, "daemon": status}
+		payload := map[string]any{"id": rec.ID, "ref": rec.Account + ":" + rec.Slice, "mount_path": rec.MountPath, "mounted": mounted, "read_only": rec.ReadOnly, "base_commit": rec.BaseCommit, "files": rec.Files, "prefetch": rec.Prefetch, "daemon": status}
 		if localEdits >= 0 {
 			payload["local_edits"] = localEdits
 		}
@@ -279,6 +314,9 @@ func (r Runner) runMountStatus(ctx context.Context, opts commandOptions, selecto
 	fmt.Fprintf(r.Stdout, "workspace %s, base commit %s, %d files\n", rec.ID, shortCommit(rec.BaseCommit), rec.Files)
 	if localEdits >= 0 {
 		fmt.Fprintf(r.Stdout, "%d local edit(s), on this machine only until gs create (gs status lists them)\n", localEdits)
+	}
+	if len(rec.Prefetch) > 0 {
+		fmt.Fprintf(r.Stdout, "prefetch: %s\n", strings.Join(rec.Prefetch, " "))
 	}
 	if status != nil {
 		fmt.Fprintf(r.Stdout, "opens %d, of which %d fetched; %d files (%s) fetched in all\n", status.Opens, status.Fetches, status.FetchedFiles, humanBytes(status.FetchedBytes))
@@ -310,7 +348,7 @@ func (r Runner) runMountFetch(ctx context.Context, opts commandOptions, workspac
 	if err != nil {
 		return err
 	}
-	manifest, err := readManifest(filepath.Join(r.mountStateDir(rec.ID), "manifest"), rec.BaseCommit)
+	manifest, err := r.loadMountManifest(rec)
 	if err != nil {
 		return err
 	}

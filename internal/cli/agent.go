@@ -45,6 +45,9 @@ type agentStartOptions struct {
 	Name        string
 	Runtime     string
 	IdleTimeout time.Duration
+	// Lazy mounts each conversation's workspace (gs mount) instead of
+	// checking it out, where FUSE is available.
+	Lazy bool
 }
 
 type agentDaemonOutput struct {
@@ -77,6 +80,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	startCmd.Flags().StringVar(&start.Name, "name", start.Name, "daemon name")
 	startCmd.Flags().StringVar(&start.Runtime, "runtime", start.Runtime, "agent runtime")
 	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
+	startCmd.Flags().BoolVar(&start.Lazy, "lazy", start.Lazy, "mount each conversation's workspace lazily (gs mount) instead of checking it out; falls back to a checkout without FUSE")
 
 	statusCmd := &cobra.Command{
 		Use:   "status",
@@ -147,7 +151,9 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		checkRuns:       map[string]context.CancelFunc{},
 		recentCheckRuns: map[string]struct{}{},
 		checkSlots:      checkSlotsFromEnv(),
+		lazy:            in.Lazy,
 	}
+	daemon.reattachLazyWorkspaces(agentCtx)
 	daemon.loadExistingConversations()
 	daemon.lastActivity = time.Now()
 	if idleTimeout > 0 {
@@ -340,6 +346,9 @@ type agentDaemon struct {
 	// checkSlots bounds how many checks run at once
 	// (GITSLICE_CHECK_CONCURRENCY); nil runs every dispatched check at once.
 	checkSlots chan struct{}
+
+	// lazy mounts new conversation workspaces instead of checking them out.
+	lazy bool
 
 	mu                  sync.Mutex
 	conversations       map[string]*agentConversation

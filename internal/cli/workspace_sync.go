@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/clientcache"
+	"gitslice.io/gitslice/internal/lazyfs"
 	"gitslice.io/gitslice/internal/postgres"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -46,9 +48,6 @@ const (
 )
 
 func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error {
-	if err := r.refuseInLazyWorkspace("gs sync"); err != nil {
-		return err
-	}
 	mergeStrategy, err := normalizeWorkspaceSyncMergeStrategy(opts.SyncMerge)
 	if err != nil {
 		return err
@@ -77,7 +76,18 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		return err
 	}
 	newBaseCommitID := ref.CommitId
-	current, err := r.scanWorkspaceFiles(ws)
+	// A lazy workspace (gs mount) reads its changes from its local layer and
+	// the new base from one listing; its mount moves the layers at the end.
+	lazy, err := r.currentLazyWorkspace()
+	if err != nil {
+		return err
+	}
+	var current map[string]workingFile
+	if lazy != nil {
+		current, err = r.lazyWorkingFiles(ctx, conn, cfg, ws, base)
+	} else {
+		current, err = r.scanWorkspaceFiles(ws)
+	}
 	if err != nil {
 		return err
 	}
@@ -125,7 +135,16 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if err != nil {
 		return err
 	}
-	remoteFiles, err := r.remoteWorkspaceFiles(callCtx, repo, ws, newBaseCommitID)
+	var remoteFiles map[string]remoteWorkspaceFile
+	var newManifest *lazyfs.Manifest
+	if lazy != nil {
+		if newManifest, err = r.lazyListingAt(ctx, conn, cfg, lazy, newBaseCommitID); err != nil {
+			return err
+		}
+		remoteFiles, err = manifestRemoteFiles(ws, newManifest)
+	} else {
+		remoteFiles, err = r.remoteWorkspaceFiles(callCtx, repo, ws, newBaseCommitID)
+	}
 	if err != nil {
 		return err
 	}
@@ -137,36 +156,16 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if err := r.applyWorkspaceSyncMergeStrategy(callCtx, repo, cache, oldBaseCommitID, newBaseCommitID, mergeStrategy, base, current, remoteFiles, &plan); err != nil {
 		return err
 	}
-	progress := startProgress(ctx, "syncing", "paths", len(plan.RemoteDeletes)+len(plan.RemoteUpserts)+len(plan.MergedFiles)+len(plan.Conflicts))
-	for _, p := range plan.RemoteDeletes {
-		if err := removeWorkspaceFile(root, ws, current, p); err != nil {
-			progress.Finish()
-			return err
+	if lazy != nil {
+		// With a dependency tree, the restack below moves the workspace.
+		if activeStack == nil {
+			if err := r.syncLazyWorkspace(callCtx, repo, cache, lazy, newManifest, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, plan); err != nil {
+				return err
+			}
 		}
-		progress.Add(1)
+	} else if err := r.applyWorkspaceSyncPlan(ctx, callCtx, repo, cache, root, ws, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, plan); err != nil {
+		return err
 	}
-	for _, file := range plan.RemoteUpserts {
-		if err := r.writeWorkspaceRemoteFile(callCtx, repo, cache, root, ws, current, newBaseCommitID, file); err != nil {
-			progress.Finish()
-			return err
-		}
-		progress.Add(1)
-	}
-	for _, file := range plan.MergedFiles {
-		if err := r.writeWorkspaceMergedFile(root, ws, current, file); err != nil {
-			progress.Finish()
-			return err
-		}
-		progress.Add(1)
-	}
-	for _, conflict := range plan.Conflicts {
-		if err := r.materializeWorkspaceConflict(callCtx, repo, cache, root, ws, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, conflict); err != nil {
-			progress.Finish()
-			return err
-		}
-		progress.Add(1)
-	}
-	progress.Finish()
 	remoteSnapshot := BaseSnapshot{CommitID: newBaseCommitID, Files: remoteBaseSnapshotFiles(remoteFiles)}
 	state.BaseCommitID = newBaseCommitID
 	ws.BaseCommitID = newBaseCommitID
@@ -275,7 +274,16 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 			if err != nil {
 				return err
 			}
-			if err := r.materializeWorkspaceSnapshot(ctx, conn, cfg, ws, targetSnapshot); err != nil {
+			if lazy != nil {
+				err = r.switchLazyWorkspace(ctx, conn, cfg, ws, lazy, newManifest, targetSnapshot)
+			} else {
+				err = r.materializeWorkspaceSnapshot(ctx, conn, cfg, ws, targetSnapshot)
+			}
+			if err != nil {
+				return err
+			}
+		} else if lazy != nil {
+			if err := r.switchLazyWorkspace(ctx, conn, cfg, ws, lazy, newManifest, remoteSnapshot); err != nil {
 				return err
 			}
 		}
@@ -510,4 +518,109 @@ func (r Runner) tryLineMergeWorkspaceConflict(ctx context.Context, repo corev1.R
 		Data: merged,
 		Mode: localMode,
 	}, true, nil
+}
+
+// applyWorkspaceSyncPlan writes a sync's result into a gs init workspace.
+func (r Runner) applyWorkspaceSyncPlan(ctx, callCtx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remoteFiles map[string]remoteWorkspaceFile, plan workspaceSyncPlan) error {
+	progress := startProgress(ctx, "syncing", "paths", len(plan.RemoteDeletes)+len(plan.RemoteUpserts)+len(plan.MergedFiles)+len(plan.Conflicts))
+	defer progress.Finish()
+	for _, p := range plan.RemoteDeletes {
+		if err := removeWorkspaceFile(root, ws, current, p); err != nil {
+			return err
+		}
+		progress.Add(1)
+	}
+	for _, file := range plan.RemoteUpserts {
+		if err := r.writeWorkspaceRemoteFile(callCtx, repo, cache, root, ws, current, newBaseCommitID, file); err != nil {
+			return err
+		}
+		progress.Add(1)
+	}
+	for _, file := range plan.MergedFiles {
+		if err := r.writeWorkspaceMergedFile(root, ws, current, file); err != nil {
+			return err
+		}
+		progress.Add(1)
+	}
+	for _, conflict := range plan.Conflicts {
+		if err := r.materializeWorkspaceConflict(callCtx, repo, cache, root, ws, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, conflict); err != nil {
+			return err
+		}
+		progress.Add(1)
+	}
+	return nil
+}
+
+// lazyWorkingFiles is a lazy workspace's files as a walk would find them:
+// its base with its local layer's changes applied. Changed files are read
+// through the mount; nothing else is touched.
+func (r Runner) lazyWorkingFiles(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot) (map[string]workingFile, error) {
+	edits, files, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, false)
+	if err != nil {
+		return nil, err
+	}
+	current := workingFilesFromSnapshot(base)
+	for _, edit := range edits {
+		if edit.Op == "delete" {
+			delete(current, edit.Path)
+			continue
+		}
+		current[edit.Path] = files[edit.Path]
+	}
+	return current, nil
+}
+
+// manifestRemoteFiles is a listing as sync's remote side.
+func manifestRemoteFiles(ws WorkspaceConfig, manifest *lazyfs.Manifest) (map[string]remoteWorkspaceFile, error) {
+	out := map[string]remoteWorkspaceFile{}
+	var err error
+	manifest.Files(func(entry lazyfs.BaseEntry) {
+		rel, relErr := workspaceRelPath(ws, entry.Path)
+		if relErr != nil {
+			err = relErr
+			return
+		}
+		out[entry.Path] = remoteWorkspaceFile{BaseSnapshotFile: BaseSnapshotFile{Path: entry.Path, RelPath: rel, ContentHash: entry.ContentHash, Mode: normalizedSnapshotMode(entry.Mode), Size: entry.Size}}
+	})
+	return out, err
+}
+
+// syncLazyWorkspace moves a lazy workspace with no dependency tree onto the
+// new base, resolving what both sides changed as plan decided: merged files
+// and conflict markers go to the local layer, "theirs" takes the new base,
+// and everything else keeps the local change.
+func (r Runner) syncLazyWorkspace(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, lazy *lazyWorkspace, newManifest *lazyfs.Manifest, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remoteFiles map[string]remoteWorkspaceFile, plan workspaceSyncPlan) error {
+	merged := map[string]mergedWorkspaceFile{}
+	for _, file := range plan.MergedFiles {
+		merged[file.Path] = file
+	}
+	conflicts := map[string]mountResolution{}
+	for _, conflict := range plan.Conflicts {
+		data, mode, ok, err := r.workspaceConflictContent(ctx, repo, cache, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, conflict)
+		if err != nil {
+			return err
+		}
+		if ok {
+			conflicts[conflict.Path] = mountResolution{Content: data, Mode: mode, Conflict: true}
+		} else {
+			conflicts[conflict.Path] = mountResolution{Keep: true, Conflict: true}
+		}
+	}
+	updated := map[string]bool{}
+	for _, p := range plan.UpdatedPaths {
+		updated[p] = true
+	}
+	_, err := r.rebaseLazyWorkspace(lazy, newManifest, func(edit lazyfs.Edit) mountResolution {
+		if file, ok := merged[edit.Path]; ok {
+			return mountResolution{Content: file.Data, Mode: normalizedSnapshotMode(file.Mode)}
+		}
+		if res, ok := conflicts[edit.Path]; ok {
+			return res
+		}
+		if updated[edit.Path] {
+			return mountResolution{Theirs: true}
+		}
+		return mountResolution{Keep: true}
+	})
+	return err
 }

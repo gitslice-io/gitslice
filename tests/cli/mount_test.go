@@ -241,11 +241,6 @@ func TestMountKeepsEditsLocalUntilCreate(t *testing.T) {
 		t.Fatalf("README.md after gs restore = %q", data)
 	}
 
-	// Commands that rewrite the workspace refuse, for now.
-	if _, stderr := runCLIFails(t, home, app, "sync"); !strings.Contains(stderr, "does not work in a lazy workspace") {
-		t.Fatalf("gs sync in a mount: %s", stderr)
-	}
-
 	// gs create uploads and lands exactly the edits.
 	runCLI(t, home, app, "create", "--all", "--message", "edits from a lazy workspace", "--submit")
 	if _, err := os.Stat(blob); err != nil {
@@ -279,5 +274,277 @@ func TestMountKeepsEditsLocalUntilCreate(t *testing.T) {
 	runCLI(t, home, workspace, "mount", "discard", dir, "--yes")
 	if list := runCLI(t, home, workspace, "mount", "list"); !strings.Contains(list, "no lazy workspaces") {
 		t.Fatalf("after discard:\n%s", list)
+	}
+}
+
+// TestMountSyncsAndSwitchesThroughItsLayers moves a mount's base with gs sync
+// and switches between the changesets of a dependency tree, checking each
+// time that the mount shows what a gs init workspace would.
+func TestMountSyncsAndSwitchesThroughItsLayers(t *testing.T) {
+	if _, err := os.Stat("/dev/fuse"); err != nil {
+		t.Skip("no /dev/fuse here")
+	}
+	if _, err := exec.LookPath("fusermount3"); err != nil {
+		if _, err := exec.LookPath("fusermount"); err != nil {
+			t.Skip("no fusermount here")
+		}
+	}
+	ts := startTestServer(t)
+	home := t.TempDir()
+	upstream := t.TempDir()
+	loginTestCLI(t, ts, home, upstream)
+	lines := func(ls ...string) string { return strings.Join(ls, "\n") + "\n" }
+	runCLI(t, home, upstream, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, upstream, "acme/payment/src/main.go", lines("one", "two", "three", "four", "five", "six", "seven"))
+	writeWorkspaceFile(t, upstream, "acme/payment/src/util.go", "package util // v1\n")
+	writeWorkspaceFile(t, upstream, "acme/payment/old.txt", "old\n")
+	writeWorkspaceFile(t, upstream, "acme/payment/.gitignore", "out/\n")
+	writeWorkspaceFile(t, upstream, "acme/payment/notes.txt", "notes\n")
+	runCLI(t, home, upstream, "create", "--message", "files to mount", "--all", "--submit")
+
+	// The mount has a home, and so a cache, of its own: what it shows, it
+	// fetched.
+	mountHome := t.TempDir()
+	loginTestCLI(t, ts, mountHome, upstream)
+	dir := filepath.Join(t.TempDir(), "payment")
+	startMount(t, mountHome, upstream, "--prefetch", "acme/payment/src/**", "acme/payment", dir)
+	app := filepath.Join(dir, "acme", "payment")
+	// --prefetch fetches src/ in the background, before anything reads it.
+	for i := 0; ; i++ {
+		var status struct {
+			Daemon struct {
+				FetchedFiles int `json:"fetched_files"`
+			} `json:"daemon"`
+		}
+		if err := json.Unmarshal([]byte(runCLI(t, mountHome, upstream, "mount", "status", dir, "--json")), &status); err != nil {
+			t.Fatal(err)
+		}
+		if status.Daemon.FetchedFiles == 2 {
+			break
+		}
+		if i == 100 {
+			t.Fatalf("--prefetch fetched %d files, want 2 (src/main.go and src/util.go)", status.Daemon.FetchedFiles)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	read := func(rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(app, rel))
+		if err != nil {
+			t.Fatalf("read %s through the mount: %v", rel, err)
+		}
+		return string(data)
+	}
+	gone := func(rel string) {
+		t.Helper()
+		if _, err := os.Stat(filepath.Join(app, rel)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s should not be in the mount (err = %v)", rel, err)
+		}
+	}
+	localEdits := func() int {
+		t.Helper()
+		var status struct {
+			LocalEdits int `json:"local_edits"`
+		}
+		if err := json.Unmarshal([]byte(runCLI(t, mountHome, app, "mount", "status", "--json")), &status); err != nil {
+			t.Fatal(err)
+		}
+		return status.LocalEdits
+	}
+	upstreamChange := func(message string, files map[string]string, remove ...string) {
+		t.Helper()
+		runCLI(t, home, upstream, "sync")
+		for rel, content := range files {
+			writeWorkspaceFile(t, upstream, "acme/payment/"+rel, content)
+		}
+		for _, rel := range remove {
+			if err := os.Remove(filepath.Join(upstream, "acme", "payment", rel)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		runCLI(t, home, upstream, "create", "--message", message, "--all", "--submit")
+	}
+
+	// Appending to a file nothing has read copies its content up, fetching it.
+	notes, err := os.OpenFile(filepath.Join(app, "notes.txt"), os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := notes.WriteString("more\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := notes.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := read("notes.txt"); got != "notes\nmore\n" {
+		t.Fatalf("notes.txt after appending = %q", got)
+	}
+	runCLI(t, mountHome, app, "restore", "notes.txt")
+
+	// Upstream moves after the mount read a file, whose pages the kernel
+	// keeps: gs sync must make it forget them.
+	if got := read("src/util.go"); got != "package util // v1\n" {
+		t.Fatalf("util.go = %q", got)
+	}
+	upstreamChange("upstream v2", map[string]string{"src/util.go": "package util // v2, longer\n", "docs/new.md": "# New\n"}, "old.txt")
+	runCLI(t, mountHome, app, "sync")
+	if got := read("src/util.go"); got != "package util // v2, longer\n" {
+		t.Fatalf("util.go after gs sync = %q", got)
+	}
+	if got := read("docs/new.md"); got != "# New\n" {
+		t.Fatalf("docs/new.md after gs sync = %q", got)
+	}
+	gone("old.txt")
+	if n := localEdits(); n != 0 {
+		t.Fatalf("%d local edits after syncing an unchanged mount", n)
+	}
+
+	// A captured change and an upstream change to another line of the same
+	// file: gs sync merges them.
+	if err := os.WriteFile(filepath.Join(app, "src", "main.go"), []byte(lines("ONE", "two", "three", "four", "five", "six", "seven")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, mountHome, app, "create", "--message", "local edits line one", "--all")
+	upstreamChange("upstream edits line seven", map[string]string{"src/main.go": lines("one", "two", "three", "four", "five", "six", "SEVEN")})
+	runCLI(t, mountHome, app, "sync")
+	merged := lines("ONE", "two", "three", "four", "five", "six", "SEVEN")
+	if got := read("src/main.go"); got != merged {
+		t.Fatalf("main.go after gs sync = %q, want %q", got, merged)
+	}
+
+	// A second changeset on the first: gs down shows the first alone, gs up
+	// the second again; neither writes or fetches the files themselves.
+	if err := os.WriteFile(filepath.Join(app, "src", "second.go"), []byte("package main // second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, mountHome, app, "create", "--message", "second change", "--all")
+	if err := os.MkdirAll(filepath.Join(app, "out"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "out", "build.log"), []byte("ignored build output\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, mountHome, app, "down")
+	gone("src/second.go")
+	if got := read("src/main.go"); got != merged {
+		t.Fatalf("main.go on the first changeset = %q", got)
+	}
+	if got := read("out/build.log"); got != "ignored build output\n" {
+		t.Fatalf("ignored build output after gs down = %q", got)
+	}
+	runCLI(t, mountHome, app, "up")
+	if got := read("src/second.go"); got != "package main // second\n" {
+		t.Fatalf("second.go after gs up = %q", got)
+	}
+	if status := runCLI(t, mountHome, app, "status"); strings.Contains(status, "build.log") {
+		t.Fatalf("gs status after gs up shows the ignored build output:\n%s", status)
+	}
+
+	// Land both and sync: what landed leaves the local layer.
+	runCLI(t, mountHome, app, "submit")
+	runCLI(t, mountHome, app, "sync")
+	if got := read("src/second.go"); got != "package main // second\n" {
+		t.Fatalf("second.go after landing = %q", got)
+	}
+	if n := localEdits(); n != 1 {
+		t.Fatalf("%d local edits after landing; want 1, the ignored build output", n)
+	}
+	verify := t.TempDir()
+	runCLI(t, home, verify, "workspace", "init", "acme/payment")
+	assertWorkspaceFile(t, verify, "acme/payment/src/main.go", merged)
+	assertWorkspaceFile(t, verify, "acme/payment/src/second.go", "package main // second\n")
+
+	// The moved layers survive a remount.
+	runCLI(t, mountHome, upstream, "unmount", dir)
+	startMount(t, mountHome, upstream, "acme/payment", dir)
+	if got := read("src/main.go"); got != merged {
+		t.Fatalf("main.go after remounting = %q", got)
+	}
+	if got := read("out/build.log"); got != "ignored build output\n" {
+		t.Fatalf("build output after remounting = %q", got)
+	}
+}
+
+// TestMountSyncMergesAChangesetOutsideATree syncs a mount whose changeset is
+// not in a dependency tree (gs cs create): the mount merges in its own local
+// layer, conflicts get markers there, and landing empties it.
+func TestMountSyncMergesAChangesetOutsideATree(t *testing.T) {
+	if _, err := os.Stat("/dev/fuse"); err != nil {
+		t.Skip("no /dev/fuse here")
+	}
+	if _, err := exec.LookPath("fusermount3"); err != nil {
+		if _, err := exec.LookPath("fusermount"); err != nil {
+			t.Skip("no fusermount here")
+		}
+	}
+	ts := startTestServer(t)
+	home := t.TempDir()
+	upstream := t.TempDir()
+	loginTestCLI(t, ts, home, upstream)
+	lines := func(ls ...string) string { return strings.Join(ls, "\n") + "\n" }
+	runCLI(t, home, upstream, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, upstream, "acme/payment/merge.txt", lines("one", "two", "three", "four", "five", "six", "seven"))
+	writeWorkspaceFile(t, upstream, "acme/payment/conflict.txt", lines("alpha", "beta"))
+	runCLI(t, home, upstream, "create", "--message", "files to mount", "--all", "--submit")
+
+	mountHome := t.TempDir()
+	loginTestCLI(t, ts, mountHome, upstream)
+	dir := filepath.Join(t.TempDir(), "payment")
+	startMount(t, mountHome, upstream, "acme/payment", dir)
+	app := filepath.Join(dir, "acme", "payment")
+	write := func(rel, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(app, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(app, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+
+	write("merge.txt", lines("ONE", "two", "three", "four", "five", "six", "seven"))
+	write("conflict.txt", lines("alpha", "BETA from the mount"))
+	runCLI(t, mountHome, app, "cs", "create", "--title", "edits in a mount")
+
+	runCLI(t, home, upstream, "sync")
+	writeWorkspaceFile(t, upstream, "acme/payment/merge.txt", lines("one", "two", "three", "four", "five", "six", "SEVEN"))
+	writeWorkspaceFile(t, upstream, "acme/payment/conflict.txt", lines("alpha", "BETA upstream"))
+	writeWorkspaceFile(t, upstream, "acme/payment/added.txt", "added upstream\n")
+	runCLI(t, home, upstream, "create", "--message", "upstream edits", "--all", "--submit")
+
+	out := runCLI(t, mountHome, app, "sync")
+	if !strings.Contains(out, "conflict.txt") {
+		t.Fatalf("gs sync should report conflict.txt:\n%s", out)
+	}
+	if got, want := read("merge.txt"), lines("ONE", "two", "three", "four", "five", "six", "SEVEN"); got != want {
+		t.Fatalf("merge.txt after gs sync = %q, want %q", got, want)
+	}
+	if got := read("conflict.txt"); !strings.Contains(got, "<<<<<<< gitslice local") || !strings.Contains(got, "BETA from the mount") || !strings.Contains(got, "BETA upstream") {
+		t.Fatalf("conflict.txt after gs sync has no conflict markers:\n%s", got)
+	}
+	if got := read("added.txt"); got != "added upstream\n" {
+		t.Fatalf("added.txt after gs sync = %q", got)
+	}
+
+	// Resolve, capture, land: what landed leaves the local layer.
+	write("conflict.txt", lines("alpha", "BETA resolved"))
+	runCLI(t, mountHome, app, "cs", "update")
+	runCLI(t, mountHome, app, "cs", "submit")
+	var status struct {
+		LocalEdits int `json:"local_edits"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, mountHome, app, "mount", "status", "--json")), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.LocalEdits != 0 {
+		t.Fatalf("%d local edits after landing everything", status.LocalEdits)
+	}
+	if got := read("conflict.txt"); got != lines("alpha", "BETA resolved") {
+		t.Fatalf("conflict.txt after landing = %q", got)
 	}
 }
