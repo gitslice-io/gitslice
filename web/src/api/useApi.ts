@@ -72,6 +72,8 @@ import type {
   ListDaemonsRequest,
   ListDaemonsResponse,
   RenameDaemonRequest,
+  ExposeDaemonRequest,
+  UnexposeDaemonRequest,
   CreateWebhookRequest,
   ListWebhooksRequest,
   ListWebhooksResponse,
@@ -252,6 +254,8 @@ export interface ApiClient {
   ): Promise<WebhookDelivery>;
   listDaemons(request: ListDaemonsRequest): Promise<ListDaemonsResponse>;
   renameDaemon(request: RenameDaemonRequest): Promise<AgentDaemon>;
+  exposeDaemon(request: ExposeDaemonRequest): Promise<AgentDaemon>;
+  unexposeDaemon(request: UnexposeDaemonRequest): Promise<AgentDaemon>;
   createConversation(request: CreateConversationRequest): Promise<Conversation>;
   listConversations(
     request: ListConversationsRequest

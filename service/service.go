@@ -59,6 +59,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 		Changesets:  stores.Changesets,
 		Repository:  stores.Repository,
 		Slices:      stores.Slices,
+		Agents:      stores.Agents,
 		ObjectStore: objectStore,
 		hub:         hub,
 	}

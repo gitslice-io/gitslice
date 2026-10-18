@@ -286,6 +286,10 @@ export function createApiClient({
       unary<Api.ListDaemonsResponse>(() => agent.listDaemons(toProtoRequest(request))),
     renameDaemon: (request) =>
       unary<Api.AgentDaemon>(() => agent.renameDaemon(toProtoRequest(request))),
+    exposeDaemon: (request) =>
+      unary<Api.AgentDaemon>(() => agent.exposeDaemon(toProtoRequest(request))),
+    unexposeDaemon: (request) =>
+      unary<Api.AgentDaemon>(() => agent.unexposeDaemon(toProtoRequest(request))),
     createConversation: (request) =>
       unary<Api.Conversation>(() =>
         agent.createConversation(toProtoRequest(request))

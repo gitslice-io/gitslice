@@ -26,7 +26,7 @@ func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sl
 		DaemonId: daemonID,
 	})
 	if grpcstatus.Code(err) == codes.NotFound && strings.Contains(err.Error(), "daemon not found") {
-		return userError("daemon_not_found", "there is no daemon "+daemonID+" that you can use", "A CI daemon runs a slice's checks and holds its secrets, so only the daemons you registered, or that belong to an account you own or administer, can be named. gs agent status lists them; the owner of any other daemon has to hand it to you.")
+		return userError("daemon_not_found", "there is no daemon "+daemonID+" that you can use", "A CI daemon runs a slice's checks and holds its secrets, so you can name the daemons you registered or that belong to an account you own or administer, and the daemons their owners exposed to this slice. gs agent status --slice "+sliceRef+" lists them; the owner of any other daemon can expose it with gs agent expose <daemon> "+sliceRef+".")
 	}
 	if err != nil {
 		return err

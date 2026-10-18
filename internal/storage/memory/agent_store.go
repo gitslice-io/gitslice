@@ -103,6 +103,55 @@ func (s *AgentStore) ListDaemonsForAccounts(ctx context.Context, accounts []stri
 	return out, nil
 }
 
+func (s *AgentStore) ExposeDaemon(ctx context.Context, daemonID, sliceID, exposedBy string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.b.daemonExposures[daemonID] == nil {
+		s.b.daemonExposures[daemonID] = map[string]bool{}
+	}
+	s.b.daemonExposures[daemonID][sliceID] = true
+	return nil
+}
+
+func (s *AgentStore) UnexposeDaemon(ctx context.Context, daemonID, sliceID string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	delete(s.b.daemonExposures[daemonID], sliceID)
+	return nil
+}
+
+func (s *AgentStore) DaemonExposedTo(ctx context.Context, daemonID, sliceID string) (bool, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	return s.b.daemonExposures[daemonID][sliceID], nil
+}
+
+func (s *AgentStore) ListDaemonExposures(ctx context.Context, daemonIDs []string) (map[string][]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := map[string][]string{}
+	for _, id := range daemonIDs {
+		for sliceID := range s.b.daemonExposures[id] {
+			out[id] = append(out[id], sliceID)
+		}
+		sort.Strings(out[id])
+	}
+	return out, nil
+}
+
+func (s *AgentStore) ListDaemonsExposedToSlice(ctx context.Context, sliceID string) ([]*corev1.AgentDaemon, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []*corev1.AgentDaemon
+	for id, exposed := range s.b.daemonExposures {
+		if d := s.b.agentDaemons[id]; d != nil && exposed[sliceID] {
+			out = append(out, cloneDaemon(d))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	return out, nil
+}
+
 func (s *AgentStore) DaemonSubject(ctx context.Context, daemonID string) (string, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

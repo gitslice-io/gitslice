@@ -25,6 +25,13 @@ service AgentService {
   // with (gs agent start --name) is unchanged, so a restart finds the same
   // daemon.
   rpc RenameDaemon(RenameDaemonRequest) returns (AgentDaemon);
+  // ExposeDaemon lets the owners and admins of a slice choose the daemon as the
+  // slice's CI daemon. Only the daemon's owner can: it runs the slice's checks
+  // and receives its secrets.
+  rpc ExposeDaemon(ExposeDaemonRequest) returns (AgentDaemon);
+  // UnexposeDaemon takes the slice back off the list. A slice that still names
+  // the daemon has its checks refused until it names another.
+  rpc UnexposeDaemon(UnexposeDaemonRequest) returns (AgentDaemon);
   rpc CreateConversation(CreateConversationRequest) returns (Conversation);
   rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
   rpc GetConversation(GetConversationRequest) returns (Conversation);
@@ -59,6 +66,13 @@ message AgentDaemon {
   // administers their account (to rename them, or make them a slice's CI
   // daemon).
   bool mine = 11;
+  // manageable is true when the caller may rename the daemon and choose which
+  // slices it is exposed to: they registered it, or own or administer its
+  // account.
+  bool manageable = 13;
+  // exposed_to are the slices the daemon is exposed to, among those the caller
+  // can read. Only filled in for daemons the caller manages.
+  repeated SliceRef exposed_to = 12;
 }
 
 message RenameDaemonRequest {
@@ -273,7 +287,22 @@ message CheckRunUpdate {
 
 // ---- Web-facing request/response ----
 
-message ListDaemonsRequest {}
+message ListDaemonsRequest {
+  // for_slice lists, besides the daemons the caller manages, the daemons
+  // exposed to this slice, when the caller owns or administers its account: the
+  // daemons the caller can choose from as the slice's CI daemon.
+  SliceRef for_slice = 1;
+}
+
+message ExposeDaemonRequest {
+  string daemon_id = 1;
+  SliceRef slice = 2;
+}
+
+message UnexposeDaemonRequest {
+  string daemon_id = 1;
+  SliceRef slice = 2;
+}
 
 message ListDaemonsResponse {
   repeated AgentDaemon daemons = 1;

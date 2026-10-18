@@ -109,6 +109,40 @@ describe("AgentDaemons", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("already shown as Laptop");
   });
 
+  it("exposes a daemon to a slice and withdraws it", async () => {
+    const exposeDaemon = vi.fn().mockResolvedValue({ ...ownCi });
+    const unexposeDaemon = vi.fn().mockResolvedValue({ ...ownCi });
+    apiMock.current = {
+      listDaemons: vi.fn().mockResolvedValue({
+        daemons: [{ ...ownCi, manageable: true, exposedTo: [{ account: "nic", slice: "app" }] }]
+      }),
+      exposeDaemon,
+      unexposeDaemon
+    };
+    renderDaemons();
+
+    expect(await screen.findByText(/Exposed to \(their owners can choose it/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop exposing laptop-ci to nic/app" }));
+    await waitFor(() =>
+      expect(unexposeDaemon).toHaveBeenCalledWith({ daemonId: "agent_own", slice: { account: "nic", slice: "app" } })
+    );
+
+    const input = screen.getByLabelText("Expose laptop-ci to a slice");
+    const expose = screen.getByRole("button", { name: "Expose" });
+    expect(expose).toBeDisabled();
+    fireEvent.change(input, { target: { value: "gitslice:gitslice" } });
+    fireEvent.click(expose);
+    await waitFor(() =>
+      expect(exposeDaemon).toHaveBeenCalledWith({ daemonId: "agent_own", slice: { account: "gitslice", slice: "gitslice" } })
+    );
+  });
+
+  it("says when a daemon is exposed to no slice", async () => {
+    apiMock.current = { listDaemons: vi.fn().mockResolvedValue({ daemons: [{ ...ownCi, manageable: true, exposedTo: [] }] }) };
+    renderDaemons();
+    expect(await screen.findByText(/Not exposed to any slice/)).toBeInTheDocument();
+  });
+
   it("renders nothing when the daemons cannot be listed", async () => {
     apiMock.current = { listDaemons: vi.fn().mockRejectedValue(new Error("unavailable")) };
     const { container } = renderDaemons();

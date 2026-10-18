@@ -22,7 +22,7 @@ const maxDaemonDisplayNameRunes = 64
 // people who co-own the agent, not only to the agent itself. Each daemon
 // carries the slices that use it as their CI daemon, among those the caller can
 // read.
-func (s *AgentService) ListDaemons(ctx context.Context, _ *corev1.ListDaemonsRequest) (*corev1.ListDaemonsResponse, error) {
+func (s *AgentService) ListDaemons(ctx context.Context, req *corev1.ListDaemonsRequest) (*corev1.ListDaemonsResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
 		return nil, err
@@ -43,20 +43,114 @@ func (s *AgentService) ListDaemons(ctx context.Context, _ *corev1.ListDaemonsReq
 	var daemons []*corev1.AgentDaemon
 	for _, d := range own {
 		seen[d.Id] = true
-		d.Mine = true
+		d.Mine, d.Manageable = true, true
 		daemons = append(daemons, d)
 	}
 	for _, d := range shared {
 		if !seen[d.Id] {
 			seen[d.Id] = true
+			d.Manageable = true
 			daemons = append(daemons, d)
+		}
+	}
+	// The daemons other people exposed to a slice, for the people who choose
+	// that slice's CI daemon.
+	if ref := req.GetForSlice(); ref.GetAccount() != "" || ref.GetSlice() != "" {
+		slice, err := s.Slices.Resolve(ctx, ref)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		// Only the people who choose the slice's CI daemon are offered the
+		// daemons exposed to it; for anyone else the list is as without a slice.
+		chooses, err := canAuthorizeAccount(ctx, s.Auth, subjectID, slice.GetRef().GetAccount(), authz.ActionAdmin)
+		if err != nil {
+			return nil, err
+		}
+		if chooses {
+			exposed, err := s.Agents.ListDaemonsExposedToSlice(ctx, slice.Id)
+			if err != nil {
+				return nil, grpcError(err)
+			}
+			for _, d := range exposed {
+				if !seen[d.Id] {
+					seen[d.Id] = true
+					daemons = append(daemons, d)
+				}
+			}
 		}
 	}
 	sort.SliceStable(daemons, func(i, j int) bool { return daemons[i].CreatedAt < daemons[j].CreatedAt })
 	if err := s.attachCISlices(ctx, subjectID, daemons); err != nil {
 		return nil, err
 	}
+	if err := s.attachExposures(ctx, subjectID, daemons); err != nil {
+		return nil, err
+	}
 	return &corev1.ListDaemonsResponse{Daemons: daemons}, nil
+}
+
+// ExposeDaemon exposes a daemon to a slice, so the slice's owners and admins
+// may choose it as their CI daemon. A daemon runs the checks of the slices that
+// name it and receives their secrets, so only its owner decides which slices it
+// is exposed to: the identity that registered it, or an owner or admin of its
+// account. They must be able to read the slice they name.
+func (s *AgentService) ExposeDaemon(ctx context.Context, req *corev1.ExposeDaemonRequest) (*corev1.AgentDaemon, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	daemon, mine, err := s.manageableDaemon(ctx, subjectID, strings.TrimSpace(req.GetDaemonId()))
+	if err != nil {
+		return nil, err
+	}
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.GetSlice(), authz.ActionRead)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Agents.ExposeDaemon(ctx, daemon.Id, slice.Id, subjectID); err != nil {
+		return nil, grpcError(err)
+	}
+	return s.daemonForManager(ctx, subjectID, daemon, mine)
+}
+
+// UnexposeDaemon takes a slice off the list of slices a daemon is exposed to.
+// A slice that still names the daemon has its checks refused until it names
+// another: the daemon's owner can always withdraw it.
+func (s *AgentService) UnexposeDaemon(ctx context.Context, req *corev1.UnexposeDaemonRequest) (*corev1.AgentDaemon, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	daemon, mine, err := s.manageableDaemon(ctx, subjectID, strings.TrimSpace(req.GetDaemonId()))
+	if err != nil {
+		return nil, err
+	}
+	slice, err := s.Slices.Resolve(ctx, req.GetSlice())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := s.Agents.UnexposeDaemon(ctx, daemon.Id, slice.Id); err != nil {
+		return nil, grpcError(err)
+	}
+	return s.daemonForManager(ctx, subjectID, daemon, mine)
+}
+
+// daemonForManager is the daemon as its manager sees it, with the slices that
+// use it and those it is exposed to.
+func (s *AgentService) daemonForManager(ctx context.Context, subjectID string, daemon *corev1.AgentDaemon, mine bool) (*corev1.AgentDaemon, error) {
+	fresh, err := s.Agents.GetDaemon(ctx, daemon.Id)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	fresh.Mine, fresh.Manageable = mine, true
+	list := []*corev1.AgentDaemon{fresh}
+	if err := s.attachCISlices(ctx, subjectID, list); err != nil {
+		return nil, err
+	}
+	if err := s.attachExposures(ctx, subjectID, list); err != nil {
+		return nil, err
+	}
+	return fresh, nil
 }
 
 // RenameDaemon sets the name a daemon is shown by. The daemon's owner (the
@@ -87,11 +181,7 @@ func (s *AgentService) RenameDaemon(ctx context.Context, req *corev1.RenameDaemo
 	case err != nil:
 		return nil, grpcError(err)
 	}
-	renamed.Mine = mine
-	if err := s.attachCISlices(ctx, subjectID, []*corev1.AgentDaemon{renamed}); err != nil {
-		return nil, err
-	}
-	return renamed, nil
+	return s.daemonForManager(ctx, subjectID, renamed, mine)
 }
 
 // normalizeDaemonDisplayName trims a name and checks it: up to 64 characters,
@@ -165,6 +255,52 @@ func (s *AgentService) administeredAccounts(ctx context.Context, subjectID strin
 		}
 	}
 	return accounts, nil
+}
+
+// attachExposures fills in the slices each daemon the subject manages is
+// exposed to, leaving out the ones the subject cannot read.
+func (s *AgentService) attachExposures(ctx context.Context, subjectID string, daemons []*corev1.AgentDaemon) error {
+	var ids []string
+	byID := map[string]*corev1.AgentDaemon{}
+	for _, d := range daemons {
+		d.ExposedTo = nil
+		if d.Manageable {
+			ids = append(ids, d.Id)
+			byID[d.Id] = d
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	exposures, err := s.Agents.ListDaemonExposures(ctx, ids)
+	if err != nil {
+		return grpcError(err)
+	}
+	readable := map[string]*corev1.SliceRef{} // by slice id; nil when not readable
+	for daemonID, sliceIDs := range exposures {
+		for _, sliceID := range sliceIDs {
+			ref, known := readable[sliceID]
+			if !known {
+				slice, err := s.Slices.Get(ctx, sliceID)
+				if err == nil {
+					err = authz.New(s.Auth).Authorize(ctx, subjectID, slice, authz.ActionRead)
+				}
+				switch {
+				case err == nil:
+					ref = slice.Ref
+				case errors.Is(err, storage.ErrUnauthorized), errors.Is(err, storage.ErrNotFound):
+					ref = nil
+				default:
+					return grpcError(err)
+				}
+				readable[sliceID] = ref
+			}
+			if ref != nil {
+				byID[daemonID].ExposedTo = append(byID[daemonID].ExposedTo, ref)
+			}
+		}
+	}
+	return nil
 }
 
 // attachCISlices fills in the slices that use each daemon as their CI daemon,

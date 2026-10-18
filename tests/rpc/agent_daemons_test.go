@@ -187,3 +187,105 @@ func TestDaemonsShowToTheAgentsOwnersAndCanBeRenamed(t *testing.T) {
 		t.Fatalf("after clearing, the CI daemon is shown as %+v, %v", slice, err)
 	}
 }
+
+// TestADaemonsOwnerExposesItToASlicesOwner: the owner of a daemon exposes it to
+// one slice, whose owner can then choose it, and withdraws it again.
+func TestADaemonsOwnerExposesItToASlicesOwner(t *testing.T) {
+	ts := startRPCServer(t)
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	auth := corev1.NewAuthServiceClient(conn)
+	agents := corev1.NewAgentServiceClient(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	agent, err := auth.RegisterAgent(context.Background(), &corev1.RegisterAgentRequest{Username: "runner-bot", OwnerEmail: "runner-owner@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentCtx := grpcAuthContext(agent.ApiKey)
+	stream, err := agents.Connect(agentCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Register{Register: &corev1.RegisterDaemon{Name: "runner-ci", Runtime: "codex", Version: "0.1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := stream.Recv()
+	if err != nil || reg.GetRegistered().GetDaemonId() == "" {
+		t.Fatalf("register: %v, %v", reg, err)
+	}
+	daemonID := reg.GetRegistered().GetDaemonId()
+
+	// A slice of someone else's, public so the agent can name it.
+	owner := grpcAuthContext(ts.loginViaGRPC(t, "mallory"))
+	ref := &corev1.SliceRef{Account: "mallory", Slice: "home"}
+	home, err := slices.ResolveSlice(owner, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slices.UpdateSliceDefinition(owner, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                home.Id,
+		ExpectedDefinitionHash: home.DefinitionHash,
+		Definition:             &corev1.SliceDefinition{IncludedPaths: home.Definition.IncludedPaths, Visibility: "public"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	choose := func() error {
+		_, err := slices.SetSliceCIDaemon(owner, &corev1.SetSliceCIDaemonRequest{Slice: ref, DaemonId: daemonID})
+		return err
+	}
+	offered := func() bool {
+		res, err := agents.ListDaemons(owner, &corev1.ListDaemonsRequest{ForSlice: ref})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range res.Daemons {
+			if d.Id == daemonID {
+				return !d.Manageable
+			}
+		}
+		return false
+	}
+
+	if err := choose(); grpcstatus.Code(err) != codes.NotFound {
+		t.Fatalf("choosing a daemon nobody exposed: %v; want NotFound", err)
+	}
+	if offered() {
+		t.Fatal("the slice's owner is offered a daemon nobody exposed to it")
+	}
+	// Only the daemon's owner exposes it.
+	if _, err := agents.ExposeDaemon(owner, &corev1.ExposeDaemonRequest{DaemonId: daemonID, Slice: ref}); grpcstatus.Code(err) != codes.NotFound {
+		t.Fatalf("the slice's owner exposing someone else's daemon: %v; want NotFound", err)
+	}
+	exposed, err := agents.ExposeDaemon(agentCtx, &corev1.ExposeDaemonRequest{DaemonId: daemonID, Slice: ref})
+	if err != nil || len(exposed.ExposedTo) != 1 || exposed.ExposedTo[0].Account != "mallory" {
+		t.Fatalf("ExposeDaemon = %+v, %v", exposed, err)
+	}
+	if !offered() {
+		t.Fatal("the slice's owner is not offered the daemon that was exposed to the slice")
+	}
+	if err := choose(); err != nil {
+		t.Fatalf("choosing the exposed daemon: %v", err)
+	}
+	if got, err := slices.ResolveSlice(owner, &corev1.ResolveSliceRequest{Ref: ref}); err != nil || got.CiDaemonId != daemonID || got.CiDaemonName != "runner-ci" {
+		t.Fatalf("slice after choosing = %+v, %v", got, err)
+	}
+
+	// The daemon's owner sees where it is exposed, and withdraws it.
+	mine, err := agents.ListDaemons(agentCtx, &corev1.ListDaemonsRequest{})
+	if err != nil || len(mine.Daemons) != 1 || len(mine.Daemons[0].ExposedTo) != 1 || len(mine.Daemons[0].CiSlices) != 1 {
+		t.Fatalf("the owner's view = %+v, %v", mine, err)
+	}
+	if _, err := agents.UnexposeDaemon(agentCtx, &corev1.UnexposeDaemonRequest{DaemonId: daemonID, Slice: ref}); err != nil {
+		t.Fatal(err)
+	}
+	if offered() {
+		t.Fatal("the slice's owner is still offered a withdrawn daemon")
+	}
+	other := &corev1.SliceRef{Account: "mallory", Slice: "other"}
+	if _, err := slices.CreateSlice(owner, &corev1.CreateSliceRequest{Ref: other, IncludedPaths: home.Definition.IncludedPaths}); err == nil {
+		if _, err := slices.SetSliceCIDaemon(owner, &corev1.SetSliceCIDaemonRequest{Slice: other, DaemonId: daemonID}); grpcstatus.Code(err) != codes.NotFound {
+			t.Fatalf("choosing the withdrawn daemon for another slice: %v; want NotFound", err)
+		}
+	}
+}

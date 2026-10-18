@@ -19,6 +19,12 @@ export interface AgentDaemon {
   // viewer's conversations; the others are listed because the viewer administers
   // their account.
   mine?: boolean;
+  // True when the viewer may rename the daemon and choose which slices it is
+  // exposed to (they registered it, or administer its account).
+  manageable?: boolean;
+  // The slices the daemon is exposed to, among those the viewer can read. Only
+  // filled in for daemons the viewer manages.
+  exposedTo?: SliceRef[];
 }
 
 export interface RenameDaemonRequest {
@@ -57,7 +63,21 @@ export interface ConversationEvent {
   itemId?: string;
 }
 
-export interface ListDaemonsRequest {}
+export interface ListDaemonsRequest {
+  // Also list the daemons exposed to this slice, for the people who choose its
+  // CI daemon.
+  forSlice?: SliceRef;
+}
+
+export interface ExposeDaemonRequest {
+  daemonId?: string;
+  slice?: SliceRef;
+}
+
+export interface UnexposeDaemonRequest {
+  daemonId?: string;
+  slice?: SliceRef;
+}
 
 export interface ListDaemonsResponse {
   daemons?: AgentDaemon[];

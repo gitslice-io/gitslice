@@ -67,6 +67,10 @@ type agentDaemonOutput struct {
 	Mine bool `json:"mine"`
 	// CISlices are the slices that use the daemon as their CI daemon.
 	CISlices []string `json:"ci_slices,omitempty"`
+	// Manageable is true when you may rename the daemon and choose which
+	// slices it is exposed to; ExposedTo lists those slices.
+	Manageable bool     `json:"manageable"`
+	ExposedTo  []string `json:"exposed_to,omitempty"`
 }
 
 // shownName is the name a daemon is shown by.
@@ -82,6 +86,10 @@ func agentDaemonToOutput(daemon *corev1.AgentDaemon) agentDaemonOutput {
 		Status:      daemon.GetStatus(),
 		LastSeenAt:  daemon.GetLastSeenAt(),
 		Mine:        daemon.GetMine(),
+		Manageable:  daemon.GetManageable(),
+	}
+	for _, ref := range daemon.GetExposedTo() {
+		out.ExposedTo = append(out.ExposedTo, sliceRefLabel(ref))
 	}
 	for _, ref := range daemon.GetCiSlices() {
 		out.CISlices = append(out.CISlices, sliceRefLabel(ref))
@@ -113,12 +121,40 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
 	startCmd.Flags().BoolVar(&start.Lazy, "lazy", start.Lazy, "mount each conversation's workspace lazily (gs mount) instead of checking it out; falls back to a checkout without FUSE")
 
+	statusSlice := ""
 	statusCmd := &cobra.Command{
 		Use:   "status",
 		Short: "List agent daemons for the signed-in account",
-		Args:  noArgs("gs agent status [--format text|json] [--json]"),
+		Long: `List the daemons you started and those of agents you own, with the slices that
+use each as their CI daemon and the slices each is exposed to. With --slice, also
+list the daemons their owners exposed to that slice: the ones you can choose from
+with gs slice set-ci-daemon.`,
+		Args: noArgs("gs agent status [--slice <slice>] [--format text|json] [--json]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runAgentStatus(cmd.Context(), *opts)
+			return r.runAgentStatus(cmd.Context(), *opts, statusSlice)
+		},
+	}
+	statusCmd.Flags().StringVar(&statusSlice, "slice", "", "also list the daemons exposed to this slice, which you own or administer")
+
+	exposeCmd := &cobra.Command{
+		Use:   "expose <daemon> <slice>",
+		Short: "Let a slice's owners choose a daemon of yours as its CI daemon",
+		Long: `A CI daemon runs a slice's checks and receives its secrets, so you decide which
+slices yours is exposed to. Once you expose it, the owners and admins of that
+slice can choose it with gs slice set-ci-daemon. You must be able to read the
+slice. gs agent unexpose withdraws it: the slice's checks are then refused until
+it names another daemon.`,
+		Args: exactArgs(2, "gs agent expose <daemon> <slice|account:slice>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAgentExpose(cmd.Context(), *opts, args[0], args[1], true)
+		},
+	}
+	unexposeCmd := &cobra.Command{
+		Use:   "unexpose <daemon> <slice>",
+		Short: "Stop offering a daemon of yours to a slice",
+		Args:  exactArgs(2, "gs agent unexpose <daemon> <slice|account:slice>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAgentExpose(cmd.Context(), *opts, args[0], args[1], false)
 		},
 	}
 
@@ -156,7 +192,7 @@ You can rename the daemons you started and those of agents you own.`,
 	}
 	renameCmd.Flags().BoolVar(&renameClear, "clear", false, "drop the name, showing the registered one again")
 
-	agentCmd.AddCommand(startCmd, statusCmd, stopCmd, renameCmd)
+	agentCmd.AddCommand(startCmd, statusCmd, stopCmd, renameCmd, exposeCmd, unexposeCmd)
 	return agentCmd
 }
 
@@ -328,7 +364,7 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 	}
 }
 
-func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions) error {
+func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions, forSlice string) error {
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
@@ -339,7 +375,14 @@ func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions) error {
 	}
 	defer conn.Close()
 
-	res, err := corev1.NewAgentServiceClient(conn).ListDaemons(authContext(ctx, cfg), &corev1.ListDaemonsRequest{})
+	callCtx := authContext(ctx, cfg)
+	request := &corev1.ListDaemonsRequest{}
+	if strings.TrimSpace(forSlice) != "" {
+		if request.ForSlice, err = r.resolveSliceRefInput(callCtx, cfg, conn, forSlice); err != nil {
+			return err
+		}
+	}
+	res, err := corev1.NewAgentServiceClient(conn).ListDaemons(callCtx, request)
 	if err != nil {
 		return err
 	}
@@ -358,13 +401,17 @@ func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(r.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tACCOUNT\tRUNTIME\tSTATUS\tLAST_SEEN\tCI_FOR")
+	fmt.Fprintln(w, "ID\tNAME\tACCOUNT\tRUNTIME\tSTATUS\tLAST_SEEN\tCI_FOR\tEXPOSED_TO")
 	for _, daemon := range out.Daemons {
 		name := daemon.shownName()
 		if daemon.DisplayName != "" && daemon.DisplayName != daemon.Name {
 			name += " (" + daemon.Name + ")"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", daemon.ID, name, daemon.Account, daemon.Runtime, daemon.Status, daemon.LastSeenAt, firstNonEmpty(strings.Join(daemon.CISlices, ", "), "-"))
+		exposed := firstNonEmpty(strings.Join(daemon.ExposedTo, ", "), "-")
+		if !daemon.Manageable {
+			exposed = "(exposed to you)"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", daemon.ID, name, daemon.Account, daemon.Runtime, daemon.Status, daemon.LastSeenAt, firstNonEmpty(strings.Join(daemon.CISlices, ", "), "-"), exposed)
 	}
 	return w.Flush()
 }
@@ -410,6 +457,57 @@ func (r Runner) runAgentRename(ctx context.Context, opts commandOptions, selecto
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "%s is now shown as %s (it still registers as %s)\n", renamed.GetId(), renamed.GetDisplayName(), renamed.GetName())
+	return nil
+}
+
+// runAgentExpose exposes a daemon to a slice, or with expose false withdraws it.
+func (r Runner) runAgentExpose(ctx context.Context, opts commandOptions, selector, sliceArg string, expose bool) error {
+	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client := corev1.NewAgentServiceClient(conn)
+	res, err := client.ListDaemons(callCtx, &corev1.ListDaemonsRequest{})
+	if err != nil {
+		return err
+	}
+	daemon, err := pickDaemon(res.GetDaemons(), selector)
+	if err != nil {
+		return err
+	}
+	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceArg)
+	if err != nil {
+		return err
+	}
+	var updated *corev1.AgentDaemon
+	if expose {
+		updated, err = client.ExposeDaemon(callCtx, &corev1.ExposeDaemonRequest{DaemonId: daemon.GetId(), Slice: ref})
+	} else {
+		updated, err = client.UnexposeDaemon(callCtx, &corev1.UnexposeDaemonRequest{DaemonId: daemon.GetId(), Slice: ref})
+	}
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, agentDaemonToOutput(updated))
+	}
+	if opts.Quiet {
+		return nil
+	}
+	name := firstNonEmpty(updated.GetDisplayName(), updated.GetName())
+	if expose {
+		fmt.Fprintf(r.Stdout, "%s (%s) is exposed to %s: its owners and admins can choose it with gs slice set-ci-daemon\n", name, updated.GetId(), sliceRefLabel(ref))
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "%s (%s) is no longer exposed to %s\n", name, updated.GetId(), sliceRefLabel(ref))
+	if sliceCI := updated.GetCiSlices(); len(sliceCI) > 0 {
+		for _, used := range sliceCI {
+			if used.GetAccount() == ref.GetAccount() && used.GetSlice() == ref.GetSlice() {
+				fmt.Fprintf(r.Stdout, "that slice still names it, so its checks are refused until it names another daemon\n")
+			}
+		}
+	}
 	return nil
 }
 

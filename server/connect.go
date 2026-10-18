@@ -450,6 +450,14 @@ func (a connectAgentAdapter) RenameDaemon(ctx context.Context, req *connect.Requ
 	return connectResponse(a.svc.RenameDaemon(ctx, req.Msg))
 }
 
+func (a connectAgentAdapter) ExposeDaemon(ctx context.Context, req *connect.Request[corev1.ExposeDaemonRequest]) (*connect.Response[corev1.AgentDaemon], error) {
+	return connectResponse(a.svc.ExposeDaemon(ctx, req.Msg))
+}
+
+func (a connectAgentAdapter) UnexposeDaemon(ctx context.Context, req *connect.Request[corev1.UnexposeDaemonRequest]) (*connect.Response[corev1.AgentDaemon], error) {
+	return connectResponse(a.svc.UnexposeDaemon(ctx, req.Msg))
+}
+
 func (a connectAgentAdapter) CreateConversation(ctx context.Context, req *connect.Request[corev1.CreateConversationRequest]) (*connect.Response[corev1.Conversation], error) {
 	return connectResponse(a.svc.CreateConversation(ctx, req.Msg))
 }

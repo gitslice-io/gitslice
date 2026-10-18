@@ -92,3 +92,72 @@ func TestAgentRenameNamesADaemonEverywhereItIsShown(t *testing.T) {
 		t.Fatalf("gs agent rename with no name: %s", stderr)
 	}
 }
+
+// TestAgentExposeListsAndWithdrawsSlices: gs agent expose and unexpose, and
+// the exposure showing in gs agent status.
+func TestAgentExposeListsAndWithdrawsSlices(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	loginTestCLI(t, ts, home, workspace)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+
+	ctx, cancel := context.WithTimeout(grpcAuthContext(readToken(t, home)), 60*time.Second)
+	defer cancel()
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	stream, err := corev1.NewAgentServiceClient(conn).Connect(ctx)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_Register{Register: &corev1.RegisterDaemon{Name: "expose-ci", Runtime: "test", Version: "0.0.1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if reg, err := stream.Recv(); err != nil || reg.GetRegistered().GetDaemonId() == "" {
+		t.Fatalf("register: %v, %v", reg, err)
+	}
+	exposedTo := func() []string {
+		t.Helper()
+		var out struct {
+			Daemons []struct {
+				ExposedTo []string `json:"exposed_to"`
+			} `json:"daemons"`
+		}
+		if err := json.Unmarshal([]byte(runCLI(t, home, workspace, "agent", "status", "--json")), &out); err != nil || len(out.Daemons) != 1 {
+			t.Fatalf("gs agent status --json = %+v, %v", out, err)
+		}
+		return out.Daemons[0].ExposedTo
+	}
+
+	if got := exposedTo(); len(got) != 0 {
+		t.Fatalf("exposed before anything: %v", got)
+	}
+	if out := runCLI(t, home, workspace, "agent", "expose", "expose-ci", "acme/payment"); !strings.Contains(out, "exposed to acme:payment") {
+		t.Fatalf("gs agent expose: %s", out)
+	}
+	if got := exposedTo(); len(got) != 1 || got[0] != "acme:payment" {
+		t.Fatalf("exposed after expose: %v", got)
+	}
+	if text := runCLI(t, home, workspace, "agent", "status"); !strings.Contains(text, "EXPOSED_TO") || !strings.Contains(text, "acme:payment") {
+		t.Fatalf("gs agent status:\n%s", text)
+	}
+	if text := runCLI(t, home, workspace, "agent", "status", "--slice", "acme/payment"); !strings.Contains(text, "expose-ci") {
+		t.Fatalf("gs agent status --slice:\n%s", text)
+	}
+	// Choosing it names it the slice's CI daemon; withdrawing it says the slice still names it.
+	var listed struct {
+		Daemons []struct {
+			ID string `json:"id"`
+		} `json:"daemons"`
+	}
+	if err := json.Unmarshal([]byte(runCLI(t, home, workspace, "agent", "status", "--json")), &listed); err != nil || len(listed.Daemons) != 1 {
+		t.Fatalf("gs agent status --json = %+v, %v", listed, err)
+	}
+	runCLI(t, home, workspace, "slice", "set-ci-daemon", "acme/payment", listed.Daemons[0].ID)
+	if out := runCLI(t, home, workspace, "agent", "unexpose", "expose-ci", "acme/payment"); !strings.Contains(out, "no longer exposed") || !strings.Contains(out, "checks are refused") {
+		t.Fatalf("gs agent unexpose: %s", out)
+	}
+	if got := exposedTo(); len(got) != 0 {
+		t.Fatalf("exposed after unexpose: %v", got)
+	}
+}

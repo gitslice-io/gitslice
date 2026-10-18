@@ -502,3 +502,103 @@ func TestSetSliceCIDaemonNeedsADaemonTheCallerMayManage(t *testing.T) {
 		t.Fatalf("moving to her own daemon: err = %v, current = %q", err, current())
 	}
 }
+
+// TestExposingADaemonToASliceLetsItsOwnersChooseIt: the owner of a daemon
+// decides which slices it is exposed to, and a slice's owner may then choose it
+// as the slice's CI daemon, until the owner withdraws it.
+func TestExposingADaemonToASliceLetsItsOwnersChooseIt(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	alice := authctx.WithSubjectID(context.Background(), "user_alice")
+	bob := authctx.WithSubjectID(context.Background(), "user_bob")
+	mem.AddAccount("user_bob", "bob")
+	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "payment"}
+	slice := mem.PutSlice(sliceRef, []string{"/acme/payment"}, "public")
+	theirs, err := mem.Agents.RegisterDaemon(bob, storage.AgentDaemonInput{SubjectID: "user_bob", Account: "bob", Name: "bob-ci", Runtime: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := func(id string) error {
+		_, err := handlers.Slice.SetSliceCIDaemon(alice, &corev1.SetSliceCIDaemonRequest{Slice: sliceRef, DaemonId: id})
+		return err
+	}
+	listFor := func(ctx context.Context) []*corev1.AgentDaemon {
+		t.Helper()
+		res, err := handlers.Agent.ListDaemons(ctx, &corev1.ListDaemonsRequest{ForSlice: sliceRef})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Daemons
+	}
+	has := func(daemons []*corev1.AgentDaemon, id string) *corev1.AgentDaemon {
+		for _, d := range daemons {
+			if d.Id == id {
+				return d
+			}
+		}
+		return nil
+	}
+
+	// Not exposed: alice cannot see or choose it.
+	if has(listFor(alice), theirs.Id) != nil {
+		t.Fatal("alice sees a daemon nobody exposed to her slice")
+	}
+	if err := set(theirs.Id); status.Code(err) != codes.NotFound {
+		t.Fatalf("choosing an unexposed daemon: %v; want NotFound", err)
+	}
+	// Alice cannot expose it, and a stranger cannot either.
+	if _, err := handlers.Agent.ExposeDaemon(alice, &corev1.ExposeDaemonRequest{DaemonId: theirs.Id, Slice: sliceRef}); status.Code(err) != codes.NotFound {
+		t.Fatalf("alice exposing bob's daemon: %v; want NotFound", err)
+	}
+
+	// Bob exposes it to alice's slice.
+	exposed, err := handlers.Agent.ExposeDaemon(bob, &corev1.ExposeDaemonRequest{DaemonId: theirs.Id, Slice: sliceRef})
+	if err != nil || !exposed.Manageable || len(exposed.ExposedTo) != 1 || exposed.ExposedTo[0].Slice != "payment" {
+		t.Fatalf("ExposeDaemon = %+v, %v", exposed, err)
+	}
+	if _, err := handlers.Agent.ExposeDaemon(bob, &corev1.ExposeDaemonRequest{DaemonId: theirs.Id, Slice: sliceRef}); err != nil {
+		t.Fatalf("exposing twice: %v", err)
+	}
+	// Now alice sees it for that slice, as one she cannot manage, and chooses it.
+	seen := has(listFor(alice), theirs.Id)
+	if seen == nil || seen.Manageable || seen.Mine || len(seen.ExposedTo) != 0 {
+		t.Fatalf("alice's view of the exposed daemon = %+v", seen)
+	}
+	if res, _ := handlers.Agent.ListDaemons(alice, &corev1.ListDaemonsRequest{}); has(res.Daemons, theirs.Id) != nil {
+		t.Fatal("an exposed daemon shows in the plain list of someone who does not manage it")
+	}
+	if err := set(theirs.Id); err != nil {
+		t.Fatalf("choosing an exposed daemon: %v", err)
+	}
+	if got := handlers.Agent.dispatcher.ciDaemonRefusal(alice, slice.Id, theirs.Id); got != "" {
+		t.Fatalf("an exposed daemon is refused: %s", got)
+	}
+
+	// Bob withdraws it: the slice keeps naming it, but its checks are refused.
+	if _, err := handlers.Agent.UnexposeDaemon(bob, &corev1.UnexposeDaemonRequest{DaemonId: theirs.Id, Slice: sliceRef}); err != nil {
+		t.Fatal(err)
+	}
+	if got := handlers.Agent.dispatcher.ciDaemonRefusal(alice, slice.Id, theirs.Id); got == "" {
+		t.Fatal("a withdrawn daemon still runs the slice's checks")
+	}
+	if has(listFor(alice), theirs.Id) != nil {
+		t.Fatal("alice still sees a withdrawn daemon")
+	}
+
+	// Choosing a daemon of her own exposes it too, so its checks run.
+	mine, err := mem.Agents.RegisterDaemon(alice, storage.AgentDaemonInput{SubjectID: "user_alice", Account: "acme", Name: "alice-ci", Runtime: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := set(mine.Id); err != nil {
+		t.Fatal(err)
+	}
+	if got := handlers.Agent.dispatcher.ciDaemonRefusal(alice, slice.Id, mine.Id); got != "" {
+		t.Fatalf("her own chosen daemon is refused: %s", got)
+	}
+	// A private slice cannot be named by someone who cannot read it.
+	private := &corev1.SliceRef{Account: "acme", Slice: "secret"}
+	mem.PutSlice(private, []string{"/acme/secret"}, "private")
+	if _, err := handlers.Agent.ExposeDaemon(bob, &corev1.ExposeDaemonRequest{DaemonId: theirs.Id, Slice: private}); err == nil {
+		t.Fatal("bob exposed a daemon to a private slice he cannot read")
+	}
+}

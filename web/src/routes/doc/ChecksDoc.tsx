@@ -205,7 +205,7 @@ checks:
             {
               title: "Optional: a designated CI runner",
               description:
-                "Checks that need files outside the slice (e.g. a repo-root check) run on a daemon you designate for the slice, in Settings or via the CLI. You can designate daemons you started, and those of agents you own.",
+                "Checks that need files outside the slice (e.g. a repo-root check) run on a daemon you designate for the slice, in Settings or via the CLI. You can designate daemons you started, those of agents you own, and daemons whose owners exposed them to the slice.",
               command: "gs slice set-ci-daemon <account>:<slice> <daemon-id>"
             }
           ].map((step, index) => (

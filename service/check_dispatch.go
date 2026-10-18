@@ -66,6 +66,7 @@ type checkDispatcher struct {
 	Changesets  storage.ChangesetStore
 	Repository  storage.RepositoryStore
 	Slices      storage.SliceStore
+	Agents      storage.AgentStore
 	ObjectStore ObjectStore
 
 	hub        *agentHub
@@ -116,6 +117,10 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 		return
 	}
 	daemonID := strings.TrimSpace(slice.CiDaemonId)
+	// A daemon runs a slice's checks only while its owner keeps it exposed to
+	// the slice. Otherwise the checks error, without the daemon seeing the
+	// slice's secrets.
+	refusal := d.ciDaemonRefusal(ctx, slice.Id, daemonID)
 	var runnable []checks.CheckSpec
 	for _, spec := range plan.Runnable {
 		if spec.OutOfSlice {
@@ -130,7 +135,7 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 		return
 	}
 	var secrets map[string]string
-	if daemonID != "" {
+	if daemonID != "" && refusal == "" {
 		var err error
 		secrets, err = d.sliceSecretsForDispatch(ctx, slice.Id)
 		if err != nil {
@@ -140,11 +145,15 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 	}
 	runSpecs := make([]*corev1.CheckRunSpec, 0, len(runnable))
 	for _, spec := range runnable {
+		runDaemon := daemonID
+		if refusal != "" {
+			runDaemon = "" // no daemon ran it
+		}
 		run, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
 			ChangesetID: cs.Id,
 			PatchsetID:  patchset.Id,
 			CheckName:   spec.Name,
-			DaemonID:    daemonID,
+			DaemonID:    runDaemon,
 			Provenance:  "ci",
 			Status:      "queued",
 		})
@@ -155,6 +164,12 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 		if daemonID == "" {
 			if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.Id, "errored", -1, "slice has no full-tree CI runner configured; set the slice CI daemon to run out-of-slice checks"); err != nil {
 				slog.Warn("failed to mark ci check run errored without runner", "run_id", run.Id, "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)
+			}
+			continue
+		}
+		if refusal != "" {
+			if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.Id, "errored", -1, refusal); err != nil {
+				slog.Warn("failed to mark ci check run errored for an unexposed daemon", "run_id", run.Id, "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)
 			}
 			continue
 		}
@@ -192,6 +207,25 @@ func (s *ChangesetService) dispatchCIChecks(ctx context.Context, cs *corev1.Chan
 		}
 	}
 	s.dispatcher.dispatchCIChecks(ctx, cs, slice, patchset, names)
+}
+
+// ciDaemonRefusal is why a daemon may not run a slice's checks, or "" when it
+// may: its owner has exposed it to the slice. When that cannot be checked it
+// says so, and the checks do not run.
+func (d *checkDispatcher) ciDaemonRefusal(ctx context.Context, sliceID, daemonID string) string {
+	daemonID = strings.TrimSpace(daemonID)
+	if d == nil || d.Agents == nil || daemonID == "" {
+		return ""
+	}
+	exposed, err := d.Agents.DaemonExposedTo(ctx, daemonID, sliceID)
+	if err != nil {
+		slog.Warn("failed to check that a CI daemon is exposed to a slice", "daemon_id", daemonID, "slice_id", sliceID, "error", err)
+		return "could not check that the slice's CI daemon is exposed to it, so its checks did not run: " + err.Error()
+	}
+	if exposed {
+		return ""
+	}
+	return "the slice's CI daemon is not exposed to this slice (its owner may have withdrawn it); choose another CI daemon in the slice's settings, or ask the daemon's owner to expose it again"
 }
 
 func (d *checkDispatcher) cancelOpenCheckRunsBeforePatchset(ctx context.Context, changesetID, currentPatchsetID string) {
@@ -238,6 +272,9 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 	daemonID := strings.TrimSpace(slice.CiDaemonId)
 	if daemonID == "" {
 		return nil, status.Error(codes.FailedPrecondition, "slice has no CI daemon configured")
+	}
+	if refusal := d.ciDaemonRefusal(ctx, slice.Id, daemonID); refusal != "" {
+		return nil, status.Error(codes.FailedPrecondition, refusal)
 	}
 	conn, ok := d.hub.daemon(daemonID)
 	if !ok {
@@ -481,6 +518,16 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 	slice, err := d.Slices.Resolve(ctx, cs.AuthoringSlice)
 	if err != nil {
 		return nil, err
+	}
+	// Queued runs for a daemon that is no longer exposed to the slice are not
+	// sent to it: they error, and the daemon never sees the slice's secrets.
+	if refusal := d.ciDaemonRefusal(ctx, slice.Id, first.DaemonId); refusal != "" {
+		for _, run := range runs {
+			if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.Id, "errored", -1, refusal); err != nil {
+				slog.Warn("failed to mark queued ci check run errored for an unexposed daemon", "run_id", run.Id, "error", err)
+			}
+		}
+		return nil, nil
 	}
 	plan, err := d.resolveCheckPlan(ctx, slice, patchset)
 	if err != nil {

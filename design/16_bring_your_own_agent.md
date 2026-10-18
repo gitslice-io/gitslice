@@ -168,16 +168,40 @@ display names and registered names (`AlreadyExists` otherwise). Anyone who may
 not manage a daemon gets `NotFound`, so ids reveal nothing.
 
 A daemon runs the checks of every slice that names it, with that slice's
-secrets, so only a daemon's owner may offer it to a slice. `SetSliceCIDaemon`
-therefore needs the caller to be an owner or admin of the slice's account (as
-before) **and** to be able to manage the daemon: they registered it, or own or
-administer the account it is registered under. For anyone else the daemon is
-`NotFound`, as for an id that does not exist. Clearing the daemon, or saving
-the one the slice already has, needs nothing more. Until 2026-10-18 the second
-condition was missing: anyone who owned a slice could name any daemon whose id
-they had seen (a public slice shows its CI daemon id) and run checks on that
-machine. Slices that named a daemon before then keep it; only changing it is
-checked.
+secrets, so its owner decides which slices it serves. Two rules follow.
+
+**Exposure.** A daemon's owner (the identity that registered it, or an owner or
+admin of its account) *exposes* it to chosen slices: `gs agent expose <daemon>
+<slice>` or the Agent daemons section of the account page, and `unexpose` to
+withdraw. The owner must be able to read the slice they name. Exposures are
+stored per slice (`daemon_slice_exposures`, by slice id, so renames do not
+matter).
+
+**Choosing.** `SetSliceCIDaemon` needs the caller to own or administer the
+slice's account (as before) and one of: they manage the daemon (they registered
+it, or own or administer its account), or its owner exposed it to this slice.
+Anyone else gets `NotFound`, as for an id that does not exist. Clearing the
+daemon, or saving the one the slice already has, needs nothing more. A daemon
+the caller manages is exposed to the slice by choosing it, so the invariant
+"a slice names only daemons exposed to it" holds. `ListDaemons` with `for_slice`
+returns, besides the caller's own, the daemons exposed to that slice (only to
+people who own or administer its account): the choices in slice settings and
+`gs agent status --slice`.
+
+**Withdrawing.** Dispatch checks the exposure each time (a new patchset, a rerun,
+and when a daemon reconnects and its queued runs are re-sent). A slice whose
+daemon is no longer exposed keeps naming it, but its checks error with a message
+that says why, and the daemon never receives the slice's secrets. Required checks
+then block submit until the slice names another daemon or the owner exposes it
+again.
+
+Until 2026-10-18 nothing checked who could name a daemon: anyone who owned a
+slice could run checks on any daemon whose id they had seen (a public slice shows
+its CI daemon id). Slices that named a daemon when exposure was introduced (migration
+0038) were treated as having it exposed, without an audit of whose they were.
+
+Conversations are a separate matter: `CreateConversation` still needs the caller to
+have registered the daemon, whatever it is exposed to.
 
 ## Phasing
 

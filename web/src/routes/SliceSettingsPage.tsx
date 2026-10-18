@@ -67,8 +67,9 @@ export function SliceSettingsPage() {
 
   const daemonsQuery = useQuery({
     enabled: Boolean(slice),
-    queryKey: ["agentDaemons"],
-    queryFn: async () => (await api.listDaemons({})).daemons ?? []
+    queryKey: ["agentDaemons", "forSlice", routeAccount, routeSlice],
+    queryFn: async () =>
+      (await api.listDaemons({ forSlice: { account: routeAccount, slice: routeSlice } })).daemons ?? []
   });
 
   useEffect(() => {

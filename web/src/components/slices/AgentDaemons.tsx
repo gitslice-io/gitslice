@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 
-import type { AgentDaemon } from "../../api/types";
+import type { AgentDaemon, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { daemonName } from "../../lib/daemons";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
@@ -11,6 +11,12 @@ import { formatRelativeTime } from "../../lib/time";
 import { getErrorMessage } from "./SlicePageParts";
 
 const MAX_NAME_LENGTH = 64;
+
+// parseSliceInput reads "account/slice" or "account:slice".
+function parseSliceInput(input: string): SliceRef | null {
+  const match = /^([^/:\s]+)[/:]([^/:\s]+)$/.exec(input.trim());
+  return match ? { account: match[1], slice: match[2] } : null;
+}
 
 // AgentDaemons is the "Agent daemons" section of your own account page: the
 // daemons you started with gs agent start and those of agents you co-own, with
@@ -72,6 +78,28 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
   const renamed = Boolean(daemon.displayName) && daemon.displayName !== daemon.name;
   const online = daemon.status === "online";
   const ciSlices = daemon.ciSlices ?? [];
+  const exposedTo = daemon.exposedTo ?? [];
+  const manageable = daemon.manageable !== false;
+  const [exposeInput, setExposeInput] = useState("");
+  const exposeRef = parseSliceInput(exposeInput);
+
+  const refreshDaemons = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["agentDaemons"] }),
+      queryClient.invalidateQueries({ queryKey: ["sliceRef"] })
+    ]);
+  };
+  const expose = useMutation({
+    mutationFn: (slice: SliceRef) => api.exposeDaemon({ daemonId: daemon.id, slice }),
+    onSuccess: async () => {
+      setExposeInput("");
+      await refreshDaemons();
+    }
+  });
+  const unexpose = useMutation({
+    mutationFn: (slice: SliceRef) => api.unexposeDaemon({ daemonId: daemon.id, slice }),
+    onSuccess: refreshDaemons
+  });
 
   const rename = useMutation({
     mutationFn: (displayName: string) =>
@@ -161,6 +189,69 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
           </>
         )}
       </p>
+
+      {manageable ? (
+        <div className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+          <p>
+            {exposedTo.length === 0
+              ? "Not exposed to any slice: nobody can choose it as a CI daemon."
+              : "Exposed to (their owners can choose it as a CI daemon):"}
+          </p>
+          {exposedTo.length > 0 ? (
+            <ul className="mt-1 flex flex-wrap gap-1.5">
+              {exposedTo.map((ref) => {
+                const label = `${ref.account}/${ref.slice}`;
+                return (
+                  <li
+                    className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 dark:bg-zinc-800"
+                    key={label}
+                  >
+                    {label}
+                    <button
+                      aria-label={`Stop exposing ${shown} to ${label}`}
+                      className="text-slate-500 hover:text-zinc-950 disabled:opacity-60 dark:text-zinc-400 dark:hover:text-zinc-50"
+                      disabled={unexpose.isPending}
+                      onClick={() => unexpose.mutate(ref)}
+                      type="button"
+                    >
+                      ×
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          <form
+            className="mt-1.5 flex items-center gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (exposeRef) {
+                expose.mutate(exposeRef);
+              }
+            }}
+          >
+            <input
+              aria-label={`Expose ${shown} to a slice`}
+              className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              onChange={(event) => setExposeInput(event.target.value)}
+              placeholder="account/slice"
+              value={exposeInput}
+            />
+            <button
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+              disabled={!exposeRef || expose.isPending}
+              type="submit"
+            >
+              Expose
+            </button>
+          </form>
+          {expose.error || unexpose.error ? (
+            <p className="mt-1 text-rose-700 dark:text-rose-300" role="alert">
+              {getErrorMessage(expose.error ?? unexpose.error)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {editing ? (
         <form className="mt-2 grid gap-2" onSubmit={submit}>

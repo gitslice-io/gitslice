@@ -102,7 +102,8 @@ type backend struct {
 	entityChanges  map[string][]storage.HistoryEntityRef
 
 	agentDaemons     map[string]*corev1.AgentDaemon
-	agentDaemonOwner map[string]string // daemon id -> the subject that registered it
+	agentDaemonOwner map[string]string          // daemon id -> the subject that registered it
+	daemonExposures  map[string]map[string]bool // daemon id -> ids of the slices it is exposed to
 	agentConvs       map[string]*corev1.Conversation
 	agentEvents      map[string][]*corev1.ConversationEvent
 	agentConvNextSeq map[string]int64
@@ -200,6 +201,7 @@ func New() *Stores {
 		entityChanges:           map[string][]storage.HistoryEntityRef{},
 		agentDaemons:            map[string]*corev1.AgentDaemon{},
 		agentDaemonOwner:        map[string]string{},
+		daemonExposures:         map[string]map[string]bool{},
 		agentConvs:              map[string]*corev1.Conversation{},
 		agentEvents:             map[string][]*corev1.ConversationEvent{},
 		agentConvNextSeq:        map[string]int64{},

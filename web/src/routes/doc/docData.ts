@@ -247,7 +247,7 @@ export const commandGroups = [
       ["gs slice update", "Change included paths or policy (e.g. --required-check)."],
       ["gs slice rename <slice> <new-name>", "Rename a slice. The old name keeps resolving and stays reserved."],
       ["gs slice archive <slice>", "Hide a slice from listings and make it read-only (gs slice unarchive restores it)."],
-      ["gs slice set-ci-daemon", "Designate the daemon that runs out-of-slice checks."],
+      ["gs slice set-ci-daemon", "Designate the daemon that runs out-of-slice checks: one of yours, or one its owner exposed to the slice (gs agent status --slice)."],
       ["gs slice history", "Inspect slice definition versions."]
     ]
   },
@@ -276,6 +276,10 @@ export const commandGroups = [
       [
         "gs agent status",
         "List your agent daemons, and those of agents you own, with their status and the slices that use each as their CI daemon."
+      ],
+      [
+        "gs agent expose <daemon> <slice>",
+        "Let a slice's owners choose your daemon as its CI daemon; gs agent unexpose withdraws it."
       ],
       [
         "gs agent rename <daemon> <name>",

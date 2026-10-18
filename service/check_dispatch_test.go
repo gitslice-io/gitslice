@@ -63,6 +63,9 @@ func TestNewPatchsetCancelsOpenOlderCheckRuns(t *testing.T) {
 	if _, err := mem.Slices.SetCIDaemon(ctx, slice.Id, "daemon-1"); err != nil {
 		t.Fatal(err)
 	}
+	if err := mem.Agents.ExposeDaemon(ctx, "daemon-1", slice.Id, "test"); err != nil {
+		t.Fatal(err)
+	}
 	conn := handlers.Agent.hub.registerDaemon("daemon-1")
 	defer handlers.Agent.hub.unregisterDaemon(conn)
 
@@ -143,7 +146,10 @@ checks:
 	}}, []string{"/acme/.gitslice/checks.yaml"})
 
 	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "sweep"}
-	mem.PutSliceWithSubmitSettings(sliceRef, []string{"/acme/payment/sweep"}, "private", 0, []string{"root-required"})
+	sweepSlice := mem.PutSliceWithSubmitSettings(sliceRef, []string{"/acme/payment/sweep"}, "private", 0, []string{"root-required"})
+	if err := mem.Agents.ExposeDaemon(ctx, "daemon-1", sweepSlice.Id, "test"); err != nil {
+		t.Fatal(err)
+	}
 
 	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
 	if err != nil {

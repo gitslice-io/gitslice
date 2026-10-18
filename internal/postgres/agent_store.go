@@ -123,6 +123,73 @@ func (s *AgentStore) ListDaemons(ctx context.Context, subjectID string) ([]*core
 	return out, rows.Err()
 }
 
+func (s *AgentStore) ExposeDaemon(ctx context.Context, daemonID, sliceID, exposedBy string) error {
+	_, err := s.db.ExecContext(ctx, `
+		insert into daemon_slice_exposures(daemon_id, slice_id, exposed_by)
+		values ($1, $2, $3)
+		on conflict (daemon_id, slice_id) do nothing
+	`, daemonID, sliceID, exposedBy)
+	return err
+}
+
+func (s *AgentStore) UnexposeDaemon(ctx context.Context, daemonID, sliceID string) error {
+	_, err := s.db.ExecContext(ctx, `delete from daemon_slice_exposures where daemon_id = $1 and slice_id = $2`, daemonID, sliceID)
+	return err
+}
+
+func (s *AgentStore) DaemonExposedTo(ctx context.Context, daemonID, sliceID string) (bool, error) {
+	var exposed bool
+	err := s.db.QueryRowContext(ctx, `
+		select exists(select 1 from daemon_slice_exposures where daemon_id = $1 and slice_id = $2)
+	`, daemonID, sliceID).Scan(&exposed)
+	return exposed, err
+}
+
+func (s *AgentStore) ListDaemonExposures(ctx context.Context, daemonIDs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(daemonIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select daemon_id, slice_id from daemon_slice_exposures where daemon_id = any($1) order by created_at, slice_id
+	`, daemonIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var daemonID, sliceID string
+		if err := rows.Scan(&daemonID, &sliceID); err != nil {
+			return nil, err
+		}
+		out[daemonID] = append(out[daemonID], sliceID)
+	}
+	return out, rows.Err()
+}
+
+func (s *AgentStore) ListDaemonsExposedToSlice(ctx context.Context, sliceID string) ([]*corev1.AgentDaemon, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select d.id, d.account, d.name, d.runtime, d.version, d.status, d.last_seen_at, d.created_at, d.label
+		from agent_daemons d
+		join daemon_slice_exposures e on e.daemon_id = d.id
+		where e.slice_id = $1
+		order by d.created_at asc
+	`, sliceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.AgentDaemon
+	for rows.Next() {
+		d, err := scanDaemon(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // ListDaemonsForAccounts lists the daemons registered under the accounts.
 func (s *AgentStore) ListDaemonsForAccounts(ctx context.Context, accounts []string) ([]*corev1.AgentDaemon, error) {
 	if len(accounts) == 0 {

@@ -22,6 +22,8 @@ const (
 	AgentService_Connect_FullMethodName               = "/gitslice.core.v1.AgentService/Connect"
 	AgentService_ListDaemons_FullMethodName           = "/gitslice.core.v1.AgentService/ListDaemons"
 	AgentService_RenameDaemon_FullMethodName          = "/gitslice.core.v1.AgentService/RenameDaemon"
+	AgentService_ExposeDaemon_FullMethodName          = "/gitslice.core.v1.AgentService/ExposeDaemon"
+	AgentService_UnexposeDaemon_FullMethodName        = "/gitslice.core.v1.AgentService/UnexposeDaemon"
 	AgentService_CreateConversation_FullMethodName    = "/gitslice.core.v1.AgentService/CreateConversation"
 	AgentService_ListConversations_FullMethodName     = "/gitslice.core.v1.AgentService/ListConversations"
 	AgentService_GetConversation_FullMethodName       = "/gitslice.core.v1.AgentService/GetConversation"
@@ -47,6 +49,13 @@ type AgentServiceClient interface {
 	// with (gs agent start --name) is unchanged, so a restart finds the same
 	// daemon.
 	RenameDaemon(ctx context.Context, in *RenameDaemonRequest, opts ...grpc.CallOption) (*AgentDaemon, error)
+	// ExposeDaemon lets the owners and admins of a slice choose the daemon as the
+	// slice's CI daemon. Only the daemon's owner can: it runs the slice's checks
+	// and receives its secrets.
+	ExposeDaemon(ctx context.Context, in *ExposeDaemonRequest, opts ...grpc.CallOption) (*AgentDaemon, error)
+	// UnexposeDaemon takes the slice back off the list. A slice that still names
+	// the daemon has its checks refused until it names another.
+	UnexposeDaemon(ctx context.Context, in *UnexposeDaemonRequest, opts ...grpc.CallOption) (*AgentDaemon, error)
 	CreateConversation(ctx context.Context, in *CreateConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
 	ListConversations(ctx context.Context, in *ListConversationsRequest, opts ...grpc.CallOption) (*ListConversationsResponse, error)
 	GetConversation(ctx context.Context, in *GetConversationRequest, opts ...grpc.CallOption) (*Conversation, error)
@@ -112,6 +121,24 @@ func (c *agentServiceClient) ListDaemons(ctx context.Context, in *ListDaemonsReq
 func (c *agentServiceClient) RenameDaemon(ctx context.Context, in *RenameDaemonRequest, opts ...grpc.CallOption) (*AgentDaemon, error) {
 	out := new(AgentDaemon)
 	err := c.cc.Invoke(ctx, AgentService_RenameDaemon_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ExposeDaemon(ctx context.Context, in *ExposeDaemonRequest, opts ...grpc.CallOption) (*AgentDaemon, error) {
+	out := new(AgentDaemon)
+	err := c.cc.Invoke(ctx, AgentService_ExposeDaemon_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) UnexposeDaemon(ctx context.Context, in *UnexposeDaemonRequest, opts ...grpc.CallOption) (*AgentDaemon, error) {
+	out := new(AgentDaemon)
+	err := c.cc.Invoke(ctx, AgentService_UnexposeDaemon_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +247,13 @@ type AgentServiceServer interface {
 	// with (gs agent start --name) is unchanged, so a restart finds the same
 	// daemon.
 	RenameDaemon(context.Context, *RenameDaemonRequest) (*AgentDaemon, error)
+	// ExposeDaemon lets the owners and admins of a slice choose the daemon as the
+	// slice's CI daemon. Only the daemon's owner can: it runs the slice's checks
+	// and receives its secrets.
+	ExposeDaemon(context.Context, *ExposeDaemonRequest) (*AgentDaemon, error)
+	// UnexposeDaemon takes the slice back off the list. A slice that still names
+	// the daemon has its checks refused until it names another.
+	UnexposeDaemon(context.Context, *UnexposeDaemonRequest) (*AgentDaemon, error)
 	CreateConversation(context.Context, *CreateConversationRequest) (*Conversation, error)
 	ListConversations(context.Context, *ListConversationsRequest) (*ListConversationsResponse, error)
 	GetConversation(context.Context, *GetConversationRequest) (*Conversation, error)
@@ -246,6 +280,12 @@ func (UnimplementedAgentServiceServer) ListDaemons(context.Context, *ListDaemons
 }
 func (UnimplementedAgentServiceServer) RenameDaemon(context.Context, *RenameDaemonRequest) (*AgentDaemon, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RenameDaemon not implemented")
+}
+func (UnimplementedAgentServiceServer) ExposeDaemon(context.Context, *ExposeDaemonRequest) (*AgentDaemon, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExposeDaemon not implemented")
+}
+func (UnimplementedAgentServiceServer) UnexposeDaemon(context.Context, *UnexposeDaemonRequest) (*AgentDaemon, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnexposeDaemon not implemented")
 }
 func (UnimplementedAgentServiceServer) CreateConversation(context.Context, *CreateConversationRequest) (*Conversation, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateConversation not implemented")
@@ -338,6 +378,42 @@ func _AgentService_RenameDaemon_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServiceServer).RenameDaemon(ctx, req.(*RenameDaemonRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ExposeDaemon_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExposeDaemonRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ExposeDaemon(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ExposeDaemon_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ExposeDaemon(ctx, req.(*ExposeDaemonRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_UnexposeDaemon_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnexposeDaemonRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).UnexposeDaemon(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_UnexposeDaemon_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).UnexposeDaemon(ctx, req.(*UnexposeDaemonRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -485,6 +561,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RenameDaemon",
 			Handler:    _AgentService_RenameDaemon_Handler,
+		},
+		{
+			MethodName: "ExposeDaemon",
+			Handler:    _AgentService_ExposeDaemon_Handler,
+		},
+		{
+			MethodName: "UnexposeDaemon",
+			Handler:    _AgentService_UnexposeDaemon_Handler,
 		},
 		{
 			MethodName: "CreateConversation",

@@ -202,16 +202,34 @@ func (s *SliceService) SetSliceCIDaemon(ctx context.Context, req *corev1.SetSlic
 	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
-	// A CI daemon runs the slice's checks and receives its secrets, so the
-	// people who may name one are those who may manage it: they registered it,
-	// or own or administer the account it is registered under. Anyone else gets
-	// NotFound, as for an id that does not exist. Clearing it, or naming the
-	// daemon the slice already has, needs nothing more.
+	// A CI daemon runs the slice's checks and receives its secrets, so its
+	// owner decides which slices may name it. The people who may name one are
+	// those who manage it (they registered it, or own or administer the account
+	// it is registered under), and anyone else for a daemon its owner exposed to
+	// this slice. For any other daemon they get NotFound, as for an id that does
+	// not exist. Clearing it, or naming the daemon the slice already has, needs
+	// nothing more.
 	if daemonID := strings.TrimSpace(req.DaemonId); daemonID != "" && daemonID != current.CiDaemonId {
 		if s.Agents == nil {
 			return nil, status.Error(codes.FailedPrecondition, "agent daemons are not available")
 		}
-		if _, _, err := manageableDaemon(ctx, s.Auth, s.Agents, subjectID, daemonID); err != nil {
+		_, _, err := manageableDaemon(ctx, s.Auth, s.Agents, subjectID, daemonID)
+		switch {
+		case err == nil:
+			// Its owner is choosing it for their own slice: that exposes it.
+			if err := s.Agents.ExposeDaemon(ctx, daemonID, current.Id, subjectID); err != nil {
+				return nil, grpcError(err)
+			}
+		case status.Code(err) == codes.NotFound:
+			// Not theirs: it must be exposed to this slice by its owner.
+			exposed, exposedErr := s.Agents.DaemonExposedTo(ctx, daemonID, current.Id)
+			if exposedErr != nil {
+				return nil, grpcError(exposedErr)
+			}
+			if !exposed {
+				return nil, err
+			}
+		default:
 			return nil, err
 		}
 	}

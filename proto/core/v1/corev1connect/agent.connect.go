@@ -41,6 +41,12 @@ const (
 	// AgentServiceRenameDaemonProcedure is the fully-qualified name of the AgentService's RenameDaemon
 	// RPC.
 	AgentServiceRenameDaemonProcedure = "/gitslice.core.v1.AgentService/RenameDaemon"
+	// AgentServiceExposeDaemonProcedure is the fully-qualified name of the AgentService's ExposeDaemon
+	// RPC.
+	AgentServiceExposeDaemonProcedure = "/gitslice.core.v1.AgentService/ExposeDaemon"
+	// AgentServiceUnexposeDaemonProcedure is the fully-qualified name of the AgentService's
+	// UnexposeDaemon RPC.
+	AgentServiceUnexposeDaemonProcedure = "/gitslice.core.v1.AgentService/UnexposeDaemon"
 	// AgentServiceCreateConversationProcedure is the fully-qualified name of the AgentService's
 	// CreateConversation RPC.
 	AgentServiceCreateConversationProcedure = "/gitslice.core.v1.AgentService/CreateConversation"
@@ -78,6 +84,13 @@ type AgentServiceClient interface {
 	// with (gs agent start --name) is unchanged, so a restart finds the same
 	// daemon.
 	RenameDaemon(context.Context, *connect.Request[v1.RenameDaemonRequest]) (*connect.Response[v1.AgentDaemon], error)
+	// ExposeDaemon lets the owners and admins of a slice choose the daemon as the
+	// slice's CI daemon. Only the daemon's owner can: it runs the slice's checks
+	// and receives its secrets.
+	ExposeDaemon(context.Context, *connect.Request[v1.ExposeDaemonRequest]) (*connect.Response[v1.AgentDaemon], error)
+	// UnexposeDaemon takes the slice back off the list. A slice that still names
+	// the daemon has its checks refused until it names another.
+	UnexposeDaemon(context.Context, *connect.Request[v1.UnexposeDaemonRequest]) (*connect.Response[v1.AgentDaemon], error)
 	CreateConversation(context.Context, *connect.Request[v1.CreateConversationRequest]) (*connect.Response[v1.Conversation], error)
 	ListConversations(context.Context, *connect.Request[v1.ListConversationsRequest]) (*connect.Response[v1.ListConversationsResponse], error)
 	GetConversation(context.Context, *connect.Request[v1.GetConversationRequest]) (*connect.Response[v1.Conversation], error)
@@ -119,6 +132,18 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceRenameDaemonProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("RenameDaemon")),
+			connect.WithClientOptions(opts...),
+		),
+		exposeDaemon: connect.NewClient[v1.ExposeDaemonRequest, v1.AgentDaemon](
+			httpClient,
+			baseURL+AgentServiceExposeDaemonProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("ExposeDaemon")),
+			connect.WithClientOptions(opts...),
+		),
+		unexposeDaemon: connect.NewClient[v1.UnexposeDaemonRequest, v1.AgentDaemon](
+			httpClient,
+			baseURL+AgentServiceUnexposeDaemonProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UnexposeDaemon")),
 			connect.WithClientOptions(opts...),
 		),
 		createConversation: connect.NewClient[v1.CreateConversationRequest, v1.Conversation](
@@ -171,6 +196,8 @@ type agentServiceClient struct {
 	connect               *connect.Client[v1.DaemonMessage, v1.ServerMessage]
 	listDaemons           *connect.Client[v1.ListDaemonsRequest, v1.ListDaemonsResponse]
 	renameDaemon          *connect.Client[v1.RenameDaemonRequest, v1.AgentDaemon]
+	exposeDaemon          *connect.Client[v1.ExposeDaemonRequest, v1.AgentDaemon]
+	unexposeDaemon        *connect.Client[v1.UnexposeDaemonRequest, v1.AgentDaemon]
 	createConversation    *connect.Client[v1.CreateConversationRequest, v1.Conversation]
 	listConversations     *connect.Client[v1.ListConversationsRequest, v1.ListConversationsResponse]
 	getConversation       *connect.Client[v1.GetConversationRequest, v1.Conversation]
@@ -193,6 +220,16 @@ func (c *agentServiceClient) ListDaemons(ctx context.Context, req *connect.Reque
 // RenameDaemon calls gitslice.core.v1.AgentService.RenameDaemon.
 func (c *agentServiceClient) RenameDaemon(ctx context.Context, req *connect.Request[v1.RenameDaemonRequest]) (*connect.Response[v1.AgentDaemon], error) {
 	return c.renameDaemon.CallUnary(ctx, req)
+}
+
+// ExposeDaemon calls gitslice.core.v1.AgentService.ExposeDaemon.
+func (c *agentServiceClient) ExposeDaemon(ctx context.Context, req *connect.Request[v1.ExposeDaemonRequest]) (*connect.Response[v1.AgentDaemon], error) {
+	return c.exposeDaemon.CallUnary(ctx, req)
+}
+
+// UnexposeDaemon calls gitslice.core.v1.AgentService.UnexposeDaemon.
+func (c *agentServiceClient) UnexposeDaemon(ctx context.Context, req *connect.Request[v1.UnexposeDaemonRequest]) (*connect.Response[v1.AgentDaemon], error) {
+	return c.unexposeDaemon.CallUnary(ctx, req)
 }
 
 // CreateConversation calls gitslice.core.v1.AgentService.CreateConversation.
@@ -244,6 +281,13 @@ type AgentServiceHandler interface {
 	// with (gs agent start --name) is unchanged, so a restart finds the same
 	// daemon.
 	RenameDaemon(context.Context, *connect.Request[v1.RenameDaemonRequest]) (*connect.Response[v1.AgentDaemon], error)
+	// ExposeDaemon lets the owners and admins of a slice choose the daemon as the
+	// slice's CI daemon. Only the daemon's owner can: it runs the slice's checks
+	// and receives its secrets.
+	ExposeDaemon(context.Context, *connect.Request[v1.ExposeDaemonRequest]) (*connect.Response[v1.AgentDaemon], error)
+	// UnexposeDaemon takes the slice back off the list. A slice that still names
+	// the daemon has its checks refused until it names another.
+	UnexposeDaemon(context.Context, *connect.Request[v1.UnexposeDaemonRequest]) (*connect.Response[v1.AgentDaemon], error)
 	CreateConversation(context.Context, *connect.Request[v1.CreateConversationRequest]) (*connect.Response[v1.Conversation], error)
 	ListConversations(context.Context, *connect.Request[v1.ListConversationsRequest]) (*connect.Response[v1.ListConversationsResponse], error)
 	GetConversation(context.Context, *connect.Request[v1.GetConversationRequest]) (*connect.Response[v1.Conversation], error)
@@ -281,6 +325,18 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceRenameDaemonProcedure,
 		svc.RenameDaemon,
 		connect.WithSchema(agentServiceMethods.ByName("RenameDaemon")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceExposeDaemonHandler := connect.NewUnaryHandler(
+		AgentServiceExposeDaemonProcedure,
+		svc.ExposeDaemon,
+		connect.WithSchema(agentServiceMethods.ByName("ExposeDaemon")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUnexposeDaemonHandler := connect.NewUnaryHandler(
+		AgentServiceUnexposeDaemonProcedure,
+		svc.UnexposeDaemon,
+		connect.WithSchema(agentServiceMethods.ByName("UnexposeDaemon")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceCreateConversationHandler := connect.NewUnaryHandler(
@@ -333,6 +389,10 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 			agentServiceListDaemonsHandler.ServeHTTP(w, r)
 		case AgentServiceRenameDaemonProcedure:
 			agentServiceRenameDaemonHandler.ServeHTTP(w, r)
+		case AgentServiceExposeDaemonProcedure:
+			agentServiceExposeDaemonHandler.ServeHTTP(w, r)
+		case AgentServiceUnexposeDaemonProcedure:
+			agentServiceUnexposeDaemonHandler.ServeHTTP(w, r)
 		case AgentServiceCreateConversationProcedure:
 			agentServiceCreateConversationHandler.ServeHTTP(w, r)
 		case AgentServiceListConversationsProcedure:
@@ -366,6 +426,14 @@ func (UnimplementedAgentServiceHandler) ListDaemons(context.Context, *connect.Re
 
 func (UnimplementedAgentServiceHandler) RenameDaemon(context.Context, *connect.Request[v1.RenameDaemonRequest]) (*connect.Response[v1.AgentDaemon], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AgentService.RenameDaemon is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) ExposeDaemon(context.Context, *connect.Request[v1.ExposeDaemonRequest]) (*connect.Response[v1.AgentDaemon], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AgentService.ExposeDaemon is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UnexposeDaemon(context.Context, *connect.Request[v1.UnexposeDaemonRequest]) (*connect.Response[v1.AgentDaemon], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AgentService.UnexposeDaemon is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) CreateConversation(context.Context, *connect.Request[v1.CreateConversationRequest]) (*connect.Response[v1.Conversation], error) {

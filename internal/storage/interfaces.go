@@ -502,6 +502,18 @@ type AgentStore interface {
 	// the name it registered with. ErrConflict when another daemon of the
 	// account is shown by that name.
 	RenameDaemon(ctx context.Context, daemonID, displayName string) (*corev1.AgentDaemon, error)
+	// ExposeDaemon exposes the daemon to the slice, so the slice's owners may
+	// choose it as their CI daemon. Exposing it again changes nothing.
+	ExposeDaemon(ctx context.Context, daemonID, sliceID, exposedBy string) error
+	// UnexposeDaemon takes the slice off the daemon's list. It is not an error
+	// if the daemon was not exposed to it.
+	UnexposeDaemon(ctx context.Context, daemonID, sliceID string) error
+	// DaemonExposedTo reports whether the daemon is exposed to the slice.
+	DaemonExposedTo(ctx context.Context, daemonID, sliceID string) (bool, error)
+	// ListDaemonExposures returns the ids of the slices each daemon is exposed to.
+	ListDaemonExposures(ctx context.Context, daemonIDs []string) (map[string][]string, error)
+	// ListDaemonsExposedToSlice lists the daemons exposed to the slice.
+	ListDaemonsExposedToSlice(ctx context.Context, sliceID string) ([]*corev1.AgentDaemon, error)
 
 	CreateConversation(ctx context.Context, in ConversationInput) (*corev1.Conversation, error)
 	GetConversation(ctx context.Context, conversationID string) (*corev1.Conversation, error)
