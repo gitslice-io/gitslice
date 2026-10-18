@@ -6,14 +6,49 @@ import (
 
 // workspaceCommands builds gs init, gs workspace and gs sync.
 func (r Runner) workspaceCommands(opts *commandOptions) []*cobra.Command {
+	initLazy, initReadOnly := false, false
+	var initPrefetch []string
 	initCmd := &cobra.Command{
-		Use:   "init <slice|account:slice>",
-		Short: "Bind the current directory to a slice",
-		Args:  exactArgs(1, "gs init <slice|account:slice>"),
+		Use:   "init <slice|account:slice> [dir]",
+		Short: "Create a workspace for a slice: check it out here, or with --lazy mount it",
+		Long: `Create a workspace for one slice.
+
+Without --lazy, gs init checks the slice out into the current (empty)
+directory: every file is downloaded, which grows with the slice.
+
+With --lazy, gs init mounts the slice at dir (default: the current, empty
+directory) as a lazy workspace, on Linux and macOS with FUSE. Only the listing
+is fetched, so it takes about a second at any size; a file's content is fetched
+the first time something reads it, and kept in the local cache shared by every
+workspace on this machine. Your edits stay on this machine, in the workspace's
+local layer, until you run gs create. Every other command works as in a checkout
+(status, diff, create, sync, switch). The workspace is served by one background
+process shared by all your lazy workspaces, which exits when the last is
+unmounted. After a reboot or gs unmount, gs mount <dir> brings the workspace back
+with its edits. --prefetch <glob> (relative to the mount, repeatable) fetches
+matching files in the background; --read-only refuses writes.`,
+		Args: rangeArgs(1, 2, "gs init <slice|account:slice>  |  gs init --lazy <slice|account:slice> [dir]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
+			if !initLazy {
+				if len(args) == 2 || initReadOnly || len(initPrefetch) > 0 {
+					return userError("invalid_args", "a directory, --read-only and --prefetch apply to lazy workspaces only", "Add --lazy, or run gs init <slice> in the directory to check out.")
+				}
+				return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
+			}
+			dir := ""
+			if len(args) == 2 {
+				dir = args[1]
+			}
+			var readOnlySetting *bool
+			if cmd.Flags().Changed("read-only") {
+				readOnlySetting = &initReadOnly
+			}
+			return r.runInitLazy(cmd.Context(), *opts, args[0], dir, readOnlySetting, initPrefetch)
 		},
 	}
+	initCmd.Flags().BoolVar(&initLazy, "lazy", false, "mount the slice as a lazy workspace (FUSE) instead of checking it out")
+	initCmd.Flags().BoolVar(&initReadOnly, "read-only", false, "with --lazy, refuse writes")
+	initCmd.Flags().StringArrayVar(&initPrefetch, "prefetch", nil, "with --lazy, fetch files matching this glob (relative to the mount, such as 'acme/app/**/*.go') in the background; repeatable")
 
 	workspaceCmd := &cobra.Command{
 		Use:     "workspace",

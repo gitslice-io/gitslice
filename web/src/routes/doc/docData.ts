@@ -68,7 +68,7 @@ export const startSteps = [
   {
     title: "Open your home slice",
     description:
-      "Your personal account has a `home` slice rooted at /<you>. Use it for a first workflow.",
+      "Your personal account has a `home` slice rooted at /<you>. Use it for a first workflow. For a big slice, `gs init --lazy <slice> <dir>` mounts it instead of downloading everything (Linux and macOS, with FUSE).",
     command: "gs init <you>:home\n# example: gs init nic:home"
   },
   {
@@ -202,8 +202,16 @@ export const commandGroups = [
   {
     title: "Workspace and source",
     commands: [
-      ["gs init <account>:<slice>", "Create a workspace for one slice."],
-      ["gs mount <account>:<slice> <dir>", "Mount a slice lazily (FUSE): content is fetched on first read; edits stay local until gs create. gs sync and changeset switching move the mount without fetching; --prefetch <glob> warms files in the background."],
+      ["gs init <account>:<slice>", "Create a workspace for one slice: checks every file out into the current empty directory."],
+      [
+        "gs init --lazy <account>:<slice> [dir]",
+        "Create a lazy workspace instead (Linux and macOS, with FUSE): the slice is mounted at dir in about a second at any size, a file's content is fetched the first time something reads it, and your edits stay on this machine until gs create. Every other command works as in a checkout; gs sync and changeset switching move the mount without fetching. --prefetch <glob> warms files in the background; --read-only refuses writes."
+      ],
+      ["gs mount <dir>", "Mount a lazy workspace again after gs unmount or a reboot, with its edits."],
+      ["gs unmount <dir>", "Unmount a lazy workspace; its edits are kept. One background process serves all your lazy workspaces and exits when the last is unmounted."],
+      ["gs mount list", "List your lazy workspaces, mounted or not (gs mount status shows fetches and errors, gs mount discard deletes one)."],
+      ["gs fetch [path...]", "Fetch a lazy workspace's files ahead of time, for offline work or a build."],
+      ["gs restore <path>... | --all", "Drop local edits in a lazy workspace."],
       ["gs shell", "Open the server-backed file shell."],
       ["gs status", "Show pending workspace edits."],
       ["gs diff", "Inspect pending content changes, three lines of context around each (-U N to change)."],

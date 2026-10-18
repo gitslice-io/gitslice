@@ -12,6 +12,7 @@ interface CheckoutMenuProps {
 
 export function CheckoutMenu({ gitUrl, sliceRef }: CheckoutMenuProps) {
   const gsCommand = `gs init ${sliceRef}`;
+  const lazyCommand = `gs init --lazy ${sliceRef} ./${sliceRef.split(/[/:]/).pop() || "workspace"}`;
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
@@ -67,6 +68,17 @@ export function CheckoutMenu({ gitUrl, sliceRef }: CheckoutMenuProps) {
           </Link>
           .
         </p>
+
+        <div className="mt-3 border-t border-slate-100 dark:border-zinc-800 pt-3">
+          <span className="text-xs font-semibold uppercase tracking-normal text-slate-600 dark:text-zinc-400">
+            Large slice
+          </span>
+          <CopyRow value={lazyCommand} />
+          <p className="mt-1.5 text-xs leading-5 text-slate-500 dark:text-zinc-400">
+            Mounts it instead of downloading everything: files arrive as they are read, and your edits
+            stay on your machine until you create a changeset. Linux and macOS, with FUSE.
+          </p>
+        </div>
 
         <div className="mt-3 border-t border-slate-100 dark:border-zinc-800 pt-3">
           <span className="text-xs font-semibold uppercase tracking-normal text-slate-600 dark:text-zinc-400">

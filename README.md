@@ -13,6 +13,8 @@ public slice `gitslice/gitslice` on Gitslice itself:
 - Clone: `git clone https://gitslice.io/git/gitslice/gitslice.git`. Clones
   keep the account-rooted layout, so the module is under `gitslice/gitslice/`.
 - Contribute: `gs init gitslice/gitslice`, then `gs create` and `gs submit`.
+  On Linux or macOS with FUSE, `gs init --lazy gitslice/gitslice <dir>` mounts
+  it instead, in about a second, fetching files as they are read.
   Git users can push `HEAD:refs/changes/new` to create a changeset.
 
 Every change lands on Gitslice first. The `Mirror from Gitslice` workflow then

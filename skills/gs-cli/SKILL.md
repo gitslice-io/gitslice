@@ -161,7 +161,7 @@ gs status --json
 To work in a large slice without checking it all out, mount it lazily (Linux and macOS with FUSE). The listing arrives in about a second at any size, and a file's content is fetched on first read, with the small files beside it. Edit with any tool: edits stay in the workspace's local layer, on this machine, until `gs create` or `gs modify` uploads them.
 
 ```bash
-gs mount acme/payment ~/w/payment      # gs mount list, gs mount status, gs unmount ~/w/payment
+gs init --lazy acme/payment ~/w/payment   # creates and mounts it. gs unmount ~/w/payment; gs mount ~/w/payment again after that or a reboot; gs mount list | status | discard
 cd ~/w/payment/acme/payment
 gs status; gs diff                      # as in a gs init workspace; nothing is uploaded
 gs restore path/to/file                 # drop a local edit (or --all)
@@ -170,7 +170,7 @@ gs sync                                 # moves the base; files nobody changed c
 gs fetch                                # fetch everything now, for offline work or a build
 ```
 
-Every workspace command works in a mount: `gs sync`, `gs submit`, and switching changesets (`gs switch`, `gs up`, `gs down`) move the mount's layers without rewriting or fetching files; a changeset's files are fetched when something reads them. `gs mount --prefetch 'acme/payment/**/*.go' <slice> <dir>` fetches matching files in the background. `gs agent start --lazy` mounts each conversation's workspace instead of checking it out (design/30_lazy_workspaces.md).
+Every workspace command works in a mount: `gs sync`, `gs submit`, and switching changesets (`gs switch`, `gs up`, `gs down`) move the mount's layers without rewriting or fetching files; a changeset's files are fetched when something reads them. `gs init --lazy --prefetch 'acme/payment/**/*.go' <slice> <dir>` fetches matching files in the background. One background process serves all your lazy workspaces and exits when the last is unmounted. The directory must be empty and outside any other workspace. `gs agent start --lazy` mounts each conversation's workspace instead of checking it out (design/30_lazy_workspaces.md).
 
 Workspace-aware commands discover `.gs/` by walking up from subdirectories. Keep edits under the materialized path for the bound slice. For a slice that includes `/acme/payment`, edit files under `acme/payment/...` inside the workspace.
 

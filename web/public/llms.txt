@@ -119,6 +119,27 @@ keeps its access. Its slices then appear on your home page next to yours.
 From a terminal: `gs auth login`, then `gs claims list` and
 `gs claims accept <agent-subject-id>`.
 
+## Large slices: lazy workspaces
+
+`gs init` downloads every file of the slice. For a big slice, on Linux or macOS
+with FUSE, mount it instead:
+
+    gs init --lazy <account>/<slice> ~/work/<slice>
+    cd ~/work/<slice>/<account>/<slice>        # files sit at their full path
+
+It takes about a second at any size. A file is fetched the first time something
+reads it (with small files beside it), and your edits stay on this machine until
+`gs create`. Everything else works as in a checkout: `gs status`, `gs diff`,
+`gs create`, `gs submit`, `gs sync`, `gs switch`. `gs restore <path>` drops an
+edit, `gs fetch` fetches ahead of time for offline work, and
+`gs init --lazy ... --prefetch '<glob>'` fetches matching files in the
+background. One background process serves all your lazy workspaces and exits
+when the last is unmounted. `gs unmount <dir>` unmounts one, keeping its edits,
+and `gs mount <dir>` brings it back (after a reboot too); `gs mount list` shows
+them all and `gs mount discard <dir> --yes` deletes one with its edits. The
+directory must be empty and not inside another workspace. Without FUSE, use
+plain `gs init`.
+
 ## Go modules
 
 A slice with one included path is a Go module: `gitslice.io/<account>/<slice>`,

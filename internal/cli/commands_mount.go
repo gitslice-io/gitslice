@@ -10,13 +10,18 @@ func (r Runner) mountCommands(opts *commandOptions) []*cobra.Command {
 	foreground, workspaceID, debug, readOnly := false, "", false, false
 	var prefetch []string
 	mountCmd := &cobra.Command{
-		Use:   "mount <slice|account:slice> <dir>",
-		Short: "Mount a slice lazily: listing now, file content on first read, edits kept local",
-		Long: `Mount a slice at a directory as a lazy workspace (Linux and macOS, with FUSE).
+		Use:   "mount <dir>",
+		Short: "Mount a lazy workspace again after an unmount or reboot (gs init --lazy creates one)",
+		Long: `Mount a lazy workspace at a directory (Linux and macOS, with FUSE). Create one
+with gs init --lazy <slice> [dir]; gs mount <dir> brings it back, edits included,
+after gs unmount or a reboot. (gs mount <slice> <dir> still creates one, as
+gs init --lazy does.)
+
 Only the listing is fetched, so mounting takes about a second at any slice size;
 a file's content is fetched the first time something reads it, together with
 small files beside it, and kept in the local cache (shared by every workspace on
-this machine).
+this machine). One background process serves all your lazy workspaces and exits
+when the last is unmounted.
 
 Edit with any tool. Edits stay in the workspace's local layer, on this machine,
 until you run gs create or gs modify: nothing is uploaded before. Every workspace
@@ -30,7 +35,7 @@ now and after every sync.
 Mounting the same directory again re-attaches the same workspace, edits
 included; --workspace <id> re-attaches one at another path. gs mount list shows
 them all; gs mount discard deletes one.`,
-		Args: rangeArgs(1, 2, "gs mount <slice|account:slice> <dir>  |  gs mount --workspace <id> <dir>"),
+		Args: rangeArgs(1, 2, "gs mount <dir>  |  gs mount --workspace <id> <dir>  |  gs mount <slice|account:slice> <dir>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			slice, dir := "", args[0]
 			if len(args) == 2 {

@@ -816,3 +816,84 @@ func TestMountSupervisorServesEveryMountInOneProcess(t *testing.T) {
 	}
 	runCLI(t, mountHome, upstream, "unmount", dirA)
 }
+
+// TestInitLazyCreatesAMountAndMountBringsItBack: gs init --lazy makes a lazy
+// workspace (at a directory, or at the current one), and gs mount <dir>
+// re-attaches it, edits included, after an unmount.
+func TestInitLazyCreatesAMountAndMountBringsItBack(t *testing.T) {
+	isolateClientCache(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	if _, err := os.Stat("/dev/fuse"); err != nil {
+		t.Skip("no /dev/fuse here")
+	}
+	if _, err := exec.LookPath("fusermount3"); err != nil {
+		if _, err := exec.LookPath("fusermount"); err != nil {
+			t.Skip("no fusermount here")
+		}
+	}
+	ts := startTestServer(t)
+	home := t.TempDir()
+	upstream := t.TempDir()
+	loginTestCLI(t, ts, home, upstream)
+	runCLI(t, home, upstream, "workspace", "init", "acme/payment")
+	writeWorkspaceFile(t, upstream, "acme/payment/src/main.go", "package main\n")
+	writeWorkspaceFile(t, upstream, "acme/payment/docs/guide.md", "# Guide\n")
+	runCLI(t, home, upstream, "create", "--message", "files to mount", "--all", "--submit")
+
+	mountHome := t.TempDir()
+	loginTestCLI(t, ts, mountHome, upstream)
+	startMountSupervisor(t, mountHome, upstream)
+
+	// Options that only mean something for a lazy workspace are refused without it.
+	elsewhere := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "acme/payment", filepath.Join(elsewhere, "x")},
+		{"init", "acme/payment", "--read-only"},
+		{"init", "acme/payment", "--prefetch", "**"},
+	} {
+		if _, stderr := runCLIFails(t, mountHome, elsewhere, args...); !strings.Contains(stderr, "apply to lazy workspaces only") {
+			t.Fatalf("gs %s: %s", strings.Join(args, " "), stderr)
+		}
+	}
+
+	// At a directory.
+	dir := filepath.Join(t.TempDir(), "payment")
+	if out := runCLI(t, mountHome, elsewhere, "init", "--lazy", "acme/payment", dir); !strings.Contains(out, "mounted acme:payment at "+dir) || strings.Contains(out, "cd \"$PWD\"") {
+		t.Fatalf("gs init --lazy <slice> <dir>: %s", out)
+	}
+	app := filepath.Join(dir, "acme", "payment")
+	if data, err := os.ReadFile(filepath.Join(app, "src", "main.go")); err != nil || string(data) != "package main\n" {
+		t.Fatalf("read through the new mount = %q, %v", data, err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "src", "later.go"), []byte("package main // later\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status := runCLI(t, mountHome, app, "status"); !strings.Contains(status, "src/later.go") {
+		t.Fatalf("gs status in the new mount:\n%s", status)
+	}
+	// A second init at the same place is refused, as the directory is in use.
+	if _, stderr := runCLIFails(t, mountHome, elsewhere, "init", "--lazy", "acme/payment", dir); stderr == "" {
+		t.Fatal("gs init --lazy over an existing mount was accepted")
+	}
+
+	// gs mount <dir> brings it back after an unmount.
+	runCLI(t, mountHome, elsewhere, "unmount", dir)
+	if out := runCLI(t, mountHome, elsewhere, "mount", dir); !strings.Contains(out, "mounted acme:payment at "+dir) {
+		t.Fatalf("gs mount <dir>: %s", out)
+	}
+	if data, err := os.ReadFile(filepath.Join(app, "src", "later.go")); err != nil || string(data) != "package main // later\n" {
+		t.Fatalf("the edit after gs mount <dir> = %q, %v", data, err)
+	}
+	runCLI(t, mountHome, elsewhere, "unmount", dir)
+
+	// At the current directory, with a prefetch: the shell has to re-enter it.
+	here := t.TempDir()
+	out := runCLI(t, mountHome, here, "init", "--lazy", "--prefetch", "acme/payment/docs/**", "acme/payment")
+	if !strings.Contains(out, "mounted acme:payment at "+here) || !strings.Contains(out, "cd \"$PWD\"") {
+		t.Fatalf("gs init --lazy <slice>: %s", out)
+	}
+	if data, err := os.ReadFile(filepath.Join(here, "acme", "payment", "docs", "guide.md")); err != nil || string(data) != "# Guide\n" {
+		t.Fatalf("read through the mount at the current directory = %q, %v", data, err)
+	}
+	runCLI(t, mountHome, elsewhere, "unmount", here)
+}

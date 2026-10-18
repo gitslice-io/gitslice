@@ -546,3 +546,20 @@ func (r Runner) runMountDiscard(ctx context.Context, opts commandOptions, select
 	}
 	return nil
 }
+
+// runInitLazy is gs init --lazy: it creates a lazy workspace for the slice and
+// mounts it at dir, or at the current directory when none is given.
+func (r Runner) runInitLazy(ctx context.Context, opts commandOptions, sliceArg, dirArg string, readOnly *bool, prefetch []string) error {
+	atCurrent := strings.TrimSpace(dirArg) == ""
+	if atCurrent {
+		dirArg = r.cwd()
+	}
+	if err := r.runMount(ctx, opts, sliceArg, dirArg, "", false, false, readOnly, prefetch); err != nil {
+		return err
+	}
+	if atCurrent && !opts.jsonOutput() && !opts.Quiet {
+		// The shell that ran this is still in the directory underneath the mount.
+		fmt.Fprintf(r.Stdout, "your shell is still in the directory under the mount: run  cd \"$PWD\"  to see it\n")
+	}
+	return nil
+}

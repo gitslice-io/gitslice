@@ -38,7 +38,7 @@ them, see "Agents" below).
 ## User experience
 
 ```bash
-gs mount gitslice/gitslice ~/src/gitslice     # about 1 s; no file content yet
+gs init --lazy gitslice/gitslice ~/src/gitslice   # about 1 s; no file content yet
 cd ~/src/gitslice
 cat gitslice/gitslice/README.md               # fetched on first read, then cached
 $EDITOR gitslice/gitslice/service/slice.go    # edit stays in the local layer
@@ -47,12 +47,16 @@ gs diff                                       # local only
 gs create --message "service: ..."            # now, and only now, content is uploaded
 gs sync                                       # moves the base; untouched files cost nothing
 gs down; gs up                                # switch changesets: references, nothing fetched
-gs unmount ~/src/gitslice                     # edits survive; gs mount picks them up again
+gs unmount ~/src/gitslice                     # edits survive; gs mount ~/src/gitslice picks them up again
 ```
 
-- `gs mount <slice> <dir> [--foreground] [--prefetch <glob>...]` mounts a lazy
-  workspace at an empty directory, which must not be inside a `gs init`
-  workspace or another mount (its `.gs` would hide theirs). A directory that
+- `gs init --lazy <slice> [dir] [--prefetch <glob>...] [--read-only]` creates a
+  lazy workspace and mounts it at dir (default: the current, empty directory,
+  after which the shell that ran it must `cd "$PWD"` to leave the directory
+  underneath the mount). `gs mount <dir>` mounts an existing one again after an
+  unmount or a reboot, and `gs mount <slice> <dir> [--foreground]` still creates
+  one, as an alias of `init --lazy`. The directory must be empty and not inside a
+  `gs init` workspace or another mount (its `.gs` would hide theirs). A directory that
   cannot be used is refused before anything is made, so it leaves nothing in
   `gs mount list`. Mounting the same directory again re-attaches
   the same workspace (found by the mount path in its `mount.json`), edits
@@ -134,9 +138,9 @@ Each lazy workspace is its own mount, as each `gs init` workspace is its own
 directory today:
 
 ```bash
-gs mount gitslice/gitslice ~/w/fix-auth      # workspace 1
-gs mount gitslice/gitslice ~/w/readme-page   # workspace 2, same slice
-gs mount acme/payments    ~/w/payments       # workspace 3, another slice
+gs init --lazy gitslice/gitslice ~/w/fix-auth      # workspace 1
+gs init --lazy gitslice/gitslice ~/w/readme-page   # workspace 2, same slice
+gs init --lazy acme/payments    ~/w/payments       # workspace 3, another slice
 ```
 
 Every mount is independent: its own local layer, base commit, active changeset
