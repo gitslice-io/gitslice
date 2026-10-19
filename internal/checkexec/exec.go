@@ -465,10 +465,13 @@ func checkCacheDirs(spec checks.CheckSpec) (map[string]string, error) {
 	return out, nil
 }
 
+// removeContainer removes a container and its anonymous volumes. An image
+// such as postgres declares a VOLUME for its data, so a service container
+// removed without -v left a volume behind on every run.
 func removeContainer(runtime, name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
 	defer cancel()
-	_ = exec.CommandContext(ctx, runtime, "rm", "-f", name).Run()
+	_ = exec.CommandContext(ctx, runtime, "rm", "-f", "-v", name).Run()
 }
 
 func containerLimitValue(value, fallback string) string {

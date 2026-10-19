@@ -108,9 +108,15 @@ func TestRunHostCheckWithServicesErrors(t *testing.T) {
 }
 
 // gitsliceRunObjects lists the service containers and networks of check
-// runs, to see that a run removes its own.
+// runs, and the volumes nothing uses, to see that a run removes its own: the
+// postgres image declares a data VOLUME, which removing the container
+// without -v left behind.
 func gitsliceRunObjects(t *testing.T, rt RuntimeInfo) string {
 	t.Helper()
+	volumes, err := exec.Command(rt.Path, "volume", "ls", "-q", "--filter", "dangling=true").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
 	containers, err := exec.Command(rt.Path, "ps", "-a", "--filter", "name="+serviceNamePrefix, "--format", "{{.Names}}").Output()
 	if err != nil {
 		t.Fatal(err)
@@ -119,5 +125,5 @@ func gitsliceRunObjects(t *testing.T, rt RuntimeInfo) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.TrimSpace(string(containers)) + "|" + strings.TrimSpace(string(networks))
+	return strings.TrimSpace(string(containers)) + "|" + strings.TrimSpace(string(networks)) + "|" + strings.TrimSpace(string(volumes))
 }
