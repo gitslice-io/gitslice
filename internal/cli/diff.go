@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
@@ -84,32 +85,17 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	if err != nil {
 		return err
 	}
-	base, err := r.readBaseSnapshot()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	// Lazily: --stat and --name-only work from local state, offline too.
+	conn, err := dialLazy(cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	var stack *corev1.ChangesetStack
-	if state.ActiveStackID != "" {
-		stack, err = corev1.NewChangesetStackServiceClient(conn).GetStack(authContext(ctx, cfg), &corev1.GetStackRequest{StackId: state.ActiveStackID})
-		if err != nil {
-			return err
-		}
+	found, err := r.loadWorkspaceEdits(ctx, conn, cfg, ws, state)
+	if err != nil {
+		return err
 	}
-	if stack != nil && state.CurrentChangesetID != "" {
-		activeBaseID := ""
-		if entry := stackEntryByChangesetSelector(stack, state.CurrentChangesetID); entry != nil {
-			activeBaseID = entry.ParentChangesetId
-		}
-		base, err = r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, stack, activeBaseID)
-		if err != nil {
-			return err
-		}
-	}
+	base := found.base
 	baseCommitID := state.BaseCommitID
 	if baseCommitID == "" {
 		baseCommitID = base.CommitID
@@ -120,10 +106,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	if baseCommitID == "" {
 		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs init <slice|account:slice> again.")
 	}
-	edits, current, err := r.snapshotEditsAgainstBase(ctx, conn, cfg, ws, base, false)
-	if err != nil {
-		return err
-	}
+	edits, current := found.edits, found.current
 	changed := changedPathsFromEdits(edits)
 	if opts.jsonOutput() {
 		diffText, err := r.workspaceDiffText(ctx, cfg, ws, base, baseCommitID, current, changed)
@@ -146,7 +129,10 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 		return nil
 	}
 	if stat {
-		printPathStatColor(r.Stdout, changed, r.colorEnabled(opts))
+		cache, _ := r.objectCache()
+		changes := summarizeChanges(edits, base, current, cache)
+		fmt.Fprintln(r.Stdout, changeHeadline(changes))
+		printChangeSummary(r.Stdout, changes, "  ", r.colorEnabled(opts))
 		return nil
 	}
 	diffText, err := r.workspaceDiffText(ctx, cfg, ws, base, baseCommitID, current, changed)

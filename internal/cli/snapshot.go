@@ -190,6 +190,9 @@ func (r Runner) stackBaseSnapshotThroughChangeset(ctx context.Context, conn *grp
 			if err != nil {
 				return BaseSnapshot{}, err
 			}
+			// Keep it on the entry: gs status saves the tree, with these,
+			// for when the server is unreachable.
+			pathEntry.Changeset = cs
 		}
 		if err := applyCurrentPatchsetToSnapshot(ws, &base, cs); err != nil {
 			return BaseSnapshot{}, err

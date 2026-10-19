@@ -244,7 +244,7 @@ func TestMountKeepsEditsLocalUntilCreate(t *testing.T) {
 
 	// gs restore drops a local edit, and says how many it dropped.
 	must(os.WriteFile(filepath.Join(app, "README.md"), []byte("scratch\n"), 0o644))
-	if out := runCLI(t, home, app, "restore", "README.md"); !strings.Contains(out, "restored 1 edit under README.md") {
+	if out := runCLI(t, home, app, "restore", "README.md"); !strings.Contains(out, "undid 1 local edit under README.md; it matches the base again") {
 		t.Fatalf("gs restore of one edit: %q", out)
 	}
 	if out := runCLI(t, home, app, "restore", "README.md"); !strings.Contains(out, "nothing to restore: no local edits under README.md") {
@@ -667,6 +667,17 @@ func TestMountWorksWithoutTheServer(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(app, "src", "offline.go"), []byte("package main // offline\n"), 0o644); err != nil {
 		t.Fatalf("writing offline: %v", err)
+	}
+
+	// gs status answers from the mount's own state while the server is gone.
+	setServerAddr(t, mountHome, "127.0.0.1:1")
+	started = time.Now()
+	offlineStatus := readStatus(t, mountHome, app)
+	if took := time.Since(started); took > 15*time.Second {
+		t.Fatalf("offline gs status in a mount took %s", took)
+	}
+	if c := changesByPath(offlineStatus.Changes)["/acme/payment/src/offline.go"]; !offlineStatus.Offline || c.Kind != "added" || c.Added != 1 {
+		t.Fatalf("offline gs status in a mount = %+v", offlineStatus)
 	}
 
 	// Content the cache lacks cannot be had: the first read retries for a few

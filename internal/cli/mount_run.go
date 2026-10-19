@@ -514,10 +514,12 @@ func (r Runner) runRestore(ctx context.Context, opts commandOptions, args []stri
 		switch reply.Changed {
 		case 0:
 			fmt.Fprintf(r.Stdout, "nothing to restore: no local edits%s\n", scope)
+		// Undoing an edit puts a changed or deleted file back as the base
+		// has it, and removes a file the base never had.
 		case 1:
-			fmt.Fprintf(r.Stdout, "restored 1 edit%s from the base\n", scope)
+			fmt.Fprintf(r.Stdout, "undid 1 local edit%s; it matches the base again\n", scope)
 		default:
-			fmt.Fprintf(r.Stdout, "restored %d edits%s from the base\n", reply.Changed, scope)
+			fmt.Fprintf(r.Stdout, "undid %d local edits%s; they match the base again\n", reply.Changed, scope)
 		}
 	}
 	return nil
