@@ -183,16 +183,22 @@ func normalizeHistoryEntityRefs(refs []HistoryEntityRef) []HistoryEntityRef {
 	return out
 }
 
+// commitEntityRefWhere selects the changes of the given entities on refName.
+// The entities go in as two arrays joined with unnest, three parameters
+// however many there are. It used to be one (account = and entity =) clause per
+// entity, joined with OR: a slice of 5,500 files (a moved import) became a
+// 5,500-term OR with 11,000 parameters, which ran the database out of memory
+// (SQLSTATE 53200) and took the slice's history page down.
 func commitEntityRefWhere(refName string, refs []HistoryEntityRef) (string, []any) {
-	args := []any{refName}
-	clauses := make([]string, 0, len(refs))
+	accounts := make([]string, 0, len(refs))
+	entities := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		accountArg := len(args) + 1
-		entityArg := len(args) + 2
-		clauses = append(clauses, fmt.Sprintf("(ce.account_id = $%d and ce.entity_id = $%d)", accountArg, entityArg))
-		args = append(args, ref.AccountID, ref.EntityID)
+		accounts = append(accounts, ref.AccountID)
+		entities = append(entities, ref.EntityID)
 	}
-	return "ce.target_ref = $1 and (" + strings.Join(clauses, " or ") + ")", args
+	return "ce.target_ref = $1 and (ce.account_id, ce.entity_id) in (" +
+			"select r.account_id, r.entity_id from unnest($2::text[], $3::text[]) as r(account_id, entity_id))",
+		[]any{refName, accounts, entities}
 }
 
 func shiftPostgresPlaceholders(query string, offset int) string {
