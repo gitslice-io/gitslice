@@ -34,3 +34,27 @@ export function resolveRepoLink(directory: string, href: string | null | undefin
   }
   return `/${parts.join("/")}`;
 }
+
+// markRepoImages takes the <img> elements of rendered markdown whose src is a
+// path in the repository (logo.png, ../docs/shot.png) and, instead of leaving
+// the browser to request them from the page's own address (where they do not
+// exist), drops their src and records the repository path in data-repo-image,
+// for the viewer to load through the API. Other images are left as they are.
+export function markRepoImages(html: string, directory: string): string {
+  if (typeof DOMParser === "undefined" || !html.includes("<img")) {
+    return html;
+  }
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  let changed = false;
+  for (const image of Array.from(doc.querySelectorAll("img"))) {
+    const path = resolveRepoLink(directory, image.getAttribute("src"));
+    if (path === null) {
+      continue;
+    }
+    image.removeAttribute("src");
+    image.removeAttribute("srcset");
+    image.setAttribute("data-repo-image", path);
+    changed = true;
+  }
+  return changed ? doc.body.innerHTML : html;
+}

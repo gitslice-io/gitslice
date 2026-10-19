@@ -11,7 +11,7 @@ import react from "@vitejs/plugin-react";
 // jsdom; every other plain test runs in node, which starts much faster than a
 // jsdom environment for each file (most of the suite's time on the 2-CPU CI
 // host).
-const domTests = ["src/**/*.test.tsx", "src/auth/returnTo.test.ts", "src/routes/router.test.ts"];
+const domTests = ["src/**/*.test.tsx", "src/auth/returnTo.test.ts", "src/routes/router.test.ts", "src/lib/repoLinks.test.ts"];
 
 export default defineConfig({
   plugins: [react()],

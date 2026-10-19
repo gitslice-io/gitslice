@@ -168,9 +168,11 @@ export function SliceSourceWorkspace({
         fileData={fileData}
         includedPaths={includedPaths}
         onOpenHistory={onOpenHistory}
+        onSelectPath={onSelectPath}
         onStageEdit={onStageEdit}
         pendingEdits={pendingEdits}
         selectedPath={entry.path ?? selectedPath}
+        sliceRef={sliceRef}
       />
     );
   }

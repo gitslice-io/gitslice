@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import type { SliceRef } from "../../api/types";
+
 import {
   InlineRenameForm,
   pendingWriteForPath,
@@ -30,9 +32,11 @@ interface EditableFileViewProps {
   fileData: string;
   includedPaths: string[];
   onOpenHistory(): void;
+  onSelectPath?(path: string): void;
   onStageEdit?: (edit: PendingEdit) => void;
   pendingEdits: PendingEdit[];
   selectedPath: string;
+  sliceRef?: SliceRef;
 }
 
 export function EditableFileView({
@@ -41,9 +45,11 @@ export function EditableFileView({
   fileData,
   includedPaths,
   onOpenHistory,
+  onSelectPath,
   onStageEdit,
   pendingEdits,
-  selectedPath
+  selectedPath,
+  sliceRef
 }: EditableFileViewProps) {
   const pendingWrite = pendingWriteForPath(pendingEdits, selectedPath);
   const displayedContent = pendingWrite?.content ?? fileContent;
@@ -216,7 +222,12 @@ export function EditableFileView({
         ) : binaryKind ? (
           <BinaryViewer data={fileData} kind={binaryKind} path={selectedPath} />
         ) : (
-          <SourceCodeViewer code={displayedContent} fill path={selectedPath} />
+          <SourceCodeViewer
+            code={displayedContent}
+            fill
+            path={selectedPath}
+            repo={onSelectPath ? { commitId, onOpenPath: onSelectPath, slice: sliceRef } : undefined}
+          />
         )
       ) : null}
     </div>

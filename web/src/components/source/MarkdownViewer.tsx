@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { isDarkTheme, renderMermaid, svgDataUrl } from "../../lib/diagram";
-import { resolveRepoLink } from "../../lib/repoLinks";
+import { markRepoImages, resolveRepoLink } from "../../lib/repoLinks";
 import { sanitizeHtml } from "../../lib/sanitize";
 
 interface MarkdownRenderState {
@@ -13,10 +13,13 @@ interface MarkdownViewerProps {
   source: string;
   // When the document lives in a repository directory, its relative links open
   // that path in the app (instead of resolving against the page's own address),
-  // and its relative images, which the app cannot serve yet, show their alt text.
+  // and its relative images are loaded from the repository with loadImage
+  // (a data: URL, or null when the file cannot be shown). Without loadImage, or
+  // when it gives null, an image shows its alt text.
   links?: {
     directory: string;
     onOpenPath(path: string): void;
+    loadImage?(path: string): Promise<string | null>;
   };
 }
 
@@ -25,6 +28,7 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
     error: false,
     html: null
   });
+  const imageDirectory = links?.directory;
 
   useEffect(() => {
     let active = true;
@@ -35,7 +39,10 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
       try {
         const { marked } = await import("marked");
         const parsed = marked(source, { async: false });
-        const html = await sanitizeHtml(parsed);
+        const sanitized = await sanitizeHtml(parsed);
+        // The browser must not request a repository image from the page's own
+        // address, where it does not exist: mark it before it is inserted.
+        const html = imageDirectory === undefined ? sanitized : markRepoImages(sanitized, imageDirectory);
 
         if (active) {
           setRendered({ error: false, html });
@@ -52,11 +59,15 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
     return () => {
       active = false;
     };
-  }, [source]);
+  }, [source, imageDirectory]);
 
   const container = useRef<HTMLDivElement>(null);
   const linkDirectory = links?.directory;
   const openPath = links?.onOpenPath;
+  // Read through a ref so a loader that changes identity does not reload every
+  // image of the document.
+  const loadImage = useRef(links?.loadImage);
+  loadImage.current = links?.loadImage;
 
   function followRelativeLink(event: MouseEvent<HTMLElement>) {
     if (
@@ -80,23 +91,42 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
     openPath(path);
   }
 
-  // A relative image points at a repository file, which the page cannot serve
-  // as an <img> source, so the alt text stands in for it.
+  // A relative image points at a repository file. It is loaded through the
+  // API; one that cannot be shown is replaced by its alt text.
   useEffect(() => {
     const root = container.current;
-    if (!root || rendered.html === null || linkDirectory === undefined) {
+    if (!root || rendered.html === null) {
       return;
     }
-    for (const image of Array.from(root.querySelectorAll("img"))) {
-      if (resolveRepoLink(linkDirectory, image.getAttribute("src")) === null) {
-        continue;
+    let active = true;
+    const loads = new Map<string, Promise<string | null>>();
+    for (const image of Array.from(root.querySelectorAll<HTMLImageElement>("img[data-repo-image]"))) {
+      const path = image.getAttribute("data-repo-image") ?? "";
+      let load = loads.get(path);
+      if (!load) {
+        const loader = loadImage.current;
+        load = loader ? loader(path).catch(() => null) : Promise.resolve(null);
+        loads.set(path, load);
       }
-      const stand = document.createElement("span");
-      stand.className = "text-slate-500 dark:text-zinc-400";
-      stand.textContent = image.getAttribute("alt") ? `[${image.getAttribute("alt")}]` : "";
-      image.replaceWith(stand);
+      load.then((url) => {
+        if (!active || !image.isConnected) {
+          return;
+        }
+        if (url) {
+          image.setAttribute("src", url);
+          image.removeAttribute("data-repo-image");
+          return;
+        }
+        const stand = document.createElement("span");
+        stand.className = "text-slate-500 dark:text-zinc-400";
+        stand.textContent = image.getAttribute("alt") ? `[${image.getAttribute("alt")}]` : "";
+        image.replaceWith(stand);
+      });
     }
-  }, [rendered.html, linkDirectory]);
+    return () => {
+      active = false;
+    };
+  }, [rendered.html]);
 
   // Fenced ```mermaid blocks become diagrams. The diagram is shown as an image
   // (see lib/diagram), so the block's text is never trusted as markup.

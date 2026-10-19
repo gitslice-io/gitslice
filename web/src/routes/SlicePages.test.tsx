@@ -373,7 +373,7 @@ describe("slice route pages (render smoke)", () => {
     ];
 
     it("shows the README first, with the files in a compact list beside it", async () => {
-      const api = folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+      const api = folderApi(entries, vi.fn(async (request: { path?: string }) => ({ data: request.path?.endsWith(".png") ? btoa("png") : btoa(readmeText) })));
       renderRoute(<SliceDetailPage />);
       expect(await screen.findByRole("heading", { name: "Hello app" })).toBeInTheDocument();
       expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/README.md" }));
@@ -385,10 +385,52 @@ describe("slice route pages (render smoke)", () => {
       expect(within(files).getByRole("button", { name: "main.go" })).toBeInTheDocument();
       expect(screen.queryByText("Content hash")).toBeNull();
       expect(screen.queryByText(/^Commit$/)).toBeNull();
-      // A relative image cannot be served, so its alt text stands in.
-      expect(screen.queryByRole("img", { name: "logo" })).toBeNull();
-      expect(screen.getByText("[logo]")).toBeInTheDocument();
+      // A relative image is read from the repository, next to the README.
+      await waitFor(() => expect(screen.getByRole("img", { name: "logo" })).toHaveAttribute("src", expect.stringMatching(/^data:image\/png;base64,/)));
+      expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/logo.png", commitId: expect.any(String) }));
       expectHealthy();
+    });
+
+    it("shows the alt text for a relative image it cannot read, and loads a nested one from its folder", async () => {
+      const text = "![gone](missing.png) ![shot](docs/shot.webp) ![web](https://example.com/x.png)\n";
+      const readFile = vi.fn(async (request: { path?: string }) => {
+        if (request.path === "/nic/app/README.md") {
+          return { data: btoa(text) };
+        }
+        if (request.path === "/nic/app/docs/shot.webp") {
+          return { data: btoa("webp-bytes") };
+        }
+        throw new Error("not found");
+      });
+      folderApi(entries, readFile);
+      renderRoute(<SliceDetailPage />);
+
+      expect(await screen.findByText("[gone]")).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "shot" })).toHaveAttribute("src", `data:image/webp;base64,${btoa("webp-bytes")}`);
+      // An image with a web address is the browser's to load.
+      expect(screen.getByRole("img", { name: "web" })).toHaveAttribute("src", "https://example.com/x.png");
+      expect(readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/docs/shot.webp" }));
+      expect(readFile).not.toHaveBeenCalledWith(expect.objectContaining({ path: expect.stringContaining("example.com") }));
+    });
+
+    it("loads the images of a README opened as a file, and opens its links in the slice", async () => {
+      routerMock.search = { path: "/nic/app/README.md" };
+      const api = makeApi();
+      api.resolvePath = vi.fn().mockResolvedValue({ entry: { kind: "ENTRY_KIND_FILE", path: "/nic/app/README.md", size: "60" } });
+      api.readFile = vi.fn(async (request: { path?: string }) =>
+        request.path === "/nic/app/README.md"
+          ? { data: btoa("See the [guide](docs/guide.md).\n\n![logo](logo.png)\n") }
+          : { data: btoa("png-bytes") }
+      ) as typeof api.readFile;
+      apiMock.current = api;
+      renderRoute(<SliceDetailPage />);
+
+      const logo = await screen.findByRole("img", { name: "logo" });
+      await waitFor(() => expect(logo).toHaveAttribute("src", `data:image/png;base64,${btoa("png-bytes")}`));
+      fireEvent.click(screen.getByRole("link", { name: "guide" }));
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ search: { path: "/nic/app/docs/guide.md" } })
+      );
     });
 
     it("opens relative links inside the slice and leaves other links to the browser", async () => {

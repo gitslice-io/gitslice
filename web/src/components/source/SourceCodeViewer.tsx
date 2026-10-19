@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import type { SliceRef } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { useMobileDetailsClass } from "../MobileDetails";
 import { languageFromPath, previewKindFromPath, type PreviewKind } from "./sourceUtils";
@@ -12,11 +13,19 @@ import { MarkdownViewer } from "./MarkdownViewer";
 import { NotebookViewer } from "./NotebookViewer";
 import { StructuredViewer } from "./StructuredViewer";
 import { TableViewer } from "./TableViewer";
+import { useRepoImageLoader } from "./useRepoImageLoader";
 
 interface SourceCodeViewerProps {
   code: string;
   fill?: boolean;
   path: string;
+  // Where the file is in the repository, so a markdown file's relative links
+  // open inside the app and its relative images load from the repository.
+  repo?: {
+    commitId: string;
+    slice?: SliceRef;
+    onOpenPath(path: string): void;
+  };
 }
 
 interface HighlightState {
@@ -30,7 +39,8 @@ type ViewMode = "preview" | "raw";
 export function SourceCodeViewer({
   code,
   fill = false,
-  path
+  path,
+  repo
 }: SourceCodeViewerProps) {
   const language = useMemo(() => languageFromPath(path), [path]);
   const previewKind = useMemo(() => previewKindFromPath(path), [path]);
@@ -103,7 +113,7 @@ export function SourceCodeViewer({
       </div>
       <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
         {previewKind && viewMode === "preview" ? (
-          <Preview code={code} kind={previewKind} path={path} />
+          <Preview code={code} kind={previewKind} path={path} repo={repo} />
         ) : highlight.html ? (
           <div
             className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white dark:bg-zinc-900 [&_pre]:text-sm [&_pre]:leading-6"
@@ -128,10 +138,10 @@ export function SourceCodeViewer({
   );
 }
 
-function Preview({ code, kind, path }: { code: string; kind: PreviewKind; path: string }) {
+function Preview({ code, kind, path, repo }: { code: string; kind: PreviewKind; path: string; repo: SourceCodeViewerProps["repo"] }) {
   switch (kind) {
     case "markdown":
-      return <MarkdownViewer source={code} />;
+      return <RepoMarkdown code={code} path={path} repo={repo} />;
     case "table":
       return <TableViewer path={path} source={code} />;
     case "json":
@@ -176,4 +186,15 @@ function ViewModeToggle({
       ))}
     </div>
   );
+}
+
+// RepoMarkdown is a markdown file shown from the repository: its relative
+// links open inside the app and its relative images load from the repository.
+function RepoMarkdown({ code, path, repo }: { code: string; path: string; repo: SourceCodeViewerProps["repo"] }) {
+  const loadImage = useRepoImageLoader(repo?.commitId ?? "", repo?.slice);
+  if (!repo) {
+    return <MarkdownViewer source={code} />;
+  }
+  const directory = path.slice(0, path.lastIndexOf("/"));
+  return <MarkdownViewer links={{ directory, loadImage, onOpenPath: repo.onOpenPath }} source={code} />;
 }

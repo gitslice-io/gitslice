@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useApi } from "../../api/useApi";
 import type { SliceRef, TreeEntry } from "../../api/types";
 import { MarkdownViewer } from "../../components/source/MarkdownViewer";
+import { useRepoImageLoader } from "../../components/source/useRepoImageLoader";
 import {
   decodeBase64File,
   entryDisplayName,
@@ -34,6 +35,7 @@ export function FolderReadme({ canEdit, commitId, entry, onSelectPath, sliceRef 
     queryFn: () => api.readFile({ commitId, path, slice: sliceRef })
   });
   const source = decodeBase64File(query.data?.data);
+  const loadImage = useRepoImageLoader(commitId, sliceRef);
 
   let body;
   if (tooLarge) {
@@ -60,7 +62,7 @@ export function FolderReadme({ canEdit, commitId, entry, onSelectPath, sliceRef 
   } else if (!source.trim()) {
     body = <p className="p-4 text-sm text-slate-600 dark:text-zinc-400">{name} is empty.</p>;
   } else {
-    body = <MarkdownViewer links={{ directory, onOpenPath: onSelectPath }} source={source} />;
+    body = <MarkdownViewer links={{ directory, loadImage, onOpenPath: onSelectPath }} source={source} />;
   }
 
   return (
