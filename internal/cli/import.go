@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gitslice.io/gitslice/internal/paths"
@@ -48,7 +49,7 @@ func (r Runner) runImportGitRepository(ctx context.Context, opts commandOptions,
 	if maxCommits < 0 {
 		return userError("invalid_max_commits", "max commits must be non-negative", "Use --max-commits 0 for no limit.")
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := dialStream(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -151,9 +152,20 @@ func (r Runner) importWithRetries(ctx context.Context, policy importRetryPolicy,
 	}
 }
 
+// errImportStalled is an import whose server stopped sending anything, not
+// even the heartbeat it sends while it works.
+var errImportStalled = errors.New("the server went silent")
+
+// importStallTimeout is how long a server that sends heartbeats may be silent
+// before the connection is given up on and the import reconnects.
+var importStallTimeout = 60 * time.Second
+
 // importRetryable reports whether an import failed because the connection
 // or the server instance went away, rather than because of the import.
 func importRetryable(err error) bool {
+	if errors.Is(err, errImportStalled) {
+		return true
+	}
 	st, ok := grpcstatus.FromError(err)
 	if !ok {
 		return false
@@ -174,11 +186,43 @@ func importRetryable(err error) bool {
 
 // importAttempt runs one ImportGitRepositoryStream, reporting progress and
 // recording in progress the furthest commit published or skipped.
+//
+// A server that works on a long step sends a "working" heartbeat every few
+// seconds. Once one has arrived, silence for importStallTimeout (read once, when the attempt starts) means the
+// connection is dead without having said so, and the attempt ends with
+// errImportStalled. A server that sends no heartbeats is never timed out: its
+// long steps are silent.
 func importAttempt(ctx context.Context, client corev1.RepositoryServiceClient, req *corev1.ImportGitRepositoryRequest, reporter *importProgressReporter, progress *int64) (*corev1.ImportGitRepositoryResponse, error) {
-	stream, err := client.ImportGitRepositoryStream(ctx, req)
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream, err := client.ImportGitRepositoryStream(streamCtx, req)
 	if err != nil {
 		return nil, err
 	}
+	stallTimeout := importStallTimeout
+	var lastEvent atomic.Int64 // unix nanoseconds of the last event
+	var heartbeats atomic.Bool // the server has sent a heartbeat
+	var stalled atomic.Bool
+	lastEvent.Store(time.Now().UnixNano())
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	go func() {
+		interval := max(stallTimeout/4, 10*time.Millisecond)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-watchDone:
+				return
+			case <-ticker.C:
+				if heartbeats.Load() && time.Since(time.Unix(0, lastEvent.Load())) > stallTimeout {
+					stalled.Store(true)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	var res *corev1.ImportGitRepositoryResponse
 	for {
 		event, err := stream.Recv()
@@ -186,7 +230,14 @@ func importAttempt(ctx context.Context, client corev1.RepositoryServiceClient, r
 			break
 		}
 		if err != nil {
+			if stalled.Load() && ctx.Err() == nil {
+				return nil, errImportStalled
+			}
 			return nil, err
+		}
+		lastEvent.Store(time.Now().UnixNano())
+		if event.Phase == "working" {
+			heartbeats.Store(true)
 		}
 		reporter.report(event)
 		if (event.Phase == "published" || event.Phase == "skipped") && event.Current > *progress {
@@ -249,6 +300,8 @@ func (r *importProgressReporter) report(event *corev1.ImportGitRepositoryProgres
 		if r.shouldPrintCommitLine(event) {
 			fmt.Fprintf(r.w, "skipped %d/%d %s -> %s\n", event.Current, event.Total, shortID(event.GitCommitId), event.NativeCommitId)
 		}
+	case "waiting":
+		fmt.Fprintln(r.w, "waiting for the previous connection of this import to finish its commit...")
 	case "done":
 		fmt.Fprintln(r.w, "import complete")
 	}

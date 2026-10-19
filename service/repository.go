@@ -30,6 +30,8 @@ type RepositoryService struct {
 	// importClones keeps clones between attempts of a deep import.
 	importClonesOnce sync.Once
 	importClones     *importCloneCache
+	// importFlights serializes imports of one source into one place.
+	importFlights importFlights
 }
 
 func (s *RepositoryService) importCloneCache() *importCloneCache {

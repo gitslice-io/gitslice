@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gitslice.io/gitslice/internal/authz"
@@ -69,6 +71,27 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	// A client that drops does not fail progress events; the import checks
+	// for it between commits. A heartbeat tells the client it is still going.
+	sink := newImportProgress(progress)
+	if progress != nil {
+		progress = sink.emit
+	}
+	defer sink.heartbeat()()
+	// One import of this source into this place at a time: a retry that
+	// arrives while the previous attempt is still finishing its commit waits
+	// for it, then resumes after it.
+	flightKey := strings.Join([]string{subjectID, source, mountPath, targetRef, mode, strconv.Itoa(int(req.MaxCommits))}, "\x00")
+	releaseFlight, err := s.importFlights.acquire(ctx, flightKey, func() {
+		_ = emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+			Phase:   "waiting",
+			Message: "waiting for this import's previous connection to finish its commit",
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer releaseFlight()
 	if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
 		Phase:   "cloning",
 		Message: "cloning git repository",
@@ -136,6 +159,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 		}
 	}
 	var previousGitCommitID string
+	known := knownBlobs{}
 	for i, gitCommitID := range gitCommits {
 		if existing, ok := completed[gitCommitID]; ok {
 			response.Commits = append(response.Commits, &corev1.ImportedGitCommit{
@@ -158,117 +182,145 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			}
 			continue
 		}
-		meta, err := gitCommitMetadata(ctx, repoDir, gitCommitID)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "read git commit message %s: %v", gitCommitID, err)
-		}
-		message := meta.Subject
-		if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
-			Phase:       "reading_commit",
-			Message:     message,
-			Current:     int64(i + 1),
-			Total:       int64(len(gitCommits)),
-			GitCommitId: gitCommitID,
-		}); err != nil {
-			return nil, err
-		}
-		var edits []*corev1.FileEdit
-		var snapshot importSnapshot
-		if previousGitCommitID == "" {
-			snapshot, err = gitSnapshot(ctx, repoDir, gitCommitID, mountPath)
+		// The commit's work runs apart from the client's request: a client
+		// whose connection drops while it is published does not leave it half
+		// done, and its retry finds it recorded and skips it.
+		work := func(ctx context.Context) error {
+			meta, err := gitCommitMetadata(ctx, repoDir, gitCommitID)
 			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "read git commit %s: %v", gitCommitID, err)
+				return importReadError(err, "read git commit message "+gitCommitID)
 			}
-			edits = diffImportSnapshots(previous, snapshot)
-		} else {
-			edits, snapshot, err = gitDeltaEdits(ctx, repoDir, previousGitCommitID, gitCommitID, mountPath)
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "read git commit %s: %v", gitCommitID, err)
-			}
-		}
-		if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
-			Phase:            "uploading_blobs",
-			Message:          message,
-			Current:          int64(i + 1),
-			Total:            int64(len(gitCommits)),
-			GitCommitId:      gitCommitID,
-			ChangedPathCount: int32(len(edits)),
-		}); err != nil {
-			return nil, err
-		}
-		if err := s.uploadImportBlobs(ctx, slice.Id, edits, snapshot); err != nil {
-			return nil, grpcError(err)
-		}
-		ref, err := s.Repository.GetRef(ctx, targetRef)
-		if err != nil {
-			return nil, grpcError(err)
-		}
-		if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
-			Phase:            "submitting",
-			Message:          message,
-			Current:          int64(i + 1),
-			Total:            int64(len(gitCommits)),
-			GitCommitId:      gitCommitID,
-			ChangedPathCount: int32(len(edits)),
-		}); err != nil {
-			return nil, err
-		}
-		patchset, err := s.createImportPatchset(ctx, subjectID, slice, targetRef, ref.CommitId, message, meta.Body, edits)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := s.Changesets.Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
-			return nil, grpcError(err)
-		}
-		nativeCommitID, err := s.waitForImportPublished(ctx, patchset.ChangesetId, len(edits))
-		if err != nil {
-			return nil, grpcError(err)
-		}
-		if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
-			Phase:            "published",
-			Message:          message,
-			Current:          int64(i + 1),
-			Total:            int64(len(gitCommits)),
-			GitCommitId:      gitCommitID,
-			NativeCommitId:   nativeCommitID,
-			ChangedPathCount: int32(len(edits)),
-		}); err != nil {
-			return nil, err
-		}
-		response.Commits = append(response.Commits, &corev1.ImportedGitCommit{
-			GitCommitId:    gitCommitID,
-			NativeCommitId: nativeCommitID,
-			Message:        message,
-		})
-		response.FinalCommitId = nativeCommitID
-		if importID != "" {
-			if err := s.Repository.RecordGitImportCommit(ctx, storage.GitImportedCommitRecord{
-				ImportID:         importID,
-				GitCommitID:      gitCommitID,
-				NativeCommitID:   nativeCommitID,
-				Message:          message,
-				Position:         i + 1,
-				ChangedPathCount: len(edits),
-				AuthorName:       meta.AuthorName,
-				AuthorEmail:      meta.AuthorEmail,
-				AuthoredAt:       meta.AuthoredAt,
-				FullMessage:      meta.FullMessage,
+			message := meta.Subject
+			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+				Phase:       "reading_commit",
+				Message:     message,
+				Current:     int64(i + 1),
+				Total:       int64(len(gitCommits)),
+				GitCommitId: gitCommitID,
 			}); err != nil {
-				return nil, grpcError(err)
+				return err
 			}
+			var edits []*corev1.FileEdit
+			var snapshot importSnapshot
+			if previousGitCommitID == "" {
+				snapshot, err = gitSnapshot(ctx, repoDir, gitCommitID, mountPath, known)
+				if err != nil {
+					return importReadError(err, "read git commit "+gitCommitID)
+				}
+				edits = diffImportSnapshots(previous, snapshot)
+			} else {
+				edits, snapshot, err = gitDeltaEdits(ctx, repoDir, previousGitCommitID, gitCommitID, mountPath, known)
+				if err != nil {
+					return importReadError(err, "read git commit "+gitCommitID)
+				}
+			}
+			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+				Phase:            "uploading_blobs",
+				Message:          message,
+				Current:          int64(i + 1),
+				Total:            int64(len(gitCommits)),
+				GitCommitId:      gitCommitID,
+				ChangedPathCount: int32(len(edits)),
+			}); err != nil {
+				return err
+			}
+			uploadProgress := func(done, total int) {
+				_ = emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+					Phase:            "uploading_blobs",
+					Message:          fmt.Sprintf("%s (%d of %d new files stored)", message, done, total),
+					Current:          int64(i + 1),
+					Total:            int64(len(gitCommits)),
+					GitCommitId:      gitCommitID,
+					ChangedPathCount: int32(len(edits)),
+				})
+			}
+			if err := s.uploadImportBlobs(ctx, slice.Id, edits, snapshot, uploadProgress); err != nil {
+				return grpcError(err)
+			}
+			ref, err := s.Repository.GetRef(ctx, targetRef)
+			if err != nil {
+				return grpcError(err)
+			}
+			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+				Phase:            "submitting",
+				Message:          message,
+				Current:          int64(i + 1),
+				Total:            int64(len(gitCommits)),
+				GitCommitId:      gitCommitID,
+				ChangedPathCount: int32(len(edits)),
+			}); err != nil {
+				return err
+			}
+			patchset, err := s.createImportPatchset(ctx, subjectID, slice, targetRef, ref.CommitId, message, meta.Body, edits)
+			if err != nil {
+				return err
+			}
+			if _, err := s.Changesets.Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+				return grpcError(err)
+			}
+			nativeCommitID, err := s.waitForImportPublished(ctx, patchset.ChangesetId, len(edits))
+			if err != nil {
+				return grpcError(err)
+			}
+			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+				Phase:            "published",
+				Message:          message,
+				Current:          int64(i + 1),
+				Total:            int64(len(gitCommits)),
+				GitCommitId:      gitCommitID,
+				NativeCommitId:   nativeCommitID,
+				ChangedPathCount: int32(len(edits)),
+			}); err != nil {
+				return err
+			}
+			response.Commits = append(response.Commits, &corev1.ImportedGitCommit{
+				GitCommitId:    gitCommitID,
+				NativeCommitId: nativeCommitID,
+				Message:        message,
+			})
+			response.FinalCommitId = nativeCommitID
+			if importID != "" {
+				if err := s.Repository.RecordGitImportCommit(ctx, storage.GitImportedCommitRecord{
+					ImportID:         importID,
+					GitCommitID:      gitCommitID,
+					NativeCommitID:   nativeCommitID,
+					Message:          message,
+					Position:         i + 1,
+					ChangedPathCount: len(edits),
+					AuthorName:       meta.AuthorName,
+					AuthorEmail:      meta.AuthorEmail,
+					AuthoredAt:       meta.AuthoredAt,
+					FullMessage:      meta.FullMessage,
+				}); err != nil {
+					return grpcError(err)
+				}
+			}
+			return nil
+		}
+		workCtx, cancelWork := importWorkContext(ctx)
+		err := work(workCtx)
+		cancelWork()
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			// The client went away; its commit is published. Stop here.
+			return nil, status.FromContextError(err).Err()
 		}
 		previousGitCommitID = gitCommitID
 	}
 	// Drain the derived-index outbox once, after all commits are published, so
 	// imported history is queryable (gs log / slice history) when the import
 	// returns — without paying the drain on every commit's critical path.
+	finalCtx, cancelFinal := importWorkContext(ctx)
+	defer cancelFinal()
 	if drainer, ok := s.Changesets.(storage.DerivedIndexStore); ok {
-		if err := drainer.WaitForOutboxDrain(ctx); err != nil {
+		if err := drainer.WaitForOutboxDrain(finalCtx); err != nil {
 			return nil, grpcError(err)
 		}
 	}
 	if importID != "" && response.FinalCommitId != "" {
-		if err := s.Repository.CompleteGitImport(ctx, importID, response.FinalCommitId); err != nil {
+		if err := s.Repository.CompleteGitImport(finalCtx, importID, response.FinalCommitId); err != nil {
 			return nil, grpcError(err)
 		}
 	}
@@ -325,7 +377,12 @@ const (
 	importBlobUploadAttempts    = 3
 )
 
-func (s *RepositoryService) uploadImportBlobs(ctx context.Context, sliceID string, edits []*corev1.FileEdit, snapshot importSnapshot) error {
+// uploadImportBlobs stores the new content of a commit's edits. A file the
+// import already uploaded for an earlier commit (snapshot marks it Reused) is
+// skipped, and so is content the server already holds: a commit that moves
+// files uploads nothing, and an attempt that was cut off keeps what it
+// stored. onProgress, if set, is told how many of the new files are stored.
+func (s *RepositoryService) uploadImportBlobs(ctx context.Context, sliceID string, edits []*corev1.FileEdit, snapshot importSnapshot, onProgress func(done, total int)) error {
 	type importBlob struct {
 		key         string
 		blobID      string
@@ -345,6 +402,9 @@ func (s *RepositoryService) uploadImportBlobs(ctx context.Context, sliceID strin
 		if !ok {
 			return fmt.Errorf("missing import file for %s", edit.Path)
 		}
+		if file.Reused {
+			continue
+		}
 		if _, dup := seen[file.ContentHash]; dup {
 			continue
 		}
@@ -361,25 +421,82 @@ func (s *RepositoryService) uploadImportBlobs(ctx context.Context, sliceID strin
 		return nil
 	}
 
+	// Content the server holds already needs no upload.
+	hashes := make([]string, 0, len(blobs))
+	for _, blob := range blobs {
+		hashes = append(hashes, blob.contentHash)
+	}
+	stored, err := s.storedContentHashes(ctx, hashes)
+	if err != nil {
+		return err
+	}
+	var missing []importBlob
+	for _, blob := range blobs {
+		if _, ok := stored[blob.contentHash]; !ok {
+			missing = append(missing, blob)
+		}
+	}
+
+	var done atomic.Int64
+	var lastReport atomic.Int64
+	report := func(force bool) {
+		if onProgress == nil {
+			return
+		}
+		now := time.Now().UnixNano()
+		last := lastReport.Load()
+		if !force && (now-last < int64(2*time.Second) || !lastReport.CompareAndSwap(last, now)) {
+			return
+		}
+		onProgress(int(done.Load()), len(missing))
+	}
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(importBlobUploadConcurrency)
-	for _, blob := range blobs {
+	for _, blob := range missing {
 		blob := blob
 		group.Go(func() error {
 			if err := s.putImportBlob(groupCtx, blob.key, blob.data); err != nil {
 				return err
 			}
-			return s.Blobs.Upsert(groupCtx, blob.blobID, blob.contentHash, blob.size, blob.key)
+			if err := s.Blobs.Upsert(groupCtx, blob.blobID, blob.contentHash, blob.size, blob.key); err != nil {
+				return err
+			}
+			done.Add(1)
+			report(false)
+			return nil
 		})
 	}
 	if err := group.Wait(); err != nil {
 		return err
+	}
+	if len(missing) > 0 {
+		report(true)
 	}
 	contentHashes := make([]string, 0, len(blobs))
 	for _, blob := range blobs {
 		contentHashes = append(contentHashes, blob.contentHash)
 	}
 	return s.Blobs.AssociateSlices(ctx, sliceID, contentHashes)
+}
+
+// storedContentHashes returns which of the content hashes the server holds
+// as available blobs. A blob is recorded only after its object is stored.
+func (s *RepositoryService) storedContentHashes(ctx context.Context, hashes []string) (map[string]struct{}, error) {
+	const chunk = 1000
+	stored := make(map[string]struct{}, len(hashes))
+	for start := 0; start < len(hashes); start += chunk {
+		end := min(start+chunk, len(hashes))
+		records, err := s.Blobs.GetByContentHash(ctx, hashes[start:end])
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			if record.GetState() == "" || record.GetState() == "available" {
+				stored[record.GetContentHash()] = struct{}{}
+			}
+		}
+	}
+	return stored, nil
 }
 
 // putImportBlob uploads a single import blob, bounding each attempt with its own

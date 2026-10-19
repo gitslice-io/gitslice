@@ -73,7 +73,7 @@ func parseGitDiffNameStatus(raw []byte) ([]string, []string, error) {
 	return deleted, upserts, nil
 }
 
-func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, gitPaths []string) (importSnapshot, error) {
+func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, gitPaths []string, known knownBlobs) (importSnapshot, error) {
 	snapshot := importSnapshot{}
 	if len(gitPaths) == 0 {
 		return snapshot, nil
@@ -92,7 +92,7 @@ func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, g
 		if err != nil {
 			return nil, err
 		}
-		chunk, err := gitSnapshotFromTreeRecords(ctx, repoDir, raw, mountPath)
+		chunk, err := gitSnapshotFromTreeRecords(ctx, repoDir, raw, mountPath, known)
 		if err != nil {
 			return nil, err
 		}

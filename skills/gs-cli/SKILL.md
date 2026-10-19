@@ -124,6 +124,10 @@ For local tests, fixtures may write `~/.gitslice/config.json` directly with a se
 
 Use `gs context --json` before workspace-sensitive operations. It reports the cwd, config path, signed-in subject, nearest workspace, active slice, and source of that slice resolution.
 
+## Importing Git History
+
+`gs import <git-url> --mount /acme/project --deep` copies a repository with its full history into a path of your account, one commit at a time. It is safe to interrupt and to run again: published commits are skipped (`--resume`, on by default). On a flaky connection it reconnects by itself with backoff (`--retries`, default 8 attempts in a row without progress). The server keeps its clone of the repository between attempts and finishes the commit it is publishing even if your connection drops, so a run again continues at the next commit. A commit that only moves files uploads nothing.
+
 ## Server Files
 
 Use `gs fs` for direct reads and small mutations in the signed-in user's home slice. Paths must be absolute server paths and must stay under the signed-in account root:

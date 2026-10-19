@@ -90,6 +90,14 @@ func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 // transport-level gRPC keepalive so a black-holed but still-ESTABLISHED socket
 // is torn down within ~Timeout instead of blocking a pending Send/Recv forever.
 func dialAgentStream(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	return dialStream(ctx, addr)
+}
+
+// dialStream is dial for a connection that carries one long call (a daemon's
+// stream, an import): transport keepalive notices a connection that died
+// without closing within about 30 seconds, instead of the call waiting on it
+// for as long as the operating system lets it.
+func dialStream(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	return dialWithOptions(ctx, addr, grpc.WithKeepaliveParams(keepalive.ClientParameters{
 		Time:                20 * time.Second,
 		Timeout:             10 * time.Second,

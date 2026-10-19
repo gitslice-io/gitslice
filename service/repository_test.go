@@ -33,7 +33,7 @@ func TestGitSnapshotReadsTreeWithBatchBlobContents(t *testing.T) {
 	runGitTest(t, repo, "commit", "-m", "initial")
 	head := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD"))
 
-	snapshot, err := gitSnapshot(ctx, repo, head, "/acme/payment/vendor/repo")
+	snapshot, err := gitSnapshot(ctx, repo, head, "/acme/payment/vendor/repo", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestGitDeltaEditsReadsOnlyChangedPaths(t *testing.T) {
 	runGitTest(t, repo, "commit", "-m", "second")
 	second := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD"))
 
-	edits, snapshot, err := gitDeltaEdits(ctx, repo, first, second, "/acme/payment/imported")
+	edits, snapshot, err := gitDeltaEdits(ctx, repo, first, second, "/acme/payment/imported", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
