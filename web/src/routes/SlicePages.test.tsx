@@ -413,13 +413,31 @@ describe("slice route pages (render smoke)", () => {
       expect(readFile).not.toHaveBeenCalledWith(expect.objectContaining({ path: expect.stringContaining("example.com") }));
     });
 
+    it("loads a root-absolute image from the project root, like GitHub, and not from the folder", async () => {
+      const readFile = vi.fn(async (request: { path?: string }) =>
+        request.path === "/nic/app/README.md"
+          ? { data: btoa("![logo](/Imagens/logo.png) ![out](/../secret.png)\n") }
+          : { data: btoa("png-bytes") }
+      );
+      folderApi(entries, readFile);
+      renderRoute(<SliceDetailPage />);
+
+      const logo = await screen.findByRole("img", { name: "logo" });
+      await waitFor(() => expect(logo).toHaveAttribute("src", `data:image/png;base64,${btoa("png-bytes")}`));
+      // The slice includes /nic, so the project root is /nic.
+      expect(readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/Imagens/logo.png" }));
+      // One that would leave the project is left alone, never requested.
+      expect(readFile).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/secret.png" }));
+      expect(screen.getByRole("img", { name: "out" })).toHaveAttribute("src", "/../secret.png");
+    });
+
     it("loads the images of a README opened as a file, and opens its links in the slice", async () => {
       routerMock.search = { path: "/nic/app/README.md" };
       const api = makeApi();
       api.resolvePath = vi.fn().mockResolvedValue({ entry: { kind: "ENTRY_KIND_FILE", path: "/nic/app/README.md", size: "60" } });
       api.readFile = vi.fn(async (request: { path?: string }) =>
         request.path === "/nic/app/README.md"
-          ? { data: btoa("See the [guide](docs/guide.md).\n\n![logo](logo.png)\n") }
+          ? { data: btoa("See the [guide](docs/guide.md).\n\n![logo](logo.png) ![root](/pics/r.png)\n") }
           : { data: btoa("png-bytes") }
       ) as typeof api.readFile;
       apiMock.current = api;
@@ -427,6 +445,9 @@ describe("slice route pages (render smoke)", () => {
 
       const logo = await screen.findByRole("img", { name: "logo" });
       await waitFor(() => expect(logo).toHaveAttribute("src", `data:image/png;base64,${btoa("png-bytes")}`));
+      // A root-absolute image in the file view is read from the project root.
+      await waitFor(() => expect(screen.getByRole("img", { name: "root" })).toHaveAttribute("src", expect.stringMatching(/^data:image\/png/)));
+      expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/pics/r.png" }));
       fireEvent.click(screen.getByRole("link", { name: "guide" }));
       expect(routerMock.navigate).toHaveBeenCalledWith(
         expect.objectContaining({ search: { path: "/nic/app/docs/guide.md" } })

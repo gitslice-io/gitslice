@@ -88,6 +88,7 @@ export function FolderWithReadme({
           canEdit={Boolean(onStageEdit)}
           commitId={commitId}
           entry={readme}
+          includedPaths={includedPaths}
           onSelectPath={onSelectPath}
           sliceRef={sliceRef}
         />

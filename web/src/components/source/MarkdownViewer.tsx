@@ -18,6 +18,9 @@ interface MarkdownViewerProps {
   // when it gives null, an image shows its alt text.
   links?: {
     directory: string;
+    // The project root its root-absolute image paths ("/img/x.png") are
+    // relative to; without one they are left alone.
+    root?: string | null;
     onOpenPath(path: string): void;
     loadImage?(path: string): Promise<string | null>;
   };
@@ -29,6 +32,7 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
     html: null
   });
   const imageDirectory = links?.directory;
+  const imageRoot = links?.root;
 
   useEffect(() => {
     let active = true;
@@ -42,7 +46,7 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
         const sanitized = await sanitizeHtml(parsed);
         // The browser must not request a repository image from the page's own
         // address, where it does not exist: mark it before it is inserted.
-        const html = imageDirectory === undefined ? sanitized : markRepoImages(sanitized, imageDirectory);
+        const html = imageDirectory === undefined ? sanitized : markRepoImages(sanitized, imageDirectory, imageRoot);
 
         if (active) {
           setRendered({ error: false, html });
@@ -59,7 +63,7 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
     return () => {
       active = false;
     };
-  }, [source, imageDirectory]);
+  }, [source, imageDirectory, imageRoot]);
 
   const container = useRef<HTMLDivElement>(null);
   const linkDirectory = links?.directory;

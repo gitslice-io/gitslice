@@ -35,19 +35,52 @@ export function resolveRepoLink(directory: string, href: string | null | undefin
   return `/${parts.join("/")}`;
 }
 
+// projectRoot is the folder a document's root-absolute paths ("/docs/x.png")
+// are relative to, as on GitHub: the slice's included path that holds the
+// document. It is null when no included path does.
+export function projectRoot(includedPaths: readonly string[] | undefined, documentPath: string): string | null {
+  const document = "/" + documentPath.split("/").filter(Boolean).join("/");
+  let best: string | null = null;
+  for (const included of includedPaths ?? []) {
+    const root = "/" + included.split("/").filter(Boolean).join("/");
+    if ((document === root || document.startsWith(root === "/" ? "/" : root + "/")) && (best === null || root.length > best.length)) {
+      best = root;
+    }
+  }
+  return best;
+}
+
+// resolveRepoImage is resolveRepoLink for an image: besides the paths relative
+// to the document, it also resolves a root-absolute one ("/img/logo.png")
+// against the project root, when there is one. A link to "/..." can be an app
+// address, so links do not get this; no app address serves an image, so an
+// image can. A path that climbs out of the project root gives null.
+export function resolveRepoImage(directory: string, root: string | null | undefined, src: string | null | undefined): string | null {
+  const link = (src ?? "").trim();
+  if (link.startsWith("/") && !link.startsWith("//")) {
+    if (!root) {
+      return null;
+    }
+    const resolved = resolveRepoLink(root, link.replace(/^\/+/, ""));
+    return resolved !== null && (resolved === root || resolved.startsWith(root === "/" ? "/" : root + "/")) ? resolved : null;
+  }
+  return resolveRepoLink(directory, src);
+}
+
 // markRepoImages takes the <img> elements of rendered markdown whose src is a
-// path in the repository (logo.png, ../docs/shot.png) and, instead of leaving
-// the browser to request them from the page's own address (where they do not
-// exist), drops their src and records the repository path in data-repo-image,
-// for the viewer to load through the API. Other images are left as they are.
-export function markRepoImages(html: string, directory: string): string {
+// path in the repository (logo.png, ../docs/shot.png, and with a project root
+// /docs/shot.png) and, instead of leaving the browser to request them from the
+// page's own address (where they do not exist), drops their src and records
+// the absolute repository path in data-repo-image, for the viewer to load
+// through the API. Other images are left as they are.
+export function markRepoImages(html: string, directory: string, root?: string | null): string {
   if (typeof DOMParser === "undefined" || !html.includes("<img")) {
     return html;
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   let changed = false;
   for (const image of Array.from(doc.querySelectorAll("img"))) {
-    const path = resolveRepoLink(directory, image.getAttribute("src"));
+    const path = resolveRepoImage(directory, root, image.getAttribute("src"));
     if (path === null) {
       continue;
     }

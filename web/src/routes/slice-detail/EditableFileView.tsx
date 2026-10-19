@@ -226,7 +226,7 @@ export function EditableFileView({
             code={displayedContent}
             fill
             path={selectedPath}
-            repo={onSelectPath ? { commitId, onOpenPath: onSelectPath, slice: sliceRef } : undefined}
+            repo={onSelectPath ? { commitId, includedPaths, onOpenPath: onSelectPath, slice: sliceRef } : undefined}
           />
         )
       ) : null}

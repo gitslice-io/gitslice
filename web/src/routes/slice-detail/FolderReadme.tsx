@@ -10,6 +10,7 @@ import {
   formatSize,
   normalizeRepositoryPath
 } from "../../components/source/sourceUtils";
+import { projectRoot } from "../../lib/repoLinks";
 import { sliceFileQueryKey } from "../../lib/sliceQueryKeys";
 import { README_MAX_BYTES } from "./readme";
 
@@ -17,12 +18,13 @@ interface FolderReadmeProps {
   canEdit: boolean;
   commitId: string;
   entry: TreeEntry;
+  includedPaths?: string[];
   onSelectPath(path: string): void;
   sliceRef: SliceRef | undefined;
 }
 
 // FolderReadme is a folder's README, rendered as the folder's introduction.
-export function FolderReadme({ canEdit, commitId, entry, onSelectPath, sliceRef }: FolderReadmeProps) {
+export function FolderReadme({ canEdit, commitId, entry, includedPaths, onSelectPath, sliceRef }: FolderReadmeProps) {
   const api = useApi();
   const path = normalizeRepositoryPath(entry.path ?? "");
   const directory = path.slice(0, path.lastIndexOf("/"));
@@ -62,7 +64,7 @@ export function FolderReadme({ canEdit, commitId, entry, onSelectPath, sliceRef 
   } else if (!source.trim()) {
     body = <p className="p-4 text-sm text-slate-600 dark:text-zinc-400">{name} is empty.</p>;
   } else {
-    body = <MarkdownViewer links={{ directory, loadImage, onOpenPath: onSelectPath }} source={source} />;
+    body = <MarkdownViewer links={{ directory, loadImage, onOpenPath: onSelectPath, root: projectRoot(includedPaths, path) }} source={source} />;
   }
 
   return (

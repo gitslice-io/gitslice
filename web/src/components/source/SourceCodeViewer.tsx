@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { SliceRef } from "../../api/types";
 import { cn } from "../../lib/cn";
+import { projectRoot } from "../../lib/repoLinks";
 import { useMobileDetailsClass } from "../MobileDetails";
 import { languageFromPath, previewKindFromPath, type PreviewKind } from "./sourceUtils";
 import { highlightToHtml } from "./highlight";
@@ -23,6 +24,7 @@ interface SourceCodeViewerProps {
   // open inside the app and its relative images load from the repository.
   repo?: {
     commitId: string;
+    includedPaths?: string[];
     slice?: SliceRef;
     onOpenPath(path: string): void;
   };
@@ -196,5 +198,5 @@ function RepoMarkdown({ code, path, repo }: { code: string; path: string; repo: 
     return <MarkdownViewer source={code} />;
   }
   const directory = path.slice(0, path.lastIndexOf("/"));
-  return <MarkdownViewer links={{ directory, loadImage, onOpenPath: repo.onOpenPath }} source={code} />;
+  return <MarkdownViewer links={{ directory, loadImage, onOpenPath: repo.onOpenPath, root: projectRoot(repo.includedPaths, path) }} source={code} />;
 }
