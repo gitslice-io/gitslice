@@ -301,11 +301,18 @@ func forwardAgentTurn(ctx context.Context, session agentSession, prompt, convers
 	})
 }
 
-func registerDaemonMessage(name, runtimeName string) *corev1.DaemonMessage {
+// resolvedAgentName is the name a daemon registers with: the one given, else
+// this machine's.
+func resolvedAgentName(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = defaultAgentName()
 	}
+	return name
+}
+
+func registerDaemonMessage(name, runtimeName string) *corev1.DaemonMessage {
+	name = resolvedAgentName(name)
 	version := cliVersionInfo().Version
 	if strings.TrimSpace(version) == "" {
 		version = "dev"

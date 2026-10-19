@@ -80,9 +80,14 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 	}
 
 	conn := s.hub.registerDaemon(daemon.Id)
+	// A daemon that detaches on purpose stays online (it polls with
+	// StandbyPoll); any other end of the stream marks it offline.
+	detached := false
 	defer func() {
 		s.hub.unregisterDaemon(conn)
-		_ = s.Agents.SetDaemonStatus(context.WithoutCancel(ctx), daemon.Id, "offline")
+		if !detached {
+			_ = s.Agents.SetDaemonStatus(context.WithoutCancel(ctx), daemon.Id, "offline")
+		}
 	}()
 
 	if err := stream.Send(&corev1.ServerMessage{
@@ -133,6 +138,15 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		switch p := msg.Payload.(type) {
 		case *corev1.DaemonMessage_Heartbeat:
 			_ = s.Agents.SetDaemonStatus(ctx, daemon.Id, "online")
+		case *corev1.DaemonMessage_Detach:
+			if reg.Runtime != ciDaemonRuntime {
+				return status.Error(codes.FailedPrecondition, "only a checks-only daemon (gs agent start --ci) can detach")
+			}
+			// The daemon has nothing running and polls from here on. Count
+			// this as a sign of life, so it stays online until its first poll.
+			_ = s.Agents.SetDaemonStatus(ctx, daemon.Id, "online")
+			detached = true
+			return nil
 		case *corev1.DaemonMessage_Started:
 			s.redeliverUnansweredUserMessages(ctx, daemon.Id, conn, p.Started.GetConversationId())
 		case *corev1.DaemonMessage_Event:

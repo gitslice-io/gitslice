@@ -11,12 +11,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -53,6 +55,11 @@ type agentStartOptions struct {
 	// Lazy mounts each conversation's workspace (gs mount) instead of
 	// checking it out, where FUSE is available.
 	Lazy bool
+	// DetachAfter is how long a checks-only daemon stays connected with
+	// nothing to run before it detaches and polls; DetachSet says it was
+	// given. See agent_standby.go.
+	DetachAfter time.Duration
+	DetachSet   bool
 }
 
 type agentDaemonOutput struct {
@@ -117,6 +124,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 		Args:  noArgs("gs agent start [--name NAME] [--runtime codex] [--ci]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			start.RuntimeSet = cmd.Flags().Changed("runtime")
+			start.DetachSet = cmd.Flags().Changed("detach-after")
 			return r.runAgentStart(cmd.Context(), *opts, start)
 		},
 	}
@@ -124,6 +132,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	startCmd.Flags().StringVar(&start.Runtime, "runtime", start.Runtime, "agent runtime")
 	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
 	startCmd.Flags().BoolVar(&start.Lazy, "lazy", start.Lazy, "mount each conversation's workspace lazily (gs mount) instead of checking it out; falls back to a checkout without FUSE")
+	startCmd.Flags().DurationVar(&start.DetachAfter, "detach-after", defaultDetachAfter, "checks-only daemons (--ci): detach from the server after this long with nothing to run, and poll for queued checks (0 = stay connected; env GITSLICE_AGENT_DETACH_AFTER). The server then has no stream to hold open and can scale to zero")
 	startCmd.Flags().BoolVar(&start.CI, "ci", false, "run checks only: no conversations, no agent runtime, any directory")
 
 	statusSlice := ""
@@ -255,6 +264,11 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		root = abs
 	}
 
+	detachAfter, err := detachAfterFor(in)
+	if err != nil {
+		return err
+	}
+
 	signalCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 	agentCtx, cancel := context.WithCancel(signalCtx)
@@ -271,7 +285,11 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		recentCheckRuns: map[string]struct{}{},
 		checkSlots:      checkSlotsFromEnv(),
 		lazy:            in.Lazy,
+		name:            in.Name,
+		detachAfter:     detachAfter,
+		quiet:           opts.Quiet,
 	}
+	defer daemon.closePollConnection()
 	if !in.CI {
 		daemon.reattachLazyWorkspaces(agentCtx)
 		daemon.loadExistingConversations()
@@ -293,6 +311,19 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 	reportedOnline := false
 	for {
 		err := daemon.serveAgentConnection(agentCtx, opts, in.Name, runtimeName, !reportedOnline)
+		if errors.Is(err, errAgentDetached) {
+			reportedOnline = true
+			// Work that arrived as the stream closed stays here to be done:
+			// reconnect instead of waiting.
+			if daemon.checksIdle() {
+				if standbyErr := daemon.standby(agentCtx); standbyErr != nil {
+					reportIdleExit()
+					return nil
+				}
+				daemon.say("a check is queued (or the server needs this daemon): connecting")
+			}
+			continue
+		}
 		if err == nil {
 			if agentCtx.Err() != nil {
 				reportIdleExit()
@@ -374,12 +405,18 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 	// persisted events is idempotent.
 	go d.resendPendingAll()
 	go d.runHeartbeat(connCtx, cancel)
+	if d.detachAfter > 0 && !d.standbyUnsupported.Load() {
+		go d.runDetachWatch(connCtx)
+	}
 	go d.runInboundWatchdog(connCtx, cancel, lastInbound)
 
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
 			cancel()
+			if d.detaching.Swap(false) && errors.Is(err, io.EOF) {
+				return errAgentDetached
+			}
 			if agentStreamEndedCleanly(ctx, err) {
 				return nil
 			}
@@ -590,6 +627,17 @@ type agentDaemon struct {
 	baseCtx    context.Context
 	workingDir string
 	sendQueue  *agentSendQueue
+	name       string // the name it registers with, as given
+
+	// Detaching (agent_standby.go): a checks-only daemon with nothing to run
+	// closes its stream and polls instead.
+	detachAfter        time.Duration
+	detaching          atomic.Bool // a detach was sent; the stream is about to end
+	standbyUnsupported atomic.Bool // the server cannot take a detached daemon
+	standbyPollFn      func(context.Context) (*corev1.StandbyPollResponse, error)
+	pollMu             sync.Mutex
+	pollConn           *grpc.ClientConn
+	quiet              bool
 
 	idleMu       sync.Mutex
 	lastActivity time.Time

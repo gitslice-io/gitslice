@@ -359,7 +359,11 @@ func cloneDaemon(d *corev1.AgentDaemon) *corev1.AgentDaemon {
 	if d == nil {
 		return nil
 	}
-	return proto.Clone(d).(*corev1.AgentDaemon)
+	out := proto.Clone(d).(*corev1.AgentDaemon)
+	if seen, err := time.Parse(time.RFC3339Nano, out.LastSeenAt); err == nil {
+		out.Status = storage.EffectiveDaemonStatus(out.Status, seen, time.Now())
+	}
+	return out
 }
 
 func cloneConversation(c *corev1.Conversation) *corev1.Conversation {

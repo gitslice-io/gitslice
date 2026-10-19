@@ -35,6 +35,9 @@ const (
 const (
 	// AgentServiceConnectProcedure is the fully-qualified name of the AgentService's Connect RPC.
 	AgentServiceConnectProcedure = "/gitslice.core.v1.AgentService/Connect"
+	// AgentServiceStandbyPollProcedure is the fully-qualified name of the AgentService's StandbyPoll
+	// RPC.
+	AgentServiceStandbyPollProcedure = "/gitslice.core.v1.AgentService/StandbyPoll"
 	// AgentServiceListDaemonsProcedure is the fully-qualified name of the AgentService's ListDaemons
 	// RPC.
 	AgentServiceListDaemonsProcedure = "/gitslice.core.v1.AgentService/ListDaemons"
@@ -75,6 +78,12 @@ type AgentServiceClient interface {
 	// Connect is the daemon's long-lived bidirectional channel. The first message
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(context.Context) *connect.BidiStreamForClient[v1.DaemonMessage, v1.ServerMessage]
+	// StandbyPoll is how a checks-only daemon that has detached from Connect
+	// stays registered and finds out whether work is waiting for it. A daemon
+	// that holds Connect open keeps a Cloud Run instance busy around the clock;
+	// one that detaches when idle and polls costs almost nothing, and lets the
+	// server scale to zero (design/31_ci_daemon.md).
+	StandbyPoll(context.Context, *connect.Request[v1.StandbyPollRequest]) (*connect.Response[v1.StandbyPollResponse], error)
 	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
 	// ListDaemons lists the daemons the caller registered and those registered
 	// under accounts the caller owns or administers (an agent's daemons, once its
@@ -120,6 +129,12 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+AgentServiceConnectProcedure,
 			connect.WithSchema(agentServiceMethods.ByName("Connect")),
+			connect.WithClientOptions(opts...),
+		),
+		standbyPoll: connect.NewClient[v1.StandbyPollRequest, v1.StandbyPollResponse](
+			httpClient,
+			baseURL+AgentServiceStandbyPollProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("StandbyPoll")),
 			connect.WithClientOptions(opts...),
 		),
 		listDaemons: connect.NewClient[v1.ListDaemonsRequest, v1.ListDaemonsResponse](
@@ -194,6 +209,7 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
 	connect               *connect.Client[v1.DaemonMessage, v1.ServerMessage]
+	standbyPoll           *connect.Client[v1.StandbyPollRequest, v1.StandbyPollResponse]
 	listDaemons           *connect.Client[v1.ListDaemonsRequest, v1.ListDaemonsResponse]
 	renameDaemon          *connect.Client[v1.RenameDaemonRequest, v1.AgentDaemon]
 	exposeDaemon          *connect.Client[v1.ExposeDaemonRequest, v1.AgentDaemon]
@@ -210,6 +226,11 @@ type agentServiceClient struct {
 // Connect calls gitslice.core.v1.AgentService.Connect.
 func (c *agentServiceClient) Connect(ctx context.Context) *connect.BidiStreamForClient[v1.DaemonMessage, v1.ServerMessage] {
 	return c.connect.CallBidiStream(ctx)
+}
+
+// StandbyPoll calls gitslice.core.v1.AgentService.StandbyPoll.
+func (c *agentServiceClient) StandbyPoll(ctx context.Context, req *connect.Request[v1.StandbyPollRequest]) (*connect.Response[v1.StandbyPollResponse], error) {
+	return c.standbyPoll.CallUnary(ctx, req)
 }
 
 // ListDaemons calls gitslice.core.v1.AgentService.ListDaemons.
@@ -272,6 +293,12 @@ type AgentServiceHandler interface {
 	// Connect is the daemon's long-lived bidirectional channel. The first message
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(context.Context, *connect.BidiStream[v1.DaemonMessage, v1.ServerMessage]) error
+	// StandbyPoll is how a checks-only daemon that has detached from Connect
+	// stays registered and finds out whether work is waiting for it. A daemon
+	// that holds Connect open keeps a Cloud Run instance busy around the clock;
+	// one that detaches when idle and polls costs almost nothing, and lets the
+	// server scale to zero (design/31_ci_daemon.md).
+	StandbyPoll(context.Context, *connect.Request[v1.StandbyPollRequest]) (*connect.Response[v1.StandbyPollResponse], error)
 	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
 	// ListDaemons lists the daemons the caller registered and those registered
 	// under accounts the caller owns or administers (an agent's daemons, once its
@@ -313,6 +340,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceConnectProcedure,
 		svc.Connect,
 		connect.WithSchema(agentServiceMethods.ByName("Connect")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceStandbyPollHandler := connect.NewUnaryHandler(
+		AgentServiceStandbyPollProcedure,
+		svc.StandbyPoll,
+		connect.WithSchema(agentServiceMethods.ByName("StandbyPoll")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceListDaemonsHandler := connect.NewUnaryHandler(
@@ -385,6 +418,8 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		switch r.URL.Path {
 		case AgentServiceConnectProcedure:
 			agentServiceConnectHandler.ServeHTTP(w, r)
+		case AgentServiceStandbyPollProcedure:
+			agentServiceStandbyPollHandler.ServeHTTP(w, r)
 		case AgentServiceListDaemonsProcedure:
 			agentServiceListDaemonsHandler.ServeHTTP(w, r)
 		case AgentServiceRenameDaemonProcedure:
@@ -418,6 +453,10 @@ type UnimplementedAgentServiceHandler struct{}
 
 func (UnimplementedAgentServiceHandler) Connect(context.Context, *connect.BidiStream[v1.DaemonMessage, v1.ServerMessage]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AgentService.Connect is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) StandbyPoll(context.Context, *connect.Request[v1.StandbyPollRequest]) (*connect.Response[v1.StandbyPollResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AgentService.StandbyPoll is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) ListDaemons(context.Context, *connect.Request[v1.ListDaemonsRequest]) (*connect.Response[v1.ListDaemonsResponse], error) {

@@ -442,6 +442,10 @@ type connectAgentAdapter struct {
 	svc *service.AgentService
 }
 
+func (a connectAgentAdapter) StandbyPoll(ctx context.Context, req *connect.Request[corev1.StandbyPollRequest]) (*connect.Response[corev1.StandbyPollResponse], error) {
+	return connectResponse(a.svc.StandbyPoll(ctx, req.Msg))
+}
+
 func (a connectAgentAdapter) Connect(ctx context.Context, stream *connect.BidiStream[corev1.DaemonMessage, corev1.ServerMessage]) error {
 	return connectError(a.svc.Connect(connectAgentConnectStream{ctx: ctx, stream: stream}))
 }

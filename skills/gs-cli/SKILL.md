@@ -313,7 +313,7 @@ gs slice set-ci-daemon nic/tools <daemon-id>
 gs agent uninstall my-ci
 ```
 
-`gs agent start --ci` runs one in the foreground instead. While a slice's CI daemon is offline its checks stay queued, and `gs submit --watch` says so.
+`gs agent start --ci` runs one in the foreground instead. A checks-only daemon detaches after two idle minutes and polls every 30 s for queued checks (`--detach-after 0` stays connected), so it does not keep the server busy. While a slice's CI daemon is offline its checks stay queued, and `gs submit --watch` says so.
 
 If a command accepts a slice reference, prefer canonical `<account>/<slice>` in scripts. Bare slice slugs are CLI sugar and require a signed-in account. The reserved `home` slice covers `/account`, not `/account/home`.
 

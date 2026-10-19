@@ -16,6 +16,13 @@ service AgentService {
   // the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
   rpc Connect(stream DaemonMessage) returns (stream ServerMessage);
 
+  // StandbyPoll is how a checks-only daemon that has detached from Connect
+  // stays registered and finds out whether work is waiting for it. A daemon
+  // that holds Connect open keeps a Cloud Run instance busy around the clock;
+  // one that detaches when idle and polls costs almost nothing, and lets the
+  // server scale to zero (design/31_ci_daemon.md).
+  rpc StandbyPoll(StandbyPollRequest) returns (StandbyPollResponse);
+
   // Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
   // ListDaemons lists the daemons the caller registered and those registered
   // under accounts the caller owns or administers (an agent's daemons, once its
@@ -129,7 +136,30 @@ message DaemonMessage {
     AgentEvent event = 3;
     ConversationStarted started = 4;
     CheckRunUpdate check_update = 5;
+    // detach ends the stream on purpose: the daemon stays registered and
+    // online, and polls with StandbyPoll until work is waiting. Only a
+    // checks-only daemon (runtime "ci") with nothing running may detach.
+    Detach detach = 6;
   }
+}
+
+message Detach {}
+
+message StandbyPollRequest {
+  string name = 1;
+  string runtime = 2;
+  string version = 3;
+  repeated string container_runtimes = 4;
+  bool allow_host_exec = 5;
+}
+
+message StandbyPollResponse {
+  string daemon_id = 1;
+  // pending says check runs are queued for the daemon: it should connect
+  // (Connect delivers them) rather than wait for the next poll.
+  bool pending = 2;
+  // poll_after_ms is when to poll next if nothing is pending.
+  int64 poll_after_ms = 3;
 }
 
 message RegisterDaemon {

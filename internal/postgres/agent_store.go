@@ -466,6 +466,7 @@ func scanDaemon(row rowScanner) (*corev1.AgentDaemon, error) {
 	}
 	d.LastSeenAt = lastSeenAt.UTC().Format(time.RFC3339Nano)
 	d.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
+	d.Status = storage.EffectiveDaemonStatus(d.Status, lastSeenAt, time.Now())
 	return &d, nil
 }
 

@@ -286,6 +286,14 @@ checks:
           and <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs submit</code>{" "}
           say that the daemon is offline and checks begin when it reconnects.
         </p>
+        <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          A checks-only daemon with nothing to run detaches from the server
+          after two minutes and polls every 30 seconds for queued checks, so an
+          idle daemon costs the server almost nothing. It stays online, and a
+          queued check may start up to about 30 seconds later.{" "}
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">--detach-after 0</code>{" "}
+          keeps it connected.
+        </p>
       </section>
 
       <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">

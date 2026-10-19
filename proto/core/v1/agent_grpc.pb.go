@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion7
 
 const (
 	AgentService_Connect_FullMethodName               = "/gitslice.core.v1.AgentService/Connect"
+	AgentService_StandbyPoll_FullMethodName           = "/gitslice.core.v1.AgentService/StandbyPoll"
 	AgentService_ListDaemons_FullMethodName           = "/gitslice.core.v1.AgentService/ListDaemons"
 	AgentService_RenameDaemon_FullMethodName          = "/gitslice.core.v1.AgentService/RenameDaemon"
 	AgentService_ExposeDaemon_FullMethodName          = "/gitslice.core.v1.AgentService/ExposeDaemon"
@@ -40,6 +41,12 @@ type AgentServiceClient interface {
 	// Connect is the daemon's long-lived bidirectional channel. The first message
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (AgentService_ConnectClient, error)
+	// StandbyPoll is how a checks-only daemon that has detached from Connect
+	// stays registered and finds out whether work is waiting for it. A daemon
+	// that holds Connect open keeps a Cloud Run instance busy around the clock;
+	// one that detaches when idle and polls costs almost nothing, and lets the
+	// server scale to zero (design/31_ci_daemon.md).
+	StandbyPoll(ctx context.Context, in *StandbyPollRequest, opts ...grpc.CallOption) (*StandbyPollResponse, error)
 	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
 	// ListDaemons lists the daemons the caller registered and those registered
 	// under accounts the caller owns or administers (an agent's daemons, once its
@@ -107,6 +114,15 @@ func (x *agentServiceConnectClient) Recv() (*ServerMessage, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (c *agentServiceClient) StandbyPoll(ctx context.Context, in *StandbyPollRequest, opts ...grpc.CallOption) (*StandbyPollResponse, error) {
+	out := new(StandbyPollResponse)
+	err := c.cc.Invoke(ctx, AgentService_StandbyPoll_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *agentServiceClient) ListDaemons(ctx context.Context, in *ListDaemonsRequest, opts ...grpc.CallOption) (*ListDaemonsResponse, error) {
@@ -238,6 +254,12 @@ type AgentServiceServer interface {
 	// Connect is the daemon's long-lived bidirectional channel. The first message
 	// the daemon sends must be RegisterDaemon; the server replies DaemonRegistered.
 	Connect(AgentService_ConnectServer) error
+	// StandbyPoll is how a checks-only daemon that has detached from Connect
+	// stays registered and finds out whether work is waiting for it. A daemon
+	// that holds Connect open keeps a Cloud Run instance busy around the clock;
+	// one that detaches when idle and polls costs almost nothing, and lets the
+	// server scale to zero (design/31_ci_daemon.md).
+	StandbyPoll(context.Context, *StandbyPollRequest) (*StandbyPollResponse, error)
 	// Web-facing RPCs (surfaced through ConnectRPC and grpc-gateway).
 	// ListDaemons lists the daemons the caller registered and those registered
 	// under accounts the caller owns or administers (an agent's daemons, once its
@@ -274,6 +296,9 @@ type UnimplementedAgentServiceServer struct {
 
 func (UnimplementedAgentServiceServer) Connect(AgentService_ConnectServer) error {
 	return status.Errorf(codes.Unimplemented, "method Connect not implemented")
+}
+func (UnimplementedAgentServiceServer) StandbyPoll(context.Context, *StandbyPollRequest) (*StandbyPollResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StandbyPoll not implemented")
 }
 func (UnimplementedAgentServiceServer) ListDaemons(context.Context, *ListDaemonsRequest) (*ListDaemonsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListDaemons not implemented")
@@ -344,6 +369,24 @@ func (x *agentServiceConnectServer) Recv() (*DaemonMessage, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func _AgentService_StandbyPoll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StandbyPollRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).StandbyPoll(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_StandbyPoll_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).StandbyPoll(ctx, req.(*StandbyPollRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _AgentService_ListDaemons_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -554,6 +597,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "gitslice.core.v1.AgentService",
 	HandlerType: (*AgentServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "StandbyPoll",
+			Handler:    _AgentService_StandbyPoll_Handler,
+		},
 		{
 			MethodName: "ListDaemons",
 			Handler:    _AgentService_ListDaemons_Handler,

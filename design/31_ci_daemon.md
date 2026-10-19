@@ -170,6 +170,45 @@ gs agent install --ci --name my-ci
 gs agent expose my-ci acme:web
 ```
 
+## Idle daemons and the server bill
+
+A daemon that holds `Connect` open keeps a request open for as long as it
+runs. On Cloud Run, which bills while a request is being handled, that is one
+instance billed around the clock for a daemon that runs a check a few times a
+day (measured 2026-10-19: 23.5 of the 28 long-request hours a day were one CI
+daemon, about 25 billed instance-hours a day, roughly $65 a month).
+
+So a checks-only daemon (`--ci`) with nothing to run detaches:
+
+- After `--detach-after` (default 2 minutes; `GITSLICE_AGENT_DETACH_AFTER`;
+  `0` stays connected) with no check running and no update unacknowledged, it
+  asks the server with one `StandbyPoll` whether it can detach (an older
+  server answers Unimplemented and the daemon stays connected, as before),
+  sends `Detach`, and the server ends the stream without marking it offline.
+- It then calls `StandbyPoll` every 30 s (the server says how long;
+  `GITSLICE_AGENT_POLL_INTERVAL` overrides it). Each poll registers it again,
+  so it stays online, and says whether check runs are queued for it.
+- When some are, it connects again, and `Connect` delivers the queued runs as
+  it always did. A check therefore starts at most about 30 s later on an idle
+  daemon.
+- Reruns and new patchsets treat a detached daemon as online and queue the run
+  for its next poll.
+
+A daemon counts as online only if it was heard from within 90 s
+(`storage.DaemonStaleAfter`), whatever status the store holds. A connected
+daemon heartbeats every 15 s and a detached one polls every 30 s. This also
+fixes daemons that stayed "online" for ever when the instance that saw them
+leave stopped without closing its streams.
+
+What this does and does not do: the polls are short requests, about 0.2% of the
+time the stream was billed, so the bill falls to the cost of the polls. The
+instance itself stays warm, because Cloud Run keeps an idle instance for about
+15 minutes after its last request and a poll arrives every 30 s; an idle warm
+instance is not billed. Reaching zero instances needs something outside Cloud
+Run to wake the daemon (a Cloudflare Durable Object holding a hibernating
+WebSocket, rung by the server when a check is queued); that is not built.
+Agent daemons (conversations) keep their stream, as a chat needs it.
+
 ## Telling people a daemon is offline
 
 `CheckRun` gains `daemon_online` and `daemon_last_seen_at`, filled by

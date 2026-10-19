@@ -276,8 +276,10 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 	if refusal := d.ciDaemonRefusal(ctx, slice.Id, daemonID); refusal != "" {
 		return nil, status.Error(codes.FailedPrecondition, refusal)
 	}
-	conn, ok := d.hub.daemon(daemonID)
-	if !ok {
+	// A daemon that detached to wait on standby has no stream, but it is
+	// online and picks queued runs up when it next polls.
+	conn, connected := d.hub.daemon(daemonID)
+	if !connected && !d.daemonOnline(ctx, daemonID) {
 		return nil, status.Error(codes.FailedPrecondition, "slice CI daemon is not online")
 	}
 
@@ -325,10 +327,20 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		ServerAddr:   d.serverAddr,
 		Checks:       []*corev1.CheckRunSpec{checkRunSpecFromPlan(run.Id, spec, secrets)},
 	}}}
-	if !conn.trySend(msg) {
+	if connected && !conn.trySend(msg) {
 		return nil, status.Error(codes.FailedPrecondition, "slice CI daemon is not online")
 	}
 	return run, nil
+}
+
+// daemonOnline reports whether the store counts the daemon as online: seen
+// within storage.DaemonStaleAfter, connected or on standby.
+func (d *checkDispatcher) daemonOnline(ctx context.Context, daemonID string) bool {
+	if d == nil || d.Agents == nil {
+		return false
+	}
+	daemon, err := d.Agents.GetDaemon(ctx, daemonID)
+	return err == nil && daemon.GetStatus() == "online"
 }
 
 type changesetSubmitWithCheckStatuses interface {
