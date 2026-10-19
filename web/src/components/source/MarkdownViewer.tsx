@@ -138,7 +138,7 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
     return (
       <div className="p-4" onClick={followRelativeLink} ref={container}>
         <div
-          className="prose prose-slate prose-sm max-w-none [&_:not(pre)>code]:[overflow-wrap:anywhere] prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline prose-code:text-zinc-900 dark:prose-code:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100"
+          className="prose prose-slate dark:prose-invert prose-sm max-w-none [&_:not(pre)>code]:[overflow-wrap:anywhere] prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline prose-code:text-zinc-900 dark:prose-code:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100"
           dangerouslySetInnerHTML={{ __html: rendered.html }}
         />
       </div>
