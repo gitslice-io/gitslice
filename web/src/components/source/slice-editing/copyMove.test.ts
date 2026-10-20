@@ -4,9 +4,11 @@ import type { ApiClient } from "../../../api/useApi";
 
 import {
   accountOfPath,
+  completionTarget,
   destinationProblem,
   findDestinationSlice,
   intoFolder,
+  matchingFolders,
   resolveDestination
 } from "./copyMove";
 
@@ -117,5 +119,40 @@ describe("findDestinationSlice", () => {
     ]);
     expect(await findDestinationSlice(api, "/acme/docs")).toBeUndefined();
     expect(await findDestinationSlice(api, "/acme/other/x")).toBeUndefined();
+  });
+});
+
+describe("completionTarget", () => {
+  it("lists the typed folder, relative to the source's folder", () => {
+    expect(completionTarget("", file)).toEqual({ directory: "/src", head: "", prefix: "" });
+    expect(completionTarget("pk", file)).toEqual({ directory: "/src", head: "", prefix: "pk" });
+    expect(completionTarget("pkg/su", file)).toEqual({ directory: "/src/pkg", head: "pkg/", prefix: "su" });
+    expect(completionTarget("../docs/", file)).toEqual({ directory: "/docs", head: "../docs/", prefix: "" });
+  });
+
+  it("lists absolute folders from the root", () => {
+    expect(completionTarget("/", file)).toEqual({ directory: "/", head: "/", prefix: "" });
+    expect(completionTarget("/acme/do", file)).toEqual({ directory: "/acme", head: "/acme/", prefix: "do" });
+  });
+
+  it("gives up on a folder it can't resolve", () => {
+    expect(completionTarget("../../x", file)).toBeNull();
+  });
+});
+
+describe("matchingFolders", () => {
+  it("keeps folders whose names start with the prefix, ignoring case", () => {
+    expect(
+      matchingFolders(
+        [
+          { kind: "ENTRY_KIND_DIRECTORY", name: "pkg" },
+          { kind: "ENTRY_KIND_FILE", name: "pkg.go" },
+          { kind: "ENTRY_KIND_DIRECTORY", name: "Plugins" },
+          { kind: "ENTRY_KIND_DIRECTORY", name: "docs" },
+          { kind: "ENTRY_KIND_DIRECTORY", path: "/src/public" }
+        ],
+        "p"
+      )
+    ).toEqual(["pkg", "Plugins", "public"]);
   });
 });

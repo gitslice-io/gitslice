@@ -10,6 +10,7 @@ import { SliceDirectoryTable } from "./SliceDirectoryTable";
 
 const api = vi.hoisted(() => ({
   copyPath: vi.fn(),
+  listDirectory: vi.fn(),
   listSlices: vi.fn(),
   movePath: vi.fn(),
   resolvePath: vi.fn()
@@ -62,7 +63,7 @@ function openDialog(item: string) {
 }
 
 function submit(value: string, button: string) {
-  fireEvent.change(screen.getByRole("textbox"), { target: { value } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value } });
   fireEvent.click(screen.getByRole("button", { name: button }));
 }
 
@@ -77,6 +78,7 @@ beforeEach(() => {
   api.resolvePath.mockRejectedValue(notFound());
   api.copyPath.mockResolvedValue(landed("cs_copy"));
   api.movePath.mockResolvedValue(landed("cs_move"));
+  api.listDirectory.mockResolvedValue({ entries: [] });
 });
 afterEach(cleanup);
 
@@ -257,5 +259,115 @@ describe("copy to another slice or account", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/No slice you can edit/);
     expect(api.copyPath).not.toHaveBeenCalled();
+  });
+});
+
+describe("path suggestions", () => {
+  const folders: Record<string, string[]> = {
+    "/": ["acme", "nic"],
+    "/src": ["pkg", "plugins", "docs"],
+    "/src/plugins": ["auth", "billing"]
+  };
+
+  beforeEach(() => {
+    api.listDirectory.mockImplementation(async ({ path }: { path: string }) => ({
+      entries: [
+        ...(folders[path] ?? []).map((name) => ({ kind: "ENTRY_KIND_DIRECTORY", name })),
+        { kind: "ENTRY_KIND_FILE", name: "plan.md" }
+      ]
+    }));
+  });
+
+  function type(value: string) {
+    fireEvent.change(screen.getByRole("combobox"), { target: { value } });
+  }
+
+  function optionNames() {
+    return screen.queryAllByRole("option").map((option) => option.textContent);
+  }
+
+  it("suggests the folders at the level being typed, not files", async () => {
+    renderFile();
+    openDialog("Copy to…");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    type("p");
+
+    await screen.findByRole("listbox");
+    expect(optionNames()).toEqual(["pkg/", "plugins/"]);
+    expect(api.listDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "/src", slice: home })
+    );
+  });
+
+  it("completes the chosen folder from the keyboard and goes on to its folders", async () => {
+    renderFile();
+    openDialog("Move to…");
+    type("p");
+    await screen.findByRole("listbox");
+
+    const input = screen.getByRole("combobox");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(screen.getByRole("option", { name: "plugins/" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(input).toHaveValue("plugins/");
+    await waitFor(() => expect(optionNames()).toEqual(["auth/", "billing/"]));
+    expect(api.movePath).not.toHaveBeenCalled();
+  });
+
+  it("completes the first folder on Tab, and Enter still submits", async () => {
+    const onLanded = renderFile();
+    openDialog("Move to…");
+    type("p");
+    await screen.findByRole("listbox");
+
+    const input = screen.getByRole("combobox");
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(input).toHaveValue("pkg/");
+    await waitFor(() => expect(api.listDirectory).toHaveBeenCalledWith(expect.objectContaining({ path: "/src/pkg" })));
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+    await waitFor(() =>
+      expect(api.movePath).toHaveBeenCalledWith(expect.objectContaining({ destinationPath: "/src/pkg/a.go" }))
+    );
+    expect(onLanded).toHaveBeenCalled();
+  });
+
+  it("focuses the path with the name selected when it opens", async () => {
+    renderFile();
+    openDialog("Copy to…");
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+    await waitFor(() => expect(input).toHaveFocus());
+    expect([input.selectionStart, input.selectionEnd]).toEqual([5, 9]);
+  });
+
+  it("completes a folder picked with the mouse", async () => {
+    renderFile();
+    openDialog("Copy to…");
+    type("/src/");
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "pkg/" }));
+    expect(screen.getByRole("combobox")).toHaveValue("/src/pkg/");
+  });
+
+  it("closes the list on Escape and keeps the dialog open", async () => {
+    renderFile();
+    openDialog("Copy to…");
+    type("p");
+    await screen.findByRole("listbox");
+
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Escape" });
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("lists other accounts by repository path, outside this slice", async () => {
+    renderFile();
+    openDialog("Copy to…");
+    type("/");
+
+    await waitFor(() => expect(optionNames()).toEqual(["acme/", "nic/"]));
+    expect(api.listDirectory).toHaveBeenCalledWith({ commitId: "c1", pageSize: 500, path: "/" });
   });
 });

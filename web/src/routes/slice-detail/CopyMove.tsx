@@ -23,6 +23,7 @@ import {
   type CopyMoveSource,
 } from "../../components/source/slice-editing/copyMove";
 import { normalizeRepositoryPath } from "../../components/source/sourceUtils";
+import { PathCombobox } from "./PathCombobox";
 
 interface CopyMoveContextValue {
   request(mode: CopyMoveMode, source: CopyMoveSource): void;
@@ -138,6 +139,24 @@ export function CopyMoveDialog({
   const [busy, setBusy] = useState(false);
   const verb = mode === "copy" ? "Copy" : "Move";
   const kind = source.isDirectory ? "folder" : "file";
+
+  // Suggestions list a folder through this slice when it is inside it, and by
+  // repository path elsewhere, which shows the accounts and folders the viewer
+  // can read. A folder is inside the slice when a path below it is writable.
+  const listFolder = useCallback(
+    async (directory: string) => {
+      const inSlice =
+        slice && canModify(`${directory === "/" ? "" : directory}/_`);
+      const page = await api.listDirectory({
+        commitId,
+        pageSize: 500,
+        path: directory,
+        ...(inSlice ? { slice } : {}),
+      });
+      return page.entries ?? [];
+    },
+    [api, canModify, commitId, slice],
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -260,16 +279,13 @@ export function CopyMoveDialog({
       title={`${verb} ${kind}`}
     >
       <form className="space-y-3" onSubmit={submit}>
-        <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-zinc-300">
-          {verb} to
-          <input
-            autoFocus
-            className="h-10 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 font-mono text-sm text-zinc-950 dark:text-zinc-50 outline-none transition placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700"
-            onChange={(event) => setInput(event.target.value)}
-            spellCheck={false}
-            value={input}
-          />
-        </label>
+        <PathCombobox
+          label={`${verb} to`}
+          listFolder={listFolder}
+          onChange={setInput}
+          source={source}
+          value={input}
+        />
         <p className="text-xs text-slate-500 dark:text-zinc-400">
           Type the new path. End it with / (or name an existing folder) to put
           the {kind} inside that folder.

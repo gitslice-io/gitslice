@@ -62,6 +62,54 @@ export function resolveDestination(
   return { path: `/${parts.join("/")}`, into };
 }
 
+// completionTarget splits what has been typed into the folder to suggest
+// names from and the start of the name being typed. head is the typed text up
+// to the last slash, kept as typed so a completion only replaces the name. The
+// folder resolves as a destination does; it is null when it can't (a ".." above
+// the root, or a bad segment).
+export function completionTarget(
+  input: string,
+  source: CopyMoveSource
+): { directory: string; head: string; prefix: string } | null {
+  const raw = input.trimStart().replace(/\\/g, "/");
+  const slash = raw.lastIndexOf("/");
+  const head = raw.slice(0, slash + 1);
+  const prefix = raw.slice(slash + 1);
+  const parts = head.startsWith("/")
+    ? []
+    : normalizeRepositoryPath(parentRepositoryPath(source.path))
+        .split("/")
+        .filter(Boolean);
+  for (const segment of head.split("/")) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      if (!parts.length) {
+        return null;
+      }
+      parts.pop();
+      continue;
+    }
+    if (validateEntryName(segment)) {
+      return null;
+    }
+    parts.push(segment);
+  }
+  return { directory: `/${parts.join("/")}`, head, prefix };
+}
+
+// matchingFolders are the folder names in entries that start with prefix,
+// ignoring case, sorted.
+export function matchingFolders(entries: TreeEntry[], prefix: string) {
+  const wanted = prefix.toLowerCase();
+  return entries
+    .filter((entry) => entry.kind === "ENTRY_KIND_DIRECTORY")
+    .map((entry) => entry.name || repositoryPathName(entry.path ?? ""))
+    .filter((name) => name && name.toLowerCase().startsWith(wanted))
+    .sort((left, right) => left.localeCompare(right));
+}
+
 // destinationProblems checks a resolved destination against the source and the
 // slice, before anything is read from the server. It returns "" when fine.
 export function destinationProblem(options: {
