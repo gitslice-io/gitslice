@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { isDarkTheme, renderMermaid, svgDataUrl } from "../../lib/diagram";
-import { markRepoImages, resolveRepoLink } from "../../lib/repoLinks";
+import { markRepoImages, resolvePictures, resolveRepoLink } from "../../lib/repoLinks";
 import { sanitizeHtml } from "../../lib/sanitize";
+import { THEME_CHANGE_EVENT } from "../../theme";
 
 interface MarkdownRenderState {
   error: boolean;
@@ -33,6 +34,13 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
   });
   const imageDirectory = links?.directory;
   const imageRoot = links?.root;
+  // A <picture> shows the image for the site's theme, so a toggle re-renders.
+  const [dark, setDark] = useState(isDarkTheme);
+  useEffect(() => {
+    const sync = () => setDark(isDarkTheme());
+    window.addEventListener(THEME_CHANGE_EVENT, sync);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, sync);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -43,7 +51,7 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
       try {
         const { marked } = await import("marked");
         const parsed = marked(source, { async: false });
-        const sanitized = await sanitizeHtml(parsed);
+        const sanitized = resolvePictures(await sanitizeHtml(parsed), dark);
         // The browser must not request a repository image from the page's own
         // address, where it does not exist: mark it before it is inserted.
         const html = imageDirectory === undefined ? sanitized : markRepoImages(sanitized, imageDirectory, imageRoot);
@@ -63,7 +71,7 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
     return () => {
       active = false;
     };
-  }, [source, imageDirectory, imageRoot]);
+  }, [source, imageDirectory, imageRoot, dark]);
 
   const container = useRef<HTMLDivElement>(null);
   const linkDirectory = links?.directory;

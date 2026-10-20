@@ -91,3 +91,50 @@ export function markRepoImages(html: string, directory: string, root?: string | 
   }
   return changed ? doc.body.innerHTML : html;
 }
+
+// resolvePictures turns each <picture> of rendered markdown into its <img>,
+// showing the source the browser would pick, except that a
+// prefers-color-scheme source follows the site's theme rather than the
+// operating system's, as on GitHub: a README's dark-mode logo is for a dark
+// page. The <img> then goes through markRepoImages like any other image, which
+// a <source srcset> would not.
+export function resolvePictures(html: string, dark: boolean): string {
+  if (typeof DOMParser === "undefined" || !html.includes("<picture")) {
+    return html;
+  }
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  for (const picture of Array.from(doc.querySelectorAll("picture"))) {
+    const image = picture.querySelector("img");
+    const sources = Array.from(picture.querySelectorAll("source"));
+    const chosen = sources.find((source) => sourceMatches(source.getAttribute("media"), dark));
+    const url = chosen ? firstSrcsetUrl(chosen.getAttribute("srcset")) : "";
+    if (image && url) {
+      image.setAttribute("src", url);
+      image.removeAttribute("srcset");
+    }
+    for (const source of sources) {
+      source.remove();
+    }
+    if (image) {
+      picture.replaceWith(image);
+    }
+  }
+  return doc.body.innerHTML;
+}
+
+function sourceMatches(media: string | null, dark: boolean): boolean {
+  const query = (media ?? "").trim();
+  if (!query) {
+    return true;
+  }
+  const scheme = /prefers-color-scheme\s*:\s*(dark|light)/i.exec(query);
+  if (scheme) {
+    return (scheme[1].toLowerCase() === "dark") === dark;
+  }
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+}
+
+// firstSrcsetUrl is the first candidate's URL of a srcset ("a.png 1x, b.png 2x").
+function firstSrcsetUrl(srcset: string | null): string {
+  return (srcset ?? "").split(",")[0]?.trim().split(/\s+/)[0] ?? "";
+}

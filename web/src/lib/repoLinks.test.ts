@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { markRepoImages, projectRoot, resolveRepoImage, resolveRepoLink } from "./repoLinks";
+import { markRepoImages, projectRoot, resolvePictures, resolveRepoImage, resolveRepoLink } from "./repoLinks";
 
 describe("resolveRepoLink", () => {
   it("resolves links against the document's directory", () => {
@@ -114,5 +114,48 @@ describe("markRepoImages with a project root", () => {
   it("leaves a root-absolute image as it is when the document has no project", () => {
     const html = '<img src="/Imagens/a.png" alt="a">';
     expect(markRepoImages(html, "/x", null)).toBe(html);
+  });
+});
+
+describe("resolvePictures", () => {
+  const logo =
+    '<div><picture><source media="(prefers-color-scheme: dark)" srcset="img/Logo%20Dark.png">' +
+    '<img src="img/Logo%20Light.png" alt="Logo" width="360"></picture><h1>App</h1></div>';
+
+  it("shows the source for the site's theme as a plain img", () => {
+    const light = new DOMParser().parseFromString(resolvePictures(logo, false), "text/html");
+    const dark = new DOMParser().parseFromString(resolvePictures(logo, true), "text/html");
+
+    for (const doc of [light, dark]) {
+      expect(doc.querySelector("picture, source")).toBeNull();
+      expect(doc.querySelector("img")?.getAttribute("alt")).toBe("Logo");
+      expect(doc.querySelector("img")?.getAttribute("width")).toBe("360");
+    }
+    expect(light.querySelector("img")?.getAttribute("src")).toBe("img/Logo%20Light.png");
+    expect(dark.querySelector("img")?.getAttribute("src")).toBe("img/Logo%20Dark.png");
+  });
+
+  it("then loads the chosen image from the repository", () => {
+    const html = markRepoImages(resolvePictures(logo, true), "/acme/app");
+    const image = new DOMParser().parseFromString(html, "text/html").querySelector("img");
+    expect(image?.getAttribute("data-repo-image")).toBe("/acme/app/img/Logo Dark.png");
+    expect(image?.hasAttribute("src")).toBe(false);
+  });
+
+  it("takes the first srcset candidate, a source without media, and a light-scheme source", () => {
+    const pick = (html: string, dark: boolean) =>
+      new DOMParser().parseFromString(resolvePictures(html, dark), "text/html").querySelector("img")?.getAttribute("src");
+
+    expect(pick('<picture><source srcset="a.png 1x, a@2x.png 2x"><img src="b.png"></picture>', false)).toBe("a.png");
+    expect(
+      pick('<picture><source media="(prefers-color-scheme: light)" srcset="light.png"><img src="dark.png"></picture>', false)
+    ).toBe("light.png");
+    expect(
+      pick('<picture><source media="(prefers-color-scheme: light)" srcset="light.png"><img src="dark.png"></picture>', true)
+    ).toBe("dark.png");
+  });
+
+  it("leaves html without a picture as it is", () => {
+    expect(resolvePictures("<p><img src=a.png></p>", true)).toBe("<p><img src=a.png></p>");
   });
 });
