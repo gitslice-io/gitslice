@@ -1,6 +1,13 @@
-import type { SliceRef, TreeEntry } from "../../../api/types";
+import type { Slice, SliceRef, TreeEntry } from "../../../api/types";
 import type { ApiClient } from "../../../api/useApi";
-import { isPathNotFoundError, normalizeRepositoryPath } from "../sourceUtils";
+import {
+  isIncludedRoot,
+  isPathNotFoundError,
+  isPathWritable,
+  normalizeRepositoryPath
+} from "../sourceUtils";
+
+import { preparePendingFileEdits } from "./draftChangesetHelpers";
 
 import {
   joinRepositoryPath,
@@ -216,4 +223,88 @@ export async function existingEntry(
     }
     throw error;
   }
+}
+
+// accountOfPath is the account a repository path belongs to: its first folder.
+export function accountOfPath(path: string) {
+  return normalizeRepositoryPath(path).split("/").filter(Boolean)[0] ?? "";
+}
+
+const SLICE_PAGE_LIMIT = 20;
+
+// findDestinationSlice finds the slice of the destination's account that a
+// changeset editing path can go into: the most specific one whose included
+// paths cover it. A changeset edits one slice, so a copy or move that leaves
+// the current slice is staged in this one.
+export async function findDestinationSlice(
+  api: ApiClient,
+  destination: string
+): Promise<Slice | undefined> {
+  const account = accountOfPath(destination);
+  if (!account) {
+    return undefined;
+  }
+  let best: { slice: Slice; depth: number } | undefined;
+  let cursor = "";
+  for (let page = 0; page < SLICE_PAGE_LIMIT; page++) {
+    const response = await api.listSlices({ account, cursor, pageSize: 100 });
+    for (const slice of response.slices ?? []) {
+      const included = slice.definition?.includedPaths ?? [];
+      if (
+        slice.archived ||
+        !isPathWritable(included, destination) ||
+        isIncludedRoot(included, destination)
+      ) {
+        continue;
+      }
+      const depth = Math.max(
+        ...included
+          .filter((path) => isPathWritable([path], destination))
+          .map((path) => normalizeRepositoryPath(path).length)
+      );
+      if (!best || depth > best.depth) {
+        best = { slice, depth };
+      }
+    }
+    cursor = response.nextCursor ?? "";
+    if (!cursor) {
+      break;
+    }
+  }
+  return best?.slice;
+}
+
+// createChangesetWithEdits starts a draft changeset in slice holding edits and
+// returns its id, for edits that belong to a slice other than the one on screen.
+export async function createChangesetWithEdits(
+  api: ApiClient,
+  options: {
+    baseCommitId: string;
+    description: string;
+    edits: PendingEdit[];
+    slice: SliceRef;
+    title: string;
+  }
+): Promise<string> {
+  const changeset = await api.createChangeset({
+    authoringSlice: options.slice,
+    baseCommitId: options.baseCommitId,
+    description: options.description,
+    title: options.title
+  });
+  if (!changeset.id) {
+    throw new Error("CreateChangeset did not return a changeset id.");
+  }
+  const fileEdits = await preparePendingFileEdits(
+    api,
+    options.edits,
+    options.slice
+  );
+  await api.updateChangeset({
+    baseCommitId: options.baseCommitId,
+    changesetId: changeset.id,
+    expectedCurrentPatchsetId: changeset.currentPatchsetId ?? "",
+    fileEdits
+  });
+  return changeset.id;
 }

@@ -6,7 +6,9 @@ import type { ApiClient } from "../../../api/useApi";
 import {
   COPY_ENTRY_LIMIT,
   CopyTooLargeError,
+  accountOfPath,
   destinationProblem,
+  findDestinationSlice,
   intoFolder,
   planCopy,
   planMove,
@@ -189,5 +191,43 @@ describe("readCopySource", () => {
     await expect(
       readCopySource(fakeApi(listDirectory), { commitId: "c1", source: folder })
     ).rejects.toBeInstanceOf(CopyTooLargeError);
+  });
+});
+
+describe("findDestinationSlice", () => {
+  const slice = (name: string, included: string[], archived = false) => ({
+    archived,
+    ref: { account: "acme", slice: name },
+    definition: { includedPaths: included }
+  });
+
+  function apiWith(pages: unknown[]) {
+    const listSlices = vi.fn();
+    pages.forEach((page) => listSlices.mockResolvedValueOnce(page));
+    return { api: { listSlices } as unknown as ApiClient, listSlices };
+  }
+
+  it("takes the account from the path's first folder", () => {
+    expect(accountOfPath("/acme/docs/x")).toBe("acme");
+    expect(accountOfPath("/")).toBe("");
+  });
+
+  it("picks the most specific slice across pages, skipping archived ones", async () => {
+    const { api, listSlices } = apiWith([
+      { slices: [slice("acme", ["/acme"])], nextCursor: "p2" },
+      { slices: [slice("docs", ["/acme/docs"]), slice("old", ["/acme/docs/x"], true)] }
+    ]);
+    const found = await findDestinationSlice(api, "/acme/docs/x/y.md");
+    expect(found?.ref?.slice).toBe("docs");
+    expect(listSlices).toHaveBeenCalledTimes(2);
+  });
+
+  it("finds nothing for a slice's own root or an uncovered path", async () => {
+    const { api } = apiWith([
+      { slices: [slice("docs", ["/acme/docs"])] },
+      { slices: [slice("docs", ["/acme/docs"])] }
+    ]);
+    expect(await findDestinationSlice(api, "/acme/docs")).toBeUndefined();
+    expect(await findDestinationSlice(api, "/acme/other/x")).toBeUndefined();
   });
 });

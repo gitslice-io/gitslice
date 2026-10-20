@@ -267,6 +267,13 @@ export function SliceDetailPage() {
     }
   }
 
+  function openChangeset(id: string) {
+    void navigate({
+      params: { id: shortChangesetId(id) } as never,
+      to: "/cs/$id",
+    });
+  }
+
   async function stagePendingEdit(edit: PendingEdit | PendingEdit[]) {
     if (!canEdit || !sliceRouteParams) {
       return;
@@ -507,9 +514,14 @@ export function SliceDetailPage() {
               {canEdit ? (
                 <CopyMoveProvider
                   canModify={(path) => canModifyPath(includedPaths, path)}
+                  canWriteAccount={(name) =>
+                    canWrite(membershipFor(memberships, name))
+                  }
                   commitId={commitId}
+                  openChangeset={openChangeset}
                   slice={sliceRef}
                   stage={stagePendingEdit}
+                  stageQuietly={draftChangeset.stageEditAndPersist}
                 >
                   {workspace}
                 </CopyMoveProvider>

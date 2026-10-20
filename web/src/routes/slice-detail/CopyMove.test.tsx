@@ -9,8 +9,12 @@ import { EditableFileView } from "./EditableFileView";
 import { SliceDirectoryTable } from "./SliceDirectoryTable";
 
 const api = vi.hoisted(() => ({
+  createChangeset: vi.fn(),
   listDirectory: vi.fn(),
-  resolvePath: vi.fn()
+  listSlices: vi.fn(),
+  resolvePath: vi.fn(),
+  updateChangeset: vi.fn(),
+  uploadBlob: vi.fn()
 }));
 
 vi.mock("../../api/useApi", () => ({ useApi: () => api }));
@@ -46,8 +50,9 @@ function openDialog(item: string) {
 }
 
 beforeEach(() => {
-  api.listDirectory.mockReset();
-  api.resolvePath.mockReset();
+  for (const fn of Object.values(api)) {
+    fn.mockReset();
+  }
 });
 afterEach(cleanup);
 
@@ -106,12 +111,13 @@ describe("copy and move menus", () => {
 describe("copy and move dialog", () => {
   it("moves to a new path with one rename", async () => {
     api.resolvePath.mockRejectedValue(notFound());
+    api.listSlices.mockResolvedValue({ slices: [] });
     const stage = renderFile();
     openDialog("Move to…");
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "/lib/b.go" } });
     fireEvent.click(screen.getByRole("button", { name: "Move" }));
-    // lib is outside the included /src, so it is refused before any request.
-    expect(await screen.findByRole("alert")).toHaveTextContent(/outside/);
+    // No slice includes /lib, so there is nowhere to stage it.
+    expect(await screen.findByRole("alert")).toHaveTextContent(/No slice you can edit/);
     expect(stage).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "b.go" } });
@@ -213,5 +219,135 @@ describe("copy and move dialog", () => {
         { kind: "write", path: "/src/pkg2/x.go", isNew: true, blobId: "b", contentHash: "h" }
       ])
     );
+  });
+});
+
+describe("copy and move to another slice or account", () => {
+  const sourceEntry = {
+    path: "/src/a.go",
+    kind: "ENTRY_KIND_FILE",
+    blobId: "blob1",
+    contentHash: "hash1"
+  };
+  const acme = {
+    ref: { account: "acme", slice: "acme" },
+    definition: { includedPaths: ["/acme"] }
+  };
+
+  function renderWith(options: {
+    canWriteAccount?: (account: string) => boolean;
+    stageQuietly?: (edits: unknown[]) => Promise<string>;
+  }) {
+    const openChangeset = vi.fn();
+    const stage = vi.fn();
+    render(
+      <CopyMoveProvider
+        canModify={canModify}
+        canWriteAccount={options.canWriteAccount ?? (() => true)}
+        commitId="c1"
+        openChangeset={openChangeset}
+        slice={{ account: "nic", slice: "nic" }}
+        stage={stage}
+        stageQuietly={options.stageQuietly as never}
+      >
+        <EditableFileView
+          commitId="commit_12345678"
+          fileContent="package a"
+          fileData=""
+          includedPaths={included}
+          onOpenHistory={vi.fn()}
+          onStageEdit={vi.fn()}
+          pendingEdits={[]}
+          selectedPath="/src/a.go"
+        />
+      </CopyMoveProvider>
+    );
+    return { openChangeset, stage };
+  }
+
+  beforeEach(() => {
+    api.resolvePath.mockImplementation(async ({ path }: { path: string }) => {
+      if (path === "/src/a.go") {
+        return { entry: sourceEntry };
+      }
+      throw notFound();
+    });
+    api.listSlices.mockResolvedValue({ slices: [acme] });
+    api.createChangeset.mockResolvedValue({ id: "cs_copy", currentPatchsetId: "ps1" });
+    api.updateChangeset.mockResolvedValue({ id: "ps2" });
+  });
+
+  it("copies into a changeset of the other account's slice", async () => {
+    const { openChangeset, stage } = renderWith({});
+    openDialog("Copy to…");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open the copy" }));
+    expect(openChangeset).toHaveBeenCalledWith("cs_copy");
+    expect(stage).not.toHaveBeenCalled();
+    expect(api.listSlices).toHaveBeenCalledWith(
+      expect.objectContaining({ account: "acme" })
+    );
+    expect(api.createChangeset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authoringSlice: { account: "acme", slice: "acme" },
+        baseCommitId: "c1"
+      })
+    );
+    expect(api.updateChangeset).toHaveBeenCalledWith({
+      baseCommitId: "c1",
+      changesetId: "cs_copy",
+      expectedCurrentPatchsetId: "ps1",
+      fileEdits: [
+        { op: "add", path: "/acme/docs/a.go", blobId: "blob1", contentHash: "hash1" }
+      ]
+    });
+  });
+
+  it("moves by copying there and staging the delete here", async () => {
+    const stageQuietly = vi.fn().mockResolvedValue("cs_delete");
+    const { openChangeset } = renderWith({ stageQuietly });
+    openDialog("Move to…");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
+    fireEvent.click(screen.getByRole("button", { name: "Move" }));
+
+    const deleteLink = await screen.findByRole("button", { name: "Open the delete" });
+    expect(screen.getByRole("button", { name: "Open the copy" })).toBeInTheDocument();
+    fireEvent.click(deleteLink);
+    expect(stageQuietly).toHaveBeenCalledWith([{ kind: "delete", path: "/src/a.go" }]);
+    expect(openChangeset).toHaveBeenCalledWith("cs_delete");
+  });
+
+  it("says so when the delete could not be staged after the copy was", async () => {
+    const stageQuietly = vi.fn().mockRejectedValue(new Error("save failed"));
+    renderWith({ stageQuietly });
+    openDialog("Move to…");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
+    fireEvent.click(screen.getByRole("button", { name: "Move" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/save failed/);
+    expect(screen.getByRole("button", { name: "Open the copy" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open the delete" })).not.toBeInTheDocument();
+  });
+
+  it("refuses an account the viewer can't write to, creating nothing", async () => {
+    renderWith({ canWriteAccount: () => false });
+    openDialog("Copy to…");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/can't change files in acme/);
+    expect(api.createChangeset).not.toHaveBeenCalled();
+  });
+
+  it("does not offer a path only the slice's root names", async () => {
+    renderWith({});
+    openDialog("Copy to…");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme" } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/No slice you can edit/);
+    expect(api.createChangeset).not.toHaveBeenCalled();
   });
 });
