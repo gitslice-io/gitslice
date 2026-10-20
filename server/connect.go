@@ -398,6 +398,14 @@ func (a connectChangesetAdapter) AbandonChangeset(ctx context.Context, req *conn
 	return connectResponse(a.svc.AbandonChangeset(ctx, req.Msg))
 }
 
+func (a connectChangesetAdapter) CopyPath(ctx context.Context, req *connect.Request[corev1.CopyPathRequest]) (*connect.Response[corev1.PathOperationResponse], error) {
+	return connectResponse(a.svc.CopyPath(ctx, req.Msg))
+}
+
+func (a connectChangesetAdapter) MovePath(ctx context.Context, req *connect.Request[corev1.MovePathRequest]) (*connect.Response[corev1.PathOperationResponse], error) {
+	return connectResponse(a.svc.MovePath(ctx, req.Msg))
+}
+
 type connectStackAdapter struct {
 	svc *service.ChangesetStackService
 }

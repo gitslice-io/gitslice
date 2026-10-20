@@ -333,6 +333,37 @@ func moveCurrentPathEntityTx(ctx context.Context, tx *sql.Tx, targetRef, oldPath
 	return upsertCurrentPathEntityTx(ctx, tx, targetRef, entity)
 }
 
+// copyCurrentPathEntitiesTx copies the flat index rows at oldPath and under it
+// to newPath, each as a new entity of accountID created in commitID. It is
+// two set-based statements whatever the size of the copied folder, the same
+// work a folder rename does in moveCurrentPathEntityTx.
+func copyCurrentPathEntitiesTx(ctx context.Context, tx *sql.Tx, targetRef, oldPath, newPath, accountID, commitID string) error {
+	_, err := tx.ExecContext(ctx, `
+		with source as (
+			select $4 || substring(path from length($2) + 1) as path,
+			       'ent_' || md5(random()::text || clock_timestamp()::text || path) as entity_id,
+			       kind, content_hash, mode
+			from current_path_entities
+			where target_ref = $1
+			  and (path = $2 or path like $3 escape '\')
+		),
+		entities as (
+			insert into fs_entities(account_id, entity_id, kind, created_commit_id)
+			select $5, entity_id, kind, $6 from source
+		)
+		insert into current_path_entities(target_ref, path, account_id, entity_id, kind, content_hash, mode, updated_at)
+		select $1, path, $5, entity_id, kind, content_hash, mode, now() from source
+		on conflict (target_ref, path) do update
+		set account_id = excluded.account_id,
+		    entity_id = excluded.entity_id,
+		    kind = excluded.kind,
+		    content_hash = excluded.content_hash,
+		    mode = excluded.mode,
+		    updated_at = now()
+	`, targetRef, oldPath, likePrefixPattern(oldPath), newPath, accountID, commitID)
+	return err
+}
+
 func markEntityDeletedTx(ctx context.Context, tx *sql.Tx, entity pathEntity, commitID string) error {
 	_, err := tx.ExecContext(ctx, `
 		update fs_entities

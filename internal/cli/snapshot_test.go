@@ -43,3 +43,27 @@ func TestApplyFileEditsToSnapshotReplaysStackAncestorEdits(t *testing.T) {
 		t.Fatalf("added snapshot file = %#v", added)
 	}
 }
+
+func TestApplyFileEditsToSnapshotCopiesKeepTheSource(t *testing.T) {
+	ws := WorkspaceConfig{Account: "acme", Slice: "payment", IncludedPaths: []string{"/acme/payment"}}
+	base := BaseSnapshot{Files: map[string]BaseSnapshotFile{
+		"/acme/payment/lib/a.go":     {Path: "/acme/payment/lib/a.go", RelPath: "acme/payment/lib/a.go", ContentHash: "sha256:a", Mode: 0o100644},
+		"/acme/payment/lib/sub/b.sh": {Path: "/acme/payment/lib/sub/b.sh", RelPath: "acme/payment/lib/sub/b.sh", ContentHash: "sha256:b", Mode: 0o100755},
+		"/acme/payment/library.go":   {Path: "/acme/payment/library.go", RelPath: "acme/payment/library.go", ContentHash: "sha256:l", Mode: 0o100644},
+	}}
+	edits := []*corev1.FileEdit{{Op: "copy", OldPath: "/acme/payment/lib", Path: "/acme/payment/vendor/lib"}}
+
+	if err := applyFileEditsToSnapshot(ws, &base, edits); err != nil {
+		t.Fatal(err)
+	}
+	if len(base.Files) != 5 {
+		t.Fatalf("snapshot has %d files, want the 3 originals and 2 copies: %#v", len(base.Files), base.Files)
+	}
+	copied := base.Files["/acme/payment/vendor/lib/sub/b.sh"]
+	if copied.ContentHash != "sha256:b" || copied.Mode != 0o100755 || copied.RelPath != "acme/payment/vendor/lib/sub/b.sh" {
+		t.Fatalf("copied snapshot file = %#v", copied)
+	}
+	if _, ok := base.Files["/acme/payment/lib/a.go"]; !ok {
+		t.Fatal("copy removed its source")
+	}
+}

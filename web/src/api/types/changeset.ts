@@ -302,6 +302,26 @@ export interface SubmitChangesetResponse {
   changesetHandle?: string;
 }
 
+export interface CopyPathRequest {
+  // The slice the copy lands in; destinationPath must be inside it.
+  slice?: SliceRef;
+  sourcePath?: string;
+  destinationPath?: string;
+  // The slice the source is read through when it is outside slice.
+  sourceSlice?: SliceRef;
+}
+
+export interface MovePathRequest {
+  slice?: SliceRef;
+  sourcePath?: string;
+  destinationPath?: string;
+}
+
+export interface PathOperationResponse {
+  changeset?: Changeset;
+  commitId?: string;
+}
+
 export interface AbandonChangesetRequest {
   changesetId?: string;
   reason?: string;

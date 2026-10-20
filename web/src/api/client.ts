@@ -211,6 +211,14 @@ export function createApiClient({
       ),
     abandonChangeset: (request) =>
       unary<Api.Empty>(() => changeset.abandonChangeset(toProtoRequest(request))),
+    copyPath: (request) =>
+      unary<Api.PathOperationResponse>(() =>
+        changeset.copyPath(toProtoRequest(request), { timeoutMs: 300000 })
+      ),
+    movePath: (request) =>
+      unary<Api.PathOperationResponse>(() =>
+        changeset.movePath(toProtoRequest(request), { timeoutMs: 300000 })
+      ),
     listCheckRuns: (request) =>
       unary<Api.ListCheckRunsResponse>(() =>
         check.listCheckRuns(toProtoRequest(request))

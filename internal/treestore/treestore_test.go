@@ -310,6 +310,51 @@ func TestRenameAndDelete(t *testing.T) {
 	}
 }
 
+func TestCopySharesTheSourceTree(t *testing.T) {
+	ctx := context.Background()
+	store := New(newMemoryObjectStore())
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), []FileEdit{
+		{Op: "upsert", Path: "/acme/lib/a.go", File: &FileEntry{Path: "/acme/lib/a.go", BlobID: "blob-a", ContentHash: "sha256:a", Mode: 0o100755, Size: 1}},
+		{Op: "upsert", Path: "/acme/lib/sub/b.go", File: &FileEntry{Path: "/acme/lib/sub/b.go", BlobID: "blob-b", ContentHash: "sha256:b", Mode: 0o100644, Size: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = store.ApplyEdits(ctx, root, []FileEdit{
+		{Op: "copy", OldPath: "/acme/lib", Path: "/acme/vendor/lib"},
+		{Op: "copy", OldPath: "/acme/lib/a.go", Path: "/acme/a-copy.go"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/acme/lib/a.go", "/acme/lib/sub/b.go", "/acme/vendor/lib/a.go", "/acme/vendor/lib/sub/b.go", "/acme/a-copy.go"} {
+		if _, err := store.GetFile(ctx, root, p); err != nil {
+			t.Fatalf("GetFile(%s): %v", p, err)
+		}
+	}
+	copied, err := store.GetFile(ctx, root, "/acme/a-copy.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.BlobID != "blob-a" || copied.Mode != 0o100755 {
+		t.Fatalf("copied file = %#v, want blob-a with mode 100755", copied)
+	}
+	src, err := store.entryAt(ctx, root, []string{"acme", "lib"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := store.entryAt(ctx, root, []string{"acme", "vendor", "lib"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.TreeID != dst.TreeID {
+		t.Fatalf("copied folder tree %s, want the source's %s", dst.TreeID, src.TreeID)
+	}
+	if _, err := store.ApplyEdits(ctx, root, []FileEdit{{Op: "copy", OldPath: "/acme/missing", Path: "/acme/x"}}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("copy of a missing path err = %v, want ErrNotFound", err)
+	}
+}
+
 type memoryObjectStore struct {
 	mu      sync.Mutex
 	objects map[string][]byte

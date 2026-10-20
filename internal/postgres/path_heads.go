@@ -103,6 +103,8 @@ func pathHeadRefreshTargetsForEdits(edits []*corev1.FileEdit) []pathHeadRefreshT
 		case "rename":
 			addPathHeadRefreshPath(seen, edit.OldPath, true, true)
 			addPathHeadRefreshPath(seen, edit.Path, true, true)
+		case "copy":
+			addPathHeadRefreshPath(seen, edit.Path, true, true)
 		default:
 			addPathHeadRefreshPath(seen, edit.Path, false, false)
 		}
@@ -134,7 +136,7 @@ func applyPathHeadEditsTx(ctx context.Context, tx *sql.Tx, changesetID, patchset
 	paths := make([]string, 0, len(edits)*2)
 	for _, edit := range edits {
 		paths = append(paths, edit.Path)
-		if edit.Op == "rename" {
+		if edit.Op == "rename" || edit.Op == "copy" {
 			paths = append(paths, edit.OldPath)
 		}
 	}
@@ -175,6 +177,13 @@ func applyPathHeadEditsTx(ctx context.Context, tx *sql.Tx, changesetID, patchset
 				Exists:           false,
 				EntryFingerprint: MissingEntryFingerprint(),
 			})
+			head.Path = edit.Path
+			setHead(head)
+		case "copy":
+			head, ok := heads[edit.OldPath]
+			if !ok || !head.Exists {
+				return ErrConflict
+			}
 			head.Path = edit.Path
 			setHead(head)
 		default:

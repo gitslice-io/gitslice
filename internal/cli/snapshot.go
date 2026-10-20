@@ -224,6 +224,10 @@ func applyFileEditsToSnapshot(ws WorkspaceConfig, base *BaseSnapshot, edits []*c
 			if err := renameSnapshotPath(ws, base.Files, edit.OldPath, edit.Path); err != nil {
 				return err
 			}
+		case "copy":
+			if err := copySnapshotPath(ws, base.Files, edit.OldPath, edit.Path); err != nil {
+				return err
+			}
 		case "mkdir":
 			continue
 		default:
@@ -279,6 +283,35 @@ func renameSnapshotPath(ws WorkspaceConfig, files map[string]BaseSnapshotFile, o
 		file.Path = nextPath
 		file.RelPath = rel
 		files[nextPath] = file
+	}
+	return nil
+}
+
+// copySnapshotPath copies the file at oldPath, or every file under it, to
+// newPath, leaving the originals.
+func copySnapshotPath(ws WorkspaceConfig, files map[string]BaseSnapshotFile, oldPath, newPath string) error {
+	oldPrefix := strings.TrimRight(oldPath, "/") + "/"
+	copies := map[string]BaseSnapshotFile{}
+	for existing, file := range files {
+		nextPath := ""
+		switch {
+		case existing == oldPath:
+			nextPath = newPath
+		case strings.HasPrefix(existing, oldPrefix):
+			nextPath = strings.TrimRight(newPath, "/") + strings.TrimPrefix(existing, strings.TrimRight(oldPath, "/"))
+		default:
+			continue
+		}
+		rel, err := workspaceRelPath(ws, nextPath)
+		if err != nil {
+			return err
+		}
+		file.Path = nextPath
+		file.RelPath = rel
+		copies[nextPath] = file
+	}
+	for p, file := range copies {
+		files[p] = file
 	}
 	return nil
 }

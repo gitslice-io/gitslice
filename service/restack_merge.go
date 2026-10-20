@@ -77,7 +77,7 @@ func (s *ChangesetStackService) rebaseEdits(ctx context.Context, cs *corev1.Chan
 		switch edit.GetOp() {
 		case "mkdir":
 			edits = append(edits, edit)
-		case "rename":
+		case "rename", "copy":
 			oldChanged, err := changedUpstream(edit.GetOldPath())
 			if err != nil {
 				return nil, nil, err

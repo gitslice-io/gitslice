@@ -14,7 +14,17 @@ import (
 )
 
 func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slice, baseCommitID, baseTreeID string, edits []*corev1.FileEdit, requireBlob bool) (*corev1.ValidateWorkspaceDiffResponse, error) {
+	return v.validateFileEditsReading(ctx, slice, baseCommitID, baseTreeID, edits, requireBlob, nil)
+}
+
+// validateFileEditsReading is validateFileEdits where a copy may also read
+// from readablePaths, prefixes outside the slice that the caller has already
+// authorized for reading. A copy's source is read, not changed: it gets a path
+// base, so the submit conflicts if the source changed, but it is not among the
+// changed paths the slice must cover.
+func (v diffValidator) validateFileEditsReading(ctx context.Context, slice *corev1.Slice, baseCommitID, baseTreeID string, edits []*corev1.FileEdit, requireBlob bool, readablePaths []string) (*corev1.ValidateWorkspaceDiffResponse, error) {
 	changed := map[string]struct{}{}
+	readOnly := map[string]struct{}{}
 	normalizedEdits := make([]*corev1.FileEdit, len(edits))
 	for i, edit := range edits {
 		normalized, err := normalizeEdit(edit, requireBlob)
@@ -43,6 +53,17 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		edit.BlobId = normalized.BlobId
 		edit.ContentHash = normalized.ContentHash
 		edit.Mode = normalized.Mode
+		if edit.Op == "copy" {
+			if !paths.InAnyPrefix(slice.Definition.IncludedPaths, edit.OldPath) && !paths.InAnyPrefix(readablePaths, edit.OldPath) {
+				return nil, status.Errorf(codes.FailedPrecondition, "copy source %s is outside slice %s/%s", edit.OldPath, slice.Ref.Account, slice.Ref.Slice)
+			}
+			readOnly[edit.OldPath] = struct{}{}
+			if !paths.InAnyPrefix(slice.Definition.IncludedPaths, edit.Path) {
+				return nil, status.Errorf(codes.FailedPrecondition, "path %s is outside slice %s/%s", edit.Path, slice.Ref.Account, slice.Ref.Slice)
+			}
+			changed[edit.Path] = struct{}{}
+			continue
+		}
 		for _, p := range editPaths(edit) {
 			if !paths.InAnyPrefix(slice.Definition.IncludedPaths, p) {
 				return nil, status.Errorf(codes.FailedPrecondition, "path %s is outside slice %s/%s", p, slice.Ref.Account, slice.Ref.Slice)
@@ -55,6 +76,13 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		affected = append(affected, p)
 	}
 	sort.Strings(affected)
+	var readOnlyPaths []string
+	for p := range readOnly {
+		if _, written := changed[p]; !written {
+			readOnlyPaths = append(readOnlyPaths, p)
+		}
+	}
+	sort.Strings(readOnlyPaths)
 	coverageByPath, err := v.Slices.CoveringIDsByPath(ctx, affected)
 	if err != nil {
 		return nil, grpcError(err)
@@ -72,6 +100,17 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 		pathBases = append(pathBases, base)
 		readSet = append(readSet, &corev1.PathSetEntry{Path: p})
 		writeSet = append(writeSet, &corev1.PathSetEntry{Path: p})
+	}
+	for _, p := range readOnlyPaths {
+		base, err := v.pathBase(ctx, baseCommitID, baseTreeID, p)
+		if err != nil {
+			return nil, err
+		}
+		if !base.Exists {
+			return nil, status.Errorf(codes.FailedPrecondition, "copy source %s does not exist", p)
+		}
+		pathBases = append(pathBases, base)
+		readSet = append(readSet, &corev1.PathSetEntry{Path: p})
 	}
 	return &corev1.ValidateWorkspaceDiffResponse{
 		AffectedPaths: affected,
@@ -96,7 +135,7 @@ func (v diffValidator) validateFileEdits(ctx context.Context, slice *corev1.Slic
 func (v diffValidator) hydrateBlobsMetadata(ctx context.Context, edits []*corev1.FileEdit) error {
 	var ids []string
 	for _, edit := range edits {
-		if edit != nil && edit.Op != "delete" && edit.Op != "rename" && edit.Op != "mkdir" {
+		if edit != nil && !editHasNoBlob(edit.Op) {
 			ids = append(ids, edit.BlobId)
 		}
 	}
@@ -105,7 +144,7 @@ func (v diffValidator) hydrateBlobsMetadata(ctx context.Context, edits []*corev1
 		return grpcError(err)
 	}
 	for _, edit := range edits {
-		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.Op == "mkdir" {
+		if edit == nil || editHasNoBlob(edit.Op) {
 			continue
 		}
 		blob := blobs[edit.BlobId]
@@ -181,21 +220,21 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 	switch out.Op {
 	case "add", "update":
 		out.Op = "upsert"
-	case "upsert", "delete", "rename", "mkdir":
+	case "upsert", "delete", "rename", "copy", "mkdir":
 	default:
 		return nil, fmt.Errorf("unsupported file edit op %q", out.Op)
 	}
-	if out.Op == "rename" {
+	if out.Op == "rename" || out.Op == "copy" {
 		if out.OldPath == "" {
-			return nil, fmt.Errorf("old path is required for rename edit")
+			return nil, fmt.Errorf("old path is required for %s edit", out.Op)
 		}
 		if out.Path == "" {
-			return nil, fmt.Errorf("path is required for rename edit")
+			return nil, fmt.Errorf("path is required for %s edit", out.Op)
 		}
 	} else if out.Path == "" {
 		return nil, fmt.Errorf("path is required for %s edit", out.Op)
 	} else if out.OldPath != "" {
-		return nil, fmt.Errorf("old path is only supported for rename edits")
+		return nil, fmt.Errorf("old path is only supported for rename and copy edits")
 	}
 	if out.Path != "" {
 		p, err := paths.Canonical(out.Path)
@@ -211,13 +250,16 @@ func normalizeEdit(edit *corev1.FileEdit, requireBlob bool) (*corev1.FileEdit, e
 		}
 		out.OldPath = p
 	}
-	if out.Op == "rename" && out.Path == out.OldPath {
-		return nil, fmt.Errorf("rename source and destination must differ")
+	if (out.Op == "rename" || out.Op == "copy") && out.Path == out.OldPath {
+		return nil, fmt.Errorf("%s source and destination must differ", out.Op)
 	}
-	if requireBlob && out.Op != "delete" && out.Op != "rename" && out.Op != "mkdir" && out.BlobId == "" {
+	if out.Op == "copy" && paths.InAnyPrefix([]string{out.OldPath}, out.Path) {
+		return nil, fmt.Errorf("can't copy %s into itself", out.OldPath)
+	}
+	if requireBlob && !editHasNoBlob(out.Op) && out.BlobId == "" {
 		return nil, fmt.Errorf("blob id is required for %s edit on %s", out.Op, out.Path)
 	}
-	if out.Mode == 0 && out.Op != "delete" && out.Op != "mkdir" {
+	if out.Mode == 0 && out.Op != "delete" && out.Op != "mkdir" && out.Op != "copy" {
 		out.Mode = 0o100644
 	}
 	return out, nil
@@ -232,4 +274,14 @@ func editPaths(edit *corev1.FileEdit) []string {
 		out = append(out, edit.OldPath)
 	}
 	return out
+}
+
+// editHasNoBlob reports whether an edit op carries no file content of its own:
+// it removes, makes or relocates entries already in the tree.
+func editHasNoBlob(op string) bool {
+	switch op {
+	case "delete", "rename", "copy", "mkdir":
+		return true
+	}
+	return false
 }

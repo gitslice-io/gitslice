@@ -16,6 +16,12 @@ service ChangesetService {
   rpc ReportCheckResult(ReportCheckResultRequest) returns (ReportCheckResultResponse);
   rpc SubmitChangeset(SubmitChangesetRequest) returns (SubmitChangesetResponse);
   rpc AbandonChangeset(AbandonChangesetRequest) returns (Empty);
+  // CopyPath and MovePath copy or move a file or folder and land it at once,
+  // as a changeset of its own that skips the slice's required approvals and
+  // checks. Each is one tree edit, so it costs the same for a folder of any
+  // size. The response comes once the commit is published.
+  rpc CopyPath(CopyPathRequest) returns (PathOperationResponse);
+  rpc MovePath(MovePathRequest) returns (PathOperationResponse);
 }
 
 service ChangesetStackService {
@@ -116,6 +122,9 @@ message ChangesetStackEntry {
 }
 
 message FileEdit {
+  // add, update or upsert (with blob_id), delete, mkdir, rename (old_path to
+  // path) or copy (old_path to path, keeping old_path; the new path shares
+  // the old one's file or tree).
   string op = 1;
   string path = 2;
   string old_path = 3;
@@ -284,6 +293,28 @@ message SubmitChangesetResponse {
   string status = 4;
   string pending_publish_id = 5;
   string changeset_handle = 6;
+}
+
+message CopyPathRequest {
+  // The slice the copy lands in; destination_path must be inside it.
+  SliceRef slice = 1;
+  string source_path = 2;
+  string destination_path = 3;
+  // The slice the source is read through when it is outside slice, such as a
+  // slice of another account; the caller needs read access to it.
+  SliceRef source_slice = 4;
+}
+
+message MovePathRequest {
+  // The slice holding both paths; a move can't leave its slice.
+  SliceRef slice = 1;
+  string source_path = 2;
+  string destination_path = 3;
+}
+
+message PathOperationResponse {
+  Changeset changeset = 1;
+  string commit_id = 2;
 }
 
 message AbandonChangesetRequest {

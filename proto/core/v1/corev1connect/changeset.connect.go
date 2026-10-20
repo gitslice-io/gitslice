@@ -62,6 +62,12 @@ const (
 	// ChangesetServiceAbandonChangesetProcedure is the fully-qualified name of the ChangesetService's
 	// AbandonChangeset RPC.
 	ChangesetServiceAbandonChangesetProcedure = "/gitslice.core.v1.ChangesetService/AbandonChangeset"
+	// ChangesetServiceCopyPathProcedure is the fully-qualified name of the ChangesetService's CopyPath
+	// RPC.
+	ChangesetServiceCopyPathProcedure = "/gitslice.core.v1.ChangesetService/CopyPath"
+	// ChangesetServiceMovePathProcedure is the fully-qualified name of the ChangesetService's MovePath
+	// RPC.
+	ChangesetServiceMovePathProcedure = "/gitslice.core.v1.ChangesetService/MovePath"
 	// ChangesetStackServiceCreateStackProcedure is the fully-qualified name of the
 	// ChangesetStackService's CreateStack RPC.
 	ChangesetStackServiceCreateStackProcedure = "/gitslice.core.v1.ChangesetStackService/CreateStack"
@@ -102,6 +108,12 @@ type ChangesetServiceClient interface {
 	ReportCheckResult(context.Context, *connect.Request[v1.ReportCheckResultRequest]) (*connect.Response[v1.ReportCheckResultResponse], error)
 	SubmitChangeset(context.Context, *connect.Request[v1.SubmitChangesetRequest]) (*connect.Response[v1.SubmitChangesetResponse], error)
 	AbandonChangeset(context.Context, *connect.Request[v1.AbandonChangesetRequest]) (*connect.Response[v1.Empty], error)
+	// CopyPath and MovePath copy or move a file or folder and land it at once,
+	// as a changeset of its own that skips the slice's required approvals and
+	// checks. Each is one tree edit, so it costs the same for a folder of any
+	// size. The response comes once the commit is published.
+	CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error)
+	MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 }
 
 // NewChangesetServiceClient constructs a client for the gitslice.core.v1.ChangesetService service.
@@ -169,6 +181,18 @@ func NewChangesetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(changesetServiceMethods.ByName("AbandonChangeset")),
 			connect.WithClientOptions(opts...),
 		),
+		copyPath: connect.NewClient[v1.CopyPathRequest, v1.PathOperationResponse](
+			httpClient,
+			baseURL+ChangesetServiceCopyPathProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("CopyPath")),
+			connect.WithClientOptions(opts...),
+		),
+		movePath: connect.NewClient[v1.MovePathRequest, v1.PathOperationResponse](
+			httpClient,
+			baseURL+ChangesetServiceMovePathProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("MovePath")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -183,6 +207,8 @@ type changesetServiceClient struct {
 	reportCheckResult *connect.Client[v1.ReportCheckResultRequest, v1.ReportCheckResultResponse]
 	submitChangeset   *connect.Client[v1.SubmitChangesetRequest, v1.SubmitChangesetResponse]
 	abandonChangeset  *connect.Client[v1.AbandonChangesetRequest, v1.Empty]
+	copyPath          *connect.Client[v1.CopyPathRequest, v1.PathOperationResponse]
+	movePath          *connect.Client[v1.MovePathRequest, v1.PathOperationResponse]
 }
 
 // CreateChangeset calls gitslice.core.v1.ChangesetService.CreateChangeset.
@@ -230,6 +256,16 @@ func (c *changesetServiceClient) AbandonChangeset(ctx context.Context, req *conn
 	return c.abandonChangeset.CallUnary(ctx, req)
 }
 
+// CopyPath calls gitslice.core.v1.ChangesetService.CopyPath.
+func (c *changesetServiceClient) CopyPath(ctx context.Context, req *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error) {
+	return c.copyPath.CallUnary(ctx, req)
+}
+
+// MovePath calls gitslice.core.v1.ChangesetService.MovePath.
+func (c *changesetServiceClient) MovePath(ctx context.Context, req *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error) {
+	return c.movePath.CallUnary(ctx, req)
+}
+
 // ChangesetServiceHandler is an implementation of the gitslice.core.v1.ChangesetService service.
 type ChangesetServiceHandler interface {
 	CreateChangeset(context.Context, *connect.Request[v1.CreateChangesetRequest]) (*connect.Response[v1.Changeset], error)
@@ -241,6 +277,12 @@ type ChangesetServiceHandler interface {
 	ReportCheckResult(context.Context, *connect.Request[v1.ReportCheckResultRequest]) (*connect.Response[v1.ReportCheckResultResponse], error)
 	SubmitChangeset(context.Context, *connect.Request[v1.SubmitChangesetRequest]) (*connect.Response[v1.SubmitChangesetResponse], error)
 	AbandonChangeset(context.Context, *connect.Request[v1.AbandonChangesetRequest]) (*connect.Response[v1.Empty], error)
+	// CopyPath and MovePath copy or move a file or folder and land it at once,
+	// as a changeset of its own that skips the slice's required approvals and
+	// checks. Each is one tree edit, so it costs the same for a folder of any
+	// size. The response comes once the commit is published.
+	CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error)
+	MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 }
 
 // NewChangesetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -304,6 +346,18 @@ func NewChangesetServiceHandler(svc ChangesetServiceHandler, opts ...connect.Han
 		connect.WithSchema(changesetServiceMethods.ByName("AbandonChangeset")),
 		connect.WithHandlerOptions(opts...),
 	)
+	changesetServiceCopyPathHandler := connect.NewUnaryHandler(
+		ChangesetServiceCopyPathProcedure,
+		svc.CopyPath,
+		connect.WithSchema(changesetServiceMethods.ByName("CopyPath")),
+		connect.WithHandlerOptions(opts...),
+	)
+	changesetServiceMovePathHandler := connect.NewUnaryHandler(
+		ChangesetServiceMovePathProcedure,
+		svc.MovePath,
+		connect.WithSchema(changesetServiceMethods.ByName("MovePath")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.ChangesetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ChangesetServiceCreateChangesetProcedure:
@@ -324,6 +378,10 @@ func NewChangesetServiceHandler(svc ChangesetServiceHandler, opts ...connect.Han
 			changesetServiceSubmitChangesetHandler.ServeHTTP(w, r)
 		case ChangesetServiceAbandonChangesetProcedure:
 			changesetServiceAbandonChangesetHandler.ServeHTTP(w, r)
+		case ChangesetServiceCopyPathProcedure:
+			changesetServiceCopyPathHandler.ServeHTTP(w, r)
+		case ChangesetServiceMovePathProcedure:
+			changesetServiceMovePathHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -367,6 +425,14 @@ func (UnimplementedChangesetServiceHandler) SubmitChangeset(context.Context, *co
 
 func (UnimplementedChangesetServiceHandler) AbandonChangeset(context.Context, *connect.Request[v1.AbandonChangesetRequest]) (*connect.Response[v1.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.AbandonChangeset is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.CopyPath is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.MovePath is not implemented"))
 }
 
 // ChangesetStackServiceClient is a client for the gitslice.core.v1.ChangesetStackService service.

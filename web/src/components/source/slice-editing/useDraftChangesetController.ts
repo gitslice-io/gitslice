@@ -10,10 +10,7 @@ import { type ApiClient } from "../../../api/useApi";
 import { shortChangesetId } from "../../../lib/objectId";
 
 import type { PendingEdit } from "./pendingEdits";
-import {
-  upsertPendingEdits,
-  removePendingEdit
-} from "./pendingEdits";
+import { upsertPendingEdit, removePendingEdit } from "./pendingEdits";
 import {
   compareEditOrder,
   currentChangesetPatchset,
@@ -44,8 +41,8 @@ export interface DraftChangesetController {
   removeEdit(key: string): void;
   retrySave(): void;
   saveStatus: DraftSaveStatus;
-  stageEdit(edit: PendingEdit | PendingEdit[]): void;
-  stageEditAndPersist(edit: PendingEdit | PendingEdit[]): Promise<string>;
+  stageEdit(edit: PendingEdit): void;
+  stageEditAndPersist(edit: PendingEdit): Promise<string>;
   discardDraft(): Promise<void>;
   submitDraft(): Promise<string>;
 }
@@ -286,10 +283,8 @@ export function useDraftChangesetController({
   );
 
   const stageEdit = useCallback(
-    (edit: PendingEdit | PendingEdit[]) => {
-      applyEdits(
-        upsertPendingEdits(editsRef.current, Array.isArray(edit) ? edit : [edit])
-      );
+    (edit: PendingEdit) => {
+      applyEdits(upsertPendingEdit(editsRef.current, edit));
     },
     [applyEdits]
   );
@@ -310,7 +305,7 @@ export function useDraftChangesetController({
   // The staged flush is chained onto flushTailRef, so awaiting the current tail
   // waits for this edit's createChangeset/updateChangeset round trip to finish.
   const stageEditAndPersist = useCallback(
-    async (edit: PendingEdit | PendingEdit[]): Promise<string> => {
+    async (edit: PendingEdit): Promise<string> => {
       stageEdit(edit);
       await flushTailRef.current;
       if (errorMessageRef.current) {

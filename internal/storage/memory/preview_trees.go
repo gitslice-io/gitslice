@@ -55,6 +55,8 @@ func (b *backend) previewTreeForPatchsetLocked(baseTreeID string, edits []*corev
 			deleteMemoryPath(files, dirs, edit.Path)
 		case "rename":
 			renameMemoryPath(files, dirs, edit.OldPath, edit.Path)
+		case "copy":
+			copyMemoryPath(files, dirs, edit.OldPath, edit.Path)
 		case "mkdir":
 			ensureMemoryDir(dirs, edit.Path)
 		default:
@@ -159,6 +161,27 @@ func renameMemoryPath(files map[string]storage.FileEntry, dirs map[string]struct
 		delete(dirs, dirPath)
 		renamed := strings.TrimRight(newPath, "/") + strings.TrimPrefix(dirPath, strings.TrimRight(oldPath, "/"))
 		dirs[renamed] = struct{}{}
+	}
+	ensureMemoryParentDirs(dirs, newPath)
+}
+
+// copyMemoryPath copies the file or folder at oldPath, with everything under
+// it, to newPath.
+func copyMemoryPath(files map[string]storage.FileEntry, dirs map[string]struct{}, oldPath, newPath string) {
+	moved := func(p string) string {
+		return strings.TrimRight(newPath, "/") + strings.TrimPrefix(p, strings.TrimRight(oldPath, "/"))
+	}
+	for filePath, file := range cloneFileMap(files) {
+		if !pathContains(oldPath, filePath) {
+			continue
+		}
+		file.Path = moved(filePath)
+		files[file.Path] = file
+	}
+	for dirPath := range cloneDirSet(dirs) {
+		if pathContains(oldPath, dirPath) {
+			dirs[moved(dirPath)] = struct{}{}
+		}
 	}
 	ensureMemoryParentDirs(dirs, newPath)
 }

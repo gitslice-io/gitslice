@@ -6,7 +6,6 @@ import {
   fileEditToPendingEdit,
   preparePendingFileEdits
 } from "./draftChangesetHelpers";
-import { upsertPendingEdits } from "./pendingEdits";
 
 describe("copied file edits", () => {
   it("send a copied file by blob reference with its mode and no upload", async () => {
@@ -47,18 +46,5 @@ describe("copied file edits", () => {
         mode: 0o100755
       })
     ).toMatchObject({ kind: "write", mode: 0o100755 });
-  });
-});
-
-describe("upsertPendingEdits", () => {
-  it("stages a batch and replaces earlier edits at the same paths", () => {
-    const next = upsertPendingEdits(
-      [{ kind: "delete", path: "/a/x" }],
-      [
-        { kind: "mkdir", path: "/a/new" },
-        { kind: "write", path: "/a/x", isNew: true, blobId: "b", contentHash: "h" }
-      ]
-    );
-    expect(next.map((edit) => edit.kind)).toEqual(["mkdir", "write"]);
   });
 });

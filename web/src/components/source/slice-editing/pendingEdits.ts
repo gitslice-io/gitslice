@@ -30,10 +30,6 @@ export function upsertPendingEdit(edits: PendingEdit[], edit: PendingEdit) {
   ];
 }
 
-export function upsertPendingEdits(edits: PendingEdit[], next: PendingEdit[]) {
-  return next.reduce(upsertPendingEdit, edits);
-}
-
 export function pendingEditKey(edit: PendingEdit) {
   if (edit.kind === "rename") {
     return `rename:${normalizeRepositoryPath(edit.oldPath)}`;

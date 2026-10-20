@@ -11,6 +11,7 @@ package webhooks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
@@ -107,6 +108,18 @@ func (s *changesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetI
 		return submitter.SubmitWithCheckStatuses(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses)
 	}
 	return s.ChangesetStore.Submit(ctx, changesetID, expectedCurrentPatchsetID)
+}
+
+// SubmitBypassingRequirements keeps the store's submit for a single copy or
+// move, which skips the slice's required approvals and checks.
+func (s *changesetStore) SubmitBypassingRequirements(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+	submitter, ok := s.ChangesetStore.(interface {
+		SubmitBypassingRequirements(context.Context, string, string) (*corev1.SubmitChangesetResponse, error)
+	})
+	if !ok {
+		return nil, errors.New("this changeset store cannot submit without requirements")
+	}
+	return submitter.SubmitBypassingRequirements(ctx, changesetID, expectedCurrentPatchsetID)
 }
 
 // PublishPending lands submitted changesets. The store records their

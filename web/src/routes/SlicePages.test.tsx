@@ -375,7 +375,9 @@ describe("slice route pages (render smoke)", () => {
     it("shows the README first, with the files in a compact list beside it", async () => {
       const api = folderApi(entries, vi.fn(async (request: { path?: string }) => ({ data: request.path?.endsWith(".png") ? btoa("png") : btoa(readmeText) })));
       renderRoute(<SliceDetailPage />);
-      expect(await screen.findByRole("heading", { name: "Hello app" })).toBeInTheDocument();
+      // The first README render loads the Markdown renderer, which can take over
+      // a second on a busy CI host.
+      expect(await screen.findByRole("heading", { name: "Hello app" }, { timeout: 5000 })).toBeInTheDocument();
       expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/README.md" }));
 
       // The files are there, as names only: no kind, size or hash columns, no

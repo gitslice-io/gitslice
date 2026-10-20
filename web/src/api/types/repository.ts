@@ -42,15 +42,11 @@ export interface ListDirectoryRequest {
   pageSize?: number;
   slice?: SliceRef;
   rootTreeId?: string;
-  // recursive lists everything under path (files and directories, in path
-  // order); the response's recursive flag says whether the server honored it.
-  recursive?: boolean;
 }
 
 export interface ListDirectoryResponse {
   entries?: TreeEntry[];
   nextCursor?: string;
-  recursive?: boolean;
 }
 
 export interface ReadFileRequest {

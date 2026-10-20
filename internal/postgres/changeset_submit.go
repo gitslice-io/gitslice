@@ -21,12 +21,24 @@ func (s *ChangesetStore) SetPendingPublishListener(fn func()) {
 }
 
 func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (res *corev1.SubmitChangesetResponse, err error) {
+	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses, false)
+}
+
+// SubmitBypassingRequirements submits without the slice's required approvals
+// and checks. The service uses it only for a changeset that is a single copy
+// or move (CopyPath, MovePath); path bases and the slice definition still
+// apply.
+func (s *ChangesetStore) SubmitBypassingRequirements(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, nil, true)
+}
+
+func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string, bypassRequirements bool) (res *corev1.SubmitChangesetResponse, err error) {
 	defer func() {
 		storage.RecordSubmitResult(err)
 	}()
 retry:
 	for attempt := 0; attempt < submitRetryAttempts; attempt++ {
-		res, err = s.submitOnce(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses)
+		res, err = s.submitOnce(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses, bypassRequirements)
 		if err == nil || !isRetryableSerializationError(err) || attempt == submitRetryAttempts-1 {
 			break
 		}
@@ -46,7 +58,7 @@ retry:
 	return res, err
 }
 
-func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (*corev1.SubmitChangesetResponse, error) {
+func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string, bypassRequirements bool) (*corev1.SubmitChangesetResponse, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -153,7 +165,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 		return nil, err
 	}
 	mergeCheckStatuses(checkStatuses, extraCheckStatuses)
-	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" {
+	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" && !bypassRequirements {
 		return nil, blockSubmitTx(ctx, tx, cs.ID, reason)
 	}
 	var currentCommitID string

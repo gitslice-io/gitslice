@@ -258,6 +258,16 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 }
 
 func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (res *corev1.SubmitChangesetResponse, err error) {
+	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses, false)
+}
+
+// SubmitBypassingRequirements submits without the slice's required approvals
+// and checks, for a changeset that is a single copy or move.
+func (s *ChangesetStore) SubmitBypassingRequirements(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
+	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, nil, true)
+}
+
+func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string, bypassRequirements bool) (res *corev1.SubmitChangesetResponse, err error) {
 	defer func() {
 		storage.RecordSubmitResult(err)
 	}()
@@ -314,7 +324,7 @@ func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetI
 		}
 		checkStatuses[checkName] = normalized
 	}
-	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" {
+	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" && !bypassRequirements {
 		return nil, s.b.blockSubmitLocked(cs, reason)
 	}
 	cs.Status = "pending_publish"
@@ -367,6 +377,8 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 					delete(baseDirs, edit.OldPath)
 					baseDirs[edit.Path] = struct{}{}
 				}
+			case "copy":
+				copyMemoryPath(baseFiles, baseDirs, edit.OldPath, edit.Path)
 			case "mkdir":
 				baseDirs[edit.Path] = struct{}{}
 			default:

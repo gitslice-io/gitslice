@@ -108,6 +108,11 @@ func changedPathsForDiff(from, to *corev1.Patchset) []string {
 			continue
 		}
 		for _, edit := range patchset.FileEdits {
+			if edit.GetOp() == "copy" {
+				// The source of a copy is read, not changed.
+				seen[edit.Path] = struct{}{}
+				continue
+			}
 			for _, p := range editPaths(edit) {
 				seen[p] = struct{}{}
 			}
@@ -193,6 +198,16 @@ func (s *ChangesetService) patchsetFileWithReaders(ctx context.Context, patchset
 		case "delete":
 			if edit.Path == p {
 				file = diffutil.File{Path: p}
+				fileSet = true
+			}
+		case "copy":
+			if edit.Path == p {
+				oldFile, err := readBase(ctx, patchset.BaseCommitId, patchset.BaseTreeId, edit.OldPath)
+				if err != nil {
+					return diffutil.File{}, err
+				}
+				oldFile.Path = p
+				file = oldFile
 				fileSet = true
 			}
 		case "rename":

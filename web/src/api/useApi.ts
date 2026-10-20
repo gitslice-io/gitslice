@@ -10,6 +10,9 @@ import type {
   Changeset,
   ChangesetStack,
   AcceptClaimRequest,
+  CopyPathRequest,
+  MovePathRequest,
+  PathOperationResponse,
   AcceptClaimResponse,
   CheckUsernameAvailableRequest,
   CheckUsernameAvailableResponse,
@@ -219,6 +222,10 @@ export interface ApiClient {
     request: SubmitChangesetRequest
   ): Promise<SubmitChangesetResponse>;
   abandonChangeset(request: AbandonChangesetRequest): Promise<Empty>;
+  // copyPath and movePath land a copy or move at once, as their own
+  // changeset, without the slice's required approvals and checks.
+  copyPath(request: CopyPathRequest): Promise<PathOperationResponse>;
+  movePath(request: MovePathRequest): Promise<PathOperationResponse>;
   listCheckRuns(request: ListCheckRunsRequest): Promise<ListCheckRunsResponse>;
   getCheckRun(request: GetCheckRunRequest): Promise<CheckRun>;
   rerunCheck(request: RerunCheckRequest): Promise<CheckRun>;

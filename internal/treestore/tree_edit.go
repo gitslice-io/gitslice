@@ -112,6 +112,22 @@ func (s *Store) applyEditsSequential(ctx context.Context, rootTreeID string, edi
 				return "", splitErr
 			}
 			current, err = s.setEntry(ctx, current, newParts, entry)
+		case "copy":
+			// A copy points the new path at the same file or tree, so it costs
+			// the same at any size: trees are content-addressed and shared.
+			oldParts, splitErr := splitPath(edit.OldPath)
+			if splitErr != nil {
+				return "", splitErr
+			}
+			entry, err := s.entryAt(ctx, current, oldParts)
+			if err != nil {
+				return "", err
+			}
+			newParts, splitErr := splitPath(edit.Path)
+			if splitErr != nil {
+				return "", splitErr
+			}
+			current, err = s.setEntry(ctx, current, newParts, entry)
 		default:
 			if edit.File == nil {
 				return "", fmt.Errorf("file edit for %s requires file metadata", edit.Path)
@@ -141,7 +157,7 @@ func canApplyEditsInBatch(edits []FileEdit) bool {
 	}
 	paths := make([]string, 0, len(edits))
 	for _, edit := range edits {
-		if edit.Op == "rename" {
+		if edit.Op == "rename" || edit.Op == "copy" {
 			return false
 		}
 		if edit.Op != "delete" && edit.Op != "mkdir" && edit.File == nil {

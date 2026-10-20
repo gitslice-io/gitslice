@@ -319,7 +319,7 @@ func treeEditsFromPatchset(ctx context.Context, queryer publishQueryer, edits []
 			OldPath: edit.OldPath,
 		}
 		switch edit.Op {
-		case "delete", "rename", "mkdir":
+		case "delete", "rename", "copy", "mkdir":
 		default:
 			blob, ok := blobs[edit.BlobId]
 			if !ok {
@@ -343,7 +343,7 @@ func blobIDsForEdits(edits []*corev1.FileEdit) []string {
 	var ids []string
 	for _, edit := range edits {
 		switch edit.Op {
-		case "delete", "rename", "mkdir":
+		case "delete", "rename", "copy", "mkdir":
 			continue
 		}
 		if _, ok := seen[edit.BlobId]; ok {

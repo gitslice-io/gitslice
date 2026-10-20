@@ -28,6 +28,8 @@ const (
 	ChangesetService_ReportCheckResult_FullMethodName = "/gitslice.core.v1.ChangesetService/ReportCheckResult"
 	ChangesetService_SubmitChangeset_FullMethodName   = "/gitslice.core.v1.ChangesetService/SubmitChangeset"
 	ChangesetService_AbandonChangeset_FullMethodName  = "/gitslice.core.v1.ChangesetService/AbandonChangeset"
+	ChangesetService_CopyPath_FullMethodName          = "/gitslice.core.v1.ChangesetService/CopyPath"
+	ChangesetService_MovePath_FullMethodName          = "/gitslice.core.v1.ChangesetService/MovePath"
 )
 
 // ChangesetServiceClient is the client API for ChangesetService service.
@@ -43,6 +45,12 @@ type ChangesetServiceClient interface {
 	ReportCheckResult(ctx context.Context, in *ReportCheckResultRequest, opts ...grpc.CallOption) (*ReportCheckResultResponse, error)
 	SubmitChangeset(ctx context.Context, in *SubmitChangesetRequest, opts ...grpc.CallOption) (*SubmitChangesetResponse, error)
 	AbandonChangeset(ctx context.Context, in *AbandonChangesetRequest, opts ...grpc.CallOption) (*Empty, error)
+	// CopyPath and MovePath copy or move a file or folder and land it at once,
+	// as a changeset of its own that skips the slice's required approvals and
+	// checks. Each is one tree edit, so it costs the same for a folder of any
+	// size. The response comes once the commit is published.
+	CopyPath(ctx context.Context, in *CopyPathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error)
+	MovePath(ctx context.Context, in *MovePathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error)
 }
 
 type changesetServiceClient struct {
@@ -134,6 +142,24 @@ func (c *changesetServiceClient) AbandonChangeset(ctx context.Context, in *Aband
 	return out, nil
 }
 
+func (c *changesetServiceClient) CopyPath(ctx context.Context, in *CopyPathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error) {
+	out := new(PathOperationResponse)
+	err := c.cc.Invoke(ctx, ChangesetService_CopyPath_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetServiceClient) MovePath(ctx context.Context, in *MovePathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error) {
+	out := new(PathOperationResponse)
+	err := c.cc.Invoke(ctx, ChangesetService_MovePath_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ChangesetServiceServer is the server API for ChangesetService service.
 // All implementations should embed UnimplementedChangesetServiceServer
 // for forward compatibility
@@ -147,6 +173,12 @@ type ChangesetServiceServer interface {
 	ReportCheckResult(context.Context, *ReportCheckResultRequest) (*ReportCheckResultResponse, error)
 	SubmitChangeset(context.Context, *SubmitChangesetRequest) (*SubmitChangesetResponse, error)
 	AbandonChangeset(context.Context, *AbandonChangesetRequest) (*Empty, error)
+	// CopyPath and MovePath copy or move a file or folder and land it at once,
+	// as a changeset of its own that skips the slice's required approvals and
+	// checks. Each is one tree edit, so it costs the same for a folder of any
+	// size. The response comes once the commit is published.
+	CopyPath(context.Context, *CopyPathRequest) (*PathOperationResponse, error)
+	MovePath(context.Context, *MovePathRequest) (*PathOperationResponse, error)
 }
 
 // UnimplementedChangesetServiceServer should be embedded to have forward compatible implementations.
@@ -179,6 +211,12 @@ func (UnimplementedChangesetServiceServer) SubmitChangeset(context.Context, *Sub
 }
 func (UnimplementedChangesetServiceServer) AbandonChangeset(context.Context, *AbandonChangesetRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AbandonChangeset not implemented")
+}
+func (UnimplementedChangesetServiceServer) CopyPath(context.Context, *CopyPathRequest) (*PathOperationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CopyPath not implemented")
+}
+func (UnimplementedChangesetServiceServer) MovePath(context.Context, *MovePathRequest) (*PathOperationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MovePath not implemented")
 }
 
 // UnsafeChangesetServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -354,6 +392,42 @@ func _ChangesetService_AbandonChangeset_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChangesetService_CopyPath_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CopyPathRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).CopyPath(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_CopyPath_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).CopyPath(ctx, req.(*CopyPathRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetService_MovePath_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MovePathRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).MovePath(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_MovePath_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).MovePath(ctx, req.(*MovePathRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ChangesetService_ServiceDesc is the grpc.ServiceDesc for ChangesetService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -396,6 +470,14 @@ var ChangesetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AbandonChangeset",
 			Handler:    _ChangesetService_AbandonChangeset_Handler,
+		},
+		{
+			MethodName: "CopyPath",
+			Handler:    _ChangesetService_CopyPath_Handler,
+		},
+		{
+			MethodName: "MovePath",
+			Handler:    _ChangesetService_MovePath_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

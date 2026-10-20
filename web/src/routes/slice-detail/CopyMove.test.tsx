@@ -9,39 +9,51 @@ import { EditableFileView } from "./EditableFileView";
 import { SliceDirectoryTable } from "./SliceDirectoryTable";
 
 const api = vi.hoisted(() => ({
-  createChangeset: vi.fn(),
-  listDirectory: vi.fn(),
+  copyPath: vi.fn(),
   listSlices: vi.fn(),
-  resolvePath: vi.fn(),
-  updateChangeset: vi.fn(),
-  uploadBlob: vi.fn()
+  movePath: vi.fn(),
+  resolvePath: vi.fn()
 }));
 
 vi.mock("../../api/useApi", () => ({ useApi: () => api }));
 
 const included = ["/src"];
 const canModify = (path: string) => path.startsWith("/src/");
+const home = { account: "nic", slice: "nic" };
 
 function notFound() {
-  return Object.assign(new Error("path not found"), {});
+  return new Error("path not found");
 }
 
-function renderFile(stage = vi.fn()) {
+function fileView() {
+  return (
+    <EditableFileView
+      commitId="commit_12345678"
+      fileContent="package a"
+      fileData=""
+      includedPaths={included}
+      onOpenHistory={vi.fn()}
+      onStageEdit={vi.fn()}
+      pendingEdits={[]}
+      selectedPath="/src/a.go"
+    />
+  );
+}
+
+function renderFile(options: { canWriteAccount?: (account: string) => boolean } = {}) {
+  const onLanded = vi.fn();
   render(
-    <CopyMoveProvider canModify={canModify} commitId="c1" stage={stage}>
-      <EditableFileView
-        commitId="commit_12345678"
-        fileContent="package a"
-        fileData=""
-        includedPaths={included}
-        onOpenHistory={vi.fn()}
-        onStageEdit={vi.fn()}
-        pendingEdits={[]}
-        selectedPath="/src/a.go"
-      />
+    <CopyMoveProvider
+      canModify={canModify}
+      canWriteAccount={options.canWriteAccount ?? (() => true)}
+      commitId="c1"
+      onLanded={onLanded}
+      slice={home}
+    >
+      {fileView()}
     </CopyMoveProvider>
   );
-  return stage;
+  return onLanded;
 }
 
 function openDialog(item: string) {
@@ -49,27 +61,28 @@ function openDialog(item: string) {
   fireEvent.click(screen.getByRole("menuitem", { name: item }));
 }
 
+function submit(value: string, button: string) {
+  fireEvent.change(screen.getByRole("textbox"), { target: { value } });
+  fireEvent.click(screen.getByRole("button", { name: button }));
+}
+
+function landed(id: string) {
+  return { changeset: { id }, commitId: `commit_${id}` };
+}
+
 beforeEach(() => {
   for (const fn of Object.values(api)) {
     fn.mockReset();
   }
+  api.resolvePath.mockRejectedValue(notFound());
+  api.copyPath.mockResolvedValue(landed("cs_copy"));
+  api.movePath.mockResolvedValue(landed("cs_move"));
 });
 afterEach(cleanup);
 
 describe("copy and move menus", () => {
   it("are not offered without the provider", () => {
-    render(
-      <EditableFileView
-        commitId="commit_12345678"
-        fileContent="package a"
-        fileData=""
-        includedPaths={included}
-        onOpenHistory={vi.fn()}
-        onStageEdit={vi.fn()}
-        pendingEdits={[]}
-        selectedPath="/src/a.go"
-      />
-    );
+    render(fileView());
     fireEvent.click(screen.getByRole("button", { name: "File actions" }));
     expect(screen.queryByRole("menuitem", { name: "Copy to…" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Move to…" })).not.toBeInTheDocument();
@@ -77,13 +90,8 @@ describe("copy and move menus", () => {
 
   it("disable moving a top-level slice folder but still allow copying it", () => {
     render(
-      <CopyMoveProvider canModify={canModify} commitId="c1" stage={vi.fn()}>
-        <DirectoryHeader
-          commitId="c1"
-          includedPaths={included}
-          onStageEdit={vi.fn()}
-          selectedPath="/src"
-        />
+      <CopyMoveProvider canModify={canModify} commitId="c1" onLanded={vi.fn()} slice={home}>
+        <DirectoryHeader commitId="c1" includedPaths={included} onStageEdit={vi.fn()} selectedPath="/src" />
       </CopyMoveProvider>
     );
     fireEvent.click(screen.getByRole("button", { name: "Directory actions" }));
@@ -93,7 +101,7 @@ describe("copy and move menus", () => {
 
   it("appear on directory rows", () => {
     render(
-      <CopyMoveProvider canModify={canModify} commitId="c1" stage={vi.fn()}>
+      <CopyMoveProvider canModify={canModify} commitId="c1" onLanded={vi.fn()} slice={home}>
         <SliceDirectoryTable
           entries={[{ path: "/src/pkg", name: "pkg", kind: "ENTRY_KIND_DIRECTORY" }]}
           includedPaths={included}
@@ -108,25 +116,46 @@ describe("copy and move menus", () => {
   });
 });
 
-describe("copy and move dialog", () => {
-  it("moves to a new path with one rename", async () => {
-    api.resolvePath.mockRejectedValue(notFound());
-    api.listSlices.mockResolvedValue({ slices: [] });
-    const stage = renderFile();
+describe("copy and move in this slice", () => {
+  it("moves at once and opens the destination", async () => {
+    const onLanded = renderFile();
     openDialog("Move to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/lib/b.go" } });
-    fireEvent.click(screen.getByRole("button", { name: "Move" }));
-    // A move stays inside the slice, and /lib is outside it.
-    expect(await screen.findByRole("alert")).toHaveTextContent(/can't leave this slice/);
-    expect(stage).not.toHaveBeenCalled();
+    submit("b.go", "Move");
 
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "b.go" } });
-    fireEvent.click(screen.getByRole("button", { name: "Move" }));
     await waitFor(() =>
-      expect(stage).toHaveBeenCalledWith([
-        { kind: "rename", oldPath: "/src/a.go", path: "/src/b.go" }
-      ])
+      expect(onLanded).toHaveBeenCalledWith({
+        changesetId: "cs_move",
+        commitId: "commit_cs_move",
+        path: "/src/b.go",
+        slice: home
+      })
     );
+    expect(api.movePath).toHaveBeenCalledWith({
+      slice: home,
+      sourcePath: "/src/a.go",
+      destinationPath: "/src/b.go"
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("copies a whole folder with one request, whatever its size", async () => {
+    const onLanded = vi.fn();
+    render(
+      <CopyMoveProvider canModify={canModify} commitId="c1" onLanded={onLanded} slice={home}>
+        <DirectoryHeader commitId="c1" includedPaths={included} onStageEdit={vi.fn()} selectedPath="/src/pkg" />
+      </CopyMoveProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Directory actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to…" }));
+    submit("pkg2", "Copy");
+
+    await waitFor(() => expect(onLanded).toHaveBeenCalled());
+    expect(api.copyPath).toHaveBeenCalledTimes(1);
+    expect(api.copyPath).toHaveBeenCalledWith({
+      slice: home,
+      sourcePath: "/src/pkg",
+      destinationPath: "/src/pkg2"
+    });
   });
 
   it("puts the item inside an existing folder", async () => {
@@ -136,14 +165,13 @@ describe("copy and move dialog", () => {
       }
       throw notFound();
     });
-    const stage = renderFile();
+    renderFile();
     openDialog("Move to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "pkg" } });
-    fireEvent.click(screen.getByRole("button", { name: "Move" }));
+    submit("pkg", "Move");
     await waitFor(() =>
-      expect(stage).toHaveBeenCalledWith([
-        { kind: "rename", oldPath: "/src/a.go", path: "/src/pkg/a.go" }
-      ])
+      expect(api.movePath).toHaveBeenCalledWith(
+        expect.objectContaining({ destinationPath: "/src/pkg/a.go" })
+      )
     );
   });
 
@@ -151,188 +179,83 @@ describe("copy and move dialog", () => {
     api.resolvePath.mockImplementation(async ({ path }: { path: string }) => ({
       entry: { path, kind: "ENTRY_KIND_FILE" }
     }));
-    const stage = renderFile();
+    const onLanded = renderFile();
     openDialog("Copy to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "b.go" } });
-    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    submit("b.go", "Copy");
     expect(await screen.findByRole("alert")).toHaveTextContent(/already exists/);
-    expect(stage).not.toHaveBeenCalled();
+    expect(api.copyPath).not.toHaveBeenCalled();
+    expect(onLanded).not.toHaveBeenCalled();
   });
 
-  it("copies a file by reference to its blob", async () => {
-    api.resolvePath.mockImplementation(async ({ path }: { path: string }) => {
-      if (path === "/src/a.go") {
-        return {
-          entry: {
-            path,
-            kind: "ENTRY_KIND_FILE",
-            blobId: "blob1",
-            contentHash: "hash1"
-          }
-        };
-      }
-      throw notFound();
-    });
-    const stage = renderFile();
-    openDialog("Copy to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "copy.go" } });
-    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-    await waitFor(() =>
-      expect(stage).toHaveBeenCalledWith([
-        {
-          kind: "write",
-          path: "/src/copy.go",
-          isNew: true,
-          blobId: "blob1",
-          contentHash: "hash1"
-        }
-      ])
-    );
-  });
-
-  it("copies a folder with its contents in one batch", async () => {
-    api.resolvePath.mockRejectedValue(notFound());
-    api.listDirectory.mockResolvedValue({
-      recursive: true,
-      entries: [
-        { path: "/src/pkg/x.go", kind: "ENTRY_KIND_FILE", blobId: "b", contentHash: "h" }
-      ]
-    });
-    const stage = vi.fn();
-    render(
-      <CopyMoveProvider canModify={canModify} commitId="c1" stage={stage}>
-        <DirectoryHeader
-          commitId="c1"
-          includedPaths={["/src", "/lib"]}
-          onStageEdit={vi.fn()}
-          selectedPath="/src/pkg"
-        />
-      </CopyMoveProvider>
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Directory actions" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to…" }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "pkg2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-    await waitFor(() =>
-      expect(stage).toHaveBeenCalledWith([
-        { kind: "mkdir", path: "/src/pkg2" },
-        { kind: "write", path: "/src/pkg2/x.go", isNew: true, blobId: "b", contentHash: "h" }
-      ])
-    );
+  it("shows the server's error and stays open", async () => {
+    api.movePath.mockRejectedValue(new Error("/src/b.go already exists"));
+    const onLanded = renderFile();
+    openDialog("Move to…");
+    submit("b.go", "Move");
+    expect(await screen.findByRole("alert")).toHaveTextContent("/src/b.go already exists");
+    expect(onLanded).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
 
-describe("copy and move to another slice or account", () => {
-  const sourceEntry = {
-    path: "/src/a.go",
-    kind: "ENTRY_KIND_FILE",
-    blobId: "blob1",
-    contentHash: "hash1"
-  };
+describe("copy to another slice or account", () => {
   const acme = {
     ref: { account: "acme", slice: "acme" },
     definition: { includedPaths: ["/acme"] }
   };
 
-  function renderWith(options: {
-    canWriteAccount?: (account: string) => boolean;
-  }) {
-    const openChangeset = vi.fn();
-    const stage = vi.fn();
-    render(
-      <CopyMoveProvider
-        canModify={canModify}
-        canWriteAccount={options.canWriteAccount ?? (() => true)}
-        commitId="c1"
-        openChangeset={openChangeset}
-        slice={{ account: "nic", slice: "nic" }}
-        stage={stage}
-      >
-        <EditableFileView
-          commitId="commit_12345678"
-          fileContent="package a"
-          fileData=""
-          includedPaths={included}
-          onOpenHistory={vi.fn()}
-          onStageEdit={vi.fn()}
-          pendingEdits={[]}
-          selectedPath="/src/a.go"
-        />
-      </CopyMoveProvider>
-    );
-    return { openChangeset, stage };
-  }
-
   beforeEach(() => {
-    api.resolvePath.mockImplementation(async ({ path }: { path: string }) => {
-      if (path === "/src/a.go") {
-        return { entry: sourceEntry };
-      }
-      throw notFound();
-    });
     api.listSlices.mockResolvedValue({ slices: [acme] });
-    api.createChangeset.mockResolvedValue({ id: "cs_copy", currentPatchsetId: "ps1" });
-    api.updateChangeset.mockResolvedValue({ id: "ps2" });
   });
 
-  it("copies into a changeset of the other account's slice", async () => {
-    const { openChangeset, stage } = renderWith({});
+  it("lands in the slice that covers the destination, reading through this one", async () => {
+    const onLanded = renderFile();
     openDialog("Copy to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
-    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    submit("/acme/docs/a.go", "Copy");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open the copy" }));
-    expect(openChangeset).toHaveBeenCalledWith("cs_copy");
-    expect(stage).not.toHaveBeenCalled();
-    expect(api.listSlices).toHaveBeenCalledWith(
-      expect.objectContaining({ account: "acme" })
-    );
-    expect(api.createChangeset).toHaveBeenCalledWith(
-      expect.objectContaining({
-        authoringSlice: { account: "acme", slice: "acme" },
-        baseCommitId: "c1"
+    await waitFor(() =>
+      expect(onLanded).toHaveBeenCalledWith({
+        changesetId: "cs_copy",
+        commitId: "commit_cs_copy",
+        path: "/acme/docs/a.go",
+        slice: { account: "acme", slice: "acme" }
       })
     );
-    expect(api.updateChangeset).toHaveBeenCalledWith({
-      baseCommitId: "c1",
-      changesetId: "cs_copy",
-      expectedCurrentPatchsetId: "ps1",
-      fileEdits: [
-        { op: "add", path: "/acme/docs/a.go", blobId: "blob1", contentHash: "hash1" }
-      ]
+    expect(api.listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "acme" }));
+    expect(api.copyPath).toHaveBeenCalledWith({
+      slice: { account: "acme", slice: "acme" },
+      sourcePath: "/src/a.go",
+      destinationPath: "/acme/docs/a.go",
+      sourceSlice: home
     });
   });
 
   it("refuses a move out of this slice, without any request", async () => {
-    const { openChangeset, stage } = renderWith({});
+    const onLanded = renderFile();
     openDialog("Move to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
-    fireEvent.click(screen.getByRole("button", { name: "Move" }));
+    submit("/acme/docs/a.go", "Move");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/move can't leave this slice/i);
     expect(api.listSlices).not.toHaveBeenCalled();
-    expect(api.createChangeset).not.toHaveBeenCalled();
-    expect(stage).not.toHaveBeenCalled();
-    expect(openChangeset).not.toHaveBeenCalled();
+    expect(api.movePath).not.toHaveBeenCalled();
+    expect(onLanded).not.toHaveBeenCalled();
   });
 
-  it("refuses an account the viewer can't write to, creating nothing", async () => {
-    renderWith({ canWriteAccount: () => false });
+  it("refuses an account the viewer can't write to", async () => {
+    renderFile({ canWriteAccount: () => false });
     openDialog("Copy to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
-    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    submit("/acme/docs/a.go", "Copy");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/can't change files in acme/);
-    expect(api.createChangeset).not.toHaveBeenCalled();
+    expect(api.copyPath).not.toHaveBeenCalled();
   });
 
-  it("does not offer a path only the slice's root names", async () => {
-    renderWith({});
+  it("refuses a path no slice includes below its top-level folder", async () => {
+    renderFile();
     openDialog("Copy to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme" } });
-    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    submit("/acme", "Copy");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/No slice you can edit/);
-    expect(api.createChangeset).not.toHaveBeenCalled();
+    expect(api.copyPath).not.toHaveBeenCalled();
   });
 });

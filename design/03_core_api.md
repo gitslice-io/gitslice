@@ -98,6 +98,8 @@ service ChangesetService {
   rpc UpdateChangeset(UpdateChangesetRequest) returns (Patchset);
   rpc SubmitChangeset(SubmitChangesetRequest) returns (SubmitChangesetResponse);
   rpc AbandonChangeset(AbandonChangesetRequest) returns (Empty);
+  rpc CopyPath(CopyPathRequest) returns (PathOperationResponse);
+  rpc MovePath(MovePathRequest) returns (PathOperationResponse);
 }
 
 service WorkspaceService {
@@ -544,7 +546,7 @@ message Patchset {
 }
 
 message FileEdit {
-  string op = 1;       // upsert, delete, rename, mkdir
+  string op = 1;       // upsert, delete, rename, copy, mkdir
   string path = 2;
   string old_path = 3;
   string blob_id = 4;
@@ -555,6 +557,14 @@ message FileEdit {
 For `op = "rename"`, `old_path` and `path` describe a move of the same logical
 entity. The server records the move as authoritative lineage and validates both
 paths during submit.
+
+For `op = "copy"`, `path` becomes a copy of the file or folder at `old_path`,
+which stays. The tree store points `path` at the same blob or tree, so a copy
+costs one tree edit whatever its size. `old_path` is read, not changed: it gets
+a path base (so the submit conflicts if the source changed) but is not a
+changed path. It must be inside the authoring slice, except through
+`CopyPath`, which authorizes a source in another readable slice. The flat path
+index records each path under the copy as a new entity, added from the source.
 
 message PathCoverage {
   string path = 1;
@@ -722,6 +732,17 @@ reads them in one query instead of one full load per changeset.
 
 `Commit.changeset_id` names the changeset that landed a commit, when one did.
 `ListCommits` and `GetCommit` fill it so clients can link a commit to a page.
+
+`CopyPath` and `MovePath` copy or move a file or folder and land it at once.
+Each makes a changeset of one `copy` or `rename` edit on the latest commit,
+titled "Copy X to Y" or "Move X to Y", submits it without the slice's required
+approvals and checks, and answers once the commit is published. Skipping review
+is safe to allow because the edit only relocates entries already in the tree; it
+carries no new content. Both need the writer role on `slice`, and the
+destination must be inside it, below its included paths, and must not exist. A
+move's source must be in the same slice and not one of its included paths. A
+copy's source may be in another slice, even another account's, named by
+`source_slice`, which the caller must be able to read.
 
 `WebhookService` (`proto/core/v1/webhook.proto`) manages a slice's webhooks:
 

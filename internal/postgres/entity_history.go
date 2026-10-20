@@ -63,6 +63,35 @@ func (s *ChangesetStore) applyEntityHistoryTx(ctx context.Context, tx *sql.Tx, t
 			if err := stage.moveEntity(ctx, tx, *entity, edit.OldPath, edit.Path, commitID, committedAt, "explicit", entity.ContentHash, entity.Mode); err != nil {
 				return err
 			}
+		case "copy":
+			// The copy is a new entity, added from the source, and so is every
+			// path under a copied folder: the flat index serves reads at the
+			// head, so it holds them all.
+			source, err := stage.ensurePathEntity(ctx, tx, edit.OldPath)
+			if err != nil {
+				return err
+			}
+			if source == nil {
+				return ErrConflict
+			}
+			accountID, err := stage.accountIDForPath(ctx, tx, edit.Path)
+			if err != nil {
+				return err
+			}
+			if err := stage.flushPathState(ctx, tx); err != nil {
+				return err
+			}
+			if err := copyCurrentPathEntitiesTx(ctx, tx, stage.targetRef, edit.OldPath, edit.Path, accountID, commitID); err != nil {
+				return err
+			}
+			if err := stage.reloadCurrentPathEntities(ctx, tx); err != nil {
+				return err
+			}
+			created, ok := stage.current[edit.Path]
+			if !ok {
+				return ErrConflict
+			}
+			stage.insertEntityChange(entityChange{Entity: created, Path: edit.Path, OldPath: edit.OldPath, ChangeKind: "added", Source: "copy", Confidence: 100, ContentHash: created.ContentHash, Mode: created.Mode})
 		case "mkdir":
 			entity, err := stage.ensurePathEntity(ctx, tx, edit.Path)
 			if err != nil {

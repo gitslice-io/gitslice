@@ -7,7 +7,7 @@ import {
   useRouter,
   useSearch,
 } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AnalyticsEvents, AnalyticsProps } from "../analytics/events";
 import { capture } from "../analytics/posthog";
@@ -56,7 +56,10 @@ import {
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
-import { CopyMoveProvider } from "./slice-detail/CopyMove";
+import {
+  CopyMoveProvider,
+  type LandedPathOperation,
+} from "./slice-detail/CopyMove";
 import { canModifyPath } from "./slice-detail/DirectoryHeader";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
 
@@ -72,6 +75,7 @@ interface SliceSearch {
 
 export function SliceDetailPage() {
   const api = useApi();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
@@ -267,14 +271,22 @@ export function SliceDetailPage() {
     }
   }
 
-  function openChangeset(id: string) {
-    void navigate({
-      params: { id: shortChangesetId(id) } as never,
-      to: "/cs/$id",
+  // A copy or move lands at once: fetch the new head commit, then open the
+  // destination, which may be in another slice.
+  async function openLandedPath(landed: LandedPathOperation) {
+    await queryClient.invalidateQueries({ queryKey: ["globalRef"] });
+    const params = toSliceRouteParams(landed.slice);
+    if (!params) {
+      return;
+    }
+    await navigate({
+      params: params as never,
+      search: { path: landed.path } as never,
+      to: "/slices/$account/$slice",
     });
   }
 
-  async function stagePendingEdit(edit: PendingEdit | PendingEdit[]) {
+  async function stagePendingEdit(edit: PendingEdit) {
     if (!canEdit || !sliceRouteParams) {
       return;
     }
@@ -518,9 +530,8 @@ export function SliceDetailPage() {
                     canWrite(membershipFor(memberships, name))
                   }
                   commitId={commitId}
-                  openChangeset={openChangeset}
+                  onLanded={openLandedPath}
                   slice={sliceRef}
-                  stage={stagePendingEdit}
                 >
                   {workspace}
                 </CopyMoveProvider>
