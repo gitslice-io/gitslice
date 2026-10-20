@@ -116,8 +116,8 @@ describe("copy and move dialog", () => {
     openDialog("Move to…");
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "/lib/b.go" } });
     fireEvent.click(screen.getByRole("button", { name: "Move" }));
-    // No slice includes /lib, so there is nowhere to stage it.
-    expect(await screen.findByRole("alert")).toHaveTextContent(/No slice you can edit/);
+    // A move stays inside the slice, and /lib is outside it.
+    expect(await screen.findByRole("alert")).toHaveTextContent(/can't leave this slice/);
     expect(stage).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "b.go" } });
@@ -236,7 +236,6 @@ describe("copy and move to another slice or account", () => {
 
   function renderWith(options: {
     canWriteAccount?: (account: string) => boolean;
-    stageQuietly?: (edits: unknown[]) => Promise<string>;
   }) {
     const openChangeset = vi.fn();
     const stage = vi.fn();
@@ -248,7 +247,6 @@ describe("copy and move to another slice or account", () => {
         openChangeset={openChangeset}
         slice={{ account: "nic", slice: "nic" }}
         stage={stage}
-        stageQuietly={options.stageQuietly as never}
       >
         <EditableFileView
           commitId="commit_12345678"
@@ -305,30 +303,17 @@ describe("copy and move to another slice or account", () => {
     });
   });
 
-  it("moves by copying there and staging the delete here", async () => {
-    const stageQuietly = vi.fn().mockResolvedValue("cs_delete");
-    const { openChangeset } = renderWith({ stageQuietly });
+  it("refuses a move out of this slice, without any request", async () => {
+    const { openChangeset, stage } = renderWith({});
     openDialog("Move to…");
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
     fireEvent.click(screen.getByRole("button", { name: "Move" }));
 
-    const deleteLink = await screen.findByRole("button", { name: "Open the delete" });
-    expect(screen.getByRole("button", { name: "Open the copy" })).toBeInTheDocument();
-    fireEvent.click(deleteLink);
-    expect(stageQuietly).toHaveBeenCalledWith([{ kind: "delete", path: "/src/a.go" }]);
-    expect(openChangeset).toHaveBeenCalledWith("cs_delete");
-  });
-
-  it("says so when the delete could not be staged after the copy was", async () => {
-    const stageQuietly = vi.fn().mockRejectedValue(new Error("save failed"));
-    renderWith({ stageQuietly });
-    openDialog("Move to…");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/acme/docs/a.go" } });
-    fireEvent.click(screen.getByRole("button", { name: "Move" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/save failed/);
-    expect(screen.getByRole("button", { name: "Open the copy" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open the delete" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/move can't leave this slice/i);
+    expect(api.listSlices).not.toHaveBeenCalled();
+    expect(api.createChangeset).not.toHaveBeenCalled();
+    expect(stage).not.toHaveBeenCalled();
+    expect(openChangeset).not.toHaveBeenCalled();
   });
 
   it("refuses an account the viewer can't write to, creating nothing", async () => {

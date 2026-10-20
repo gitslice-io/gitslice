@@ -521,7 +521,6 @@ export function SliceDetailPage() {
                   openChangeset={openChangeset}
                   slice={sliceRef}
                   stage={stagePendingEdit}
-                  stageQuietly={draftChangeset.stageEditAndPersist}
                 >
                   {workspace}
                 </CopyMoveProvider>

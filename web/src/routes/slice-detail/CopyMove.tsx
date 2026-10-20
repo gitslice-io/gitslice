@@ -56,8 +56,6 @@ interface CopyMoveProviderProps {
   slice?: SliceRef;
   // stage puts edits in this slice's draft changeset and opens it.
   stage(edits: PendingEdit[]): void | Promise<void>;
-  // stageQuietly does the same without opening it, returning the changeset id.
-  stageQuietly?(edits: PendingEdit[]): Promise<string>;
 }
 
 export function CopyMoveProvider({
@@ -68,7 +66,6 @@ export function CopyMoveProvider({
   openChangeset,
   slice,
   stage,
-  stageQuietly,
 }: CopyMoveProviderProps) {
   const [active, setActive] = useState<{
     mode: CopyMoveMode;
@@ -94,7 +91,6 @@ export function CopyMoveProvider({
           slice={slice}
           source={active.source}
           stage={stage}
-          stageQuietly={stageQuietly}
         />
       ) : null}
     </CopyMoveContext.Provider>
@@ -131,14 +127,11 @@ interface CopyMoveDialogProps extends Omit<CopyMoveProviderProps, "children"> {
   source: CopyMoveSource;
 }
 
-// CrossSliceResult is what a copy or move that left this slice staged, and
-// where: the copy in the destination slice, and for a move the delete of the
-// original in this one.
+// CrossSliceResult is where a copy that left this slice was staged: a draft
+// changeset in the destination slice.
 interface CrossSliceResult {
   copyId: string;
   copySlice: string;
-  deleteId?: string;
-  deleteError?: string;
 }
 
 export function CopyMoveDialog({
@@ -151,7 +144,6 @@ export function CopyMoveDialog({
   slice,
   source,
   stage,
-  stageQuietly,
 }: CopyMoveDialogProps) {
   const api = useApi();
   const [input, setInput] = useState(normalizeRepositoryPath(source.path));
@@ -213,6 +205,9 @@ export function CopyMoveDialog({
     let targetLabel = "";
     const here = canModify(destination);
     if (!here) {
+      if (mode === "move") {
+        return "A move can't leave this slice, because a changeset edits one slice. Copy it there instead, then delete the original.";
+      }
       const account = accountOfPath(destination);
       if (canWriteAccount && !canWriteAccount(account)) {
         return `You can't change files in ${account || "that account"}. Pick a path in this slice or in an account you can write to.`;
@@ -270,32 +265,18 @@ export function CopyMoveDialog({
       return "";
     }
 
-    if (!target || (mode === "move" && !stageQuietly)) {
+    if (!target) {
       return "This page can't stage changes in another slice.";
     }
     const from = slice ? `${slice.account}/${slice.slice}` : "this slice";
     const copyId = await createChangesetWithEdits(api, {
       baseCommitId: commitId,
-      description:
-        mode === "move"
-          ? `Moved from ${normalizeRepositoryPath(source.path)} in ${from}. The original is deleted by a separate changeset in ${from}; land this one first.`
-          : `Copied from ${normalizeRepositoryPath(source.path)} in ${from}.`,
+      description: `Copied from ${normalizeRepositoryPath(source.path)} in ${from}.`,
       edits,
       slice: target,
       title: `${verb} ${normalizeRepositoryPath(source.path)} to ${destination}`,
     });
-    const staged: CrossSliceResult = { copyId, copySlice: targetLabel };
-    if (mode === "move") {
-      try {
-        staged.deleteId = await stageQuietly?.([
-          { kind: "delete", path: source.path },
-        ]);
-      } catch (failure) {
-        staged.deleteError =
-          failure instanceof Error ? failure.message : String(failure);
-      }
-    }
-    return staged;
+    return { copyId, copySlice: targetLabel };
   }
 
   return (
@@ -307,7 +288,6 @@ export function CopyMoveDialog({
     >
       {result ? (
         <CrossSliceSummary
-          mode={mode}
           onClose={onClose}
           openChangeset={openChangeset}
           result={result}
@@ -330,9 +310,9 @@ export function CopyMoveDialog({
             {mode === "copy" && source.isDirectory
               ? ` Copies up to ${COPY_ENTRY_LIMIT} items.`
               : ""}{" "}
-            A path in another account or slice (such as /acme/docs/x) goes
-            into a changeset of that slice. It is staged in a draft changeset
-            for review.
+            A copy to another account or slice (such as /acme/docs/x) goes into
+            a changeset of that slice. It is staged in a draft changeset for
+            review.
           </p>
           {error ? (
             <p
@@ -365,54 +345,31 @@ export function CopyMoveDialog({
 }
 
 function CrossSliceSummary({
-  mode,
   onClose,
   openChangeset,
   result,
 }: {
-  mode: CopyMoveMode;
   onClose(): void;
   openChangeset?(id: string): void;
   result: CrossSliceResult;
 }) {
-  const link = (id: string, label: string) => (
-    <button
-      className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-      onClick={() => {
-        onClose();
-        openChangeset?.(id);
-      }}
-      type="button"
-    >
-      {label}
-    </button>
-  );
   return (
     <div className="space-y-3 text-sm text-slate-700 dark:text-zinc-300">
       <p>
         The copy is staged in a draft changeset in{" "}
         <span className="font-mono">{result.copySlice}</span>.
       </p>
-      {mode === "move" ? (
-        result.deleteId ? (
-          <p>
-            Deleting the original is staged in a separate draft changeset in
-            this slice. A changeset edits one slice, so land the copy first,
-            then the delete.
-          </p>
-        ) : (
-          <p
-            className="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-red-700 dark:text-red-300"
-            role="alert"
-          >
-            The original wasn't deleted: {result.deleteError}. Delete it from
-            its menu once the copy has landed.
-          </p>
-        )
-      ) : null}
       <div className="flex flex-wrap justify-end gap-2">
-        {link(result.copyId, "Open the copy")}
-        {result.deleteId ? link(result.deleteId, "Open the delete") : null}
+        <button
+          className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+          onClick={() => {
+            onClose();
+            openChangeset?.(result.copyId);
+          }}
+          type="button"
+        >
+          Open the copy
+        </button>
         <button
           className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98]"
           onClick={onClose}
