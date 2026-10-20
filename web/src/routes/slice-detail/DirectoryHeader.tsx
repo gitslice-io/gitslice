@@ -12,6 +12,7 @@ import { ActionMenu } from "../../components/source/ActionMenu";
 import { shortHash } from "../../lib/objectId";
 import { cn } from "../../lib/cn";
 import { useMobileDetailsClass } from "../../components/MobileDetails";
+import { copyMoveMenuItems, useCopyMove } from "./CopyMove";
 
 interface DirectoryHeaderProps {
   commitId: string;
@@ -40,6 +41,7 @@ export function DirectoryHeader({
   children
 }: DirectoryHeaderProps) {
   const [isRenaming, setIsRenaming] = useState(false);
+  const copyMove = useCopyMove();
   const foldedOnPhone = useMobileDetailsClass();
   const canRename = Boolean(selectedPath && onStageEdit);
   const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
@@ -68,6 +70,14 @@ export function DirectoryHeader({
           onSelect: () => setIsRenaming(true),
           title: modifyDisabledTitle
         },
+        ...copyMoveMenuItems(
+          copyMove,
+          { path: selectedPath, isDirectory: true },
+          {
+            canModifySource: canModifySelectedPath,
+            disabledTitle: TOP_LEVEL_SLICE_FOLDER_TITLE
+          }
+        ),
         {
           label: "Delete",
           disabled: !canModifySelectedPath,

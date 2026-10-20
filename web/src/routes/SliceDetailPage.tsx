@@ -56,6 +56,8 @@ import {
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
+import { CopyMoveProvider } from "./slice-detail/CopyMove";
+import { canModifyPath } from "./slice-detail/DirectoryHeader";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
 
 interface SliceParams {
@@ -265,7 +267,7 @@ export function SliceDetailPage() {
     }
   }
 
-  async function stagePendingEdit(edit: PendingEdit) {
+  async function stagePendingEdit(edit: PendingEdit | PendingEdit[]) {
     if (!canEdit || !sliceRouteParams) {
       return;
     }
@@ -345,6 +347,32 @@ export function SliceDetailPage() {
       : "block lg:hidden";
   const workspaceVisibility = selectedPath ? "block" : "hidden lg:block";
   const sliceCrumbs = sliceBreadcrumbItems(sliceRef, accounts);
+
+  const workspace = (
+    <SliceSourceWorkspace
+      commitError={latestQuery.error}
+      commitId={commitId}
+      createDirectory={createDirectory}
+      directoryEntries={currentEntries}
+      directoryError={directoryQuery.error}
+      entry={entry}
+      fileContent={decodeBase64File(fileQuery.data?.data)}
+      fileData={fileQuery.data?.data ?? ""}
+      fileError={fileQuery.error}
+      includedPaths={includedPaths}
+      isDirectoryLoading={directoryQuery.isPending}
+      isFileLoading={fileQuery.isPending}
+      isLatestLoading={latestQuery.isPending}
+      isPathLoading={pathQuery.isLoading}
+      onOpenHistory={openHistory}
+      onSelectPath={selectPath}
+      onStageEdit={canEdit ? stagePendingEdit : undefined}
+      pathError={pathQuery.error}
+      pendingEdits={pendingEdits}
+      selectedPath={selectedPath}
+      sliceRef={sliceRef}
+    />
+  );
 
   return (
     <MobileDetailsProvider
@@ -476,29 +504,18 @@ export function SliceDetailPage() {
                 workspaceVisibility,
               )}
             >
-              <SliceSourceWorkspace
-                commitError={latestQuery.error}
-                commitId={commitId}
-                createDirectory={createDirectory}
-                directoryEntries={currentEntries}
-                directoryError={directoryQuery.error}
-                entry={entry}
-                fileContent={decodeBase64File(fileQuery.data?.data)}
-                fileData={fileQuery.data?.data ?? ""}
-                fileError={fileQuery.error}
-                includedPaths={includedPaths}
-                isDirectoryLoading={directoryQuery.isPending}
-                isFileLoading={fileQuery.isPending}
-                isLatestLoading={latestQuery.isPending}
-                isPathLoading={pathQuery.isLoading}
-                onOpenHistory={openHistory}
-                onSelectPath={selectPath}
-                onStageEdit={canEdit ? stagePendingEdit : undefined}
-                pathError={pathQuery.error}
-                pendingEdits={pendingEdits}
-                selectedPath={selectedPath}
-                sliceRef={sliceRef}
-              />
+              {canEdit ? (
+                <CopyMoveProvider
+                  canModify={(path) => canModifyPath(includedPaths, path)}
+                  commitId={commitId}
+                  slice={sliceRef}
+                  stage={stagePendingEdit}
+                >
+                  {workspace}
+                </CopyMoveProvider>
+              ) : (
+                workspace
+              )}
             </div>
           </div>
           <HistoryDrawer

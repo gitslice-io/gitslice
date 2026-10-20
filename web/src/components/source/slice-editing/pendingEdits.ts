@@ -9,6 +9,8 @@ export type PendingEdit =
       isNew: boolean;
       blobId?: string;
       contentHash?: string;
+      // mode keeps a copied file's permission bits (for example executable).
+      mode?: number;
     }
   | { kind: "mkdir"; path: string }
   | { kind: "rename"; oldPath: string; path: string }
@@ -26,6 +28,10 @@ export function upsertPendingEdit(edits: PendingEdit[], edit: PendingEdit) {
     ),
     normalized
   ];
+}
+
+export function upsertPendingEdits(edits: PendingEdit[], next: PendingEdit[]) {
+  return next.reduce(upsertPendingEdit, edits);
 }
 
 export function pendingEditKey(edit: PendingEdit) {

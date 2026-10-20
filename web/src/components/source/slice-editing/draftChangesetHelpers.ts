@@ -24,7 +24,8 @@ export async function preparePendingFileEdits(
         op: edit.isNew ? "add" : "update",
         path: edit.path,
         blobId: edit.blobId,
-        contentHash: edit.contentHash
+        contentHash: edit.contentHash,
+        ...(edit.mode ? { mode: edit.mode } : {})
       });
       continue;
     }
@@ -112,7 +113,8 @@ export function fileEditToPendingEdit(edit: FileEdit): PendingEdit | null {
       path,
       isNew: op === "add",
       blobId: edit.blobId,
-      contentHash: edit.contentHash
+      contentHash: edit.contentHash,
+      ...(edit.mode ? { mode: edit.mode } : {})
     };
   }
 

@@ -15,6 +15,7 @@ import {
   sortEntries
 } from "../../components/source/sourceUtils";
 import { shortHash } from "../../lib/objectId";
+import { copyMoveMenuItems, useCopyMove } from "./CopyMove";
 import { canModifyPath } from "./DirectoryHeader";
 
 const TOP_LEVEL_SLICE_FOLDER_TITLE =
@@ -38,6 +39,7 @@ export function SliceDirectoryTable({
   compact = false
 }: SliceDirectoryTableProps) {
   const [renamingPath, setRenamingPath] = useState("");
+  const copyMove = useCopyMove();
   const sortedEntries = sortEntries(entries);
   const showActions = Boolean(onStageEdit);
 
@@ -140,6 +142,14 @@ export function SliceDirectoryTable({
                             onSelect: () => setRenamingPath(path),
                             title: modifyDisabledTitle
                           },
+                          ...copyMoveMenuItems(
+                            copyMove,
+                            { path, isDirectory },
+                            {
+                              canModifySource: canModifyEntryPath,
+                              disabledTitle: TOP_LEVEL_SLICE_FOLDER_TITLE
+                            }
+                          ),
                           {
                             label: "Delete",
                             disabled: !canModifyEntryPath,

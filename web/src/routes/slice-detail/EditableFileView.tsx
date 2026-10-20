@@ -21,6 +21,7 @@ import { binaryKindFromPath } from "../../components/source/sourceUtils";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import { useMobileDetailsClass } from "../../components/MobileDetails";
 import { cn } from "../../lib/cn";
+import { copyMoveMenuItems, useCopyMove } from "./CopyMove";
 import { canModifyPath, joinRepositoryPath } from "./DirectoryHeader";
 
 const TOP_LEVEL_SLICE_FOLDER_TITLE =
@@ -61,6 +62,7 @@ export function EditableFileView({
   const [isRenaming, setIsRenaming] = useState(false);
   const [draft, setDraft] = useState(displayedContent);
   const [renameError, setRenameError] = useState("");
+  const copyMove = useCopyMove();
   const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
   const foldedOnPhone = useMobileDetailsClass();
   const modifyDisabledTitle = canModifySelectedPath
@@ -153,6 +155,14 @@ export function EditableFileView({
                       onSelect: () => setIsRenaming(true),
                       title: modifyDisabledTitle
                     },
+                    ...copyMoveMenuItems(
+                      copyMove,
+                      { path: selectedPath, isDirectory: false },
+                      {
+                        canModifySource: canModifySelectedPath,
+                        disabledTitle: TOP_LEVEL_SLICE_FOLDER_TITLE
+                      }
+                    ),
                     {
                       label: "Delete",
                       disabled: !canModifySelectedPath,
