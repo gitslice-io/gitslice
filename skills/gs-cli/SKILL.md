@@ -287,6 +287,7 @@ gs slice paths nic/home --json
 gs slice create nic/tools --include /nic/tools --visibility private --json
 gs slice update nic/tools --include /nic/tools --required-approvals 1 --json
 gs slice update nic/tools --description "Mirror of example/tools; credit to its authors"   # shown on the slice page; "" clears
+gs slice update nic/tools --merge-on-submit on   # a stale changeset is merged onto the latest base at submit (new patchset, CI reruns); overlapping edits are still refused
 gs slice delete nic/tools --yes --json
 ```
 

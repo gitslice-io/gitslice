@@ -162,7 +162,20 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			return err
 		}
 	}
-	if status == "submitted" && usingWorkspaceCurrent && lazy != nil {
+	// A server that merged the changeset onto a newer base (merge on submit)
+	// landed more than this workspace holds: its files are not the new base,
+	// so gs sync brings the merge in rather than this taking them as landed.
+	mergedOnSubmit := false
+	if status == "submitted" && usingWorkspaceCurrent && hasWorkspace {
+		if landed, err := changesetClient.GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID}); err == nil {
+			mergedOnSubmit = landedByServerMerge(landed, expectedPatchsetID)
+		}
+	}
+	if mergedOnSubmit {
+		if !opts.Quiet && !opts.jsonOutput() {
+			fmt.Fprintln(r.stderr(), "the base had moved, so the server merged this changeset onto the latest base before landing it; run gs sync to bring the merge into this workspace")
+		}
+	} else if status == "submitted" && usingWorkspaceCurrent && lazy != nil {
 		if err := r.landLazyWorkspace(ctx, conn, cfg, lazy, landedPatchset(cs, expectedPatchsetID), refCommitID, state); err != nil {
 			fmt.Fprintf(r.stderr(), "warning: the changeset landed, but the lazy workspace keeps its old base (%v); run gs sync\n", err)
 		}
@@ -508,6 +521,14 @@ func displaySubmitBlockedReason(reason string) string {
 
 // landedPatchset is the patchset a submit landed: the one it expected, else
 // the changeset's current one.
+// landedByServerMerge reports whether the changeset landed as a patchset the
+// server made by merging submitted onto a newer base, rather than as
+// submitted itself.
+func landedByServerMerge(cs *corev1.Changeset, submitted string) bool {
+	current := currentPatchset(cs)
+	return current != nil && submitted != "" && current.GetId() != submitted && current.GetKind() == storage.SubmitMergeKind
+}
+
 func landedPatchset(cs *corev1.Changeset, patchsetID string) *corev1.Patchset {
 	for _, patchset := range cs.GetPatchsets() {
 		if patchset.GetId() == patchsetID {

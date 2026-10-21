@@ -353,6 +353,47 @@ patchset conflicts`) until a new patchset (`gs modify`) replaces it. A
 patchset's unresolved conflicts are carried through later restacks. `gs sync`
 lists the conflicted paths.
 
+## 7.4 Merge On Submit
+
+A changeset whose base went stale is refused at submit (`path base conflict,
+refresh or rebase the changeset`): its author syncs, which merges upstream in,
+and submits again. On a busy slice, agents bounce on this. A slice with
+`merge_on_submit` (a slice setting outside the definition, so no new definition
+version: `gs slice update --merge-on-submit on|off`, or Settings in the web
+app; owners and admins) lets the server do that merge at submit instead:
+
+- The submit is tried as always. Only the stale-base refusal triggers a merge;
+  a missing approval or check does not.
+- The current patchset is taken onto the latest head of the target ref by the
+  restack merge (section 7.3, `rebaseEdits`): unchanged-upstream edits are
+  replayed, text files both sides changed are merged line by line.
+- Any conflict refuses the submit with the paths (up to five, then a count) and
+  makes no patchset: overlapping changes need the author, in a workspace where
+  they can be tested (`gs sync`).
+- A clean merge becomes a new patchset of kind `submit_merge`, made as any
+  patchset is (UpdateChangeset), so the slice's CI daemon runs the required
+  checks on it. Approvals belong to patchsets and section 7.1's forwarding is
+  not built, so a slice that requires approvals needs them again; the merged
+  code is not what was approved.
+- The merge is then submitted. Its checks have usually not reported, so the
+  usual answer is a pending check, said after "the server merged the changeset
+  onto the latest base as patchset N, which runs CI again". `gs submit` waits
+  for checks and submits again as it always does; a submit that still names
+  the patchset it started with is taken to mean the server's merge of it.
+- Only a changeset that depends on no other (a plain changeset or the root of
+  a dependency tree) is merged; dependents follow their root by restack, as
+  when it moves any other way. A patchset with unresolved conflicts is not.
+
+What lands includes upstream's changes, so the workspace's files are not the
+new base: `gs submit` says the server merged the changeset and leaves the
+workspace's base as it was, for `gs sync` to bring the merge in (a three-way
+merge whose upstream side already holds the workspace's changes, so it is
+clean).
+
+Lockfiles and generated files (`go.sum`, `package-lock.json`) often conflict
+here while being trivially resolvable; per-slice merge rules for them are a
+follow-up.
+
 ## 8. Interaction With Overlapping Slices
 
 Overlapping slices do not duplicate files. They project the same global path.

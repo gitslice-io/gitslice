@@ -185,6 +185,8 @@ export function createApiClient({
       unary<Api.Slice>(() => slice.setSliceCIDaemon(toProtoRequest(request))),
     setSliceDescription: (request) =>
       unary<Api.Slice>(() => slice.setSliceDescription(toProtoRequest(request))),
+    setSliceMergeOnSubmit: (request) =>
+      unary<Api.Slice>(() => slice.setSliceMergeOnSubmit(toProtoRequest(request))),
     createChangeset: (request) =>
       unary<Api.Changeset>(() =>
         changeset.createChangeset(toProtoRequest(request))

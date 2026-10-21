@@ -16,6 +16,15 @@ const (
 	CheckStatusFail = "fail"
 )
 
+// StaleBaseReason is why a submit is refused when a path the patchset changes
+// moved on since its base. A slice with merge_on_submit merges the changeset
+// onto the latest base instead (design/07 section 7.4).
+const StaleBaseReason = "path base conflict, refresh or rebase the changeset"
+
+// SubmitMergeKind is the kind of a patchset the server made by merging a
+// stale changeset onto the latest base at submit.
+const SubmitMergeKind = "submit_merge"
+
 func NormalizeCheckStatus(status string) (string, bool) {
 	status = strings.ToLower(strings.TrimSpace(status))
 	switch status {

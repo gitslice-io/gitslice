@@ -320,6 +320,10 @@ func (a connectSliceAdapter) SetSliceDescription(ctx context.Context, req *conne
 	return connectResponse(a.svc.SetSliceDescription(ctx, req.Msg))
 }
 
+func (a connectSliceAdapter) SetSliceMergeOnSubmit(ctx context.Context, req *connect.Request[corev1.SetSliceMergeOnSubmitRequest]) (*connect.Response[corev1.Slice], error) {
+	return connectResponse(a.svc.SetSliceMergeOnSubmit(ctx, req.Msg))
+}
+
 func (a connectSliceAdapter) SetSliceCIDaemon(ctx context.Context, req *connect.Request[corev1.SetSliceCIDaemonRequest]) (*connect.Response[corev1.Slice], error) {
 	return connectResponse(a.svc.SetSliceCIDaemon(ctx, req.Msg))
 }

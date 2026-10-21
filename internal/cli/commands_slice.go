@@ -75,13 +75,14 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceUpdateVisibility := ""
 	sliceUpdateRequiredApprovals := 0
 	sliceUpdateClearRequiredChecks := false
+	sliceUpdateMergeOnSubmit := ""
 	var sliceUpdateIncludes []string
 	var sliceUpdateRequiredChecks []string
 	sliceUpdateDescription := ""
 	sliceUpdateCmd := &cobra.Command{
 		Use:   "update <slice|account:slice>",
 		Short: "Update slice included paths, visibility, submit settings or description",
-		Args:  exactArgs(1, "gs slice update <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-check name] [--description text]"),
+		Args:  exactArgs(1, "gs slice update <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-check name] [--description text] [--merge-on-submit on|off]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			visibilityChanged := cmd.Flags().Changed("visibility")
 			includesChanged := cmd.Flags().Changed("include")
@@ -91,7 +92,15 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 			if cmd.Flags().Changed("description") {
 				description = &sliceUpdateDescription
 			}
-			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged, sliceUpdateRequiredApprovals, requiredApprovalsChanged, sliceUpdateRequiredChecks, requiredChecksChanged, sliceUpdateClearRequiredChecks, description)
+			var mergeOnSubmit *bool
+			if cmd.Flags().Changed("merge-on-submit") {
+				enabled, err := parseOnOff(sliceUpdateMergeOnSubmit)
+				if err != nil {
+					return userError("invalid_args", "--merge-on-submit takes on or off", "Use --merge-on-submit on to merge stale changesets at submit, or off to refuse them.")
+				}
+				mergeOnSubmit = &enabled
+			}
+			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged, sliceUpdateRequiredApprovals, requiredApprovalsChanged, sliceUpdateRequiredChecks, requiredChecksChanged, sliceUpdateClearRequiredChecks, description, mergeOnSubmit)
 		},
 	}
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateIncludes, "include", nil, "replacement included global path; repeat for multiple paths")
@@ -100,6 +109,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateRequiredChecks, "required-check", nil, "replacement required check name; repeat for multiple checks")
 	sliceUpdateCmd.Flags().BoolVar(&sliceUpdateClearRequiredChecks, "clear-required-checks", sliceUpdateClearRequiredChecks, "remove all required checks")
 	sliceUpdateCmd.Flags().StringVar(&sliceUpdateDescription, "description", "", "replacement description shown on the slice's page; --description '' clears it")
+	sliceUpdateCmd.Flags().StringVar(&sliceUpdateMergeOnSubmit, "merge-on-submit", "", "on: a changeset whose base went stale is merged onto the latest base at submit (a new patchset that reruns CI); off: it is refused until synced")
 	sliceDeleteYes := false
 	sliceDeleteCmd := &cobra.Command{
 		Use:   "delete <slice|account:slice>",

@@ -30,6 +30,7 @@ type sliceOutput struct {
 	DefinitionHash    string   `json:"definition_hash"`
 	Archived          bool     `json:"archived,omitempty"`
 	Description       string   `json:"description,omitempty"`
+	MergeOnSubmit     bool     `json:"merge_on_submit"`
 	FormerNames       []string `json:"former_names,omitempty"`
 	WebURL            string   `json:"web_url,omitempty"`
 }
@@ -287,13 +288,13 @@ func (r Runner) runSliceHistory(ctx context.Context, opts commandOptions, sliceR
 	return nil
 }
 
-func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool, description *string) error {
+func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool, description *string, mergeOnSubmit *bool) error {
 	if requiredChecksChanged && clearRequiredChecks {
 		return userError("invalid_args", "required checks can be replaced or cleared, not both", "Use --required-check or --clear-required-checks.")
 	}
 	definitionChanged := includesChanged || visibilityChanged || requiredApprovalsChanged || requiredChecksChanged || clearRequiredChecks
-	if !definitionChanged && description == nil {
-		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, --required-approvals, --required-check, --clear-required-checks, or --description.")
+	if !definitionChanged && description == nil && mergeOnSubmit == nil {
+		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, --required-approvals, --required-check, --clear-required-checks, --description, or --merge-on-submit.")
 	}
 	if requiredApprovals < 0 {
 		return userError("invalid_args", "required approvals must be zero or greater", "Pass --required-approvals 0 or higher.")
@@ -351,6 +352,11 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 	}
 	if description != nil {
 		if _, err := client.SetSliceDescription(callCtx, &corev1.SetSliceDescriptionRequest{Slice: ref, Description: *description}); err != nil {
+			return err
+		}
+	}
+	if mergeOnSubmit != nil {
+		if _, err := client.SetSliceMergeOnSubmit(callCtx, &corev1.SetSliceMergeOnSubmitRequest{Slice: ref, Enabled: *mergeOnSubmit}); err != nil {
 			return err
 		}
 	}
@@ -456,6 +462,11 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 		fmt.Fprintln(w, "ci_daemon_id: none")
 	}
 	fmt.Fprintf(w, "required_approvals: %d\n", out.RequiredApprovals)
+	if out.MergeOnSubmit {
+		fmt.Fprintln(w, "merge_on_submit: on (a stale changeset is merged onto the latest base at submit)")
+	} else {
+		fmt.Fprintln(w, "merge_on_submit: off")
+	}
 	if len(out.RequiredChecks) > 0 {
 		fmt.Fprintf(w, "required_checks: %s\n", strings.Join(out.RequiredChecks, ", "))
 	} else {
@@ -480,6 +491,7 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		CIDaemonName:   slice.CiDaemonName,
 		Archived:       slice.Archived,
 		Description:    slice.Description,
+		MergeOnSubmit:  slice.MergeOnSubmit,
 		FormerNames:    append([]string(nil), slice.FormerNames...),
 		WebURL:         webSliceResourceURL(slice.Ref),
 	}
@@ -609,4 +621,15 @@ func listAllSlicesIncluding(ctx context.Context, client corev1.SliceServiceClien
 		}
 		cursor = page.GetNextCursor()
 	}
+}
+
+// parseOnOff reads an on/off flag value.
+func parseOnOff(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "on", "true", "yes", "1":
+		return true, nil
+	case "off", "false", "no", "0":
+		return false, nil
+	}
+	return false, fmt.Errorf("not on or off: %q", value)
 }

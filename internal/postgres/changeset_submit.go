@@ -184,7 +184,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 		if !errors.Is(err, ErrConflict) {
 			return nil, err
 		}
-		return nil, blockSubmitTx(ctx, tx, cs.ID, "path base conflict, refresh or rebase the changeset")
+		return nil, blockSubmitTx(ctx, tx, cs.ID, storage.StaleBaseReason)
 	}
 	if err := applyPathHeadEditsTx(ctx, tx, cs.ID, patchset.Id, patchset.FileEdits); err != nil {
 		return nil, err

@@ -87,6 +87,18 @@ func (s *SliceStore) SetDescription(ctx context.Context, sliceID, description st
 	return cloneSlice(slice), nil
 }
 
+// SetMergeOnSubmit turns merging stale changesets on submit on or off.
+func (s *SliceStore) SetMergeOnSubmit(ctx context.Context, sliceID string, enabled bool) (*corev1.Slice, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	slice := s.b.slices[sliceID]
+	if slice == nil || s.b.retiredSlices[sliceID] {
+		return nil, storage.ErrNotFound
+	}
+	slice.MergeOnSubmit = enabled
+	return cloneSlice(slice), nil
+}
+
 // SetArchived archives the slice or restores it; see storage.SliceStore.
 func (s *SliceStore) SetArchived(ctx context.Context, sliceID string, archived bool) (*corev1.Slice, error) {
 	s.b.mu.Lock()

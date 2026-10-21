@@ -196,17 +196,7 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "stack entry not found")
 	}
-	changesetService := ChangesetService{
-		Auth:        s.Auth,
-		Blobs:       s.Blobs,
-		Changesets:  s.Changesets,
-		Repository:  s.Repository,
-		Slices:      s.Slices,
-		Checks:      s.Checks,
-		ObjectStore: s.ObjectStore,
-		validator:   s.validator,
-		dispatcher:  s.dispatcher,
-	}
+	changesetService := s.changesetService()
 	response := &corev1.RestackResponse{StackId: stack.Id, Status: "clean"}
 	selectedRoot := false
 	for _, entry := range entries {
@@ -445,11 +435,34 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 			continue
 		}
 		res, err := s.Changesets.Submit(ctx, entry.ChangesetId, cs.CurrentPatchsetId)
+		var merged *corev1.Patchset
+		if isStaleBase(err) && entry.ParentChangesetId == "" {
+			// A root of the tree goes onto the latest base like a changeset
+			// submitted alone (merge on submit); its dependents follow it by
+			// restack, as they do when it moves any other way.
+			changesets := s.changesetService()
+			var mergeErr error
+			if merged, mergeErr = changesets.mergeStaleOnSubmit(ctx, cs); mergeErr != nil {
+				blocked = true
+				response.Results = append(response.Results, &corev1.SubmitStackEntryResult{
+					ChangesetId:   entry.ChangesetId,
+					Status:        "blocked",
+					BlockedReason: status.Convert(mergeErr).Message(),
+				})
+				continue
+			}
+			if merged != nil {
+				res, err = changesets.submitMerged(ctx, entry.ChangesetId, merged)
+			}
+		}
 		if err != nil {
 			blocked = true
 			reason := submitBlockReason(err)
-			if refreshed, getErr := s.Changesets.Get(ctx, entry.ChangesetId); getErr == nil && refreshed.SubmitBlockedReason != "" {
+			if refreshed, getErr := s.Changesets.Get(ctx, entry.ChangesetId); merged == nil && getErr == nil && refreshed.SubmitBlockedReason != "" {
 				reason = refreshed.SubmitBlockedReason
+			}
+			if merged != nil {
+				reason = status.Convert(err).Message()
 			}
 			response.Results = append(response.Results, &corev1.SubmitStackEntryResult{
 				ChangesetId:   entry.ChangesetId,
@@ -611,4 +624,20 @@ func submitBlockReason(err error) string {
 		return strings.TrimSpace(strings.TrimPrefix(err.Error(), storage.ErrConflict.Error()+":"))
 	}
 	return err.Error()
+}
+
+// changesetService is a ChangesetService over the same stores, for the
+// changeset operations a stack operation makes (new patchsets, submits).
+func (s *ChangesetStackService) changesetService() ChangesetService {
+	return ChangesetService{
+		Auth:        s.Auth,
+		Blobs:       s.Blobs,
+		Changesets:  s.Changesets,
+		Repository:  s.Repository,
+		Slices:      s.Slices,
+		Checks:      s.Checks,
+		ObjectStore: s.ObjectStore,
+		validator:   s.validator,
+		dispatcher:  s.dispatcher,
+	}
 }

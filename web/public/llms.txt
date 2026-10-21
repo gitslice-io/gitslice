@@ -111,6 +111,12 @@ To share read-only with everyone, make a slice public:
 `gs init` or git-clone it. `gs slice update <account>/<slice> --description
 "..."` sets the short note shown on its page, for example which project a
 mirror comes from and who to credit (up to 500 characters; `""` clears it).
+`gs slice update <account>/<slice> --merge-on-submit on` lets the server merge
+a changeset whose base went stale onto the latest base when it is submitted,
+instead of refusing it: the merge is a new patchset, so required checks run
+again (`gs submit` waits for them) and approvals are needed again. Edits that
+overlap are still refused with the files named; run `gs sync` to resolve them.
+After a merged landing, run `gs sync` to bring the merge into the workspace.
 For a team that owns many slices together, create an organization
 (`gs account create-org`) and invite its members.
 

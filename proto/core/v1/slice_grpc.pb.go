@@ -33,6 +33,7 @@ const (
 	SliceService_RenameSlice_FullMethodName                 = "/gitslice.core.v1.SliceService/RenameSlice"
 	SliceService_SetSliceArchived_FullMethodName            = "/gitslice.core.v1.SliceService/SetSliceArchived"
 	SliceService_SetSliceDescription_FullMethodName         = "/gitslice.core.v1.SliceService/SetSliceDescription"
+	SliceService_SetSliceMergeOnSubmit_FullMethodName       = "/gitslice.core.v1.SliceService/SetSliceMergeOnSubmit"
 	SliceService_CreateTag_FullMethodName                   = "/gitslice.core.v1.SliceService/CreateTag"
 	SliceService_ListTags_FullMethodName                    = "/gitslice.core.v1.SliceService/ListTags"
 	SliceService_ListSliceMembers_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceMembers"
@@ -72,6 +73,9 @@ type SliceServiceClient interface {
 	// SetSliceDescription sets or, with "", clears a slice's description.
 	// Owners and admins of its account may change it.
 	SetSliceDescription(ctx context.Context, in *SetSliceDescriptionRequest, opts ...grpc.CallOption) (*Slice, error)
+	// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
+	// (Slice.merge_on_submit). Owners and admins of its account may change it.
+	SetSliceMergeOnSubmit(ctx context.Context, in *SetSliceMergeOnSubmitRequest, opts ...grpc.CallOption) (*Slice, error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -225,6 +229,15 @@ func (c *sliceServiceClient) SetSliceDescription(ctx context.Context, in *SetSli
 	return out, nil
 }
 
+func (c *sliceServiceClient) SetSliceMergeOnSubmit(ctx context.Context, in *SetSliceMergeOnSubmitRequest, opts ...grpc.CallOption) (*Slice, error) {
+	out := new(Slice)
+	err := c.cc.Invoke(ctx, SliceService_SetSliceMergeOnSubmit_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sliceServiceClient) CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*Tag, error) {
 	out := new(Tag)
 	err := c.cc.Invoke(ctx, SliceService_CreateTag_FullMethodName, in, out, opts...)
@@ -310,6 +323,9 @@ type SliceServiceServer interface {
 	// SetSliceDescription sets or, with "", clears a slice's description.
 	// Owners and admins of its account may change it.
 	SetSliceDescription(context.Context, *SetSliceDescriptionRequest) (*Slice, error)
+	// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
+	// (Slice.merge_on_submit). Owners and admins of its account may change it.
+	SetSliceMergeOnSubmit(context.Context, *SetSliceMergeOnSubmitRequest) (*Slice, error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -374,6 +390,9 @@ func (UnimplementedSliceServiceServer) SetSliceArchived(context.Context, *SetSli
 }
 func (UnimplementedSliceServiceServer) SetSliceDescription(context.Context, *SetSliceDescriptionRequest) (*Slice, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetSliceDescription not implemented")
+}
+func (UnimplementedSliceServiceServer) SetSliceMergeOnSubmit(context.Context, *SetSliceMergeOnSubmitRequest) (*Slice, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetSliceMergeOnSubmit not implemented")
 }
 func (UnimplementedSliceServiceServer) CreateTag(context.Context, *CreateTagRequest) (*Tag, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateTag not implemented")
@@ -657,6 +676,24 @@ func _SliceService_SetSliceDescription_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_SetSliceMergeOnSubmit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSliceMergeOnSubmitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).SetSliceMergeOnSubmit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_SetSliceMergeOnSubmit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).SetSliceMergeOnSubmit(ctx, req.(*SetSliceMergeOnSubmitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SliceService_CreateTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateTagRequest)
 	if err := dec(in); err != nil {
@@ -827,6 +864,10 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetSliceDescription",
 			Handler:    _SliceService_SetSliceDescription_Handler,
+		},
+		{
+			MethodName: "SetSliceMergeOnSubmit",
+			Handler:    _SliceService_SetSliceMergeOnSubmit_Handler,
 		},
 		{
 			MethodName: "CreateTag",

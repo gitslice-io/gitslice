@@ -102,7 +102,7 @@ func (s *SliceStore) ListShared(ctx context.Context, subjectID string) ([]storag
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, sm.role
+		       slices.archived_at is not null, slices.description, slices.merge_on_submit, sm.role
 		from slice_members sm
 		join slices on slices.id = sm.slice_id
 		join accounts on accounts.id = slices.account_id

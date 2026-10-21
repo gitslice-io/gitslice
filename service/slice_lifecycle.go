@@ -104,6 +104,31 @@ func (s *SliceService) SetSliceDescription(ctx context.Context, req *corev1.SetS
 	return updated, nil
 }
 
+// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
+// for a slice (design/07 section 7.4). Owners and admins of its account may.
+func (s *SliceService) SetSliceMergeOnSubmit(ctx context.Context, req *corev1.SetSliceMergeOnSubmitRequest) (*corev1.Slice, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := normalizeServiceSliceRef(req.Slice)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.Slices.Resolve(ctx, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
+		return nil, err
+	}
+	updated, err := s.Slices.SetMergeOnSubmit(ctx, current.Id, req.Enabled)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return updated, nil
+}
+
 // normalizeSliceDescription trims a description and refuses one that is too
 // long or holds control characters other than line breaks and tabs.
 func normalizeSliceDescription(description string) (string, error) {

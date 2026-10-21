@@ -25,6 +25,7 @@ import {
 import { SliceWebhooksPanel } from "../components/slices/SliceWebhooksPanel";
 import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
 import { SliceDescriptionPanel } from "../components/slices/SliceDescriptionPanel";
+import { SliceMergeOnSubmitPanel } from "../components/slices/SliceMergeOnSubmitPanel";
 import { canAdmin, membershipFor } from "../lib/accounts";
 import { daemonName } from "../lib/daemons";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
@@ -237,6 +238,10 @@ export function SliceSettingsPage() {
 
       <div className="mt-8">
         <SliceDescriptionPanel slice={slice} />
+      </div>
+
+      <div className="mt-8">
+        <SliceMergeOnSubmitPanel slice={slice} />
       </div>
 
       <form className="mt-8 space-y-6" onSubmit={saveDefinition}>

@@ -34,6 +34,9 @@ service SliceService {
   // SetSliceDescription sets or, with "", clears a slice's description.
   // Owners and admins of its account may change it.
   rpc SetSliceDescription(SetSliceDescriptionRequest) returns (Slice);
+  // SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
+  // (Slice.merge_on_submit). Owners and admins of its account may change it.
+  rpc SetSliceMergeOnSubmit(SetSliceMergeOnSubmitRequest) returns (Slice);
   // CreateTag names a native commit for this slice, for releases. Tags are
   // immutable: creating an existing name again succeeds only for the same
   // commit. Requires write access. The Git projection publishes each tag as
@@ -99,6 +102,10 @@ message Slice {
   // description is a short note shown on the slice's page, such as what it
   // holds or which project it mirrors; "" when there is none.
   string description = 9;
+  // merge_on_submit: a changeset whose base went stale is merged onto the
+  // latest base by the server when it is submitted (a new patchset, which
+  // reruns CI), instead of being refused (design/07 section 7.4).
+  bool merge_on_submit = 10;
 }
 
 message SliceDefinition {
@@ -213,6 +220,11 @@ message RenameSliceRequest {
 message SetSliceArchivedRequest {
   SliceRef slice = 1;
   bool archived = 2;
+}
+
+message SetSliceMergeOnSubmitRequest {
+  SliceRef slice = 1;
+  bool enabled = 2;
 }
 
 message SetSliceDescriptionRequest {

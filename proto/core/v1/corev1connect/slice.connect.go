@@ -73,6 +73,9 @@ const (
 	// SliceServiceSetSliceDescriptionProcedure is the fully-qualified name of the SliceService's
 	// SetSliceDescription RPC.
 	SliceServiceSetSliceDescriptionProcedure = "/gitslice.core.v1.SliceService/SetSliceDescription"
+	// SliceServiceSetSliceMergeOnSubmitProcedure is the fully-qualified name of the SliceService's
+	// SetSliceMergeOnSubmit RPC.
+	SliceServiceSetSliceMergeOnSubmitProcedure = "/gitslice.core.v1.SliceService/SetSliceMergeOnSubmit"
 	// SliceServiceCreateTagProcedure is the fully-qualified name of the SliceService's CreateTag RPC.
 	SliceServiceCreateTagProcedure = "/gitslice.core.v1.SliceService/CreateTag"
 	// SliceServiceListTagsProcedure is the fully-qualified name of the SliceService's ListTags RPC.
@@ -120,6 +123,9 @@ type SliceServiceClient interface {
 	// SetSliceDescription sets or, with "", clears a slice's description.
 	// Owners and admins of its account may change it.
 	SetSliceDescription(context.Context, *connect.Request[v1.SetSliceDescriptionRequest]) (*connect.Response[v1.Slice], error)
+	// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
+	// (Slice.merge_on_submit). Owners and admins of its account may change it.
+	SetSliceMergeOnSubmit(context.Context, *connect.Request[v1.SetSliceMergeOnSubmitRequest]) (*connect.Response[v1.Slice], error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -234,6 +240,12 @@ func NewSliceServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(sliceServiceMethods.ByName("SetSliceDescription")),
 			connect.WithClientOptions(opts...),
 		),
+		setSliceMergeOnSubmit: connect.NewClient[v1.SetSliceMergeOnSubmitRequest, v1.Slice](
+			httpClient,
+			baseURL+SliceServiceSetSliceMergeOnSubmitProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("SetSliceMergeOnSubmit")),
+			connect.WithClientOptions(opts...),
+		),
 		createTag: connect.NewClient[v1.CreateTagRequest, v1.Tag](
 			httpClient,
 			baseURL+SliceServiceCreateTagProcedure,
@@ -289,6 +301,7 @@ type sliceServiceClient struct {
 	renameSlice                 *connect.Client[v1.RenameSliceRequest, v1.Slice]
 	setSliceArchived            *connect.Client[v1.SetSliceArchivedRequest, v1.Slice]
 	setSliceDescription         *connect.Client[v1.SetSliceDescriptionRequest, v1.Slice]
+	setSliceMergeOnSubmit       *connect.Client[v1.SetSliceMergeOnSubmitRequest, v1.Slice]
 	createTag                   *connect.Client[v1.CreateTagRequest, v1.Tag]
 	listTags                    *connect.Client[v1.ListTagsRequest, v1.ListTagsResponse]
 	listSliceMembers            *connect.Client[v1.ListSliceMembersRequest, v1.ListSliceMembersResponse]
@@ -367,6 +380,11 @@ func (c *sliceServiceClient) SetSliceDescription(ctx context.Context, req *conne
 	return c.setSliceDescription.CallUnary(ctx, req)
 }
 
+// SetSliceMergeOnSubmit calls gitslice.core.v1.SliceService.SetSliceMergeOnSubmit.
+func (c *sliceServiceClient) SetSliceMergeOnSubmit(ctx context.Context, req *connect.Request[v1.SetSliceMergeOnSubmitRequest]) (*connect.Response[v1.Slice], error) {
+	return c.setSliceMergeOnSubmit.CallUnary(ctx, req)
+}
+
 // CreateTag calls gitslice.core.v1.SliceService.CreateTag.
 func (c *sliceServiceClient) CreateTag(ctx context.Context, req *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {
 	return c.createTag.CallUnary(ctx, req)
@@ -426,6 +444,9 @@ type SliceServiceHandler interface {
 	// SetSliceDescription sets or, with "", clears a slice's description.
 	// Owners and admins of its account may change it.
 	SetSliceDescription(context.Context, *connect.Request[v1.SetSliceDescriptionRequest]) (*connect.Response[v1.Slice], error)
+	// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
+	// (Slice.merge_on_submit). Owners and admins of its account may change it.
+	SetSliceMergeOnSubmit(context.Context, *connect.Request[v1.SetSliceMergeOnSubmitRequest]) (*connect.Response[v1.Slice], error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -536,6 +557,12 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(sliceServiceMethods.ByName("SetSliceDescription")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sliceServiceSetSliceMergeOnSubmitHandler := connect.NewUnaryHandler(
+		SliceServiceSetSliceMergeOnSubmitProcedure,
+		svc.SetSliceMergeOnSubmit,
+		connect.WithSchema(sliceServiceMethods.ByName("SetSliceMergeOnSubmit")),
+		connect.WithHandlerOptions(opts...),
+	)
 	sliceServiceCreateTagHandler := connect.NewUnaryHandler(
 		SliceServiceCreateTagProcedure,
 		svc.CreateTag,
@@ -602,6 +629,8 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 			sliceServiceSetSliceArchivedHandler.ServeHTTP(w, r)
 		case SliceServiceSetSliceDescriptionProcedure:
 			sliceServiceSetSliceDescriptionHandler.ServeHTTP(w, r)
+		case SliceServiceSetSliceMergeOnSubmitProcedure:
+			sliceServiceSetSliceMergeOnSubmitHandler.ServeHTTP(w, r)
 		case SliceServiceCreateTagProcedure:
 			sliceServiceCreateTagHandler.ServeHTTP(w, r)
 		case SliceServiceListTagsProcedure:
@@ -677,6 +706,10 @@ func (UnimplementedSliceServiceHandler) SetSliceArchived(context.Context, *conne
 
 func (UnimplementedSliceServiceHandler) SetSliceDescription(context.Context, *connect.Request[v1.SetSliceDescriptionRequest]) (*connect.Response[v1.Slice], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceDescription is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) SetSliceMergeOnSubmit(context.Context, *connect.Request[v1.SetSliceMergeOnSubmitRequest]) (*connect.Response[v1.Slice], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceMergeOnSubmit is not implemented"))
 }
 
 func (UnimplementedSliceServiceHandler) CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {

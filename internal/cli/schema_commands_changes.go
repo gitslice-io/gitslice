@@ -177,7 +177,7 @@ func schemaSliceCommands() []map[string]any {
 			"summary":        "update slice included paths, visibility, or submit settings",
 			"aliases":        []string{"gs slices update <slice|account:slice>"},
 			"args":           []string{"slice|account:slice"},
-			"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-check", "--clear-required-checks"},
+			"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-check", "--clear-required-checks", "--description", "--merge-on-submit"},
 			"writes_stdout":  true,
 			"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
 		},

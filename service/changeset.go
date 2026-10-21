@@ -168,22 +168,52 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 		return nil, grpcError(err)
 	}
 	emitSubmitted := cs.Status != "pending_publish" && cs.Status != "submitted"
-	if submitter, ok := s.Changesets.(changesetSubmitWithCheckStatuses); ok {
-		res, err := submitter.SubmitWithCheckStatuses(ctx, cs.Id, req.ExpectedCurrentPatchsetId, extraCheckStatuses)
-		if err != nil {
-			return nil, grpcError(err)
+	res, err := s.submitPatchset(ctx, cs.Id, acceptedExpectedPatchset(cs, req.ExpectedCurrentPatchsetId), extraCheckStatuses)
+	if isStaleBase(err) {
+		merged, mergeErr := s.mergeStaleOnSubmit(ctx, cs)
+		if mergeErr != nil {
+			return nil, mergeErr
 		}
-		if emitSubmitted {
-			s.captureChangesetSubmitted(ctx, cs)
+		if merged != nil {
+			res, err = s.submitMerged(ctx, cs.Id, merged)
+			if err != nil {
+				return nil, err
+			}
 		}
-		return res, nil
 	}
-	res, err := s.Changesets.Submit(ctx, cs.Id, req.ExpectedCurrentPatchsetId)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	if emitSubmitted {
 		s.captureChangesetSubmitted(ctx, cs)
+	}
+	return res, nil
+}
+
+// submitPatchset submits a changeset at expected, with the store's check
+// statuses when it takes them.
+func (s *ChangesetService) submitPatchset(ctx context.Context, changesetID, expected string, extraCheckStatuses map[string]string) (*corev1.SubmitChangesetResponse, error) {
+	if submitter, ok := s.Changesets.(changesetSubmitWithCheckStatuses); ok {
+		return submitter.SubmitWithCheckStatuses(ctx, changesetID, expected, extraCheckStatuses)
+	}
+	return s.Changesets.Submit(ctx, changesetID, expected)
+}
+
+// submitMerged submits the patchset mergeStaleOnSubmit made. Its required
+// checks have usually not run yet, so the answer is often a pending check,
+// said with the merge in front.
+func (s *ChangesetService) submitMerged(ctx context.Context, changesetID string, merged *corev1.Patchset) (*corev1.SubmitChangesetResponse, error) {
+	refreshed, err := s.Changesets.Get(ctx, changesetID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	extra, err := s.skippedRequiredCheckStatuses(ctx, refreshed)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	res, err := s.submitPatchset(ctx, changesetID, merged.GetId(), extra)
+	if err != nil {
+		return nil, withMergedNote(grpcError(err), merged)
 	}
 	return res, nil
 }

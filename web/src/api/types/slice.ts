@@ -15,6 +15,9 @@ export interface Slice {
   formerNames?: string[];
   // A short note shown on the slice's page; empty when there is none.
   description?: string;
+  // A changeset whose base went stale is merged onto the latest base at
+  // submit (a new patchset that reruns CI) instead of being refused.
+  mergeOnSubmit?: boolean;
 }
 
 export interface SliceDefinition {
@@ -65,6 +68,11 @@ export interface UpdateSliceDefinitionRequest {
 export interface SetSliceCIDaemonRequest {
   slice?: SliceRef;
   daemonId?: string;
+}
+
+export interface SetSliceMergeOnSubmitRequest {
+  slice?: SliceRef;
+  enabled?: boolean;
 }
 
 export interface SetSliceDescriptionRequest {
