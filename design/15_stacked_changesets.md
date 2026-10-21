@@ -196,7 +196,8 @@ Rules:
 The top-level workflow should be changeset-first:
 
 ```text
-gs create --message <title> [--base <changeset>] [--root] [--sibling]
+gs create --message <title> [--description <text> | --description-file <path>] [--base <changeset>] [--root] [--sibling]
+gs cs edit [changeset] [--title <title>] [--description <text> | --description-file <path>]
 gs modify [--all] [--message <title>] [--no-update-dependents]
 gs submit [changeset] [--with-dependencies] [--subtree <changeset>] [--no-watch]
 gs deps [changeset]
@@ -305,3 +306,15 @@ Add focused coverage for:
 - Keep same-slice dependency constraints.
 - Keep physical stack storage as an internal implementation detail for the
   immediate change.
+
+## Title and description
+
+A changeset has a one-line title and a Markdown description, as a commit has a
+subject and a body. `NormalizeChangesetText` (`internal/storage`) enforces it
+on every create path: a title of several lines is split at the first line (a
+subject of at most 200 characters), and the rest goes in front of any
+description. The commit a changeset lands as has the message
+`title\n\ndescription`. Both can change only while the changeset is a draft
+(`UpdateChangesetInfo`; `gs cs edit`; the Edit button on the web page), because
+afterwards its text is its commit's. Migration 0041 split the titles that were
+whole messages before this existed.

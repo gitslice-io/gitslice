@@ -6,9 +6,17 @@ func schemaChangesetCommands() []map[string]any {
 		{
 			"use":            "gs create",
 			"summary":        "create a changeset and first patchset from workspace edits; --submit also waits for required checks and lands it",
-			"flags":          []string{"--message", "--all", "--submit", "--watch-timeout", "--if-changed", "--allow-empty", "--base", "--sibling", "--root", "--yes"},
+			"flags":          []string{"--message", "--description", "--description-file", "--all", "--submit", "--watch-timeout", "--if-changed", "--allow-empty", "--base", "--sibling", "--root", "--yes"},
 			"writes_stdout":  true,
 			"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url", "submit"},
+		},
+		{
+			"use":            "gs cs edit [changeset]",
+			"summary":        "change an open changeset's title (one line) or description (Markdown); fixed once it is submitted, as they are its commit message",
+			"args":           []string{"changeset"},
+			"flags":          []string{"--title", "--description", "--description-file"},
+			"writes_stdout":  true,
+			"machine_output": []string{"changeset", "title", "description"},
 		},
 		{
 			"use":            "gs modify",

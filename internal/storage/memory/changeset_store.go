@@ -33,6 +33,7 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 		}
 		baseCommitID = ref.CommitId
 	}
+	title, description := storage.NormalizeChangesetText(req.Title, req.Description)
 	id := s.b.nextIDLocked("cs")
 	number := s.b.nextChangesetNumberLocked(sliceID)
 	ref := cloneSliceRef(req.AuthoringSlice)
@@ -43,7 +44,8 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 		TargetRef:      targetRef,
 		BaseCommitId:   baseCommitID,
 		Status:         "draft",
-		Title:          req.Title,
+		Title:          title,
+		Description:    description,
 		Number:         number,
 	}
 	if req.StackId != "" {
@@ -253,6 +255,31 @@ func clearRequirementBlockLocked(cs *corev1.Changeset, patchsetID string) {
 	}
 }
 
+func (s *ChangesetStore) UpdateInfo(ctx context.Context, changesetID string, title, description *string) (*corev1.Changeset, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	cs := s.b.changesets[changesetID]
+	if cs == nil {
+		return nil, storage.ErrNotFound
+	}
+	if cs.Status != "draft" {
+		return nil, fmt.Errorf("%w: a changeset's title and description can be changed while it is open; this one is %s", storage.ErrConflict, cs.Status)
+	}
+	nextTitle, nextDescription := cs.Title, cs.Description
+	if title != nil {
+		nextTitle = *title
+	}
+	if description != nil {
+		nextDescription = *description
+	}
+	nextTitle, nextDescription = storage.NormalizeChangesetText(nextTitle, nextDescription)
+	if nextTitle == "" {
+		return nil, fmt.Errorf("%w: a changeset needs a title", storage.ErrInvalid)
+	}
+	cs.Title, cs.Description = nextTitle, nextDescription
+	return cloneChangeset(cs), nil
+}
+
 func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
 	return s.SubmitWithCheckStatuses(ctx, changesetID, expectedCurrentPatchsetID, nil)
 }
@@ -400,7 +427,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			files = append(files, file)
 		}
 		commitID := s.b.nextIDLocked("commit")
-		s.b.putCommitWithFilesAndDirsLocked(commitID, files, baseDirs, patchset.ChangedPaths, cs.Title)
+		s.b.putCommitWithFilesAndDirsLocked(commitID, files, baseDirs, patchset.ChangedPaths, storage.CommitMessage(cs.Title, cs.Description))
 		cs.Status = "submitted"
 		cs.CommitId = commitID
 		if acceptedAt, ok := s.b.pendingAcceptedAt[cs.Id]; ok {

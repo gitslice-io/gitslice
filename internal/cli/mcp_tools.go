@@ -143,8 +143,8 @@ func (b *mcpBackend) tools() []mcpTool {
 				`{"op":"copy","from":...,"path":...} or {"op":"mkdir","path":...}. A submit that is refused leaves the ` +
 				"changeset open and says why (status blocked, blocked_reason); a required check without a result yet is the usual reason, and submit_changeset tries again.",
 			InputSchema: schema([]string{"title", "edits"}, map[string]any{
-				"title":       str("Changeset title, like a commit subject."),
-				"description": str("Longer description."),
+				"title":       str("Changeset title: one line, like a commit subject."),
+				"description": str("What and why, in Markdown. Shown on the changeset's page and, after the title, in the commit message."),
 				"slice":       str(sliceArg),
 				"submit":      map[string]any{"type": "boolean", "description": "Submit after creating it."},
 				"edits": map[string]any{
@@ -750,6 +750,9 @@ func (b *mcpBackend) submit(ctx context.Context, changesetID, patchsetID string)
 func changesetHeader(cs *corev1.Changeset) map[string]any {
 	handle := firstNonEmpty(storage.ShortChangesetID(cs.GetId()), cs.GetId())
 	out := map[string]any{"changeset": handle, "changeset_id": cs.GetId(), "title": cs.GetTitle()}
+	if cs.GetDescription() != "" {
+		out["description"] = cs.GetDescription()
+	}
 	if url := webResourceURL("/cs/" + handle); url != "" {
 		out["url"] = url
 	}

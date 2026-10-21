@@ -82,7 +82,9 @@ func TestGitImportPreservesOriginalMetadata(t *testing.T) {
 	if got == nil {
 		t.Fatalf("show is missing git_import:\n%s", showRaw)
 	}
-	if shown.Message != "Add a" ||
+	// The native commit's message is the changeset's title then its
+	// description, which for an import is the original subject and body.
+	if shown.Message != "Add a\n\nExplains why a exists.\nCo-Authored-By: Grace <grace@example.invalid>" ||
 		got.GitCommitID != imported.Commits[0].GitCommitID ||
 		got.AuthorName != "Ada Lovelace" || got.AuthorEmail != "ada@example.invalid" ||
 		got.AuthoredAt != "2025-12-10T08:30:00Z" ||

@@ -19,6 +19,9 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	if cs.Title != "" {
 		fmt.Fprintf(w, "title: %s\n", cs.Title)
 	}
+	if cs.Description != "" {
+		fmt.Fprintf(w, "description:\n%s\n", indentLines(cs.Description, "  "))
+	}
 	if cs.Author != "" {
 		fmt.Fprintf(w, "author: %s\n", cs.Author)
 	}
@@ -217,4 +220,15 @@ func changedPathsFromEdits(edits []*corev1.FileEdit) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// indentLines indents every non-empty line of text.
+func indentLines(text, indent string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = indent + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }

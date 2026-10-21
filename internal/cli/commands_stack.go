@@ -7,6 +7,8 @@ import (
 // stackCommands builds the top-level changeset and dependency commands: create, modify, submit, deps, update-dependents, switch, up, down, top, bottom, move, insert and detach.
 func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 	createMessage := ""
+	createDescription := ""
+	createDescriptionFile := ""
 	createParent := ""
 	createRoot := false
 	createSibling := false
@@ -23,7 +25,7 @@ func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 			"A file's path in the changeset is its path in the workspace; no flag re-bases paths. When files would be " +
 			"added to a directory that is new, gs create lists those directories first, and asks before adding " +
 			"100 or more files to one (--yes skips the question); it refuses when files would repeat the slice's own path.",
-		Args: noArgs("gs create --message title [--all] [--submit] [--if-changed | --allow-empty] [--base changeset] [--sibling] [--root] [--yes]"),
+		Args: noArgs("gs create --message title [--description text] [--all] [--submit] [--if-changed | --allow-empty] [--base changeset] [--sibling] [--root] [--yes]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			submit := createSubmitOptions{}
 			if createSubmit {
@@ -33,10 +35,16 @@ func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 				}
 				submit = createSubmitOptions{enabled: true, timeout: timeout}
 			}
-			return r.runStackCreate(cmd.Context(), *opts, createMessage, createParent, createRoot, createSibling, createAll, submit, createEmpty, createReview)
+			description, err := changesetDescriptionFlag(r.Stdin, createDescription, createDescriptionFile)
+			if err != nil {
+				return err
+			}
+			return r.runStackCreate(cmd.Context(), *opts, createMessage, description, createParent, createRoot, createSibling, createAll, submit, createEmpty, createReview)
 		},
 	}
-	createCmd.Flags().StringVar(&createMessage, "message", createMessage, "changeset title")
+	createCmd.Flags().StringVar(&createMessage, "message", createMessage, "changeset title: one line, like a commit subject. A message of several lines is split: the first line is the title, the rest the description")
+	createCmd.Flags().StringVar(&createDescription, "description", createDescription, "changeset description (Markdown): what and why, shown on its page and, after the title, in the commit message")
+	createCmd.Flags().StringVar(&createDescriptionFile, "description-file", createDescriptionFile, "read the description from a file, or from standard input with -")
 	createCmd.Flags().StringVar(&createParent, "base", createParent, "base changeset id or handle")
 	createCmd.Flags().BoolVar(&createRoot, "root", createRoot, "start a new dependency tree instead of stacking on the active changeset (file paths are not affected)")
 	createCmd.Flags().BoolVar(&createSibling, "sibling", createSibling, "create a sibling of the active changeset")

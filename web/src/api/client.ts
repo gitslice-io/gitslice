@@ -213,6 +213,10 @@ export function createApiClient({
       unary<Api.SubmitChangesetResponse>(() =>
         changeset.submitChangeset(toProtoRequest(request), { timeoutMs: 300000 })
       ),
+    updateChangesetInfo: (request) =>
+      unary<Api.Changeset>(() =>
+        changeset.updateChangesetInfo(toProtoRequest(request))
+      ),
     abandonChangeset: (request) =>
       unary<Api.Empty>(() => changeset.abandonChangeset(toProtoRequest(request))),
     copyPath: (request) =>

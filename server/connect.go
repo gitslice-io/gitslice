@@ -404,6 +404,10 @@ func (a connectChangesetAdapter) AbandonChangeset(ctx context.Context, req *conn
 	return connectResponse(a.svc.AbandonChangeset(ctx, req.Msg))
 }
 
+func (a connectChangesetAdapter) UpdateChangesetInfo(ctx context.Context, req *connect.Request[corev1.UpdateChangesetInfoRequest]) (*connect.Response[corev1.Changeset], error) {
+	return connectResponse(a.svc.UpdateChangesetInfo(ctx, req.Msg))
+}
+
 func (a connectChangesetAdapter) CopyPath(ctx context.Context, req *connect.Request[corev1.CopyPathRequest]) (*connect.Response[corev1.PathOperationResponse], error) {
 	return connectResponse(a.svc.CopyPath(ctx, req.Msg))
 }

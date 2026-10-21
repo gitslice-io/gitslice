@@ -30,6 +30,8 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 	if targetRef == "" {
 		targetRef = DefaultTargetRef
 	}
+	// One-line title, the rest of a message in the description, whoever calls.
+	title, description := storage.NormalizeChangesetText(req.Title, req.Description)
 	baseCommitID := req.BaseCommitId
 	if baseCommitID == "" {
 		ref, err := s.repository.GetRef(ctx, targetRef)
@@ -71,7 +73,7 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 			)
 			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, 0, $12, $12)
 		`, id, number, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, slice.Id, subjectID,
-		targetRef, baseCommitID, req.Title, req.Description, empty, now)
+		targetRef, baseCommitID, title, description, empty, now)
 	if err != nil {
 		return nil, err
 	}
@@ -353,6 +355,50 @@ func nextChangesetNumberTx(ctx context.Context, tx *sql.Tx, sliceID string) (int
 func nullString(value string) sql.NullString {
 	value = strings.TrimSpace(value)
 	return sql.NullString{String: value, Valid: value != ""}
+}
+
+func (s *ChangesetStore) UpdateInfo(ctx context.Context, changesetID string, title, description *string) (*corev1.Changeset, error) {
+	changesetID, err := s.resolveChangesetSelector(ctx, changesetID)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var currentTitle, currentDescription, status string
+	err = tx.QueryRowContext(ctx, `
+		select title, description, status from changesets where id = $1 for update
+	`, changesetID).Scan(&currentTitle, &currentDescription, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if status != "draft" {
+		return nil, fmt.Errorf("%w: a changeset's title and description can be changed while it is open; this one is %s", ErrConflict, status)
+	}
+	if title != nil {
+		currentTitle = *title
+	}
+	if description != nil {
+		currentDescription = *description
+	}
+	currentTitle, currentDescription = storage.NormalizeChangesetText(currentTitle, currentDescription)
+	if currentTitle == "" {
+		return nil, fmt.Errorf("%w: a changeset needs a title", ErrInvalid)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		update changesets set title = $2, description = $3, updated_at = now() where id = $1
+	`, changesetID, currentTitle, currentDescription); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, changesetID)
 }
 
 func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {

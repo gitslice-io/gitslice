@@ -222,6 +222,31 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	csListCmd.Flags().StringVar(&csListSlice, "slice", csListSlice, "authoring slice, defaults to current workspace slice")
 	csListCmd.Flags().StringVar(&csListStatus, "status", csListStatus, "status filter")
 	csListCmd.Flags().IntVar(&csListLimit, "limit", csListLimit, "maximum changesets to list")
+	editTitle, editDescription, editDescriptionFile := "", "", ""
+	csEditCmd := &cobra.Command{
+		Use:   "edit [changeset]",
+		Short: "Change an open changeset's title or description",
+		Long: "Change the title (one line, like a commit subject) or the description (Markdown) of an open changeset: " +
+			"the workspace's current one, or the one named. Together they are the message of the commit it lands as, " +
+			"so they cannot be changed once it is submitted. Pass --description-file - to read the description from standard input.",
+		Args: maxArgs(1, "gs cs edit [changeset] [--title title] [--description text | --description-file file]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := ""
+			if len(args) > 0 {
+				id = args[0]
+			}
+			text, err := changesetDescriptionFlag(r.Stdin, editDescription, editDescriptionFile)
+			if err != nil {
+				return err
+			}
+			descriptionSet := cmd.Flags().Changed("description") || cmd.Flags().Changed("description-file")
+			return r.runChangesetEdit(cmd.Context(), *opts, id, optionalString(cmd.Flags().Changed("title"), editTitle), optionalString(descriptionSet, text))
+		},
+	}
+	csEditCmd.Flags().StringVar(&editTitle, "title", "", "the new title")
+	csEditCmd.Flags().StringVar(&editDescription, "description", "", "the new description; --description '' clears it")
+	csEditCmd.Flags().StringVar(&editDescriptionFile, "description-file", "", "read the new description from a file, or standard input with -")
+	csCmd.AddCommand(csEditCmd)
 	csCmd.AddCommand(csCreateCmd, csCaptureCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csLinkCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csConversationCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
 
 	return csCmd

@@ -204,6 +204,31 @@ func (s *ChangesetService) captureChangesetSubmitted(ctx context.Context, cs *co
 	})
 }
 
+// UpdateChangesetInfo changes a changeset's title and description while it is
+// open. Its author and writers of its slice may.
+func (s *ChangesetService) UpdateChangesetInfo(ctx context.Context, req *corev1.UpdateChangesetInfoRequest) (*corev1.Changeset, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Title == nil && req.Description == nil {
+		return nil, status.Error(codes.InvalidArgument, "pass a title, a description, or both")
+	}
+	cs, err := s.getChangesetForWriteOrAuthor(ctx, subjectID, req.ChangesetId)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := s.Changesets.UpdateInfo(ctx, cs.Id, req.Title, req.Description)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	storage.PopulateChangesetHandles(updated)
+	if err := s.resolveAuthors(ctx, updated); err != nil {
+		return nil, grpcError(err)
+	}
+	return updated, nil
+}
+
 func (s *ChangesetService) ApproveChangeset(ctx context.Context, req *corev1.ApproveChangesetRequest) (*corev1.ApproveChangesetResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {

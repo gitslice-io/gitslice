@@ -276,6 +276,12 @@ export interface DiffChangesetResponse {
   toPatchsetHandle?: string;
 }
 
+export interface UpdateChangesetInfoRequest {
+  changesetId?: string;
+  title?: string;
+  description?: string;
+}
+
 export interface UpdateChangesetRequest {
   changesetId?: string;
   expectedCurrentPatchsetId?: string;

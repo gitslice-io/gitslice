@@ -62,7 +62,9 @@
    `gs submit` queues the changeset for publishing; it becomes a commit within
    seconds. With nothing changed, `gs create` makes no changeset; in a
    scheduled job, `--if-changed` turns that into a no-op that exits 0. `gs create --all --message "..." --submit` does both in one step,
-   waiting for required checks first. Most commands accept `--json` for
+   waiting for required checks first. `--message` is the one-line title; put
+   detail in `--description` or `--description-file` (Markdown), and change
+   either on a draft with `gs cs edit`. Most commands accept `--json` for
    structured output. Long uploads and syncs print progress on stderr. gs says
    once a day when a newer release is out; `gs upgrade` installs it.
 

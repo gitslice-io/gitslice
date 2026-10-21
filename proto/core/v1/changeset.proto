@@ -20,6 +20,11 @@ service ChangesetService {
   // as a changeset of its own that skips the slice's required approvals and
   // checks. Each is one tree edit, so it costs the same for a folder of any
   // size. The response comes once the commit is published.
+  // UpdateChangesetInfo changes a changeset's title and description (each
+  // only when set) while it is open. The title is one line, like a commit's
+  // subject; the description is Markdown. Together they are the message of the
+  // commit the changeset lands as, so they are fixed once it is submitted.
+  rpc UpdateChangesetInfo(UpdateChangesetInfoRequest) returns (Changeset);
   rpc CopyPath(CopyPathRequest) returns (PathOperationResponse);
   rpc MovePath(MovePathRequest) returns (PathOperationResponse);
 }
@@ -293,6 +298,13 @@ message SubmitChangesetResponse {
   string status = 4;
   string pending_publish_id = 5;
   string changeset_handle = 6;
+}
+
+message UpdateChangesetInfoRequest {
+  // Accepts either a canonical changeset id or a full shareable handle.
+  string changeset_id = 1;
+  optional string title = 2;
+  optional string description = 3;
 }
 
 message CopyPathRequest {

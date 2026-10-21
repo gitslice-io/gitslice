@@ -11,6 +11,8 @@ import { StatusBadge } from "./StatusBadge";
 import { ChangesetMetaLine } from "./ChangesetMetaLine";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { ErrorBox } from "./ErrorBox";
+import { MarkdownViewer } from "../../components/source/MarkdownViewer";
+import { InfoEditor } from "./InfoEditor";
 import { ReviewActions } from "./ReviewActions";
 import { changesetLabel } from "./status";
 
@@ -26,6 +28,7 @@ export function HeaderCard({
   onAbandon,
   onAbandonReasonChange,
   onMerge,
+  onSaveInfo,
   patchsetCompare,
   terminal
 }: {
@@ -40,6 +43,8 @@ export function HeaderCard({
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
   onMerge(): void;
+  // Present when the viewer may edit the title and description.
+  onSaveInfo?(title: string, description: string): Promise<void>;
   patchsetCompare?: ReactNode;
   terminal: boolean;
 }) {
@@ -52,6 +57,9 @@ export function HeaderCard({
     ? pageDetails.toggle
     : () => setLocalDetails((value) => !value);
   const folded = showDetails ? "" : "max-lg:hidden";
+  const [editing, setEditing] = useState(false);
+  const canEditInfo =
+    Boolean(onSaveInfo) && (changeset.status || "draft").toLowerCase() === "draft";
   const publishing = isPublishing(changeset.status);
   const hasExpandableContent = Boolean(
     pageDetails || changeset.description || changeset.baseCommitId
@@ -71,7 +79,18 @@ export function HeaderCard({
         ) : null}
         <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start lg:justify-between lg:gap-3">
           <div className="min-w-0">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3">
+            {editing && onSaveInfo ? (
+              <InfoEditor
+                description={changeset.description || ""}
+                onCancel={() => setEditing(false)}
+                onSave={async (title, description) => {
+                  await onSaveInfo(title, description);
+                  setEditing(false);
+                }}
+                title={changeset.title || ""}
+              />
+            ) : null}
+            <div className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3", editing && "hidden")}>
               <h1
                 className={cn(
                   "truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg md:text-xl",
@@ -82,6 +101,18 @@ export function HeaderCard({
               >
                 {changeset.title || "Untitled changeset"}
               </h1>
+              {canEditInfo ? (
+                <button
+                  className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-zinc-400 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:text-zinc-950 dark:hover:text-zinc-50 max-lg:hidden"
+                  onClick={() => {
+                    setLocalDetails(true);
+                    setEditing(true);
+                  }}
+                  type="button"
+                >
+                  Edit
+                </button>
+              ) : null}
               {hasExpandableContent ? (
                 <button
                   aria-expanded={showDetails}
@@ -147,10 +178,19 @@ export function HeaderCard({
               </span>
             </div>
             <div className={cn("lg:block", showDetails ? "block" : "hidden")}>
-              {changeset.description ? (
-                <p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-zinc-300 md:mt-4">
-                  {changeset.description}
-                </p>
+              {changeset.description && !editing ? (
+                <div className="mt-3 max-w-3xl text-sm leading-6 text-slate-700 dark:text-zinc-300 md:mt-4">
+                  <MarkdownViewer source={changeset.description} />
+                </div>
+              ) : null}
+              {canEditInfo && !changeset.description && !editing ? (
+                <button
+                  className="mt-3 text-xs font-medium text-slate-500 dark:text-zinc-400 underline-offset-2 hover:underline md:mt-4"
+                  onClick={() => setEditing(true)}
+                  type="button"
+                >
+                  Add a description
+                </button>
               ) : null}
               {changeset.baseCommitId ? (
                 <p

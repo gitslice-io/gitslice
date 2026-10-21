@@ -62,6 +62,9 @@ const (
 	// ChangesetServiceAbandonChangesetProcedure is the fully-qualified name of the ChangesetService's
 	// AbandonChangeset RPC.
 	ChangesetServiceAbandonChangesetProcedure = "/gitslice.core.v1.ChangesetService/AbandonChangeset"
+	// ChangesetServiceUpdateChangesetInfoProcedure is the fully-qualified name of the
+	// ChangesetService's UpdateChangesetInfo RPC.
+	ChangesetServiceUpdateChangesetInfoProcedure = "/gitslice.core.v1.ChangesetService/UpdateChangesetInfo"
 	// ChangesetServiceCopyPathProcedure is the fully-qualified name of the ChangesetService's CopyPath
 	// RPC.
 	ChangesetServiceCopyPathProcedure = "/gitslice.core.v1.ChangesetService/CopyPath"
@@ -112,6 +115,11 @@ type ChangesetServiceClient interface {
 	// as a changeset of its own that skips the slice's required approvals and
 	// checks. Each is one tree edit, so it costs the same for a folder of any
 	// size. The response comes once the commit is published.
+	// UpdateChangesetInfo changes a changeset's title and description (each
+	// only when set) while it is open. The title is one line, like a commit's
+	// subject; the description is Markdown. Together they are the message of the
+	// commit the changeset lands as, so they are fixed once it is submitted.
+	UpdateChangesetInfo(context.Context, *connect.Request[v1.UpdateChangesetInfoRequest]) (*connect.Response[v1.Changeset], error)
 	CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 	MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 }
@@ -181,6 +189,12 @@ func NewChangesetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(changesetServiceMethods.ByName("AbandonChangeset")),
 			connect.WithClientOptions(opts...),
 		),
+		updateChangesetInfo: connect.NewClient[v1.UpdateChangesetInfoRequest, v1.Changeset](
+			httpClient,
+			baseURL+ChangesetServiceUpdateChangesetInfoProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("UpdateChangesetInfo")),
+			connect.WithClientOptions(opts...),
+		),
 		copyPath: connect.NewClient[v1.CopyPathRequest, v1.PathOperationResponse](
 			httpClient,
 			baseURL+ChangesetServiceCopyPathProcedure,
@@ -198,17 +212,18 @@ func NewChangesetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // changesetServiceClient implements ChangesetServiceClient.
 type changesetServiceClient struct {
-	createChangeset   *connect.Client[v1.CreateChangesetRequest, v1.Changeset]
-	getChangeset      *connect.Client[v1.GetChangesetRequest, v1.Changeset]
-	listChangesets    *connect.Client[v1.ListChangesetsRequest, v1.ListChangesetsResponse]
-	diffChangeset     *connect.Client[v1.DiffChangesetRequest, v1.DiffChangesetResponse]
-	updateChangeset   *connect.Client[v1.UpdateChangesetRequest, v1.Patchset]
-	approveChangeset  *connect.Client[v1.ApproveChangesetRequest, v1.ApproveChangesetResponse]
-	reportCheckResult *connect.Client[v1.ReportCheckResultRequest, v1.ReportCheckResultResponse]
-	submitChangeset   *connect.Client[v1.SubmitChangesetRequest, v1.SubmitChangesetResponse]
-	abandonChangeset  *connect.Client[v1.AbandonChangesetRequest, v1.Empty]
-	copyPath          *connect.Client[v1.CopyPathRequest, v1.PathOperationResponse]
-	movePath          *connect.Client[v1.MovePathRequest, v1.PathOperationResponse]
+	createChangeset     *connect.Client[v1.CreateChangesetRequest, v1.Changeset]
+	getChangeset        *connect.Client[v1.GetChangesetRequest, v1.Changeset]
+	listChangesets      *connect.Client[v1.ListChangesetsRequest, v1.ListChangesetsResponse]
+	diffChangeset       *connect.Client[v1.DiffChangesetRequest, v1.DiffChangesetResponse]
+	updateChangeset     *connect.Client[v1.UpdateChangesetRequest, v1.Patchset]
+	approveChangeset    *connect.Client[v1.ApproveChangesetRequest, v1.ApproveChangesetResponse]
+	reportCheckResult   *connect.Client[v1.ReportCheckResultRequest, v1.ReportCheckResultResponse]
+	submitChangeset     *connect.Client[v1.SubmitChangesetRequest, v1.SubmitChangesetResponse]
+	abandonChangeset    *connect.Client[v1.AbandonChangesetRequest, v1.Empty]
+	updateChangesetInfo *connect.Client[v1.UpdateChangesetInfoRequest, v1.Changeset]
+	copyPath            *connect.Client[v1.CopyPathRequest, v1.PathOperationResponse]
+	movePath            *connect.Client[v1.MovePathRequest, v1.PathOperationResponse]
 }
 
 // CreateChangeset calls gitslice.core.v1.ChangesetService.CreateChangeset.
@@ -256,6 +271,11 @@ func (c *changesetServiceClient) AbandonChangeset(ctx context.Context, req *conn
 	return c.abandonChangeset.CallUnary(ctx, req)
 }
 
+// UpdateChangesetInfo calls gitslice.core.v1.ChangesetService.UpdateChangesetInfo.
+func (c *changesetServiceClient) UpdateChangesetInfo(ctx context.Context, req *connect.Request[v1.UpdateChangesetInfoRequest]) (*connect.Response[v1.Changeset], error) {
+	return c.updateChangesetInfo.CallUnary(ctx, req)
+}
+
 // CopyPath calls gitslice.core.v1.ChangesetService.CopyPath.
 func (c *changesetServiceClient) CopyPath(ctx context.Context, req *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error) {
 	return c.copyPath.CallUnary(ctx, req)
@@ -281,6 +301,11 @@ type ChangesetServiceHandler interface {
 	// as a changeset of its own that skips the slice's required approvals and
 	// checks. Each is one tree edit, so it costs the same for a folder of any
 	// size. The response comes once the commit is published.
+	// UpdateChangesetInfo changes a changeset's title and description (each
+	// only when set) while it is open. The title is one line, like a commit's
+	// subject; the description is Markdown. Together they are the message of the
+	// commit the changeset lands as, so they are fixed once it is submitted.
+	UpdateChangesetInfo(context.Context, *connect.Request[v1.UpdateChangesetInfoRequest]) (*connect.Response[v1.Changeset], error)
 	CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 	MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 }
@@ -346,6 +371,12 @@ func NewChangesetServiceHandler(svc ChangesetServiceHandler, opts ...connect.Han
 		connect.WithSchema(changesetServiceMethods.ByName("AbandonChangeset")),
 		connect.WithHandlerOptions(opts...),
 	)
+	changesetServiceUpdateChangesetInfoHandler := connect.NewUnaryHandler(
+		ChangesetServiceUpdateChangesetInfoProcedure,
+		svc.UpdateChangesetInfo,
+		connect.WithSchema(changesetServiceMethods.ByName("UpdateChangesetInfo")),
+		connect.WithHandlerOptions(opts...),
+	)
 	changesetServiceCopyPathHandler := connect.NewUnaryHandler(
 		ChangesetServiceCopyPathProcedure,
 		svc.CopyPath,
@@ -378,6 +409,8 @@ func NewChangesetServiceHandler(svc ChangesetServiceHandler, opts ...connect.Han
 			changesetServiceSubmitChangesetHandler.ServeHTTP(w, r)
 		case ChangesetServiceAbandonChangesetProcedure:
 			changesetServiceAbandonChangesetHandler.ServeHTTP(w, r)
+		case ChangesetServiceUpdateChangesetInfoProcedure:
+			changesetServiceUpdateChangesetInfoHandler.ServeHTTP(w, r)
 		case ChangesetServiceCopyPathProcedure:
 			changesetServiceCopyPathHandler.ServeHTTP(w, r)
 		case ChangesetServiceMovePathProcedure:
@@ -425,6 +458,10 @@ func (UnimplementedChangesetServiceHandler) SubmitChangeset(context.Context, *co
 
 func (UnimplementedChangesetServiceHandler) AbandonChangeset(context.Context, *connect.Request[v1.AbandonChangesetRequest]) (*connect.Response[v1.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.AbandonChangeset is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) UpdateChangesetInfo(context.Context, *connect.Request[v1.UpdateChangesetInfoRequest]) (*connect.Response[v1.Changeset], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.UpdateChangesetInfo is not implemented"))
 }
 
 func (UnimplementedChangesetServiceHandler) CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error) {

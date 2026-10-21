@@ -251,11 +251,12 @@ func (s *ChangesetStore) buildPendingPublishBatch(ctx context.Context, claim *pe
 	}
 	baseTime := time.Now().UTC().Truncate(time.Microsecond)
 	type changesetFields struct {
-		Author    string
-		Title     string
-		Status    string
-		StackID   string
-		UpdatedAt time.Time
+		Author      string
+		Title       string
+		Description string
+		Status      string
+		StackID     string
+		UpdatedAt   time.Time
 	}
 	type publishableEntry struct {
 		row       pendingPublishRow
@@ -268,10 +269,10 @@ func (s *ChangesetStore) buildPendingPublishBatch(ctx context.Context, claim *pe
 	for _, row := range claim.Rows {
 		var cs changesetFields
 		err := s.db.QueryRowContext(ctx, `
-				select author_subject_id, title, status, coalesce(stack_id, ''), updated_at
+				select author_subject_id, title, description, status, coalesce(stack_id, ''), updated_at
 				from changesets
 				where id = $1
-			`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Status, &cs.StackID, &cs.UpdatedAt)
+			`, row.ChangesetID).Scan(&cs.Author, &cs.Title, &cs.Description, &cs.Status, &cs.StackID, &cs.UpdatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -307,7 +308,7 @@ func (s *ChangesetStore) buildPendingPublishBatch(ctx context.Context, claim *pe
 		rootTreeID := roots[i]
 		baseCommitID := build.CurrentCommitID
 		now := baseTime.Add(time.Duration(len(build.PendingUpdates)) * time.Microsecond)
-		message := cs.Title
+		message := storage.CommitMessage(cs.Title, cs.Description)
 		if message == "" {
 			message = "Submit " + storage.ShortChangesetID(row.ChangesetID)
 		}

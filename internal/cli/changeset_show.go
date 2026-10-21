@@ -20,6 +20,8 @@ type changesetOutput struct {
 	SubmitBlockedReason string                     `json:"submit_blocked_reason,omitempty"`
 	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
 	StackID             string                     `json:"dependency_id,omitempty"`
+	Title               string                     `json:"title,omitempty"`
+	Description         string                     `json:"description,omitempty"`
 	WebURL              string                     `json:"web_url,omitempty"`
 	// Submit is what gs create --submit did with the changeset.
 	Submit *submitDependenciesOutput `json:"submit,omitempty"`
@@ -94,6 +96,8 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		Status:              cs.Status,
 		SubmitBlockedReason: displaySubmitBlockedReason(cs.SubmitBlockedReason),
 		SubmitRequirements:  currentPatchsetSubmitRequirements(cs),
+		Title:               cs.Title,
+		Description:         cs.Description,
 	}
 	if cs.Status != "submitted" && cs.Status != "abandoned" {
 		output.Checks = currentPatchsetChecks(authContext(ctx, cfg), conn, cs.Id, cs.CurrentPatchsetId)
@@ -108,6 +112,9 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return userError("changeset_not_submitted", "changeset is not submitted", "Run gs cs status without --quiet for details.")
 	}
 	fmt.Fprintf(r.Stdout, "changeset: %s\nstatus: %s\n", firstNonEmpty(displayChangesetID(cs), cs.Id), cs.Status)
+	if cs.Title != "" {
+		fmt.Fprintf(r.Stdout, "title: %s\n", cs.Title)
+	}
 	if cs.SubmitBlockedReason != "" {
 		fmt.Fprintf(r.Stdout, "submit_blocked_reason: %s\n", displaySubmitBlockedReason(cs.SubmitBlockedReason))
 	}

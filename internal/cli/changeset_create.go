@@ -317,7 +317,7 @@ type createSubmitOptions struct {
 	timeout time.Duration
 }
 
-func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, parentSelector string, root, sibling, all bool, submit createSubmitOptions, empty emptyChangesetOptions, review reviewOptions) error {
+func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, description, parentSelector string, root, sibling, all bool, submit createSubmitOptions, empty emptyChangesetOptions, review reviewOptions) error {
 	_ = all
 	if err := empty.validate(); err != nil {
 		return err
@@ -406,6 +406,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 	cs, err := stackClient.AddStackEntry(callCtx, &corev1.AddStackEntryRequest{
 		StackId:           stackID,
 		Title:             title,
+		Description:       description,
 		ParentChangesetId: parentID,
 		ParentPatchsetId:  parentPatchsetID,
 	})

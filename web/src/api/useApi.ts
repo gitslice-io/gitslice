@@ -134,6 +134,7 @@ import type {
   SubmitStackResponse,
   SubmitChangesetRequest,
   SubmitChangesetResponse,
+  UpdateChangesetInfoRequest,
   UpdateChangesetRequest,
   UpdateSliceDefinitionRequest,
   UploadBlobRequest,
@@ -226,6 +227,9 @@ export interface ApiClient {
   submitChangeset(
     request: SubmitChangesetRequest
   ): Promise<SubmitChangesetResponse>;
+  // updateChangesetInfo changes the title and/or description of a draft
+  // changeset; a field left out is kept.
+  updateChangesetInfo(request: UpdateChangesetInfoRequest): Promise<Changeset>;
   abandonChangeset(request: AbandonChangesetRequest): Promise<Empty>;
   // copyPath and movePath land a copy or move at once, as their own
   // changeset, without the slice's required approvals and checks.

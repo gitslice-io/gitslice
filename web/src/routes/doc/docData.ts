@@ -239,6 +239,11 @@ export const commandGroups = [
         "gs create --all --message <title> --submit",
         "Create and land in one step: waits for required checks, then submits."
       ],
+      [
+        "gs create --message <title> --description-file <file>",
+        "Give the changeset a Markdown description; the title stays one line."
+      ],
+      ["gs cs edit --title <title> --description <text>", "Change a draft changeset's title or description."],
       ["gs modify", "Create a new patchset on the active changeset."],
       ["gs diff", "Review workspace or changeset content."],
       ["gs submit", "Submit for validation and publish."],

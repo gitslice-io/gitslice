@@ -490,6 +490,18 @@ export function ChangesetDetailPage() {
     }
   });
 
+  const saveInfo = async (title: string, description: string) => {
+    if (!canonicalChangesetId) {
+      throw new Error("This changeset did not return an id.");
+    }
+    await api.updateChangesetInfo({
+      changesetId: canonicalChangesetId,
+      description,
+      title
+    });
+    await invalidateChangeset();
+  };
+
   const abandonMutation = useMutation({
     mutationFn: async () => {
       if (!canonicalChangesetId) {
@@ -580,6 +592,7 @@ export function ChangesetDetailPage() {
           onAbandon={submitAbandon}
           onAbandonReasonChange={setAbandonReason}
           onMerge={() => mergeMutation.mutate()}
+          onSaveInfo={isLoaded && isSignedIn ? saveInfo : undefined}
           patchsetCompare={
             <PatchsetComparePanel
               conversationOpen={conversationOpen}
