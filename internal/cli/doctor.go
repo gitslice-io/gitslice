@@ -71,6 +71,7 @@ func (r Runner) runDoctor(ctx context.Context, opts commandOptions, sliceArg str
 	status := d.checkAuth(ctx, cfg, conn)
 	wsRef := d.checkWorkspace(ctx, cfg, conn)
 	d.checkSlice(ctx, cfg, cfgOK, conn, status, firstNonEmpty(strings.TrimSpace(sliceArg), wsRef))
+	d.checkFUSE()
 
 	out := doctorOutput{OK: true, Checks: d.checks}
 	failed := 0

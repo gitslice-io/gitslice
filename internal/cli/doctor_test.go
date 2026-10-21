@@ -380,3 +380,29 @@ func TestCreateSubmitWaitsForRequiredChecks(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorFUSECheckSaysWhatState(t *testing.T) {
+	run := func(installed bool, probe func() (bool, error)) doctorCheck {
+		d := doctor{}
+		d.addFUSECheck(installed, probe)
+		if len(d.checks) != 1 {
+			t.Fatalf("got %d checks, want 1", len(d.checks))
+		}
+		return d.checks[0]
+	}
+	notCalled := func() (bool, error) { t.Fatal("probed without macFUSE installed"); return false, nil }
+
+	if c := run(false, notCalled); c.Status != "skip" || !strings.Contains(c.Hint, "gs init") {
+		t.Fatalf("not installed: %+v", c)
+	}
+	if c := run(true, func() (bool, error) { return false, nil }); c.Status != "ok" {
+		t.Fatalf("working: %+v", c)
+	}
+	timedOut := run(true, func() (bool, error) { return true, errors.New("timeout") })
+	if timedOut.Status != "warn" || !strings.Contains(timedOut.Summary, "not approved") || !strings.Contains(timedOut.Hint, "Privacy & Security") {
+		t.Fatalf("approval pending: %+v", timedOut)
+	}
+	if c := run(true, func() (bool, error) { return false, errors.New("mount failed") }); c.Status != "warn" || !strings.Contains(c.Summary, "mount failed") {
+		t.Fatalf("broken: %+v", c)
+	}
+}

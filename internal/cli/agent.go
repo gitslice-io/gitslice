@@ -320,7 +320,6 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 					reportIdleExit()
 					return nil
 				}
-				daemon.say("a check is queued (or the server needs this daemon): connecting")
 			}
 			continue
 		}

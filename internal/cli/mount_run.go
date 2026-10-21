@@ -32,7 +32,7 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 			return err
 		}
 	}
-	rec, created, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(opts.AgentConversationID))
+	rec, created, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(opts.AgentConversationID), !opts.Quiet && !opts.jsonOutput())
 	if err != nil {
 		return err
 	}
@@ -78,6 +78,9 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 			}
 		})
 	}
+	if !opts.Quiet && !opts.jsonOutput() {
+		fmt.Fprintf(r.stderr(), "mounting %s:%s (%d files) at %s...\n", rec.Account, rec.Slice, rec.Files, dir)
+	}
 	if err := r.attachViaSupervisor(rec); err != nil {
 		return err
 	}
@@ -97,7 +100,7 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 
 // mountRecordFor returns the workspace to mount at dir: the one named, the one
 // last mounted at dir, or a new one for the slice.
-func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID, conversationID string) (rec mountRecord, created bool, err error) {
+func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID, conversationID string, progress bool) (rec mountRecord, created bool, err error) {
 	if workspaceID != "" {
 		found, err := r.readMountRecord(workspaceID)
 		if err != nil {
@@ -126,6 +129,9 @@ func (r Runner) mountRecordFor(ctx context.Context, sliceArg, dir, workspaceID, 
 		return rec, false, err
 	}
 	defer conn.Close()
+	if progress {
+		fmt.Fprintf(r.stderr(), "listing %s...\n", sliceArg)
+	}
 	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceArg)
 	if err != nil {
 		return rec, false, err

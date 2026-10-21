@@ -331,6 +331,13 @@ workspace, then deletes it, or archives it with its state (re-attach with
   `.DS_Store` files never become edits. The mount table is read with
   `getfsstat`, and the control socket lives under `/tmp` (macOS's `$TMPDIR`
   would take half of the 104 bytes a socket path may have).
+  macFUSE can be installed yet not allowed to load: until its system extension
+  is approved (and the Mac restarted), the mount call waits instead of
+  failing. The mount is therefore bounded (`fusefs.DefaultMountTimeout`, 30 s;
+  a mount that comes up late is unmounted), and a timeout says to approve
+  macFUSE in System Settings. `gs doctor` on macOS runs a real test mount
+  (`fusefs.Probe`) when macFUSE is installed, and `gs init --lazy` prints
+  what it is doing (listing, then mounting).
 - **No FUSE** (containers without `/dev/fuse`, Windows): `gs mount` fails with a
   message that says so and suggests `gs init`; `gs agent start --lazy` checks
   out instead.

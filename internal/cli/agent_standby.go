@@ -111,9 +111,13 @@ func (d *agentDaemon) tryDetach(ctx context.Context) detachResult {
 }
 
 // standby waits, detached, until the server says check runs are queued. It
-// returns nil to reconnect, and an error only when ctx ends.
+// returns nil to reconnect, and an error only when ctx ends. A poll that fails
+// (a timeout on a network that drops idle connections, a server restarting)
+// is only retried, on a fresh connection and with a growing wait: the stream
+// is opened when the server reports work, never because a poll failed.
 func (d *agentDaemon) standby(ctx context.Context) error {
 	d.say(fmt.Sprintf("idle for %s: detached from the server; polling for queued checks (it connects again when one is queued)", d.detachAfter))
+	failures := 0
 	for {
 		resp, err := d.standbyPollRPC(ctx)
 		if ctx.Err() != nil {
@@ -123,19 +127,32 @@ func (d *agentDaemon) standby(ctx context.Context) error {
 		switch {
 		case isStandbyUnsupported(err):
 			d.standbyUnsupported.Store(true)
+			d.say("the server does not take detached checks daemons: connecting")
 			return nil
 		case err != nil:
-			d.say(fmt.Sprintf("standby poll failed: %v; reconnecting", err))
-			return nil
+			failures++
+			// The connection may be dead without saying so; the next poll
+			// dials again.
+			d.closePollConnection()
+			wait = standbyRetryWait(failures)
+			d.say(fmt.Sprintf("standby poll failed: %v; trying again in %s", err, wait.Round(time.Second)))
 		case resp.GetPending():
+			d.say("a check is queued: connecting")
 			return nil
-		case resp.GetPollAfterMs() > 0:
-			wait = time.Duration(resp.GetPollAfterMs()) * time.Millisecond
+		default:
+			failures = 0
+			if resp.GetPollAfterMs() > 0 {
+				wait = time.Duration(resp.GetPollAfterMs()) * time.Millisecond
+			}
+			wait = min(max(wait, standbyPollMin), standbyPollMax)
 		}
-		wait = min(max(wait, standbyPollMin), standbyPollMax)
-		// GITSLICE_AGENT_POLL_INTERVAL sets the interval outright.
+		// GITSLICE_AGENT_POLL_INTERVAL sets the interval outright, and the
+		// first wait after a failure; later failures back off from it.
 		if override, ok := standbyPollOverride(); ok {
 			wait = override
+			if failures > 1 {
+				wait = min(override<<min(failures-1, 8), standbyPollMax)
+			}
 		}
 		// Daemons that restart together should not poll in step.
 		wait += time.Duration(rand.Int63n(int64(wait/10) + 1))
@@ -145,6 +162,12 @@ func (d *agentDaemon) standby(ctx context.Context) error {
 		case <-time.After(wait):
 		}
 	}
+}
+
+// standbyRetryWait is how long to wait before polling again after failures
+// polls in a row failed: the usual interval, doubling, up to standbyPollMax.
+func standbyRetryWait(failures int) time.Duration {
+	return min(standbyPollDefault<<min(max(failures-1, 0), 8), standbyPollMax)
 }
 
 // standbyPollOverride is GITSLICE_AGENT_POLL_INTERVAL, when it is a duration.

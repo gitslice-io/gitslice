@@ -49,6 +49,45 @@ type Options struct {
 	// GsDir, when set, is served at /.gs: the workspace state the gs CLI reads
 	// and writes, kept on local disk outside the layers.
 	GsDir string
+	// MountTimeout is how long to wait for the kernel to bring the mount up;
+	// zero means DefaultMountTimeout. A FUSE driver that is installed but not
+	// allowed to load (macFUSE before its system extension is approved) makes
+	// the mount call wait, not fail.
+	MountTimeout time.Duration
+}
+
+// DefaultMountTimeout is long enough for a driver that asks to be approved
+// and for a slow first mount, and short enough to be an answer.
+const DefaultMountTimeout = 30 * time.Second
+
+// ErrMountTimeout is a mount that did not come up in time.
+var ErrMountTimeout = errors.New("the mount did not come up in time")
+
+// mountWithin runs mount and waits at most timeout for it. A mount that comes
+// up after the wait is unmounted again: nobody is serving it.
+func mountWithin(timeout time.Duration, mount func() (*fuse.Server, error)) (*fuse.Server, error) {
+	type outcome struct {
+		server *fuse.Server
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		server, err := mount()
+		done <- outcome{server, err}
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case result := <-done:
+		return result.server, result.err
+	case <-timer.C:
+		go func() {
+			if late := <-done; late.err == nil && late.server != nil {
+				_ = late.server.Unmount()
+			}
+		}()
+		return nil, ErrMountTimeout
+	}
 }
 
 // Stats count what a mount has done.
@@ -145,23 +184,59 @@ func Mount(dir string, layer *lazyfs.FS, fetcher Fetcher, opts Options) (*Mounte
 		mountOptions = append(mountOptions, "ro")
 	}
 	root := &node{m: m}
-	server, err := gofs.Mount(dir, root, &gofs.Options{
-		MountOptions: fuse.MountOptions{
-			FsName:  opts.FsName,
-			Name:    "gitslice",
-			Options: mountOptions,
-			Debug:   opts.Debug,
-		},
-		EntryTimeout:    &timeout,
-		AttrTimeout:     &timeout,
-		NegativeTimeout: &timeout,
-		UID:             opts.UID,
-		GID:             opts.GID,
+	mountTimeout := opts.MountTimeout
+	if mountTimeout <= 0 {
+		mountTimeout = DefaultMountTimeout
+	}
+	server, err := mountWithin(mountTimeout, func() (*fuse.Server, error) {
+		return gofs.Mount(dir, root, &gofs.Options{
+			MountOptions: fuse.MountOptions{
+				FsName:  opts.FsName,
+				Name:    "gitslice",
+				Options: mountOptions,
+				Debug:   opts.Debug,
+			},
+			EntryTimeout:    &timeout,
+			AttrTimeout:     &timeout,
+			NegativeTimeout: &timeout,
+			UID:             opts.UID,
+			GID:             opts.GID,
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &Mounted{Server: server, m: m, root: root}, nil
+}
+
+// Probe finds out whether FUSE works here: it mounts an empty folder at a
+// temporary mount point and unmounts it again. It returns ErrMountTimeout when
+// the mount does not come up in time, which is what a driver that is installed
+// but not approved to load looks like.
+func Probe(timeout time.Duration) error {
+	source, err := os.MkdirTemp("", "gs-fuse-probe-src-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(source)
+	point, err := os.MkdirTemp("", "gs-fuse-probe-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(point)
+	root, err := gofs.NewLoopbackRoot(source)
+	if err != nil {
+		return err
+	}
+	server, err := mountWithin(timeout, func() (*fuse.Server, error) {
+		return gofs.Mount(point, root, &gofs.Options{
+			MountOptions: fuse.MountOptions{FsName: "gitslice-probe", Name: "gitslice"},
+		})
+	})
+	if err != nil {
+		return err
+	}
+	return server.Unmount()
 }
 
 type node struct {

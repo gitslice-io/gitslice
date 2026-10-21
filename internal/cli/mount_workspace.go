@@ -4,9 +4,11 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -82,6 +84,9 @@ func (r Runner) attachWorkspace(ctx context.Context, rec mountRecord, debug bool
 	})
 	if err != nil {
 		w.close()
+		if errors.Is(err, fusefs.ErrMountTimeout) {
+			return nil, userError("mount_timeout", "mounting "+rec.MountPath+" did not finish in "+fusefs.DefaultMountTimeout.String(), mountTimeoutHint(runtime.GOOS))
+		}
 		return nil, userError("mount_failed", "cannot mount "+rec.MountPath+": "+err.Error(), "gs mount needs FUSE: on Linux /dev/fuse and fusermount3 (package fuse3), on macOS macFUSE. Without it, use gs init.")
 	}
 	w.mounted = mounted

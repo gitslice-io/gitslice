@@ -127,3 +127,49 @@ func TestDetachAfterFlagAndEnv(t *testing.T) {
 		})
 	}
 }
+
+// A poll that fails (an idle connection the network dropped) is retried, on a
+// fresh connection; it never opens the stream. Only a poll that reports queued
+// work does.
+func TestStandbyRetriesAFailedPollInsteadOfConnecting(t *testing.T) {
+	t.Setenv("GITSLICE_AGENT_POLL_INTERVAL", "10ms")
+	var polls atomic.Int32
+	d, stderr := standbyDaemon(func(context.Context) (*corev1.StandbyPollResponse, error) {
+		switch n := polls.Add(1); {
+		case n <= 3:
+			return nil, grpcstatus.Error(codes.DeadlineExceeded, "context deadline exceeded")
+		case n == 4:
+			return &corev1.StandbyPollResponse{PollAfterMs: 30000}, nil // nothing queued
+		default:
+			return &corev1.StandbyPollResponse{Pending: true}, nil
+		}
+	})
+	if err := d.standby(context.Background()); err != nil {
+		t.Fatalf("standby = %v, want nil once checks are queued", err)
+	}
+	if polls.Load() != 5 {
+		t.Fatalf("polled %d times, want 5: three failures and an empty poll are not a reason to connect", polls.Load())
+	}
+	out := stderr.String()
+	if !bytes.Contains([]byte(out), []byte("standby poll failed")) || !bytes.Contains([]byte(out), []byte("trying again")) {
+		t.Fatalf("standby did not say it would retry:\n%s", out)
+	}
+	if bytes.Contains([]byte(out), []byte("reconnecting")) {
+		t.Fatalf("a failed poll was treated as a reason to connect:\n%s", out)
+	}
+	if !bytes.Contains([]byte(out), []byte("a check is queued: connecting")) {
+		t.Fatalf("standby did not say why it connected:\n%s", out)
+	}
+}
+
+func TestStandbyRetryWaitBacksOffToTheCap(t *testing.T) {
+	want := []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute, 5 * time.Minute}
+	for i, w := range want {
+		if got := standbyRetryWait(i + 1); got != w {
+			t.Fatalf("standbyRetryWait(%d) = %s, want %s", i+1, got, w)
+		}
+	}
+	if standbyRetryWait(0) != 30*time.Second || standbyRetryWait(1000) != 5*time.Minute {
+		t.Fatal("standbyRetryWait is out of range at its ends")
+	}
+}
