@@ -1,12 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 
-import type { SliceRef } from "../../api/types";
+import type { ListCommitsResponse, SliceRef } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { shortChangesetId, shortHash } from "../../lib/objectId";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../../lib/globalRef";
 import { Timestamp } from "../../components/Timestamp";
+
+const HISTORY_PAGE_SIZE = 50;
 
 interface HistoryDrawerProps {
   api: ApiClient;
@@ -29,8 +32,10 @@ export function HistoryDrawer({
   sliceLabel,
   sliceRef
 }: HistoryDrawerProps) {
-  const commitsQuery = useQuery({
+  const commitsQuery = useInfiniteQuery({
     enabled: Boolean(open && commitId && sliceRef?.account && sliceRef?.slice),
+    getNextPageParam: (last: ListCommitsResponse) => last.nextPageToken || undefined,
+    initialPageParam: "",
     queryKey: [
       "sliceCommits",
       sliceId,
@@ -39,17 +44,36 @@ export function HistoryDrawer({
       sliceRef?.account,
       sliceRef?.slice
     ],
-    queryFn: () =>
+    queryFn: ({ pageParam }) =>
       api.listCommits({
         refName: GLOBAL_REF_NAME,
         slice: sliceRef,
         path: selectedPath || undefined,
-        limit: 50
+        limit: HISTORY_PAGE_SIZE,
+        ...(pageParam ? { pageToken: pageParam } : {})
       })
   });
 
-  const commits = commitsQuery.data?.commits ?? [];
+  const commits = (commitsQuery.data?.pages ?? []).flatMap((page) => page.commits ?? []);
   const historyIsPending = commitsQuery.isPending;
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = commitsQuery;
+
+  // Older commits load when the end of the list scrolls into view, and from
+  // the button for browsers without IntersectionObserver.
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const sentinel = moreRef.current;
+    if (!open || !sentinel || !hasNextPage || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && !isFetchingNextPage) {
+        void fetchNextPage();
+      }
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [open, hasNextPage, isFetchingNextPage, fetchNextPage]);
   // Opening a commit's changeset from a file's history lands on that file's
   // diff. The diff ignores a path it does not show (a folder).
   const focusFile = selectedPath.replace(/^\/+/, "");
@@ -99,7 +123,7 @@ export function HistoryDrawer({
               <div className="h-11 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
               <div className="h-11 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
             </div>
-          ) : commitsQuery.isError ? (
+          ) : commitsQuery.isError && !commitsQuery.data ? (
             <SliceNotice title="Could not load history" tone="error">
               {commitsQuery.error?.message}
             </SliceNotice>
@@ -152,6 +176,27 @@ export function HistoryDrawer({
                   </div>
                 );
               })}
+              {commitsQuery.isFetchNextPageError ? (
+                <SliceNotice title="Could not load older commits" tone="error">
+                  {commitsQuery.error?.message}
+                </SliceNotice>
+              ) : null}
+              {hasNextPage ? (
+                <div className="flex justify-center pt-1" ref={moreRef}>
+                  <button
+                    className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isFetchingNextPage}
+                    onClick={() => void fetchNextPage()}
+                    type="button"
+                  >
+                    {isFetchingNextPage ? "Loading older commits…" : "Load older commits"}
+                  </button>
+                </div>
+              ) : commits.length > HISTORY_PAGE_SIZE ? (
+                <p className="pt-1 text-center text-xs text-slate-500 dark:text-zinc-400">
+                  That's the whole history.
+                </p>
+              ) : null}
             </div>
           )}
         </div>
