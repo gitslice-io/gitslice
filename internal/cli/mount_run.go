@@ -505,6 +505,9 @@ func (r Runner) runRestore(ctx context.Context, opts commandOptions, args []stri
 			}
 		}
 	}
+	if lw, err := r.currentLazyWorkspace(); err == nil && lw != nil {
+		r.autoCheckpoint(ctx, lw, "before gs restore")
+	}
 	reply, err := callMountDaemon(id, req)
 	if err != nil {
 		return userError("restore_failed", err.Error(), "Is the workspace mounted? gs mount status "+root)

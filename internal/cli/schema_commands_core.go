@@ -33,6 +33,12 @@ func schemaSetupCommands() []map[string]any {
 			"machine_output": []string{"id", "subject_id", "account", "body", "category", "context", "status", "created_at"},
 		},
 		{
+			"use":           "gs mcp",
+			"summary":       "serve Gitslice to an agent over MCP on stdio: read_file, list_directory, search, history, blame, create_changeset, get_changeset, submit_changeset",
+			"flags":         []string{"--slice"},
+			"writes_stdout": true,
+		},
+		{
 			"use":            "gs feedback list",
 			"summary":        "list your feedback and the team's answers (--mine), or, for the Gitslice team, everyone's",
 			"flags":          []string{"--mine", "--status", "--limit", "--cursor"},
@@ -238,6 +244,27 @@ func schemaWorkspaceCommands() []map[string]any {
 			"flags":          []string{"--yes"},
 			"writes_stdout":  true,
 			"machine_output": []string{"id", "discarded"},
+		},
+		{
+			"use":            "gs checkpoint [-m message]",
+			"summary":        "save a lazy workspace's edits on this machine (also taken before sync, switch, restore and rewind); gs checkpoint list shows them",
+			"flags":          []string{"--message"},
+			"writes_stdout":  true,
+			"machine_output": []string{"number", "created_at", "message", "auto", "base_commit", "edits"},
+		},
+		{
+			"use":            "gs rewind [checkpoint]",
+			"summary":        "put a lazy workspace back to a checkpoint on the same base (default: the newest that differs); what it replaces is checkpointed first",
+			"args":           []string{"checkpoint"},
+			"writes_stdout":  true,
+			"machine_output": []string{"number", "created_at", "message", "auto", "base_commit", "edits"},
+		},
+		{
+			"use":            "gs fork <checkpoint> <dir>",
+			"summary":        "mount a new lazy workspace at dir showing a checkpoint, on the base it was taken on",
+			"args":           []string{"checkpoint", "dir"},
+			"writes_stdout":  true,
+			"machine_output": []string{"number", "base_commit", "edits", "mount_path"},
 		},
 		{
 			"use":            "gs restore <path>... | --all",

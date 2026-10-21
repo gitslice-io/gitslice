@@ -148,6 +148,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.upgradeCommand(opts),
 		r.doctorCommand(opts),
 		r.feedbackCommand(opts),
+		r.mcpCommand(opts),
 		r.blameCommand(opts),
 		r.webhookCommand(opts),
 	)

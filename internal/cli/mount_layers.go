@@ -119,6 +119,7 @@ func manifestSnapshot(manifest *lazyfs.Manifest) BaseSnapshot {
 // same path (lazyfs.NeedsMerge); the daemon refuses the rebase if a decided
 // path changed again meanwhile.
 func (r Runner) rebaseLazyWorkspace(lw *lazyWorkspace, newManifest *lazyfs.Manifest, resolve func(edit lazyfs.Edit) mountResolution) (mountControlReply, error) {
+	r.autoCheckpoint(context.Background(), lw, "before gs moved the workspace to "+shortCommitLabel(newManifest.CommitID()))
 	raw, err := lw.rawEdits()
 	if err != nil {
 		return mountControlReply{}, err
@@ -153,6 +154,10 @@ func (r Runner) switchLazyWorkspace(ctx context.Context, conn *grpc.ClientConn, 
 	commit := ""
 	if newManifest != nil {
 		manifest, commit = newManifest, newManifest.CommitID()
+	}
+	// What the switch replaces is saved first (gs rewind brings it back).
+	if _, _, err := r.takeCheckpoint(ctx, lw, ws, "before gs replaced the workspace's files", true); err != nil {
+		fmt.Fprintf(r.stderr(), "warning: no checkpoint before replacing the workspace's files: %v\n", err)
 	}
 	raw, err := lw.rawEdits()
 	if err != nil {

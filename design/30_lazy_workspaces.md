@@ -132,6 +132,27 @@ The mount serves `<dir>/.gs` as a pass-through of `gs/`, so every command finds
 its workspace as it does today. Nothing under `.gs` is ever part of an edit
 (changeset 435a3c7d75 already skips `.gs` at any depth).
 
+### Checkpoints
+
+A checkpoint is the workspace's edits saved on this machine: what `gs status`
+would report (upserts by content hash and mode, deletes), with the base
+commit, in `<state>/checkpoints/<n>.json`. The content is the client object
+cache's, which never evicts, so nothing is uploaded and a checkpoint costs a
+few hundred bytes per edit. `gs checkpoint [-m]` takes one. gs takes one by
+itself before anything replaces the local layer: `switchLazyWorkspace`
+(switch, sync onto a changeset, rewind, fork), `rebaseLazyWorkspace` (sync)
+and `gs restore`; an automatic one that would repeat the newest is skipped,
+and the newest 50 automatic ones are kept.
+
+`gs rewind [n]` shows checkpoint `n` (default: the newest that differs from
+now) with `switchLazyWorkspace` over the same base: its files as references,
+so nothing is fetched, and ignored files (build output) stay. What it replaces
+is checkpointed first, so a rewind is undone by another. A checkpoint taken
+before `gs sync` moved the workspace is not rewound in place (the workspace's
+changesets moved on too): `gs fork n <dir>` mounts a new lazy workspace of the
+slice at the checkpoint's base and shows the checkpoint there, as a starting
+point of its own.
+
 ### Multiple workspaces
 
 Each lazy workspace is its own mount, as each `gs init` workspace is its own

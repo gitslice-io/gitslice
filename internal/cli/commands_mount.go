@@ -133,5 +133,49 @@ them all; gs mount discard deletes one.`,
 			return r.runMountSupervisor(cmd.Context())
 		},
 	}
-	return []*cobra.Command{mountCmd, unmountCmd, fetchCmd, restoreCmd, mountdCmd}
+	checkpointMessage := ""
+	checkpointCmd := &cobra.Command{
+		Use:   "checkpoint",
+		Short: "Save a lazy workspace's edits on this machine, to rewind to or fork later",
+		Long: "gs checkpoint saves the workspace's edits (what gs status reports) on this machine; nothing is uploaded. " +
+			"gs also takes one by itself before sync, switch, restore and rewind replace the workspace's files. " +
+			"gs rewind [n] puts the workspace back to a checkpoint, and gs fork <n> <dir> mounts a new workspace from one.",
+		Args: noArgs("gs checkpoint [-m message]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCheckpoint(cmd.Context(), *opts, checkpointMessage)
+		},
+	}
+	checkpointCmd.Flags().StringVarP(&checkpointMessage, "message", "m", "", "what the checkpoint is, for gs checkpoint list")
+	checkpointCmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List the workspace's checkpoints, newest first",
+		Args:  noArgs("gs checkpoint list"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCheckpointList(*opts)
+		},
+	})
+	rewindCmd := &cobra.Command{
+		Use:   "rewind [checkpoint]",
+		Short: "Put a lazy workspace back to a checkpoint (default: the newest that differs from now)",
+		Long: "gs rewind replaces the workspace's edits with a checkpoint's, on the same base. What it replaces is " +
+			"saved as a checkpoint first, so a rewind can be undone with another. A checkpoint from before gs sync moved " +
+			"the workspace is opened with gs fork instead.",
+		Args: maxArgs(1, "gs rewind [checkpoint]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			selector := ""
+			if len(args) == 1 {
+				selector = args[0]
+			}
+			return r.runRewind(cmd.Context(), *opts, selector)
+		},
+	}
+	forkCmd := &cobra.Command{
+		Use:   "fork <checkpoint> <dir>",
+		Short: "Mount a new lazy workspace at dir showing a checkpoint, on the base it was taken on",
+		Args:  exactArgs(2, "gs fork <checkpoint> <dir>"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runFork(cmd.Context(), *opts, args[0], args[1])
+		},
+	}
+	return []*cobra.Command{mountCmd, unmountCmd, fetchCmd, restoreCmd, mountdCmd, checkpointCmd, rewindCmd, forkCmd}
 }

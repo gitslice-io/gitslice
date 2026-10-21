@@ -171,6 +171,9 @@ gs init --lazy acme/payment ~/w/payment   # creates and mounts it. gs unmount ~/
 cd ~/w/payment/acme/payment
 gs status; gs diff                      # as in a gs init workspace; nothing is uploaded
 gs restore path/to/file                 # drop a local edit (or --all)
+gs checkpoint -m "before the refactor"  # save the edits on this machine; also automatic before sync/switch/restore/rewind
+gs rewind                               # back to the newest checkpoint that differs (gs rewind <n> for one); undoable
+gs fork <n> ../try-b                    # a second lazy workspace showing checkpoint n, to try another way
 gs create --all --message "..." --submit
 gs sync                                 # moves the base; files nobody changed cost nothing
 gs fetch                                # fetch everything now, for offline work or a build
@@ -404,6 +407,17 @@ gs tag list --json
 ```
 
 Creating an existing tag again succeeds only for the same commit.
+
+## MCP
+
+`gs mcp --slice <account>/<slice>` is an MCP server on stdio, for MCP-capable
+agents that should work without a checkout: `read_file`, `list_directory`,
+`search` (regex, like grep -n), `history`, `blame`, `create_changeset` (write,
+delete, move, copy, mkdir; `submit: true` submits), `get_changeset`,
+`submit_changeset`. A refused submit comes back as `status: blocked` with its
+reason, not as an error. Add it to a client as the command `gs mcp`. Set
+`GS_TRACE=/path/trace.jsonl` to log every server call and tool call as JSON
+lines.
 
 ## RPC Diagnostics
 

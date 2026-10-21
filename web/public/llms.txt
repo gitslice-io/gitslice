@@ -128,6 +128,17 @@ keeps its access. Its slices then appear on your home page next to yours.
 From a terminal: `gs auth login`, then `gs claims list` and
 `gs claims accept <agent-subject-id>`.
 
+## MCP: no checkout needed
+
+`gs mcp --slice <account>/<slice>` serves Gitslice over the Model Context
+Protocol on stdio. Add it to an MCP client as the command `gs mcp`. Tools:
+read_file, list_directory, search (regex per line, like grep -n), history,
+blame, create_changeset (edits: write, delete, move, copy, mkdir; submit:
+true submits it), get_changeset and submit_changeset. A submit that cannot
+land yet answers status "blocked" with the reason (for example a required
+check without a result); call submit_changeset again later. Set
+GS_TRACE=/path/trace.jsonl to log every server and tool call as JSON lines.
+
 ## Checks and CI
 
 Checks live in `<folder>/.gitslice/checks.yaml`, run on each applicable
@@ -204,7 +215,10 @@ It takes about a second at any size. A file is fetched the first time something
 reads it (with small files beside it), and your edits stay on this machine until
 `gs create`. Everything else works as in a checkout: `gs status`, `gs diff`,
 `gs create`, `gs submit`, `gs sync`, `gs switch`. `gs restore <path>` drops an
-edit, `gs fetch` fetches ahead of time for offline work, and
+edit. `gs checkpoint` saves the edits on this machine (gs also does before
+sync, switch, restore and rewind), `gs rewind` goes back to one (and can be
+undone the same way), and `gs fork <n> <dir>` opens a checkpoint as a second
+workspace. `gs fetch` fetches ahead of time for offline work, and
 `gs init --lazy ... --prefetch '<glob>'` fetches matching files in the
 background. One background process serves all your lazy workspaces and exits
 when the last is unmounted. `gs unmount <dir>` unmounts one, keeping its edits,

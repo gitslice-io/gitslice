@@ -1582,6 +1582,41 @@ patch output. `gs diff <commit>` diffs the resolved commit against its first
 parent by default. `gs diff <a> <b>` diffs two resolved commits. `--name-only`
 and `--stat` should mirror the formatting used by changeset diffs.
 
+## 14.1 MCP Server (`gs mcp`)
+
+`gs mcp [--slice account/slice]` is a Model Context Protocol server on stdin
+and stdout (JSON-RPC 2.0, one message per line; protocol versions 2025-06-18,
+2025-03-26 and 2024-11-05). It lets an agent that speaks MCP read, search and
+change slices without a workspace, as the signed-in user. Tools:
+
+| Tool | Does |
+|---|---|
+| `read_file` | a file at the latest commit; text up to 512 KiB, or a line range |
+| `list_directory` | a folder, or everything under it (`recursive`, 2000 entries) |
+| `search` | RE2 regex per line, like `grep -n`, with `glob`, `ignore_case`, `max_results` |
+| `history` | commits that changed a path or the slice, with their changesets |
+| `blame` | runs of lines with commit, author, time and changeset |
+| `create_changeset` | edits (`write`, `delete`, `move`, `copy`, `mkdir`) on the latest commit, optionally submitted |
+| `get_changeset` | status, blocked reason, checks and conflicts |
+| `submit_changeset` | submit; a refusal is an answer (`status: blocked`, `blocked_reason`, `waiting_for_check`) |
+
+Paths are repository paths; a relative path is taken inside the slice's
+folder when it has one. Results come as `structuredContent` and the same JSON
+as text. A tool that fails returns `isError` with `{"error": {"code",
+"message", "hint"}}`: the CLI's error codes, or a gRPC code in lower case
+(`notfound`, `permissiondenied`). A refused submit is not an error: the
+changeset exists and the answer says why it waits.
+
+`search` has no server side: it lists the folder recursively, skips binaries
+and files over 1 MiB, and reads files in batches of 200 (`ReadFiles`) through
+the local object cache, so a second search reads nothing it already has. It
+stops at 10,000 files.
+
+`GS_TRACE=<file>` makes any `gs` command, `gs mcp` included, append one JSON
+line per server call (`rpc`, `duration_ms`, `code`, `error`) and per MCP tool
+call (`tool`, `duration_ms`, `ok`). Requests and answers are not logged, since
+they hold file contents and tokens.
+
 ## 15. Backend Requirements
 
 The CLI needs these backend capabilities:

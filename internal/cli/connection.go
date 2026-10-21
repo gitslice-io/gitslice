@@ -151,7 +151,8 @@ func dialOptions(addr string) (string, []grpc.DialOption) {
 		// rather than 64 KiB per round trip.
 		grpc.WithInitialWindowSize(clientStreamWindow),
 		grpc.WithInitialConnWindowSize(clientConnWindow),
-		grpc.WithChainUnaryInterceptor(retryUnaryInterceptor),
+		grpc.WithChainUnaryInterceptor(retryUnaryInterceptor, traceUnaryInterceptor),
+		grpc.WithChainStreamInterceptor(traceStreamInterceptor),
 	}
 	return target, options
 }
