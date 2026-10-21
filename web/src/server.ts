@@ -4,6 +4,7 @@ import { handleIngestProxy } from "./analytics/ingestProxy";
 import { gitProxyTarget } from "./lib/gitProxy";
 import { apiSliceLookup, goImportResponse, sliceGoImportResponse } from "./lib/goImport";
 import { releaseResponse, type ReleaseBucket } from "./lib/releases";
+import { socialImageResponse } from "./lib/socialImage";
 
 export default createServerEntry({
   async fetch(request) {
@@ -26,6 +27,12 @@ export default createServerEntry({
     const release = await releaseResponse(request, bindings?.RELEASES);
     if (release) {
       return release;
+    }
+
+    // Link-preview images, drawn by the API and cached at the edge.
+    const socialImage = await socialImageResponse(request, import.meta.env.VITE_API_BASE_URL ?? "");
+    if (socialImage) {
+      return socialImage;
     }
 
     const target = gitProxyTarget(request);

@@ -33,7 +33,9 @@ import {
 import { initialTreeExpansion, pathSearchValue } from "./slice-detail/sourceTree";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
+import type { Slice } from "../api/types";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
+import { sliceHead, SITE_DESCRIPTION, type SliceSocial } from "../lib/socialMeta";
 import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
 import { BlogListPage } from "./BlogListPage";
@@ -93,7 +95,13 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1.0" },
       { name: "theme-color", content: "#f8fafc" },
-      { title: "Gitslice" }
+      { title: "Gitslice" },
+      // Defaults for link previews; a slice page sets its own (lib/socialMeta).
+      { name: "description", content: SITE_DESCRIPTION },
+      { property: "og:site_name", content: "Gitslice" },
+      { property: "og:title", content: "Gitslice" },
+      { property: "og:description", content: SITE_DESCRIPTION },
+      { name: "twitter:card", content: "summary" }
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -364,9 +372,19 @@ const sliceDetailRoute = createRoute({
     path: pathSearchValue((search as { path?: unknown }).path)
   }),
   loader: async ({ context, deps, params }) => {
+    let social: SliceSocial | undefined;
+    if (!import.meta.env.SSR && params.account && params.slice) {
+      // In the browser the page loads the slice itself; the title follows
+      // whatever is already known.
+      const known = context.queryClient.getQueryData<Slice>(["sliceRef", params.account, params.slice]);
+      if (known) {
+        social = sliceSocial(known, params, deps.path, window.location.origin);
+      }
+    }
     if (import.meta.env.SSR && params.account && params.slice) {
       try {
         const { createServerApiClient } = await import("../api/serverApi");
+        const { getRequestUrl } = await import("@tanstack/react-start/server");
         const api = await createServerApiClient();
         const ref = { account: params.account, slice: params.slice };
         // The default view resolves the slice and the latest global ref (which
@@ -390,6 +408,7 @@ const sliceDetailRoute = createRoute({
             }
           })
         ]);
+        social = sliceSocial(slice, params, deps.path, getRequestUrl().origin);
         const commitId = latest.commitId ?? "";
         const sliceRef = slice.ref ?? ref;
         const includedPaths = slice.definition?.includedPaths ?? [];
@@ -448,9 +467,30 @@ const sliceDetailRoute = createRoute({
         // The component keeps the existing client-side load/error behavior.
       }
     }
+    return { social };
   },
+  // Link previews read these from the server-rendered page (lib/socialMeta).
+  head: ({ loaderData, params }) =>
+    loaderData?.social
+      ? sliceHead(loaderData.social)
+      : { meta: [{ title: `${params.account}/${params.slice} · Gitslice` }] },
   component: SliceDetailPage
 });
+
+function sliceSocial(
+  slice: Slice,
+  params: { account: string; slice: string },
+  path: string,
+  origin: string
+): SliceSocial {
+  return {
+    account: slice.ref?.account || params.account,
+    slice: slice.ref?.slice || params.slice,
+    description: slice.description ?? "",
+    path,
+    origin
+  };
+}
 
 const sliceSettingsRoute = createRoute({
   getParentRoute: () => appRoute,

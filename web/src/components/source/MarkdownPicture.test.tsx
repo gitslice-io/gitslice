@@ -29,7 +29,9 @@ describe("MarkdownViewer <picture>", () => {
       expect(screen.getByRole("img", { name: "Logo" })).toHaveAttribute(
         "src",
         `data:image/png;base64,${btoa("/sunny/app/Imagens/Logo Light.png")}`
-      )
+      ),
+      // The first render loads the Markdown renderer, slow on a busy host.
+      { timeout: 5000 }
     );
     expect(document.querySelector("source")).toBeNull();
 

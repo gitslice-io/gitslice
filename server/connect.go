@@ -21,6 +21,8 @@ func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http
 	mount := func(pattern string, handler http.Handler) {
 		mux.Handle(pattern, connectAuthMiddleware(resolve)(handler))
 	}
+	// Shared-link preview images; anonymous by design (see social_image.go).
+	mux.Handle("/og/", newSocialImageHandler(handlers.Slice))
 	mount(corev1connect.NewAuthServiceHandler(connectAuthAdapter{svc: handlers.Auth}))
 	mount(corev1connect.NewRepositoryServiceHandler(connectRepositoryAdapter{svc: handlers.Repository}))
 	mount(corev1connect.NewBlobServiceHandler(connectBlobAdapter{svc: handlers.Blob}))
