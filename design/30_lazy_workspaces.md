@@ -10,9 +10,13 @@ and `gs agent start --lazy`. Measurements are at the end.
 
 ## Goal
 
-Open a slice of any size in about a second, read files only when something
-reads them, and keep every edit on the local machine until the user creates a
-changeset.
+Open a slice in seconds whatever its content size, read files only when
+something reads them, and keep every edit on the local machine until the user
+creates a changeset. (Mounting costs the listing, which grows with the number
+of files, not their size: 2.6 s for 4,508 files, 58.6 MB, cold, from 35-195 ms
+away. A file's first read costs a server round trip, so work that reads the
+whole tree fetches it first with `gs fetch`; design/28_benchmarks.md,
+"Opening a workspace".)
 
 `gs init` checks out every file a slice includes. Since the streamed `Checkout`
 (design/28) that takes 2.7 s for `gitslice/gitslice` (779 files) from a cold

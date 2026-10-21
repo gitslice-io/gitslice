@@ -24,40 +24,77 @@ const features: Array<{
   title: string;
 }> = [
   {
+    title: "Merge on submit",
+    description:
+      "When a change's base moved while an agent worked, the server merges it onto the latest base instead of sending the agent back to start over. Overlapping edits are still refused, with the files named.",
+    icon: "changeset"
+  },
+  {
     title: "Slices",
     description:
-      "Small, policy-aware projections of one global source graph. Work with the code you need without splitting its history apart.",
+      "Repo-like views of one global source graph. Give each agent the part it owns, with its own access and rules, without splitting the history apart.",
     icon: "slice"
   },
   {
-    title: "Changesets & patchsets",
+    title: "Lazy workspaces",
     description:
-      "A first-class unit for review and submit, with immutable patchsets that make every iteration clear and auditable.",
-    icon: "changeset"
+      "Mount a slice in seconds and fetch files as they are read, so the cost follows the task, not the repository. Edits stay on the machine, with checkpoints to rewind to or fork, until the agent creates a changeset.",
+    icon: "terminal"
+  },
+  {
+    title: "Checks the server enforces",
+    description:
+      "Required checks and approvals are conditions of landing, not habits. CI runs on any machine with Docker, with build images cached between runs.",
+    icon: "check"
   },
   {
     title: "Built for agents",
     description:
-      "Scoped workspaces keep coding agents focused, while bring-your-own-agent conversations preserve context around the work.",
+      "Agents register themselves with no browser, work through the gs CLI or an MCP server, and leave an audit trail of changesets and patchsets.",
     icon: "agent"
-  },
-  {
-    title: "CI checks",
-    description:
-      "The same agent on your host runs checks in a container, so build caches stay hot instead of starting cold on every run. The server still enforces results before changes reach the global graph.",
-    icon: "check"
   },
   {
     title: "Git compatible",
     description:
-      "Clone and fetch a slice with plain Git. Compatibility stays at the boundary while the native graph remains the source of truth.",
+      "Clone and fetch a slice with plain Git, and push to create a changeset. Compatibility stays at the boundary while the native graph is the source of truth.",
     icon: "git"
+  }
+];
+
+// Measured by tests/cli/bench_agents_test.go (design/28_benchmarks.md,
+// "Landing in parallel"): agents landing at once, medians, 2-vCPU VM.
+const parallelRows: Array<{
+  agents: number;
+  gitRetries: number;
+  gitSeconds: string;
+  gsRetries: number;
+  gsSeconds: string;
+  scenario: string;
+}> = [
+  { scenario: "Each agent edits its own file", agents: 8, gitSeconds: "1.4 s", gitRetries: 28, gsSeconds: "1.2 s", gsRetries: 0 },
+  { scenario: "Each agent edits its own file", agents: 16, gitSeconds: "5.3 s", gitRetries: 120, gsSeconds: "2.4 s", gsRetries: 0 },
+  { scenario: "One file, a block each (merge on submit)", agents: 8, gitSeconds: "1.4 s", gitRetries: 28, gsSeconds: "1.8 s", gsRetries: 0 },
+  { scenario: "One file, a block each (merge on submit)", agents: 16, gitSeconds: "5.4 s", gitRetries: 120, gsSeconds: "3.5 s", gsRetries: 0 }
+];
+
+const pillars: Array<{ body: string; stat: string; statLabel: string; title: string }> = [
+  {
+    title: "Land in parallel",
+    stat: "0 retries",
+    statLabel: "16 agents, one codebase",
+    body: "Git moves the branch under every agent that lands, so each one pulls, rebases and pushes again. Gitslice admits a change by the paths it changes, so agents on different files never wait on each other, and edits to the same file are merged on submit."
   },
   {
-    title: "CLI-first",
-    description:
-      "Use `gs` end-to-end: authenticate, hydrate a workspace, capture edits, create a changeset, and submit from your terminal.",
-    icon: "terminal"
+    title: "A workspace for the task",
+    stat: "2.6 s",
+    statLabel: "to mount 4,508 files, cold",
+    body: "Mount a slice and start. Only the files an agent reads are fetched, so the cost follows the task, not the size of the repository; work that reads everything fetches first. Checkpoints save the work in progress on the machine, to rewind to or fork."
+  },
+  {
+    title: "The server decides",
+    stat: "Enforced",
+    statLabel: "checks and approvals, on the server",
+    body: "An agent can claim anything. What lands is decided where the commit is made: path by path, against the slice's checks and approvals, with every iteration kept as an immutable patchset."
   }
 ];
 
@@ -203,22 +240,19 @@ export function LandingPage() {
           <div>
             <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
               <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
-              Source infrastructure for humans and agents
+              Source infrastructure for fleets of agents
             </div>
             <h1 className="max-w-3xl text-4xl font-semibold leading-[1.02] tracking-[-0.045em] text-zinc-950 dark:text-white sm:text-5xl md:text-6xl">
-              One source graph. A thousand small workspaces.
+              Many agents. One codebase. Land in parallel.
             </h1>
             <p className="mt-7 max-w-2xl text-base leading-7 text-slate-600 dark:text-zinc-400 sm:text-lg sm:leading-8">
-              Gitslice gives you repo-like{" "}
+              Gitslice is Git-compatible source infrastructure where agents get a
+              workspace for the task,{" "}
               <strong className="font-medium text-zinc-800 dark:text-zinc-200">
-                slices
-              </strong>{" "}
-              over one global codebase,{" "}
-              <strong className="font-medium text-zinc-800 dark:text-zinc-200">
-                changesets
-              </strong>{" "}
-              for review and submit, and Git compatibility at the boundary—built
-              for humans and coding agents.
+                land changes without stepping on each other
+              </strong>
+              , and the server, not the agent, decides what merges. Slices give
+              each one its part of the codebase.
             </p>
             <div className="mt-9 flex flex-col gap-3 min-[380px]:flex-row">
               <Link
@@ -324,54 +358,177 @@ export function LandingPage() {
                 <p>
                   <span className="text-sky-400">$</span>{" "}
                   <span className="text-zinc-200">
-                    curl -fsSL https://gitslice.io/install.sh | sh
+                    gs auth register-agent --username build-bot \
                   </span>
                 </p>
-                <p className="text-zinc-500">Installed gs version v0.1.0</p>
-                <p className="mt-4">
-                  <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">gs auth login</span>
-                </p>
-                <p className="text-zinc-500">Authenticated as mira@orbit.dev</p>
-                <p className="mt-4">
-                  <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">
-                    gs workspace init orbit/checkout
-                  </span>
-                </p>
+                <p className="pl-4 text-zinc-200">--email mira@orbit.dev</p>
                 <p className="text-zinc-500">
-                  Hydrated 318 files from slice orbit/checkout
-                </p>
-                <p className="mt-4">
-                  <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">gs status</span>
-                </p>
-                <p className="text-zinc-500">
-                  <span className="text-amber-300">M</span>{" "}
-                  services/checkout/authorize.go
+                  Registered build-bot; claim link sent for mira@orbit.dev
                 </p>
                 <p className="mt-4">
                   <span className="text-sky-400">$</span>{" "}
                   <span className="text-zinc-200">
-                    gs cs create --title &quot;Tighten authorization&quot;
+                    gs init --lazy orbit/checkout work
                   </span>
                 </p>
-                <p className="text-zinc-500">Created orbit/checkout@184</p>
+                <p className="text-zinc-500">
+                  mounted orbit:checkout at ~/work (318 files, fetched on
+                  first read; edits stay on this machine until gs create)
+                </p>
                 <p className="mt-4">
                   <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">gs cs submit</span>
+                  <span className="text-zinc-200">
+                    gs create --all --submit \
+                  </span>
+                </p>
+                <p className="pl-4 text-zinc-200">
+                  --message &quot;Tighten authorization&quot;
+                </p>
+                <p className="text-zinc-500">created 8b4ee46085 patchset 1</p>
+                <p className="text-zinc-500">
+                  view: https://gitslice.io/cs/8b4ee46085
                 </p>
                 <p className="text-zinc-500">
-                  <span className="text-emerald-300">Checks 4/4</span> ·
-                  submitted to global
+                  waiting for required check &quot;orbit/unit&quot; to pass...
                 </p>
+                <p className="text-emerald-300">submitted 8b4ee46085</p>
               </div>
             </div>
             <figcaption className="sr-only">
-              An example Gitslice CLI session authenticating, creating a
-              workspace, reviewing changes, and submitting a changeset.
+              An example Gitslice CLI session: an agent registers itself, mounts
+              a slice, and submits a changeset that lands once its required
+              check passes.
             </figcaption>
           </figure>
+        </section>
+
+        <section
+          aria-labelledby="pillars-heading"
+          className="mx-auto w-full max-w-7xl px-4 pb-24 sm:px-6 sm:pb-28 lg:px-8"
+        >
+          <div className="border-t border-slate-200 pt-20 dark:border-white/10 sm:pt-24">
+            <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-sky-400">
+              Why Gitslice
+            </p>
+            <h2
+              className="mt-4 max-w-3xl text-3xl font-semibold tracking-[-0.035em] text-zinc-950 dark:text-white sm:text-4xl"
+              id="pillars-heading"
+            >
+              Git was built for people who merge now and then. Agents land
+              constantly.
+            </h2>
+            <div className="mt-12 grid gap-4 lg:grid-cols-3 lg:gap-5">
+              {pillars.map((pillar) => (
+                <article
+                  className="rounded-2xl border border-slate-200 bg-white/75 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:border-white/10 dark:bg-white/[0.035] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-7"
+                  key={pillar.title}
+                >
+                  <p className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-white">
+                    {pillar.stat}
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-slate-500 dark:text-zinc-400">
+                    {pillar.statLabel}
+                  </p>
+                  <h3 className="mt-6 text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    {pillar.title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+                    {pillar.body}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section
+          aria-labelledby="benchmarks-heading"
+          className="mx-auto w-full max-w-7xl px-4 pb-24 sm:px-6 sm:pb-28 lg:px-8"
+        >
+          <div className="grid items-start gap-10 border-t border-slate-200 pt-20 dark:border-white/10 sm:pt-24 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
+            <div>
+              <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-sky-400">
+                Measured, not claimed
+              </p>
+              <h2
+                className="mt-4 text-3xl font-semibold tracking-[-0.035em] text-zinc-950 dark:text-white sm:text-4xl"
+                id="benchmarks-heading"
+              >
+                Agents landing at the same moment
+              </h2>
+              <p className="mt-4 text-base leading-7 text-slate-600 dark:text-zinc-400">
+                Agents each make a change, then all of them land at once. With
+                Git, every push that loses the race is a retry: 28 at eight
+                agents, 120 at sixteen. With Gitslice there are none, even
+                when they edit the same file. At eight agents on one file,
+                Git is still faster.
+              </p>
+              <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-zinc-400">
+                Medians of a benchmark you can rerun, on a 2-vCPU VM. The Git
+                remote is a local directory, so its retries are as cheap as
+                they get. Where Git is faster, the{" "}
+                <Link
+                  className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
+                  params={sourceSlice}
+                  search={{ path: "/gitslice/gitslice/design/28_benchmarks.md" }}
+                  to="/slices/$account/$slice"
+                >
+                  full benchmarks
+                </Link>{" "}
+                say so.
+              </p>
+            </div>
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white/75 dark:border-white/10 dark:bg-white/[0.035]">
+              <table className="w-full min-w-[36rem] text-left text-sm">
+                <caption className="sr-only">
+                  Time to land, and retries, for agents landing at once
+                </caption>
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-white/10 dark:text-zinc-400">
+                    <th className="px-5 py-3 font-medium" scope="col">
+                      Scenario
+                    </th>
+                    <th className="px-5 py-3 font-medium" scope="col">
+                      Agents
+                    </th>
+                    <th className="px-5 py-3 font-medium" scope="col">
+                      Git: time
+                    </th>
+                    <th className="px-5 py-3 font-medium" scope="col">
+                      Git: retries
+                    </th>
+                    <th className="px-5 py-3 font-medium" scope="col">
+                      Gitslice: time
+                    </th>
+                    <th className="px-5 py-3 font-medium" scope="col">
+                      Gitslice: retries
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono text-zinc-800 dark:text-zinc-200">
+                  {parallelRows.map((row) => (
+                    <tr
+                      className="border-b border-slate-100 last:border-0 dark:border-white/5"
+                      key={`${row.scenario}-${row.agents}`}
+                    >
+                      <th className="px-5 py-4 font-sans text-xs font-medium" scope="row">
+                        {row.scenario}
+                      </th>
+                      <td className="px-5 py-4">{row.agents}</td>
+                      <td className="px-5 py-4">{row.gitSeconds}</td>
+                      <td className="px-5 py-4 text-rose-600 dark:text-rose-300">
+                        {row.gitRetries}
+                      </td>
+                      <td className="px-5 py-4">{row.gsSeconds}</td>
+                      <td className="px-5 py-4 text-emerald-700 dark:text-emerald-300">
+                        {row.gsRetries}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </section>
 
         <section
@@ -381,18 +538,19 @@ export function LandingPage() {
           <div className="border-t border-slate-200 pt-20 dark:border-white/10 sm:pt-24">
             <div className="grid gap-6 md:grid-cols-[0.7fr_1.3fr] md:items-end">
               <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-sky-400">
-                Native by design
+                Everything else, built in
               </p>
               <div>
                 <h2
                   className="text-3xl font-semibold tracking-[-0.035em] text-zinc-950 dark:text-white sm:text-4xl"
                   id="features-heading"
                 >
-                  Small surfaces. One coherent system.
+                  One system, from the edit to the merge.
                 </h2>
                 <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 dark:text-zinc-400">
-                  Source, policy, review, and automation share the same
-                  graph—without making every developer carry the whole thing.
+                  Source, policy, review and automation share one graph, so
+                  nothing has to be reconciled between tools—and nobody has to
+                  carry the whole thing.
                 </p>
               </div>
             </div>

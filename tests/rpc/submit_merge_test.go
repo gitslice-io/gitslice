@@ -218,3 +218,57 @@ func TestRPCMergeOnSubmitWaitsForTheMergesChecks(t *testing.T) {
 		t.Fatalf("landed file = %q", file.Data)
 	}
 }
+
+// Agents landing on one slice at once merge onto each other's heads: every
+// submit lands, with no retry from the client, however the base moves while a
+// merge is under way, and every agent's change is in the result.
+func TestRPCMergeOnSubmitLandsConcurrentEditsOfOneFile(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+	const path = "/acme/payment/merge/concurrent.txt"
+	const agents = 6
+
+	var seed strings.Builder
+	for i := 0; i < agents; i++ {
+		seed.WriteString("line " + string(rune('A'+i)) + "\n\n\n")
+	}
+	submitRPCFileWithTitle(t, ctx, clients, "payment", path, seed.String(), "concurrent seed")
+	if _, err := slices.SetSliceMergeOnSubmit(ctx, &corev1.SetSliceMergeOnSubmitRequest{Slice: testPaymentSliceRef(), Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	type draft struct{ cs, patchset string }
+	drafts := make([]draft, agents)
+	for i := range drafts {
+		lines := strings.Split(seed.String(), "\n")
+		lines[i*3] = "line " + string(rune('A'+i)) + " changed by agent " + string(rune('0'+i))
+		cs, ps := draftFileEdit(t, ctx, clients, path, strings.Join(lines, "\n"), "agent edit")
+		drafts[i] = draft{cs, ps}
+	}
+
+	errs := make(chan error, agents)
+	for _, d := range drafts {
+		go func(d draft) {
+			_, err := clients.changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{ChangesetId: d.cs, ExpectedCurrentPatchsetId: d.patchset})
+			errs <- err
+		}(d)
+	}
+	for range drafts {
+		if err := <-errs; err != nil {
+			t.Fatalf("a concurrent submit failed: %v", err)
+		}
+	}
+	for _, d := range drafts {
+		waitForSubmittedChangeset(t, ctx, clients.changeset, d.cs)
+	}
+	got := readHeadFile(t, ctx, clients, path)
+	for i := 0; i < agents; i++ {
+		if !strings.Contains(got, "changed by agent "+string(rune('0'+i))) {
+			t.Fatalf("agent %d's change is missing from:\n%s", i, got)
+		}
+	}
+}

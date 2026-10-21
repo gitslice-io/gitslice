@@ -1,9 +1,149 @@
 # Benchmarks Against Git
 
-How long do the operations people and agents wait for take with `gs`, next to
-`git` on the same files? `tests/cli/bench_git_test.go` times four workloads,
-the ones the OpenScion and Scion projects publish for their own clients, so the
-numbers can be read side by side.
+Three questions, each with a benchmark that anyone can rerun:
+
+1. [**Landing in parallel.**](#landing-in-parallel) When many agents land
+   changes on one codebase at the same moment, how long does it take, and how
+   often does an agent have to start over? (`tests/cli/bench_agents_test.go`)
+2. [**Opening a workspace.**](#opening-a-workspace) How long until an agent has
+   a tree it can work in, for a real repository, from a cold start?
+   (`bench/workspace_bench.py`)
+3. [**Everyday operations.**](#everyday-operations) Import, commit and
+   checkout, next to `git` on the same synthetic files.
+   (`tests/cli/bench_git_test.go`)
+
+Every table says what was measured, on what, and what it does not show. Where
+`git` is faster, the table says so.
+
+## Landing in parallel
+
+Agents do not take turns. A fleet working on one codebase lands changes
+constantly, and with Git every landing moves the branch under the others:
+a push is rejected when someone landed first, and the agent pulls, rebases and
+pushes again, each round racing the rest. With `N` agents that is up to
+`N(N-1)/2` extra rounds in all.
+
+Gitslice admits a change by the paths it changes, on the server: changes to
+different paths land with no relation to each other, and with
+`gs slice update --merge-on-submit on` the server merges a change whose file
+was also edited upstream (design/07 section 7.4) instead of refusing it.
+
+`TestBenchmarkParallelAgents` has every agent in its own workspace or clone,
+all based on the same head and set up outside the clock. The clock starts when
+they all start, and stops when the last change has landed. A `git` agent runs
+`git push`, and when it is rejected `git pull --rebase` and `git push` again. A
+`gs` agent runs `gs create --all --submit`, and when the submit is refused for
+a stale base runs `gs sync` and `gs submit` again. A retry is one such extra
+round. At the end a fresh clone or checkout is read and every agent's change
+must be in it.
+
+```bash
+GITSLICE_TEST_DATABASE_URL=... GITSLICE_BENCH=1 \
+  GITSLICE_BENCH_AGENTS=16 GITSLICE_BENCH_RUNS=3 \
+  go test ./tests/cli -run TestBenchmarkParallelAgents -v -timeout 60m
+```
+
+Measured 2026-10-21 on the 2-vCPU VM described below; medians; time is to the
+last landing, retries are summed over the agents.
+
+| Scenario | agents | git: time | git: retries | gs: time | gs: retries |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Each agent edits its own file | 8 | 1.44 s | 28 | 1.15 s | 0 |
+| | 16 | 5.28 s | 120 | 2.43 s | 0 |
+| One file, a block each | 8 | 1.40 s | 28 | 3.89 s (merge off) | 35 |
+| | 16 | 5.37 s | 120 | 11.5 s (merge off) | 145 |
+| One file, a block each, merge on submit | 8 | | | 1.84 s | 0 |
+| | 16 | | | 3.47 s | 0 |
+
+Read it with these in mind:
+
+- **Retries are the point.** With `git`, the retries were `N(N-1)/2` in every
+  run (28 at 8 agents, 120 at 16), and the time grew faster than the number of
+  agents (1.4 s to 5.3 s for twice the agents). With `gs` and separate files
+  there are none, and the time grows with the agents (1.15 s to 2.4 s).
+- **Same file, merge off, is slower than git.** A refused `gs` submit costs a
+  `gs sync` and a second submit, more than a rebase and push, and there are
+  more of them. This is what merge on submit removes: the server does the
+  merge in the submit, so the agent does nothing twice.
+- **The Git remote here is a directory on the same disk,** so a `git` retry is
+  cheap. Over a network each retry adds round trips to a remote that every
+  agent is hitting at once, so `git` times here are the best case.
+- **`gs` runs in the test process** and `git` as a process per command, as in
+  the other benchmarks; and `gs` lands each change on a server (uploaded,
+  validated, published to the global graph, durable) where `git push` writes
+  to a directory.
+- **No required checks or approvals** are set. With them, a merged change
+  waits for its checks again, as a rebased pull request does on any host.
+- Merging is serialized per slice on a server instance, so agents landing
+  together queue instead of making each other's merge stale. The server also
+  tries again, a bounded number of times, when the base moves under a merge
+  anyway (another instance, or a landing that did not merge).
+
+## Opening a workspace
+
+Time until an agent has a tree it can work in, for a real repository, from a
+cold start. `bench/workspace_bench.py` runs each scenario 3 times, each in a
+new directory and (for `gs`) an empty client cache and a new mount supervisor,
+and reports the median with the range:
+
+- **to tree:** the command returns and the files are there to open;
+- **read 20:** reading 20 files spread evenly over the tree, as an agent that
+  opens a few of them to do a task would (what a lazy mount has to fetch);
+- **search cold / warm:** `rg` over the whole tree right after, and again.
+
+```bash
+bench/workspace_bench.py --git https://github.com/Sunshinin11/Ryujinx_Neo \
+  --slice sunny/ryujinx-neo --runs 3 --pattern 'TODO|FIXME'
+```
+
+The repository is [Ryujinx_Neo](https://github.com/Sunshinin11/Ryujinx_Neo)
+(4,508 files, 58.6 MB, 4,018 commits) and the same content as the Gitslice
+slice `sunny/ryujinx-neo`, from a 2-vCPU VM about 33-58 ms from GitHub and,
+over the day, 35-195 ms from the Gitslice API, which is why the ranges are
+wide. Measured 2026-10-21 with `gs` v0.4.16. Seconds; median (range):
+
+| Scenario | to tree | read 20 files | search, cold | search, warm |
+| --- | ---: | ---: | ---: | ---: |
+| `git clone --depth 1` | 4.30 (4.24-4.68) | 0.00 | 0.09 | 0.08 |
+| `git clone --filter=blob:none` | 5.98 (5.81-6.07) | 0.00 | 0.09 | 0.07 |
+| `git clone` (full history) | 8.48 (7.74-9.35) | 0.00 | 0.11 | 0.10 |
+| `gs init` | 7.96 (6.89-12.37) | 0.00 | 0.09 | 0.09 |
+| `gs init --lazy` | **2.56** (2.47-5.94) | 4.80 (3.98-10.10) | **107** (92-232) | 1.10 |
+| `gs init --lazy` + `gs fetch` | 12.6 (5.7-50.8) | 0.01 | 1.52 | 1.10 |
+
+What it says:
+
+- **A full checkout costs what a full clone costs.** `gs init` (8.0 s) is next
+  to `git clone` with full history (8.5 s), and slower than a shallow clone
+  (4.3 s). Gitslice has no shallow mode to compare with that: the slice is the
+  tree.
+- **A lazy mount is fast to mount and slow to read the first time.** It is
+  mounted in 2.6 s, before any content is fetched, and each file is then
+  fetched when it is first read: 20 files took 4.8 s, about 0.24 s each, a
+  round trip to the server. That is right for a task that opens a handful of
+  files out of thousands, and wrong for one that reads them all: a search
+  over the whole tree took 107 s (92-232 s) where Git took 0.09 s.
+- **For work that reads the whole tree, fetch first.** `gs fetch` brings every
+  file in batches in parallel: 12.6 s after the mount, and the search is
+  then 1.5 s. The first run took 51 s and the third 5.7 s; the Gitslice API
+  scales to zero and the first requests to a cold instance are slow.
+- **A mounted tree is not a local directory.** With every file cached, the
+  search takes 1.1 s through the mount where it takes 0.09 s on a checkout:
+  every file operation passes through FUSE.
+- **The slice is the whole repository here,** so this benchmark gives
+  Gitslice no help from slices. What a slice saves is in the one-directory row
+  below: a checkout costs what its directory costs.
+
+This is a starting point for work on the lazy mount, not a result to be proud
+of: per-file latency is the server round trip (about 0.24 s here, and the
+server's share of it is not small), and a reader that walks a tree faster than
+the mount fetches it waits on every directory.
+
+## Everyday operations
+
+`tests/cli/bench_git_test.go` times four workloads, the ones the OpenScion and
+Scion projects publish for their own clients, so the numbers can be read side
+by side.
 
 ## Workloads
 

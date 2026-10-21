@@ -205,7 +205,7 @@ export const commandGroups = [
       ["gs init <account>:<slice>", "Create a workspace for one slice: checks every file out into the current empty directory."],
       [
         "gs init --lazy <account>:<slice> [dir]",
-        "Create a lazy workspace instead (Linux and macOS, with FUSE): the slice is mounted at dir in about a second at any size, a file's content is fetched the first time something reads it, and your edits stay on this machine until gs create. Every other command works as in a checkout; gs sync and changeset switching move the mount without fetching. --prefetch <glob> warms files in the background; --read-only refuses writes."
+        "Create a lazy workspace instead (Linux and macOS, with FUSE): the slice is mounted at dir in seconds (2.6 s for 4,500 files, cold), a file's content is fetched the first time something reads it (each first read is a server round trip, so for work that reads the whole tree run gs fetch first), and your edits stay on this machine until gs create. Every other command works as in a checkout; gs sync and changeset switching move the mount without fetching. --prefetch <glob> warms files in the background; --read-only refuses writes."
       ],
       ["gs mount <dir>", "Mount a lazy workspace again after gs unmount or a reboot, with its edits."],
       ["gs unmount <dir>", "Unmount a lazy workspace; its edits are kept. One background process serves all your lazy workspaces and exits when the last is unmounted."],

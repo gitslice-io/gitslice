@@ -170,15 +170,11 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	emitSubmitted := cs.Status != "pending_publish" && cs.Status != "submitted"
 	res, err := s.submitPatchset(ctx, cs.Id, acceptedExpectedPatchset(cs, req.ExpectedCurrentPatchsetId), extraCheckStatuses)
 	if isStaleBase(err) {
-		merged, mergeErr := s.mergeStaleOnSubmit(ctx, cs)
-		if mergeErr != nil {
-			return nil, mergeErr
-		}
-		if merged != nil {
-			res, err = s.submitMerged(ctx, cs.Id, merged)
-			if err != nil {
-				return nil, err
+		if mergedRes, mergedErr, applied := s.mergeAndSubmit(ctx, cs); applied {
+			if mergedErr != nil {
+				return nil, mergedErr
 			}
+			res, err = mergedRes, nil
 		}
 	}
 	if err != nil {
@@ -197,25 +193,6 @@ func (s *ChangesetService) submitPatchset(ctx context.Context, changesetID, expe
 		return submitter.SubmitWithCheckStatuses(ctx, changesetID, expected, extraCheckStatuses)
 	}
 	return s.Changesets.Submit(ctx, changesetID, expected)
-}
-
-// submitMerged submits the patchset mergeStaleOnSubmit made. Its required
-// checks have usually not run yet, so the answer is often a pending check,
-// said with the merge in front.
-func (s *ChangesetService) submitMerged(ctx context.Context, changesetID string, merged *corev1.Patchset) (*corev1.SubmitChangesetResponse, error) {
-	refreshed, err := s.Changesets.Get(ctx, changesetID)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	extra, err := s.skippedRequiredCheckStatuses(ctx, refreshed)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	res, err := s.submitPatchset(ctx, changesetID, merged.GetId(), extra)
-	if err != nil {
-		return nil, withMergedNote(grpcError(err), merged)
-	}
-	return res, nil
 }
 
 func (s *ChangesetService) captureChangesetSubmitted(ctx context.Context, cs *corev1.Changeset) {

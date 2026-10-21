@@ -164,7 +164,7 @@ gs status --json
 
 `gs status` and `gs diff --stat` label each changed path `added`, `modified`, `deleted` or `renamed`, with the lines it adds and removes (`changes` in the JSON; lines are counted from content already on this machine). Both work without the server: offline they list the workspace's own edits, with the dependency tree as last seen, and say `offline`.
 
-To work in a large slice without checking it all out, mount it lazily (Linux and macOS with FUSE). The listing arrives in about a second at any size, and a file's content is fetched on first read, with the small files beside it. Edit with any tool: edits stay in the workspace's local layer, on this machine, until `gs create` or `gs modify` uploads them.
+To work in a large slice without checking it all out, mount it lazily (Linux and macOS with FUSE). The listing arrives in seconds (2.6 s for 4,500 files, cold), and a file's content is fetched on first read, with the small files beside it; each first read is a server round trip, so for work that reads the whole tree run `gs fetch` first. Edit with any tool: edits stay in the workspace's local layer, on this machine, until `gs create` or `gs modify` uploads them.
 
 ```bash
 gs init --lazy acme/payment ~/w/payment   # creates and mounts it. gs unmount ~/w/payment; gs mount ~/w/payment again after that or a reboot; gs mount list | status | discard

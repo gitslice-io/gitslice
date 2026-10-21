@@ -435,34 +435,29 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 			continue
 		}
 		res, err := s.Changesets.Submit(ctx, entry.ChangesetId, cs.CurrentPatchsetId)
-		var merged *corev1.Patchset
+		merged := false
+		var mergedMessage string
 		if isStaleBase(err) && entry.ParentChangesetId == "" {
 			// A root of the tree goes onto the latest base like a changeset
 			// submitted alone (merge on submit); its dependents follow it by
 			// restack, as they do when it moves any other way.
 			changesets := s.changesetService()
-			var mergeErr error
-			if merged, mergeErr = changesets.mergeStaleOnSubmit(ctx, cs); mergeErr != nil {
-				blocked = true
-				response.Results = append(response.Results, &corev1.SubmitStackEntryResult{
-					ChangesetId:   entry.ChangesetId,
-					Status:        "blocked",
-					BlockedReason: status.Convert(mergeErr).Message(),
-				})
-				continue
-			}
-			if merged != nil {
-				res, err = changesets.submitMerged(ctx, entry.ChangesetId, merged)
+			if mergedRes, mergedErr, applied := changesets.mergeAndSubmit(ctx, cs); applied {
+				merged = true
+				res, err = mergedRes, mergedErr
+				if mergedErr != nil {
+					mergedMessage = status.Convert(mergedErr).Message()
+				}
 			}
 		}
 		if err != nil {
 			blocked = true
 			reason := submitBlockReason(err)
-			if refreshed, getErr := s.Changesets.Get(ctx, entry.ChangesetId); merged == nil && getErr == nil && refreshed.SubmitBlockedReason != "" {
+			if refreshed, getErr := s.Changesets.Get(ctx, entry.ChangesetId); !merged && getErr == nil && refreshed.SubmitBlockedReason != "" {
 				reason = refreshed.SubmitBlockedReason
 			}
-			if merged != nil {
-				reason = status.Convert(err).Message()
+			if merged {
+				reason = mergedMessage
 			}
 			response.Results = append(response.Results, &corev1.SubmitStackEntryResult{
 				ChangesetId:   entry.ChangesetId,

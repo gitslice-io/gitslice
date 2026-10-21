@@ -211,9 +211,11 @@ with FUSE, mount it instead:
     gs init --lazy <account>/<slice> ~/work/<slice>
     cd ~/work/<slice>/<account>/<slice>        # files sit at their full path
 
-It takes about a second at any size. A file is fetched the first time something
-reads it (with small files beside it), and your edits stay on this machine until
-`gs create`. Everything else works as in a checkout: `gs status`, `gs diff`,
+It takes seconds (2.6 s for a 4,500-file slice, cold), because only the listing
+is fetched. A file is fetched the first time something reads it (with small
+files beside it; each first read is a round trip to the server), so for work
+that reads the whole tree run `gs fetch` first. Your edits stay on this machine
+until `gs create`. Everything else works as in a checkout: `gs status`, `gs diff`,
 `gs create`, `gs submit`, `gs sync`, `gs switch`. `gs restore <path>` drops an
 edit. `gs checkpoint` saves the edits on this machine (gs also does before
 sync, switch, restore and rewind), `gs rewind` goes back to one (and can be
