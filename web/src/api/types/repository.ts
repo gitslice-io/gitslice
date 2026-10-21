@@ -64,6 +64,35 @@ export interface ReadFileResponse {
   contentHash?: string;
 }
 
+export interface BlameFileRequest {
+  // The file, as a repository path such as /acme/payment/api.go.
+  path?: string;
+  slice?: SliceRef;
+  // The target ref; empty means refs/global/main.
+  refName?: string;
+}
+
+// A run of lines last changed by one commit (start_line is 1-based).
+export interface BlameRange {
+  startLine?: number;
+  lineCount?: number;
+  commitId?: string;
+}
+
+export interface BlameFileResponse {
+  // The head commit the file was read at.
+  commitId?: string;
+  path?: string;
+  lineCount?: number;
+  // In line order, covering every line.
+  ranges?: BlameRange[];
+  // Each commit the ranges name, with its author, message and changeset.
+  commits?: Commit[];
+  // The walk stopped before the file's first commit, so the oldest commit
+  // named may only be where it ended.
+  truncated?: boolean;
+}
+
 export interface GetCommitRequest {
   commitId?: string;
 }

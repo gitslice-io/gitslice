@@ -153,6 +153,8 @@ export function createApiClient({
       ),
     readFile: (request) =>
       unary<Api.ReadFileResponse>(() => repository.readFile(toProtoRequest(request))),
+    blameFile: (request) =>
+      unary<Api.BlameFileResponse>(() => repository.blameFile(toProtoRequest(request), { timeoutMs: 120000 })),
     getCommit: (request) =>
       unary<Api.Commit>(() => repository.getCommit(toProtoRequest(request))),
     listCommits: (request) =>

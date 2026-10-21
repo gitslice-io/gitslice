@@ -110,6 +110,8 @@ import type {
   ListStacksResponse,
   MoveStackEntryRequest,
   Patchset,
+  BlameFileRequest,
+  BlameFileResponse,
   ReadFileRequest,
   ReadFileResponse,
   ReparentStackEntryRequest,
@@ -190,6 +192,7 @@ export interface ApiClient {
     request: ListDirectoryRequest
   ): Promise<ListDirectoryResponse>;
   readFile(request: ReadFileRequest): Promise<ReadFileResponse>;
+  blameFile(request: BlameFileRequest): Promise<BlameFileResponse>;
   getCommit(request: GetCommitRequest): Promise<Commit>;
   listCommits(request: ListCommitsRequest): Promise<ListCommitsResponse>;
   getRef(request: GetRefRequest): Promise<Ref>;

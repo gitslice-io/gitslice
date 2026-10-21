@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { SliceRef } from "../../api/types";
 import { cn } from "../../lib/cn";
@@ -6,6 +6,7 @@ import { projectRoot } from "../../lib/repoLinks";
 import { useMobileDetailsClass } from "../MobileDetails";
 import { languageFromPath, previewKindFromPath, type PreviewKind } from "./sourceUtils";
 import { highlightToHtml } from "./highlight";
+import { BlameView } from "./BlameView";
 import { DiagramViewer } from "./DiagramViewer";
 import { JsonLinesViewer } from "./JsonLinesViewer";
 import { JsonViewer } from "./JsonViewer";
@@ -48,12 +49,18 @@ export function SourceCodeViewer({
   const previewKind = useMemo(() => previewKindFromPath(path), [path]);
   const lineCount = useMemo(() => (code ? code.split(/\r\n|\r|\n/).length : 0), [code]);
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
+  // Blame shows each line with who last changed it. It reads the file through
+  // a slice, so only a file viewed in one has it; viewing it needs the raw
+  // lines, not a preview.
+  const [showBlame, setShowBlame] = useState(false);
+  const canBlame = Boolean(repo?.slice?.account && repo?.slice?.slice);
+  const blaming = showBlame && canBlame;
   const [highlight, setHighlight] = useState<HighlightState>({
     html: "",
     isLoading: true,
     error: ""
   });
-  const shouldRenderRaw = !previewKind || viewMode === "raw";
+  const shouldRenderRaw = !previewKind || viewMode === "raw" || blaming;
   // On a phone with the page's details folded, only the Preview/Raw switch
   // stays; with nothing to switch, the bar goes too.
   const foldedOnPhone = useMobileDetailsClass();
@@ -91,6 +98,21 @@ export function SourceCodeViewer({
     };
   }, [code, language, shouldRenderRaw]);
 
+  const codeBody: ReactNode = highlight.html ? (
+    <div
+      className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white dark:bg-zinc-900 [&_pre]:text-sm [&_pre]:leading-6"
+      dangerouslySetInnerHTML={{ __html: highlight.html }}
+    />
+  ) : (
+    // Show the raw text immediately so file content never waits on the
+    // Shiki core load or a (potentially large) grammar-chunk download.
+    // Highlighting is layered in by swapping to the rendered HTML once it
+    // resolves; the plain <pre> matches its sizing to avoid layout shift.
+    <pre className="min-w-max overflow-visible bg-white dark:bg-zinc-900 p-4 text-sm leading-6 text-zinc-900 dark:text-zinc-100">
+      <code>{code}</code>
+    </pre>
+  );
+
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
       <div
@@ -101,9 +123,10 @@ export function SourceCodeViewer({
       >
         <div className={cn("min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400", foldedOnPhone)}>{path}</div>
         <div className="flex flex-wrap items-center justify-end gap-3">
-          {previewKind ? (
+          {previewKind && !blaming ? (
             <ViewModeToggle onChange={setViewMode} value={viewMode} />
           ) : null}
+          {canBlame ? <BlameToggle onChange={setShowBlame} value={blaming} /> : null}
           <div className={cn("flex items-center gap-3", foldedOnPhone)}>
             {shouldRenderRaw && highlight.isLoading && code ? (
               <span className="text-slate-400 dark:text-zinc-500">highlighting…</span>
@@ -113,24 +136,19 @@ export function SourceCodeViewer({
           </div>
         </div>
       </div>
-      <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
-        {previewKind && viewMode === "preview" ? (
-          <Preview code={code} kind={previewKind} path={path} repo={repo} />
-        ) : highlight.html ? (
-          <div
-            className="[&_code]:block [&_code]:min-w-max [&_code]:px-4 [&_code]:py-4 [&_pre]:m-0 [&_pre]:overflow-visible [&_pre]:!bg-white dark:bg-zinc-900 [&_pre]:text-sm [&_pre]:leading-6"
-            dangerouslySetInnerHTML={{ __html: highlight.html }}
-          />
-        ) : (
-          // Show the raw text immediately so file content never waits on the
-          // Shiki core load or a (potentially large) grammar-chunk download.
-          // Highlighting is layered in by swapping to the rendered HTML once it
-          // resolves; the plain <pre> matches its sizing to avoid layout shift.
-          <pre className="min-w-max overflow-visible bg-white dark:bg-zinc-900 p-4 text-sm leading-6 text-zinc-900 dark:text-zinc-100">
-            <code>{code}</code>
-          </pre>
-        )}
-      </div>
+      {blaming && repo?.slice ? (
+        <BlameView code={code} fill={fill} path={path} repo={{ commitId: repo.commitId, slice: repo.slice }}>
+          {codeBody}
+        </BlameView>
+      ) : (
+        <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
+          {previewKind && viewMode === "preview" ? (
+            <Preview code={code} kind={previewKind} path={path} repo={repo} />
+          ) : (
+            codeBody
+          )}
+        </div>
+      )}
       {highlight.error ? (
         <div className="border-t border-slate-200 dark:border-zinc-800 px-4 py-3 text-xs text-amber-700 dark:text-amber-300">
           Syntax highlighting unavailable: {highlight.error}
@@ -199,4 +217,22 @@ function RepoMarkdown({ code, path, repo }: { code: string; path: string; repo: 
   }
   const directory = path.slice(0, path.lastIndexOf("/"));
   return <MarkdownViewer links={{ directory, loadImage, onOpenPath: repo.onOpenPath, root: projectRoot(repo.includedPaths, path) }} source={code} />;
+}
+
+function BlameToggle({ onChange, value }: { onChange(value: boolean): void; value: boolean }) {
+  return (
+    <button
+      aria-pressed={value}
+      className={cn(
+        "h-8 rounded-md border px-2.5 text-xs font-medium transition",
+        value
+          ? "border-slate-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-sm"
+          : "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-50"
+      )}
+      onClick={() => onChange(!value)}
+      type="button"
+    >
+      Blame
+    </button>
+  );
 }
