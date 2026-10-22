@@ -98,14 +98,15 @@ slice, from a cold start; seconds, median of 3 (range). The Gitslice API was
 | `git clone --depth 1` | 4.3 | 0.00 | 0.09 |
 | `git clone` (full history) | 8.5 | 0.00 | 0.11 |
 | `gs init` | 8.0 (6.9-12.4) | 0.00 | 0.09 |
-| `gs init --lazy` | **2.6** (2.5-5.9) | 4.8 (4.0-10.1) | 107 (92-232) |
+| `gs init --lazy` | **2.6** (2.5-5.9) | 4.8 (4.0-10.1) | 14 (10-30) |
 | `gs init --lazy` + `gs fetch` | 12.6 (5.7-50.8) | 0.01 | 1.5 |
 
 A full checkout costs what a full clone costs. A lazy mount is up before any
-content is fetched and pays a server round trip for each file it reads for the
-first time: fine for a task that opens a few files, slow for one that reads the
-whole tree, where `gs fetch` first is the answer. Faster first reads are the
-next thing to work on.
+content is fetched and pays a server round trip for each file it first reads:
+fine for a task that opens a few files. A walk of the whole tree (`rg`, a
+build) is noticed and read ahead of, which took the search from 175 s to 14 s;
+`gs fetch` first is still faster for work known to read everything (about 6 s
+in all).
 
 Reproduce: `go test ./tests/cli -run TestBenchmarkParallelAgents -v` with
 `GITSLICE_BENCH=1` and a test database, or `bench/workspace_bench.py`. See

@@ -108,7 +108,7 @@ wide. Measured 2026-10-21 with `gs` v0.4.16. Seconds; median (range):
 | `git clone --filter=blob:none` | 5.98 (5.81-6.07) | 0.00 | 0.09 | 0.07 |
 | `git clone` (full history) | 8.48 (7.74-9.35) | 0.00 | 0.11 | 0.10 |
 | `gs init` | 7.96 (6.89-12.37) | 0.00 | 0.09 | 0.09 |
-| `gs init --lazy` | **2.56** (2.47-5.94) | 4.80 (3.98-10.10) | **107** (92-232) | 1.10 |
+| `gs init --lazy` | **2.56** (2.47-5.94) | 4.80 (3.98-10.10) | **107** (92-232); 14 (10-30) with read-ahead | 1.10 |
 | `gs init --lazy` + `gs fetch` | 12.6 (5.7-50.8) | 0.01 | 1.52 | 1.10 |
 
 What it says:
@@ -123,6 +123,12 @@ What it says:
   round trip to the server. That is right for a task that opens a handful of
   files out of thousands, and wrong for one that reads them all: a search
   over the whole tree took 107 s (92-232 s) where Git took 0.09 s.
+- **Read-ahead fixed most of that (2026-10-22).** The mount now notices a walk
+  of the tree, in either direction (`rg` walks backwards), and fetches the
+  files ahead of it (design/30_lazy_workspaces.md, "The mount daemon"). On the
+  same day, same machine, three runs each: the cold search took 175 s
+  (148-246) with `GS_READAHEAD=off` and 14 s (10-30, six runs) with it. Reading
+  20 scattered files is unchanged, as it should be: nothing walks.
 - **For work that reads the whole tree, fetch first.** `gs fetch` brings every
   file in batches in parallel: 12.6 s after the mount, and the search is
   then 1.5 s. The first run took 51 s and the third 5.7 s; the Gitslice API

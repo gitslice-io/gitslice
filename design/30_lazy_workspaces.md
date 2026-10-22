@@ -14,8 +14,9 @@ Open a slice in seconds whatever its content size, read files only when
 something reads them, and keep every edit on the local machine until the user
 creates a changeset. (Mounting costs the listing, which grows with the number
 of files, not their size: 2.6 s for 4,508 files, 58.6 MB, cold, from 35-195 ms
-away. A file's first read costs a server round trip, so work that reads the
-whole tree fetches it first with `gs fetch`; design/28_benchmarks.md,
+away. A file's first read costs a server round trip; a walk of the whole tree is
+read ahead of, and `gs fetch` first is fastest for work known to read
+everything; design/28_benchmarks.md,
 "Opening a workspace".)
 
 `gs init` checks out every file a slice includes. Since the streamed `Checkout`
@@ -236,6 +237,19 @@ own process with `--foreground`). It serves file system requests and nothing els
   so a program reading many uncached files offline is not held up by each. A
   read that fails, after 60 s at most, gets `EIO` and `gs mount status` says
   which path and why.
+- Read-ahead (`internal/cli/mount_readahead.go`): a program that walks the
+  tree (`grep -r`, `rg`, a build, an indexer) opens files in readdir order,
+  a depth-first walk of sorted directories. The daemon keeps that order for the
+  base and watches the opens. After six in a row that follow it, in either
+  direction (`rg` takes a directory's entries from the end, so it walks
+  backwards), within 64 files of the walk so far (parallel readers still
+  count), it fetches the files that come next, in the same batches as a miss and marked in
+  flight so a reader that catches up waits for them instead of fetching again.
+  The window starts at 32 files and doubles, up to 1,024 files or 32 MiB a
+  step, and only moves when the reader nears its end, so it fetches at the
+  reader's pace. Files over 1 MiB are left to the reader. An open away from the
+  order starts over, so scattered reads fetch nothing extra. `GS_READAHEAD=off`
+  turns it off.
 - The daemon does not wait for the server when it starts: it connects when the
   first fetch needs it. A mount, a remount, and every read the cache can
   answer work offline; `gs fetch` ahead of time is what makes a tree readable

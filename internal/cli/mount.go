@@ -388,6 +388,10 @@ type mountFetcher struct {
 	inflight  map[string]*fetchCall       // by content hash
 	files     int64
 	bytes     int64
+
+	// fetchFn replaces the server fetch in tests.
+	fetchFn func(ctx context.Context, commitID string, entries []lazyfs.BaseEntry) (int, int64, error)
+	ahead   readAhead
 }
 
 type fetchCall struct {
@@ -404,10 +408,12 @@ func (f *mountFetcher) setBase(manifest *lazyfs.Manifest) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.manifest, f.commitID, f.byHash = manifest, manifest.CommitID(), nil
+	f.ahead.reset()
 }
 
 // Fetch implements fusefs.Fetcher.
 func (f *mountFetcher) Fetch(ctx context.Context, p string, attr lazyfs.Attr) (string, bool, error) {
+	f.observeRead(p)
 	fetched, err := f.fetchContent(p, attr.ContentHash, attr.Size)
 	if err != nil {
 		return "", false, err
@@ -440,7 +446,14 @@ func (f *mountFetcher) fetchContent(p, hash string, size int64) (bool, error) {
 	}
 	f.mu.Unlock()
 
-	// One reader giving up must not fail the others waiting on this fetch.
+	err := f.runBatch(commitID, batch, call)
+	return err == nil, err
+}
+
+// runBatch fetches batch, which the caller has marked in flight under call,
+// and settles call. One reader giving up must not fail the others waiting on
+// the fetch, so it has its own deadline.
+func (f *mountFetcher) runBatch(commitID string, batch []lazyfs.BaseEntry, call *fetchCall) error {
 	fetchCtx, cancel := context.WithTimeout(context.Background(), mountFetchTimeout)
 	defer cancel()
 	// A dropped connection is retried, over a few seconds: what a retry fetches
@@ -466,7 +479,7 @@ func (f *mountFetcher) fetchContent(p, hash string, size int64) (bool, error) {
 	f.mu.Unlock()
 	call.err = err
 	close(call.done)
-	return err == nil, err
+	return err
 }
 
 // fetchRetryBackoff paces the retries of a fetch whose connection dropped, and
@@ -536,6 +549,9 @@ func joinGlobalPath(dir, name string) string {
 // credential is read for every fetch, so gs auth use-key takes effect without
 // a remount.
 func (f *mountFetcher) fetch(ctx context.Context, commitID string, entries []lazyfs.BaseEntry) (int, int64, error) {
+	if f.fetchFn != nil {
+		return f.fetchFn(ctx, commitID, entries)
+	}
 	cfg, err := f.r.readUserConfig()
 	if err != nil {
 		return 0, 0, err

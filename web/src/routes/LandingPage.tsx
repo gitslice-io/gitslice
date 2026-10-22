@@ -88,7 +88,7 @@ const pillars: Array<{ body: string; stat: string; statLabel: string; title: str
     title: "A workspace for the task",
     stat: "2.6 s",
     statLabel: "to mount 4,508 files, cold",
-    body: "Mount a slice and start. Only the files an agent reads are fetched, so the cost follows the task, not the size of the repository; work that reads everything fetches first. Checkpoints save the work in progress on the machine, to rewind to or fork."
+    body: "Mount a slice and start. Only the files an agent reads are fetched, so the cost follows the task, not the size of the repository; a walk of the whole tree is read ahead of. Checkpoints save the work in progress on the machine, to rewind to or fork."
   },
   {
     title: "The server decides",
