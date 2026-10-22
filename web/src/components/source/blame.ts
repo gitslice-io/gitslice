@@ -9,6 +9,13 @@ export interface BlameLine {
   first: boolean;
   // Which run this is, counting from the top, for banding.
   run: number;
+  // The line's place in its run (0 for the first) and the run's length.
+  offset: number;
+  length: number;
+  // The commit's place among the commits the blame names, oldest first: 1 is
+  // the oldest change still in the file, total the newest.
+  order: number;
+  total: number;
 }
 
 // blameLines expands a blame's runs into one entry per line, 0-based. Lines no
@@ -21,7 +28,17 @@ export function blameLines(blame: BlameFileResponse, lineCount: number): BlameLi
       commits.set(commit.id, commit);
     }
   }
-  const lines: BlameLine[] = Array.from({ length: lineCount }, () => ({ commitId: "", first: false, run: 0 }));
+  const order = changeOrder(blame);
+  const total = order.size;
+  const lines: BlameLine[] = Array.from({ length: lineCount }, () => ({
+    commitId: "",
+    first: false,
+    length: 0,
+    offset: 0,
+    order: 0,
+    run: 0,
+    total
+  }));
   let run = 0;
   for (const range of blame.ranges ?? []) {
     const start = (range.startLine ?? 1) - 1;
@@ -36,10 +53,37 @@ export function blameLines(blame: BlameFileResponse, lineCount: number): BlameLi
       line.commit = commits.get(commitId);
       line.first = offset === 0;
       line.run = run;
+      line.offset = offset;
+      line.length = count;
+      line.order = order.get(commitId) ?? 0;
     }
     run++;
   }
   return lines;
+}
+
+// changeOrder numbers the commits a blame's runs name by when they were made,
+// oldest first, from 1. A commit with no time counts as older than any with
+// one; ties keep the order the runs name them in.
+export function changeOrder(blame: BlameFileResponse): Map<string, number> {
+  const created = new Map<string, number>();
+  for (const commit of blame.commits ?? []) {
+    if (commit.id) {
+      const time = Date.parse(commit.createdAt ?? "");
+      created.set(commit.id, Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time);
+    }
+  }
+  const seen = new Set<string>();
+  for (const range of blame.ranges ?? []) {
+    if (range.commitId) {
+      seen.add(range.commitId);
+    }
+  }
+  const ids = [...seen];
+  const sorted = ids
+    .map((id, index) => ({ id, index, time: created.get(id) ?? Number.NEGATIVE_INFINITY }))
+    .sort((a, b) => (a.time === b.time ? a.index - b.index : a.time < b.time ? -1 : 1));
+  return new Map(sorted.map((entry, index) => [entry.id, index + 1]));
 }
 
 // codeLineCount is how many lines a blame counts in text: a final newline ends

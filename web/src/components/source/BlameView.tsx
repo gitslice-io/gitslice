@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import type { SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { BlameGutter } from "./BlameGutter";
+import { BlameDetails, BlameGutter } from "./BlameGutter";
 import { blameLines, codeLineCount } from "./blame";
 
 interface BlameViewProps {
@@ -31,6 +31,8 @@ export function BlameView({ children, code, fill, path, repo }: BlameViewProps) 
   const blame = query.data;
   const matches = blame !== undefined && (blame.lineCount ?? 0) === lineCount;
   const lines = useMemo(() => (blame && matches ? blameLines(blame, lineCount) : null), [blame, matches, lineCount]);
+  const [selected, setSelected] = useState("");
+  const selectedLine = selected ? lines?.find((line) => line.first && line.commitId === selected) : undefined;
 
   return (
     <>
@@ -45,9 +47,17 @@ export function BlameView({ children, code, fill, path, repo }: BlameViewProps) 
           This file changed since the page loaded, so its lines no longer match the blame. Reload the page to see it.
         </div>
       ) : null}
+      {selectedLine ? <BlameDetails filePath={path} line={selectedLine} onClose={() => setSelected("")} /> : null}
       <div className={fill ? "overflow-x-auto" : "max-h-[82dvh] overflow-auto"}>
         <div className="flex min-w-max">
-          {lines ? <BlameGutter filePath={path} lines={lines} /> : null}
+          {lines ? (
+            <BlameGutter
+              filePath={path}
+              lines={lines}
+              onSelect={(commitId) => setSelected((current) => (current === commitId ? "" : commitId))}
+              selected={selectedLine ? selected : undefined}
+            />
+          ) : null}
           <div className="min-w-0 flex-1">{children}</div>
         </div>
       </div>

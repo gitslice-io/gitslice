@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { formatDateTime, formatFullTime, formatRelativeTime, formatUTCDate, parseTime } from "../lib/time";
+import { formatDate, formatDateTime, formatFullTime, formatRelativeTime, formatUTCDate, parseTime } from "../lib/time";
 
 const subscribe = () => () => undefined;
 
@@ -16,15 +16,18 @@ function useInBrowser() {
 }
 
 /**
- * A time in the viewer's time zone: "Oct 10, 10:13 AM", or "3h ago" with
- * relative. Hovering shows the full local time with its zone.
+ * A time in the viewer's time zone: "Oct 10, 10:13 AM", "Oct 10" with
+ * dateOnly, or "3h ago" with relative. Hovering shows the full local time with
+ * its zone.
  */
 export function Timestamp({
   className,
+  dateOnly = false,
   relative = false,
   value
 }: {
   className?: string;
+  dateOnly?: boolean;
   relative?: boolean;
   value?: string | null;
 }) {
@@ -33,7 +36,13 @@ export function Timestamp({
   if (!date) {
     return null;
   }
-  const text = !inBrowser ? formatUTCDate(date) : relative ? formatRelativeTime(date) : formatDateTime(date);
+  const text = !inBrowser
+    ? formatUTCDate(date)
+    : relative
+      ? formatRelativeTime(date)
+      : dateOnly
+        ? formatDate(date)
+        : formatDateTime(date);
   return (
     <time className={className} dateTime={date.toISOString()} title={inBrowser ? formatFullTime(date) : undefined}>
       {text}

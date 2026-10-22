@@ -93,14 +93,54 @@ describe("blame on a file", () => {
     expect(within(rows[1]).queryByText("aaaaaaaa")).not.toBeInTheDocument();
     expect(within(rows[2]).getByText("bbbbbbbb")).toBeInTheDocument();
     expect(within(rows[3]).getByText("aaaaaaaa")).toBeInTheDocument();
-    expect(within(rows[0]).getByText("alice")).toBeInTheDocument();
-    expect(within(rows[2]).getByText("bob")).toBeInTheDocument();
+    // Each block shows its commit's subject on its first line, inline, and on
+    // its second the author and the change's order (oldest first).
+    expect(within(rows[0]).getByText("Add the notes")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("alice")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("1/2")).toHaveAttribute("title", "the oldest of 2 changes still in this file");
+    expect(within(rows[2]).getByText("Fix a line")).toBeInTheDocument();
+    // A one-line block has no second line: its author is in the title.
+    expect(within(rows[2]).queryByText("bob")).not.toBeInTheDocument();
+    expect(within(rows[2]).getByText("Fix a line")).toHaveAttribute("title", expect.stringContaining("bob"));
+    expect(within(rows[2]).getByText("Fix a line")).toHaveAttribute("title", expect.stringContaining("the newest of 2"));
+    // The change date shows on the block's first line.
+    expect(within(rows[0]).getByText(/Oct 1/)).toBeInTheDocument();
+    expect(within(rows[2]).getByText(/Oct 5/)).toBeInTheDocument();
+    // Every line has an age bar: the newer change is darker.
+    const age = (row: HTMLElement) => Number((row.querySelector("[data-age]") as HTMLElement).style.opacity);
+    expect(age(rows[2])).toBeGreaterThan(age(rows[0]));
+    expect(age(rows[1])).toBe(age(rows[0]));
 
     // The commit links to the changeset that landed it, on this file's diff;
     // one no changeset landed is plain text.
     expect(within(rows[0]).getByRole("link")).toHaveAttribute("href", "/cs/0123456789?file=acme/app/notes.txt");
     expect(within(rows[0]).getByRole("link")).toHaveAttribute("title", expect.stringContaining("Add the notes"));
     expect(within(rows[2]).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("shows a tapped block's change in full, for phones, and closes it", async () => {
+    api.blameFile.mockResolvedValue(blame);
+    renderViewer();
+    fireEvent.click(screen.getByRole("button", { name: "Blame" }));
+    const rows = within(await screen.findByLabelText("Blame")).getAllByRole("row");
+    expect(screen.queryByRole("region", { name: "Change" })).not.toBeInTheDocument();
+
+    // Any line of a block selects it.
+    fireEvent.click(rows[1]);
+    const details = screen.getByRole("region", { name: "Change" });
+    expect(within(details).getByText("Add the notes")).toBeInTheDocument();
+    expect(within(details).getByText("alice")).toBeInTheDocument();
+    expect(within(details).getByText("the oldest of 2 changes still in this file")).toBeInTheDocument();
+    expect(within(details).getByRole("link")).toHaveAttribute("href", "/cs/0123456789?file=acme/app/notes.txt");
+
+    // Another block replaces it; the same block again, or Close, clears it.
+    fireEvent.click(rows[2]);
+    expect(within(screen.getByRole("region", { name: "Change" })).getByText("Fix a line")).toBeInTheDocument();
+    fireEvent.click(rows[2]);
+    expect(screen.queryByRole("region", { name: "Change" })).not.toBeInTheDocument();
+    fireEvent.click(rows[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("region", { name: "Change" })).not.toBeInTheDocument();
   });
 
   it("turns off again, back to the plain file", async () => {
