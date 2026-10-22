@@ -277,6 +277,17 @@ type CommitResolveFilter struct {
 	Limit                       int
 }
 
+// FileChange is one file's recorded change in one commit (change_kind is
+// added, modified, moved or deleted). ContentHash is the file's content after
+// the commit, empty for a deletion.
+type FileChange struct {
+	CommitID    string
+	Path        string
+	OldPath     string
+	ChangeKind  string
+	ContentHash string
+}
+
 type RepositoryStore interface {
 	GetRef(ctx context.Context, name string) (*corev1.Ref, error)
 	RootTreeForCommit(ctx context.Context, commitID string) (string, error)
@@ -317,6 +328,11 @@ type RepositoryStore interface {
 	ListCommitPageByEntityRefsOrPathPrefixes(ctx context.Context, refName string, refs []HistoryEntityRef, prefixes []string, limit int, pageToken string) (*CommitListPage, error)
 	CurrentPathEntitiesByPrefixes(ctx context.Context, refName string, prefixes []string) ([]CurrentPathEntity, error)
 	CurrentPathEntitiesByPaths(ctx context.Context, refName string, paths []string) ([]CurrentPathEntity, error)
+	// FileChanges returns what the history index recorded about files in the
+	// given commits on refName: for each, the path, where it came from when it
+	// moved, and the content it had after the commit. Commits the index has
+	// not reached yet have none.
+	FileChanges(ctx context.Context, refName string, commitIDs []string) ([]FileChange, error)
 	GetFile(ctx context.Context, commitID, p string) (*FileEntry, error)
 	GetEntry(ctx context.Context, commitID, p string) (*TreeEntry, error)
 	ListDirectory(ctx context.Context, commitID, p string) ([]TreeEntry, error)

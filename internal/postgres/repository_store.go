@@ -175,3 +175,28 @@ func (s *RepositoryStore) ListFiles(ctx context.Context, commitID, prefix string
 	}
 	return s.listFilesFromTree(ctx, rootTreeID, prefix)
 }
+
+// FileChanges reads the history index's file rows for the given commits.
+func (s *RepositoryStore) FileChanges(ctx context.Context, refName string, commitIDs []string) ([]storage.FileChange, error) {
+	if len(commitIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select commit_id, path, coalesce(old_path, ''), change_kind, coalesce(content_hash, '')
+		from commit_entity_changes
+		where target_ref = $1 and commit_id = any($2) and kind = 'file'
+	`, refName, commitIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.FileChange
+	for rows.Next() {
+		var change storage.FileChange
+		if err := rows.Scan(&change.CommitID, &change.Path, &change.OldPath, &change.ChangeKind, &change.ContentHash); err != nil {
+			return nil, err
+		}
+		out = append(out, change)
+	}
+	return out, rows.Err()
+}

@@ -31,6 +31,16 @@ import (
 // blame forward one diff per newer version. The newest result is stored for
 // the next blame. The walk reads at most blameMaxCommits versions.
 
+// blameFromIndex lets a blame plan its steps from the history index. A test
+// turns it off to compare with reading trees.
+var blameFromIndex atomic.Bool
+
+func init() { blameFromIndex.Store(true) }
+
+// SetBlameFromIndex turns planning blame steps from the history index on or
+// off (on by default); for tests.
+func SetBlameFromIndex(on bool) { blameFromIndex.Store(on) }
+
 const (
 	blameMaxCommits = 500
 	blameMaxBytes   = 4 << 20
@@ -49,6 +59,8 @@ type blameTrace struct {
 	entries    atomic.Int64 // file lookups in a commit
 	blobs      atomic.Int64 // file contents read
 	candidates atomic.Int64 // paths a move search considered
+	indexSteps atomic.Int64 // steps planned from the history index
+	treeSteps  atomic.Int64 // steps that read the commit's tree
 }
 
 type blameTraceKey struct{}
@@ -77,7 +89,7 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 	defer func() {
 		attrs := []any{"path", req.GetPath(), "total_ms", time.Since(trace.start).Milliseconds()}
 		attrs = append(attrs, trace.stages...)
-		attrs = append(attrs, "entry_lookups", trace.entries.Load(), "blob_reads", trace.blobs.Load(), "move_candidates", trace.candidates.Load())
+		attrs = append(attrs, "entry_lookups", trace.entries.Load(), "blob_reads", trace.blobs.Load(), "move_candidates", trace.candidates.Load(), "index_steps", trace.indexSteps.Load(), "tree_steps", trace.treeSteps.Load())
 		if walked != nil {
 			attrs = append(attrs, "lines", len(walked.owners), "walked_commits", walked.walked, "steps", walked.steps, "snapshot_hit", walked.snapshotHit, "truncated", walked.truncated)
 		}
@@ -240,16 +252,41 @@ walk:
 			commits = append(recent, commits...)
 		}
 		snapshots := map[string]map[string]*storage.BlameSnapshot{}
-		if s.Blames != nil && len(commits) > 0 {
+		changes := blameChanges{}
+		if len(commits) > 0 {
 			ids := make([]string, 0, len(commits))
 			for _, commit := range commits {
 				ids = append(ids, commit.Id)
 			}
-			if snapshots, err = s.Blames.BlameSnapshots(ctx, ids); err != nil {
-				slog.Warn("blame snapshots unavailable", "error", err)
-				snapshots = map[string]map[string]*storage.BlameSnapshot{}
+			// Stored blames and the history index's file changes, together.
+			var group errgroup.Group
+			if s.Blames != nil {
+				group.Go(func() error {
+					found, err := s.Blames.BlameSnapshots(ctx, ids)
+					if err != nil {
+						slog.Warn("blame snapshots unavailable", "error", err)
+						return nil
+					}
+					snapshots = found
+					return nil
+				})
 			}
+			group.Go(func() error {
+				list, err := s.Repository.FileChanges(ctx, refName, ids)
+				if err != nil {
+					slog.Warn("blame file changes unavailable", "error", err)
+					return nil
+				}
+				changes = newBlameChanges(list)
+				return nil
+			})
+			_ = group.Wait()
 		}
+		// Contents read ahead from the plan the index gives.
+		blobs := newBlameBlobs(ctx, s)
+		defer blobs.stop()
+		var plan []blameIndexStep
+		planFrom := -1
 		// Read the versions ahead of the walk, several at a time: the walk
 		// needs them in order, but fetching each is a storage round trip.
 		prefetch := newBlamePrefetch(ctx, s, commits, func(i int, path string) bool {
@@ -276,7 +313,38 @@ walk:
 			}
 			step := blameStep{commit: commit, path: trackedPath, version: blameVersion{hash: trackedHash, lines: trackedLines}}
 			parentPath := trackedPath
-			if len(commit.ParentIds) > 0 {
+			// The version before this commit, from the history index when it
+			// is certain (a content read), else from the tree.
+			var planned *blameIndexStep
+			if len(commit.ParentIds) > 0 && len(changes) > 0 && blameFromIndex.Load() {
+				if planFrom < 0 || index < planFrom || index-planFrom >= len(plan) {
+					plan = changes.chain(commits, index, trackedPath, trackedHash, snapshots, blameBlobReadAhead)
+					planFrom = index
+					blobs.prefetch(plan, headEntry.Size)
+				}
+				if index-planFrom < len(plan) {
+					planned = &plan[index-planFrom]
+				}
+			}
+			if planned != nil && planned.created {
+				if t := blameTraceOf(ctx); t != nil {
+					t.indexSteps.Add(1)
+				}
+			} else if planned != nil {
+				if lines, err := blobs.lines(planned.parentHash); err == nil {
+					step.parent = &blameVersion{hash: planned.parentHash, lines: lines}
+					parentPath = planned.parentPath
+					if t := blameTraceOf(ctx); t != nil {
+						t.indexSteps.Add(1)
+					}
+				} else {
+					planned = nil
+				}
+			}
+			if len(commit.ParentIds) > 0 && planned == nil {
+				if t := blameTraceOf(ctx); t != nil {
+					t.treeSteps.Add(1)
+				}
 				parent, found, err := prefetch.version(index, trackedPath)
 				if err != nil {
 					return result, err

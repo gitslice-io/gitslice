@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"gitslice.io/gitslice/service"
 )
 
 // TestBlameFollowsLinesAndMoves lands four changes to a file, the third a
@@ -408,4 +411,107 @@ func TestServerWarmsTheBlamesOfWhatALandingChanged(t *testing.T) {
 	if after := len(snapshotsFor()); after != before {
 		t.Fatalf("blaming a warmed file stored %d more snapshot(s)", after-before)
 	}
+}
+
+// lastBlameLog returns key=value of the newest "blame" log line.
+func lastBlameLog(t *testing.T, logs *lockedBuffer) map[string]string {
+	t.Helper()
+	lines := strings.Split(logs.String(), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !strings.Contains(lines[i], "msg=blame ") {
+			continue
+		}
+		out := map[string]string{}
+		for _, field := range strings.Fields(lines[i]) {
+			if k, v, ok := strings.Cut(field, "="); ok {
+				out[k] = v
+			}
+		}
+		return out
+	}
+	t.Fatalf("no blame log line in:\n%s", logs.String())
+	return nil
+}
+
+// A blame plans its steps from the history index, reading only file contents,
+// and gets the same answer as reading each commit's tree: through edits, a
+// move, and edits after it. Planned steps are counted in the blame's log line.
+func TestBlameFromTheIndexMatchesReadingTrees(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	loginTestCLI(t, ts, home, workspace)
+	runCLI(t, home, workspace, "workspace", "init", "acme/payment")
+	db, err := sql.Open("pgx", databaseURLWithSearchPath(t, ts.databaseURL, ts.schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	land := func(message string) {
+		t.Helper()
+		if out := runCLI(t, home, workspace, "create", "--all", "--message", message, "--submit"); !strings.Contains(out, "submitted ") {
+			t.Fatalf("%s:\n%s", message, out)
+		}
+	}
+	writeWorkspaceFile(t, workspace, "pay/rates.go", "package pay\n\nconst A = 1\nconst B = 1\nconst C = 1\nconst D = 1\n")
+	land("create")
+	writeWorkspaceFile(t, workspace, "pay/rates.go", "package pay\n\nconst A = 2\nconst B = 1\nconst C = 1\nconst D = 1\n")
+	land("edit A")
+	writeWorkspaceFile(t, workspace, "pay/rates.go", "package pay\n\nconst A = 2\nconst B = 3\nconst C = 1\nconst D = 1\n")
+	land("edit B")
+	content, err := os.ReadFile(filepath.Join(workspace, "pay", "rates.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(workspace, "pay", "rates.go")); err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceFile(t, workspace, "billing/rates.go", string(content))
+	land("move")
+	writeWorkspaceFile(t, workspace, "billing/rates.go", "package pay\n\nconst A = 2\nconst B = 3\nconst C = 4\nconst D = 1\n")
+	land("edit C")
+
+	logs := &lockedBuffer{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(logs, nil)))
+	defer slog.SetDefault(previous)
+	defer service.SetBlameFromIndex(true)
+
+	// Each line is credited to the commit that last changed it. The file has
+	// six lines: package, blank, A, B, C, D.
+	expected := []string{"create", "create", "edit A", "edit B", "edit C", "create"}
+
+	run := func(index bool) ([]string, map[string]string) {
+		t.Helper()
+		service.SetBlameFromIndex(index)
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			if _, err := db.Exec(`delete from blame_snapshots`); err != nil {
+				t.Fatal(err)
+			}
+			got := blameSummaries(t, home, workspace, "billing/rates.go")
+			// History indexing follows a landing by a moment.
+			if strings.Join(got, "|") == strings.Join(expected, "|") || time.Now().After(deadline) {
+				return got, lastBlameLog(t, logs)
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+	viaIndex, indexLog := run(true)
+	viaTrees, treeLog := run(false)
+	if strings.Join(viaIndex, "|") != strings.Join(expected, "|") {
+		t.Fatalf("blame from the index = %q, want %q", viaIndex, expected)
+	}
+	if strings.Join(viaTrees, "|") != strings.Join(expected, "|") {
+		t.Fatalf("blame from trees = %q, want %q", viaTrees, expected)
+	}
+	if indexLog["index_steps"] == "0" || indexLog["index_steps"] == "" {
+		t.Fatalf("the blame from the index planned no steps from it: %v", indexLog)
+	}
+	if treeLog["index_steps"] != "0" {
+		t.Fatalf("with the index off, a blame planned %s steps from it", treeLog["index_steps"])
+	}
+	t.Logf("from the index: %s index steps, %s tree steps, %s entry lookups; from trees: %s tree steps, %s entry lookups",
+		indexLog["index_steps"], indexLog["tree_steps"], indexLog["entry_lookups"], treeLog["tree_steps"], treeLog["entry_lookups"])
 }

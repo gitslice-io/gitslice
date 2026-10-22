@@ -471,3 +471,8 @@ func (s *RepositoryStore) CommitAncestry(ctx context.Context, startCommitID stri
 	}
 	return out, nil
 }
+
+// FileChanges: the memory store keeps no history index, so blame reads trees.
+func (s *RepositoryStore) FileChanges(ctx context.Context, refName string, commitIDs []string) ([]storage.FileChange, error) {
+	return nil, nil
+}

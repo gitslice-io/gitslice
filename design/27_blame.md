@@ -100,6 +100,29 @@ A blame logs one `blame` line with the time of each stage and what it did
 (`entry_lookups`, `blob_reads`, `move_candidates`, `walked_commits`, `steps`,
 `snapshot_hit`), which is how the next slow one is found.
 
+**What was still slow, found by logging (2026-10-22).** After the changes above
+a first blame still took 4-7 s (median 4.4 s over 26 files, from 6.8 s). The
+new `blame` log line put almost all of it in the walk, with few steps and 20-60
+lookups, so a lookup was not the 40 ms assumed. Reading a file at an old
+commit costs one object-storage read per directory level, because each commit
+has its own tree nodes: 1-2 s for an old commit whose nodes are not cached
+(measured: 80 ms warm, 0.3-2.1 s cold, on the same file). A walk does that for
+every version, and a file with 30 versions needs two rounds of 16 at 1-2 s each.
+
+**Planning from the history index** (`service/blame_index.go`). The index
+already records, for each commit and file, the content hash the file had after
+it, and where it came from when it moved (`commit_entity_changes`). A step is
+now planned from it when it is certain: the commit has one recorded change at
+the file's path leaving the content the walk is tracking, and the version
+before it is what the file had after the nearest older listed commit that
+changed it. The walk then reads only that content, by hash, several at a time
+ahead of itself, and no tree. A file added in the commit is created, with no
+search for a move. Anything the index cannot settle (a commit it has not
+reached, a directory move, a deletion, a copy, a listed commit with no recorded
+change to the file) is read from the tree as before. A test compares both
+routes on a history with edits, a move and edits after it: the same blame, with
+3 entry lookups from the index against 16 from trees.
+
 **A guess is not stored.** A walk that ran out of listed history before the
 file's creation, with no stored blame and under the commit limit, credited
 everything older to the oldest commit it read, and stored that. History is
