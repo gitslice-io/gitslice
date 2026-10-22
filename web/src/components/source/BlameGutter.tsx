@@ -15,11 +15,14 @@ import type { BlameBand, BlameLine } from "./blame";
 export function BlameGutter({
   filePath,
   lines,
+  onLeave,
   onSelect,
   selected,
 }: {
   filePath: string;
   lines: BlameLine[];
+  // Called as a link to a changeset is followed.
+  onLeave?(): void;
   // A tap on a block selects its commit, for the details a phone has no room
   // to show inline (see BlameDetails); a second tap clears it.
   onSelect?(commitId: string): void;
@@ -57,7 +60,7 @@ export function BlameGutter({
             />
           ) : null}
           {line.offset === 0 && line.first ? (
-            <BlameHeadline commit={line.commit} commitId={line.commitId} focusFile={focusFile} line={line} />
+            <BlameHeadline commit={line.commit} commitId={line.commitId} focusFile={focusFile} line={line} onLeave={onLeave} />
           ) : line.offset === 1 ? (
             <BlameByline commit={line.commit} line={line} />
           ) : null}
@@ -116,11 +119,13 @@ function BlameHeadline({
   commitId,
   focusFile,
   line,
+  onLeave,
 }: {
   commit?: Commit;
   commitId: string;
   focusFile: string;
   line: BlameLine;
+  onLeave?(): void;
 }) {
   const handle = shortChangesetId(commit?.changesetId ?? "");
   const summary = commit?.message?.split("\n")[0]?.trim() ?? "";
@@ -133,6 +138,11 @@ function BlameHeadline({
       {handle ? (
         <Link
           className="hidden shrink-0 font-mono text-sky-700 underline-offset-2 hover:underline sm:inline dark:text-sky-300"
+          onClick={(event) => {
+            // The row's tap selects the change; following the link leaves.
+            event.stopPropagation();
+            onLeave?.();
+          }}
           params={{ id: handle }}
           search={(focusFile ? { file: focusFile } : {}) as never}
           title={
@@ -198,10 +208,12 @@ export function BlameDetails({
   filePath,
   line,
   onClose,
+  onLeave,
 }: {
   filePath: string;
   line: BlameLine;
   onClose(): void;
+  onLeave?(): void;
 }) {
   const commit = line.commit;
   const handle = shortChangesetId(commit?.changesetId ?? "");
@@ -219,6 +231,7 @@ export function BlameDetails({
           {handle ? (
             <Link
               className="font-mono text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+              onClick={() => onLeave?.()}
               params={{ id: handle }}
               search={(focusFile ? { file: focusFile } : {}) as never}
               to="/cs/$id"

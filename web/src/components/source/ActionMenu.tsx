@@ -7,6 +7,10 @@ export interface ActionMenuItem {
   tone?: "default" | "danger";
   disabled?: boolean;
   title?: string;
+  // A toggle: shown with a check when on, and announced as a checkbox.
+  checked?: boolean;
+  // Only on phones, for an action a wider screen has a button for.
+  phoneOnly?: boolean;
 }
 
 interface MenuCoords {
@@ -24,6 +28,7 @@ export function ActionMenu({
   align?: "left" | "right";
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const hasToggle = items.some((item) => item.checked !== undefined);
   const [coords, setCoords] = useState<MenuCoords>({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -125,10 +130,15 @@ export function ActionMenu({
             >
               {items.map((item) => {
                 const isDanger = item.tone === "danger";
+                // With a toggle in the list, the others line up with its label.
+                const indent = hasToggle && item.checked === undefined;
                 return (
                   <button
+                    aria-checked={item.checked === undefined ? undefined : item.checked}
                     className={[
-                      "block w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+                      "w-full whitespace-nowrap rounded px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+                      item.phoneOnly ? "block sm:hidden" : "block",
+                      indent ? "pl-8" : "",
                       isDanger
                         ? "text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30"
                         : "text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950"
@@ -139,11 +149,20 @@ export function ActionMenu({
                       item.onSelect();
                       setOpen(false);
                     }}
-                    role="menuitem"
+                    role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                     title={item.title}
                     type="button"
                   >
-                    {item.label}
+                    {item.checked === undefined ? (
+                      item.label
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <span aria-hidden="true" className="w-3 text-center">
+                          {item.checked ? "✓" : ""}
+                        </span>
+                        {item.label}
+                      </span>
+                    )}
                   </button>
                 );
               })}

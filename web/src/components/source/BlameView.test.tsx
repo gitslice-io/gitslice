@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -165,6 +165,88 @@ describe("blame on a file", () => {
     expect(bands().map((band) => band.dataset.lines)).toEqual(["3-3"]);
     fireEvent.click(rows[2]);
     expect(bands()).toHaveLength(0);
+  });
+
+  describe("when the page owns the blame state (the address)", () => {
+    function renderControlled(options: { on?: boolean; at?: string; onChange?: (on: boolean, at: string) => void } = {}) {
+      const onChange = options.onChange ?? vi.fn();
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <SourceCodeViewer
+            blame={{ at: options.at ?? "", on: options.on ?? true, onChange }}
+            code={code}
+            fill
+            path="/acme/app/notes.txt"
+            repo={{ commitId: "sha256:head", onOpenPath: vi.fn(), slice }}
+          />
+        </QueryClientProvider>
+      );
+      return onChange;
+    }
+
+    it("has no Blame button of its own: the page's menu has it", () => {
+      api.blameFile.mockResolvedValue(blame);
+      renderControlled({ on: false });
+      expect(screen.queryByRole("button", { name: "Blame" })).not.toBeInTheDocument();
+      expect(api.blameFile).not.toHaveBeenCalled();
+    });
+
+    it("shows the blame the address says is on, with the change it names marked", async () => {
+      api.blameFile.mockResolvedValue(blame);
+      renderControlled({ at: "bbbbbbbbbbbb" });
+      expect(await screen.findByLabelText("Blame")).toBeInTheDocument();
+      // Selected from the address alone, nothing clicked.
+      await waitFor(() => expect(document.querySelectorAll("[data-blame-highlight] [data-lines]")).toHaveLength(1));
+      expect(document.querySelector("[data-blame-highlight] [data-lines]")).toHaveAttribute("data-lines", "3-3");
+    });
+
+    it("reports a tapped block's change to the page, as the short id the address carries, and clears it on a second tap", async () => {
+      api.blameFile.mockResolvedValue(blame);
+      const onChange = renderControlled();
+      const rows = within(await screen.findByLabelText("Blame")).getAllByRole("row");
+      fireEvent.click(rows[0]);
+      expect(onChange).toHaveBeenLastCalledWith(true, "aaaaaaaaaaaa");
+    });
+
+    it("keeps the scroll position for the address, and restores it when the page comes back to it", async () => {
+      api.blameFile.mockResolvedValue(blame);
+      const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+      Object.defineProperty(window, "scrollY", { configurable: true, value: 640 });
+      try {
+        renderControlled();
+        const rows = within(await screen.findByLabelText("Blame")).getAllByRole("row");
+        // Following the commit's link out of the blame leaves the page.
+        fireEvent.click(within(rows[0]).getByRole("link"));
+        const saved = JSON.parse(sessionStorage.getItem("gitslice.blame.scroll") ?? "null");
+        expect(saved).toEqual({ href: window.location.href, y: 640 });
+
+        // Back at the same address, once the blame is drawn: restored, once.
+        cleanup();
+        scrollTo.mockClear();
+        renderControlled();
+        await screen.findByLabelText("Blame");
+        await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(0, 640));
+        expect(sessionStorage.getItem("gitslice.blame.scroll")).toBeNull();
+      } finally {
+        scrollTo.mockRestore();
+        Reflect.deleteProperty(window, "scrollY");
+        sessionStorage.clear();
+      }
+    });
+
+    it("does not restore a position left at another address", async () => {
+      api.blameFile.mockResolvedValue(blame);
+      const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+      sessionStorage.setItem("gitslice.blame.scroll", JSON.stringify({ href: "http://other.example/x", y: 900 }));
+      try {
+        renderControlled();
+        await screen.findByLabelText("Blame");
+        expect(scrollTo).not.toHaveBeenCalled();
+      } finally {
+        scrollTo.mockRestore();
+        sessionStorage.clear();
+      }
+    });
   });
 
   it("turns off again, back to the plain file", async () => {

@@ -10,13 +10,13 @@ import {
   repositoryPathName,
   type PendingEdit
 } from "../../components/source/SliceEditing";
-import { ActionMenu } from "../../components/source/ActionMenu";
+import { ActionMenu, type ActionMenuItem } from "../../components/source/ActionMenu";
 import {
   ImageViewer,
   imageMimeTypeFromPath
 } from "../../components/source/ImageViewer";
 import { BinaryViewer } from "../../components/source/BinaryViewer";
-import { SourceCodeViewer } from "../../components/source/SourceCodeViewer";
+import { SourceCodeViewer, type BlameControl } from "../../components/source/SourceCodeViewer";
 import { binaryKindFromPath } from "../../components/source/sourceUtils";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import { useMobileDetailsClass } from "../../components/MobileDetails";
@@ -28,6 +28,9 @@ const TOP_LEVEL_SLICE_FOLDER_TITLE =
   "Top-level slice folders are managed in the slice definition (Settings).";
 
 interface EditableFileViewProps {
+  // Blame's state, kept in the page's address so it survives a visit to a
+  // commit's changeset and back.
+  blame?: BlameControl;
   commitId: string;
   fileContent: string;
   fileData: string;
@@ -41,6 +44,7 @@ interface EditableFileViewProps {
 }
 
 export function EditableFileView({
+  blame,
   commitId,
   fileContent,
   fileData,
@@ -107,6 +111,59 @@ export function EditableFileView({
     setRenameError("");
   }
 
+  // The file's actions. Blame is here, not a button of its own; History has a
+  // button on a wider screen and an item here on a phone, which leaves the
+  // path room beside the menu.
+  const canBlame = !isBinary && Boolean(sliceRef?.account && sliceRef?.slice && onSelectPath);
+  const menuItems: ActionMenuItem[] = [
+    ...(canBlame && blame
+      ? [
+          {
+            checked: blame.on,
+            label: "Blame",
+            onSelect: () => blame.onChange(!blame.on, "")
+          }
+        ]
+      : []),
+    ...(onOpenHistory ? [{ label: "History", onSelect: onOpenHistory, phoneOnly: true }] : []),
+    ...(onStageEdit
+      ? [
+          ...(isBinary
+            ? []
+            : [
+                {
+                  label: "Edit",
+                  onSelect: () => {
+                    setDraft(displayedContent);
+                    setIsEditing(true);
+                  }
+                }
+              ]),
+          {
+            label: "Rename",
+            disabled: !canModifySelectedPath,
+            onSelect: () => setIsRenaming(true),
+            title: modifyDisabledTitle
+          },
+          ...copyMoveMenuItems(
+            copyMove,
+            { path: selectedPath, isDirectory: false },
+            {
+              canModifySource: canModifySelectedPath,
+              disabledTitle: TOP_LEVEL_SLICE_FOLDER_TITLE
+            }
+          ),
+          {
+            label: "Delete",
+            disabled: !canModifySelectedPath,
+            onSelect: () => onStageEdit({ kind: "delete", path: selectedPath }),
+            title: modifyDisabledTitle,
+            tone: "danger" as const
+          }
+        ]
+      : [])
+  ];
+
   return (
     <div className="space-y-3">
       {/* The path, history and file actions fold away on phones until the
@@ -128,53 +185,14 @@ export function EditableFileView({
             <div className="flex shrink-0 items-center gap-2">
               {onOpenHistory ? (
                 <button
-                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] max-sm:hidden"
                   onClick={onOpenHistory}
                   type="button"
                 >
                   History
                 </button>
               ) : null}
-              {onStageEdit ? (
-                <ActionMenu
-                  items={[
-                    ...(isBinary
-                      ? []
-                      : [
-                          {
-                            label: "Edit",
-                            onSelect: () => {
-                              setDraft(displayedContent);
-                              setIsEditing(true);
-                            }
-                          }
-                        ]),
-                    {
-                      label: "Rename",
-                      disabled: !canModifySelectedPath,
-                      onSelect: () => setIsRenaming(true),
-                      title: modifyDisabledTitle
-                    },
-                    ...copyMoveMenuItems(
-                      copyMove,
-                      { path: selectedPath, isDirectory: false },
-                      {
-                        canModifySource: canModifySelectedPath,
-                        disabledTitle: TOP_LEVEL_SLICE_FOLDER_TITLE
-                      }
-                    ),
-                    {
-                      label: "Delete",
-                      disabled: !canModifySelectedPath,
-                      onSelect: () =>
-                        onStageEdit({ kind: "delete", path: selectedPath }),
-                      title: modifyDisabledTitle,
-                      tone: "danger"
-                    }
-                  ]}
-                  label="File actions"
-                />
-              ) : null}
+              {menuItems.length > 0 ? <ActionMenu items={menuItems} label="File actions" /> : null}
             </div>
           </div>
           {isRenaming && canModifySelectedPath ? (
@@ -233,6 +251,7 @@ export function EditableFileView({
           <BinaryViewer data={fileData} kind={binaryKind} path={selectedPath} />
         ) : (
           <SourceCodeViewer
+            blame={blame}
             code={displayedContent}
             fill
             path={selectedPath}

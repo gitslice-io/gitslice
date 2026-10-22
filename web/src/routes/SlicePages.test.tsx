@@ -354,6 +354,64 @@ describe("slice route pages (render smoke)", () => {
     expectHealthy();
   });
 
+  describe("blame on a file page", () => {
+    const filePath = "/nic/app/main.go";
+    function fileApi() {
+      const api = makeApi() as ReturnType<typeof makeApi> & { blameFile: ReturnType<typeof vi.fn> };
+      routerMock.search = { path: filePath };
+      api.resolvePath = vi.fn().mockResolvedValue({ entry: { kind: "ENTRY_KIND_FILE", path: filePath, size: "30" } });
+      api.readFile = vi.fn().mockResolvedValue({ data: btoa("package app\nfunc A() {}\nfunc B() {}\n") });
+      api.blameFile = vi.fn().mockResolvedValue({
+          commitId: "sha256:head",
+          lineCount: 3,
+          path: filePath,
+          ranges: [
+            { startLine: 1, lineCount: 1, commitId: "sha256:aaaaaaaaaaaa1111" },
+            { startLine: 2, lineCount: 2, commitId: "sha256:bbbbbbbbbbbb2222" }
+          ],
+          commits: [
+            { id: "sha256:aaaaaaaaaaaa1111", author: "alice", message: "Start", createdAt: "2026-10-01T00:00:00Z" },
+            { id: "sha256:bbbbbbbbbbbb2222", author: "bob", message: "Add funcs", createdAt: "2026-10-05T00:00:00Z" }
+          ]
+      });
+      apiMock.current = api;
+      return api;
+    }
+
+    it("is turned on from the file's menu, and written to the address without a new history entry", async () => {
+      fileApi();
+      renderRoute(<SliceDetailPage />);
+      fireEvent.click(await screen.findByRole("button", { name: "File actions" }));
+      fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Blame" }));
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ replace: true, resetScroll: false, search: { blame: "1", path: filePath } })
+      );
+    });
+
+    it("comes back as it was: blame on and the change selected, from the address alone", async () => {
+      const api = fileApi();
+      routerMock.search = { blame: "1", blameAt: "bbbbbbbbbbbb", path: filePath };
+      renderRoute(<SliceDetailPage />);
+      expect(await screen.findByLabelText("Blame", {}, { timeout: 5000 })).toBeInTheDocument();
+      expect(api.blameFile).toHaveBeenCalled();
+      await waitFor(() => expect(document.querySelector("[data-blame-highlight] [data-lines]")).toHaveAttribute("data-lines", "2-3"));
+      // The menu shows it on.
+      fireEvent.click(screen.getByRole("button", { name: "File actions" }));
+      expect(screen.getByRole("menuitemcheckbox", { name: "Blame" })).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("writes a tapped change to the address, and keeps blame on", async () => {
+      fileApi();
+      routerMock.search = { blame: "1", path: filePath };
+      renderRoute(<SliceDetailPage />);
+      const rows = within(await screen.findByLabelText("Blame", {}, { timeout: 5000 })).getAllByRole("row");
+      fireEvent.click(rows[1]);
+      expect(routerMock.navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ replace: true, search: { blame: "1", blameAt: "bbbbbbbbbbbb", path: filePath } })
+      );
+    });
+  });
+
   describe("a folder with a README", () => {
     const readmeText = "# Hello app\n\nStart with the [guide](docs/guide.md) or [the site](https://example.com).\n\n![logo](logo.png)\n";
 

@@ -71,6 +71,11 @@ interface SliceParams {
 interface SliceSearch {
   path?: unknown;
   history?: unknown;
+  // Blame is on for the file, and the change selected in it (a short commit
+  // id): in the address, so back from a changeset opened from the blame
+  // finds the page as it was left.
+  blame?: unknown;
+  blameAt?: unknown;
 }
 
 export function SliceDetailPage() {
@@ -96,6 +101,8 @@ export function SliceDetailPage() {
   // rather than local state so the browser/mobile back gesture closes it instead
   // of navigating away from the slice page entirely.
   const historyOpen = Boolean(search.history);
+  const blameOn = Boolean(search.blame);
+  const blameAt = typeof search.blameAt === "string" ? search.blameAt : "";
   const [showTree, setShowTree] = useState(true);
   // On phones a file or folder opens with its details (breadcrumbs, path,
   // counts) folded; the bar at the top unfolds them.
@@ -248,6 +255,26 @@ export function SliceDetailPage() {
     });
   }
 
+  // Blame on or off, and its selected change, replace the address in place: a
+  // toggle is not a page to go back to, but the state in the address is what
+  // comes back after following a link out of the blame.
+  function setBlame(on: boolean, at: string) {
+    if (!sliceRouteParams) {
+      return;
+    }
+    void navigate({
+      params: sliceRouteParams as never,
+      replace: true,
+      resetScroll: false,
+      search: {
+        ...(selectedPath ? { path: selectedPath } : {}),
+        ...(on ? { blame: "1" } : {}),
+        ...(on && at ? { blameAt: at } : {}),
+      } as never,
+      to: "/slices/$account/$slice",
+    });
+  }
+
   function openHistory() {
     if (!sliceRouteParams) {
       return;
@@ -369,6 +396,7 @@ export function SliceDetailPage() {
 
   const workspace = (
     <SliceSourceWorkspace
+      blame={{ at: blameAt, on: blameOn, onChange: setBlame }}
       commitError={latestQuery.error}
       commitId={commitId}
       createDirectory={createDirectory}

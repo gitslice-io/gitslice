@@ -17,7 +17,19 @@ import { StructuredViewer } from "./StructuredViewer";
 import { TableViewer } from "./TableViewer";
 import { useRepoImageLoader } from "./useRepoImageLoader";
 
+// BlameControl lets the page own the blame state, so it can live in the URL: a
+// reload, or the back button after opening a commit from the blame, comes back
+// to the same view. Without it the viewer keeps the state itself and shows its
+// own Blame button.
+export interface BlameControl {
+  on: boolean;
+  // The selected change, as the short id the URL carries; empty for none.
+  at: string;
+  onChange(on: boolean, at: string): void;
+}
+
 interface SourceCodeViewerProps {
+  blame?: BlameControl;
   code: string;
   fill?: boolean;
   path: string;
@@ -40,6 +52,7 @@ interface HighlightState {
 type ViewMode = "preview" | "raw";
 
 export function SourceCodeViewer({
+  blame: blameControl,
   code,
   fill = false,
   path,
@@ -52,7 +65,8 @@ export function SourceCodeViewer({
   // Blame shows each line with who last changed it. It reads the file through
   // a slice, so only a file viewed in one has it; viewing it needs the raw
   // lines, not a preview.
-  const [showBlame, setShowBlame] = useState(false);
+  const [localBlame, setLocalBlame] = useState(false);
+  const showBlame = blameControl ? blameControl.on : localBlame;
   const canBlame = Boolean(repo?.slice?.account && repo?.slice?.slice);
   const blaming = showBlame && canBlame;
   const [highlight, setHighlight] = useState<HighlightState>({
@@ -121,12 +135,13 @@ export function SourceCodeViewer({
           foldedOnPhone && (previewKind ? "max-lg:justify-end max-lg:py-2" : foldedOnPhone)
         )}
       >
-        <div className={cn("min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400", foldedOnPhone)}>{path}</div>
+        {/* A page that owns the blame state shows the path above already. */}
+        <div className={cn("min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400", foldedOnPhone, blameControl && "max-sm:hidden")}>{path}</div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           {previewKind && !blaming ? (
             <ViewModeToggle onChange={setViewMode} value={viewMode} />
           ) : null}
-          {canBlame ? <BlameToggle onChange={setShowBlame} value={blaming} /> : null}
+          {canBlame && !blameControl ? <BlameToggle onChange={setLocalBlame} value={blaming} /> : null}
           <div className={cn("flex items-center gap-3", foldedOnPhone)}>
             {shouldRenderRaw && highlight.isLoading && code ? (
               <span className="text-slate-400 dark:text-zinc-500">highlighting…</span>
@@ -137,7 +152,13 @@ export function SourceCodeViewer({
         </div>
       </div>
       {blaming && repo?.slice ? (
-        <BlameView code={code} fill={fill} path={path} repo={{ commitId: repo.commitId, slice: repo.slice }}>
+        <BlameView
+          code={code}
+          fill={fill}
+          path={path}
+          repo={{ commitId: repo.commitId, slice: repo.slice }}
+          selection={blameControl ? { at: blameControl.at, onChange: (at) => blameControl.onChange(true, at) } : undefined}
+        >
           {codeBody}
         </BlameView>
       ) : (

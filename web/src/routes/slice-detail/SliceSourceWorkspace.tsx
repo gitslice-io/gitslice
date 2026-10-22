@@ -8,9 +8,11 @@ import { useFolderReadme } from "./nestedReadme";
 import { SliceDirectoryTable } from "./SliceDirectoryTable";
 import { EditableFileView } from "./EditableFileView";
 import { SourceSkeleton } from "./skeletons";
+import type { BlameControl } from "../../components/source/SourceCodeViewer";
 import type { SliceRef, TreeEntry } from "../../api/types";
 
 interface SliceSourceWorkspaceProps {
+  blame?: BlameControl;
   commitError: Error | null;
   commitId: string;
   directoryEntries: TreeEntry[];
@@ -35,6 +37,7 @@ interface SliceSourceWorkspaceProps {
 }
 
 export function SliceSourceWorkspace({
+  blame,
   commitError,
   commitId,
   createDirectory,
@@ -172,6 +175,7 @@ export function SliceSourceWorkspace({
 
     return (
       <EditableFileView
+        blame={blame}
         commitId={commitId}
         fileContent={fileContent}
         fileData={fileData}
