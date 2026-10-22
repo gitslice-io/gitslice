@@ -268,7 +268,7 @@ export function SliceDetailPage() {
       resetScroll: false,
       search: {
         ...(selectedPath ? { path: selectedPath } : {}),
-        ...(on ? { blame: "1" } : {}),
+        ...(on ? { blame: true } : {}),
         ...(on && at ? { blameAt: at } : {}),
       } as never,
       to: "/slices/$account/$slice",
@@ -391,7 +391,10 @@ export function SliceDetailPage() {
     : showTree
       ? "block"
       : "block lg:hidden";
-  const workspaceVisibility = selectedPath ? "block" : "hidden lg:block";
+  // At the root of a slice on a phone the README, when the root has one, comes
+  // first and the tree below it; with none, the tree alone is the page (the
+  // folder listing would repeat it).
+  const workspaceVisibility = selectedPath ? "block" : "block max-lg:order-first";
   const sliceCrumbs = sliceBreadcrumbItems(sliceRef, accounts);
 
   const workspace = (
@@ -416,6 +419,7 @@ export function SliceDetailPage() {
       onStageEdit={canEdit ? stagePendingEdit : undefined}
       pathError={pathQuery.error}
       pendingEdits={pendingEdits}
+      rootOnPhone={!selectedPath}
       selectedPath={selectedPath}
       sliceRef={sliceRef}
     />

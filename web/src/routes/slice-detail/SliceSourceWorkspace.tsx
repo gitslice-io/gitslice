@@ -1,3 +1,4 @@
+import { cn } from "../../lib/cn";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { entryKindLabel } from "../../components/source/sourceUtils";
@@ -31,6 +32,9 @@ interface SliceSourceWorkspaceProps {
   onStageEdit?: (edit: PendingEdit) => void;
   pathError: Error | null;
   pendingEdits: PendingEdit[];
+  // The slice's root, which a phone shows as the README above the tree and
+  // not as a folder listing or a skeleton of one.
+  rootOnPhone?: boolean;
   selectedPath: string;
   createDirectory: string;
   sliceRef?: SliceRef;
@@ -57,9 +61,17 @@ export function SliceSourceWorkspace({
   onStageEdit,
   pathError,
   pendingEdits,
+  rootOnPhone = false,
   selectedPath,
   sliceRef
 }: SliceSourceWorkspaceProps) {
+  const skeleton = rootOnPhone ? (
+    <div className="max-lg:hidden">
+      <SourceSkeleton />
+    </div>
+  ) : (
+    <SourceSkeleton />
+  );
   const isDirectory = entry?.kind === "ENTRY_KIND_DIRECTORY" && !isDirectoryLoading && !directoryError;
   const { loading: readmeLoading, readme } = useFolderReadme(
     commitId,
@@ -68,7 +80,7 @@ export function SliceSourceWorkspace({
   );
 
   if (isLatestLoading || isPathLoading) {
-    return <SourceSkeleton />;
+    return skeleton;
   }
 
   if (commitError) {
@@ -105,7 +117,7 @@ export function SliceSourceWorkspace({
 
   if (entry.kind === "ENTRY_KIND_DIRECTORY") {
     if (isDirectoryLoading) {
-      return <SourceSkeleton />;
+      return skeleton;
     }
     if (directoryError) {
       return (
@@ -116,7 +128,7 @@ export function SliceSourceWorkspace({
     }
 
     if (readmeLoading) {
-      return <SourceSkeleton />;
+      return skeleton;
     }
     if (readme) {
       return (
@@ -136,7 +148,7 @@ export function SliceSourceWorkspace({
     }
 
     return (
-      <SlicePanel className="p-0">
+      <SlicePanel className={cn("p-0", rootOnPhone && "max-lg:hidden")}>
         <DirectoryHeader
           commitId={commitId}
           includedPaths={includedPaths}
@@ -163,7 +175,7 @@ export function SliceSourceWorkspace({
 
   if (entry.kind === "ENTRY_KIND_FILE") {
     if (isFileLoading) {
-      return <SourceSkeleton />;
+      return skeleton;
     }
     if (fileError) {
       return (

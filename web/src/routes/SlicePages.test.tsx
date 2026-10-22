@@ -354,6 +354,37 @@ describe("slice route pages (render smoke)", () => {
     expectHealthy();
   });
 
+  describe("the root of a slice, on a phone", () => {
+    function rootApi(tree: Record<string, object[]>) {
+      const api = makeApi();
+      routerMock.search = {};
+      api.listDirectory = vi.fn(async (request: { path?: string }) => ({ entries: tree[request.path ?? ""] ?? [] }));
+      api.readFile = vi.fn().mockResolvedValue({ data: btoa("# Hello root\n\nIntro.\n") });
+      apiMock.current = api;
+      return api;
+    }
+    const dir = { kind: "ENTRY_KIND_DIRECTORY", name: "nic", path: "/nic" };
+    const file = (name: string) => ({ kind: "ENTRY_KIND_FILE", name, path: `/nic/${name}`, size: "20" });
+
+    it("shows the root's README first and the tree below it", async () => {
+      rootApi({ "": [dir], "/nic": [file("README.md"), file("main.go")] });
+      renderRoute(<SliceDetailPage />);
+      const heading = await screen.findByRole("heading", { name: "Hello root" }, { timeout: 5000 });
+      // The README's column leads on a phone, and is not hidden there.
+      const column = heading.closest(".max-lg\\:order-first");
+      expect(column).not.toBeNull();
+      expect(column?.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    });
+
+    it("leaves the tree alone when the root has no README, not repeating it as a listing", async () => {
+      rootApi({ "": [dir], "/nic": [file("main.go"), file("util.go")] });
+      renderRoute(<SliceDetailPage />);
+      const table = await screen.findByText("Content hash");
+      // The folder listing is for wider screens only.
+      expect(table.closest(".max-lg\\:hidden")).not.toBeNull();
+    });
+  });
+
   describe("blame on a file page", () => {
     const filePath = "/nic/app/main.go";
     function fileApi() {
@@ -384,13 +415,13 @@ describe("slice route pages (render smoke)", () => {
       fireEvent.click(await screen.findByRole("button", { name: "File actions" }));
       fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Blame" }));
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        expect.objectContaining({ replace: true, resetScroll: false, search: { blame: "1", path: filePath } })
+        expect.objectContaining({ replace: true, resetScroll: false, search: { blame: true, path: filePath } })
       );
     });
 
     it("comes back as it was: blame on and the change selected, from the address alone", async () => {
       const api = fileApi();
-      routerMock.search = { blame: "1", blameAt: "bbbbbbbbbbbb", path: filePath };
+      routerMock.search = { blame: true, blameAt: "bbbbbbbbbbbb", path: filePath };
       renderRoute(<SliceDetailPage />);
       expect(await screen.findByLabelText("Blame", {}, { timeout: 5000 })).toBeInTheDocument();
       expect(api.blameFile).toHaveBeenCalled();
@@ -402,12 +433,12 @@ describe("slice route pages (render smoke)", () => {
 
     it("writes a tapped change to the address, and keeps blame on", async () => {
       fileApi();
-      routerMock.search = { blame: "1", path: filePath };
+      routerMock.search = { blame: true, path: filePath };
       renderRoute(<SliceDetailPage />);
       const rows = within(await screen.findByLabelText("Blame", {}, { timeout: 5000 })).getAllByRole("row");
       fireEvent.click(rows[1]);
       expect(routerMock.navigate).toHaveBeenCalledWith(
-        expect.objectContaining({ replace: true, search: { blame: "1", blameAt: "bbbbbbbbbbbb", path: filePath } })
+        expect.objectContaining({ replace: true, search: { blame: true, blameAt: "bbbbbbbbbbbb", path: filePath } })
       );
     });
   });
