@@ -18,9 +18,11 @@ directory: every file is downloaded, which grows with the slice.
 
 With --lazy, gs init mounts the slice at dir (default: the current, empty
 directory) as a lazy workspace, on Linux and macOS with FUSE. Only the listing
-is fetched, so it takes about a second at any size; a file's content is fetched
-the first time something reads it, and kept in the local cache shared by every
-workspace on this machine. Your edits stay on this machine, in the workspace's
+is fetched, which takes seconds and grows with the number of files, not their
+size (2.6 s for 4,500 files, cold); a file's content is fetched the first time
+something reads it, and kept in the local cache shared by every workspace on
+this machine. A walk of the tree (grep -r, rg, a build) is read ahead of; for
+work that reads everything, gs fetch first is fastest. Your edits stay on this machine, in the workspace's
 local layer, until you run gs create. Every other command works as in a checkout
 (status, diff, create, sync, switch). The workspace is served by one background
 process shared by all your lazy workspaces, which exits when the last is

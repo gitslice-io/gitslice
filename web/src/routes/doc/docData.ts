@@ -2,6 +2,7 @@ export type DocSection =
   | "start"
   | "concepts"
   | "agents"
+  | "lazy"
   | "checks"
   | "webhooks"
   | "git-users"
@@ -30,6 +31,11 @@ export const docSections: Array<{
     id: "agents",
     title: "Agents",
     description: "Let an agent sign itself up, or run your own agent daemon."
+  },
+  {
+    id: "lazy",
+    title: "Lazy Workspaces",
+    description: "Mount a slice in seconds, fetch files as they are read, checkpoint and rewind."
   },
   {
     id: "checks",
@@ -68,7 +74,7 @@ export const startSteps = [
   {
     title: "Open your home slice",
     description:
-      "Your personal account has a `home` slice rooted at /<you>. Use it for a first workflow. For a big slice, `gs init --lazy <slice> <dir>` mounts it instead of downloading everything (Linux and macOS, with FUSE).",
+      "Your personal account has a `home` slice rooted at /<you>. Use it for a first workflow. For a big slice, `gs init --lazy <slice> <dir>` mounts it instead of downloading everything (Linux and macOS, with FUSE); see Lazy Workspaces.",
     command: "gs init <you>:home\n# example: gs init nic:home"
   },
   {
@@ -212,6 +218,9 @@ export const commandGroups = [
       ["gs mount list", "List your lazy workspaces, mounted or not (gs mount status shows fetches and errors, gs mount discard deletes one)."],
       ["gs fetch [path...]", "Fetch a lazy workspace's files ahead of time, for offline work or a build."],
       ["gs restore <path>... | --all", "Drop local edits in a lazy workspace."],
+      ["gs checkpoint [-m <message>]", "Save a lazy workspace's edits on this machine, to come back to; nothing is uploaded. gs checkpoint list shows them, newest first. gs takes one by itself before sync, switch, restore and rewind."],
+      ["gs rewind [checkpoint]", "Put a lazy workspace's edits back as they were at a checkpoint (by default the newest that differs from now). What it replaces is checkpointed first, so a rewind can be undone."],
+      ["gs fork <checkpoint> <dir>", "Mount a new lazy workspace showing a checkpoint, on the base it was taken on, to try a second approach side by side."],
       ["gs shell", "Open the server-backed file shell."],
       ["gs status", "Show pending workspace edits."],
       ["gs diff", "Inspect pending content changes, three lines of context around each (-U N to change)."],
@@ -336,6 +345,7 @@ export function normalizeSection(value: string | undefined): DocSection {
   if (
     value === "concepts" ||
     value === "agents" ||
+    value === "lazy" ||
     value === "checks" ||
     value === "webhooks" ||
     value === "git-users" ||

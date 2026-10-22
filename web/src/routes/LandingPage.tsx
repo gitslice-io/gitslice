@@ -77,7 +77,7 @@ const parallelRows: Array<{
   { scenario: "One file, a block each (merge on submit)", agents: 16, gitSeconds: "5.4 s", gitRetries: 120, gsSeconds: "3.5 s", gsRetries: 0 }
 ];
 
-const pillars: Array<{ body: string; stat: string; statLabel: string; title: string }> = [
+const pillars: Array<{ body: string; doc?: "lazy"; stat: string; statLabel: string; title: string }> = [
   {
     title: "Land in parallel",
     stat: "0 retries",
@@ -86,6 +86,7 @@ const pillars: Array<{ body: string; stat: string; statLabel: string; title: str
   },
   {
     title: "A workspace for the task",
+    doc: "lazy",
     stat: "2.6 s",
     statLabel: "to mount 4,508 files, cold",
     body: "Mount a slice and start. Only the files an agent reads are fetched, so the cost follows the task, not the size of the repository; a walk of the whole tree is read ahead of. Checkpoints save the work in progress on the machine, to rewind to or fork."
@@ -435,6 +436,15 @@ export function LandingPage() {
                   <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
                     {pillar.body}
                   </p>
+                  {pillar.doc ? (
+                    <Link
+                      className="mt-4 inline-block text-sm font-semibold text-sky-700 underline-offset-4 hover:underline dark:text-sky-300"
+                      params={{ section: pillar.doc }}
+                      to="/doc/$section"
+                    >
+                      How lazy workspaces work
+                    </Link>
+                  ) : null}
                 </article>
               ))}
             </div>

@@ -6,6 +6,7 @@ import { StartHereDoc } from "./doc/StartHereDoc";
 import { ConceptsDoc } from "./doc/ConceptsDoc";
 import { AgentsDoc } from "./doc/AgentsDoc";
 import { ChecksDoc } from "./doc/ChecksDoc";
+import { LazyWorkspacesDoc } from "./doc/LazyWorkspacesDoc";
 import { WebhooksDoc } from "./doc/WebhooksDoc";
 import { GitUsersDoc } from "./doc/GitUsersDoc";
 import { CliReferenceDoc } from "./doc/CliReferenceDoc";
@@ -32,6 +33,7 @@ export function DocPage() {
         {section === "start" ? <StartHereDoc /> : null}
         {section === "concepts" ? <ConceptsDoc /> : null}
         {section === "agents" ? <AgentsDoc /> : null}
+        {section === "lazy" ? <LazyWorkspacesDoc /> : null}
         {section === "checks" ? <ChecksDoc /> : null}
         {section === "webhooks" ? <WebhooksDoc /> : null}
         {section === "git-users" ? <GitUsersDoc /> : null}

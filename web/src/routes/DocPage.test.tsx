@@ -42,4 +42,23 @@ describe("DocPage", () => {
     expect(screen.getByText("gs completion bash|zsh|fish")).toBeInTheDocument();
     expect(screen.getByText("gs create --all --message <title> --submit")).toBeInTheDocument();
   });
+
+  it("documents lazy workspaces: fetching, edits, checkpoints and requirements", () => {
+    params.current = { section: "lazy" };
+    render(<DocPage />);
+    expect(screen.getByRole("heading", { level: 1, name: "Lazy Workspaces" })).toBeInTheDocument();
+    for (const name of ["How files are fetched", "Where your edits live", "Checkpoints, rewind and fork", "Requirements"]) {
+      expect(screen.getByRole("heading", { level: 2, name })).toBeInTheDocument();
+    }
+    expect(screen.getByText("GS_READAHEAD=off")).toBeInTheDocument();
+    expect(screen.getByText(/gs fork 3 ~\/work\/payments-b/)).toBeInTheDocument();
+  });
+
+  it("lists the checkpoint commands in the CLI reference", () => {
+    params.current = { section: "cli" };
+    render(<DocPage />);
+    expect(screen.getByText("gs checkpoint [-m <message>]")).toBeInTheDocument();
+    expect(screen.getByText("gs rewind [checkpoint]")).toBeInTheDocument();
+    expect(screen.getByText("gs fork <checkpoint> <dir>")).toBeInTheDocument();
+  });
 });

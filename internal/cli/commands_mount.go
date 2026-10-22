@@ -17,10 +17,12 @@ with gs init --lazy <slice> [dir]; gs mount <dir> brings it back, edits included
 after gs unmount or a reboot. (gs mount <slice> <dir> still creates one, as
 gs init --lazy does.)
 
-Only the listing is fetched, so mounting takes about a second at any slice size;
-a file's content is fetched the first time something reads it, together with
-small files beside it, and kept in the local cache (shared by every workspace on
-this machine). One background process serves all your lazy workspaces and exits
+Only the listing is fetched, so mounting takes seconds, growing with the number
+of files, not their size (2.6 s for 4,500 files, cold); a file's content is
+fetched the first time something reads it, together with small files beside it,
+and kept in the local cache (shared by every workspace on this machine). When
+reads walk the tree (grep -r, rg, a build), the files ahead are fetched before
+they are asked for; GS_READAHEAD=off turns that off. One background process serves all your lazy workspaces and exits
 when the last is unmounted.
 
 Edit with any tool. Edits stay in the workspace's local layer, on this machine,
