@@ -42,9 +42,19 @@ type testServer struct {
 	memberTokens     map[string]string
 	operatorSubjects []string
 	agentSignup      bool
+	// blameWarmer turns on the server's background blame warming, which
+	// stores snapshots by itself and so is off unless a test is about it.
+	blameWarmer bool
 }
 
 func startTestServer(t *testing.T) *testServer {
+	t.Helper()
+	return startTestServerWith(t, false)
+}
+
+// startTestServerWith starts the test server, with its background blame
+// warming on or off.
+func startTestServerWith(t *testing.T, blameWarmer bool) *testServer {
 	t.Helper()
 	databaseURL := os.Getenv("GITSLICE_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -69,6 +79,7 @@ func startTestServer(t *testing.T) *testServer {
 		servicePriv:  servicePriv,
 		servicePub:   servicePub,
 		memberTokens: map[string]string{},
+		blameWarmer:  blameWarmer,
 	}
 	ts.start(t, true)
 	t.Cleanup(func() {
@@ -116,6 +127,7 @@ func (ts *testServer) launch(t *testing.T, migrate bool) error {
 				Issuer:       servicetoken.DefaultIssuer,
 			},
 			RunMigrations:      migrate,
+			DisableBlameWarmer: !ts.blameWarmer,
 			OperatorSubjects:   ts.operatorSubjects,
 			AgentSignupEnabled: ts.agentSignup,
 			AgentSignupPerHour: 100,

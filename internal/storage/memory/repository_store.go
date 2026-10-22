@@ -106,6 +106,18 @@ func (s *RepositoryStore) GetCommit(ctx context.Context, commitID string) (*core
 	return cloneCommit(commit), nil
 }
 
+func (s *RepositoryStore) GetCommits(ctx context.Context, commitIDs []string) (map[string]*corev1.Commit, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := make(map[string]*corev1.Commit, len(commitIDs))
+	for _, id := range commitIDs {
+		if commit := s.b.commits[id]; commit != nil {
+			out[id] = cloneCommit(commit)
+		}
+	}
+	return out, nil
+}
+
 func (s *RepositoryStore) ResolveCommitCandidates(ctx context.Context, filter storage.CommitResolveFilter) ([]*corev1.Commit, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

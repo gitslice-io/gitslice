@@ -95,9 +95,10 @@ func (ts *testRPCServer) launch(t *testing.T) error {
 	ts.errCh = make(chan error, 1)
 	go func() {
 		ts.errCh <- server.Run(ts.ctx, server.Config{
-			GRPCAddr:        ts.addr,
-			DatabaseURL:     databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
-			ObjectStoreRoot: ts.objectRoot,
+			DisableBlameWarmer: true,
+			GRPCAddr:           ts.addr,
+			DatabaseURL:        databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
+			ObjectStoreRoot:    ts.objectRoot,
 			ServiceToken: servicetoken.Config{
 				PublicKeyPEM: ts.servicePub,
 				Issuer:       servicetoken.DefaultIssuer,

@@ -7,6 +7,7 @@ import (
 
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -95,12 +96,6 @@ func gitImportInfo(record storage.GitImportedCommitRecord) *corev1.GitImportInfo
 // to a personal account (e.g. imported git authors, system commits) are left
 // unchanged so the response still carries a stable identifier.
 func (s *RepositoryService) resolveCommitAuthors(ctx context.Context, commits ...*corev1.Commit) error {
-	if err := s.attachGitImports(ctx, commits...); err != nil {
-		return err
-	}
-	if err := s.attachChangesets(ctx, commits...); err != nil {
-		return err
-	}
 	seen := map[string]struct{}{}
 	var subjectIDs []string
 	for _, commit := range commits {
@@ -117,11 +112,20 @@ func (s *RepositoryService) resolveCommitAuthors(ctx context.Context, commits ..
 		seen[author] = struct{}{}
 		subjectIDs = append(subjectIDs, author)
 	}
-	if len(subjectIDs) == 0 {
-		return nil
+	// The three lookups read only ids and write different fields, so they run
+	// together: each is a storage round trip.
+	var usernames map[string]string
+	var group errgroup.Group
+	group.Go(func() error { return s.attachGitImports(ctx, commits...) })
+	group.Go(func() error { return s.attachChangesets(ctx, commits...) })
+	if len(subjectIDs) > 0 {
+		group.Go(func() error {
+			var err error
+			usernames, err = s.Auth.UsernamesForSubjects(ctx, subjectIDs)
+			return err
+		})
 	}
-	usernames, err := s.Auth.UsernamesForSubjects(ctx, subjectIDs)
-	if err != nil {
+	if err := group.Wait(); err != nil {
 		return err
 	}
 	for _, commit := range commits {

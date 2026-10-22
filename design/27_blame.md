@@ -74,6 +74,49 @@ directories a path shares with earlier versions are read once. Measured with
 | Again | 7.6 s | 56 ms | 57 ms |
 | After one more change | 7.6 s | 233 ms | 213 ms |
 
+### Why a first blame was still slow in production (2026-10-22)
+
+The numbers above are with a few tens of milliseconds per storage call and
+few changed files per commit. On the real server (about 40 ms per query) a first
+blame of any file took 2-15 s whatever its size or history, and a repeat blame
+of a file with a long history still took 5 s. Blames of about 25 files that
+nobody had blamed before showed it; counting storage calls showed why:
+
+- **Move search.** When the walk reaches the commit that created the file,
+  it asks whether the file was moved from one of the paths that commit
+  changed, one lookup after another. A commit that created 158 files costs 158
+  lookups, 6-13 s, to find that nothing was moved. The lookups now run 16 at a
+  time, in the parent first (a file the parent does not have cannot be where
+  this one came from), so most candidates cost one lookup, and content is read
+  only for a candidate that was deleted by the commit.
+- **Commits named by a snapshot.** A stored blame names every commit that owns
+  a line, and each was read with its own query: 164 for the execution log. One
+  query reads them all (`RepositoryStore.GetCommits`).
+- **The floor.** A repeat blame cost 0.7-0.9 s of about 15 sequential queries.
+  The head and the history filters are now read together, and the three lookups
+  that decorate commits (Git import, changeset, author names) run together.
+
+A blame logs one `blame` line with the time of each stage and what it did
+(`entry_lookups`, `blob_reads`, `move_candidates`, `walked_commits`, `steps`,
+`snapshot_hit`), which is how the next slow one is found.
+
+**A guess is not stored.** A walk that ran out of listed history before the
+file's creation, with no stored blame and under the commit limit, credited
+everything older to the oldest commit it read, and stored that. History is
+indexed shortly after a landing, so a blame in that window stored a wrong
+answer that every later blame reused. It is no longer stored (the response
+still says `truncated`), and migration 0042 clears the snapshots that were.
+
+**Warming** (`service/blame_warm.go`). The server watches the default ref and,
+every few seconds after it moves, blames the files the new commits changed
+(at most 60 a round, files up to 1 MiB, four at a time) and stores the
+snapshots, so the first person to open one pays a diff, not a walk. A file
+whose history is not indexed yet (the walk would only guess) is tried again a
+few seconds later, up to four times. `GITSLICE_DISABLE_BLAME_WARMER=1` turns
+it off. It starts from the head at startup, so a restart does not warm the
+past: files already in the repository warm when they change or when someone
+first opens them.
+
 Not yet: blame at an older commit, and ignoring whitespace-only changes.
 
 ## CLI

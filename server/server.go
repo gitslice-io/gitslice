@@ -190,6 +190,11 @@ func Run(ctx context.Context, cfg Config) error {
 	if handlers.Agent != nil {
 		go handlers.Agent.RunCheckDispatchSweep(ctx)
 	}
+	if !cfg.DisableBlameWarmer && handlers.Repository != nil {
+		// Blames of the files each landing changed, stored for whoever opens
+		// them next (service/blame_warm.go).
+		go handlers.Repository.RunBlameWarmer(ctx)
+	}
 	if cfg.GitBlobBackfill && handlers.Blob != nil {
 		go handlers.Blob.RunGitBlobBackfill(ctx)
 	}

@@ -298,6 +298,9 @@ type RepositoryStore interface {
 	ChangesetsForCommits(ctx context.Context, commitIDs []string) (map[string]string, error)
 	CompleteGitImport(ctx context.Context, importID, finalNativeCommitID string) error
 	GetCommit(ctx context.Context, commitID string) (*corev1.Commit, error)
+	// GetCommits reads many commits in one round trip. Ids with no commit are
+	// left out of the result, not an error.
+	GetCommits(ctx context.Context, commitIDs []string) (map[string]*corev1.Commit, error)
 	ResolveCommitCandidates(ctx context.Context, filter CommitResolveFilter) ([]*corev1.Commit, error)
 	ListCommits(ctx context.Context, refName string, limit int) ([]*corev1.Commit, error)
 	ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*CommitListPage, error)

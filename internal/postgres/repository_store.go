@@ -72,6 +72,41 @@ func (s *RepositoryStore) GetCommit(ctx context.Context, commitID string) (*core
 	return &commit, nil
 }
 
+// GetCommits reads many commits in one query.
+func (s *RepositoryStore) GetCommits(ctx context.Context, commitIDs []string) (map[string]*corev1.Commit, error) {
+	out := map[string]*corev1.Commit{}
+	if len(commitIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select id, parent_ids, root_tree_id, coalesce(author_subject_id, ''),
+		       message, created_at, changed_paths
+		from commits
+		where id = any($1)
+	`, commitIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var commit corev1.Commit
+		var parentJSON, changedJSON []byte
+		var createdAt time.Time
+		if err := rows.Scan(&commit.Id, &parentJSON, &commit.RootTreeId, &commit.Author, &commit.Message, &createdAt, &changedJSON); err != nil {
+			return nil, err
+		}
+		commit.CreatedAt = formatTime(createdAt)
+		if err := decodeJSON(parentJSON, &commit.ParentIds); err != nil {
+			return nil, err
+		}
+		if err := decodeJSON(changedJSON, &commit.ChangedPaths); err != nil {
+			return nil, err
+		}
+		out[commit.Id] = &commit
+	}
+	return out, rows.Err()
+}
+
 func (s *RepositoryStore) GetFile(ctx context.Context, commitID, p string) (*FileEntry, error) {
 	if entry, handled, err := s.getFileFromMaterializedHead(ctx, DefaultTargetRef, commitID, p); handled {
 		return entry, err

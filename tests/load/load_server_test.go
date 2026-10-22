@@ -70,6 +70,7 @@ func startLoadServer(t *testing.T) *loadServer {
 	}
 	go func() {
 		ts.errCh <- server.Run(ctx, server.Config{
+			DisableBlameWarmer: true,
 			GRPCAddr:           ts.addr,
 			DatabaseURL:        databaseURLWithSearchPath(t, databaseURL, schema),
 			ObjectStoreRoot:    ts.objectRoot,

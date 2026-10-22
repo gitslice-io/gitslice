@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/diffutil"
@@ -13,6 +15,7 @@ import (
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -32,9 +35,54 @@ const (
 	blameMaxCommits = 500
 	blameMaxBytes   = 4 << 20
 	blamePageSize   = 100
+	// blameMoveConcurrency is how many candidate paths a move search looks at
+	// at once; each is a storage round trip.
+	blameMoveConcurrency = 16
 )
 
+// blameTrace counts what one blame did and times its stages, for one log line
+// (a blame is slow for reasons the request alone does not show).
+type blameTrace struct {
+	start      time.Time
+	last       time.Time
+	stages     []any
+	entries    atomic.Int64 // file lookups in a commit
+	blobs      atomic.Int64 // file contents read
+	candidates atomic.Int64 // paths a move search considered
+}
+
+type blameTraceKey struct{}
+
+func newBlameTrace() *blameTrace {
+	now := time.Now()
+	return &blameTrace{start: now, last: now}
+}
+
+func blameTraceOf(ctx context.Context) *blameTrace {
+	t, _ := ctx.Value(blameTraceKey{}).(*blameTrace)
+	return t
+}
+
+// mark ends a stage: its duration is logged as name_ms.
+func (t *blameTrace) mark(name string) {
+	now := time.Now()
+	t.stages = append(t.stages, name+"_ms", now.Sub(t.last).Milliseconds())
+	t.last = now
+}
+
 func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFileRequest) (*corev1.BlameFileResponse, error) {
+	trace := newBlameTrace()
+	ctx = context.WithValue(ctx, blameTraceKey{}, trace)
+	var walked *blameResult
+	defer func() {
+		attrs := []any{"path", req.GetPath(), "total_ms", time.Since(trace.start).Milliseconds()}
+		attrs = append(attrs, trace.stages...)
+		attrs = append(attrs, "entry_lookups", trace.entries.Load(), "blob_reads", trace.blobs.Load(), "move_candidates", trace.candidates.Load())
+		if walked != nil {
+			attrs = append(attrs, "lines", len(walked.owners), "walked_commits", walked.walked, "steps", walked.steps, "snapshot_hit", walked.snapshotHit, "truncated", walked.truncated)
+		}
+		slog.Info("blame", attrs...)
+	}()
 	subjectID := optionalSubject(ctx)
 	p, err := paths.Canonical(req.GetPath())
 	if err != nil {
@@ -58,26 +106,42 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 	if refName == "" {
 		refName = storage.DefaultTargetRef
 	}
-	head, err := s.Repository.GetRef(ctx, refName)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	headEntry, found, err := s.blameEntry(ctx, head.CommitId, p)
-	if err != nil {
+	trace.mark("access")
+	// The head and the history filters do not depend on each other.
+	var head *corev1.Ref
+	var headEntry *storage.FileEntry
+	var filters listCommitFilters
+	var group errgroup.Group
+	group.Go(func() error {
+		var err error
+		if head, err = s.Repository.GetRef(ctx, refName); err != nil {
+			return grpcError(err)
+		}
+		var found bool
+		if headEntry, found, err = s.blameEntry(ctx, head.CommitId, p); err != nil {
+			return err
+		}
+		if !found {
+			return status.Errorf(codes.NotFound, "no file at %s", p)
+		}
+		return nil
+	})
+	group.Go(func() error {
+		var err error
+		filters, err = s.listCommitFilters(ctx, subjectID, &corev1.ListCommitsRequest{RefName: refName, Path: p, Slice: req.Slice})
+		return err
+	})
+	if err := group.Wait(); err != nil {
 		return nil, err
 	}
-	if !found {
-		return nil, status.Errorf(codes.NotFound, "no file at %s", p)
-	}
-	filters, err := s.listCommitFilters(ctx, subjectID, &corev1.ListCommitsRequest{RefName: refName, Path: p, Slice: req.Slice})
-	if err != nil {
-		return nil, err
-	}
+	trace.mark("head")
 
 	result, err := s.blameWalk(ctx, refName, filters, head.CommitId, p, headEntry)
 	if err != nil {
 		return nil, err
 	}
+	walked = &result
+	trace.mark("walk")
 
 	out := &corev1.BlameFileResponse{CommitId: head.CommitId, Path: p, LineCount: int32(len(result.owners)), Truncated: result.truncated}
 	var ids []string
@@ -95,25 +159,47 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 		}
 		start = end
 	}
+	// Commits a stored snapshot names, from beyond this walk, in one query.
+	var missing []string
 	for _, id := range ids {
-		commit := result.commits[id]
-		if commit == nil {
-			// Named by a stored snapshot, from beyond this walk.
-			if commit, err = s.Repository.GetCommit(ctx, id); err != nil {
-				return nil, grpcError(err)
-			}
+		if result.commits[id] == nil {
+			missing = append(missing, id)
 		}
-		out.Commits = append(out.Commits, commit)
 	}
+	if len(missing) > 0 {
+		read, err := s.Repository.GetCommits(ctx, missing)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		for _, id := range missing {
+			if read[id] == nil {
+				return nil, grpcError(storage.ErrNotFound)
+			}
+			result.commits[id] = read[id]
+		}
+	}
+	for _, id := range ids {
+		out.Commits = append(out.Commits, result.commits[id])
+	}
+	trace.mark("commits")
 	if err := s.resolveCommitAuthors(ctx, out.Commits...); err != nil {
 		return nil, grpcError(err)
 	}
+	trace.mark("authors")
 	return out, nil
 }
 
 type blameResult struct {
 	owners    []string
 	truncated bool
+	// What the walk did, for the log: commits it looked at, steps it carried
+	// the blame through, and whether it stopped at a stored blame.
+	walked      int
+	steps       int
+	snapshotHit bool
+	// guessed: the walk ran out of listed history before the file's creation
+	// (see where snapshots are stored), so nothing was stored.
+	guessed bool
 	// commits holds the commits the walk read, by id.
 	commits map[string]*corev1.Commit
 }
@@ -137,6 +223,7 @@ func (s *RepositoryService) blameWalk(ctx context.Context, refName string, filte
 	created := false
 	seen, token := 0, ""
 	first := true
+	capped := false
 walk:
 	for {
 		page, err := s.listCommitPage(ctx, refName, filters, blamePageSize, token)
@@ -178,6 +265,7 @@ walk:
 			}
 			if seen++; seen > blameMaxCommits {
 				result.truncated = true
+				capped = true
 				break walk
 			}
 			if !loaded {
@@ -221,6 +309,8 @@ walk:
 		token = page.NextPageToken
 	}
 
+	result.walked, result.steps, result.snapshotHit = seen, len(steps), base != nil
+
 	// The blame of the version just before the oldest step, then carried
 	// forward through each step.
 	var owners []string
@@ -259,8 +349,14 @@ walk:
 
 	// Store what was computed for the next blame: the blame of the version
 	// the newest step left, which is the head's, unless history listing has
-	// not caught up with the head yet.
-	if s.Blames != nil && len(steps) > 0 {
+	// not caught up with the head yet. A walk that ran out of listed history
+	// without reaching the file's creation or a stored blame (and did not
+	// stop at the commit limit) credited what is older to the oldest commit
+	// it read: that is a guess, often because history is indexed shortly
+	// after a commit lands, and storing it would keep it wrong for good.
+	guessed := base == nil && !created && !capped
+	result.guessed = guessed && len(steps) > 0
+	if s.Blames != nil && len(steps) > 0 && !guessed {
 		newest := steps[0]
 		if entry, found, err := s.blameEntry(ctx, newest.commit.Id, newest.path); err == nil && found && entry.ContentHash == newest.version.hash {
 			if err := s.Blames.PutBlameSnapshot(ctx, storage.BlameSnapshot{
@@ -459,6 +555,9 @@ type blameVersion struct {
 // blameEntry finds the file at path in a commit; found is false when there
 // is none.
 func (s *RepositoryService) blameEntry(ctx context.Context, commitID, p string) (*storage.FileEntry, bool, error) {
+	if t := blameTraceOf(ctx); t != nil {
+		t.entries.Add(1)
+	}
 	entry, err := s.Repository.GetFile(ctx, commitID, p)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
@@ -476,6 +575,9 @@ func (s *RepositoryService) blameEntry(ctx context.Context, commitID, p string) 
 func (s *RepositoryService) blameLines(ctx context.Context, p, contentHash string, size int64) ([]string, error) {
 	if size > blameMaxBytes {
 		return nil, status.Errorf(codes.FailedPrecondition, "%s is larger than %d bytes, too large to blame", p, blameMaxBytes)
+	}
+	if t := blameTraceOf(ctx); t != nil {
+		t.blobs.Add(1)
 	}
 	rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
 	if err != nil {
@@ -518,28 +620,55 @@ func (s *RepositoryService) blameMovedFrom(ctx context.Context, commit *corev1.C
 	for _, line := range moved.lines {
 		have[line]++
 	}
-	best, bestShared := "", -1
+	// A commit that created many files lists each of them among its changed
+	// paths, and none was where this file came from: they are not in the
+	// parent. Looking in the parent first makes those one lookup, not two,
+	// and the lookups run several at a time.
+	var candidates []string
 	for _, changed := range commit.ChangedPaths {
-		candidate, err := paths.Canonical(changed)
-		if err != nil || candidate == movedTo {
-			continue
+		if candidate, err := paths.Canonical(changed); err == nil && candidate != movedTo {
+			candidates = append(candidates, candidate)
 		}
-		if _, stillThere, err := s.blameEntry(ctx, commit.Id, candidate); err != nil || stillThere {
-			continue
-		}
-		before, found, err := s.blameVersion(ctx, commit.ParentIds[0], candidate)
-		if err != nil || !found {
-			continue
-		}
-		shared, counts := 0, map[string]int{}
-		for _, line := range before.lines {
-			if counts[line] < have[line] {
-				counts[line]++
-				shared++
+	}
+	if t := blameTraceOf(ctx); t != nil {
+		t.candidates.Add(int64(len(candidates)))
+	}
+	shared := make([]int, len(candidates))
+	for i := range shared {
+		shared[i] = -1
+	}
+	var group errgroup.Group
+	group.SetLimit(blameMoveConcurrency)
+	for i, candidate := range candidates {
+		group.Go(func() error {
+			parentEntry, found, err := s.blameEntry(ctx, commit.ParentIds[0], candidate)
+			if err != nil || !found {
+				return nil
 			}
-		}
-		if shared > bestShared {
-			best, bestShared = candidate, shared
+			if _, stillThere, err := s.blameEntry(ctx, commit.Id, candidate); err != nil || stillThere {
+				return nil
+			}
+			lines, err := s.blameLines(ctx, candidate, parentEntry.ContentHash, parentEntry.Size)
+			if err != nil {
+				return nil
+			}
+			n, counts := 0, map[string]int{}
+			for _, line := range lines {
+				if counts[line] < have[line] {
+					counts[line]++
+					n++
+				}
+			}
+			shared[i] = n
+			return nil
+		})
+	}
+	_ = group.Wait()
+	// The first of the best, as a sequential search would pick.
+	best, bestShared := "", -1
+	for i, candidate := range candidates {
+		if shared[i] > bestShared {
+			best, bestShared = candidate, shared[i]
 		}
 	}
 	return best, nil

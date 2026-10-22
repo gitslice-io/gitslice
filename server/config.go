@@ -46,6 +46,7 @@ type Config struct {
 	IndexBackoffMax          time.Duration
 	DisableAsyncPublisher    bool
 	DisableIndexWorker       bool
+	DisableBlameWarmer       bool
 	RateLimitDisabled        bool
 	RateLimitPerSubjectRPS   float64
 	RateLimitPerSubjectBurst int
@@ -107,6 +108,7 @@ func ConfigFromEnv() Config {
 		IndexBackoffMax:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_BACKOFF_MAX_MS"), 60000)) * time.Millisecond,
 		DisableAsyncPublisher: os.Getenv("GITSLICE_DISABLE_ASYNC_PUBLISHER") == "1",
 		DisableIndexWorker:    os.Getenv("GITSLICE_DISABLE_INDEX_WORKER") == "1",
+		DisableBlameWarmer:    os.Getenv("GITSLICE_DISABLE_BLAME_WARMER") == "1",
 		RateLimitDisabled:     os.Getenv("GITSLICE_RATELIMIT_DISABLED") == "1",
 		// Per-subject limits are an anti-abuse ceiling, not fairness throttling.
 		// They must sit well above a single authenticated user's legitimate bulk
