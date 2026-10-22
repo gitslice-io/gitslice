@@ -507,6 +507,28 @@ describe("slice route pages (render smoke)", () => {
       expect(api.readFile).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/README.md" }));
     });
 
+    it("shows the README of the one folder a folder holds, however deep", async () => {
+      const api = folderApi([], vi.fn(async (request: { path?: string }) => ({ data: request.path?.endsWith(".png") ? btoa("png") : btoa(readmeText) })));
+      routerMock.search = { path: "/sunny" };
+      api.resolvePath = vi.fn().mockResolvedValue({ entry: { kind: "ENTRY_KIND_DIRECTORY", path: "/sunny" } });
+      const tree: Record<string, object[]> = {
+        "/sunny": [{ kind: "ENTRY_KIND_DIRECTORY", name: "macnativegames", path: "/sunny/macnativegames" }],
+        "/sunny/macnativegames": [{ kind: "ENTRY_KIND_DIRECTORY", name: "app", path: "/sunny/macnativegames/app" }],
+        "/sunny/macnativegames/app": [
+          { kind: "ENTRY_KIND_FILE", name: "README.md", path: "/sunny/macnativegames/app/README.md", size: "120" },
+          { kind: "ENTRY_KIND_FILE", name: "main.c", path: "/sunny/macnativegames/app/main.c", size: "40" }
+        ]
+      };
+      api.listDirectory = vi.fn(async (request: { path?: string }) => ({ entries: tree[request.path ?? ""] ?? [] }));
+      renderRoute(<SliceDetailPage />);
+      expect(await screen.findByRole("heading", { name: "Hello app" }, { timeout: 5000 })).toBeInTheDocument();
+      expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/sunny/macnativegames/app/README.md" }));
+      // It says where the README is, and the folder's own files stay beside it.
+      expect(screen.getByRole("heading", { name: "macnativegames/app/README.md" })).toBeInTheDocument();
+      const files = screen.getByRole("complementary", { name: "Files" });
+      expect(within(files).getByRole("button", { name: "macnativegames/" })).toBeInTheDocument();
+    });
+
     it("folds the files on a phone until asked for", async () => {
       folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
       renderRoute(<SliceDetailPage />);

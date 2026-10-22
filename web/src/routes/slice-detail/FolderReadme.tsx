@@ -19,12 +19,15 @@ interface FolderReadmeProps {
   commitId: string;
   entry: TreeEntry;
   includedPaths?: string[];
+  // The heading, when the README is not the folder's own: its path from the
+  // folder.
+  label?: string;
   onSelectPath(path: string): void;
   sliceRef: SliceRef | undefined;
 }
 
 // FolderReadme is a folder's README, rendered as the folder's introduction.
-export function FolderReadme({ canEdit, commitId, entry, includedPaths, onSelectPath, sliceRef }: FolderReadmeProps) {
+export function FolderReadme({ canEdit, commitId, entry, includedPaths, label, onSelectPath, sliceRef }: FolderReadmeProps) {
   const api = useApi();
   const path = normalizeRepositoryPath(entry.path ?? "");
   const directory = path.slice(0, path.lastIndexOf("/"));
@@ -68,9 +71,9 @@ export function FolderReadme({ canEdit, commitId, entry, includedPaths, onSelect
   }
 
   return (
-    <section aria-label={name} className="min-w-0">
+    <section aria-label={label ?? name} className="min-w-0">
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 px-4 py-2.5 sm:px-5">
-        <h3 className="min-w-0 truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">{name}</h3>
+        <h3 className="min-w-0 truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50" title={label ?? name}>{label ?? name}</h3>
         <button
           className="shrink-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
           onClick={() => onSelectPath(path)}

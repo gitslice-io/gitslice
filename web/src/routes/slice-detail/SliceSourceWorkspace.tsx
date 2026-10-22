@@ -4,7 +4,7 @@ import { entryKindLabel } from "../../components/source/sourceUtils";
 import { DirectoryCreateControls, type PendingEdit } from "../../components/source/SliceEditing";
 import { DirectoryHeader } from "./DirectoryHeader";
 import { FolderWithReadme } from "./FolderWithReadme";
-import { findReadmeEntry } from "./readme";
+import { useFolderReadme } from "./nestedReadme";
 import { SliceDirectoryTable } from "./SliceDirectoryTable";
 import { EditableFileView } from "./EditableFileView";
 import { SourceSkeleton } from "./skeletons";
@@ -57,6 +57,13 @@ export function SliceSourceWorkspace({
   selectedPath,
   sliceRef
 }: SliceSourceWorkspaceProps) {
+  const isDirectory = entry?.kind === "ENTRY_KIND_DIRECTORY" && !isDirectoryLoading && !directoryError;
+  const { loading: readmeLoading, readme } = useFolderReadme(
+    commitId,
+    sliceRef,
+    isDirectory ? directoryEntries : []
+  );
+
   if (isLatestLoading || isPathLoading) {
     return <SourceSkeleton />;
   }
@@ -105,7 +112,9 @@ export function SliceSourceWorkspace({
       );
     }
 
-    const readme = findReadmeEntry(directoryEntries);
+    if (readmeLoading) {
+      return <SourceSkeleton />;
+    }
     if (readme) {
       return (
         <FolderWithReadme

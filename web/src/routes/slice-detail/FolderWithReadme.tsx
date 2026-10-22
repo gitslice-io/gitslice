@@ -7,6 +7,20 @@ import { cn } from "../../lib/cn";
 import { DirectoryHeader } from "./DirectoryHeader";
 import { FolderReadme } from "./FolderReadme";
 import { SliceDirectoryTable } from "./SliceDirectoryTable";
+import { normalizeRepositoryPath } from "../../components/source/sourceUtils";
+
+// nestedLabel is the path of a README from the folder that shows it, when it
+// lives in a folder below (see findNestedReadme); undefined for its own.
+export function nestedLabel(folder: string, readme: TreeEntry): string | undefined {
+  const dir = normalizeRepositoryPath(folder);
+  const path = normalizeRepositoryPath(readme.path ?? "");
+  const prefix = dir === "/" ? "/" : `${dir}/`;
+  if (!path.startsWith(prefix)) {
+    return undefined;
+  }
+  const relative = path.slice(prefix.length);
+  return relative.includes("/") ? relative : undefined;
+}
 
 interface FolderWithReadmeProps {
   commitId: string;
@@ -89,6 +103,7 @@ export function FolderWithReadme({
           commitId={commitId}
           entry={readme}
           includedPaths={includedPaths}
+          label={nestedLabel(selectedPath, readme)}
           onSelectPath={onSelectPath}
           sliceRef={sliceRef}
         />
