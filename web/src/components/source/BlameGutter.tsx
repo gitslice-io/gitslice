@@ -4,7 +4,7 @@ import type { Commit } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { shortChangesetId, shortHash } from "../../lib/objectId";
 import { Timestamp } from "../Timestamp";
-import type { BlameLine } from "./blame";
+import type { BlameBand, BlameLine } from "./blame";
 
 // BlameGutter is the column left of a file's lines that says what last changed
 // each one. It lines up with the code by sharing its line height (24px) and
@@ -41,8 +41,8 @@ export function BlameGutter({
             line.first &&
               index > 0 &&
               "border-t border-slate-200 dark:border-zinc-700",
-            selected && line.commitId === selected && "max-sm:bg-amber-50 max-sm:dark:bg-amber-950/40",
-            onSelect && line.commitId && "cursor-pointer sm:cursor-auto",
+            selected && line.commitId === selected && "bg-amber-100/80 dark:bg-amber-900/30",
+            onSelect && line.commitId && "cursor-pointer",
           )}
           key={index}
           onClick={onSelect && line.commitId ? () => onSelect(line.commitId) : undefined}
@@ -62,6 +62,24 @@ export function BlameGutter({
             <BlameByline commit={line.commit} line={line} />
           ) : null}
         </div>
+      ))}
+    </div>
+  );
+}
+
+// BlameHighlight marks the selected change on the code itself: a band over
+// each stretch of lines it changed, across the width of the code. It shares the
+// gutter's line height (24px) and top padding (16px), and lets clicks through.
+export function BlameHighlight({ bands }: { bands: BlameBand[] }) {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0" data-blame-highlight="">
+      {bands.map((band) => (
+        <div
+          className="absolute inset-x-0 border-l-2 border-amber-500 bg-amber-300/25 dark:border-amber-400 dark:bg-amber-400/15"
+          data-lines={`${band.start + 1}-${band.end + 1}`}
+          key={band.start}
+          style={{ height: (band.end - band.start + 1) * 24, top: 16 + band.start * 24 }}
+        />
       ))}
     </div>
   );

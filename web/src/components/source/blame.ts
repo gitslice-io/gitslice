@@ -86,6 +86,35 @@ export function changeOrder(blame: BlameFileResponse): Map<string, number> {
   return new Map(sorted.map((entry, index) => [entry.id, index + 1]));
 }
 
+// BlameBand is a stretch of lines, 0-based and inclusive, that one commit
+// changed and that sit together in the file.
+export interface BlameBand {
+  start: number;
+  end: number;
+}
+
+// commitBands is where a commit's lines are in the file, as runs, so they can
+// be marked on the code: a commit that changed three separate places has
+// three bands.
+export function commitBands(lines: BlameLine[], commitId: string): BlameBand[] {
+  const bands: BlameBand[] = [];
+  if (!commitId) {
+    return bands;
+  }
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].commitId !== commitId) {
+      continue;
+    }
+    const open = bands[bands.length - 1];
+    if (open && open.end === i - 1 && !lines[i].first) {
+      open.end = i;
+    } else {
+      bands.push({ end: i, start: i });
+    }
+  }
+  return bands;
+}
+
 // codeLineCount is how many lines a blame counts in text: a final newline ends
 // the last line, it does not start another.
 export function codeLineCount(code: string): number {

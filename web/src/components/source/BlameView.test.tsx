@@ -143,6 +143,30 @@ describe("blame on a file", () => {
     expect(screen.queryByRole("region", { name: "Change" })).not.toBeInTheDocument();
   });
 
+  it("marks the selected change on the code itself, over each place it changed", async () => {
+    api.blameFile.mockResolvedValue(blame);
+    renderViewer();
+    fireEvent.click(screen.getByRole("button", { name: "Blame" }));
+    const rows = within(await screen.findByLabelText("Blame")).getAllByRole("row");
+    const bands = () => Array.from(document.querySelectorAll<HTMLElement>("[data-blame-highlight] [data-lines]"));
+    expect(bands()).toHaveLength(0);
+
+    // The first commit changed lines 1-2 and line 4; a tap anywhere in its
+    // first block marks both places, at the code's line height and padding.
+    fireEvent.click(rows[1]);
+    expect(bands().map((band) => band.dataset.lines)).toEqual(["1-2", "4-4"]);
+    expect(bands().map((band) => [band.style.top, band.style.height])).toEqual([
+      ["16px", "48px"],
+      ["88px", "24px"]
+    ]);
+
+    // Another change moves the mark; the same one again clears it.
+    fireEvent.click(rows[2]);
+    expect(bands().map((band) => band.dataset.lines)).toEqual(["3-3"]);
+    fireEvent.click(rows[2]);
+    expect(bands()).toHaveLength(0);
+  });
+
   it("turns off again, back to the plain file", async () => {
     api.blameFile.mockResolvedValue(blame);
     renderViewer();

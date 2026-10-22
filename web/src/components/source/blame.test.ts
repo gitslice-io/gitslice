@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { blameLines, changeOrder, codeLineCount } from "./blame";
+import { blameLines, changeOrder, codeLineCount, commitBands } from "./blame";
 
 describe("blameLines", () => {
   const blame = {
@@ -83,5 +83,32 @@ describe("changeOrder", () => {
       ["tie", 3],
       ["new", 4]
     ]);
+  });
+});
+
+describe("commitBands", () => {
+  const blame = {
+    ranges: [
+      { startLine: 1, lineCount: 2, commitId: "c1" },
+      { startLine: 3, lineCount: 1, commitId: "c2" },
+      { startLine: 4, lineCount: 2, commitId: "c1" },
+      { startLine: 6, lineCount: 1, commitId: "c3" }
+    ]
+  };
+
+  it("gives each separate stretch of a commit's lines its own band, 0-based", () => {
+    const lines = blameLines(blame, 6);
+    expect(commitBands(lines, "c1")).toEqual([
+      { end: 1, start: 0 },
+      { end: 4, start: 3 }
+    ]);
+    expect(commitBands(lines, "c2")).toEqual([{ end: 2, start: 2 }]);
+    expect(commitBands(lines, "c3")).toEqual([{ end: 5, start: 5 }]);
+  });
+
+  it("has none for a commit that owns no line, or no commit", () => {
+    const lines = blameLines(blame, 6);
+    expect(commitBands(lines, "nobody")).toEqual([]);
+    expect(commitBands(lines, "")).toEqual([]);
   });
 });

@@ -3,8 +3,8 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import type { SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { BlameDetails, BlameGutter } from "./BlameGutter";
-import { blameLines, codeLineCount } from "./blame";
+import { BlameDetails, BlameGutter, BlameHighlight } from "./BlameGutter";
+import { blameLines, codeLineCount, commitBands } from "./blame";
 
 interface BlameViewProps {
   children: ReactNode;
@@ -33,6 +33,7 @@ export function BlameView({ children, code, fill, path, repo }: BlameViewProps) 
   const lines = useMemo(() => (blame && matches ? blameLines(blame, lineCount) : null), [blame, matches, lineCount]);
   const [selected, setSelected] = useState("");
   const selectedLine = selected ? lines?.find((line) => line.first && line.commitId === selected) : undefined;
+  const bands = useMemo(() => (lines && selectedLine ? commitBands(lines, selected) : []), [lines, selectedLine, selected]);
 
   return (
     <>
@@ -58,7 +59,10 @@ export function BlameView({ children, code, fill, path, repo }: BlameViewProps) 
               selected={selectedLine ? selected : undefined}
             />
           ) : null}
-          <div className="min-w-0 flex-1">{children}</div>
+          <div className="relative min-w-0 flex-1">
+            {children}
+            {bands.length > 0 ? <BlameHighlight bands={bands} /> : null}
+          </div>
         </div>
       </div>
       {lines && blame?.truncated ? (
