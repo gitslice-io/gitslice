@@ -1,6 +1,8 @@
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DiffViewer, type DiffViewerFileState } from "./DiffViewer";
@@ -83,6 +85,49 @@ describe("DiffViewer", () => {
     expectWrapped(`+${long}`);
     fireEvent.click(screen.getByRole("button", { name: "split" }));
     expectWrapped(long);
+  });
+
+  it("hydrates server-rendered markup into the saved view mode, toggle included", async () => {
+    const diff = [
+      "diff --git a/a.ts b/a.ts",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1 @@",
+      "-const a = 1;",
+      "+const a = 2;",
+      ""
+    ].join("\n");
+    const viewer = (
+      <DiffViewer
+        diffResponse={{ changedPaths: ["a.ts"], diff }}
+        error={null}
+        isError={false}
+        isLoading={false}
+      />
+    );
+    const container = document.createElement("div");
+    // The server cannot see the saved choice, so it renders unified.
+    container.innerHTML = renderToString(viewer);
+    document.body.appendChild(container);
+    expect(within(container).getByRole("button", { name: "unified" })).toHaveAttribute("aria-pressed", "true");
+
+    window.localStorage.setItem("gitslice.diffView", "split");
+    const onRecoverableError = vi.fn();
+    const root = await act(async () => hydrateRoot(container, viewer, { onRecoverableError }));
+
+    expect(onRecoverableError).not.toHaveBeenCalled();
+    expect(within(container).getByRole("button", { name: "split" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(container).getByRole("button", { name: "unified" })).toHaveAttribute("aria-pressed", "false");
+    // Split rows show the line without its +/- marker.
+    expect(within(container).getByText("const a = 2;")).toBeInTheDocument();
+    expect(within(container).queryByText("+const a = 2;")).toBeNull();
+
+    fireEvent.click(within(container).getByRole("button", { name: "unified" }));
+    expect(window.localStorage.getItem("gitslice.diffView")).toBe("unified");
+    expect(within(container).getByText("+const a = 2;")).toBeInTheDocument();
+
+    act(() => root.unmount());
+    container.remove();
   });
 
   it("offers each file in full, with its change kind and old path", () => {

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from "react";
 
 import type { DiffChangesetResponse } from "../../api/types";
 import { cn } from "../../lib/cn";
@@ -99,7 +106,7 @@ export function DiffViewer({
       ),
     [fileStates]
   );
-  const [viewMode, setViewMode] = useState<ViewMode>(readStoredViewMode);
+  const viewMode = useStoredViewMode();
   const [activeId, setActiveId] = useState<string | undefined>();
   const [mountedDiffBodies, setMountedDiffBodies] = useState<Set<string>>(
     () => new Set()
@@ -132,12 +139,6 @@ export function DiffViewer({
     files[activeFileIndex >= 0 ? activeFileIndex : 0]?.id;
   const openFilePicker = useCallback(() => setFilePickerOpen(true), []);
   const closeFilePicker = useCallback(() => setFilePickerOpen(false), []);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(diffViewStorageKey, viewMode);
-    }
-  }, [viewMode]);
 
   // Reset collapse state whenever a new diff loads.
   useEffect(() => {
@@ -448,7 +449,7 @@ export function DiffViewer({
             </div>
             <div className="flex shrink-0 items-center justify-end gap-1.5 md:gap-2">
               {!isLoading && hasTextualDiff ? (
-                <ViewModeToggle value={viewMode} onChange={setViewMode} />
+                <ViewModeToggle value={viewMode} onChange={storeViewMode} />
               ) : null}
             </div>
           </div>
@@ -540,14 +541,54 @@ function ViewModeToggle({
   );
 }
 
-function readStoredViewMode(): ViewMode {
-  if (typeof window === "undefined") {
-    return "unified";
-  }
+// The saved view mode lives in localStorage, which the server cannot read. A
+// server render and the hydration that follows it both use "unified", so the
+// markup matches; then the toggle and every diff body switch to the saved mode
+// together. Client-side navigations read the saved mode at once.
+const viewModeListeners = new Set<() => void>();
+// Used when localStorage is unavailable (blocked or private mode).
+let unsavedViewMode: ViewMode = "unified";
 
-  return window.localStorage.getItem(diffViewStorageKey) === "split"
-    ? "split"
-    : "unified";
+function subscribeViewMode(listener: () => void) {
+  viewModeListeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === diffViewStorageKey) {
+      listener();
+    }
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    viewModeListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function readStoredViewMode(): ViewMode {
+  try {
+    return window.localStorage.getItem(diffViewStorageKey) === "split"
+      ? "split"
+      : "unified";
+  } catch {
+    return unsavedViewMode;
+  }
+}
+
+function useStoredViewMode(): ViewMode {
+  return useSyncExternalStore(
+    subscribeViewMode,
+    readStoredViewMode,
+    () => "unified"
+  );
+}
+
+function storeViewMode(mode: ViewMode) {
+  unsavedViewMode = mode;
+  try {
+    window.localStorage.setItem(diffViewStorageKey, mode);
+  } catch {
+    // The choice then lasts only until the page reloads.
+  }
+  viewModeListeners.forEach((listener) => listener());
 }
 
 function navigationFileForState(state: DiffViewerFileState): DiffFile {
